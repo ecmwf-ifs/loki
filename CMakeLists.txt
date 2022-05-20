@@ -48,40 +48,37 @@ ecbuild_add_option(
     DESCRIPTION "Build OMNI Compiler and CLAW Compiler"
 )
 
-include( python_venv )
-include( claw_compiler )
-include( loki_transform )
+# Make CMake script files available in build and install directory
+add_subdirectory( cmake )
+install( DIRECTORY cmake DESTINATION ${INSTALL_DATA_DIR} PATTERN "CMakeLists.txt" EXCLUDE )
 
 if( NOT ${HAVE_EDITABLE} )
     message( FATAL_ERROR "Loki currently supports only editable install" )
 endif()
 
-if( HAVE_NO_INSTALL )
+# The list of Loki frontend scripts
+file( GLOB _LOKI_EXECUTABLES ${CMAKE_CURRENT_SOURCE_DIR}/scripts/loki-*.py )
+set( LOKI_EXECUTABLES "" )
+foreach( _exe IN LISTS _LOKI_EXECUTABLES )
+    get_filename_component( _exe_name ${_exe} NAME )
+    list( APPEND LOKI_EXECUTABLES ${_exe_name} )
+endforeach()
 
-    # Find loki-transform.py and loki-lint.py on the PATH to make available as targets
-    find_program ( _LOKI_LINT_EXECUTABLE NAMES loki-lint.py )
-    add_executable( loki-lint.py IMPORTED GLOBAL )
-    set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${_LOKI_LINT_EXECUTABLE} )
-
-    find_program ( _LOKI_TRANSFORM_EXECUTABLE NAMES loki-transform.py )
-    add_executable( loki-transform.py IMPORTED GLOBAL )
-    set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} )
-
-    # Find clawfc on the PATH to make available as target
-    find_program ( _CLAWFC_EXECUTABLE NAMES clawfc )
-    add_executable( clawfc IMPORTED GLOBAL )
-    set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${_CLAWFC_EXECUTABLE} )
-
-else()
+# Install Loki and dependencies
+if( NOT ${HAVE_NO_INSTALL} )
 
     if( ${HAVE_CLAW} )
+        include( claw_compiler )
         install_claw_compiler( mlange-dev )
     endif()
 
     # Setup Python virtual environment
-    python_venv( loki_env )
+    include( python_venv )
+    set( loki_VENV_PATH ${CMAKE_CURRENT_BINARY_DIR}/loki_env )
+    setup_python_venv( ${loki_VENV_PATH} )
+    install( DIRECTORY ${loki_VENV_PATH} DESTINATION . USE_SOURCE_PERMISSIONS )
 
-    # Enable Pytest testing
+    # Enable Pytest tests as ecbuild/ctest targets
     if( ${ENABLE_TESTS} )
 
         if( ${HAVE_CLAW} )
@@ -90,17 +87,23 @@ else()
             set( _TEST_SELECTOR "not ofp and not omni" )
         endif()
 
+        # ecbuild_add_test relies on the variables set by the _very_ outdated
+        # FindPythonInterp, so we set the bare minimum here using the values
+        # from our FindPython3 variables
+        set( PYTHONINTERP_FOUND True )
+        set( PYTHON_EXECUTABLE ${Python3_EXECUTABLE} )
+
         ecbuild_add_test(
+            TYPE PYTHON
             TARGET loki_tests
-            COMMAND ${Python3_EXECUTABLE}
             ARGS -m pytest -k ${_TEST_SELECTOR} -v tests
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${CLAW_DIR}/bin:$ENV{PATH}
         )
 
         ecbuild_add_test(
+            TYPE PYTHON
             TARGET loki_scripts
-            COMMAND ${Python3_EXECUTABLE}
             ARGS -m pytest -k ${_TEST_SELECTOR} -v scripts
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${CLAW_DIR}/bin:$ENV{PATH}
@@ -110,11 +113,13 @@ else()
 
     endif()
 
-    # Install Loki with dependencies
+    # Install Loki python package with dependencies
     if( NOT ${CMAKE_VERBOSE_MAKEFILE} )
+        # Less verbose output
         list ( APPEND PIP_OPTIONS "-q" )
     endif()
     if( ${HAVE_EDITABLE} )
+        # Use checked-out source instead of installing into venv
         list( APPEND PIP_OPTIONS "-e" )
     endif()
 
@@ -125,23 +130,24 @@ else()
     endif()
 
     # We install Loki at configure time (for now), since bulk-transformation planning
-    # requires configure time execution to allow injection with CMake targets. 
+    # requires configure time execution to allow injection with CMake targets.
     message( STATUS "Install Loki in virtual environment" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
     message( STATUS "Install Loki in virtual environment - done" )
 
-    # Make CLI executables available in add_custom_command
-    add_executable( loki-lint.py IMPORTED GLOBAL )
-    set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-lint.py )
-
-    add_executable( loki-transform.py IMPORTED GLOBAL )
-    set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-transform.py )
-
-    if( ${HAVE_CLAW} )
-        add_dependencies( loki-transform.py clawfc )
-    endif()
+    # Make the shebang in Python scripts use relative paths
+    list(
+        TRANSFORM LOKI_EXECUTABLES
+        PREPEND ${Python3_VENV_BIN}/
+        OUTPUT_VARIABLE _venv_executables
+    )
+    update_python_shebang( ${_venv_executables} )
 
 endif()
+
+# Discover Loki executables and make available as CMake targets
+include( loki_find_executables )
+loki_find_executables()
 
 # Install the project so it can be used within the bundle
 ecbuild_install_project( NAME loki )

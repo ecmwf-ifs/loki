@@ -3,6 +3,7 @@ import io
 import resource
 from subprocess import CalledProcessError
 from pathlib import Path
+import shutil
 import pandas as pd
 import pytest
 
@@ -17,12 +18,37 @@ def fixture_here():
     return Path(os.environ['CLOUDSC_DIR'])
 
 
-@pytest.fixture(scope='module', autouse=True)
+@pytest.fixture(scope='module', name='link_local_loki')
+def fixture_link_local_loki(here):
+    """Inject ourselves into the CLOUDSC bundle"""
+    # Note: CLOUDSC currently uses ecbundle v2.0.0 which can't handle symlinks
+    # for non-symlinked bundle entries, yet. Therefore, we monkey-patch this link
+    # after the bundle create for the moment, but ideally this fixture should
+    # become a dependency of the bundle create step
+    lokidir = Path(__file__).parent.parent.parent.parent
+    target = here/'source/loki'
+    backup = here/'source/loki.bak'
+
+    if target.exists():
+        if backup.exists():
+            shutil.rmtree(backup)
+        shutil.move(target, backup)
+
+    target.symlink_to(lokidir)
+    yield target
+
+    target.unlink()
+    if backup.exists():
+        shutil.move(backup, target)
+
+
+@pytest.fixture(scope='module', name='bundle_create')
 def fixture_bundle_create(here):
     # Create the bundle
     execute('./cloudsc-bundle create', cwd=here, silent=False)
 
 
+@pytest.mark.usefixtures('bundle_create', 'link_local_loki')
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs FParser for parsing dependencies')] if not HAVE_FP else None
 ))

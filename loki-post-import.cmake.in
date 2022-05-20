@@ -1,0 +1,32 @@
+# Basic path setup
+if( @PROJECT_NAME@_IS_BUILD_DIR_EXPORT )
+    set( loki_MACROS_DIR @CMAKE_CURRENT_SOURCE_DIR@/cmake )
+    set( loki_VENV_PATH @loki_VENV_PATH@ )
+else()
+    set( loki_MACROS_DIR ${loki_BASE_DIR}/share/loki/cmake )
+    set( loki_VENV_PATH ${loki_BASE_DIR}/loki_env )
+endif()
+
+# Make Loki CMake macro scripts available on the search path
+if( NOT ${loki_MACROS_DIR} IN_LIST CMAKE_MODULE_PATH )
+    list( INSERT CMAKE_MODULE_PATH 0 ${loki_MACROS_DIR} )
+endif()
+
+# Carry over variables from the build
+set( loki_HAVE_NO_INSTALL @loki_HAVE_NO_INSTALL@ )
+set( loki_HAVE_CLAW @loki_HAVE_CLAW@ )
+set( LOKI_EXECUTABLES @LOKI_EXECUTABLES@ )
+
+# Find Python environment
+if( NOT ${loki_HAVE_NO_INSTALL} )
+    # Detect the installed virtual environment
+    include( python_venv )
+    find_python_venv( ${loki_VENV_PATH} )
+endif()
+
+# Discover Loki executables and make available as CMake targets
+include( loki_find_executables )
+loki_find_executables()
+
+# Make the Loki transformation functions available
+include( loki_transform )

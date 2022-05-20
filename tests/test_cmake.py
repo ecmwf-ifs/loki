@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import shutil
 from subprocess import CalledProcessError
+from contextlib import contextmanager
 import pytest
 import toml
 
@@ -35,23 +36,16 @@ def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='silent')
+def fixture_silent(pytestconfig):
+    """Whether to run commands without output"""
+    return pytestconfig.getoption("verbose") == 0
+
+
 @pytest.fixture(scope='module', name='srcdir')
 def fixture_srcdir(here):
     """Base directory of CMake sources"""
     return here/'sources'
-
-
-@pytest.fixture(scope='module', name='builddir')
-def fixture_builddir():
-    """
-    Create a build directory in the temp directory
-    """
-    builddir = gettempdir()/'test_cmake'
-    if builddir.exists():
-        shutil.rmtree(builddir)
-    builddir.mkdir()
-    yield builddir
-    shutil.rmtree(builddir)
 
 
 @pytest.fixture(scope='module', name='config')
@@ -72,8 +66,72 @@ def fixture_config(here):
     filepath.unlink()
 
 
+@pytest.fixture(scope='module', name='ecbuild')
+def fixture_ecbuild():
+    """
+    Download and install ecbuild
+    """
+    srcdir = gettempdir()/'ecbuild_tmp'
+    if srcdir.exists():
+        shutil.rmtree(srcdir)
+    ecbuilddir = gettempdir()/'ecbuild'
+    if ecbuilddir.exists():
+        shutil.rmtree(ecbuilddir)
+
+    execute(['git', 'clone', 'https://github.com/ecmwf/ecbuild.git', str(srcdir)])
+    (srcdir/'bootstrap').mkdir()
+    execute(['cmake', '..'], cwd=srcdir/'bootstrap')
+    execute(['cmake', '--install', '.', '--prefix', str(ecbuilddir)], cwd=srcdir/'bootstrap')
+
+    shutil.rmtree(srcdir)
+    yield ecbuilddir
+    shutil.rmtree(ecbuilddir)
+
+
+@pytest.fixture(scope='module', name='loki_install')
+def fixture_loki_install(here, ecbuild, silent):
+    """
+    Install Loki using CMake into an install directory
+    """
+    builddir = gettempdir()/'loki_bootstrap'
+    if builddir.exists():
+        shutil.rmtree(builddir)
+    builddir.mkdir()
+    execute(
+        [f'{ecbuild}/bin/ecbuild', str(here.parent), '-DENABLE_CLAW=OFF'],
+        silent=silent, cwd=builddir
+    )
+
+    lokidir = gettempdir()/'loki'
+    if lokidir.exists():
+        shutil.rmtree(lokidir)
+    execute(
+        ['cmake', '--install', '.', '--prefix', str(lokidir)],
+        silent=True, cwd=builddir
+    )
+
+    yield builddir, lokidir
+    if builddir.exists():
+        shutil.rmtree(builddir)
+    if lokidir.exists():
+        shutil.rmtree(lokidir)
+
+
+@contextmanager
+def clean_builddir(name):
+    """
+    Create a build directory in the temp directory
+    """
+    builddir = gettempdir()/str(name)
+    if builddir.exists():
+        shutil.rmtree(builddir)
+    builddir.mkdir()
+    yield builddir
+    shutil.rmtree(builddir)
+
+
 @pytest.fixture(scope='module', name='cmake_project')
-def fixture_cmake_project(here, config, srcdir, builddir):
+def fixture_cmake_project(here, config, srcdir):
     """
     Create a CMake project and set-up paths
     """
@@ -82,28 +140,19 @@ def fixture_cmake_project(here, config, srcdir, builddir):
 
     file_content = f"""
 cmake_minimum_required( VERSION 3.17 FATAL_ERROR )
+find_package( ecbuild REQUIRED )
 
-project( cmake_test LANGUAGES Fortran )
+project( cmake_test VERSION 1.0.0 LANGUAGES Fortran )
 
-include( FetchContent )
-FetchContent_Declare( ecbuild
-  GIT_REPOSITORY    https://github.com/ecmwf/ecbuild.git
-  GIT_TAG           master
-)
-FetchContent_MakeAvailable( ecbuild )
-
-set( LOKI_ENABLE_CLAW OFF )
-set( LOKI_ENABLE_NO_INSTALL ON )
-add_subdirectory( loki )
-find_package( loki )
+ecbuild_find_package( loki REQUIRED )
 
 loki_transform_plan(
     MODE      idem
     FRONTEND  fp
     CONFIG    {config}
     SOURCEDIR ${{CMAKE_CURRENT_SOURCE_DIR}}
-    CALLGRAPH {builddir}/loki_callgraph
-    PLAN      {builddir}/loki_plan.cmake
+    CALLGRAPH ${{CMAKE_CURRENT_BINARY_DIR}}/loki_callgraph
+    PLAN      ${{CMAKE_CURRENT_BINARY_DIR}}/loki_plan.cmake
     SOURCES
         {proj_a}
         {proj_b}
@@ -123,7 +172,7 @@ loki_transform_plan(
     (srcdir/'loki').unlink()
 
 
-def test_cmake_plan(srcdir, builddir, config, cmake_project):
+def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild, silent):
     """
     Test the `loki_transform_plan` CMake function with a single task
     graph spanning two projects
@@ -137,27 +186,37 @@ def test_cmake_plan(srcdir, builddir, config, cmake_project):
     assert config.exists()
     assert cmake_project.exists()
 
-    execute(['cmake', str(srcdir)], cwd=builddir)
-    assert (builddir/'loki_plan.cmake').exists()
-    assert (builddir/'loki_callgraph.pdf').exists()
+    for loki_root in loki_install:
+        with clean_builddir('test_cmake_plan') as builddir:
+            execute(
+                [f'{ecbuild}/bin/ecbuild', str(srcdir), f'-Dloki_ROOT={loki_root}'],
+                cwd=builddir, silent=silent
+            )
 
-    loki_plan = (builddir/'loki_plan.cmake').read_text()
-    plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
-    plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+            # Make sure the plan files have been created
+            assert (builddir/'loki_plan.cmake').exists()
+            assert (builddir/'loki_callgraph.pdf').exists()
 
-    expected_files = {
-        'driverB_mod', 'kernelB_mod',
-        'compute_l1_mod', 'compute_l2_mod',
-        'ext_driver_mod', 'ext_kernel'
-    }
+            # Validate the content of the plan file
+            loki_plan = (builddir/'loki_plan.cmake').read_text()
+            plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+            plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
 
-    assert 'LOKI_SOURCES_TO_TRANSFORM' in plan_dict
-    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == expected_files
+            expected_files = {
+                'driverB_mod', 'kernelB_mod',
+                'compute_l1_mod', 'compute_l2_mod',
+                'ext_driver_mod', 'ext_kernel'
+            }
 
-    assert 'LOKI_SOURCES_TO_REMOVE' in plan_dict
-    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == expected_files
+            assert 'LOKI_SOURCES_TO_TRANSFORM' in plan_dict
+            assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == expected_files
 
-    assert 'LOKI_SOURCES_TO_APPEND' in plan_dict
-    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {
-        f'{name}.idem' for name in expected_files
-    }
+            assert 'LOKI_SOURCES_TO_REMOVE' in plan_dict
+            assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == expected_files
+
+            assert 'LOKI_SOURCES_TO_APPEND' in plan_dict
+            assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {
+                f'{name}.idem' for name in expected_files
+            }
+
+        shutil.rmtree(loki_root)
