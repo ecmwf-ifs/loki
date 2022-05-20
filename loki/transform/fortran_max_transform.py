@@ -63,7 +63,8 @@ class FortranMaxTransformation(Transformation):
         wrapper = FortranCTransformation.generate_iso_c_wrapper_routine(
             host_interface, self.c_structs, bind_name=host_interface.name)
         self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
-        module = Module(name=f'{wrapper.name.upper()}_MOD', routines=[wrapper])
+        contains = ir.Section(body=as_tuple(wrapper))
+        module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
         Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
         # Generate C host code
@@ -437,7 +438,7 @@ class FortranMaxTransformation(Transformation):
         max_kernel.spec.prepend(ir.CallStatement(sym.Variable(name='super'), arguments=(arg,)))
 
         # Add kernel to wrapper module
-        max_module.routines = as_tuple(max_kernel)
+        max_module.contains = ir.Section(body=as_tuple(max_kernel))
         return max_module
 
     @staticmethod
@@ -481,7 +482,7 @@ class FortranMaxTransformation(Transformation):
         setup.body = ir.Section(body=body)
 
         # Insert functions into manager class
-        manager.routines = as_tuple(setup)
+        manager.contains = ir.Section(body=as_tuple(setup))
         return manager
 
     @staticmethod
@@ -528,7 +529,7 @@ class FortranMaxTransformation(Transformation):
         main.body = ir.Section(body=body)
 
         # Insert functions into manager class
-        manager.routines = (constructor, main)
+        manager.contains = ir.Section(body=(constructor, main))
         return manager
 
     @staticmethod

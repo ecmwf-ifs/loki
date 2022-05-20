@@ -11,7 +11,7 @@ from loki.build.max_compiler import (compile_all, compile_maxj, compile_max, gen
                                      get_max_includes, get_max_libs, get_max_libdirs)
 
 
-def check_maxeler():
+def is_maxeler_available():
     """
     Check if Maxeler environment variables are specified.
     """
@@ -19,35 +19,49 @@ def check_maxeler():
     return maxeler_vars <= os.environ.keys()
 
 
+class MaxelerNotAvailableError(RuntimeError):
+    pass
+
 # Skip tests in this module if Maxeler environment not present
-pytestmark = pytest.mark.skipif(not check_maxeler(),
-                                reason='Maxeler compiler not installed')
+# pytestmark = pytest.mark.skipif(not check_maxeler(),
+#                                 reason='Maxeler compiler not installed')
+pytestmark = pytest.mark.xfail(
+    condition=not is_maxeler_available(), raises=MaxelerNotAvailableError,
+    reason='Maxeler runtime environment not available'
+)
 
 
 @pytest.fixture(scope='module', name='simulator')
 def fixture_simulator():
+    maxeler_available = is_maxeler_available()
 
     class MaxCompilerSim:
 
         def __init__(self):
             name = f'{os.getlogin()}_pytest'
             self.base_cmd = ['maxcompilersim', '-n', name]
-            os.environ['SLIC_CONF'] = f'use_simulation={name}'
-            self.maxeleros = ct.CDLL(os.environ['MAXELEROSDIR'] + '/lib/libmaxeleros.so')
+            if maxeler_available:
+                os.environ['SLIC_CONF'] = f'use_simulation={name}'
+                self.maxeleros = ct.CDLL(os.environ['MAXELEROSDIR'] + '/lib/libmaxeleros.so')
 
         def __del__(self):
-            del self.maxeleros
-            del os.environ['SLIC_CONF']
+            if maxeler_available:
+                del self.maxeleros
+                del os.environ['SLIC_CONF']
 
         def restart(self):
-            cmd = self.base_cmd + ['-c', 'MAX5C', 'restart']
-            execute(cmd)
+            if maxeler_available:
+                cmd = self.base_cmd + ['-c', 'MAX5C', 'restart']
+                execute(cmd)
 
         def stop(self):
-            cmd = self.base_cmd + ['stop']
-            execute(cmd)
+            if maxeler_available:
+                cmd = self.base_cmd + ['stop']
+                execute(cmd)
 
         def run(self, target, *args):
+            if not maxeler_available:
+                raise MaxelerNotAvailableError
             cmd = [str(target)]
             if args is not None:
                 cmd += [str(a) for a in args]
@@ -60,12 +74,13 @@ def fixture_simulator():
             self.stop()
 
         def call(self, fn, *args, **kwargs):
+            if not maxeler_available:
+                raise MaxelerNotAvailableError
             self.restart()
             ret = fn(*args, **kwargs)
             self.stop()
             return ret
 
-    print('simulator()')
     return MaxCompilerSim()
 
 
@@ -76,7 +91,8 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='builder')
 def fixture_builder(here):
-    return Builder(source_dirs=here, include_dirs=get_max_includes(), build_dir=here/'build')
+    include_dirs = get_max_includes() if is_maxeler_available() else []
+    return Builder(source_dirs=here, include_dirs=include_dirs, build_dir=here/'build')
 
 
 def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):
@@ -85,6 +101,9 @@ def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):
     # Create transformation object and apply
     f2max = FortranMaxTransformation()
     f2max.apply(routine, path=path)
+
+    if not is_maxeler_available():
+        raise MaxelerNotAvailableError
 
     # Generate simulation object file from maxj kernel
     compile_maxj(src=f2max.maxj_kernel_path.parent, build_dir=builder.build_dir)
@@ -104,6 +123,7 @@ def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):
                     libs=get_max_libs(), lib_dirs=get_max_libdirs())
 
 
+@pytest.mark.skipif(not is_maxeler_available(), reason='Maxeler runtime environment not available')
 def test_max_simulator(simulator):
     """
     Starts and stops the Maxeler Simulator.
@@ -113,6 +133,7 @@ def test_max_simulator(simulator):
     assert True
 
 
+@pytest.mark.skipif(not is_maxeler_available(), reason='Maxeler runtime environment not available')
 def test_max_passthrough(simulator, here):
     """
     A simple test streaming data to the DFE and back to CPU.
@@ -123,6 +144,7 @@ def test_max_passthrough(simulator, here):
     simulator.run(build_dir/'PassThrough')
 
 
+@pytest.mark.skipif(not is_maxeler_available(), reason='Maxeler runtime environment not available')
 def test_max_passthrough_ctypes(simulator, here):
     """
     A simple test streaming data to the DFE and back to CPU, called via ctypes
@@ -189,6 +211,7 @@ end subroutine routine_axpy_scalar
     assert np.all(a * 2. + y == x)
 
     simulator.restart()
+
     # TODO: For some reason we have to generate and run the kernel twice in the same instance of
     # the simulator to actually get any results other than 0. Probably doing something wrong with
     # the Maxeler language...
@@ -200,8 +223,9 @@ end subroutine routine_axpy_scalar
         a = -3.
         x = np.zeros(shape=(1,), order='F') + 2.
         y = np.zeros(shape=(1,), order='F') + 10.
+
         max_kernel.routine_axpy_scalar_c_fc_mod.routine_axpy_scalar_c_fc(ticks=1, a=a, x=x, y=y)
-        print(x)
+
     simulator.stop()
 #    simulator.call(max_kernel.routine_axpy_scalar_fmax_mod.routine_axpy_scalar_fmax, a, x, y)
     assert np.all(a * 2. + y == x)
