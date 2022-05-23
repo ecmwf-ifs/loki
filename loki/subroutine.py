@@ -58,7 +58,7 @@ class Subroutine(ProgramUnit):
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, contains=None,
                  prefix=None, bind=None, is_function=False, ast=None, source=None, parent=None,
                  rescope_symbols=False, symbol_attrs=None):
-        # First, store addition Subroutine-specific properties
+        # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self.prefix = as_tuple(prefix)
         self.bind = bind

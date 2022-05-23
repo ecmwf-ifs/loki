@@ -189,8 +189,8 @@ class ProgramUnit(Scope):
             kwargs['docstring'] = self.docstring
         if self.spec and 'spec' not in kwargs:
             kwargs['spec'] = self.spec
-        # if self.contains and 'contains' not in kwargs:
-        #     kwargs['contains'] = self.contains
+        if self.contains and 'contains' not in kwargs:
+            kwargs['contains'] = self.contains
         if self._ast is not None and 'ast' not in kwargs:
             kwargs['ast'] = self._ast
         if self._source is not None and 'source' not in kwargs:
@@ -201,8 +201,8 @@ class ProgramUnit(Scope):
             kwargs['docstring'] = Transformer({}).visit(kwargs['docstring'])
         if 'spec' in kwargs:
             kwargs['spec'] = Transformer({}).visit(kwargs['spec'])
-        # if 'contains' in kwargs:
-        #     kwargs['contains'] = Transformer({}).visit(kwargs['contains'])
+        if 'contains' in kwargs:
+            kwargs['contains'] = Transformer({}).visit(kwargs['contains'])
 
         # Rescope symbols if not explicitly disabled
         kwargs.setdefault('rescope_symbols', True)
@@ -211,12 +211,15 @@ class ProgramUnit(Scope):
         obj = super().clone(**kwargs)
 
         # Update contained routines with new parent scope
-        if self.contains and 'contains' not in kwargs:
+        # TODO: Convert ProgramUnit to an IR node(-like) object and make this
+        #       work via `Transformer`
+        if obj.contains:
             contains = [
-                node.clone(parent=obj, rescope_symbols=kwargs['rescope_symbols']) if isinstance(node, ProgramUnit)
-                else node.clone() for node in self.contains.body
+                node.clone(parent=obj, rescope_symbols=kwargs['rescope_symbols'])
+                if isinstance(node, ProgramUnit) else node
+                for node in obj.contains.body
             ]
-            obj.contains = self.contains.clone(body=as_tuple(contains))
+            obj.contains = obj.contains.clone(body=as_tuple(contains))
 
         return obj
 
