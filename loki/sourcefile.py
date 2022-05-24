@@ -43,7 +43,8 @@ class Sourcefile:
 
     def __init__(self, path, ir=None, ast=None, source=None):
         self.path = Path(path) if path is not None else path
-        assert ir is None or isinstance(ir, Section)
+        if ir is not None and not isinstance(ir, Section):
+            ir = Section(body=ir)
         self.ir = ir
         self._ast = ast
         self._source = source
