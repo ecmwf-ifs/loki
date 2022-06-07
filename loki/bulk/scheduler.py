@@ -278,8 +278,11 @@ class Scheduler:
                     if self.config.default['strict']:
                         raise err
                     continue
-                source = Sourcefile.from_file(path, **self.build_args)
-                item.routine.enrich_calls(source.all_subroutines)
+
+                if path not in self.source_map:
+                    source = Sourcefile.from_file(path, **self.build_args)
+                    self.source_map[path] = source
+                item.routine.enrich_calls(self.source_map[path].all_subroutines)
 
     def process(self, transformation):
         """

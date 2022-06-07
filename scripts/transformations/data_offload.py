@@ -103,13 +103,13 @@ class DataOffloadTransformation(Transformation):
                 outargs = []
 
                 for call in calls:
-                    if not call.context:
+                    if not call.routine:
                         warning(f'[Loki] Data offload: Routine {routine.name} not attached to call context' +
                                 f'in {str(call.name).lower()}')
 
                         continue
 
-                    for param, arg in call.context.arg_iter(call):
+                    for param, arg in call.arg_iter():
                         if isinstance(param, Array) and param.type.intent.lower() == 'in':
                             inargs += [str(arg.name).lower()]
                         if isinstance(param, Array) and param.type.intent.lower() == 'inout':

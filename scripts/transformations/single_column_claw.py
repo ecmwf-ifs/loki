@@ -147,12 +147,12 @@ class ExtractSCATransformation(Transformation):
         replacements = {}
 
         for call in FindNodes(CallStatement).visit(caller.body):
-            if call.context is not None and call.context.active:
-                routine = call.context.routine
+            if not call.not_active and call.routine:
+                routine = call.routine
                 argmap = {}
 
                 # Replace self.horizontal dimension with a loop index in arguments
-                for arg, val in call.context.arg_iter(call):
+                for arg, val in call.arg_iter():
                     if not isinstance(arg, Array) or not isinstance(val, Array):
                         continue
 
@@ -180,7 +180,7 @@ class ExtractSCATransformation(Transformation):
                 # Collect caller-side expressions for dimension sizes and bounds
                 dim_lower = None
                 dim_upper = None
-                for arg, val in call.context.arg_iter(call):
+                for arg, val in call.arg_iter():
                     if arg == self.horizontal.bounds[0]:
                         dim_lower = val
                     if arg == self.horizontal.bounds[1]:
@@ -254,7 +254,7 @@ class CLAWTransformation(ExtractSCATransformation):
         for call in FindNodes(CallStatement).visit(routine.body):
             call_name = str(call.name).lower()
             if call_name in targets:
-                if call.context:
+                if call.routine:
                     self.item_depth[call_name] = self.item_depth[routine.name.lower()] + 1
                 else:
                     warning(f'[Loki] CLAWTransform: Routine {routine.name} not attached to call context ' +
@@ -269,12 +269,12 @@ class CLAWTransformation(ExtractSCATransformation):
         # association in the function call though, so we generate local version of the
         # dimension variables in the calling driver routine before applying SCA.
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.context is not None and call.context.active:
+            if not call.not_active and call.routine:
 
                 # Explicitly create and assign local variables
                 # that mimic dimension variables in the kernel
                 assignments = []
-                for arg, val in call.context.arg_iter(call):
+                for arg, val in call.arg_iter():
                     if arg == self.horizontal.size and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))

@@ -199,10 +199,13 @@ def inject_statement_functions(routine):
         return StatementFunction(variable, arguments, assignment.rhs, variable.type)
 
     def create_type(stmt_func):
-        procedure_query = lambda x: [f for f in FindNodes(StatementFunction).visit(x.spec)
-                                        if f.variable == str(stmt_func.variable)][0]
+        name = str(stmt_func.variable)
+        procedure_query = lambda x: [
+            f for f in FindNodes(StatementFunction).visit(x.spec) if f.variable == name
+        ][0]
         procedure = LazyNodeLookup(routine, procedure_query)
-        return SymbolAttributes(ProcedureType(is_function=True, procedure=procedure), is_stmt_func=True)
+        proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
+        return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
 
     # Only locally declared scalar variables are potential candidates
     candidates = [str(v).lower() for v in routine.variables if isinstance(v, Scalar)]

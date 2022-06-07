@@ -4,8 +4,8 @@ from loki.frontend import parse_omni_ast, parse_ofp_ast, parse_fparser_ast, get_
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.program_unit import ProgramUnit
 from loki.visitors import FindNodes, Transformer
-from loki.tools import as_tuple
-from loki.types import ProcedureType, SymbolAttributes
+from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.types import BasicType, ProcedureType, SymbolAttributes
 
 
 __all__ = ['Subroutine']
@@ -335,25 +335,41 @@ class Subroutine(ProgramUnit):
 
     def enrich_calls(self, routines):
         """
-        Attach target :class:`Subroutine` object to :class:`CallStatement`
-        objects in the IR tree.
+        Update :any:`SymbolAttributes` for the ``name`` property of
+        :any:`CallStatement` nodes to provide links to the :any:`Subroutine`
+        nodes given in :data:`routines`.
 
-        :param call_targets: :class:`Subroutine` objects for corresponding
-                             :class:`CallStatement` nodes in the IR tree.
-        :param active: Additional flag indicating whether this :call:`CallStatement`
-                       represents an active/inactive edge in the
-                       interprocedural callgraph.
+        Parameters
+        ----------
+        routines : (list of) :any:`Subroutine`
+            Possible targets of :any:`CallStatement` calls
         """
-        routine_map = {r.name.upper(): r for r in as_tuple(routines)}
+        routine_map = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
 
         with pragmas_attached(self, ir.CallStatement, attach_pragma_post=False):
             for call in FindNodes(ir.CallStatement).visit(self.body):
-                name = str(call.name).upper()
-                if name in routine_map:
-                    # Calls marked as 'reference' are inactive and thus skipped
-                    active = not is_loki_pragma(call.pragma, starts_with='reference')
-                    context = ir.CallContext(routine=routine_map[name], active=active)
-                    call._update(context=context)
+                name = str(call.name)
+                # Calls marked as 'reference' are inactive and thus skipped
+                not_active = is_loki_pragma(call.pragma, starts_with='reference')
+
+                # Update symbol table if necessary and present in routine_map
+                routine = routine_map.get(name)
+                if routine is not None:
+                    name_type = call.name.type
+                    update_symbol = (
+                        call.name.scope is None or                # No scope attached
+                        name_type.dtype is BasicType.DEFERRED or  # No ProcedureType attached
+                        name_type.dtype.procedure is not routine  # ProcedureType not linked to routine
+                    )
+                    if update_symbol:
+                        # Need to update the call's symbol to establish link to routine
+                        name_type = name_type.clone(dtype=routine.procedure_type)
+                        call._update(name=call.name.clone(scope=self, type=name_type), not_active=not_active)
+
+                # In any case, update the not_active attribute
+                if call.not_active is not not_active:
+                    # Need to update only the active status of the call
+                    call._update(not_active=not_active)
 
         # TODO: Could extend this to module and header imports to
         # facilitate user-directed inlining.

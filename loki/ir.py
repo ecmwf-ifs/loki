@@ -10,10 +10,9 @@ import inspect
 
 from pymbolic.primitives import Expression
 
-from loki.tools import flatten, as_tuple, is_iterable, truncate_string
-from loki.types import DataType, DerivedType, SymbolAttributes
 from loki.scope import Scope
-from loki.tools import CaseInsensitiveDict
+from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
+from loki.types import DataType, BasicType, DerivedType, SymbolAttributes
 
 
 __all__ = [
@@ -24,7 +23,7 @@ __all__ = [
     'PragmaRegion', 'Interface',
     # Leaf node classes
     'Assignment', 'ConditionalAssignment', 'CallStatement',
-    'CallContext', 'Allocation', 'Deallocation', 'Nullify',
+    'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
     'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
@@ -728,20 +727,21 @@ class CallStatement(LeafNode):
         The list of positional arguments.
     kwarguments : tuple of tuple
         The list of keyword arguments, provided as pairs of `(name, value)`.
-    context : :any:`CallContext`
-        The information about the called subroutine.
     pragma : tuple of :any:`Pragma`, optional
         Pragma(s) that appear in front of the statement. By default
         :any:`Pragma` nodes appear as standalone nodes in the IR before.
         Only a bespoke context created by :py:func:`pragmas_attached`
         attaches them for convenience.
+    not_active : bool, optional
+        Flag to indicate that this call has explicitly been marked as inactive for
+        the purpose of processing call trees (Default: `None`)
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['name', 'arguments', 'kwarguments']
 
-    def __init__(self, name, arguments, kwarguments=None, context=None, pragma=None, **kwargs):
+    def __init__(self, name, arguments, kwarguments=None, pragma=None, not_active=None, **kwargs):
         super().__init__(**kwargs)
 
         assert isinstance(name, Expression)
@@ -755,58 +755,47 @@ class CallStatement(LeafNode):
         self.arguments = as_tuple(arguments)
         # kwarguments is kept as a list of tuples!
         self.kwarguments = as_tuple(kwarguments) if kwarguments else ()
-        self.context = context
+        self.not_active = not_active
         self.pragma = pragma
 
     def __repr__(self):
         return f'Call:: {self.name}'
 
+    @property
+    def routine(self):
+        """
+        The :any:`Subroutine` object of the called routine
 
-class CallContext(LeafNode):
-    """
-    Special node type to encapsulate the target of a :any:`CallStatement`
-    node (usually a :any:`Subroutine`) alongside context-specific
-    meta-information. This is required for transformations requiring
-    context-sensitive inter-procedural analysis (IPA).
+        Shorthand for ``call.name.type.dtype.procedure``
 
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The target of the call.
-    active : bool
-        Flag to indicate if this context is valid.
-    **kwargs : optional
-        Other parameters that are passed on to the parent class constructor.
-    """
+        Returns
+        -------
+        :any:`Subroutine` or `None`
+            If the :any:`ProcedureType` object of the :any:`ProcedureSymbol`
+            in :attr:`name` is linked up to the target routine, this returns
+            the corresponding :any:`Subroutine` object, otherwise `None`.
+        """
+        procedure_type = self.name.type.dtype
+        if procedure_type is BasicType.DEFERRED:
+            return None
+        return procedure_type.procedure
 
-    def __init__(self, routine, active, **kwargs):
-        super().__init__(**kwargs)
-        self.routine = routine
-        self.active = active
-
-    def arg_iter(self, call):
+    def arg_iter(self):
         """
         Iterator that maps argument definitions in the target :any:`Subroutine`
-        to arguments and keyword arguments in the `call` provided.
-
-        Parameters
-        ----------
-        call : :any:`CallStatement`
-            The call statement to map.
+        to arguments and keyword arguments in the call.
 
         Returns
         -------
         iterator
-            An iterator that traverses the mapping `(arg name, call arg)` for
+            An iterator that traverses the mapping ``(arg name, call arg)`` for
             all positional and then keyword arguments.
         """
+        assert self.routine is not None
         r_args = {arg.name: arg for arg in self.routine.arguments}
-        args = zip(self.routine.arguments, call.arguments)
-        kwargs = ((r_args[kw], arg) for kw, arg in call.kwarguments)
+        args = zip(self.routine.arguments, self.arguments)
+        kwargs = ((r_args[kw], arg) for kw, arg in self.kwarguments)
         return chain(args, kwargs)
-
-    def __repr__(self):
-        return f'CallContext:: {self.routine.name}'
 
 
 class Allocation(LeafNode):
