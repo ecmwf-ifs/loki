@@ -1016,14 +1016,95 @@ end subroutine
     new_routine = routine.clone()
 
     # Ensure we have cloned routine and member
-    assert routine != new_routine
-    assert routine.members[0] != new_routine.members[0]
+    assert routine is not new_routine
+    assert routine.members[0] is not new_routine.members[0]
     assert fgen(routine) == fgen(new_routine)
     assert fgen(routine.members[0]) == fgen(new_routine.members[0])
 
     # Check that the scopes are linked correctly
-    assert routine.members[0].parent == routine
-    assert new_routine.members[0].parent == new_routine
+    assert routine.members[0].parent is routine
+    assert new_routine.members[0].parent is new_routine
+
+    # Check that variables are in the right scope everywhere
+    assert all(v.scope is routine for v in FindVariables().visit(routine.ir))
+    assert all(v.scope in (routine, routine.members[0]) for v in FindVariables().visit(routine.members[0].ir))
+    assert all(v.scope is new_routine for v in FindVariables().visit(new_routine.ir))
+    assert all(
+        v.scope in (new_routine, new_routine.members[0])
+        for v in FindVariables().visit(new_routine.members[0].ir)
+    )
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_member_routine_clone_inplace(frontend):
+    """
+    Test that member subroutine scopes get cloned correctly.
+    """
+    fcode = """
+subroutine member_routine_clone(in1, in2, out1, out2)
+  ! Test member subroutine and function
+  implicit none
+  integer, intent(in) :: in1, in2
+  integer, intent(out) :: out1, out2
+  integer :: localvar
+
+  localvar = in2
+
+  call member_procedure(in1, out1)
+  out2 = 3 * out1 + 2
+
+contains
+  subroutine member_procedure(in1, out1)
+    ! This member procedure shadows some variables and uses
+    ! a variable from the parent scope
+    implicit none
+    integer, intent(in) :: in1
+    integer, intent(out) :: out1
+
+    out1 = 5 * in1 + localvar
+  end subroutine member_procedure
+
+  subroutine other_member(inout1)
+    ! Another member that uses a parent symbol
+    implicit none
+    integer, intent(inout) :: inout1
+
+    inout1 = 2 * inout1 + localvar
+  end subroutine other_member
+end subroutine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Make sure the initial state is as expected
+    member = routine['member_procedure']
+    assert member.parent is routine
+    assert member.symbol_attrs.parent is routine.symbol_attrs
+    other_member = routine['other_member']
+    assert other_member.parent is routine
+    assert other_member.symbol_attrs.parent is routine.symbol_attrs
+
+    # Put the inherited symbol in the local scope, first with a clean clone...
+    member.variables += (routine.variable_map['localvar'].clone(scope=member),)
+    member = member.clone(parent=None)
+    # ...and then with a clone that preserves the symbol table
+    other_member.variables += (routine.variable_map['localvar'].clone(scope=other_member),)
+    other_member = other_member.clone(parent=None, symbol_attrs=other_member.symbol_attrs)
+    # Ultimately, remove the member routines
+    routine = routine.clone(contains=None)
+
+    # Check that variables are in the right scope everywhere
+    assert all(v.scope is routine for v in FindVariables().visit(routine.ir))
+    assert all(v.scope is member for v in FindVariables().visit(member.ir))
+
+    # Check that we aren't looking somewhere above anymore
+    assert member.parent is None
+    assert member.symbol_attrs.parent is None
+    assert member._parent is None
+    assert member.symbol_attrs._parent is None
+    assert other_member.parent is None
+    assert other_member.symbol_attrs.parent is None
+    assert other_member._parent is None
+    assert other_member.symbol_attrs._parent is None
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
