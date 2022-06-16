@@ -13,11 +13,10 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import os
-import re
 import sys
-from pkg_resources import get_distribution
+from importlib import metadata
 
-sys.path.insert(0, os.path.abspath('../..'))
+# sys.path.insert(0, os.path.abspath('../..'))
 sys.path.insert(0, os.path.abspath('../../scripts'))
 
 
@@ -28,8 +27,7 @@ copyright = '2018- European Centre for Medium-Range Weather Forecasts (ECMWF)'
 author = 'Michael Lange, Balthasar Reuter'
 
 # The full version, including alpha/beta/rc tags.
-release = get_distribution('loki').version
-#release = re.sub('^v', '', os.popen('git describe').read().strip())
+release = metadata.version('loki')
 # The short X.Y version.
 version = release
 
@@ -48,10 +46,14 @@ extensions = [
 #    'recommonmark',  # read markdown
     'sphinx_rtd_theme',  # read the docs theme
     'myst_parser',  # parse markdown files
-    'sphinx_panels',  # cards, panels and dropdown content
+    'sphinx_design',  # cards, panels and dropdown content
 ]
 
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
+autosummary_filename_map = {
+    'scripts.loki-lint': 'scripts/loki-lint.py',
+    'scripts.loki-transform': 'scripts/loki-transform.py',
+}
 html_show_sourcelink = False  # Remove 'view source code' from top of page (for html, not python)
 add_module_names = False # Remove namespaces from class/method signatures
 
@@ -89,7 +91,7 @@ html_theme = 'sphinx_rtd_theme'
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+html_static_path = []
 
 html_theme_options = {
     'logo_only': False,
