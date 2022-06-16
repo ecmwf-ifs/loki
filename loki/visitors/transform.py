@@ -52,8 +52,8 @@ class Transformer(Visitor):
         If set to `True`, all updates are performed on existing :any:`Node`
         objects, instead of rebuilding them, keeping the original tree intact.
     rebuild_scopes : bool, optional
-        If set to `True`, this will also rebuild :any:`ScopedNode` in the IR.
-        This requires updating :any:`Variable.scope` properties, which is
+        If set to `True`, this will also rebuild :class:`ScopedNode` in the IR.
+        This requires updating :attr:`TypedSymbol.scope` properties, which is
         expensive and thus carried out only when explicitly requested.
 
     Attributes
@@ -165,14 +165,14 @@ class Transformer(Visitor):
 
     def visit_ScopedNode(self, o, **kwargs):
         """
-        Handler for :any:`ScopedNode` objects.
+        Handler for :class:`ScopedNode` objects.
 
         It replaces :data:`o` by :data:`mapper[o]`, if it is in the mapper,
         otherwise its behaviour differs slightly from the default
         :meth:`visit_Node` as it rebuilds the node first, then visits all
         children and then updates in-place the rebuilt node.
         This is to make sure upwards-pointing references to this scope
-        (such as :any:`ScopedNode.parent` properties) can be updated correctly.
+        (such as :attr:`ScopedNode.parent` properties) can be updated correctly.
 
         Additionally, it passes down the currently active scope in :attr:`kwargs`
         when recursing to children.
@@ -261,13 +261,13 @@ class NestedTransformer(Transformer):
 
     def visit_ScopedNode(self, o, **kwargs):
         """
-        Handler for :any:`ScopedNode` objects.
+        Handler for :class:`ScopedNode` objects.
 
         Its behaviour differs slightly from the default :meth:`visit_Node` as
         it rebuilds the node first, then visits all
         children and then updates in-place the rebuilt node.
         This is to make sure upwards-pointing references to this scope
-        (such as :any:`ScopedNode.parent` properties) can be updated correctly.
+        (such as :attr:`ScopedNode.parent` properties) can be updated correctly.
 
         Additionally, it passes down the currently active scope in :attr:`kwargs`
         when recursing to children.
@@ -351,7 +351,7 @@ class MaskedTransformer(Transformer):
        they appear.
 
     .. note::
-       :any:`MaskedTransformer` rebuilds also :any:`ScopedNode` by default
+       :any:`MaskedTransformer` rebuilds also :class:`ScopedNode` by default
        (i.e., it calls the parent constructor with ``rebuild_scopes=True``).
 
     Parameters

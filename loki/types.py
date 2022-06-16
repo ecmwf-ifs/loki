@@ -1,6 +1,7 @@
 """
-Collection of classes to represent type information for symbols used
-throughout Loki's :ref:`internal_representation:internal representation`
+Collection of classes to represent type information for symbols used throughout
+:doc:`internal_representation`
+
 """
 
 import weakref
@@ -148,7 +149,7 @@ class ProcedureType(DataType):
     Parameters
     ----------
     name : str, optional
-        The name of the function or subroutine. Can be skipped if :arg:`procedure`
+        The name of the function or subroutine. Can be skipped if :data:`procedure`
         is provided (not in the form of a :any:`LazyNodeLookup`)
     is_function : bool, optional
         Indicate that this is a function

@@ -286,7 +286,7 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
 
     * :any:`inline_comments` to attach inline-comments to IR nodes
     * :any:`cluster_comments` to combine multi-line comments into :any:`CommentBlock`
-    * :any:`combine_mulitline_pragmas` to combine multi-line pragmas into a
+    * :any:`combine_multiline_pragmas` to combine multi-line pragmas into a
       single node
 
     Parameters

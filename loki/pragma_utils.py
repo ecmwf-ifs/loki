@@ -87,7 +87,7 @@ def process_dimension_pragmas(ir):
     """
     Process any ``!$loki dimension`` pragmas to override deferred dimensions
 
-    Note that this assumes :any:`inline_pragmas` has been run on :data:`ir` to
+    Note that this assumes :any:`attach_pragmas` has been run on :data:`ir` to
     attach any pragmas to the :any:`VariableDeclaration` nodes.
 
     Parameters
@@ -280,7 +280,7 @@ def attach_pragmas(ir, node_type, attach_pragma_post=True):
 
 def detach_pragmas(ir, node_type, detach_pragma_post=True):
     """
-    Revert the inlining of pragmas, e.g. as done by :any:`inline_pragmas`.
+    Revert the inlining of pragmas, e.g. as done by :any:`attach_pragmas`.
 
     This can be done for all IR nodes that have a ``pragma`` property
     (:class:``Declaration``, :class:``Loop``, :class:``WhileLoop`,
@@ -313,10 +313,10 @@ def pragmas_attached(module_or_routine, node_type, attach_pragma_post=True):
     the module's or routine's IR are attached to these nodes.
 
     This can be done for all IR nodes that have a ``pragma`` property
-    (:any:`Declaration`, :any:`Loop`, :any:`WhileLoop`,
-    :any:`CallStatement`). Inside the created context, attached pragmas
-    are no longer standalone IR nodes but accessible via the corresponding
-    node's ``pragma`` property.
+    (:any:`VariableDeclaration`, :any:`ProcedureDeclaration`, :any:`Loop`,
+    :any:`WhileLoop`, :any:`CallStatement`). Inside the created context,
+    attached pragmas are no longer standalone IR nodes but accessible via the
+    corresponding node's ``pragma`` property.
 
     Pragmas after nodes are attached as ``pragma_post``, which can be disabled
     by setting :data:`attach_pragma_post` to `False` (for :any:`Loop` and

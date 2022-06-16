@@ -327,7 +327,7 @@ class Associate(ScopedNode, Section):
     ----------
     body : tuple
         The associate's body.
-    associations : dict or OrderedDict
+    associations : dict or collections.OrderedDict
         The mapping of names to expressions or variables valid inside the
         associate's body.
     parent : :any:`Scope`, optional
@@ -352,7 +352,7 @@ class Associate(ScopedNode, Section):
     @property
     def association_map(self):
         """
-        An :any:`OrderedDict` of associated expressions.
+        An :any:`collections.OrderedDict` of associated expressions.
         """
         return OrderedDict(self.associations)
 
@@ -1091,7 +1091,7 @@ class ProcedureDeclaration(LeafNode):
     ----------
     symbols : tuple of :any:`pymbolic.primitives.Expression`
         The list of procedure symbols declared by this declaration.
-    interface : :any:`pymbolic.primitves.Expression` or :any:`DataType`, optional
+    interface : :any:`pymbolic.primitives.Expression` or :any:`DataType`, optional
         The procedure interface of the declared procedure entity names.
     external : bool, optional
         This is a Fortran ``EXTERNAL`` declaration.

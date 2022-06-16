@@ -320,7 +320,7 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend)
     scheduler.populate(routines=config.routines.keys())
 
-    # Construct the transformation plan as a set of CMake lists of source files 
+    # Construct the transformation plan as a set of CMake lists of source files
     scheduler.write_cmake_plan(filepath=plan_file, mode=mode, buildpath=build, rootpath=root)
 
     # Output the resulting callgraph

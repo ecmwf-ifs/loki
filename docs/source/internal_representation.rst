@@ -172,7 +172,6 @@ Internal node classes
    loki.ir.Loop
    loki.ir.WhileLoop
    loki.ir.Conditional
-   loki.ir.MaskedStatement
    loki.ir.PragmaRegion
    loki.ir.Interface
 
@@ -184,7 +183,6 @@ Leaf node classes
    loki.ir.Assignment
    loki.ir.ConditionalAssignment
    loki.ir.CallStatement
-   loki.ir.CallContext
    loki.ir.Allocation
    loki.ir.Deallocation
    loki.ir.Nullify
@@ -193,11 +191,15 @@ Leaf node classes
    loki.ir.Pragma
    loki.ir.PreprocessorDirective
    loki.ir.Import
-   loki.ir.Declaration
+   loki.ir.VariableDeclaration
+   loki.ir.ProcedureDeclaration
    loki.ir.DataDeclaration
+   loki.ir.StatementFunction
    loki.ir.TypeDef
    loki.ir.MultiConditional
+   loki.ir.MaskedStatement
    loki.ir.Intrinsic
+   loki.ir.Enumeration
 
 
 Expression tree
@@ -253,6 +255,17 @@ Mix-ins
 
    loki.expression.symbols.ExprMetadataMixin
    loki.expression.symbols.StrCompareMixin
+
+Expression modules
+^^^^^^^^^^^^^^^^^^
+
+.. autosummary::
+
+   loki.expression.expression
+   loki.expression.mappers
+   loki.expression.operations
+   loki.expression.symbolic
+   loki.expression.symbols
 
 
 Type information and scopes

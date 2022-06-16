@@ -14,7 +14,7 @@ Utilities
 
 
 To assist the development of custom transformations, a number of useful tools
-for recurring tasks or house keeping are included with Loki. 
+for recurring tasks or house keeping are included with Loki.
 
 
 Pragma utilities
@@ -90,8 +90,8 @@ Other frequently used utilities for working with lists and tuples are
 Loki house keeping
 ==================
 
-For internal purposes exist a global configuration :any:`Configuration` and
-logging functionality.
+For internal purposes exist a global configuration
+:class:`loki.config.Configuration` and logging functionality.
 
 .. autosummary::
 
@@ -115,7 +115,7 @@ build utilities :mod:`loki.build`:
    loki.build.compiler
    loki.build.max_compiler
    loki.build.workqueue
-    
+
 
 Linting functionality
 =====================

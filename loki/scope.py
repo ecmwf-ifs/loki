@@ -1,6 +1,6 @@
 """
-Representation of symbol tables and scopes in Loki's
-:ref:`internal_representation:internal representation`
+Representation of symbol tables and scopes in
+:doc:`internal_representation`
 """
 import weakref
 from loki.types import SymbolAttributes, BasicType

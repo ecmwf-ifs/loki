@@ -201,13 +201,13 @@ def reinsert_open_newunit(ir, pp_info):
 
 
 class PPRule:
-
-    _empty_pattern = re.compile('')
-
     """
     A preprocessing rule that defines and applies a source replacement
     and collects according meta-data.
     """
+
+    _empty_pattern = re.compile('')
+
     def __init__(self, match, replace, postprocess=None):
         self.match = match
         self.replace = replace

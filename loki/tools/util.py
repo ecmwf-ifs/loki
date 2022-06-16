@@ -211,7 +211,7 @@ def execute(command, silent=True, **kwargs):
         Redirect stdout to this file object (Note: :data:`silent` overwrites this)
     stderr : file object, optional
         Redirect stdout to this file object (Note: :data:`silent` overwrites this)
-    cwd : str or :any:`Path`
+    cwd : str or :class:`pathlib.Path`
         Directory in which to execute :data:`command` (will be stringified)
     """
 
@@ -475,7 +475,7 @@ def yaml_include_constructor(loader, node):
 
     Activate via ``yaml.add_constructor("!include", yaml_include_constructor)``
     or ``yaml.add_constructor("!include", yaml_include_constructor, yaml.SafeLoader)``
-    (for use with :any:`yaml.safe_load`).
+    (for use with ``yaml.safe_load``).
 
     Adapted from JUBE2 (https://fz-juelich.de/jsc/jube) and
     http://code.activestate.com/recipes/577612-yaml-include-support/

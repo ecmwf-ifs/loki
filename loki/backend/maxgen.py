@@ -99,8 +99,11 @@ class MaxjCodegen(Stringifier):
     def visit_Sourcefile(self, o, **kwargs):
         """
         Format as
-          ...modules...
-          ...subroutines...
+
+        .. code-block::
+
+            ...modules...
+            ...subroutines...
         """
         return self.visit(o.ir, **kwargs)
 
@@ -108,30 +111,36 @@ class MaxjCodegen(Stringifier):
         """
         Format modules for a kernel as:
 
-          package <name without Kernel>;
-          ...imports...
-          class <name> extends Kernel {
-            ...spec without imports...
-            ...routines...
-          }
+        .. code-block::
+
+            package <name without Kernel>;
+            ...imports...
+            class <name> extends Kernel {
+                ...spec without imports...
+                ...routines...
+            }
 
         Format modules for the manager as:
 
-          package <name without Manager>;
-          ...imports...
-          public interface <name> extends ManagerPCIe, ManagerKernel {
-            ...spec without imports...
-            ...routines...
-          }
+        .. code-block::
+
+            package <name without Manager>;
+            ...imports...
+            public interface <name> extends ManagerPCIe, ManagerKernel {
+                ...spec without imports...
+                ...routines...
+            }
 
         or for the platform-specific instantiation:
 
-          package <name without ManagerMAX5C>;
-          ...imports...
-          public class <name> extends MAX5CManager implements <name without MAX5C> {
-            ...spec without imports...
-            ...routines...
-          }
+        .. code-block::
+
+            package <name without ManagerMAX5C>;
+            ...imports...
+            public class <name> extends MAX5CManager implements <name without MAX5C> {
+                ...spec without imports...
+                ...routines...
+            }
         """
         # Figure out what kind of module we have here
         if o.name.endswith('ManagerMAX5C'):
@@ -184,10 +193,12 @@ class MaxjCodegen(Stringifier):
         """
         Format as:
 
-          <name>(<args>) {
-            ...spec without arg declarations...
-            ...body...
-          }
+        .. code-block::
+
+            <name>(<args>) {
+                ...spec without arg declarations...
+                ...body...
+            }
         """
         # Constructor signature
         args = [f'{self.visit(arg.type, **kwargs)} {self.visit(arg, **kwargs)}'
@@ -210,7 +221,10 @@ class MaxjCodegen(Stringifier):
     def visit_Node(self, o, **kwargs):
         """
         Format non-supported nodes as
-          // <repr(Node)>
+
+        .. code-block::
+
+            // <repr(Node)>
         """
         return self.format_line('// <', repr(o), '>')
 
@@ -240,7 +254,10 @@ class MaxjCodegen(Stringifier):
     def visit_VariableDeclaration(self, o, **kwargs):
         """
         Format declaration as
-          <type> <name> = <initial>
+
+        .. code-block::
+
+            <type> <name> = <initial>
         """
         comment = None
         if o.comment:
@@ -261,9 +278,12 @@ class MaxjCodegen(Stringifier):
     def visit_Loop(self, o, **kwargs):
         """
         Format loop with explicit range as
-          for (<var> = <start>; <var> <= <end>; <var> += <incr>) {
-            ...body...
-          }
+
+        .. code-block::
+
+            for (<var> = <start>; <var> <= <end>; <var> += <incr>) {
+                ...body...
+            }
         """
         control = 'for ({var} = {start}; {var} <= {end}; {var} += {incr})'.format(
             var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
@@ -279,9 +299,16 @@ class MaxjCodegen(Stringifier):
     def visit_Assignment(self, o, **kwargs):
         """
         Format statement as
-          <target> = <expr>
+
+        .. code-block::
+
+            <target> = <expr>
+
         or
-          <dfe_target> <== <expr>
+
+        .. code-block::
+
+            <dfe_target> <== <expr>
         """
         lhs = self.visit(o.lhs, **kwargs)
         rhs = self.visit(o.rhs, **kwargs)
@@ -295,7 +322,10 @@ class MaxjCodegen(Stringifier):
     def visit_ConditionalAssignment(self, o, **kwargs):
         """
         Format conditional statement as
-          <target> = <condition> ? <expr> : <else_expr>
+
+        .. code-block::
+
+            <target> = <condition> ? <expr> : <else_expr>
         """
         lhs = self.visit(o.lhs, **kwargs)
         condition = self.visit(o.condition, **kwargs)
@@ -312,7 +342,10 @@ class MaxjCodegen(Stringifier):
     def visit_CallStatement(self, o, **kwargs):
         """
         Format call statement as
-          <name>(<args>)
+
+        .. code-block::
+
+            <name>(<args>)
         """
         name = self.visit(o.name, **kwargs)
         args = self.visit_all(o.arguments, **kwargs)
@@ -322,7 +355,10 @@ class MaxjCodegen(Stringifier):
     def visit_Import(self, o, **kwargs):
         """
         Format imports as
-          import <name>;
+
+        .. code-block::
+
+            import <name>;
         """
         if kwargs.get('skip_imports') is True:
             return None
