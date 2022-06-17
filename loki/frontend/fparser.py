@@ -1882,7 +1882,7 @@ class FParser2IR(GenericVisitor):
         bodies = [as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])
                   for start, stop in zip((if_then_stmt_index,) + else_if_stmt_index,
                                          else_if_stmt_index + (else_stmt_index,))]
-        else_body = as_tuple(self.visit(c, **kwargs) for c in o.children[else_stmt_index+1:end_if_stmt_index])
+        else_body = flatten([self.visit(c, **kwargs) for c in o.children[else_stmt_index+1:end_if_stmt_index]])
 
         # Extract source objects for branches
         sources, labels = [], []
@@ -1893,10 +1893,10 @@ class FParser2IR(GenericVisitor):
             labels += [self.get_label(conditional)]
 
         # Build IR nodes backwards using else-if branch as else body
-        node = ir.Conditional(condition=conditions[-1], body=bodies[-1], else_body=else_body,
+        node = ir.Conditional(condition=conditions[-1], body=bodies[-1], else_body=as_tuple(else_body),
                               inline=False, has_elseif=False, label=labels[-1], source=sources[-1])
         for idx in reversed(range(len(conditions)-1)):
-            node = ir.Conditional(condition=conditions[idx], body=bodies[idx], else_body=(node,),
+            node = ir.Conditional(condition=conditions[idx], body=bodies[idx], else_body=as_tuple(node),
                                   inline=False, has_elseif=True, label=labels[idx], source=sources[idx])
 
         # Update with construct name
