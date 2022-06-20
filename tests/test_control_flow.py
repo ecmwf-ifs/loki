@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, clean_test, available_frontends
-from loki import OMNI, Subroutine, FindNodes, Loop, Conditional
+from loki import OMNI, Subroutine, FindNodes, Loop, Conditional, Node
 
 
 @pytest.fixture(scope='module', name='here')
@@ -402,3 +402,49 @@ end subroutine cycle_stmt
     result = function()
     assert result == 6
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_conditional_bodies(frontend):
+    """Verify that conditional bodies and else-bodies are tuples of :class:`Node`"""
+    fcode = """
+subroutine conditional_body(nanana, zzzzz, trololo, tralala, xoxoxoxo, yyyyyy, kidia, kfdia)
+integer, intent(inout) :: nanana, zzzzz, trololo, tralala, xoxoxoxo, yyyyyy, kidia, kfdia
+integer :: jlon
+if (nanana == 1) then
+    zzzzz = 1
+else
+    zzzzz = 4
+end if
+if (trololo == 1) then
+    tralala = 1
+else if (trololo == 2) then
+    tralala = 2
+else if (trololo == 3) then
+    tralala = 3
+else
+    tralala = 4
+end if
+if (xoxoxoxo == 1) then
+    do jlon = kidia, kfdia
+        yyyyyy = 1
+    enddo
+else
+    do jlon = kidia, kfdia
+        yyyyyy = 4
+    enddo
+end if
+end subroutine conditional_body
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    conditionals = FindNodes(Conditional).visit(routine.ir)
+    assert len(conditionals) == 5
+    assert all(
+        c.body and isinstance(c.body, tuple) and all(isinstance(n, Node) for n in c.body)
+        for c in conditionals
+    )
+    assert all(
+        c.else_body and isinstance(c.else_body, tuple) and all(isinstance(n, Node) for n in c.else_body)
+        for c in conditionals
+    )
