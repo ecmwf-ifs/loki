@@ -122,11 +122,12 @@ class Reporter:
     their individual reporting pieces.
     Note that this processing of reports happens immediately when adding a new file
     report for two reasons:
-        1. Enable immediate output functionality (i.e., being able to print problems
-           as soon as they are detected and not only at the very end of a (lengthy)
-           multi file parser run.
-        2. To allow parallel processing. The location of problem reports is not
-           pickable and thus they need to be processed into a pickable form.
+
+    #. Enable immediate output functionality (i.e., being able to print problems
+       as soon as they are detected and not only at the very end of a (lengthy)
+       multi file parser run.
+    #. To allow parallel processing. The location of problem reports is not
+       pickable and thus they need to be processed into a pickable form.
 
     The class maintains a `dict` in which a list of reports is stored for each handler.
     In a parallel setting, this needs to be initialized explicitly to enable thread
@@ -287,7 +288,7 @@ class DefaultHandler(GenericHandler):
     ----------
     target : optional
         The output destination as a callback. Will be called with a string.
-        Defaults to :any:`looger.warning`
+        Defaults to :attr:`loki.logging.logger.warning`
     immediate_output : bool, optional
         Print problems immediately if `True`, otherwise
         collect messages and print when calling `output()`. Defaults to `True`
@@ -434,7 +435,7 @@ class JunitXmlHandler(GenericHandler):
 
     def handle(self, file_report):
         """
-        Creates tuples of string arguments for :py:class:`junit_xml.TestCase`
+        Creates tuples of string arguments for `junit_xml.TestCase`
 
         Parameters
         ----------
@@ -445,7 +446,7 @@ class JunitXmlHandler(GenericHandler):
         -------
         tuple(str, list)
             Tuples of the form ``(filename, [(kwargs, messages)])`` with :attr:`kwargs`
-            being the constructor arguments for :any:`junit_xml.TestCase` and
+            being the constructor arguments for `junit_xml.TestCase` and
             :attr:`messages` a list of strings.
         """
         filename = file_report.filename

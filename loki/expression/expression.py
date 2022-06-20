@@ -25,6 +25,10 @@ class ExpressionFinder(Visitor):
     Base class visitor to collect specific sub-expressions,
     eg. functions or symbols, from all nodes in an IR tree.
 
+    Note that specialized ``FindXXX`` classes are provided in :py:mod:`loki.expression`
+    to find some of the most common sub-expression types, eg. symbols, functions
+    and variables.
+
     Parameters
     ----------
     retrieve :
@@ -37,10 +41,6 @@ class ExpressionFinder(Visitor):
         If `True` the visitor will return tuples which contain the
         sub-expression and the corresponding IR node in which the
         expression is contained.
-
-    Note that specialized ``FindXXX`` classes are provided in :any:`loki.expression`
-    to find some of the most common sub-expression types, eg. symbols, functions
-    and variables.
     """
     # pylint: disable=unused-argument
 

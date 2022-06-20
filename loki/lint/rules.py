@@ -41,8 +41,8 @@ class GenericRule:
     """
     :any:`dict` with description of the rule
 
-    Typically, this should include ``'id'`` and ``'title'``. Allows for
-    Python's format specification mini-language in ``'title'``to fill values
+    Typically, this should include ``"id"`` and ``"title"``. Allows for
+    Python's format specification mini-language in ``"title"`` to fill values
     using data from :data:`config`, with the field name corresponding to the
     config key.
     """

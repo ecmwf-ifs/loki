@@ -13,7 +13,7 @@ class Transformation:
     """
     Base class for source code transformations that manipulate source
     items like :any:`Subroutine` or :any:`Module` in place via the
-    :any:`item.apply(transform)` method.
+    ``item.apply(transform)`` method.
 
     The source transformations to be applied should be defined in the
     following class-specific methods:

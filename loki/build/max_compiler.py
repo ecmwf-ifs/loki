@@ -128,9 +128,14 @@ def compile_c(src, build_dir, include_dirs=None):
     """
     Compile .c to .o files.
 
-    :param src: Filename of C file or directory (will compile 'src/*.c').
-    :param build_dir: Build dir where .o files are stored.
-    :param include_dirs: Optional list of header include paths.
+    Parameters
+    ----------
+    src : str or :any:`pathlib.Path`
+        Filename of C file or directory (will compile ``src/*.c``).
+    build_dir : str or :any:`pathlib.Path`
+        Build dir where .o files are stored.
+    include_dirs : list, optional
+        Optional list of header include paths.
     """
     info('Compiling .c: %s' % src)
     build_dir = Path(build_dir)

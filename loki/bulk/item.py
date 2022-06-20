@@ -53,11 +53,11 @@ class Item:
     config : dict
         Dict of item-specific config markers
     source_cache : dict
-        Dict to cache and lookup :any:`SourceFile` objects that might have been
+        Dict to cache and lookup :any:`Sourcefile` objects that might have been
         built previously. This avoids two :any:`Item` objects aliasing to the same
         source file, which can lead to overriding prior source changes.
     build_args : dict
-        Dict of build arguments to pass to ``SourceFile.from_file`` constructors
+        Dict of build arguments to pass to ``Sourcefile.from_file`` constructors
 
     Notes
     -----

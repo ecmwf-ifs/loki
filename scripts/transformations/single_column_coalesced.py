@@ -395,7 +395,7 @@ class SingleColumnCoalescedTransformation(Transformation):
     accesses on GPUs.
 
     Note, this requires preprocessing with the
-    :any:`DerivedTypeArgumentsTransformation`.
+    :class:`DerivedTypeArgumentsTransformation`.
 
     Parameters
     ----------

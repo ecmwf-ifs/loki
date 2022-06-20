@@ -158,7 +158,7 @@ def get_fparser_node(ast, node_type_name, first_only=True, recurse=False):
 
     Returns
     -------
-    :any:`fparser.two.Fortran2003.Base`
+    :class:`fparser.two.util.Base`
         The node of requested type (or a list of these nodes if :attr:`all` is `True`)
     """
     node_types = tuple(getattr(Fortran2003, name) for name in as_tuple(node_type_name))
@@ -353,9 +353,10 @@ class FParser2IR(GenericVisitor):
         derived type variable or member) and, optionally, a subscript list
 
         :class:`fparser.two.Fortran2003.Part_Ref` has two children:
-            * :class:`fparser.two.Fortran2003.Name`: the part name
-            * :class:`fparser.two.Fortran2003.Section_Subscript_List`: the
-              subscript (or `None`)
+
+        * :class:`fparser.two.Fortran2003.Name`: the part name
+        * :class:`fparser.two.Fortran2003.Section_Subscript_List`: the
+          subscript (or `None`)
         """
         name = self.visit(o.children[0], **kwargs)
         dimensions = self.visit(o.children[1], **kwargs)
@@ -375,7 +376,7 @@ class FParser2IR(GenericVisitor):
     def visit_Data_Ref(self, o, **kwargs):
         """
         A fully qualified name for accessing a derived type or class member,
-        composed from individual :any:`Part_Ref` as
+        composed from individual :class:`fparser.two.Fortran2003.Part_Ref` as
         ``part-ref [% part-ref [% part-ref ...] ]``
 
         :class:`fparser.two.Fortran2003.Data_Ref` has variable number of children,
@@ -403,13 +404,16 @@ class FParser2IR(GenericVisitor):
         An import of symbol names via ``USE``
 
         :class:`fparser.two.Fortran2003.Use_Stmt` has five children:
-            * module-nature (`str`: 'INTRINSIC' or 'NON_INTRINSIC' or `None` if absent)
-            * '::' (`str`) if a double colon is used, otherwise `None`
-            * module-name :class:`fparser.two.Fortran2003.Module_Name`
+
+        * module-nature (`str`: 'INTRINSIC' or 'NON_INTRINSIC' or `None` if absent)
+        * '::' (`str`) if a double colon is used, otherwise `None`
+        * module-name :class:`fparser.two.Fortran2003.Module_Name`
+
         followed by
-            * ', ONLY:' (`str`) and :class:`fparser.two.Fortran2003.Only_List`, or
-            * ',' (`str`) and :class:`fparser.two.Fortran2003.Rename_List`, or
-            * '' (`str`) and no only-list or rename-list
+
+        * ', ONLY:' (`str`) and :class:`fparser.two.Fortran2003.Only_List`, or
+        * ',' (`str`) and :class:`fparser.two.Fortran2003.Rename_List`, or
+        * '' (`str`) and no only-list or rename-list
         """
         if o.children[0] is not None:
             # Module nature
@@ -490,11 +494,12 @@ class FParser2IR(GenericVisitor):
         A rename of an imported symbol
 
         :class:`fparser.two.Fortran2003.Rename` has three children:
-            * 'OPERATOR' (`str`) or `None`
-            * :class:`fparser.two.Fortran2003.Local_Name` or
-              :class:`fparser.two.Fortran2003.Local_Defined_Operator`
-            * :class:`fparser.two.Fortran2003.Use_Name` or
-              :class:`fparser.two.Fortran2003.Use_Defined_Operator`
+
+        * 'OPERATOR' (`str`) or `None`
+        * :class:`fparser.two.Fortran2003.Local_Name` or
+          :class:`fparser.two.Fortran2003.Local_Defined_Operator`
+        * :class:`fparser.two.Fortran2003.Use_Name` or
+          :class:`fparser.two.Fortran2003.Use_Defined_Operator`
         """
         if o.children[0] == 'OPERATOR':
             self.warn_or_fail('OPERATOR in rename-list not yet implemented')
@@ -511,11 +516,12 @@ class FParser2IR(GenericVisitor):
         Variable declaration statement
 
         :class:`fparser.two.Fortran2003.Type_Declaration_Stmt` has 3 children:
-            * :class:`fparser.two.Fortran2003.Declaration_Type_Spec`
-              (:class:`fparser.two.Fortran2003.Intrinsic_Type_Spec` or
-               :class:`fparser.two.Fortran2003.Derived_Type_Spec`)
-            * :class:`fparser.two.Fortran2003.Attr_Spec_List`
-            * :class:`fparser.two.Fortran2003.Entity_Decl_List`
+
+        * :class:`fparser.two.Fortran2003.Declaration_Type_Spec`
+          (:class:`fparser.two.Fortran2003.Intrinsic_Type_Spec` or
+          :class:`fparser.two.Fortran2003.Derived_Type_Spec`)
+        * :class:`fparser.two.Fortran2003.Attr_Spec_List`
+        * :class:`fparser.two.Fortran2003.Entity_Decl_List`
         """
         # First, obtain data type and attributes
         _type = self.visit(o.children[0], **kwargs)
@@ -579,9 +585,10 @@ class FParser2IR(GenericVisitor):
         An intrinsic type
 
         :class:`fparser.two.Fortran2003.Intrinsic_Type_Spec` has 2 children:
-            * type name (str)
-            * kind (:class:`fparser.two.Fortran2003.Kind_Selector`) or length
-              (:class:`fparser.two.Fortran2003.Length_Selector`)
+
+        * type name (str)
+        * kind (:class:`fparser.two.Fortran2003.Kind_Selector`) or length
+          (:class:`fparser.two.Fortran2003.Length_Selector`)
         """
         dtype = BasicType.from_str(o.children[0])
         if o.children[1]:
@@ -601,9 +608,10 @@ class FParser2IR(GenericVisitor):
         A kind selector of an intrinsic type
 
         :class:`fparser.two.Fortran2003.Kind_Selector` has 2 or 3 children:
-            * ``'*'`` (str) and :class:`fparser.two.Fortran2003.Char_Length`, or
-            * ``'('`` (str), :class:`fparser.two.Fortran2003.Scalar_Int_Initialization_Expr`,
-              and ``')'`` (str)
+
+        * ``'*'`` (str) and :class:`fparser.two.Fortran2003.Char_Length`, or
+        * ``'('`` (str), :class:`fparser.two.Fortran2003.Scalar_Int_Initialization_Expr`,
+          and ``')'`` (str)
         """
         if len(o.children) in (2, 3) and (o.children[0] == '*' or o.children[0] + str(o.children[-1]) == '()'):
             return (('kind', self.visit(o.children[1], **kwargs)),)
@@ -615,10 +623,11 @@ class FParser2IR(GenericVisitor):
         A length selector for intrinsic character type
 
         :class:`fparser.two.Fortran2003.Length_Selector` has 3 children:
-            * '(' (str)
-            * :class:`fparser.two.Fortran2003.Char_Length` or
-              :class:`fparser.two.Fortran2003.Type_Param_Value`
-            * ')' (str)
+
+        * '(' (str)
+        * :class:`fparser.two.Fortran2003.Char_Length` or
+          :class:`fparser.two.Fortran2003.Type_Param_Value`
+        * ')' (str)
         """
         assert o.children[0] == '*' or (o.children[0] == '(' and o.children[2] == ')')
         return (('length', self.visit(o.children[1], **kwargs)),)
@@ -628,7 +637,8 @@ class FParser2IR(GenericVisitor):
         Length specifier in the Length_Selector
 
         :class:`fparser.two.Fortran2003.Length_Selector` has one child:
-            * length value (str)
+
+        * length value (str)
         """
         assert o.children[0] == '(' and o.children[2] == ')'
         return self.visit(o.children[1], **kwargs)
@@ -638,8 +648,9 @@ class FParser2IR(GenericVisitor):
         Length- and kind-selector for intrinsic character type
 
         :class:`fparser.two.Fortran2003.Char_Selector` has 2 children:
-            * :class:`fparser.two.Fortran2003.Length_Selector`
-            * some scalar expression for the kind
+
+        * :class:`fparser.two.Fortran2003.Length_Selector`
+        * some scalar expression for the kind
         """
         length = None
         if o.children[0] is not None:
@@ -654,6 +665,7 @@ class FParser2IR(GenericVisitor):
         length of a CHARACTER)
 
         :class:`fparser.two.Fortran2003.Type_Param_Value` has only 1 attribute:
+
           * :attr:`string` : the value of the parameter (str)
         """
         if o.string in '*:':
@@ -665,8 +677,9 @@ class FParser2IR(GenericVisitor):
         A derived type specifier in a declaration
 
         :class:`fparser.two.Fortran2003.Declaration_Type_Spec` has 2 children:
-            * keyword 'TYPE' or 'CLASS' (str)
-            * :class:`fparser.two.Fortran2003.Derived_Type_Spec`
+
+        * keyword 'TYPE' or 'CLASS' (str)
+        * :class:`fparser.two.Fortran2003.Derived_Type_Spec`
         """
         if o.children[0].upper() in ('TYPE', 'CLASS'):
             dtype = self.visit(o.children[1], **kwargs)
@@ -689,8 +702,9 @@ class FParser2IR(GenericVisitor):
         The dimension specification as attribute in a declaration
 
         :class:`fparser.two.Fortran2003.Dimensions_Attr_Spec` has 2 children:
-            * attribute name (str)
-            * :class:`fparser.two.Fortran2003.Array_Spec`
+
+        * attribute name (str)
+        * :class:`fparser.two.Fortran2003.Array_Spec`
         """
         return (o.children[0].lower(), self.visit(o.children[1], **kwargs))
 
@@ -699,8 +713,9 @@ class FParser2IR(GenericVisitor):
         The intent specification in a declaration
 
         :class:`fparser.two.Fortran2003.Intent_Attr_Spec` has 2 children:
-            * 'INTENT' keyword
-            * :class:`fparser.two.Fortran2003.Intent_Spec`
+
+        * 'INTENT' keyword
+        * :class:`fparser.two.Fortran2003.Intent_Spec`
         """
         return (o.children[0].lower(), o.children[1].tostr().lower())
 
@@ -729,10 +744,11 @@ class FParser2IR(GenericVisitor):
         A variable entity in a declaration
 
         :class:`fparser.two.Fortran2003.Entity_Decl` has 4 children:
-            * object name (:class:`fparser.two.Fortran2003.Name`)
-            * array spec (:class:`fparser.two.Fortran2003.Array_Spec`)
-            * char length (:class:`fparser.two.Fortran2003.Char_Length`)
-            * init (:class:`fparser.two.Fortran2003.Initialization`)
+
+        * object name (:class:`fparser.two.Fortran2003.Name`)
+        * array spec (:class:`fparser.two.Fortran2003.Array_Spec`)
+        * char length (:class:`fparser.two.Fortran2003.Char_Length`)
+        * init (:class:`fparser.two.Fortran2003.Initialization`)
         """
         var = self.visit(o.children[0], **kwargs)
 
@@ -755,8 +771,9 @@ class FParser2IR(GenericVisitor):
         Explicit shape specification for arrays
 
         :class:`fparser.two.Fortran2003.Explicit_Shape_Spec` has 2 children:
-            * lower bound (if explicitly given)
-            * upper bound
+
+        * lower bound (if explicitly given)
+        * upper bound
         """
         lower_bound, upper_bound = None, None
         if o.children[1] is not None:
@@ -782,8 +799,9 @@ class FParser2IR(GenericVisitor):
         Variable initialization in declaration
 
         :class:`fparser.two.Fortran2003.Initialization` has 2 children:
-            * '=' or '=>' (str)
-            * init expr
+
+        * '=' or '=>' (str)
+        * init expr
         """
         if o.children[0] == '=':
             return self.visit(o.items[1], **kwargs)
@@ -798,8 +816,9 @@ class FParser2IR(GenericVisitor):
         An ``EXTERNAL`` statement to specify the external attribute for a list of names
 
         :class:`fparser.two.Fortran2003.External_Stmt` has 2 children:
-            * keyword 'EXTERNAL (`str`)
-            * the list of names :class:`fparser.two.Fortran2003.External_Name_List`
+
+        * keyword 'EXTERNAL (`str`)
+        * the list of names :class:`fparser.two.Fortran2003.External_Name_List`
         """
         assert o.children[0].upper() == 'EXTERNAL'
 
@@ -832,10 +851,11 @@ class FParser2IR(GenericVisitor):
         Procedure declaration statement
 
         :class:`fparser.two.Fortran2003.Procedure_Declaration_Stmt` has 3 children:
-            * :class:`fparser.two.Fortran2003.Name`: the name of the procedure interface
-            * :class:`fparser.two.Fortran2003.Proc_Attr_Spec_List` or `None`:
-              the declared attributes (if any)
-            * :class:`fparser.two.Fortran2003.Proc_Decl_List`: the local procedure names
+
+        * :class:`fparser.two.Fortran2003.Name`: the name of the procedure interface
+        * :class:`fparser.two.Fortran2003.Proc_Attr_Spec_List` or `None`:
+          the declared attributes (if any)
+        * :class:`fparser.two.Fortran2003.Proc_Decl_List`: the local procedure names
         """
         scope = kwargs['scope']
 
@@ -887,8 +907,9 @@ class FParser2IR(GenericVisitor):
         Procedure declaration attribute
 
         :class:`fparser.two.Fortran2003.Proc_Attr_Spec` has 2 children:
-            * attribute name (`str`)
-            * attribute value (such as ``IN``, ``OUT``, ``INOUT``) or `None`
+
+        * attribute name (`str`)
+        * attribute value (such as ``IN``, ``OUT``, ``INOUT``) or `None`
         """
         return (o.children[0].lower(), o.children[1].lower() if o.children[1] is not None else True)
 
@@ -899,9 +920,10 @@ class FParser2IR(GenericVisitor):
         A symbol entity in a procedure declaration with initialization
 
         :class:`fparser.two.Fortran2003.Proc_Decl` has 3 children:
-            * object name (:class:`fparser.two.Fortran2003.Name`)
-            * operator ``=>`` (`str`)
-            * initializer (:class:`fparser.two.Fortran2003.Function_Reference`)
+
+        * object name (:class:`fparser.two.Fortran2003.Name`)
+        * operator ``=>`` (`str`)
+        * initializer (:class:`fparser.two.Fortran2003.Function_Reference`)
         """
         var = self.visit(o.children[0], **kwargs)
         assert o.children[1] == '=>'
@@ -917,9 +939,10 @@ class FParser2IR(GenericVisitor):
         An array constructor expression
 
         :class:`fparser.two.Fortran2003.Array_Constructor` has three children:
-            * left bracket (`str`): ``(/`` or ``[``
-            * the spec: :class:`fparser.two.Fortran2003.Ac_Spec`
-            * right bracket (`str`): ``/)`` or ``]``
+
+        * left bracket (`str`): ``(/`` or ``[``
+        * the spec: :class:`fparser.two.Fortran2003.Ac_Spec`
+        * right bracket (`str`): ``/)`` or ``]``
         """
         return self.visit(o.children[1], **kwargs)
 
@@ -928,8 +951,9 @@ class FParser2IR(GenericVisitor):
         The spec in an array constructor
 
         :class:`fparser.two.Fortran2003.Ac_Spec` has two children:
-            * :class:`fparser.two.Fortran2003.Type_Spec`
-            * :class:`fparser.two.Fortran2003.Ac_Value_List`
+
+        * :class:`fparser.two.Fortran2003.Type_Spec`
+        * :class:`fparser.two.Fortran2003.Ac_Value_List`
         """
         if o.children[0] is not None:
             # TODO: implement Type_Spec support
@@ -974,8 +998,9 @@ class FParser2IR(GenericVisitor):
         A data-stmt-set in a data-stmt
 
         :class:`fparser.two.Fortran2003.Data_Stmt_Set` has two children:
-            * the object to initialize :class:`fparser.two.Fortran2003.Data_Stmt_Object`
-            * the value list :class:`fparser.two.Fortran2003.Data_Stmt_Value_List`
+
+        * the object to initialize :class:`fparser.two.Fortran2003.Data_Stmt_Object`
+        * the value list :class:`fparser.two.Fortran2003.Data_Stmt_Value_List`
         """
         variable = self.visit(o.children[0], **kwargs)
         values = self.visit(o.children[1], **kwargs)
@@ -997,8 +1022,9 @@ class FParser2IR(GenericVisitor):
         A value in a data-stmt-set
 
         :class:`fparser.two.Fortran2003.Data_Stmt_Value` has two children:
-            * the repeat value :class:`fparser.two.Fortran2003.Data_Stmt_Repeat`
-            * the constant :class:`fparser.two.Fortran2003.Data_Stmt_Constant`
+
+        * the repeat value :class:`fparser.two.Fortran2003.Data_Stmt_Repeat`
+        * the constant :class:`fparser.two.Fortran2003.Data_Stmt_Constant`
         """
         constant = self.visit(o.children[1], **kwargs)
         if o.children[0] is None:
@@ -1018,9 +1044,10 @@ class FParser2IR(GenericVisitor):
         A subscript expression with ``[start] : [stop] [: stride]``
 
         :class:`fparser.two.Fortran2003.Subscript_Triplet` has three children:
-            * start :class:`fparser.two.Fortran2003.Subscript` or `None`
-            * stop :class:`fparser.two.Fortran2003.Subscript` or `None`
-            * stride :class:`fparser.two.Fortran2003.Stride` or `None`
+
+        * start :class:`fparser.two.Fortran2003.Subscript` or `None`
+        * stop :class:`fparser.two.Fortran2003.Subscript` or `None`
+        * stride :class:`fparser.two.Fortran2003.Stride` or `None`
         """
         start = self.visit(o.children[0], **kwargs) if o.children[0] is not None else None
         stop = self.visit(o.children[1], **kwargs) if o.children[1] is not None else None
@@ -1051,12 +1078,13 @@ class FParser2IR(GenericVisitor):
         A derived type definition
 
         :class:`fparser.two.Fortran2003.Derived_Type_Def` has variable number of children:
-            * header stmt (:class:`fparser.two.Fortran2003.Derived_Type_Stmt`)
-            * all of body (list of :class:`fparser.two.Fortran2003.Type_Param_Def_Stmt`,
-              :class:`fparser.two.Fortran2003.Private_Or_Sequence`,
-              :class:`fparser.two.Fortran2003.Component_Part`,
-              :class:`fparser.two.Fortran2003.Type_Bound_Procedure_Part`)
-            * end stmt (:class:`fparser.two.Fortran2003.End_Type_Stmt`)
+
+        * header stmt (:class:`fparser.two.Fortran2003.Derived_Type_Stmt`)
+        * all of body (list of :class:`fparser.two.Fortran2003.Type_Param_Def_Stmt`,
+          :class:`fparser.two.Fortran2003.Private_Or_Sequence`,
+          :class:`fparser.two.Fortran2003.Component_Part`,
+          :class:`fparser.two.Fortran2003.Type_Bound_Procedure_Part`)
+        * end stmt (:class:`fparser.two.Fortran2003.End_Type_Stmt`)
         """
         # Find start and end of construct
         derived_type_stmt = get_child(o, Fortran2003.Derived_Type_Stmt)
@@ -1093,9 +1121,10 @@ class FParser2IR(GenericVisitor):
         The block header for the derived type definition
 
         :class:`fparser.two.Fortran2003.Derived_Type_Stmt` has 3 children:
-            * attribute spec list (:class:`fparser.two.Fortran2003.Type_Attr_Spec_List`)
-            * type name (:class:`fparser.two.Fortran2003.Type_Name`)
-            * parameter name list (:class:`fparser.two.Fortran2003.Type_Param_Name_List`)
+
+        * attribute spec list (:class:`fparser.two.Fortran2003.Type_Attr_Spec_List`)
+        * type name (:class:`fparser.two.Fortran2003.Type_Name`)
+        * parameter name list (:class:`fparser.two.Fortran2003.Type_Param_Name_List`)
         """
         if o.children[0] is not None:
             attrs = dict(self.visit(o.children[0], **kwargs))
@@ -1125,8 +1154,9 @@ class FParser2IR(GenericVisitor):
         A component declaration attribute
 
         :class:`fparser.two.Fortran2003.Type_Attr_Spec` has 2 children:
-            * keyword (`str`)
-            * value (`str`) or `None`
+
+        * keyword (`str`)
+        * value (`str`) or `None`
         """
         if o.children[1] is not None:
             return (str(o.children[0]).lower(), str(o.children[1]).lower())
@@ -1160,8 +1190,9 @@ class FParser2IR(GenericVisitor):
         Named PASS attribute
 
         :class:`fparser.two.Fortran2003.Binding_PASS_Arg_Name` has two children:
-            * `str`: 'PASS'
-            * `Name`: the argument name
+
+        * `str`: 'PASS'
+        * `Name`: the argument name
         """
         return ('pass_attr', str(o.children[1]))
 
@@ -1204,11 +1235,12 @@ class FParser2IR(GenericVisitor):
         A specific binding for a type-bound procedure in a derived type
 
         :class:`fparser.two.Fortran2003.Specific_Binding` has five children:
-            * interface name :class:`fparser.two.Fortran2003.Interface_Name`
-            * binding attr list :class:`fparser.two.Fortran2003.Binding_Attr_List`
-            * '::' (`str`) or `None`
-            * name :class:`fparser.two.Fortran2003.Binding_Name`
-            * procedure name :class:`fparser.two.Fortran2003.Procedure_Name`
+
+        * interface name :class:`fparser.two.Fortran2003.Interface_Name`
+        * binding attr list :class:`fparser.two.Fortran2003.Binding_Attr_List`
+        * '::' (`str`) or `None`
+        * name :class:`fparser.two.Fortran2003.Binding_Name`
+        * procedure name :class:`fparser.two.Fortran2003.Procedure_Name`
         """
         scope = kwargs['scope']
 
@@ -1256,10 +1288,11 @@ class FParser2IR(GenericVisitor):
         """
         A generic binding for a type-bound procedure in a derived type
 
-        :class:`fparser.two.Fortran2003.Generic_Binding has three children:
-            * :class:`fparser.two.Fortran2003.Access_Spec` or None (access specifier)
-            * :class:`fparser.two.Fortran2003.Generic_Spec` (the local name of the binding)
-            * :class:`fparser.two.Fortran2003.Binding_Name_List` (the names it binds to)
+        :class:`fparser.two.Fortran2003.Generic_Binding` has three children:
+
+        * :class:`fparser.two.Fortran2003.Access_Spec` or None (access specifier)
+        * :class:`fparser.two.Fortran2003.Generic_Spec` (the local name of the binding)
+        * :class:`fparser.two.Fortran2003.Binding_Name_List` (the names it binds to)
         """
         scope = kwargs['scope']
         name = self.visit(o.children[1], **kwargs)
@@ -1281,8 +1314,9 @@ class FParser2IR(GenericVisitor):
         A final binding for type-bound procedures in a derived type
 
         :class:`fparser.two.Fortran2003.Final_Binding` has two children:
-            * keyword ``'FINAL'`` (`str`)
-            * :class:`fparser.two.Fortran2003.Final_Subroutine_Name_List` (the list of routines)
+
+        * keyword ``'FINAL'`` (`str`)
+        * :class:`fparser.two.Fortran2003.Final_Subroutine_Name_List` (the list of routines)
         """
         scope = kwargs['scope']
         symbols = self.visit(o.children[1], **kwargs)
@@ -1308,11 +1342,12 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Associate_Construct` has a variable
         number of children:
-            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
-            * :class:`fparser.two.Fortran2003.Associate_Stmt` (the actual statement
-              with the definition of associates)
-            * the body of the ASSOCIATE construct
-            * :class:`fparser.two.Fortran2003.End_Associate_Stmt`
+
+        * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+        * :class:`fparser.two.Fortran2003.Associate_Stmt` (the actual statement
+          with the definition of associates)
+        * the body of the ASSOCIATE construct
+        * :class:`fparser.two.Fortran2003.End_Associate_Stmt`
         """
         # Find start and end of associate construct
         assoc_stmt = get_child(o, Fortran2003.Associate_Stmt)
@@ -1378,9 +1413,10 @@ class FParser2IR(GenericVisitor):
         The ASSOCIATE statement with the association list
 
         :class:`fparser.two.Fortran2003.Associate_Stmt` has two children:
-            * The command `ASSOCIATE` (`str`)
-            * The :class:`fparser.two.Fortran2003.Association_List` defining the
-              associations
+
+        * The command `ASSOCIATE` (`str`)
+        * The :class:`fparser.two.Fortran2003.Association_List` defining the
+          associations
         """
         assert o.children[0].upper() == 'ASSOCIATE'
         return self.visit(o.children[1], **kwargs)
@@ -1392,9 +1428,10 @@ class FParser2IR(GenericVisitor):
         A single association in an associate-stmt
 
         :class:`fparser.two.Fortran2003.Associate` has two children:
-            * :class:`fparser.two.Fortran2003.Name` (the new assigned name)
-            * the operator ``=>`` (`str`)
-            * :class:`fparser.two.Fortran2003.Name` (the associated expression)
+
+        * :class:`fparser.two.Fortran2003.Name` (the new assigned name)
+        * the operator ``=>`` (`str`)
+        * :class:`fparser.two.Fortran2003.Name` (the associated expression)
         """
         assert o.children[1] == '=>'
         associate_name = self.visit(o.children[0], **kwargs)
@@ -1411,14 +1448,15 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Interface_Block` has variable number of
         children:
-            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
-            * :class:`fparser.two.Fortran2003.Interface_Stmt` (the actual statement
-              that begins the construct)
-            * the body, made up of :class:`fparser.two.Fortran2003.Subroutine_Body`,
-              :class:`fparser.two.Fortran2003.Function_Body`,
-              :class:`fparser.two.Fortran2003.Procedure_Stmt` and, potentially,
-              any interleaving comments :class:`fparser.two.Fortran2003.Comment`
-            * the closing :class:`fparser.two.Fortran2003.End_Interface_Stmt`
+
+        * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+        * :class:`fparser.two.Fortran2003.Interface_Stmt` (the actual statement
+          that begins the construct)
+        * the body, made up of :class:`fparser.two.Fortran2003.Subroutine_Body`,
+          :class:`fparser.two.Fortran2003.Function_Body`,
+          :class:`fparser.two.Fortran2003.Procedure_Stmt` and, potentially,
+          any interleaving comments :class:`fparser.two.Fortran2003.Comment`
+        * the closing :class:`fparser.two.Fortran2003.End_Interface_Stmt`
         """
         # Find start and end of construct
         interface_stmt = get_child(o, Fortran2003.Interface_Stmt)
@@ -1462,9 +1500,10 @@ class FParser2IR(GenericVisitor):
         The specification of the interface
 
         :class:`fparser.two.Fortran2003.Interface_Stmt` has one child, which is either:
-            * `None`, if no further specification exists
-            * ``'ABSTRACT'`` (`str`) for an abstract interface
-            * :class:`fparser.two.Fortran2003.Generic_Spec` for other specifications
+
+        * `None`, if no further specification exists
+        * ``'ABSTRACT'`` (`str`) for an abstract interface
+        * :class:`fparser.two.Fortran2003.Generic_Spec` for other specifications
         """
         if o.children[0] == 'ABSTRACT':
             return 'ABSTRACT'
@@ -1477,11 +1516,14 @@ class FParser2IR(GenericVisitor):
         The generic-spec of an interface
 
         :class:`fparser.two.Fortran2003.Generic_Spec` has two children, which is either:
-            * ``'OPERATOR'`` (`str`) followed by
-            * :class:`fparser.two.Fortran2003.Defined_Operator`
-        or:
-            * ``'ASSIGNMENT'`` (`str`) followed by
-            * ``'='`` (`str`)
+
+        * ``'OPERATOR'`` (`str`) followed by
+        * :class:`fparser.two.Fortran2003.Defined_Operator`
+
+        -or-
+
+        * ``'ASSIGNMENT'`` (`str`) followed by
+        * ``'='`` (`str`)
         """
         return sym.Variable(name=str(o), source=kwargs.get('source'))
 
@@ -1490,7 +1532,8 @@ class FParser2IR(GenericVisitor):
         Procedure statement
 
         :class:`fparser.two.Fortran2003.Procedure_Stmt` has 1 child:
-            * :class:`fparser.two.Fortran2003.Procedure_Name_List`: the names of the procedures
+
+        * :class:`fparser.two.Fortran2003.Procedure_Name_List`: the names of the procedures
         """
         module_proc = o.string.upper().startswith('MODULE')
         symbols = self.visit(o.children[0], **kwargs)
@@ -1508,9 +1551,10 @@ class FParser2IR(GenericVisitor):
         An import statement for named entities in an interface body
 
         :class:`fparser.two.Fortran2003.Import_Stmt` has two children:
-            * The string ``'IMPORT'``
-            * :class:`fparser.two.Fortran2003.Import_Name_List` with the names
-              of imported entities
+
+        * The string ``'IMPORT'``
+        * :class:`fparser.two.Fortran2003.Import_Name_List` with the names
+          of imported entities
         """
         assert o.children[0] == 'IMPORT'
         symbols = self.visit(o.children[1], **kwargs)
@@ -1533,14 +1577,15 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Subroutine_Subprogram` has variable number of children,
         where the internal nodes may be optional:
-            * :class:`fparser.two.Fortran2003.Subroutine_Stmt` (the opening statement)
-            * :class:`fparser.two.Fortran2003.Specification_Part` (variable declarations, module
-              imports etc.); due to an fparser bug, this can appear multiple times interleaved with
-              the execution-part
-            * :class:`fparser.two.Fortran2003.Execution_Part` (the body of the routine)
-            * :class:`fparser.two.Fortran2003.Internal_Subprogram_Part` (any member procedures
-              declared inside the procedure)
-            * :class:`fparser.two.Fortran2003.End_Subroutine_Stmt` (the final statement)
+
+        * :class:`fparser.two.Fortran2003.Subroutine_Stmt` (the opening statement)
+        * :class:`fparser.two.Fortran2003.Specification_Part` (variable declarations, module
+          imports etc.); due to an fparser bug, this can appear multiple times interleaved with
+          the execution-part
+        * :class:`fparser.two.Fortran2003.Execution_Part` (the body of the routine)
+        * :class:`fparser.two.Fortran2003.Internal_Subprogram_Part` (any member procedures
+          declared inside the procedure)
+        * :class:`fparser.two.Fortran2003.End_Subroutine_Stmt` (the final statement)
         """
         # Find start and end of construct
         subroutine_stmt = get_child(o, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt))
@@ -1692,10 +1737,11 @@ class FParser2IR(GenericVisitor):
         The ``SUBROUTINE`` statement
 
         :class:`fparser.two.Fortran2003.Subroutine_Stmt` has four children:
-            * prefix :class:`fparser.two.Fortran2003.Prefix`
-            * name :class:`fparser.two.Fortran2003.Subroutine_Name`
-            * dummy argument list :class:`fparser.two.Fortran2003.Dummy_Arg_List`
-            * language binding specs :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
+
+        * prefix :class:`fparser.two.Fortran2003.Prefix`
+        * name :class:`fparser.two.Fortran2003.Subroutine_Name`
+        * dummy argument list :class:`fparser.two.Fortran2003.Dummy_Arg_List`
+        * language binding specs :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
         """
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
 
@@ -1747,9 +1793,10 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Prefix` has variable number of children
         that have the type
-            * :class:`fparser.two.Fortran2003.Prefix_Spec` to declare attributes
-            * :class:`fparser.two.Fortran2003.Declaration_Type_Spec` (or any of its
-              variations) to declare the return type of a function
+
+        * :class:`fparser.two.Fortran2003.Prefix_Spec` to declare attributes
+        * :class:`fparser.two.Fortran2003.Declaration_Type_Spec` (or any of its
+          variations) to declare the return type of a function
         """
         attrs = [self.visit(c, **kwargs) for c in o.children]
         return as_tuple(attrs)
@@ -1771,10 +1818,11 @@ class FParser2IR(GenericVisitor):
         The definition of a Fortran module
 
         :class:`fparser.two.Fortran2003.Module` has up to four children:
-            * The opening :class:`fparser.two.Fortran2003.Module_Stmt`
-            * The specification part :class:`fparser.two.Fortran2003.Specification_Part`
-            * The module subprogram part :class:`fparser.two.Fortran2003.Module_Subprogram_Part`
-            * the closing :class:`fparser.two.Fortran2003.End_Module_Stmt`
+
+        * The opening :class:`fparser.two.Fortran2003.Module_Stmt`
+        * The specification part :class:`fparser.two.Fortran2003.Specification_Part`
+        * The module subprogram part :class:`fparser.two.Fortran2003.Module_Subprogram_Part`
+        * the closing :class:`fparser.two.Fortran2003.End_Module_Stmt`
         """
         from loki.module import Module  # pylint: disable=import-outside-toplevel
 
@@ -1850,16 +1898,17 @@ class FParser2IR(GenericVisitor):
         """
         The entire ``IF`` construct
 
-        :class:`fparser.two.Fortran2003.If_Construct has variable number of children:
-            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
-            * :class:`fparser.two.Fortran2003.If_Then_Stmt` (the actual statement
-              that begins the construct with the first condition)
-            * the body of the conditional branch
-            * Optionally, one or more :class:`fparser.two.Fortran2003.Else_If_Stmt`
-              followed by their corresponding bodies
-            * Optionally, a :class:`fparser.two.Fortran2003.Else_Stmt` followed by
-              its body
-            * :class:`fparser.two.Fortran2003.End_If_Stmt`
+        :class:`fparser.two.Fortran2003.If_Construct` has variable number of children:
+
+        * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+        * :class:`fparser.two.Fortran2003.If_Then_Stmt` (the actual statement
+          that begins the construct with the first condition)
+        * the body of the conditional branch
+        * Optionally, one or more :class:`fparser.two.Fortran2003.Else_If_Stmt`
+          followed by their corresponding bodies
+        * Optionally, a :class:`fparser.two.Fortran2003.Else_Stmt` followed by
+          its body
+        * :class:`fparser.two.Fortran2003.End_If_Stmt`
         """
         # Find start and end of construct
         if_then_stmt = get_child(o, Fortran2003.If_Then_Stmt)
@@ -1924,8 +1973,9 @@ class FParser2IR(GenericVisitor):
         An inline ``IF`` statement with a single statement as body
 
         :class:`fparser.two.Fortran2003.If_Stmt` has two children:
-            * the condition expression
-            * the body
+
+        * the condition expression
+        * the body
         """
         cond = self.visit(o.items[0], **kwargs)
         body = as_tuple(self.visit(o.items[1], **kwargs))
@@ -1941,13 +1991,14 @@ class FParser2IR(GenericVisitor):
         The entire ``SELECT CASE`` construct
 
         :class:`fparser.two.Fortran2003.Case_Construct` has variable number of children:
-            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
-            * :class:`fparser.two.Fortran2003.Select_Case_Stmt` (the actual statement
-              with the selection expression)
-            * the body of the case-construct, containing one or multiple
-              :class:`fparser.two.Fortran2003.Case_Stmt` followed by their
-              corresponding bodies
-            * :class:`fparser.two.Fortran2003.End_Select_Stmt`
+
+        * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+        * :class:`fparser.two.Fortran2003.Select_Case_Stmt` (the actual statement
+          with the selection expression)
+        * the body of the case-construct, containing one or multiple
+          :class:`fparser.two.Fortran2003.Case_Stmt` followed by their
+          corresponding bodies
+        * :class:`fparser.two.Fortran2003.End_Select_Stmt`
         """
         # Find start and end of case construct
         select_case_stmt = get_child(o, Fortran2003.Select_Case_Stmt)
@@ -2011,10 +2062,11 @@ class FParser2IR(GenericVisitor):
         A ``CASE`` statement in a case-construct
 
         :class:`fparser.two.Fortran2003.Case_Stmt` has two children:
-            * the selection expression
-              :class:`fparser.two.Fortran2003.Case_Selector`.
-            * the construct name
-              :class:`fparser.two.Fortran2003.Case_Construct_Name` or `None`
+
+        * the selection expression
+          :class:`fparser.two.Fortran2003.Case_Selector`.
+        * the construct name
+          :class:`fparser.two.Fortran2003.Case_Construct_Name` or `None`
         """
         return self.visit(o.children[0], **kwargs)
 
@@ -2035,8 +2087,9 @@ class FParser2IR(GenericVisitor):
         The range of values in a ``CASE`` statement
 
         :class:`fparser.two.Fortran2003.Case_Value_Range` has two children:
-            * start :class:`fparser.two.Fortran2003.Case_Value` or `None`
-            * stop :class:`fparser.two.Fortran2003.Case_Value` or `None`
+
+        * start :class:`fparser.two.Fortran2003.Case_Value` or `None`
+        * stop :class:`fparser.two.Fortran2003.Case_Value` or `None`
         """
         start = self.visit(o.children[0], **kwargs) if o.children[0] is not None else None
         stop = self.visit(o.children[1], **kwargs) if o.children[1] is not None else None
@@ -2056,9 +2109,10 @@ class FParser2IR(GenericVisitor):
         A call to ``ALLOCATE``
 
         :class:`fparser.two.Fortran2003.Allocate_Stmt` has three children:
-            * :class:`fparser.two.Fortran2003.Type_Spec` or `None`
-            * :class:`fparser.two.Fortran2003.Allocation_List`
-            * :class:`fparser.two.Fortran2003.Alloc_Opt_List` or `None`
+
+        * :class:`fparser.two.Fortran2003.Type_Spec` or `None`
+        * :class:`fparser.two.Fortran2003.Allocation_List`
+        * :class:`fparser.two.Fortran2003.Alloc_Opt_List` or `None`
         """
         if o.children[0] is not None:
             # We can't handle type spec at the moment
@@ -2085,9 +2139,10 @@ class FParser2IR(GenericVisitor):
         An allocation specification in an allocate-stmt
 
         :class:`fparser.two.Fortran2003.Allocation` has two children:
-            * the name of the data object to be allocated:
-              :class:`fparser.two.Fortran2003.Allocate_Object`
-            * the shape of the object: :class:`fparser.two.Fortran2003.Allocate_Shape_Spec_List`
+
+        * the name of the data object to be allocated:
+          :class:`fparser.two.Fortran2003.Allocate_Object`
+        * the shape of the object: :class:`fparser.two.Fortran2003.Allocate_Shape_Spec_List`
         """
         name = self.visit(o.children[0], **kwargs)
         shape = self.visit(o.children[1], **kwargs)
@@ -2105,9 +2160,10 @@ class FParser2IR(GenericVisitor):
         """
         An allocation option in an allocate-stmt
 
-        :class:`fparser.two.Fortran2003.Alloc_Opt has two children:
-            * the keyword (`str`)
-            * the option value
+        :class:`fparser.two.Fortran2003.Alloc_Opt` has two children:
+
+        * the keyword (`str`)
+        * the option value
         """
         keyword = o.children[0].lower()
         if keyword in ('source', 'stat'):
@@ -2120,9 +2176,10 @@ class FParser2IR(GenericVisitor):
         """
         A call to ``DEALLOCATE``
 
-        :class:`fparser.two.Fortran2003.Deallocate_Stmt has two children:
-            * the list of objects :class:`fparser.two.Fortran2003.Allocate_Object_List`
-            * list of options :class:`fparser.two.Fortran2003.Dealloc_Opt_list`
+        :class:`fparser.two.Fortran2003.Deallocate_Stmt` has two children:
+
+        * the list of objects :class:`fparser.two.Fortran2003.Allocate_Object_List`
+        * list of options :class:`fparser.two.Fortran2003.Dealloc_Opt_list`
         """
         variables = self.visit(o.children[0], **kwargs)
 
@@ -2142,9 +2199,10 @@ class FParser2IR(GenericVisitor):
         """
         A deallocation option in a deallocate-stmt
 
-        :class:`fparser.two.Fortran2003.Dealloc_Opt has two children:
-            * the keyword (`str`)
-            * the option value
+        :class:`fparser.two.Fortran2003.Dealloc_Opt` has two children:
+
+        * the keyword (`str`)
+        * the option value
         """
         keyword = o.children[0].lower()
         if keyword == 'stat':
@@ -2162,8 +2220,9 @@ class FParser2IR(GenericVisitor):
         A ``CALL`` statement
 
         :class:`fparser.two.Fortran2003.Call_Stmt` has two children:
-            * the subroutine name :class:`fparser.two.Fortran2003.Procedure_Designator`
-            * the argument list :class:`fparser.two.Fortran2003.Actual_Arg_Spec_List`
+
+        * the subroutine name :class:`fparser.two.Fortran2003.Procedure_Designator`
+        * the argument list :class:`fparser.two.Fortran2003.Actual_Arg_Spec_List`
         """
         name = self.visit(o.children[0], **kwargs)
         if o.children[1] is not None:
@@ -2183,9 +2242,10 @@ class FParser2IR(GenericVisitor):
         hands through the relevant names directly).
 
         :class:`fparser.two.Fortran2003.Procedure_Designator` has three children:
-            * Parent name :class:`fparser.two.Fortran2003.Data_Ref`
-            * '%' (`str`)
-            * procedure name :class:`fparser.two.Fortran2003.Binding_Name`
+
+        * Parent name :class:`fparser.two.Fortran2003.Data_Ref`
+        * '%' (`str`)
+        * procedure name :class:`fparser.two.Fortran2003.Binding_Name`
         """
         assert o.children[1] == '%'
         parent = self.visit(o.children[0], **kwargs)
@@ -2200,8 +2260,9 @@ class FParser2IR(GenericVisitor):
         A single argument in a subroutine call
 
         :class:`fparser.two.Fortran2003.Actual_Arg_Spec` has two children:
-            * keyword :class:`fparser.two.Fortran2003.Keyword`
-            * argument :class:`fparser.two.Fortran2003.Actual_Arg`
+
+        * keyword :class:`fparser.two.Fortran2003.Keyword`
+        * argument :class:`fparser.two.Fortran2003.Actual_Arg`
         """
         keyword = o.children[0].tostr() if o.children[0] is not None else None
         arg = self.visit(o.children[1], **kwargs)
@@ -2212,8 +2273,9 @@ class FParser2IR(GenericVisitor):
         An inline function call
 
         :class:`fparser.two.Fortran2003.Actual_Arg_Spec` has two children:
-            * the function name :class:fparser.two.Fortran2003.ProcedureDesignator`
-            * the argument list :class:`fparser.two.Fortran2003.Actual_Arg_Spec_List`
+
+        * the function name :class:fparser.two.Fortran2003.ProcedureDesignator`
+        * the argument list :class:`fparser.two.Fortran2003.Actual_Arg_Spec_List`
         """
         name = self.visit(o.children[0], **kwargs)
         if o.children[1] is not None:
@@ -2254,8 +2316,9 @@ class FParser2IR(GenericVisitor):
         Call to the constructor of a derived type
 
         :class:`fparser.two.Fortran2003.Structure_Constructor` has two children:
-            * the structure name :class:`fparser.two.Fortran2003.Derived_Type_Spec`
-            * the argument list :class:`fparser.two.Fortran2003.Component_Spec_List`
+
+        * the structure name :class:`fparser.two.Fortran2003.Derived_Type_Spec`
+        * the argument list :class:`fparser.two.Fortran2003.Component_Spec_List`
         """
         # Note: Fparser wrongfully interprets function calls as Structure_Constructor
         # sometimes. However, we represent constructor calls in the same way, so it
@@ -2290,12 +2353,13 @@ class FParser2IR(GenericVisitor):
         The definition of an ``ENUM``
 
         :class:`fparser.two.Fortran2003.Enum_Def` has variable number of children:
-            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
-            * :class:`fparser.two.Fortran2003.Enum_Def_Stmt` (the statement indicating the
-              beginning of the enum)
-            * the body of the enum, containing one or multiple
-              :class:`fparser.two.Fortran2003.Enumerator_Def_Stmt`
-            * :class:`fparser.two.Fortran2003.End_Enum_Stmt`
+
+        * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+        * :class:`fparser.two.Fortran2003.Enum_Def_Stmt` (the statement indicating the
+          beginning of the enum)
+        * the body of the enum, containing one or multiple
+          :class:`fparser.two.Fortran2003.Enumerator_Def_Stmt`
+        * :class:`fparser.two.Fortran2003.End_Enum_Stmt`
         """
         # Find start end end of construct
         enum_def_stmt = get_child(o, Fortran2003.Enum_Def_Stmt)
@@ -2339,8 +2403,9 @@ class FParser2IR(GenericVisitor):
         A definition inside an ``ENUM``
 
         :class:`fparser.two.Fortran2003.Enumerator_Def_Stmt` has 2 children:
-            * ``'ENUMERATOR'`` (str)
-            * :class:`fparser.two.Fortran2003.Enumerator_List` (the constants)
+
+        * ``'ENUMERATOR'`` (str)
+        * :class:`fparser.two.Fortran2003.Enumerator_List` (the constants)
         """
         return self.visit(o.children[1], **kwargs)
 
@@ -2351,10 +2416,11 @@ class FParser2IR(GenericVisitor):
         A constant definition within an ``ENUM``'s definition stmt
 
         :class:`fparser.two.Fortran2003.Enumerator` has 3 children:
-            * :class:`fparser.two.Fortran2003.Name` (the constant's name)
-            * ``'='`` (str)
-            * the constant's value given as some constant expression that
-              must evaluate to an integer
+
+        * :class:`fparser.two.Fortran2003.Name` (the constant's name)
+        * ``'='`` (str)
+        * the constant's value given as some constant expression that
+          must evaluate to an integer
         """
         assert o.children[1] == '='
         symbol = self.visit(o.children[0], **kwargs)
@@ -2371,15 +2437,16 @@ class FParser2IR(GenericVisitor):
         Fortran's masked array assignment construct
 
         :class:`fparser.two.Fortran2003.Where_Construct` has variable number of children:
-            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
-            * :class:`fparser.two.Fortran2003.Where_Construct_Stmt` (the statement that marks
-              the beginning of the construct)
-            * body of the where-construct, usually an assignment
-            * (optional) :class:`fparser.two.Fortran2003.Masked_Elsewhere_Stmt` (essentially
-              an "else-if"), followed by its body; this can appear more than once
-            * (optional) :class:`fparser.two.Fortran2003.Elsewhere_Stmt` (essentially
-              an "else"), followed by its body
-            * :class:`fparser.two.Fortran2003.End_Where_Stmt`
+
+        * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+        * :class:`fparser.two.Fortran2003.Where_Construct_Stmt` (the statement that marks
+          the beginning of the construct)
+        * body of the where-construct, usually an assignment
+        * (optional) :class:`fparser.two.Fortran2003.Masked_Elsewhere_Stmt` (essentially
+          an "else-if"), followed by its body; this can appear more than once
+        * (optional) :class:`fparser.two.Fortran2003.Elsewhere_Stmt` (essentially
+          an "else"), followed by its body
+        * :class:`fparser.two.Fortran2003.End_Where_Stmt`
         """
         # Find start and end of construct
         where_stmt = get_child(o, Fortran2003.Where_Construct_Stmt)
@@ -2432,7 +2499,8 @@ class FParser2IR(GenericVisitor):
         The ``WHERE`` statement that marks the beginning of a where-construct
 
         :class:`fparser.two.Fortran2003.Where_Construct_Stmt` has 1 child:
-            * the expression that marks the condition
+
+        * the expression that marks the condition
         """
         return self.visit(o.children[0], **kwargs)
 
@@ -2441,8 +2509,9 @@ class FParser2IR(GenericVisitor):
         An ``ELSEWHERE`` statement with a condition in a where-construct
 
         :class:`fparser.two.Fortran2003.Masked_Elsewhere_Stmt` has 2 children:
-            * the expression that marks the condition
-            * the construct name or `None`
+
+        * the expression that marks the condition
+        * the construct name or `None`
         """
         if o.children[1] is not None:
             self.warn_or_fail('where-construct-names not yet implemented')
@@ -2453,8 +2522,9 @@ class FParser2IR(GenericVisitor):
         An unconditional ``ELSEWHERE`` statement
 
         :class:`fparser.two.Fortran2003.Elsewhere_Stmt` has 2 children:
-            * ``'ELSEWHERE'`` (str)
-            * the construct name or `None`
+
+        * ``'ELSEWHERE'`` (str)
+        * the construct name or `None`
         """
         if o.children[1] is not None:
             self.warn_or_fail('where-construct-names not yet implemented')
@@ -2466,8 +2536,9 @@ class FParser2IR(GenericVisitor):
         An inline ``WHERE`` assignment
 
         :class:`fparser.two.Fortran2003.Where_Stmt` has 2 children:
-            * the expression that marks the condition
-            * the assignment
+
+        * the expression that marks the condition
+        * the assignment
         """
         condition = self.visit(o.children[0], **kwargs)
         body = as_tuple(self.visit(o.children[1], **kwargs))

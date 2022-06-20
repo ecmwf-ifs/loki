@@ -466,7 +466,7 @@ the best place to report any problems.
 
 One important limitation is that loki-lint currently does not invoke a
 C-preprocessor. Although Loki has now a built-in
-:doc:`preprocessor <frontends:preprocessing>`, this is not currently used in
+:ref:`preprocessor <frontends:Preprocessing>`, this is not currently used in
 loki-lint. Therefore, preprocessor directives are not interpreted but
 essentially treated as comments. Thus, a code that does not reduce to
 (syntactically) valid Fortran when ignoring PP directives, parsing that

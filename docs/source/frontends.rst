@@ -45,12 +45,11 @@ Optionally, a number of parameters can or sometimes should be supplied:
 See the description of :any:`Sourcefile.from_file` for a description of all
 available options.
 
-As an alternative to reading source files one can also parse a Python
-string directly using :any:`Sourcefile.from_source`. With that, it is also
-possible to directly create modules or subroutines using
-:any:`Module.from_source` or :any:`Subroutine.from_source`, respectively.
-This is particularly useful for writing tests, avoiding the detour via an
-external file.
+As an alternative to reading source files one can also parse a Python string
+directly using :any:`Sourcefile.from_source`. With that, it is also possible to
+directly create modules or subroutines using the common parent routine
+:any:`ProgramUnit.from_source`.  This is particularly useful for writing tests,
+avoiding the detour via an external file.
 
 .. code-block:: python
 

@@ -307,14 +307,15 @@ class Stringifier(Visitor):
 
 def pprint(ir, stream=None):
     """
-    Pretty-print the given IR using :any:`Stringifier`.
+    Pretty-print the given IR using :class:`Stringifier`.
 
     Parameters
     ----------
     ir : :any:`Node`
         The IR node starting from which to print the tree
     stream : optional
-        If given, call :any:`write` on this stream instead of :any:`sys.stdout`
+        If given, call :meth:`Stringifier.write` on this stream instead of
+        :any:`sys.stdout`
     """
     if stream is None:
         stream = stdout

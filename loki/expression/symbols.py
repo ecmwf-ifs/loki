@@ -734,6 +734,7 @@ class Variable:
     it to a scope stores the type information locally.
 
     .. note::
+
         Providing :attr:`scope` and :attr:`type` overwrites the corresponding
         entry in the scope's symbol table. To not modify the type information
         omit :attr:`type` or use ``type=None``.
@@ -743,7 +744,8 @@ class Variable:
     Changing any of their attributes, including attaching them to a scope and
     modifying their type, should always be done via the :meth:`clone` method:
 
-    .. codeblock::
+    .. code-block::
+
         var = Variable(name='foo')
         var = var.clone(scope=scope, type=SymbolAttributes(BasicType.INTEGER))
         var = var.clone(type=var.type.clone(dtype=BasicType.REAL))
@@ -753,7 +755,8 @@ class Variable:
     via the dedicated :meth:`rescope` method. This is essentially a :meth:`clone`
     invocation but without the type update:
 
-    .. codeblock::
+    .. code-block::
+
         var = Variable(name='foo', type=SymbolAttributes(BasicType.INTEGER), scope=scope)
         unscoped_var = Variable(name='foo', type=SymbolAttributes(BasicType.REAL))
         scoped_var = unscoped_var.rescope(scope)  # scoped_var will have INTEGER type

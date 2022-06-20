@@ -353,7 +353,7 @@ class Sourcefile:
         Parameters
         ----------
         path : str, optional
-            Filepath of target file; if not provided, :any:`Sourcefile.path` is used
+            Filepath of target file; if not provided, :attr:`Sourcefile.path` is used
         source : str, optional
             Write the provided string instead of generating via :any:`Sourcefile.to_fortran`
         conservative : bool, optional

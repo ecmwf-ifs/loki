@@ -16,22 +16,24 @@ __all__ = ['DependencyTransformation']
 class DependencyTransformation(Transformation):
     """
     Basic :any:`Transformation` class that facilitates dependency
-    injection for transformed :any:`Modules` and :any:`Subroutines`
+    injection for transformed :any:`Module` and :any:`Subroutine`
     into complex source trees. It does so by appending a provided
     ``suffix`` argument to transformed subroutine and module objects
     and changing the target names of :any:`Import` and
     :any:`CallStatement` nodes on the call-site accordingly.
 
     The :any:`DependencyTransformation` provides two ``mode`` options:
-      * ``strict`` honors dependencies via C-style headers
-      * ``module`` replaces C-style header dependencies with explicit
-        module imports
+
+    * ``strict`` honors dependencies via C-style headers
+    * ``module`` replaces C-style header dependencies with explicit
+      module imports
 
     When applying the transformation to a source object, one of two
     "roles" can be specified via the ``role`` keyword:
-      * ``driver``: Only renames imports and calls to kernel routines
-      * ``kernel``: Renames routine or enclosing modules, as well as
-        renaming any further imports and calls.
+
+    * ``driver``: Only renames imports and calls to kernel routines
+    * ``kernel``: Renames routine or enclosing modules, as well as
+      renaming any further imports and calls.
 
     Note that ``routine.apply(transformation, role='driver')`` entails
     that the ``routine`` still mimicks its original counterpart and

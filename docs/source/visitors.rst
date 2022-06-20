@@ -167,19 +167,17 @@ Searching in expression trees
 The equivalent to :any:`FindNodes` for expression trees is
 :any:`ExpressionRetriever`. Using a generic function handle, (almost) arbitrary
 conditions can be used as a query that decides whether to include a given node
-into the list of results. This mapper is conveniently accessible via utility
-function :any:`retrieve_expressions`.
+into the list of results.
 
 .. autosummary::
 
    loki.expression.mappers.ExpressionRetriever
-   loki.expression.mappers.retrieve_expressions
 
 Note that mappers operate only on expression trees, i.e. using them directly
 is only useful when working with a single property of a control flow node,
 such as :attr:`loki.ir.Assignment.rhs`. If one wanted to search for expression
 nodes in all expression trees in the IR, e.g. to find all variables, bespoke
-visitors exist that apply :any:`retrieve_expressions` to all expression trees.
+visitors exist that apply :any:`ExpressionRetriever` to all expression trees.
 
 .. autosummary::
 

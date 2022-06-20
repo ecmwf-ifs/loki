@@ -166,7 +166,7 @@ class Scheduler:
     @property
     def dependencies(self):
         """
-        All individual pairs of :any:`Item`s that represent a dependency
+        All individual pairs of :any:`Item` that represent a dependency
         and form an edge in the :any`Scheduler` call graph.
         """
         return as_tuple(self.item_graph.edges)
