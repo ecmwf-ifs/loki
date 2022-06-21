@@ -454,7 +454,7 @@ end subroutine transform_region_to_call_multiple
     assert len(FindNodes(CallStatement).visit(routine.body)) == 3
 
     # Test transformation
-    contains = Section(body=as_tuple([*routines, routine]))
+    contains = Section(body=as_tuple([Intrinsic('CONTAINS'), *routines, routine]))
     module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
     mod_filepath = here/(f'{module.name}_converted_{frontend}.f90')
     mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
@@ -528,7 +528,7 @@ end subroutine transform_region_to_call_arguments
     assert len(FindNodes(CallStatement).visit(routine.body)) == 3
 
     # Test transformation
-    contains = Section(body=as_tuple([*routines, routine]))
+    contains = Section(body=as_tuple([Intrinsic('CONTAINS'), *routines, routine]))
     module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
     mod_filepath = here/(f'{module.name}_converted_{frontend}.f90')
     mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
@@ -603,7 +603,7 @@ end subroutine transform_region_to_call_arrays
     assert routines[0].variable_map['a'].dimensions[0].scope is routines[0]
 
     # Test transformation
-    contains = Section(body=as_tuple([*routines, routine]))
+    contains = Section(body=as_tuple([Intrinsic('CONTAINS'), *routines, routine]))
     module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
     mod_filepath = here/(f'{module.name}_converted_{frontend}.f90')
     mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
