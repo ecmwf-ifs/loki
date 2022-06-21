@@ -77,8 +77,9 @@ class FortranCTransformation(Transformation):
         if role == 'kernel':
             # Generate Fortran wrapper module
             wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
+            contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-            module = Module(name=f'{wrapper.name.upper()}_MOD', contains=Section(body=as_tuple(wrapper)))
+            module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
             # Generate C source file from Loki IR
@@ -217,7 +218,7 @@ class FortranCTransformation(Transformation):
                 getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
                 getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
                 wrappers += [getter]
-        wrapper_module.contains = Section(body=as_tuple(wrappers))
+        wrapper_module.contains = Section(body=(Intrinsic('CONTAINS'), *wrappers))
 
         # Create function interface definitions for module functions
         intfs = []

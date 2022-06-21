@@ -139,16 +139,19 @@ class FortranCodegen(Stringifier):
           END MODULE
         """
         header = self.format_line('MODULE ', o.name)
-        contains = self.format_line('CONTAINS')
         footer = self.format_line('END MODULE ', o.name)
 
         self.depth += 1
+
+        docstring = self.visit(o.docstring, **kwargs)
+
         spec = self.visit(o.spec, **kwargs)
-        routines = self.visit(o.routines, **kwargs)
+
+        # Render the routines
+        contains = self.visit(o.contains, **kwargs)
+
         self.depth -= 1
-        if routines:
-            return self.join_lines(header, spec, contains, routines, footer)
-        return self.join_lines(header, spec, footer)
+        return self.join_lines(header, docstring, spec, contains, footer)
 
     def visit_Subroutine(self, o, **kwargs):
         """

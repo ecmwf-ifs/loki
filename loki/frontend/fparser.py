@@ -1872,7 +1872,19 @@ class FParser2IR(GenericVisitor):
         if spec_ast:
             spec = self.visit(spec_ast, **kwargs)
             spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+
+            # Another big hack: fparser allocates all comments before and after the
+            # spec to the spec. We remove them from the beginning to get the docstring.
+            comment_map = {}
+            docs = []
+            for node in spec.body:
+                if not isinstance(node, (ir.Comment, ir.CommentBlock)):
+                    break
+                docs.append(node)
+                comment_map[node] = None
+            spec = Transformer(comment_map, invalidate_source=False).visit(spec)
         else:
+            docs = []
             spec = None
 
         # Now that all declarations are well-defined we can parse the member routines
@@ -1884,8 +1896,8 @@ class FParser2IR(GenericVisitor):
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         module.__init__(
-            name=module.name, spec=spec, contains=contains, ast=o, rescope_symbols=True,
-            source=source, parent=module.parent, symbol_attrs=module.symbol_attrs
+            name=module.name, docstring=docs, spec=spec, contains=contains,
+            ast=o, rescope_symbols=True, source=source, parent=module.parent, symbol_attrs=module.symbol_attrs
         )
 
         return (*pre, module)

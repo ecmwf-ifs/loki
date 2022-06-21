@@ -1174,6 +1174,12 @@ class OFP2IR(GenericVisitor):
     def visit_module(self, o, **kwargs):
         from loki.module import Module  # pylint: disable=import-outside-toplevel
 
+        # Extract known sections
+        body_ast = list(o.find('body'))
+        spec_ast = o.find('body/specification')
+        spec_ast_idx = body_ast.index(spec_ast)
+        docs_ast, body_ast = body_ast[:spec_ast_idx], body_ast[spec_ast_idx+1:]
+
         # Instantiate the object
         name = o.attrib['name']
         module = Module(name=name, parent=kwargs['scope'], ast=o, source=kwargs['source'])
@@ -1182,7 +1188,8 @@ class OFP2IR(GenericVisitor):
         # Pre-populate symbol table with procedure types declared in this module
         # to correctly classify inline function calls and type-bound procedures
         contains_ast = o.find('members')
-        if contains_ast is not None:
+        contains_stmt = o.find('contains-stmt')
+        if contains_ast is not None and contains_stmt is not None:
             # Note that we overwrite this variable subsequently with the fully parsed subroutines
             # where the visit-method for the subroutine/function statement will pick out the existing
             # subroutine objects using the weakref pointers stored in the symbol table.
@@ -1194,20 +1201,30 @@ class OFP2IR(GenericVisitor):
             ]
 
         # Parse the spec
-        spec = self.visit(o.find('body/specification'), **kwargs)
+        spec = self.visit(spec_ast, **kwargs)
         spec = sanitize_ir(spec, OFP, pp_registry=sanitize_registry[OFP], pp_info=self.pp_info)
 
+        # Parse the docstring
+        if not docs_ast and not spec.body:
+            # If the spec is empty the docstring is conveniently put flat into the module instead...
+            docs_ast = o.findall('comment')
+        docstring = self.visit(docs_ast, **kwargs)
+        docstring = sanitize_ir(docstring, OFP, pp_registry=sanitize_registry[OFP], pp_info=self.pp_info)
+
         # Parse member subroutines and functions
-        if contains_ast is not None:
+        if contains_ast is not None and contains_stmt is not None:
+            contains_stmt = self.visit(contains_stmt, **kwargs)
             contains = self.visit(contains_ast, **kwargs)
+            contains.prepend(contains_stmt)
         else:
             contains = None
 
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         module.__init__(
-            name=module.name, spec=spec, contains=contains, ast=o, rescope_symbols=True,
-            source=kwargs['source'], parent=module.parent, symbol_attrs=module.symbol_attrs
+            name=module.name, docstring=docstring, spec=spec, contains=contains,
+            ast=o, source=kwargs['source'],
+            rescope_symbols=True, parent=module.parent, symbol_attrs=module.symbol_attrs
         )
         return module
 
