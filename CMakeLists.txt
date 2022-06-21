@@ -31,6 +31,23 @@ find_package( ecbuild 3.4 REQUIRED HINTS ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CUR
 # Specify project and configuration options
 project( loki VERSION 0.0.5 LANGUAGES NONE )
 
+# Allow negating ENABLE_NO_INSTALL with a leading '~'
+macro( apply_negation VAR_NAME )
+    if( DEFINED ${VAR_NAME} )
+        if( ${${VAR_NAME}} MATCHES ^~ )
+            string( REPLACE ~ "" ${VAR_NAME} ${${VAR_NAME}} )
+            if( ${${VAR_NAME}} )
+                set( ${VAR_NAME} OFF )
+            else()
+                set( ${VAR_NAME} ON )
+            endif()
+        endif()
+    endif()
+endmacro()
+
+apply_negation( ENABLE_NO_INSTALL )
+apply_negation( LOKI_ENABLE_NO_INSTALL )
+
 # Declare options
 ecbuild_add_option(
     FEATURE NO_INSTALL
