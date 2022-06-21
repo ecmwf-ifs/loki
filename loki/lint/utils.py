@@ -122,9 +122,36 @@ def get_filename_from_parent(obj):
     return None
 
 
-_disabled_rules_re = re.compile(r'^\s*!\s*loki-lint\s*:(?:.*?)disable=(?P<rules>[\w\.,]+)')
+_disabled_rules_re = re.compile(r'^\s*!\s*loki-lint\s*:(?:.*?)disable=(?P<rules>[\w\.,]*)')
 
 def is_rule_disabled(ir, identifiers):
+    """
+    Check if a Linter rule is disabled in the provided context via user annotations
+
+    This looks for comments of the form
+
+    .. code-block:
+
+        ! loki-lint: disable=RuleName
+
+    Where ``RuleName`` is one of the provided :data:`identifiers`.
+
+    If :data:`ir` is a :class:`LeafNode`, only any attached in-line comments
+    are checked. If :data:`ir` is any other IR object, the entire subtree below
+    this object is searched.
+
+    Parameters
+    ----------
+    ir : :class:`Node` or :class:`ProgramUnit`
+        The IR object for which to check if a rule is disabled
+    identifiers : list
+        A list of string identifiers via which the rule can be disabled
+
+    Returns
+    -------
+    bool
+        Returns `True` if a rule is disabled, otherwise `False`
+    """
     def _match_disabled_rules(comment):
         match = _disabled_rules_re.match(comment.text)
         if match:

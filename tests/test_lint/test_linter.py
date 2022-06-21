@@ -99,28 +99,29 @@ def test_linter_check(dummy_file):
 
 
 @pytest.mark.parametrize('file_rule,module_rule,subroutine_rule,assignment_rule,report_counts', [
-    ('', '', '', '', 2),  #3),
-    ('', '', '', '13.37', 2),  #3),
-    ('', '', '13.37', '', 1),  #2),
-    ('', '13.37', '', '', 0),  #1),
-    ('BlubRule', 'FooRule', 'BarRule', 'BazRule', 2),  #3),
-    ('', '', '', 'AlwaysComplainRule', 2),  #3),
-    ('', '', 'AlwaysComplainRule', '', 1),  #2),
-    ('', 'AlwaysComplainRule', '', '', 0),  #1),
-    # Sourcefile-level comments are currently not preserved in Loki
+    ('', '', '', '', 3),
+    ('', '', '', '13.37', 3),
+    ('', '', '13.37', '', 2),
+    pytest.param('', '13.37', '', '', 1, marks=pytest.mark.xfail()),
+    ('BlubRule', 'FooRule', 'BarRule', 'BazRule', 3),
+    ('', '', '', 'AlwaysComplainRule', 3),
+    ('', '', 'AlwaysComplainRule', '', 2),
+    pytest.param('', 'AlwaysComplainRule', '', '', 1, marks=pytest.mark.xfail()),
     pytest.param('AlwaysComplainRule', '', '', '', 0, marks=pytest.mark.xfail()),
     pytest.param('13.37', '', '', '', 0, marks=pytest.mark.xfail()),
+    # Note: Failed tests are due to the fact that rule disable lookup currently works
+    # the wrong way around, see LOKI-64 for details
 ])
 def test_linter_disable_per_scope(file_rule, module_rule, subroutine_rule, assignment_rule, report_counts):
     class AlwaysComplainRule(GenericRule):
         docs = {'id': '13.37'}
 
         @classmethod
-        def check_sourcefile(cls, ast, rule_report, config):  # pylint: disable=unused-argument
+        def check_file(cls, ast, rule_report, config):  # pylint: disable=unused-argument
             rule_report.add(cls.__name__, ast)
 
-        check_module = check_sourcefile
-        check_subroutine = check_sourcefile
+        check_module = check_file
+        check_subroutine = check_file
 
     class TestHandler(GenericHandler):
         def handle(self, file_report):
@@ -130,27 +131,22 @@ def test_linter_disable_per_scope(file_rule, module_rule, subroutine_rule, assig
             pass
 
 
-    fcode = """
-! #loki-lint#: disable=#file_rule#
+    fcode = f"""
+! loki-lint: disable={file_rule}
 
 module linter_mod
-! loki-lint:disable=#module_rule#
+! loki-lint:disable={module_rule}
 
 contains
 
 subroutine linter_routine
-! loki-lint: redherring=abc disable=#subroutine_rule#
+! loki-lint: redherring=abc disable={subroutine_rule}
   integer :: i
 
-  i = 1  ! loki-lint  : disable=#assignment_rule#
+  i = 1  ! loki-lint  : disable={assignment_rule}
 end subroutine linter_routine
 end module linter_mod
     """.strip()
-
-    fcode = fcode.replace('#file_rule#', file_rule)
-    fcode = fcode.replace('#module_rule#', module_rule)
-    fcode = fcode.replace('#subroutine_rule#', subroutine_rule)
-    fcode = fcode.replace('#assignment_rule#', assignment_rule)
     sourcefile = Sourcefile.from_source(fcode)
 
     handler = TestHandler()
