@@ -832,3 +832,57 @@ end module module_nature_mod
 
     clean_test(filepath)
     clean_test(ext_filepath)
+
+
+@pytest.mark.parametrize('spec,part_lengths', [
+    ('', (0, 0, 0)),
+    ("""
+implicit none
+integer :: var1
+integer :: var2
+integer :: var3
+    """.strip(), (0, 1, 3)),
+    ("""
+use header_mod
+implicit none
+integer :: var1
+    """.strip(), (1, 1, 1)),
+    ("""
+use header_mod
+integer :: var1
+    """.strip(), (1, 0, 1)),
+])
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_spec_parts(frontend, spec, part_lengths):
+    """Test the :attr:`spec_parts` property of :class:`Module`"""
+
+    header_mod_fcode = """
+module header_mod
+    implicit none
+    integer, parameter :: param1 = 1
+end module header_mod
+    """.strip()
+    header_mod = Module.from_source(header_mod_fcode, frontend=frontend)
+
+    docstring = '! This should become the doc string\n'
+    fcode = f"""
+module spec_parts
+{docstring if frontend != OMNI else ''}{spec}
+end module spec_parts
+    """.strip()
+
+    module = Module.from_source(fcode, definitions=header_mod, frontend=frontend)
+    assert isinstance(module.spec_parts, tuple)
+    assert all(isinstance(p, tuple) for p in module.spec_parts)
+
+    if frontend == OMNI:
+        # OMNI removes any 'IMPLICIT' statements so the middle part is always empty
+        part_lengths = (part_lengths[0], 0, part_lengths[2])
+    else:
+        # OMNI _conveniently_ puts any use statements _before_ the docstring for
+        # absolutely zero sensible reasons, so it would be purely based on good luck
+        # and favourable circumstances to extract the right amount of comments for the
+        # docstring with that _fantastic_ frontend...
+        assert isinstance(module.docstring, tuple) and len(module.docstring) == 1
+
+    assert part_lengths == tuple(len(p) for p in module.spec_parts)
