@@ -523,19 +523,164 @@ end module test_module_rescope_clone
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_access_spec(frontend):
+def test_module_access_spec_none(frontend):
+    """
+    Test correct parsing without access-spec statements
+    """
+    fcode = """
+module test_access_spec_mod
+    implicit none
+
+    integer pub_var = 1
+contains
+    subroutine routine
+        integer i
+        i = pub_var
+    end subroutine routine
+end module test_access_spec_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Check module properties
+    assert module.default_access_spec is None
+    assert module.public_access_spec is ()
+    assert module.private_access_spec is ()
+
+    # Check backend output
+    code = module.to_fortran().upper()
+    assert 'PUBLIC' not in code
+    assert 'PRIVATE' not in code
+
+    # Check that property has not propagated to symbol type
+    pub_var = module.variable_map['pub_var']
+    assert pub_var.type.public is None
+    assert pub_var.type.private is None
+
+    # Check properties after clone
+    new_module = module.clone(
+        default_access_spec='PUBLIC', public_access_spec='PUB_VAR',
+        private_access_spec='ROUTINE'
+    )
+    assert new_module.default_access_spec == 'public'
+    assert new_module.public_access_spec == ('pub_var',)
+    assert new_module.private_access_spec == ('routine',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Inlines access-spec as declaration attr')]))
+def test_module_access_spec_private(frontend):
+    """
+    Test correct parsing of access-spec statements with default private
+    """
+    fcode = """
+module test_access_spec_mod
+    implicit none
+    private
+    public :: pub_var, routine
+    PRIVATE OTHER_PRIVATE_VAR
+
+    integer pub_var = 1
+    integer private_var = 2
+    integer other_private_var = 3
+contains
+    subroutine routine
+        integer i
+        i = pub_var
+    end subroutine routine
+end module test_access_spec_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Check module properties
+    assert module.default_access_spec == 'private'
+    assert module.public_access_spec == ('pub_var', 'routine')
+    assert module.private_access_spec == ('other_private_var',)
+
+    # Check backend output
+    code = module.to_fortran().upper()
+    assert 'PUBLIC\n' not in code
+    assert 'PUBLIC :: PUB_VAR, ROUTINE' in code
+    assert 'PRIVATE\n' in code
+    assert 'PRIVATE :: OTHER_PRIVATE_VAR' in code
+
+    # Check that property has not propagated to symbol type
+    pub_var = module.variable_map['pub_var']
+    assert pub_var.type.public is None
+    assert pub_var.type.private is None
+
+    # Check properties after clone
+    new_module = module.clone(private_access_spec=None)
+    assert new_module.default_access_spec == 'private'
+    assert new_module.public_access_spec == ('pub_var', 'routine')
+    assert new_module.private_access_spec == ()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Inlines access-spec as declaration attr')]))
+def test_module_access_spec_public(frontend):
+    """
+    Test correct parsing of access-spec statements with default public
+    """
+    fcode = """
+module test_access_spec_mod
+    implicit none
+    PUBLIC
+    PUBLIC ROUTINE
+    private :: private_var, other_private_var
+
+    integer pub_var = 1
+    integer private_var = 2
+    integer other_private_var = 3
+contains
+    subroutine routine
+        integer i
+        i = pub_var
+    end subroutine routine
+end module test_access_spec_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Check module properties
+    assert module.default_access_spec == 'public'
+    assert module.public_access_spec == ('routine', )
+    assert module.private_access_spec == ('private_var', 'other_private_var')
+
+    # Check backend output
+    code = module.to_fortran().upper()
+    assert 'PUBLIC\n' in code
+    assert 'PUBLIC :: ROUTINE' in code
+    assert 'PRIVATE\n' not in code
+    assert 'PRIVATE :: PRIVATE_VAR, OTHER_PRIVATE_VAR' in code
+
+    # Check that property has not propagated to symbol type
+    pub_var = module.variable_map['pub_var']
+    assert pub_var.type.public is None
+    assert pub_var.type.private is None
+
+    # Check properties after clone
+    new_module = module.clone(
+        default_access_spec='PRivate', public_access_spec=('ROUTINE', 'pub_var')
+    )
+    assert new_module.default_access_spec == 'private'
+    assert new_module.public_access_spec == ('routine', 'pub_var')
+    assert new_module.private_access_spec == ('private_var', 'other_private_var')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_access_attr(frontend):
     """
     Test correct parsing of access-spec attributes
     """
     fcode = """
-module test_access_spec_mod
+module test_access_attr_mod
     implicit none
     private
     integer, public :: pub_var
     integer :: unspecified_var
     integer, private :: priv_var
     integer :: other_var
-end module test_access_spec_mod
+end module test_access_attr_mod
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend)

@@ -677,7 +677,25 @@ class OFP2IR(GenericVisitor):
 
         # Dispatch to certain other declarations
         if not 'type' in o.attrib:
-            if o.find('access-spec') is not None or o.find('save-stmt') is not None:
+            if o.find('access-spec') is not None:
+                # access-stmt for module
+                from loki.module import Module  # pylint: disable=import-outside-toplevel
+                assert isinstance(kwargs['scope'], Module)
+                access_spec = o.find('access-spec').attrib['keyword'].lower()
+                assert access_spec in ('public', 'private')
+                names = o.findall('name')
+                if not names:
+                    # default access specification
+                    kwargs['scope'].default_access_spec = access_spec
+                else:
+                    names = [name.attrib['id'].lower() for name in names]
+                    if access_spec == 'public':
+                        kwargs['scope'].public_access_spec += as_tuple(names)
+                    else:
+                        kwargs['scope'].private_access_spec += as_tuple(names)
+                return None
+
+            if o.find('save-stmt') is not None:
                 return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
             if o.find('interface') is not None:
                 return self.visit(o.find('interface'), **kwargs)
@@ -1223,7 +1241,8 @@ class OFP2IR(GenericVisitor):
         # bits and pieces in place and rescope all symbols
         module.__init__(
             name=module.name, docstring=docstring, spec=spec, contains=contains,
-            ast=o, source=kwargs['source'],
+            default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
+            private_access_spec=module.private_access_spec, ast=o, source=kwargs['source'],
             rescope_symbols=True, parent=module.parent, symbol_attrs=module.symbol_attrs
         )
         return module

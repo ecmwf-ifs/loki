@@ -842,6 +842,29 @@ class FParser2IR(GenericVisitor):
 
     visit_External_Name_List = visit_List
 
+    def visit_Access_Stmt(self, o, **kwargs):
+        """
+        An access-spec statement that specifies accessibility of symbols in a module
+
+        :class:`faprser.two.Fortran2003.Access_Stmt` has 2 children:
+
+        * keyword ``PRIVATE`` or ``PUBLIC`` (`str`)
+        * optional list of names (:class:`fparser.two.Fortran2003.Access_Id_List`) or `None`
+        """
+        from loki.module import Module  # pylint: disable=import-outside-toplevel
+        assert isinstance(kwargs['scope'], Module)
+        assert o.children[0] in ('PUBLIC', 'PRIVATE')
+
+        if o.children[1] is None:
+            assert kwargs['scope'].default_access_spec is None
+            kwargs['scope'].default_access_spec = o.children[0].lower()
+        else:
+            access_id_list = [str(name).lower() for name in o.children[1].children]
+            if o.children[0] == 'PUBLIC':
+                kwargs['scope'].public_access_spec += as_tuple(access_id_list)
+            else:
+                kwargs['scope'].private_access_spec += as_tuple(access_id_list)
+
     #
     # Procedure declarations
     #
@@ -1897,7 +1920,9 @@ class FParser2IR(GenericVisitor):
         # bits and pieces in place and rescope all symbols
         module.__init__(
             name=module.name, docstring=docs, spec=spec, contains=contains,
-            ast=o, rescope_symbols=True, source=source, parent=module.parent, symbol_attrs=module.symbol_attrs
+            default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
+            private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
+            parent=module.parent, symbol_attrs=module.symbol_attrs
         )
 
         return (*pre, module)
@@ -2857,7 +2882,6 @@ class FParser2IR(GenericVisitor):
     visit_Open_Stmt = visit_Intrinsic_Stmt
     visit_Close_Stmt = visit_Intrinsic_Stmt
     visit_Inquire_Stmt = visit_Intrinsic_Stmt
-    visit_Access_Stmt = visit_Intrinsic_Stmt
     visit_Namelist_Stmt = visit_Intrinsic_Stmt
     visit_Parameter_Stmt = visit_Intrinsic_Stmt
     visit_Dimension_Stmt = visit_Intrinsic_Stmt
