@@ -69,3 +69,7 @@ docs/source/loki-*.rst
 docs/source/lint_rules.*
 docs/source/raps_deps.rst
 docs/source/transformations.*
+
+# notebooks
+example/.ipynb_checkpoints
+example/scripts

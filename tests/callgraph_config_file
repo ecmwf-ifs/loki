@@ -1,0 +1,8 @@
+strict digraph {
+	COMPUTE_L1 [color=black fillcolor=limegreen shape=box style=filled]
+	ANOTHER_L1 [color=black fillcolor=limegreen shape=box style=filled]
+	ANOTHER_L2 [color=black fillcolor=limegreen shape=box style=filled]
+	ANOTHER_L1 -> ANOTHER_L2
+	COMPUTE_L2 [color=black fillcolor=orangered shape=box style=filled]
+	COMPUTE_L1 -> COMPUTE_L2
+}

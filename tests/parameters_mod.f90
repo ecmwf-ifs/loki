@@ -1,0 +1,8 @@
+MODULE parameters_mod
+  IMPLICIT NONE
+  INTEGER, PARAMETER :: a = 1
+  INTEGER, PARAMETER :: b = -1
+CONTAINS
+  SUBROUTINE dummy ()
+  END SUBROUTINE dummy
+END MODULE parameters_mod
