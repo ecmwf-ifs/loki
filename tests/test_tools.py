@@ -258,7 +258,8 @@ main: !include {main_path}
 def test_execute(here, capsys):
 
     testfile = here/'test_execute.txt'
-    testfile.unlink(missing_ok=True)
+    if testfile.is_file():
+        testfile.unlink()
 
     # Failure with no output
     cmd = 'false'
