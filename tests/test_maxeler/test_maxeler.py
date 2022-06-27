@@ -38,7 +38,7 @@ def fixture_simulator():
     class MaxCompilerSim:
 
         def __init__(self):
-            name = f'{os.getlogin()}_pytest'
+            name = f'pytest_{os.getpid()}'
             self.base_cmd = ['maxcompilersim', '-n', name]
             if maxeler_available:
                 os.environ['SLIC_CONF'] = f'use_simulation={name}'
