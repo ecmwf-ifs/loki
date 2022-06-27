@@ -117,8 +117,8 @@ def test_linter_disable_per_scope(file_rule, module_rule, subroutine_rule, assig
         docs = {'id': '13.37'}
 
         @classmethod
-        def check_file(cls, ast, rule_report, config):  # pylint: disable=unused-argument
-            rule_report.add(cls.__name__, ast)
+        def check_file(cls, sourcefile, rule_report, config):  # pylint: disable=unused-argument
+            rule_report.add(cls.__name__, sourcefile)
 
         check_module = check_file
         check_subroutine = check_file

@@ -201,7 +201,7 @@ class Transformation:
         if isinstance(source, Module):
             self.post_apply_module(source)
 
-    def post_apply_file(self, sourcefile):  # pylint: disable=no-self-use
+    def post_apply_file(self, sourcefile):
         """
         Apply actions after applying a transformation to :data:`sourcefile`.
 
@@ -213,7 +213,7 @@ class Transformation:
         if not isinstance(sourcefile, Sourcefile):
             raise TypeError('Transformation.post_apply_file can only be applied to Sourcefile object')
 
-    def post_apply_subroutine(self, subroutine):  # pylint: disable=no-self-use
+    def post_apply_subroutine(self, subroutine):
         """
         Apply actions after applying a transformation to :data:`subroutine`.
 
@@ -228,7 +228,7 @@ class Transformation:
         # Ensure all objects in the IR are in the subroutine's or a parent scope.
         subroutine.rescope_symbols()
 
-    def post_apply_module(self, module):  # pylint: disable=no-self-use
+    def post_apply_module(self, module):
         """
         Apply actions after applying a transformation to :data:`module`.
 

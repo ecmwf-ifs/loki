@@ -22,7 +22,6 @@ class DaceCodegen(PyCodegen):
     """
     Tree visitor that extends `PyCodegen` with Dace-specific language variations.
     """
-    # pylint: disable=no-self-use
 
     def __init__(self, depth=0, indent='  ', linewidth=100):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth)

@@ -306,9 +306,10 @@ end subroutine routine_simple
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Find all literals except when they appear in array subscripts or loop ranges
-    query = lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral))
-    recurse_query = lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
-    retriever = ExpressionRetriever(query=query, recurse_query=recurse_query)
+    retriever = ExpressionRetriever(
+        query=lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral)),
+        recurse_query=lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
+    )
     literals = ExpressionFinder(unique=False, retrieve=retriever.retrieve).visit(routine.body)
 
     if frontend == OMNI:
@@ -558,7 +559,8 @@ END MODULE some_mod
     module = Module.from_source(fcode, frontend=frontend)
 
     # Test custom indentation
-    line_cont = lambda indent: f'\n{"...":{max(len(indent), 1)}} '
+    def line_cont(indent):
+        return f'\n{"...":{max(len(indent), 1)}} '
     assert Stringifier(indent='#', line_cont=line_cont).visit(module).strip() == ref.strip()
 
     # Test default

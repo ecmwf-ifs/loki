@@ -100,7 +100,6 @@ def parse_omni_ast(ast, definitions=None, type_map=None, symbol_map=None,
 
 
 class OMNI2IR(GenericVisitor):
-    # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
     _omni_types = {
@@ -383,6 +382,7 @@ class OMNI2IR(GenericVisitor):
 
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
+        # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
             docstring=docstring, spec=spec, body=body, contains=contains,
@@ -466,6 +466,7 @@ class OMNI2IR(GenericVisitor):
 
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
+        # pylint: disable=unnecessary-dunder-call
         module.__init__(
             name=module.name, docstring=docstring, spec=spec, contains=contains,
             ast=o, rescope_symbols=True, source=kwargs['source'],

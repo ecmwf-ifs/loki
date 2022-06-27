@@ -86,7 +86,7 @@ class FortranCodegen(Stringifier):
     """
     Tree visitor to generate standardized Fortran code from IR.
     """
-    # pylint: disable=no-self-use, unused-argument
+    # pylint: disable=unused-argument
 
     def __init__(self, depth=0, indent='  ', linewidth=90, conservative=True):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,

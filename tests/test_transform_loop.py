@@ -770,8 +770,8 @@ end subroutine transform_loop_fuse_collapse
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 1
-    assert sum([loop.bounds.stop == 'klon' for loop in loops]) == 1
+    assert sum(loop.bounds.stop == 'klev' for loop in loops) == 1
+    assert sum(loop.bounds.stop == 'klon' for loop in loops) == 1
 
     fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
@@ -831,8 +831,8 @@ end subroutine transform_loop_fuse_collapse_nonmatching
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == '1 + klev' for loop in loops]) == 1
-    assert sum([loop.bounds.stop == '1 + klon' for loop in loops]) == 1
+    assert sum(loop.bounds.stop == '1 + klev' for loop in loops) == 1
+    assert sum(loop.bounds.stop == '1 + klon' for loop in loops) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
     fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
@@ -893,8 +893,8 @@ end subroutine transform_loop_fuse_collapse_range
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == '1 + klev' for loop in loops]) == 1
-    assert sum([loop.bounds.stop == 'klon + 1' for loop in loops]) == 1
+    assert sum(loop.bounds.stop == '1 + klev' for loop in loops) == 1
+    assert sum(loop.bounds.stop == 'klon + 1' for loop in loops) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
     fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
@@ -1354,7 +1354,7 @@ end subroutine transform_loop_fission_promote_array
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 2
+    assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
     if frontend == OMNI:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
     else:
@@ -1410,7 +1410,7 @@ end subroutine transform_loop_fission_promote_multiple
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 2
+    assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
     if frontend == OMNI:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
     else:
@@ -1479,9 +1479,9 @@ end subroutine transform_loop_fission_multiple_promote
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 8
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 4
-    assert sum([loop.bounds.stop == 'klon' for loop in loops]) == 2
-    assert sum([loop.bounds.stop == 'nclv' for loop in loops]) == 2
+    assert sum(loop.bounds.stop == 'klev' for loop in loops) == 4
+    assert sum(loop.bounds.stop == 'klon' for loop in loops) == 2
+    assert sum(loop.bounds.stop == 'nclv' for loop in loops) == 2
     if frontend == OMNI:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
         assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['1:klon', '1:nclv', 'klev']
@@ -1542,7 +1542,7 @@ end subroutine transform_loop_fission_promote_read_after_write
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 2
+    assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
     if frontend == OMNI:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
     else:
@@ -1612,9 +1612,9 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 8
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 4
-    assert sum([loop.bounds.stop == 'klon' for loop in loops]) == 2
-    assert sum([loop.bounds.stop == 'nclv' for loop in loops]) == 2
+    assert sum(loop.bounds.stop == 'klev' for loop in loops) == 4
+    assert sum(loop.bounds.stop == 'klon' for loop in loops) == 2
+    assert sum(loop.bounds.stop == 'nclv' for loop in loops) == 2
     if frontend == OMNI:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
         assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['1:nclv', '1:klon', 'klev']
@@ -1685,8 +1685,8 @@ end subroutine transform_loop_fusion_fission
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 4
     assert all(loop.bounds.start == '1' for loop in loops)
-    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 2
-    assert sum([loop.bounds.stop == 'klon' for loop in loops]) == 2
+    assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
+    assert sum(loop.bounds.stop == 'klon' for loop in loops) == 2
     if frontend == OMNI:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
     else:

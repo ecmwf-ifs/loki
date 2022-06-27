@@ -96,7 +96,7 @@ class StrCompareMixin:
     @staticmethod
     def _canonical(s):
         """ Define canonical string representations (lower-case, no spaces) """
-        return s.__str__().lower().replace(' ', '')
+        return str(s).lower().replace(' ', '')
 
     def __hash__(self):
         return hash(self._canonical(self))

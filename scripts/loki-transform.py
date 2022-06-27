@@ -16,7 +16,7 @@ from loki import (
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, FortranCTransformation, CMakePlanner
+    DependencyTransformation, FortranCTransformation
 )
 
 # Bootstrap the local transformations directory for custom transformations

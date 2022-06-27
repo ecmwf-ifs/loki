@@ -138,7 +138,7 @@ def flatten(l, is_leaf=None):
                              need further flattening.
     """
     if is_leaf is None:
-        is_leaf = lambda el: False
+        is_leaf = lambda el: False  # pylint: disable=unnecessary-lambda-assignment
     newlist = []
     for el in l:
         if is_iterable(el) and not (isinstance(el, (str, bytes)) or is_leaf(el)):
@@ -159,7 +159,7 @@ def filter_ordered(elements, key=None):
     """
     seen = set()
     if key is None:
-        key = lambda x: x
+        key = lambda x: x  # pylint: disable=unnecessary-lambda-assignment
     return [e for e in elements if not (key(e) in seen or seen.add(key(e)))]
 
 
