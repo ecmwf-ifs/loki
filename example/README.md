@@ -1,4 +1,5 @@
-﻿# Using the notebooks
+﻿
+##  Using the notebooks
 
 The notebooks contain many `import`  statements for loading various Loki modules. In order to ensure the interpreter can locate the relevant modules, the jupyter notebook server should be launched from a terminal where the `loki-env` virtual environment has been activated:
 
