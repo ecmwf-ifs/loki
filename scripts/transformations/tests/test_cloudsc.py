@@ -47,7 +47,7 @@ def fixture_local_loki_bundle(here):
 
     if local_loki_bundlefile.exists():
         local_loki_bundlefile.unlink()
-    if target.is_link():
+    if target.is_symlink():
         target.unlink()
     if not target.exists() and backup.exists():
         shutil.move(backup, target)
@@ -76,6 +76,10 @@ def test_cloudsc(here, frontend):
 
     if 'CLOUDSC_ARCH' in os.environ:
         build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
+    else:
+        # Build without OpenACC support as this makes problems
+        # with older versions of GNU
+        build_cmd += ['--cmake=ENABLE_ACC=OFF']
 
     execute(build_cmd, cwd=here, silent=False)
 
