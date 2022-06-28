@@ -162,7 +162,7 @@ def find_and_eliminate_unused_imports(routine):
             self._retriever = ExpressionRetriever(lambda e: isinstance(e, (TypedSymbol, MetaSymbol)))
             super().__init__(retrieve=self._retriever.retrieve)
 
-        def visit_Import(self, o, **kwargs):  # pylint: disable=unused-argument,no-self-use
+        def visit_Import(self, o, **kwargs):  # pylint: disable=unused-argument
             return ()
 
     # Find all used symbols

@@ -72,8 +72,6 @@ class PyCodegen(Stringifier):
     Tree visitor to generate standard Python code (with Numpy) from IR.
     """
 
-    # pylint: disable=no-self-use
-
     def __init__(self, depth=0, indent='  ', linewidth=100):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
                          line_cont='\n{}  '.format, symgen=PyCodeMapper())

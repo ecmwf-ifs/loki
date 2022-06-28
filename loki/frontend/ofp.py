@@ -102,7 +102,6 @@ def match_tag_sequence(sequence, patterns):
 
 
 class OFP2IR(GenericVisitor):
-    # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
     def __init__(self, raw_source, definitions=None, pp_info=None, scope=None):
@@ -677,7 +676,25 @@ class OFP2IR(GenericVisitor):
 
         # Dispatch to certain other declarations
         if not 'type' in o.attrib:
-            if o.find('access-spec') is not None or o.find('save-stmt') is not None:
+            if o.find('access-spec') is not None:
+                # access-stmt for module
+                from loki.module import Module  # pylint: disable=import-outside-toplevel
+                assert isinstance(kwargs['scope'], Module)
+                access_spec = o.find('access-spec').attrib['keyword'].lower()
+                assert access_spec in ('public', 'private')
+                names = o.findall('name')
+                if not names:
+                    # default access specification
+                    kwargs['scope'].default_access_spec = access_spec
+                else:
+                    names = [name.attrib['id'].lower() for name in names]
+                    if access_spec == 'public':
+                        kwargs['scope'].public_access_spec += as_tuple(names)
+                    else:
+                        kwargs['scope'].private_access_spec += as_tuple(names)
+                return None
+
+            if o.find('save-stmt') is not None:
                 return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
             if o.find('interface') is not None:
                 return self.visit(o.find('interface'), **kwargs)
@@ -1145,6 +1162,7 @@ class OFP2IR(GenericVisitor):
 
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
+        # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
             docstring=docstring, spec=spec, body=body, contains=contains,
@@ -1174,6 +1192,12 @@ class OFP2IR(GenericVisitor):
     def visit_module(self, o, **kwargs):
         from loki.module import Module  # pylint: disable=import-outside-toplevel
 
+        # Extract known sections
+        body_ast = list(o.find('body'))
+        spec_ast = o.find('body/specification')
+        spec_ast_idx = body_ast.index(spec_ast)
+        docs_ast, body_ast = body_ast[:spec_ast_idx], body_ast[spec_ast_idx+1:]
+
         # Instantiate the object
         name = o.attrib['name']
         module = Module(name=name, parent=kwargs['scope'], ast=o, source=kwargs['source'])
@@ -1182,7 +1206,8 @@ class OFP2IR(GenericVisitor):
         # Pre-populate symbol table with procedure types declared in this module
         # to correctly classify inline function calls and type-bound procedures
         contains_ast = o.find('members')
-        if contains_ast is not None:
+        contains_stmt = o.find('contains-stmt')
+        if contains_ast is not None and contains_stmt is not None:
             # Note that we overwrite this variable subsequently with the fully parsed subroutines
             # where the visit-method for the subroutine/function statement will pick out the existing
             # subroutine objects using the weakref pointers stored in the symbol table.
@@ -1194,20 +1219,32 @@ class OFP2IR(GenericVisitor):
             ]
 
         # Parse the spec
-        spec = self.visit(o.find('body/specification'), **kwargs)
+        spec = self.visit(spec_ast, **kwargs)
         spec = sanitize_ir(spec, OFP, pp_registry=sanitize_registry[OFP], pp_info=self.pp_info)
 
+        # Parse the docstring
+        if not docs_ast and not spec.body:
+            # If the spec is empty the docstring is conveniently put flat into the module instead...
+            docs_ast = o.findall('comment')
+        docstring = self.visit(docs_ast, **kwargs)
+        docstring = sanitize_ir(docstring, OFP, pp_registry=sanitize_registry[OFP], pp_info=self.pp_info)
+
         # Parse member subroutines and functions
-        if contains_ast is not None:
+        if contains_ast is not None and contains_stmt is not None:
+            contains_stmt = self.visit(contains_stmt, **kwargs)
             contains = self.visit(contains_ast, **kwargs)
+            contains.prepend(contains_stmt)
         else:
             contains = None
 
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
+        # pylint: disable=unnecessary-dunder-call
         module.__init__(
-            name=module.name, spec=spec, contains=contains, ast=o, rescope_symbols=True,
-            source=kwargs['source'], parent=module.parent, symbol_attrs=module.symbol_attrs
+            name=module.name, docstring=docstring, spec=spec, contains=contains,
+            default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
+            private_access_spec=module.private_access_spec, ast=o, source=kwargs['source'],
+            rescope_symbols=True, parent=module.parent, symbol_attrs=module.symbol_attrs
         )
         return module
 

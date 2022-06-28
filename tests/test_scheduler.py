@@ -727,7 +727,7 @@ def test_scheduler_cmake_planner(here, frontend):
     builddir.rmdir()
 
 
-def test_scheduler_item(here, frontend):
+def test_scheduler_item(here):
     """
     Test the basic regex accessors in :any:`Item` objects for fast dependency detection.
     """
@@ -735,11 +735,11 @@ def test_scheduler_item(here, frontend):
 
     item_a = Item(name='routine_a', path=filepath)
     assert item_a._re_subroutine_calls == ('routine_b',)
-    assert item_a._re_subroutine_members == ()
+    assert not item_a._re_subroutine_members
 
     item_module = Item(name='module_routine', path=filepath)
     assert item_module._re_subroutine_calls == ('routine_b',)
-    assert item_module._re_subroutine_members == ()
+    assert not item_module._re_subroutine_members
 
     item_b = Item(name='routine_b', path=filepath)
     assert item_b._re_subroutine_calls == ('contained_c', 'routine_a')

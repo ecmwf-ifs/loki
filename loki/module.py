@@ -5,6 +5,7 @@ from loki.frontend import get_fparser_node, parse_omni_ast, parse_ofp_ast, parse
 from loki.ir import VariableDeclaration
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 from loki.program_unit import ProgramUnit
+from loki.tools import as_tuple
 
 
 __all__ = ['Module']
@@ -25,6 +26,17 @@ class Module(ProgramUnit):
     contains : tuple of :any:`Subroutine`, optional
         The module-subprogram part following a ``CONTAINS`` statement declaring
         member procedures.
+    default_access_spec : str, optional
+        The default access attribute for variables as defined by an access-spec
+        statement without access-id-list, i.e., ``public`` or ``private``.
+        Default value is `None` corresponding to the absence of an access-spec
+        statement for default accessibility (which is equivalent to ``public``).
+    public_access_spec : tuple of str, optional
+        List of identifiers that are declared ``public`` in an access-spec statement.
+        Default value is `None` which is stored as an empty tuple.
+    private_access_spec : tuple of str, optional
+        List of identifiers that are declared ``private`` in an access-spec statement.
+        Default value is `None` which is stored as an empty tuple.
     ast : optional
         The node for this module from the parse tree produced by the frontend.
     source : :any:`Source`, optional
@@ -41,12 +53,24 @@ class Module(ProgramUnit):
     """
 
     def __init__(self, name=None, docstring=None, spec=None, contains=None,
+                 default_access_spec=None, public_access_spec=None, private_access_spec=None,
                  ast=None, source=None, parent=None,
                  rescope_symbols=False, symbol_attrs=None):
         # Apply dimension pragma annotations to declarations
         if spec:
             with pragmas_attached(self, VariableDeclaration):
                 spec = process_dimension_pragmas(spec)
+
+        # Store the access spec properties
+        self.default_access_spec = None if not default_access_spec else default_access_spec.lower()
+        if not public_access_spec:
+            self.public_access_spec = ()
+        else:
+            self.public_access_spec = tuple(v.lower() for v in as_tuple(public_access_spec))
+        if not private_access_spec:
+            self.private_access_spec = ()
+        else:
+            self.private_access_spec = tuple(v.lower() for v in as_tuple(private_access_spec))
 
         # Then call the parent constructor to store all properties
         super().__init__(
@@ -134,3 +158,29 @@ class Module(ProgramUnit):
             ast, pp_info=pp_info, definitions=definitions,
             raw_source=raw_source, scope=parent
         )[-1]
+
+    def clone(self, **kwargs):
+        """
+        Create a copy of the module with the option to override individual
+        parameters.
+
+        Parameters
+        ----------
+        **kwargs :
+            Any parameters from the constructor of :any:`Module`.
+
+        Returns
+        -------
+        :any:`Module`
+            The cloned module object.
+        """
+        # Collect all properties bespoke to Subroutine
+        if self.default_access_spec and 'default_access_spec' not in kwargs:
+            kwargs['default_access_spec'] = self.default_access_spec
+        if self.public_access_spec and 'public_access_spec' not in kwargs:
+            kwargs['public_access_spec'] = self.public_access_spec
+        if self.private_access_spec and 'private_access_spec' not in kwargs:
+            kwargs['private_access_spec'] = self.private_access_spec
+
+        # Escalate to parent class
+        return super().clone(**kwargs)

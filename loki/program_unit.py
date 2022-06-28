@@ -377,6 +377,62 @@ class ProgramUnit(Scope):
         )
 
     @property
+    def spec_parts(self):
+        """
+        Return the :attr:`spec` subdivided into the parts the Fortran standard
+        describes and requires to appear in a specific order
+
+        The parts are:
+
+        * import statements (such as module imports via ``USE``)
+        * implicit-part (such as ``IMPLICIT NONE``)
+        * declaration constructs (such as access statements, variable declarations etc.)
+
+        This can be useful when adding or looking for statements that have to appear
+        in a certain position.
+
+        Note that comments at the interface between parts may be allocated to the
+        previous or next part.
+
+        Returns
+        -------
+        tuple of tuple of :class:`ir.Node`
+            The parts of the spec, with empty parts represented by empty tuples.
+        """
+        if not self.spec:
+            return ((),(),())
+
+        intrinsic_nodes = FindNodes(ir.Intrinsic).visit(self.spec)
+        implicit_nodes = [node for node in intrinsic_nodes if node.text.lstrip().lower().startswith('implicit')]
+
+        if implicit_nodes:
+            # Use 'IMPLICIT' statements as divider
+            implicit_start_index = self.spec.body.index(implicit_nodes[0])
+            if len(implicit_nodes) == 1:
+                implicit_end_index = implicit_start_index
+            else:
+                implicit_end_index = self.spec.body.index(implicit_nodes[-1])
+
+            return (
+                self.spec.body[:implicit_start_index],
+                self.spec.body[implicit_start_index:implicit_end_index+1],
+                self.spec.body[implicit_end_index+1:]
+            )
+
+        # No 'IMPLICIT' statements: find the end of imports
+        import_nodes = FindNodes(ir.Import).visit(self.spec)
+
+        if not import_nodes:
+            return ((), (), self.spec.body)
+
+        import_nodes_end_index = self.spec.body.index(import_nodes[-1])
+        return (
+            self.spec.body[:import_nodes_end_index+1],
+            (),
+            self.spec.body[import_nodes_end_index+1:]
+        )
+
+    @property
     def ir(self):
         """
         All components of the intermediate representation in this unit

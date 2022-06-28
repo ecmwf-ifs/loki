@@ -86,7 +86,7 @@ class FortranCodegen(Stringifier):
     """
     Tree visitor to generate standardized Fortran code from IR.
     """
-    # pylint: disable=no-self-use, unused-argument
+    # pylint: disable=unused-argument
 
     def __init__(self, depth=0, indent='  ', linewidth=90, conservative=True):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
@@ -139,16 +139,40 @@ class FortranCodegen(Stringifier):
           END MODULE
         """
         header = self.format_line('MODULE ', o.name)
-        contains = self.format_line('CONTAINS')
         footer = self.format_line('END MODULE ', o.name)
 
         self.depth += 1
-        spec = self.visit(o.spec, **kwargs)
-        routines = self.visit(o.routines, **kwargs)
+
+        docstring = self.visit(o.docstring, **kwargs)
+
+        # Format any access-specifiers
+        access_spec = []
+        if o.default_access_spec is not None:
+            access_spec += [self.format_line(o.default_access_spec)]
+        if o.public_access_spec:
+            access_spec += [self.format_line('PUBLIC :: ', ', '.join(o.public_access_spec))]
+        if o.private_access_spec:
+            access_spec += [self.format_line('PRIVATE :: ', ', '.join(o.private_access_spec))]
+
+        if access_spec:
+            # Handle the spec in parts to deal with access specifiers
+            import_part, implicit_part, decl_part = o.spec_parts
+            spec = ''
+            if import_part:
+                spec += self.visit(import_part, **kwargs) + '\n'
+            if implicit_part:
+                spec += self.visit(implicit_part, **kwargs) + '\n'
+            spec += self.join_lines(*access_spec) + '\n'
+            if decl_part:
+                spec += self.visit(decl_part, **kwargs) + '\n'
+        else:
+            spec = self.visit(o.spec, **kwargs)
+
+        # Render the routines
+        contains = self.visit(o.contains, **kwargs)
+
         self.depth -= 1
-        if routines:
-            return self.join_lines(header, spec, contains, routines, footer)
-        return self.join_lines(header, spec, footer)
+        return self.join_lines(header, docstring, spec, contains, footer)
 
     def visit_Subroutine(self, o, **kwargs):
         """

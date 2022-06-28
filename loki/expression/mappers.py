@@ -31,7 +31,7 @@ class LokiStringifyMapper(StringifyMapper):
 
     This is the default pretty printer for nodes in the expression tree.
     """
-    # pylint: disable=no-self-use,unused-argument,abstract-method
+    # pylint: disable=unused-argument,abstract-method
 
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
@@ -325,7 +325,6 @@ class ExpressionDimensionsMapper(Mapper):
     """
     A visitor for an expression that determines the dimensions of the expression.
     """
-    # pylint: disable=no-self-use
     # pylint: disable=abstract-method
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
@@ -558,7 +557,7 @@ class LokiIdentityMapper(IdentityMapper):
             return expr
         return symbol.clone(dimensions=dimensions, type=symbol.type.clone(shape=shape))
 
-    def map_array_subscript(self, expr, *args, **kwargs):  # pylint: disable=no-self-use
+    def map_array_subscript(self, expr, *args, **kwargs):
         raise RuntimeError('Recursion should have ended at map_array')
 
     map_inline_call = IdentityMapper.map_call_with_kwargs

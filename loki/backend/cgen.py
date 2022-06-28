@@ -34,7 +34,7 @@ class CCodeMapper(LokiStringifyMapper):
             return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
         return str(expr.value)
 
-    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):  # pylint: disable=no-self-use
+    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
             return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
@@ -106,8 +106,6 @@ class CCodegen(Stringifier):
     """
     Tree visitor to generate standardized C code from IR.
     """
-
-    # pylint: disable=no-self-use
 
     def __init__(self, depth=0, indent='  ', linewidth=90):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,

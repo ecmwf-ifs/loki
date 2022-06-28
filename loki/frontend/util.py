@@ -200,10 +200,10 @@ def inject_statement_functions(routine):
 
     def create_type(stmt_func):
         name = str(stmt_func.variable)
-        procedure_query = lambda x: [
-            f for f in FindNodes(StatementFunction).visit(x.spec) if f.variable == name
-        ][0]
-        procedure = LazyNodeLookup(routine, procedure_query)
+        procedure = LazyNodeLookup(
+            anchor=routine,
+            query=lambda x: [f for f in FindNodes(StatementFunction).visit(x.spec) if f.variable == name][0]
+        )
         proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
         return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
 

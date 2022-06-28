@@ -124,7 +124,7 @@ class Node:
         argnames = [i for i in self._traversable if i not in kwargs]
         self._args.update(OrderedDict(zip(argnames, args)))
         self._args.update(kwargs)
-        self.__init__(**self._args)
+        self.__init__(**self._args)  # pylint: disable=unnecessary-dunder-call
 
     @property
     def args(self):

@@ -44,8 +44,12 @@ class ExpressionFinder(Visitor):
     """
     # pylint: disable=unused-argument
 
-    # By default we return nothing
-    retrieval_function = lambda x: ()
+    @staticmethod
+    def default_retrieval_function(x):
+        """Default retrieval function that returns nothing"""
+        return ()
+
+    retrieval_function = default_retrieval_function
 
     def __init__(self, unique=True, retrieve=None, with_ir_node=False):
         super().__init__()
@@ -96,7 +100,8 @@ class ExpressionFinder(Visitor):
             # A direct call to flatten() would destroy our tuples, thus we need to
             # sort through the list and single out existing tuple-value pairs and
             # plain expressions before finding uniques
-            is_leaf = lambda el: isinstance(el, tuple) and len(el) == 2 and isinstance(el[0], Node)
+            def is_leaf(el):
+                return isinstance(el, tuple) and len(el) == 2 and isinstance(el[0], Node)
             newlist = flatten(expressions, is_leaf=is_leaf)
             tuple_list = [el for el in newlist if is_leaf(el)]
             exprs = [el for el in newlist if not is_leaf(el)]

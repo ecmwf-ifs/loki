@@ -238,7 +238,6 @@ def extract_fparser_source(node, raw_source):
 
 
 class FParser2IR(GenericVisitor):
-    # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
     def __init__(self, raw_source, definitions=None, pp_info=None, scope=None):
@@ -841,6 +840,29 @@ class FParser2IR(GenericVisitor):
         return declaration
 
     visit_External_Name_List = visit_List
+
+    def visit_Access_Stmt(self, o, **kwargs):
+        """
+        An access-spec statement that specifies accessibility of symbols in a module
+
+        :class:`faprser.two.Fortran2003.Access_Stmt` has 2 children:
+
+        * keyword ``PRIVATE`` or ``PUBLIC`` (`str`)
+        * optional list of names (:class:`fparser.two.Fortran2003.Access_Id_List`) or `None`
+        """
+        from loki.module import Module  # pylint: disable=import-outside-toplevel
+        assert isinstance(kwargs['scope'], Module)
+        assert o.children[0] in ('PUBLIC', 'PRIVATE')
+
+        if o.children[1] is None:
+            assert kwargs['scope'].default_access_spec is None
+            kwargs['scope'].default_access_spec = o.children[0].lower()
+        else:
+            access_id_list = [str(name).lower() for name in o.children[1].children]
+            if o.children[0] == 'PUBLIC':
+                kwargs['scope'].public_access_spec += as_tuple(access_id_list)
+            else:
+                kwargs['scope'].private_access_spec += as_tuple(access_id_list)
 
     #
     # Procedure declarations
@@ -1703,6 +1725,7 @@ class FParser2IR(GenericVisitor):
 
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
+        # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
             docstring=docs, spec=spec, body=body, contains=contains,
@@ -1872,7 +1895,19 @@ class FParser2IR(GenericVisitor):
         if spec_ast:
             spec = self.visit(spec_ast, **kwargs)
             spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+
+            # Another big hack: fparser allocates all comments before and after the
+            # spec to the spec. We remove them from the beginning to get the docstring.
+            comment_map = {}
+            docs = []
+            for node in spec.body:
+                if not isinstance(node, (ir.Comment, ir.CommentBlock)):
+                    break
+                docs.append(node)
+                comment_map[node] = None
+            spec = Transformer(comment_map, invalidate_source=False).visit(spec)
         else:
+            docs = []
             spec = None
 
         # Now that all declarations are well-defined we can parse the member routines
@@ -1883,9 +1918,12 @@ class FParser2IR(GenericVisitor):
 
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
+        # pylint: disable=unnecessary-dunder-call
         module.__init__(
-            name=module.name, spec=spec, contains=contains, ast=o, rescope_symbols=True,
-            source=source, parent=module.parent, symbol_attrs=module.symbol_attrs
+            name=module.name, docstring=docs, spec=spec, contains=contains,
+            default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
+            private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
+            parent=module.parent, symbol_attrs=module.symbol_attrs
         )
 
         return (*pre, module)
@@ -2845,7 +2883,6 @@ class FParser2IR(GenericVisitor):
     visit_Open_Stmt = visit_Intrinsic_Stmt
     visit_Close_Stmt = visit_Intrinsic_Stmt
     visit_Inquire_Stmt = visit_Intrinsic_Stmt
-    visit_Access_Stmt = visit_Intrinsic_Stmt
     visit_Namelist_Stmt = visit_Intrinsic_Stmt
     visit_Parameter_Stmt = visit_Intrinsic_Stmt
     visit_Dimension_Stmt = visit_Intrinsic_Stmt

@@ -100,7 +100,6 @@ def parse_omni_ast(ast, definitions=None, type_map=None, symbol_map=None,
 
 
 class OMNI2IR(GenericVisitor):
-    # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
     _omni_types = {
@@ -383,6 +382,7 @@ class OMNI2IR(GenericVisitor):
 
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
+        # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
             docstring=docstring, spec=spec, body=body, contains=contains,
@@ -445,6 +445,19 @@ class OMNI2IR(GenericVisitor):
         spec = self.visit(o.find('declarations'), **kwargs)
         spec = sanitize_ir(spec, OMNI)
 
+        # Hack: We remove comments from the beginning of the spec to get the docstring
+        docstring = []
+        spec_map = {}
+        for node in spec.body:
+            if node in spec_map:
+                continue
+            if not isinstance(node, (ir.Comment, ir.CommentBlock)):
+                break
+            docstring.append(node)
+            spec_map[node] = None
+        docstring = as_tuple(docstring)
+        spec = Transformer(spec_map, invalidate_source=False).visit(spec)
+
         # Parse member functions
         if contains_ast is not None:
             contains = self.visit(contains_ast, **kwargs)
@@ -453,9 +466,11 @@ class OMNI2IR(GenericVisitor):
 
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
+        # pylint: disable=unnecessary-dunder-call
         module.__init__(
-            name=module.name, spec=spec, contains=contains, ast=o, rescope_symbols=True,
-            source=kwargs['source'], parent=module.parent, symbol_attrs=module.symbol_attrs
+            name=module.name, docstring=docstring, spec=spec, contains=contains,
+            ast=o, rescope_symbols=True, source=kwargs['source'],
+            parent=module.parent, symbol_attrs=module.symbol_attrs
         )
 
         return module
