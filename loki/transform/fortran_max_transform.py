@@ -63,7 +63,7 @@ class FortranMaxTransformation(Transformation):
         wrapper = FortranCTransformation.generate_iso_c_wrapper_routine(
             host_interface, self.c_structs, bind_name=host_interface.name)
         self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
-        contains = ir.Section(body=as_tuple(wrapper))
+        contains = ir.Section(body=(ir.Intrinsic('CONTAINS'), wrapper))
         module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
         Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 

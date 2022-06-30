@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import pandas as pd
 import pytest
+import yaml
 
 from conftest import available_frontends
 from loki import execute, OMNI, HAVE_FP, HAVE_OMNI, warning
@@ -18,37 +19,51 @@ def fixture_here():
     return Path(os.environ['CLOUDSC_DIR'])
 
 
-@pytest.fixture(scope='module', name='link_local_loki')
-def fixture_link_local_loki(here):
+@pytest.fixture(scope='module', name='local_loki_bundle')
+def fixture_local_loki_bundle(here):
     """Inject ourselves into the CLOUDSC bundle"""
-    # Note: CLOUDSC currently uses ecbundle v2.0.0 which can't handle symlinks
-    # for non-symlinked bundle entries, yet. Therefore, we monkey-patch this link
-    # after the bundle create for the moment, but ideally this fixture should
-    # become a dependency of the bundle create step
     lokidir = Path(__file__).parent.parent.parent.parent
     target = here/'source/loki'
     backup = here/'source/loki.bak'
+    bundlefile = here/'bundle.yml'
+    local_loki_bundlefile = here/'__bundle_loki.yml'
 
+    # Do not overwrite any existing Loki copy
     if target.exists():
         if backup.exists():
             shutil.rmtree(backup)
         shutil.move(target, backup)
 
-    target.symlink_to(lokidir)
-    yield target
+    # Change bundle to symlink for Loki
+    bundle = yaml.safe_load(bundlefile.read_text())
+    loki_index = [i for i, p in enumerate(bundle['projects']) if 'loki' in p]
+    assert len(loki_index) == 1
+    if 'git' in bundle['projects'][loki_index[0]]['loki']:
+        del bundle['projects'][loki_index[0]]['loki']['git']
+    bundle['projects'][loki_index[0]]['loki']['dir'] = str(lokidir.resolve())
+    local_loki_bundlefile.write_text(yaml.dump(bundle))
 
-    target.unlink()
-    if backup.exists():
+    yield local_loki_bundlefile
+
+    if local_loki_bundlefile.exists():
+        local_loki_bundlefile.unlink()
+    if target.is_symlink():
+        target.unlink()
+    if not target.exists() and backup.exists():
         shutil.move(backup, target)
 
 
 @pytest.fixture(scope='module', name='bundle_create')
-def fixture_bundle_create(here):
-    # Create the bundle
-    execute('./cloudsc-bundle create', cwd=here, silent=False)
+def fixture_bundle_create(here, local_loki_bundle):
+    # Run ecbundle to fetch dependencies
+    execute(
+        ['./cloudsc-bundle', 'create', '--bundle', str(local_loki_bundle)],
+        cwd=here,
+        silent=False
+    )
 
 
-@pytest.mark.usefixtures('bundle_create', 'link_local_loki')
+@pytest.mark.usefixtures('bundle_create')
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs FParser for parsing dependencies')] if not HAVE_FP else None
 ))
@@ -61,6 +76,10 @@ def test_cloudsc(here, frontend):
 
     if 'CLOUDSC_ARCH' in os.environ:
         build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
+    else:
+        # Build without OpenACC support as this makes problems
+        # with older versions of GNU
+        build_cmd += ['--cmake=ENABLE_ACC=OFF']
 
     execute(build_cmd, cwd=here, silent=False)
 

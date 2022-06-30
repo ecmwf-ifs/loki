@@ -868,8 +868,10 @@ def fixture_delete_iso_fortran_mod_file(here):
     interference with subsequent tests that use the intrinsic module.
     """
     yield
-    (here/'iso_fortran_env.mod').unlink(missing_ok=True)
-    Path('iso_fortran_env.xmod').unlink(missing_ok=True)
+    if (here/'iso_fortran_env.mod').is_file():
+        (here/'iso_fortran_env.mod').unlink()
+    if Path('iso_fortran_env.xmod').is_file():
+        Path('iso_fortran_env.xmod').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
