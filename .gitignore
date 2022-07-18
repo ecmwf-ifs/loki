@@ -72,5 +72,7 @@ docs/source/transformations.*
 
 # notebooks
 example/.ipynb_checkpoints
-example/scripts
+example/scripts/loop*.py
+example/scripts/visitor_test.py
 loki/visitors/find_depth.py
+.DS_Store
