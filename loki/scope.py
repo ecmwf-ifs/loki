@@ -29,14 +29,21 @@ class SymbolTable(dict):
         Respect the case of symbol names in lookups (default: `False`).
     """
 
+    def __new__(cls, case_sensitive=False, *args, **kwargs):
+        """
+        Set the lookup function on object creation, so that they are safe to pickle
+        """
+        obj = super(SymbolTable, cls).__new__(cls, *args, **kwargs)
+        obj._case_sensitive = case_sensitive
+        if obj.case_sensitive:
+            obj.format_lookup_name = SymbolTable._case_sensitive_format_lookup_name
+        else:
+            obj.format_lookup_name = SymbolTable._not_case_sensitive_format_lookup_name
+        return obj
+
     def __init__(self, parent=None, case_sensitive=False, **kwargs):
         super().__init__(**kwargs)
         self._parent = weakref.ref(parent) if parent is not None else None
-        self._case_sensitive = case_sensitive
-        if self.case_sensitive:
-            self.format_lookup_name = SymbolTable._case_sensitive_format_lookup_name
-        else:
-            self.format_lookup_name = SymbolTable._not_case_sensitive_format_lookup_name
 
     @property
     def parent(self):
