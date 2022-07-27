@@ -51,6 +51,11 @@ tests/libsubroutine_external.a
 tests/subroutine_external.py
 tests/routine_axpy_scalar_py.py
 
+tests/*.f90
+tests/*.F90
+tests/*.c
+tests/.dacecache/*
+
 # CMake overhead of hand-crafted test
 tests/test_transpile/CMakeFiles/*
 tests/test_transpile/CMakeCache.txt
@@ -71,8 +76,18 @@ docs/source/raps_deps.rst
 docs/source/transformations.*
 
 # notebooks
+testing/
 example/.ipynb_checkpoints
 example/scripts/loop*.py
 example/scripts/visitor_test.py
+example/src/cloudsc.F90
+example/src/cloudsc_driver_mod.F90
+example/src/output.dat
+example/src/infile.dat
+example/src/disable.dat
+example/src/summary.dat
 loki/visitors/find_depth.py
 .DS_Store
+
+# bug reporting
+bugs/
