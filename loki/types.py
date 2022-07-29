@@ -312,6 +312,12 @@ class SymbolAttributes:
             args += [(k, v)]
         return tuple(args)
 
+    def __eq__(self, other):
+        """
+        Compare :any:`SymbolAttributes` via internal comparison but without execptions.
+        """
+        return self.compare(other, ignore=None)
+
     def clone(self, **kwargs):
         """
         Clone the :any:`SymbolAttributes`, optionally overwriting any attributes
