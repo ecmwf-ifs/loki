@@ -489,6 +489,12 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         super().__init__(*args, **kwargs)
         self._symbol = symbol
 
+    def __getstate__(self):
+        return self._symbol
+
+    def __setstate__(self, state):
+        self._symbol = state
+
     @property
     def symbol(self):
         """
