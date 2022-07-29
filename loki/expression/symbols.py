@@ -162,18 +162,7 @@ class TypedSymbol:
 
         # Use provided type or try to determine from scope
         self._type = None
-        _type = kwargs.pop('type', None) or self.type
-
-        # Update the stored type information
-        if self._scope is None:
-            # Store locally if not attached to a scope
-            self._type = _type
-        elif _type is None:
-            # Store deferred type if unknown
-            self.scope.symbol_attrs[self.name] = SymbolAttributes(BasicType.DEFERRED)
-        elif _type is not self.scope.symbol_attrs.lookup(self.name):
-            # Update type if it differs from stored type
-            self.scope.symbol_attrs[self.name] = _type
+        self.type = kwargs.pop('type', None) or self.type
 
         super().__init__(*args, **kwargs)
 
@@ -244,6 +233,21 @@ class TypedSymbol:
         if self.scope is None:
             return self._type
         return self._lookup_type(self.scope)
+
+    @type.setter
+    def type(self, _type):
+        """
+        Update the stored type information
+        """
+        if self._scope is None:
+            # Store locally if not attached to a scope
+            self._type = _type
+        elif _type is None:
+            # Store deferred type if unknown
+            self.scope.symbol_attrs[self.name] = SymbolAttributes(BasicType.DEFERRED)
+        elif _type is not self.scope.symbol_attrs.lookup(self.name):
+            # Update type if it differs from stored type
+            self.scope.symbol_attrs[self.name] = _type
 
     @property
     def parent(self):
