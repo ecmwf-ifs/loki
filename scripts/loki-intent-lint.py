@@ -627,13 +627,11 @@ def spec_check(routine,vars,var_check):
                         var_check[dim][1] = "in"
 
 @click.command(help='Check if dummy argument INTENT is consistent with how variables are used')
-@click.option('--mode',default='rule-break',type=str,help=('Option to only check for INTENT rules being broken or also check for redundant rules'))
-@click.option('--intype',type=str,help=("Specify file(s) path directly or specify path of input file. The same choice is also used for '--disable'."))
+@click.option('--mode',default='rule-break',type=click.Choice(['rule-break','rule-unused'],case_sensitive=False),help=('rule-break: check only for intent violations. rule-unused: also check for redundant intent'))
+@click.option('--intype',type=click.Choice(['path','file'],case_sensitive=False),help=("path: specify file path directly. file: read in file paths from input file"))
 @click.option('--path',type=str,help=('Path of file(s) to be parsed or path of input file'))
 @click.option('--disable','-d',type=str,multiple=True,default=None,help=('List of function calls to be excluded from intent check'))
 def main(mode,intype,path,disable):
-
-    assert(intype == 'path' or intype == 'file')
 
     files = []
     if intype == 'path':
@@ -653,14 +651,15 @@ def main(mode,intype,path,disable):
         disable = exclude
 
     routines = []
-    for file in files:
+    sources = len(files)*[None]
+
+    for n,file in enumerate(files):
     
         print(f'read in File :: {file}')
-    
-        source  = Sourcefile.from_file(file)
-        routines += source.all_subroutines
-
-
+     
+        sources[n] = Sourcefile.from_file(file)
+        routines += sources[n].all_subroutines
+ 
     print()
     for routine in routines:
     
