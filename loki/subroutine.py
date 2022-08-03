@@ -265,7 +265,21 @@ class Subroutine(ProgramUnit):
         """
         Return arguments in order of the defined signature (dummy list).
         """
-        return as_tuple(self.symbol_map[arg] for arg in self._dummies)
+        
+#        argx = tuple(v for v in self.symbols if v.name.lower() in self._dummies)
+        args = [None]*len(self._dummies)
+        j = 0
+        for s in self.symbols:
+            for i, d in enumerate(self._dummies):
+                if s.name.lower() == d:
+                    args[i] = s
+                    j += 1
+            if j == len(self._dummies):
+                break
+
+        return as_tuple(args)
+
+#        return as_tuple(self.symbol_map[arg] for arg in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):
