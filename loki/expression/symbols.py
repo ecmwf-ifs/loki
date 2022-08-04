@@ -956,11 +956,10 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
         except ValueError:
             return super().__ge__(other)
 
+    init_arg_names = ['value', 'kind']
+
     def __getinitargs__(self):
-        args = [self.value]
-        if self.kind:
-            args += [('kind', self.kind)]
-        return tuple(args) + super().__getinitargs__()
+        return (self.value, self.kind)
 
     mapper_method = intern('map_float_literal')
 
@@ -1027,11 +1026,10 @@ class IntLiteral(ExprMetadataMixin, _Literal):
             return self.value >= other
         return super().__ge__(other)
 
+    init_arg_names = ['value', 'kind']
+
     def __getinitargs__(self):
-        args = [self.value]
-        if self.kind:
-            args += [('kind', self.kind)]
-        return tuple(args) + super().__getinitargs__()
+        return (self.value, self.kind)
 
     def __int__(self):
         return self.value
@@ -1060,8 +1058,10 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
         self.value = value.lower() in ('true', '.true.')
         super().__init__(**kwargs)
 
+    init_arg_names = ['value']
+
     def __getinitargs__(self):
-        return (self.value,) + super().__getinitargs__()
+        return (self.value, )
 
     mapper_method = intern('map_logic_literal')
 
@@ -1095,8 +1095,10 @@ class StringLiteral(ExprMetadataMixin, _Literal):
             return self.value == other
         return False
 
+    init_arg_names = ['value']
+
     def __getinitargs__(self):
-        return (self.value,) + super().__getinitargs__()
+        return (self.value, )
 
     mapper_method = intern('map_string_literal')
 
@@ -1118,8 +1120,10 @@ class IntrinsicLiteral(ExprMetadataMixin, _Literal):
         self.value = value
         super().__init__(**kwargs)
 
+    init_arg_names = ['value']
+
     def __getinitargs__(self):
-        return (self.value,) + super().__getinitargs__()
+        return (self.value, )
 
     mapper_method = intern('map_intrinsic_literal')
 
