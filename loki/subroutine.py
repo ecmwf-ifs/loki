@@ -269,7 +269,7 @@ class Subroutine(ProgramUnit):
         #Get a persistent copy of variables and interface_symbols
         #Note: if the list is not preloaded, Python will recreate it for every dummy,
         #resulting in a massive overhead
-        symbols = self.variables + self.interface_symbols
+        symbols = self.symbols
 
         #Loop over dummies, search for the corresponding symbol in the list,
         #and add to args list
