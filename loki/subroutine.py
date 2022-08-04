@@ -265,24 +265,20 @@ class Subroutine(ProgramUnit):
         """
         Return arguments in order of the defined signature (dummy list).
         """
-        
-        #Preallocate list same length as dummies
-        args = [None]*len(self._dummies)
 
-        #Initialize j to keep track of number of arguments found
-        j = 0
+        #Get a persistent copy of variables and interface_symbols
+        #Note: if the list is not preloaded, Python will recreate it for every dummy,
+        #resulting in a massive overhead
+        symbols = self.variables + self.interface_symbols
 
-        #Loop over all symbols and find check if they are in dummies.
-        #If they are in dummies, store in correct position in args list
-        for s in self.symbols:
-            for i, d in enumerate(self._dummies):
+        #Loop over dummies, search for the corresponding symbol in the list,
+        #and add to args list
+        args = []
+        for d in self._dummies:
+            for s in symbols:
                 if s.name.lower() == d:
-                    args[i] = s
-                    j += 1
-
-            #Break if all dummies have been found. Not necessary, but a bit faster.
-            if j == len(self._dummies):
-                break
+                    args += [s]
+                    break
 
         return as_tuple(args)
 
