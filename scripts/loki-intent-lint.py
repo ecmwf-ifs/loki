@@ -722,8 +722,8 @@ def resolve_member_routine(routine,var_check,in_vars,out_vars,inout_vars,disable
     call_map = {}
     for count,call in enumerate(calls):
 
-        if call.kwarguments:
-            f'double-check kwargs in {call}  to internal routine in {routine}'
+#        if call.kwarguments:
+#            f'double-check kwargs in {call}  to internal routine in {routine}'
 
         cargs = call.arguments
 
@@ -732,8 +732,8 @@ def resolve_member_routine(routine,var_check,in_vars,out_vars,inout_vars,disable
 
         for arg in r.arguments:
             for a,v in call.kwarguments:
-                if arg.name.lower() == a.arg.name.lower():
-                    cargs += v
+                if arg.name.lower() == a.lower():
+                    cargs += as_tuple(v)
 
         # rename dummy arguments in r.body
         vmap = {}
@@ -828,22 +828,25 @@ def resolve_pointer(assign,routine,ivars,onodes,nnodes,nmap):
     if start:
         start = start[0]
 
-    end = None
     vars = FindVarsNotDims(assign.lhs,Return="name")
 
+    end = None
+    stat = False
     for node in FindNodes((Nullify,Assignment)).visit(routine.body):
-        if isinstance(node,Nullify):
-            if any(x in vars for x in FindVarsNotDims(node.variables,Return="name")):
-                end = node
-                break
-        elif getattr(node,"ptr",None):
-            if any(x in vars for x in FindVarsNotDims(node.lhs,Return="name")):
-                if 'null' in [var.lower() for var in FindVarsNotDims(node.rhs,Return="name")]:
-                   end = node
-                   break
 
-    if end:
-        end = end[0]
+        if node == start:
+           stat = True
+        if stat:
+            if isinstance(node,Nullify):
+                if any(x in vars for x in FindVarsNotDims(node.variables,Return="name")):
+                    end = node
+                    break
+            elif getattr(node,"ptr",None):
+                if any(x in vars for x in FindVarsNotDims(node.lhs,Return="name")):
+                    if 'null' in [var.lower() for var in FindVarsNotDims(node.rhs,Return="name")]:
+                       end = node
+                       break
+
 
     ist = None
     ien = None
@@ -859,15 +862,15 @@ def resolve_pointer(assign,routine,ivars,onodes,nnodes,nmap):
     vmap = {}
     for count,node in enumerate(nnodes):
         if count >= ist and count < ien:
-            if getattr(assign,"ptr",None):
             
-                vars = FindVariables().visit(assign.rhs)
+            vars = FindVariables().visit(assign.rhs)
+
+            for ivar,val in ivars.items():
+                for var in [var for var in vars if var.name in FindVarsNotDims(val,Return="name")]:
             
-                for var in vars:
-                    for ivar,val in ivars.items():
-            
-                        if var.name in FindVarsNotDims(val,Return="name"):
-                            vmap[assign.lhs] = assign.rhs
+                    for v in FindVariables().visit(node):
+                        if v.name in [l.name for l in as_tuple(assign.lhs)]:
+                            vmap[v] = assign.rhs
         
             node = SubstituteExpressions(vmap).visit(node)
             nmap[onodes[count]] = node
@@ -954,8 +957,8 @@ def main(mode,intype,path,disable,output,summary):
         # resolving associations
         assoc_map = {} 
         all_vars = FindVariables().visit(routine.body)
-        onodes = FindNodes(Node).visit(routine.body)
-        nnodes = FindNodes(Node).visit(routine.body)
+        onodes = FindNodes(Node).visit(routine.body) #old nodes
+        nnodes = FindNodes(Node).visit(routine.body) #new nodes
         for pointer in FindNodes((Associate,Assignment)).visit(routine.body):
 
             if isinstance(pointer,Assignment):
@@ -969,7 +972,6 @@ def main(mode,intype,path,disable,output,summary):
         routine.rescope_symbols()
 
 #        print(fgen(routine.body))
-#        sys.exit()
 
         # intialize intent rule checks
         var_check = {var:[True,"Unused"] for var in {**in_vars,**out_vars,**inout_vars}}
