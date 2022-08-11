@@ -266,21 +266,11 @@ class Subroutine(ProgramUnit):
         Return arguments in order of the defined signature (dummy list).
         """
 
-        #Get a persistent copy of variables and interface_symbols
-        #Note: if the list is not preloaded, Python will recreate it for every dummy,
-        #resulting in a massive overhead
-        symbols = self.symbols
-
-        #Loop over dummies, search for the corresponding symbol in the list,
-        #and add to args list
-        args = []
-        for d in self._dummies:
-            for s in symbols:
-                if s.name.lower() == d:
-                    args += [s]
-                    break
-
-        return as_tuple(args)
+        #Load symbol_map
+        #Note that if the map is not loaded, Python will recreate it for every arguement,
+        #resulting in a large overhead.
+        symbol_map = self.symbol_map
+        return as_tuple(symbol_map[arg] for arg in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):
