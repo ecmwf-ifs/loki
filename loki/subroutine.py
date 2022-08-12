@@ -265,7 +265,12 @@ class Subroutine(ProgramUnit):
         """
         Return arguments in order of the defined signature (dummy list).
         """
-        return as_tuple(self.symbol_map[arg] for arg in self._dummies)
+
+        #Load symbol_map
+        #Note that if the map is not loaded, Python will recreate it for every arguement,
+        #resulting in a large overhead.
+        symbol_map = self.symbol_map
+        return as_tuple(symbol_map[arg] for arg in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):

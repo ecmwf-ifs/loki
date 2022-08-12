@@ -339,10 +339,15 @@ class ProgramUnit(Scope):
         """
         Return list of all symbols declared or imported in this module scope
         """
-        return (
-            self.variables + self.imported_symbols + self.interface_symbols + self.enum_symbols +
-            tuple(routine.procedure_symbol for routine in self.subroutines)
-        )
+
+        #Find all nodes that may contain symbols
+        nodelist = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration,
+                    ir.Import, ir.Interface, ir.Enumeration)).visit(self.spec or ())
+
+        #Return all symbols found in nodelist as well as any procedure_symbols
+        #in contained subroutines
+        return as_tuple(flatten(n.symbols for n in nodelist)) + \
+               tuple(routine.procedure_symbol for routine in self.subroutines)
 
     @property
     def symbol_map(self):
