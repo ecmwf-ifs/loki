@@ -646,6 +646,10 @@ class AttachScopesMapper(LokiIdentityMapper):
         self.fail = fail
 
     def _update_symbol_scope(self, expr, scope):
+        """
+        Find the scope of :data:`expr` and, if it is different,
+        attach the new scope and return the symbol
+        """
         symbol_scope = scope.get_symbol_scope(expr.name)
         if symbol_scope is None and '%' in expr.name:
             symbol_scope = scope.get_symbol_scope(expr.name_parts[0])
@@ -659,9 +663,22 @@ class AttachScopesMapper(LokiIdentityMapper):
         return expr
 
     def map_variable_symbol(self, expr, *args, **kwargs):
-        expr = self._update_symbol_scope(expr, kwargs['scope'])
-        map_fn = getattr(super(), expr.mapper_method)
-        return map_fn(expr, *args, **kwargs)
+        """
+        Handler for :class:`VariableSymbol`
+
+        This updates the symbol's scope via :meth:`_update_symbol_scope`
+        and then calls the parent class handler routine
+
+        Note: this may be a different handler as attaching the scope and therefore
+        type may change a symbol's type, e.g. from :class:`DeferredTypeSymbol` to :class:`Scalar`
+        """
+        new_expr = self._update_symbol_scope(expr, kwargs['scope'])
+        if new_expr.scope and new_expr.scope is not kwargs['scope']:
+            # We call the parent handler to take care of properties like initial value, kind etc.,
+            # all of which should be declared at or above the scope of the expression
+            kwargs['scope'] = new_expr.scope
+        map_fn = getattr(super(), new_expr.mapper_method)
+        return map_fn(new_expr, *args, **kwargs)
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol

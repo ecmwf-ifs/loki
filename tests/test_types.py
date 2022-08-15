@@ -534,3 +534,45 @@ END MODULE some_mod
     assert psi.type.dtype.return_type.compare(SymbolAttributes(BasicType.REAL))
     assert decl_map['psi'].interface == BasicType.REAL
     assert 'PROCEDURE(REAL)' in fgen(decl_map['psi']).upper()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_type_attach_scope_kind(frontend):
+    """
+    Validate scopes for nested variables (such as initial values for kind parameters
+    that are shadowed in a nested scope) are assigned to the right scope
+    """
+    fcode = """
+module phys_mod
+use iso_fortran_env
+implicit none
+
+integer, parameter :: dp = REAL64
+integer, parameter :: lp = dp     !! lp : "local" precision
+integer, parameter :: ip = INT64
+integer, parameter :: nspecies = 5
+
+contains
+
+subroutine phys_kernel_LU_SOLVER_COMPACT(dim1,dim2,i1,i2)
+    integer(kind=ip),intent(in) :: dim1, dim2, i1,i2
+    real(kind=lp) :: dp(i1:i2), temp_hor1(i1:i2)
+    real(kind=lp) :: temp_out(i1:i2,nspecies), out_lev_m_1(i1:i2,nspecies)
+
+end subroutine phys_kernel_LU_SOLVER_COMPACT
+
+end module phys_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['phys_kernel_lu_solver_compact']
+    assert routine.variable_map['temp_out'].scope is routine
+    assert module.variable_map['dp'].scope is module
+    assert routine.variable_map['dp'].scope is routine
+
+    if frontend != OMNI:
+        assert routine.variable_map['temp_out'].type.kind == 'lp'
+        assert routine.variable_map['temp_out'].type.kind.scope is module
+
+        assert routine.variable_map['temp_out'].type.kind.initial == 'dp'
+        assert routine.variable_map['temp_out'].type.kind.initial.scope is module
