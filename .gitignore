@@ -76,17 +76,9 @@ docs/source/raps_deps.rst
 docs/source/transformations.*
 
 # notebooks
-testing/
 example/.ipynb_checkpoints
-example/scripts/loop*.py
-example/scripts/visitor_test.py
-example/src/cloudsc.F90
-example/src/cloudsc_driver_mod.F90
-example/src/output.dat
-example/src/infile.dat
-example/src/disable.dat
-example/src/summary.dat
 loki/visitors/find_depth.py
+example/my_module.F90
 .DS_Store
 
 # bug reporting
