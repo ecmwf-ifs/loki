@@ -10,7 +10,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
     BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource,
-    CallStatement, RegexParserClass, ProcedureType, DerivedType
+    CallStatement, RegexParserClass, ProcedureType, DerivedType, Comment, Pragma
 )
 from loki.expression import symbols as sym
 
@@ -341,7 +341,8 @@ end subroutine test_enum
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OFP, 'OFP fails to parse parameterized types')]
 ))
-def test_frontend_strict_mode(frontend, reset_frontend_mode):  # pylint: disable=unused-argument
+@pytest.mark.usefixtures('reset_frontend_mode')
+def test_frontend_strict_mode(frontend):
     """
     Verify that frontends fail on unsupported features if strict mode is enabled
     """
@@ -1108,3 +1109,34 @@ end subroutine definitely_not_allfpos
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     routine = source['definitely_not_allfpos']
     assert routine.variables == ('ydfpdata', 'ylofn')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_frontend_pragma_vs_comment(frontend):
+    """
+    Make sure pragmas and comments are identified correctly
+    """
+    fcode = """
+module frontend_pragma_vs_comment
+    implicit none
+!$some pragma
+    integer :: var1
+!!$some comment
+    integer :: var2
+!some comment
+    integer :: var3
+    !$some pragma
+    integer :: var4
+    ! !$some comment
+    integer :: var5
+end module frontend_pragma_vs_comment
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    pragmas = FindNodes(Pragma).visit(module.ir)
+    comments = FindNodes(Comment).visit(module.ir)
+    assert len(pragmas) == 2
+    assert len(comments) == 3
+    assert all(pragma.keyword == 'some' for pragma in pragmas)
+    assert all(pragma.content == 'pragma' for pragma in pragmas)
+    assert all('some comment' in comment.text for comment in comments)
