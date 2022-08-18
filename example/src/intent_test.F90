@@ -11,7 +11,7 @@ contains
   real(kind=jprb),   intent(inout) ::   var_out  (n)
   real(kind=jprb),   intent(inout) ::   var_inout(n)
   real(kind=jprb),   intent(out)   ::   vout(n)
-  real(kind=jprb),   intent(out)   ::      y(:)
+  real(kind=jprb),   intent(inout) ::      y(:)
   
   end subroutine some_kernel
 end module kernel_mod
