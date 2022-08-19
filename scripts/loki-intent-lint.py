@@ -6,7 +6,7 @@ from loki import (
   Nullify,Node,InlineCall,FindInlineCalls,flatten,Section,Scheduler,LeafNode,InternalNode
  )
 
-import dill
+import toml
 from loki import fgen
 import sys
 
@@ -22,18 +22,22 @@ def count_violations(output,summary):
     body_rule_break=['intent','rule','break']
     loop_rule_break=['intent','loop','induction']
     call_rule_break=['intent','inconsistency']
-    alloc_rule_break=['intent','error','allocatable']
+    alloc_rule_break=['Allocatable','wrong','intent']
     spec_rule_break=['intent(out)','subroutine','specification']
     
     var_unused=['intent','unused']
     inout_unused=['intent(inout)','only','intent(in)']
     io_only=['intent','I/O']
+
+    intent_undeclared=['Dummy','no declared','intent']
     
     unused_list=[var_unused,io_only,inout_unused]
     break_list=[body_rule_break,loop_rule_break,call_rule_break,alloc_rule_break,spec_rule_break]
+    undeclared_list=[intent_undeclared]
     
     ucount_tot = 0
     bcount_tot = 0
+    dcount_tot = 0
     
     with open(summary,'w') as writer:
         writer.write('')
@@ -48,6 +52,7 @@ def count_violations(output,summary):
 
                 ucount_loc = 0
                 bcount_loc = 0
+                dcount_loc = 0
     
             if any(all(m in line for m in matches) for matches in break_list):
                 bcount_loc += 1
@@ -57,7 +62,12 @@ def count_violations(output,summary):
                 ucount_loc += 1
                 ucount_tot += 1
 
-            if line == '\n' and 'read in File ::' not in line0:
+            if any(all(m in line for m in matches) for matches in undeclared_list):
+                dcount_loc += 1
+                dcount_tot += 1
+
+            if line == '\n' and not any(s in line0 for s in ('read in File ::','collected from scheduler')):
+                writer.write(f'Intent undeclared:{dcount_loc}\n')
                 writer.write(f'Intent unused:{ucount_loc}\n')
                 writer.write(f'Intent violated:{bcount_loc}\n')
                 writer.write('\n')
@@ -66,6 +76,7 @@ def count_violations(output,summary):
 
     with open(summary,'a') as writer:
         writer.write('====================Total====================\n')
+        writer.write(f'Intent undeclared:{dcount_tot}\n')
         writer.write(f'Intent unused:{ucount_tot}\n')
         writer.write(f'Intent violated:{bcount_tot}\n')
 
@@ -135,17 +146,12 @@ def alloc_check(calls,routine,output):
     
         assert call.routine, f'matching routine for {call} not found'
         
-        arg_map = {}
         for arg,carg in call.arg_iter():
-            arg_map[arg] = carg
-    
-        for arg in call.routine.arguments:
-            if arg_map[arg] in alloc_vars:
-                if getattr(farg.type,"intent") not in ['in','inout']:
-                    print(f'Allocatable dummy arg {arg} has wrong intent in {call.routine} declaration')
-                    if output:
-                        with open(output,'a') as outfile:
-                            outfile.write(f'Allocatable dummy arg {arg} has wrong intent in {call.routine} declaration\n')
+            if getattr(carg,"name",None) in [a.name for a in alloc_vars] and arg.type.intent not in ('in','inout'):
+                print(f'Allocatable dummy arg {arg} has wrong intent in {call.routine} declaration')
+                if output:
+                    with open(output,'a') as outfile:
+                        outfile.write(f'Allocatable dummy arg {arg} has wrong intent in {call.routine} declaration\n')
 
 def call_check(calls,routine,output):
     """Checks the consistency of intent declaration across calls to subroutines"""
@@ -157,22 +163,22 @@ def call_check(calls,routine,output):
     #   determine position of call within IR
         call_loc = [count for count,node in enumerate(FindNodes(Node).visit(routine.body)) if node == call][0]
 
-        arg_map = {}
-        for farg,arg in call.arg_iter():
-            arg_map[arg] = farg
-        
-        for arg in [a for a in arg_map if getattr(getattr(a,"type",None),"intent",None)]:
+        for farg,arg in [(f,a) for f,a in call.arg_iter() if getattr(getattr(a,"type",None),"intent",None)]:
             # determine how arg is used before function call 
             assign_type = None
             for node in FindNodes(Node).visit(routine.body)[:call_loc]:
                 if isinstance(node,Assignment):
-                    if arg in FindVariables().visit(node.rhs):
+                    if any(arg.name == v.name for v in FindVariables().visit(node.rhs)):
                         assign_type = "rhs"
-                    elif arg in FindVarsNotDims(node.lhs):
+                    elif any(arg.name == v.name for v in FindVarsNotDims(node.lhs)):
                         assign_type = "lhs"
-                elif not isinstance(node,Section):
-                    if arg in FindVariables().visit(node): assign_type = "rhs"
-
+                elif isinstance(node,LeafNode):
+                    if any(arg.name == v.name for v in FindVariables().visit(node)):
+                        assign_type = "rhs"
+                elif isinstance(node,InternalNode):
+                    if any(arg.name == v.name for v in FindVariables().visit(node)) and not any(arg.name == v.name for v in FindVariables().visit(node.body)):
+                        assign_type = "rhs"
+                
             if arg.type.intent == "out":
                 if not assign_type:
                     intent_map["out"] = "out"
@@ -189,7 +195,7 @@ def call_check(calls,routine,output):
                 else:
                     intent_map["inout"] = ["in","inout","out"]     
 
-            if not getattr(arg_map[arg].type,"intent",None) in intent_map[arg.type.intent]:
+            if not getattr(farg.type,"intent",None) in intent_map[arg.type.intent]:
                 print(f'intent inconsistency in {call} for arg {arg.name}')
                 if output:
                     with open(output,'a') as outfile:
@@ -200,9 +206,8 @@ def body_check(routine,in_vars,out_vars,inout_vars,var_check):
     Checks whether the intent of in/out types is violated in the body, and if inout type is used
     only as in
     """
-
     # check if intent(in) vars ever appear on lhs of assignment
-    for var in [v for v in in_vars if v.name in [f.name for f in FindVariables().visit(routine.body)]]:
+    for var in [v for v in in_vars if v.name in [f.name.lower() for f in FindVariables().visit(routine.body)]]:
         var_check[var][1] = "Used"
     for var in [v for v in in_vars if v.name in flatten([FindVarsNotDims(assign.lhs,Return="name") for assign in FindNodes(Assignment).visit(routine.body)])]:
         var_check[var][0] = False
@@ -216,34 +221,34 @@ def body_check(routine,in_vars,out_vars,inout_vars,var_check):
     # check if intent(inout) vars ever passed as intent(out/inout) argument
     for call in [call for call in FindNodes(CallStatement).visit(routine.body) if call.routine]:
         for arg,carg in call.arg_iter():
-            if arg.type.intent in ("out","inout") and carg.type.intent == "inout":
-                var_check[carg][1] = "Used"
+            for varname in [v for v in [c.name.lower() for c in FindVarsNotDims(carg)] if v in FindVarsNotDims(inout_vars,Return='name') and arg.type.intent in ('out','inout')]:
+                var_check[[var for var in inout_vars if var.name == varname][0]][1] = "Used"
 
     for var in out_vars:
         for node in FindNodes((LeafNode,InternalNode)).visit(routine.body):
-            
+
             if isinstance(node,InternalNode):
                 if isinstance(node,Conditional):
                     icalls = FindInlineCalls().visit(node.condition)
-                    if var.name in [v.name for v in FindVariables().visit(node.condition)] and not any(var.name in FindVarsNotDims(icall,Return="name") for icall in icalls):
+                    if var.name in [v.name.lower() for v in FindVariables().visit(node.condition)] and not any(var.name in FindVarsNotDims(icall,Return="name") for icall in icalls):
                         var_check[var][0] = False
                 else:
-                    if var.name in [v.name for v in FindVariables().visit(node)] and var.name not in [v.name for v in FindVariables().visit(node.body)]:
+                    if var.name in [v.name.lower() for v in FindVariables().visit(node)] and var.name not in [v.name.lower() for v in FindVariables().visit(node.body)]:
                         var_check[var][0] = False
             else:
                 if isinstance(node,CallStatement):
-                    if var.name in [v.name for v in FindVariables().visit(node)]:
+                    if var.name in [v.name.lower() for v in FindVariables().visit(node)]:
                         var_check[var][1] = "Used"
 
                 elif isinstance(node,Assignment):
-                    if var.name in [v.name for v in FindVariables().visit(node.rhs)]:
+                    if var.name in [v.name.lower() for v in FindVariables().visit(node.rhs)]:
                         var_check[var][0] = False
     
-                    elif var.name in FindVarsNotDims(node.lhs,Return="name"):
+                    elif var.name in [v.lower() for v in FindVarsNotDims(node.lhs,Return="name")]:
                         var_check[var][1] = "Used"
 
                 else:
-                    if var.name in [v.name for v in FindVariables().visit(node)]:
+                    if var.name in [v.name.lower() for v in FindVariables().visit(node)]:
                         var_check[var][0] = False
             
             if var_check[var][0] == False or var_check[var][1] == "Used": break
@@ -282,7 +287,7 @@ def resolve_member_routine(routine,var_check,in_vars,out_vars,inout_vars):
 
         r = call.routine.clone()
         vmap = {}
-        for v in [var for var in FindVariables().visit(r.body) if var.name in [s.name for s in FindVariables().visit(r.spec)]]:
+        for v in [var for var in FindVariables().visit(r.body) if var.name.lower() in [s.name.lower() for s in FindVarsNotDims(r.spec)]]:
 
             if v.name in [arg.name for arg in arg_map]:
                 vmap[v] = [carg for arg,carg in arg_map.items() if v.name == arg.name][0].clone()
@@ -317,7 +322,7 @@ def resolve_association(routine):
 
     vmap = {}
     for rexpr,lexpr in assoc.associations:
-        for var in [v for v in FindVariables().visit(assoc.body) if lexpr.name.lower() == v.name ]:
+        for var in [v for v in FindVariables().visit(assoc.body) if lexpr.name.lower() == v.name.lower() ]:
             vmap[var] = rexpr.clone(dimensions=getattr(var,"dimensions",None))
             
     assoc_map = {assoc:SubstituteExpressions(vmap).visit(assoc.body)}
@@ -342,94 +347,57 @@ def resolve_pointer(routine):
             pointer_map[node] = None
             break
                 
-        vmap = {var:assign.rhs.clone(dimensions=getattr(var,"dimensions",None)) for var in [v for v in FindVariables().visit(node) if assign.lhs.name == v.name]}
+        vmap = {var:assign.rhs.clone() for var in [v for v in FindVariables().visit(node) if assign.lhs.name == v.name]}
         pointer_map[node] = SubstituteExpressions(vmap).visit(node)
 
     routine.body = Transformer(pointer_map).visit(routine.body)
 
-@click.command(help='Build list of source files to be linted')
-@click.option('--start',type=str,default='build.filelist.dat',show_default=True,help=('Path to input file containing the file-path of the starting subroutine. A list of all the files downstream of this point will be built.'))
-@click.option('--dirs',type=str,default=None,help=('Path to input file containing list of dirs to search in. <path-to-ifs-source> is a valid but slow option.'))
-@click.option('--disable',type=str,default=None,help=('Path of file containing names of subroutine calls that should be ignored. dr_hook,abor*,flush ignored by default.'))
-@click.option('--output',type=str,default='scheduler.pickle',show_default=True,help=('Path to save pickled scheduler.'))
-def build(start,dirs,disable,output):
-    """
-    Populates scheduler with routines in which we want to check dummy argument intent
-    """
-    assert os.path.exists(start)    
-    base_path = os.getcwd()
+def decl_check(routine,output):
+    "Checks whether all dummy arguments have a specified intent"
 
-    search_dirs = ()
-    if dirs:
-        with open(dirs,'r') as file:
-            for line in file:
-                search_dirs += as_tuple(str(PurePath(os.path.relpath(line.strip(),base_path))))
+    for v in FindVarsNotDims(routine.arguments):
+        if not getattr(v.type,"intent",None):
+            print(f'Dummy argument {v.name} has no declared intent')
+            if output:
+                with open(output,'a') as file:
+                    file.write(f'Dummy argument {v.name} has no declared intent\n')
 
-    files = ()    
-    with open(start,'r') as file:
-        for line in file:
-            p = PurePath(os.path.relpath(line.strip(),base_path))
-            if p.parent not in search_dirs:
-                search_dirs += as_tuple(str(p.parent))
+def require_output_param(ctx,param,value):
+    if value:
+        if ctx.get_parameter_source('output') == click.core.ParameterSource.DEFAULT:
+            ctx.fail('--output must be set in order to generate summary')
 
-            files += as_tuple(str(p.stem).strip('_mod'))
+    return value
 
-    exclude = []
-    if disable:
-        with open(disable,'r') as file:
-            for line in file:
-                exclude += [line.strip()]
-
-    exclude += ['DR_HOOK','ABOR','FLUSH']
-    exclude = list(dict.fromkeys(exclude))
-
-    config = {
-        'default': {
-#            'mode': 'idem',
-#            'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'disable':flatten(exclude)
-        },
-    }
-
-    scheduler = Scheduler(paths=search_dirs,config=config)
-    scheduler.populate(files)
-    scheduler.enrich()
-
-    with open(output,'wb') as file:
-        dill.dump(config,file)
-        dill.dump(files,file)
-        dill.dump(search_dirs,file)
-
-@click.command(help='Check if dummy argument intent is correctly specified')
+@click.command(help='CLI tool to check if the intent of subroutine dummy arguments is specified correctly.')
 @click.option('--mode',default='rule-break',show_default=True,type=click.Choice(['rule-break','rule-unused'],case_sensitive=False),help=('rule-break: check only for intent violations. rule-unused: also check for redundant intent'))
-@click.option('--input',type=click.Choice(['source','build'],case_sensitive=False),help=("source: specify file path directly. build: read in pre-built scheduler"))
-@click.option('--path',type=str,help=('Path of source to be parsed or path to pickled scheduler'))
-@click.option('--disable','-d',type=str,multiple=True,default=None,help=('List of function calls to be excluded from intent check. DR_HOOK,ABOR*,FLUSH are disabled by default.'))
-@click.option('--output',type=str,default=None,help=('Path of file to write raw output'))
-@click.option('--summary',type=str,default=None,help=('Path of file to write counted violations'))
-def check(mode,input,path,disable,output,summary):
+@click.option('--setup',type=click.Choice(['manual','config'],case_sensitive=False),help=("manual: specify sourcefile paths directly. config: read in toml configuration file for the loki scheduler."))
+@click.option('--path','-p',type=click.Path(exists=True),multiple=True,help=('Path of source to be parsed or path to configuration file.'))
+@click.option('--disable','-d',type=str,multiple=True,default=None,help=('List of function calls to be excluded from intent check. Only used if "--setup manual" specified.'))
+@click.option('--output',type=click.Path(),default=None,is_eager=True,help=('Path of file to write output.'))
+@click.option('--summary',type=click.Path(),default=None,callback=require_output_param,help=('Path of file to write counted violations. Requires --output option to be set.'))
+def check(mode,setup,path,disable,output,summary):
     """
     Program to check if the intent of subroutine dummy arguments is defined correctly
     """
     if summary: assert output
-
     if output:
         with open(output,'w') as outfile:
             outfile.write('')
 
 #   build list of files to be checked and excluded functions
     files = ()
-    if input == 'source':
+    routines = ()
+    if setup == 'manual':
+
         current_dir = os.getcwd()
-        files += as_tuple([str(p) for p in Path(current_dir).glob(path)])
+        for p in path:
+            rel_path = os.path.relpath(p,current_dir)
+            files += as_tuple([str(s) for s in Path().glob(rel_path)])
 
         disable = as_tuple([d.strip('*') for d in disable])
-        disable += ('DR_HOOK','ABOR','FLUSH')
 
-    #   collect all source files and routines
-        sources = ()
+    #   collect all routines
         for file in files:
             print(f'read in File :: {file}')
     
@@ -437,25 +405,40 @@ def check(mode,input,path,disable,output,summary):
                 with open(output,'a') as outfile:
                     outfile.write(f'read in File :: {file}\n')
          
-            sources += as_tuple(Sourcefile.from_file(file))
-            routines = ()
-            for source in sources:
-                routines += as_tuple(source.all_subroutines)
+            routines += Sourcefile.from_file(file).all_subroutines
 
-            for routine in routines:
-                routine.enrich_calls(routines)
     else:
-        with open(path,'rb') as file:
-            config = dill.load(file)
-            files = dill.load(file)
-            search_dirs = dill.load(file)
+        assert len(path) == 1, f'only one config file should be specified'
+        path = path[0]
 
-        scheduler = Scheduler(paths=search_dirs,config=config)
-        scheduler.populate(files)
+        with Path(path).open('r') as file:
+            config = toml.load(file)
+    
+        scheduler_config = {'default':config['scheduler_config']}
+    
+        search_dirs = ()
+        searches = config['search']
+    
+        assert all(search['mode'] == 'select' for search in searches) or all(search['mode'] == 'all' for search in searches)
+    
+        for search in searches:
+           for s in search['dirs']:
+               p = Path(PurePath(s))
+               p.resolve()
+               search_dirs += as_tuple(str(p))
+            
+        scheduler = Scheduler(paths=search_dirs,config=scheduler_config)
+       
+        for search in searches:
+            if search['mode'] == 'select':
+                r = as_tuple([r.lower() for r in search['routines']])
+                scheduler.populate(r)
+            else:
+                scheduler.populate(list(scheduler.obj_map.keys()))
+                break
+
         scheduler.enrich()
-
         disable = scheduler.config.disable
-        routines = ()
         for i in scheduler.items:
             assert i.routine
             routines += as_tuple(i.routine)
@@ -470,6 +453,10 @@ def check(mode,input,path,disable,output,summary):
         with open(output,'a') as outfile:
             outfile.write('\n')
 
+    if setup == 'manual':
+        for routine in routines:
+            routine.enrich_calls(routines)
+
 #   main outer loop
     for routine in routines:
     
@@ -480,6 +467,12 @@ def check(mode,input,path,disable,output,summary):
 
         # convert entire routine to lowercase
         convert_to_lower_case(routine)
+
+        # check if intent is specified for all dummy arguments
+        decl_check(routine,output)
+        if routine.contains:
+            for node in [node for node in routine.contains.body if isinstance(node,Subroutine)]:
+                decl_check(node,output)
 
         # collect variables for which intent is defined
         in_vars = ()
@@ -502,8 +495,6 @@ def check(mode,input,path,disable,output,summary):
             elif isinstance(pointer,Associate):
                 resolve_association(routine)
 
-        routine.rescope_symbols()
-
         # intialize intent rule checks
         var_check = {var:[True,"Unused"] for var in in_vars+out_vars+inout_vars}
 
@@ -524,8 +515,6 @@ def check(mode,input,path,disable,output,summary):
         if routine.contains:
             resolve_member_routine(routine,var_check,in_vars,out_vars,inout_vars)
 
-        print(fgen(routine))
-
         # check that variables with declared intent aren't used as loop induction variable
         loop_check(routine,in_vars+out_vars+inout_vars,var_check,output)
 
@@ -537,7 +526,7 @@ def check(mode,input,path,disable,output,summary):
 
         #  checking for I/O
         for intr in FindNodes(Intrinsic).visit(routine.body):
-            for var in [v for v in vars if v.name in str(intr.text).lower() and var_check[v][1] != "Used"]:
+            for var in [v for v in in_vars+out_vars+inout_vars if v.name in intr.text.lower() and var_check[v][1] != "Used"]:
                 var_check[var][1] = "I/O"
 
         rule_check(mode,var_check,output)
@@ -549,12 +538,5 @@ def check(mode,input,path,disable,output,summary):
     if summary:
         count_violations(output,summary)
 
-@click.group(help='CLI tool to check if the intent of subroutine dummy arguments is specified correctly. Also contains utility for building list of files to be checked.')
-def cli():
-    pass
-
-cli.add_command(build)
-cli.add_command(check)
-
 if __name__ == "__main__":
-   cli()
+   check()

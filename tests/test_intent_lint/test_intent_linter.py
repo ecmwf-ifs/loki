@@ -131,7 +131,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
     assert result == 0,clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
@@ -155,7 +155,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
     assert result == 0,clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
@@ -178,7 +178,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
     assert result == 0,clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
@@ -192,7 +192,7 @@ def test_intent_lint_specification_only():
 subroutine test(n,m,a)
 implicit none
 
-  integer,intent(in   ) :: n
+  integer               :: n
   integer,intent(inout) :: m
   real(kind=jprb),intent(out) :: a(n,m)
 
@@ -204,13 +204,15 @@ end subroutine test
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
     assert result == 0,clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
         assert not any('unused' in line for line in reader),clean_intent_lint_test()
     with open('output.dat','r') as reader:
         assert any('used only as intent(in)' in line for line in reader),clean_intent_lint_test()
+    with open('output.dat','r') as reader:
+        assert any('Dummy argument n has no declared intent' in line for line in reader),clean_intent_lint_test()
     
     clean_intent_lint_test()
 
@@ -235,7 +237,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
     assert result == 0,clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
@@ -268,7 +270,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
     assert result == 0,clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
@@ -288,7 +290,7 @@ def test_intent_lint_violation_count_check(fcode_call):
         if routine.name == 'test':
             calls = FindNodes(CallStatement).visit(routine.body)
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat --summary summary.dat")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --summary summary.dat")
     assert result == 0,clean_intent_lint_test() 
 
     with open('summary.dat','r') as reader:
@@ -308,7 +310,7 @@ def test_intent_lint_call_consistency_check(fcode_call):
         if routine.name == 'test':
             calls = FindNodes(CallStatement).visit(routine.body)
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
     assert result == 0,clean_intent_lint_test() 
 
 
@@ -361,7 +363,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
     assert result == 0,clean_intent_lint_test() 
 
     clean_intent_lint_test()
@@ -401,7 +403,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
 
     with open('output.dat','r') as reader:
         assert any(f'intent inconsistency in Call:: internal_routine for arg a' == line.strip() for line in reader),clean_intent_lint_test()
@@ -435,17 +437,15 @@ implicit none
 
   a_pointer=>NULL()
 
-  a_pointer => b_target
-  do i=1,n
-     a_pointer(i) = a_target(i) 
-  enddo
+  a_pointer => b_target(:)
+  a_pointer = a_target(:)
 
 end subroutine test
 """
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
-    result = os.system("loki-intent-lint.py check --mode rule-unused --input source --path test_intent_lint_tmp.F90 --output output.dat")
+    result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
 
     assert result == 0,clean_intent_lint_test()
 
