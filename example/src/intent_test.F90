@@ -10,7 +10,7 @@ contains
   real(kind=jprb),   intent(in )   ::   var_in   (n)
   real(kind=jprb),   intent(inout) ::   var_out  (n)
   real(kind=jprb),   intent(inout) ::   var_inout(n)
-  real(kind=jprb),   intent(out)   ::   vout(n)
+  real(kind=jprb),   intent(inout) ::   vout(n)
   real(kind=jprb),   intent(inout) ::      y(:)
   
   end subroutine some_kernel
