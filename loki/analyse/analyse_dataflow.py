@@ -3,7 +3,7 @@ Collection of dataflow analysis schema routines.
 """
 
 from contextlib import contextmanager
-from loki.expression import FindVariables
+from loki.expression import FindVariables, Array, FindInlineCalls, SubstituteExpressions
 from loki.visitors import Visitor, Transformer
 from loki.tools import as_tuple, flatten
 
@@ -115,25 +115,47 @@ class DataflowAnalysisAttacher(Transformer):
 
     def visit_Conditional(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
-        body, defines, uses = self._visit_body(o.body, live=live, uses=self._symbols_from_expr(o.condition), **kwargs)
+
+        # exclude arguments to functions that just check the memory attributes of a variable
+        cset = set(v for v in FindVariables().visit(o.condition) if not v in flatten([FindVariables().visit(i.parameters) for i in FindInlineCalls().visit(o.condition) if i.name.lower() in {'size', 'lbound', 'ubound', 'present'}]))
+
+        body, defines, uses = self._visit_body(o.body, live=live, uses=self._symbols_from_expr(as_tuple(cset)), **kwargs)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
         o._update(body=body, else_body=else_body)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines|else_defines, uses_symbols=uses, **kwargs)
 
+    def visit_MultiConditional(self, o, **kwargs):
+        live = kwargs.pop('live_symbols', set())
+
+        # exclude arguments to functions that just check the memory attributes of a variable
+        eset = set(v for v in FindVariables().visit(o.expr) if not v in flatten([FindVariables().visit(i.parameters) for i in FindInlineCalls().visit(o.expr) if i.name.lower() in {'size', 'lbound', 'ubound', 'present'}]))
+        vset = set(v for v in FindVariables().visit(o.values) if not v in flatten([FindVariables().visit(i.parameters) for i in FindInlineCalls().visit(o.values) if i.name.lower() in {'size', 'lbound', 'ubound', 'present'}]))
+
+        body, defines, uses = self._visit_body(o.bodies, live=live, uses=(self._symbols_from_expr(as_tuple(eset)) | self._symbols_from_expr(as_tuple(vset))), **kwargs)
+        else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
+        body = [as_tuple(b,) for b in body]
+        o._update(bodies=body, else_body=else_body)
+        return self.visit_Node(o, live_symbols=live, defines_symbols=defines|else_defines, uses_symbols=uses, **kwargs)
+
     def visit_MaskedStatement(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
-        body, defines, uses = self._visit_body(o.body, live=live, uses=self._symbols_from_expr(o.condition), **kwargs)
+        body, defines, uses = self._visit_body(o.bodies, live=live, uses=self._symbols_from_expr(o.conditions), **kwargs)
+        body = [as_tuple(b,) for b in body]
         default, default_defs, uses = self._visit_body(o.default, live=live, uses=uses, **kwargs)
-        o._update(body=body, default=default)
+        o._update(bodies=body, default=default)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines|default_defs, uses_symbols=uses, **kwargs)
 
     # Leaf nodes
 
     def visit_Assignment(self, o, **kwargs):
+        # exclude arguments to functions that just check the memory attributes of a variable
+        rset = set(v for v in FindVariables().visit(o.rhs) if not v in flatten([FindVariables().visit(i.parameters) for i in FindInlineCalls().visit(o.rhs) if i.name.lower() in {'size', 'lbound', 'ubound', 'present'}]))
+
         # The left-hand side variable is defined by this statement
         defines, uses = self._symbols_from_lhs_expr(o.lhs)
+
         # Anything on the right-hand side is used before assigning to it
-        uses |= self._symbols_from_expr(o.rhs)
+        uses |= self._symbols_from_expr(as_tuple(rset))
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_ConditionalAssignment(self, o, **kwargs):
@@ -150,21 +172,26 @@ class DataflowAnalysisAttacher(Transformer):
             # this call
             defines, uses = set(), set()
             for arg, val in o.arg_iter():
-                if o.routine.arguments[arg].intent.lower() in ('inout', 'out'):
-                    defines |= self._symbols_from_expr(val)
-                if o.routine.arguments[arg].intent.lower() in ('in', 'inout'):
+                if str(arg.type.intent).lower() in ('inout', 'out'):
+                    dims = set(flatten([FindVariables().visit(v.dimensions) for v in FindVariables().visit(val) if isinstance(v, Array)]))
+                    defines |= self._symbols_from_expr(val, condition=lambda x: x not in dims)
+                    uses |= dims
+                if str(arg.type.intent).lower() in ('in', 'inout'):
                     uses |= self._symbols_from_expr(val)
         else:
             # We don't know the intent of any of these arguments and thus have
             # to assume all of them are potentially used or defined by this
             # statement
-            defines = self._symbols_from_expr(o.children)
-            uses = defines.copy()
+            dims = set(flatten([FindVariables().visit(v.dimensions) for v in FindVariables().visit(o.children) if isinstance(v, Array)]))
+            defines = self._symbols_from_expr(o.children, condition=lambda x: x not in dims)
+            uses = defines.copy() | dims
+
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_Allocation(self, o, **kwargs):
-        defines = self._symbols_from_expr(o.variables)
-        uses = self._symbols_from_expr(o.data_source or ())
+        dims = set(flatten([FindVariables().visit(v.dimensions) for v in FindVariables().visit(o.variables) if isinstance(v, Array)]))
+        defines = self._symbols_from_expr(o.variables, condition=lambda x: x not in dims)
+        uses = self._symbols_from_expr(o.data_source or ()) | dims
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_Deallocation(self, o, **kwargs):
