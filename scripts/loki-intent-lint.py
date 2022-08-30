@@ -1,38 +1,40 @@
 # script to lint subroutine and check if argument intent is specified correctly
 
-from loki import (
-  FindNodes,FindVariables,Loop,Assignment,CallStatement,Scalar,Array,Associate,Allocation,Transformer,
-  Conditional,Intrinsic,SubstituteExpressions,as_tuple,convert_to_lower_case,Sourcefile,Subroutine,
-  Nullify,Node,InlineCall,FindInlineCalls,flatten,Section,Scheduler,LeafNode,InternalNode
- )
-
-import toml
-from loki import fgen
+import os
 import sys
-
-from pathlib import Path,PurePath
-
-import os,fnmatch
-import click
 import pdb
+import toml
+import click
+import fnmatch
 
-def count_violations(output,summary):
+from pathlib import Path, PurePath
+from collections import defaultdict
+
+from loki import (
+  FindNodes, FindVariables, Loop, Assignment, CallStatement, Scalar, Array, Associate, Allocation,
+  Transformer, Conditional, Intrinsic, SubstituteExpressions, as_tuple, convert_to_lower_case, 
+  Sourcefile, Subroutine, Nullify, Node, InlineCall, FindInlineCalls, flatten, Section, Scheduler,
+  LeafNode, InternalNode, fgen, dataflow_analysis_attached
+  )
+
+
+def count_violations(output, summary):
     routines = []
     
-    body_rule_break=['intent','rule','break']
-    loop_rule_break=['intent','loop','induction']
-    call_rule_break=['intent','inconsistency']
-    alloc_rule_break=['Allocatable','wrong','intent']
-    spec_rule_break=['intent(out)','subroutine','specification']
+    body_rule_break=['intent', 'rule', 'broken']
+    loop_rule_break=['intent', 'loop', 'induction']
+    call_rule_break=['intent', 'inconsistency']
+    alloc_rule_break=['Allocatable', 'wrong', 'intent']
+    spec_rule_break=['intent(out)', 'subroutine', 'specification']
     
-    var_unused=['intent','unused']
-    inout_unused=['intent(inout)','only','intent(in)']
-    io_only=['intent','I/O']
+    var_unused=['intent', 'unused']
+    inout_unused=['intent(inout)', 'only', 'intent(in)']
+    io_only=['intent', 'I/O']
 
-    intent_undeclared=['Dummy','no declared','intent']
+    intent_undeclared=['Dummy', 'no declared', 'intent']
     
-    unused_list=[var_unused,io_only,inout_unused]
-    break_list=[body_rule_break,loop_rule_break,call_rule_break,alloc_rule_break,spec_rule_break]
+    unused_list=[var_unused, io_only, inout_unused]
+    break_list=[body_rule_break, loop_rule_break, call_rule_break, alloc_rule_break, spec_rule_break]
     undeclared_list=[intent_undeclared]
     
     ucount_tot = 0
@@ -74,206 +76,170 @@ def count_violations(output,summary):
 
             line0 = line
 
-    with open(summary,'a') as writer:
+    with open(summary, 'a') as writer:
         writer.write('====================Total====================\n')
         writer.write(f'Intent undeclared:{dcount_tot}\n')
         writer.write(f'Intent unused:{ucount_tot}\n')
         writer.write(f'Intent violated:{bcount_tot}\n')
 
-def rule_check(mode,var_check,output):
+def rule_check(mode, var_check, output, routine):
+    """Checks which vars have either broken intent rules or have unused intent."""
 
-    for var,value in var_check.items():
+    for var, value in var_check.items():
+        intent = routine.symbol_map[var].type.intent
         if not value[0]:
-            print(f'intent({var.type.intent}) rule broken for {var.name}')
+            print(f'intent({intent}) rule broken for {var}')
             if output:
-                with open(output,'a') as outfile:
-                    outfile.write(f'intent({var.type.intent}) rule broken for {var.name}\n')
+                with open(output, 'a') as outfile:
+                    outfile.write(f'intent({intent}) rule broken for {var}\n')
         elif mode == "rule-unused" and value[1] == "Unused":
-            print(f'intent({var.type.intent}) var {var.name} unused')
+            print(f'intent({intent}) var {var} unused')
             if output:
-                with open(output,'a') as outfile:
-                    outfile.write(f'intent({var.type.intent}) var {var.name} unused\n')
+                with open(output, 'a') as outfile:
+                    outfile.write(f'intent({intent}) var {var} unused\n')
         elif mode == "rule-unused" and value[1] == "in":
-            print(f'intent({var.type.intent}) var {var.name} used only as intent(in)')
+            print(f'intent({intent}) var {var} used only as intent(in)')
             if output:
-                with open(output,'a') as outfile:
-                    outfile.write(f'intent({var.type.intent}) var {var.name} used only as intent(in)\n')
+                with open(output, 'a') as outfile:
+                    outfile.write(f'intent({intent}) var {var} used only as intent(in)\n')
         elif mode == "rule-unused" and value[1] == "I/O":
-            print(f'intent({var.type.intent}) var {var.name} either unused or only used in I/O')
+            print(f'intent({intent}) var {var} either unused or only used in I/O')
             if output:
-                with open(output,'a') as outfile:
-                    outfile.write(f'intent({var.type.intent}) var {var.name} either unused or only used in I/O\n')
+                with open(output, 'a') as outfile:
+                    outfile.write(f'intent({intent}) var {var} either unused or only used in I/O\n')
 
-def FindVarsNotDims(o,Return="var"):
-    dims = flatten([[FindVariables().visit(var.dimensions)] for var in FindVariables().visit(o) if isinstance(var,Array)])
+def findvarsnotdims(o, return_vars=True):
+    """
+    Returns only the arrays and scalars present in an expression or node, i.e. excluding dimensions.
+    """
+
+    dims = flatten([FindVariables().visit(var.dimensions) for var in FindVariables().visit(o) if isinstance(var, Array)])
 
 #   remove duplicates from dims
-    dims = list(dict.fromkeys(dims))
+    dims = list(set(dims))
 
-    if Return == "var":
+    if return_vars:
         return [var for var in FindVariables().visit(o) if not var in dims]
     else:
         return [var.name for var in FindVariables().visit(o) if not var in dims]
                 
-def FindDimsNotVars(o,Return="var"):
-    dims = flatten([[FindVariables().visit(var.dimensions)] for var in FindVariables().visit(o) if isinstance(var,Array)])
+def finddimsnotvars(o, return_vars=True):
+    """
+    Returns only the array dimensions present in an expression or node.
+    """
+
+    dims = flatten([FindVariables().visit(var.dimensions) for var in FindVariables().visit(o) if isinstance(var,Array)])
 
 #   remove duplicates from dims
-    dims = list(dict.fromkeys(dims))
+    dims = list(set(dims))
 
-    if Return == "var":
+    if return_vars:
         return [var for var in dims]
     else:
         return [var.name for var in dims]           
 
-def loop_check(routine,vars,var_check,output):
-    """Checks whether variables with declared intent are used as loop induction variables"""
+def loop_check(routine, vars, var_check, output):
+    """Checks whether variables with declared intent are used as loop induction variables."""
 
     for loop in FindNodes(Loop).visit(routine.body):
         for v in [var for var in vars if loop.variable.name == var.name]:
-            var_check[v][0] = False
+            var_check[v.name][0] = False
             print(f'intent({v.type.intent}) var {v.name} used as loop induction')
             if output:
-                with open(output,'a') as outfile:
+                with open(output, 'a') as outfile:
                     outfile.write(f'intent({v.type.intent}) var {v.name} used as loop induction\n')
 
-def alloc_check(calls,routine,output):
-    """Checks that allocatable variables passed as dummy arguments are not declared intent(out)"""
+def alloc_check(calls, routine, output):
+    """Checks that allocatable variables passed as dummy arguments are not declared intent(out)."""
 
-    alloc_vars = flatten([[FindVarsNotDims(alloc.variables)] for alloc in FindNodes(Allocation).visit(routine.body)])
+    alloc_vars = flatten([findvarsnotdims(alloc.variables) for alloc in FindNodes(Allocation).visit(routine.body)])
 
     for call in calls:
-    
         assert call.routine, f'matching routine for {call} not found'
-        
-        for arg,carg in call.arg_iter():
-            if getattr(carg,"name",None) in [a.name for a in alloc_vars] and arg.type.intent not in ('in','inout'):
+        for arg, carg in call.arg_iter():
+            if getattr(carg, "name", None) in [a.name for a in alloc_vars] and arg.type.intent not in ('in', 'inout'):
                 print(f'Allocatable dummy arg {arg} has wrong intent in {call.routine} declaration')
                 if output:
-                    with open(output,'a') as outfile:
+                    with open(output, 'a') as outfile:
                         outfile.write(f'Allocatable dummy arg {arg} has wrong intent in {call.routine} declaration\n')
 
-def call_check(calls,routine,output):
-    """Checks the consistency of intent declaration across calls to subroutines"""
+def call_check(calls, routine, output):
+    """Checks the consistency of intent declaration across calls to subroutines."""
 
-#   build map of permitted values for intent(in)
-    intent_map = {"in":"in"}
+    assign_type = {var.name: 'none' for var in flatten([[a for f, a in call.arg_iter() if hasattr(a, 'type')] for call in calls])}
 
-    for call in calls:
-    #   determine position of call within IR
-        call_loc = [count for count,node in enumerate(FindNodes(Node).visit(routine.body)) if node == call][0]
+    intent_map = {'in': {'none': ['in'], 'lhs': ['in'], 'rhs': ['in']}}
+    intent_map['out'] = {'none': ['out'], 'lhs': ['in', 'inout'], 'rhs': ['in', 'inout', 'out']}
+    intent_map['inout'] = {'none': ['in', 'inout', 'out'], 'lhs': ['in', 'inout'], 'rhs': ['in', 'inout', 'out']}
 
-        for farg,arg in [(f,a) for f,a in call.arg_iter() if getattr(getattr(a,"type",None),"intent",None)]:
-            # determine how arg is used before function call 
-            assign_type = None
-            for node in FindNodes(Node).visit(routine.body)[:call_loc]:
-                if isinstance(node,Assignment):
-                    if any(arg.name == v.name for v in FindVariables().visit(node.rhs)):
-                        assign_type = "rhs"
-                    elif any(arg.name == v.name for v in FindVarsNotDims(node.lhs)):
-                        assign_type = "lhs"
-                elif isinstance(node,LeafNode):
-                    if any(arg.name == v.name for v in FindVariables().visit(node)):
-                        assign_type = "rhs"
-                elif isinstance(node,InternalNode):
-                    if any(arg.name == v.name for v in FindVariables().visit(node)) and not any(arg.name == v.name for v in FindVariables().visit(node.body)):
-                        assign_type = "rhs"
-                
-            if arg.type.intent == "out":
-                if not assign_type:
-                    intent_map["out"] = "out"
-                elif assign_type == "lhs":
-                    intent_map["out"] = ["in","inout"]    
-                else:
-                    intent_map["out"] = ["in","inout","out"]    
-    
-            elif arg.type.intent == "inout":
-                if not assign_type:
-                    intent_map["inout"] = ["in","inout","out"]
-                elif assign_type == "lhs":
-                    intent_map["inout"] = ["in","inout"]    
-                else:
-                    intent_map["inout"] = ["in","inout","out"]     
+    loc = [c for c, n in enumerate([n for n in FindNodes(Node).visit(routine.body) if not isinstance(n,Section)]) if n in calls]
 
-            if not getattr(farg.type,"intent",None) in intent_map[arg.type.intent]:
-                print(f'intent inconsistency in {call} for arg {arg.name}')
-                if output:
-                    with open(output,'a') as outfile:
-                        outfile.write(f'intent inconsistency in {call} for arg {arg.name}\n')
-    
-def body_check(routine,in_vars,out_vars,inout_vars,var_check):
+    if loc:
+        with dataflow_analysis_attached(routine):
+            for n in [n for n in FindNodes(Node).visit(routine.body) if not isinstance(n, Section)][:loc[-1]+1]:
+                if n in calls:
+                    for f, a in [(f, a) for f, a in n.arg_iter() if getattr(getattr(a, 'type', None), 'intent', None)]:
+                        if not f.type.intent in intent_map[a.type.intent][assign_type[a.name]]:
+                            print(f'intent inconsistency in {n} for arg {a.name}')
+                            if output:
+                                with open(output, 'a') as outfile:
+                                    outfile.write(f'intent inconsistency in {n} for arg {a.name}\n')
+     
+                assign_type.update({var: 'rhs' for var in assign_type if var in flatten([findvarsnotdims(s) for s in n.uses_symbols]) and var in flatten([findvarsnotdims(s) for s in n.live_symbols])})
+                if isinstance(n, LeafNode):
+                    assign_type.update({var: 'lhs' for var in assign_type if var in flatten([findvarsnotdims(s) for s in n.defines_symbols])})
+
+def body_check(routine, in_vars, out_vars, inout_vars, var_check):
     """
     Checks whether the intent of in/out types is violated in the body, and if inout type is used
-    only as in
+    only as in.
     """
-    # check if intent(in) vars ever appear on lhs of assignment
-    for var in [v for v in in_vars if v.name in [f.name.lower() for f in FindVariables().visit(routine.body)]]:
-        var_check[var][1] = "Used"
-    for var in [v for v in in_vars if v.name in flatten([FindVarsNotDims(assign.lhs,Return="name") for assign in FindNodes(Assignment).visit(routine.body)])]:
-        var_check[var][0] = False
 
-    # check if intent(inout) vars ever appear on lhs of assignment
-    for var in [v for v in inout_vars if v.name in [f.name for f in FindVariables().visit(routine.body)]]:
-        var_check[var][1] = "in"
-    for var in [v for v in inout_vars if v.name in flatten([FindVarsNotDims(assign.lhs,Return="name") for assign in FindNodes(Assignment).visit(routine.body)])]:
-        var_check[var][1] = "Used"
+    with dataflow_analysis_attached(routine):
+        # check rules for intent vars in body
+        for node in [n for n in FindNodes(Node).visit(routine.body) if not isinstance(n, Section)]:
 
-    # check if intent(inout) vars ever passed as intent(out/inout) argument
-    for call in [call for call in FindNodes(CallStatement).visit(routine.body) if call.routine]:
-        for arg,carg in call.arg_iter():
-            for varname in [v for v in [c.name.lower() for c in FindVarsNotDims(carg)] if v in FindVarsNotDims(inout_vars,Return='name') and arg.type.intent in ('out','inout')]:
-                var_check[[var for var in inout_vars if var.name == varname][0]][1] = "Used"
+            for v in [v for v in in_vars if v.name in [f.name.lower() for f in flatten([findvarsnotdims(s) for s in node.uses_symbols])]]:
+                var_check[v.name][1] = "Used"
 
-    for var in out_vars:
-        for node in FindNodes((LeafNode,InternalNode)).visit(routine.body):
+            for v in [v for v in inout_vars if v.name in [f.name.lower() for f in flatten([findvarsnotdims(s) for s in node.uses_symbols])] and var_check[v.name][1] != "Used"]:
+                var_check[v.name][1] = "in"
+            for v in [v for v in inout_vars if v.name in [f.name.lower() for f in flatten([findvarsnotdims(s) for s in node.defines_symbols])]]:
+                var_check[v.name][1] = "Used"
 
-            if isinstance(node,InternalNode):
-                if isinstance(node,Conditional):
-                    icalls = FindInlineCalls().visit(node.condition)
-                    if var.name in [v.name.lower() for v in FindVariables().visit(node.condition)] and not any(var.name in FindVarsNotDims(icall,Return="name") for icall in icalls):
-                        var_check[var][0] = False
-                else:
-                    if var.name in [v.name.lower() for v in FindVariables().visit(node)] and var.name not in [v.name.lower() for v in FindVariables().visit(node.body)]:
-                        var_check[var][0] = False
-            else:
-                if isinstance(node,CallStatement):
-                    if var.name in [v.name.lower() for v in FindVariables().visit(node)]:
-                        var_check[var][1] = "Used"
+            for v in [v for v in flatten([findvarsnotdims(s) for s in node.defines_symbols]) if v.name.lower() in [v.name for v in out_vars if var_check[v.name][1] == "Unused"]]:
+                var_check[v.name][1] = "Used"
 
-                elif isinstance(node,Assignment):
-                    if var.name in [v.name.lower() for v in FindVariables().visit(node.rhs)]:
-                        var_check[var][0] = False
-    
-                    elif var.name in [v.lower() for v in FindVarsNotDims(node.lhs,Return="name")]:
-                        var_check[var][1] = "Used"
+            # intent violations across callstatements have already been checked
+            if not isinstance(node, CallStatement):
+                for v in [v for v in in_vars if v.name in [f.name.lower() for f in flatten([findvarsnotdims(s) for s in node.defines_symbols])]]:
+                    var_check[v.name][0] = False
+            if isinstance(node, LeafNode) and not isinstance(node, CallStatement):
+                for v in [v for v in flatten([findvarsnotdims(s) for s in node.uses_symbols]) if v.name.lower() in [v.name for v in out_vars] and v not in flatten([findvarsnotdims(s) for s in node.live_symbols])]:
+                    var_check[v.name][0] = False
 
-                else:
-                    if var.name in [v.name.lower() for v in FindVariables().visit(node)]:
-                        var_check[var][0] = False
-            
-            if var_check[var][0] == False or var_check[var][1] == "Used": break
-
-def spec_check(routine,vars,var_check,output):
+def spec_check(routine, vars, var_check, output):
     """
-    Check if variables with declared intent are used to define array shape
+    Check if variables with declared intent are used to define array shape.
     """
-#   check if var used as dimension in routine spec 
-    for v in [var for var in vars if var in FindDimsNotVars(routine.spec)]:
+
+    for v in [var for var in vars if var in finddimsnotvars(routine.spec)]:
         if v.type.intent == "in":
-            var_check[v][1] = "Used"
+            var_check[v.name][1] = "Used"
         elif v.type.intent == "out":
             print(f'intent(out) var {v.name} used in subroutine specification')
             if output:
-                with open(output,'a') as file:
+                with open(output, 'a') as file:
                     file.write(f'intent(out) var {v.name} used in subroutine specification\n')
         else:
-            var_check[v][1] = "in"
+            var_check[v.name][1] = "in"
 
-def resolve_member_routine(routine,var_check,in_vars,out_vars,inout_vars):
+def resolve_member_routine(routine, var_check, in_vars, out_vars, inout_vars):
     """
     Inserting code from internal routine into parent, with declared variabels renamed.
     Variables with intent are added to relevant list, and internal routine is then deleted.
     """
+
     mem_routines = as_tuple([r for r in routine.contains.body if isinstance(r,Subroutine)])
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name.lower() in str(mem_routines).lower()]
 
@@ -281,18 +247,16 @@ def resolve_member_routine(routine,var_check,in_vars,out_vars,inout_vars):
     call_map={}
     for n,call in enumerate(calls):
 
-        arg_map = {}
-        for arg,carg in call.arg_iter():
-            arg_map[arg] = carg
+        arg_map = {arg: carg for arg, carg in call.arg_iter()}
 
         r = call.routine.clone()
         vmap = {}
-        for v in [var for var in FindVariables().visit(r.body) if var.name.lower() in [s.name.lower() for s in FindVarsNotDims(r.spec)]]:
+        for v in [var for var in FindVariables().visit(r.body) if var.name.lower() in [s.name.lower() for s in findvarsnotdims(r.spec)]]:
 
             if v.name in [arg.name for arg in arg_map]:
-                vmap[v] = [carg for arg,carg in arg_map.items() if v.name == arg.name][0].clone()
+                vmap[v] = [carg for arg, carg in arg_map.items() if v.name == arg.name][0].clone()
             else:
-                new_vars += as_tuple(v.clone(name=(v.name+f'_{r.name}_tmp_{n}'),scope=routine))
+                new_vars += as_tuple(v.clone(name=(v.name+f'_{r.name}_tmp_{n}'), scope=routine))
                 vmap[v] = new_vars[-1]
 
         r.body = SubstituteExpressions(vmap).visit(r.body)
@@ -301,72 +265,65 @@ def resolve_member_routine(routine,var_check,in_vars,out_vars,inout_vars):
     routine.variables += new_vars
     routine.body = Transformer(call_map).visit(routine.body)
     routine.contains = None
-    routine.rescope_symbols()
 
     # add new vars to intent var list
-    for var in new_vars:
-        if getattr(var.type,"intent") == "in":
-            in_vars += as_tuple(var)
-        elif getattr(var.type,"intent") == "out":
-            out_vars += as_tuple(var)
-        elif getattr(var.type,"intent") == "inout":
-            inout_vars = as_tuple(var)
+    intent_vars = defaultdict(list)
+    for var in [var for var in new_vars if var.type.intent]:
+        intent_vars[var.type.intent].update(var)
+        var_check[var.name] = [True, "Unused"]
 
-        if getattr(var.type,"intent"):
-            var_check[var] = [True,"Unused"]
+    in_vars += intent_vars['in']
+    out_vars += intent_vars['out']
+    inout_vars += intent_vars['inout']
 
 def resolve_association(routine):
     """Resolves variable associations and replaces associate block with its body"""
 
     assoc = FindNodes(Associate).visit(routine.body)[0]
-
     vmap = {}
     for rexpr,lexpr in assoc.associations:
-        for var in [v for v in FindVariables().visit(assoc.body) if lexpr.name.lower() == v.name.lower() ]:
-            vmap[var] = rexpr.clone(dimensions=getattr(var,"dimensions",None))
-            
-    assoc_map = {assoc:SubstituteExpressions(vmap).visit(assoc.body)}
+        vmap.update({var: rexpr.clone(dimensions=getattr(var, "dimensions", None)) for var in [v for v in FindVariables().visit(assoc.body) if lexpr.name.lower() == v.name.lower()]})
+    assoc_map = {assoc: SubstituteExpressions(vmap).visit(assoc.body)}
     routine.body = Transformer(assoc_map).visit(routine.body)
 
 def resolve_pointer(routine):
     """Resolves pointer associations and deletes assignment and matching nullify statements"""
 
-    assign = [p for p in FindNodes(Assignment).visit(routine.body) if getattr(p,"ptr",None) and 'null' not in [var.name.lower() for var in FindVarsNotDims(getattr(p,"rhs",None))]][0]
+    assign = [p for p in FindNodes(Assignment).visit(routine.body) if getattr(p, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(p, "rhs", None))]][0]
 
-    loc = [k for k,n in enumerate(FindNodes(Node).visit(routine.body)) if n == assign]
+    loc = [k for k, n in enumerate(FindNodes(Node).visit(routine.body)) if n == assign]
     assert len(loc)==1, f'location of pointer {assign} not found'
 
-    pointer_map = {assign:None}
-    for node in FindNodes(Node).visit(routine.body)[loc[0]+1:]:
-
-        if isinstance(node,Nullify) and assign.lhs in FindVarsNotDims(getattr(node,"variables",None)):
-            pointer_map[node] = None
+    pointer_map = {assign: None}
+    for n in FindNodes(Node).visit(routine.body)[loc[0]+1:]:
+        if isinstance(n, Nullify) and assign.lhs in findvarsnotdims(getattr(n, "variables", None)):
+            pointer_map[n] = None
             break
-    
-        elif isinstance(node,Assignment) and 'null' in [var.name.lower() for var in FindVarsNotDims(getattr(node,"rhs",None))]:
-            pointer_map[node] = None
+        elif isinstance(n, Assignment) and 'null' in [var.name.lower() for var in findvarsnotdims(getattr(n, "rhs", None))]:
+            pointer_map[n] = None
             break
                 
-        vmap = {var:assign.rhs.clone() for var in [v for v in FindVariables().visit(node) if assign.lhs.name == v.name]}
-        pointer_map[node] = SubstituteExpressions(vmap).visit(node)
+        vmap = {var: assign.rhs.clone() for var in [v for v in FindVariables().visit(n) if assign.lhs.name == v.name]}
+        pointer_map[n] = SubstituteExpressions(vmap).visit(n)
 
     routine.body = Transformer(pointer_map).visit(routine.body)
 
-def decl_check(routine,output):
-    "Checks whether all dummy arguments have a specified intent"
+def decl_check(routine, output):
+    "Checks whether all dummy arguments have a specified intent."
 
-    for v in FindVarsNotDims(routine.arguments):
-        if not getattr(v.type,"intent",None):
+    for v in routine.arguments:
+        if not v.type.intent:
             print(f'Dummy argument {v.name} has no declared intent')
             if output:
-                with open(output,'a') as file:
+                with open(output, 'a') as file:
                     file.write(f'Dummy argument {v.name} has no declared intent\n')
 
-def require_output_param(ctx,param,value):
+def require_output_param(ctx, param, value):
+    """Callback function for click that checks the output param is set if summary is set.""" 
+
     if value:
         if ctx.get_parameter_source('output') == click.core.ParameterSource.DEFAULT:
             ctx.fail('--output must be set in order to generate summary')
-
     return value
 
 @click.command(help='CLI tool to check if the intent of subroutine dummy arguments is specified correctly.')
@@ -376,11 +333,13 @@ def require_output_param(ctx,param,value):
 @click.option('--disable','-d',type=str,multiple=True,default=None,help=('List of function calls to be excluded from intent check. Only used if "--setup manual" specified.'))
 @click.option('--output',type=click.Path(),default=None,is_eager=True,help=('Path of file to write output.'))
 @click.option('--summary',type=click.Path(),default=None,callback=require_output_param,help=('Path of file to write counted violations. Requires --output option to be set.'))
-def check(mode,setup,path,disable,output,summary):
+def check(mode, setup, path, disable, output, summary):
     """
     Program to check if the intent of subroutine dummy arguments is defined correctly
     """
-    if summary: assert output
+
+    if summary:
+         assert output
     if output:
         with open(output,'w') as outfile:
             outfile.write('')
@@ -397,7 +356,7 @@ def check(mode,setup,path,disable,output,summary):
 
         disable = as_tuple([d.strip('*') for d in disable])
 
-    #   collect all routines
+        #  collect all routines
         for file in files:
             print(f'read in File :: {file}')
     
@@ -414,7 +373,7 @@ def check(mode,setup,path,disable,output,summary):
         with Path(path).open('r') as file:
             config = toml.load(file)
     
-        scheduler_config = {'default':config['scheduler_config']}
+        scheduler_config = {'default': config['scheduler_config']}
     
         search_dirs = ()
         searches = config['search']
@@ -427,8 +386,7 @@ def check(mode,setup,path,disable,output,summary):
                p.resolve()
                search_dirs += as_tuple(str(p))
             
-        scheduler = Scheduler(paths=search_dirs,config=scheduler_config)
-       
+        scheduler = Scheduler(paths=search_dirs, config=scheduler_config)
         for search in searches:
             if search['mode'] == 'select':
                 r = as_tuple([r.lower() for r in search['routines']])
@@ -458,7 +416,8 @@ def check(mode,setup,path,disable,output,summary):
             routine.enrich_calls(routines)
 
 #   main outer loop
-    for routine in routines:
+    for c, routine in enumerate(routines):
+#        if c > 0: break
     
         print(f'checking {routine}')
         if output:
@@ -467,76 +426,69 @@ def check(mode,setup,path,disable,output,summary):
 
         # convert entire routine to lowercase
         convert_to_lower_case(routine)
+        if routine.contains:
+            for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
+                convert_to_lower_case(node)
 
         # check if intent is specified for all dummy arguments
-        decl_check(routine,output)
+        decl_check(routine, output)
         if routine.contains:
-            for node in [node for node in routine.contains.body if isinstance(node,Subroutine)]:
-                decl_check(node,output)
+            for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
+                decl_check(node, output)
 
         # collect variables for which intent is defined
-        in_vars = ()
-        out_vars = ()
-        inout_vars = ()
-        
-        for var in FindVariables().visit(routine.spec):
-            intent = getattr(var.type,"intent")
-            if intent == "in":
-               in_vars += as_tuple(var)
-            elif intent == "out":
-               out_vars += as_tuple(var)
-            elif intent == "inout":
-               inout_vars += as_tuple(var)
+        intent_vars = defaultdict(list)
+        for var in routine.arguments:
+            intent_vars[var.type.intent].append(var)
+        in_vars = intent_vars['in']
+        out_vars = intent_vars['out']
+        inout_vars = intent_vars['inout']
 
         # resolving associations in the order in which they appear
-        for pointer in FindNodes((Associate,Assignment)).visit(routine.body):
-            if isinstance(pointer,Assignment) and getattr(pointer,"ptr",None) and 'null' not in [var.name.lower() for var in FindVarsNotDims(getattr(pointer,"rhs",None))]:
+        for pointer in FindNodes((Associate, Assignment)).visit(routine.body):
+            if isinstance(pointer, Assignment) and getattr(pointer, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(pointer, "rhs", None))]:
                 resolve_pointer(routine)
-            elif isinstance(pointer,Associate):
+            elif isinstance(pointer, Associate):
                 resolve_association(routine)
 
         # intialize intent rule checks
-        var_check = {var:[True,"Unused"] for var in in_vars+out_vars+inout_vars}
+        var_check = {var.name: [True, "Unused"] for var in in_vars+out_vars+inout_vars}
 
+        # enrich calls for internal routines
         if routine.contains:
-            for node in [node for node in routine.contains.body if isinstance(node,Subroutine)]:
+            for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
                 routine.enrich_calls(node)
 
         # remove specified functions from call list
         calls = [call for call in FindNodes(CallStatement).visit(routine.body)  if not any(d.lower() in call.name.name.lower() for d in disable)]
 
         #  checking the intent of allocatable vars passed as dummy arguments
-        alloc_check(calls,routine,output)
+        alloc_check(calls, routine, output)
     
         #  checking the intent consistency across function calls
-        call_check(calls,routine,output)
+        call_check(calls, routine, output)
 
 ####........resolve internal subroutines here........####
         if routine.contains:
-            resolve_member_routine(routine,var_check,in_vars,out_vars,inout_vars)
+            resolve_member_routine(routine, var_check, in_vars, out_vars, inout_vars)
 
         # check that variables with declared intent aren't used as loop induction variable
-        loop_check(routine,in_vars+out_vars+inout_vars,var_check,output)
+        loop_check(routine, in_vars+out_vars+inout_vars, var_check, output)
 
         # check if intent variables are used to define array shape
-        spec_check(routine,in_vars+inout_vars+out_vars,var_check,output)
+        spec_check(routine, in_vars+inout_vars+out_vars, var_check, output)
 
         # checking intent rules in subroutine body
-        body_check(routine,in_vars,out_vars,inout_vars,var_check)
+        body_check(routine, in_vars, out_vars, inout_vars, var_check)
 
-        #  checking for I/O
-        for intr in FindNodes(Intrinsic).visit(routine.body):
-            for var in [v for v in in_vars+out_vars+inout_vars if v.name in intr.text.lower() and var_check[v][1] != "Used"]:
-                var_check[var][1] = "I/O"
-
-        rule_check(mode,var_check,output)
+        rule_check(mode, var_check, output, routine)
         print()
         if output:
-            with open(output,'a') as outfile:
+            with open(output, 'a') as outfile:
                 outfile.write('\n')
 
     if summary:
-        count_violations(output,summary)
+        count_violations(output, summary)
 
 if __name__ == "__main__":
    check()

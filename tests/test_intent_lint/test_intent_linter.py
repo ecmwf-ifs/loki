@@ -1,15 +1,15 @@
+import os
 import pytest
 import importlib
-import os
+
+from loki import (
+   Sourcefile, Subroutine, FindVariables, FindNodes, Assignment, Array, Scalar, CallStatement
+   )
 
 loki_intent_lint = importlib.import_module("scripts.loki-intent-lint",package="../../")
 
-FindVarsNotDims = loki_intent_lint.FindVarsNotDims
-FindDimsNotVars = loki_intent_lint.FindDimsNotVars
-
-from loki import (
-   Sourcefile,Subroutine,FindVariables,FindNodes,Assignment,Array,Scalar,CallStatement
-   )
+findvarsnotdims = loki_intent_lint.findvarsnotdims
+finddimsnotvars = loki_intent_lint.finddimsnotvars
 
 def clean_intent_lint_test():
     if os.path.exists('output.dat'):
@@ -96,27 +96,27 @@ end subroutine test
 """
     return fcode
 
-def test_intent_lint_FindVarsNotDims(fcode):
+def test_intent_lint_findvarsnotdims(fcode):
 
     routine = Subroutine.from_source(fcode)
     assign = FindNodes(Assignment).visit(routine.body)[0]
 
-    var = FindVarsNotDims(assign)
+    var = findvarsnotdims(assign)
 
     for v in var:
-        assert isinstance(v,Array)
+        assert isinstance(v, Array)
 
-def test_intent_lint_FindDimsNotVars(fcode):
+def test_intent_lint_finddimsnotvars(fcode):
 
     routine = Subroutine.from_source(fcode)
     assign = FindNodes(Assignment).visit(routine.body)[0]
 
-    var = FindDimsNotVars(assign)
+    var = finddimsnotvars(assign)
 
     for v in var:
-        assert isinstance(v,Scalar)
+        assert isinstance(v, Scalar)
 
-def test_intent_lint_conditional_mem_check():
+def test_intent_lint_inline_conditional_mem_check():
 
     fcode = """
 subroutine test(a)
@@ -128,15 +128,16 @@ implicit none
 
 end subroutine test
 """
+
     source = Sourcefile.from_source(fcode)
     source.write(path='test_intent_lint_tmp.F90')
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
-    assert result == 0,clean_intent_lint_test()
+    assert result == 0, clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
         for line in reader:
-            assert not 'intent(out) rule broken' in line,clean_intent_lint_test()
+            assert not 'intent(out) rule broken' in line, clean_intent_lint_test()
     
     clean_intent_lint_test()
 
@@ -156,10 +157,10 @@ end subroutine test
     source.write(path='test_intent_lint_tmp.F90')
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
-    assert result == 0,clean_intent_lint_test()
+    assert result == 0, clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
-        assert any('intent(out) rule broken for a' in line for line in reader),clean_intent_lint_test()
+        assert any('intent(out) rule broken for a' in line for line in reader), clean_intent_lint_test()
     
     clean_intent_lint_test()
 
@@ -179,10 +180,10 @@ end subroutine test
     source.write(path='test_intent_lint_tmp.F90')
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
-    assert result == 0,clean_intent_lint_test()
+    assert result == 0, clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
-        assert not any('intent(out) var a unused' in line for line in reader),clean_intent_lint_test()
+        assert not any('intent(out) var a unused' in line for line in reader), clean_intent_lint_test()
     
     clean_intent_lint_test()
 
@@ -205,14 +206,14 @@ end subroutine test
     source.write(path='test_intent_lint_tmp.F90')
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
-    assert result == 0,clean_intent_lint_test()
+    assert result == 0, clean_intent_lint_test()
 
-    with open('output.dat','r') as reader:
-        assert not any('unused' in line for line in reader),clean_intent_lint_test()
-    with open('output.dat','r') as reader:
-        assert any('used only as intent(in)' in line for line in reader),clean_intent_lint_test()
-    with open('output.dat','r') as reader:
-        assert any('Dummy argument n has no declared intent' in line for line in reader),clean_intent_lint_test()
+    with open('output.dat', 'r') as reader:
+        assert not any('unused' in line for line in reader), clean_intent_lint_test()
+    with open('output.dat', 'r') as reader:
+        assert any('used only as intent(in)' in line for line in reader), clean_intent_lint_test()
+    with open('output.dat', 'r') as reader:
+        assert any('Dummy argument n has no declared intent' in line for line in reader), clean_intent_lint_test()
     
     clean_intent_lint_test()
 
@@ -238,12 +239,12 @@ end subroutine test
     source.write(path='test_intent_lint_tmp.F90')
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
-    assert result == 0,clean_intent_lint_test()
+    assert result == 0, clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
-        assert not any('unused' in line for line in reader),clean_intent_lint_test()
+        assert not any('unused' in line for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert any('used only as intent(in)' in line for line in reader),clean_intent_lint_test()
+        assert any('used only as intent(in)' in line for line in reader), clean_intent_lint_test()
     
     clean_intent_lint_test()
 
@@ -271,12 +272,12 @@ end subroutine test
     source.write(path='test_intent_lint_tmp.F90')
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --disable random_call")
-    assert result == 0,clean_intent_lint_test()
+    assert result == 0, clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
-        assert not any('unused' in line for line in reader),clean_intent_lint_test()
+        assert not any('unused' in line for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert any('used only as intent(in)' in line for line in reader),clean_intent_lint_test()
+        assert any('used only as intent(in)' in line for line in reader), clean_intent_lint_test()
     
     clean_intent_lint_test()
 
@@ -291,12 +292,12 @@ def test_intent_lint_violation_count_check(fcode_call):
             calls = FindNodes(CallStatement).visit(routine.body)
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat --summary summary.dat")
-    assert result == 0,clean_intent_lint_test() 
+    assert result == 0, clean_intent_lint_test() 
 
     with open('summary.dat','r') as reader:
-        assert any('Intent unused:9' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any('Intent unused:9' == line.strip() for line in reader), clean_intent_lint_test()
     with open('summary.dat','r') as reader:
-        assert any('Intent violated:4' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any('Intent violated:5' == line.strip() for line in reader), clean_intent_lint_test()
 
     clean_intent_lint_test()
 
@@ -311,32 +312,32 @@ def test_intent_lint_call_consistency_check(fcode_call):
             calls = FindNodes(CallStatement).visit(routine.body)
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
-    assert result == 0,clean_intent_lint_test() 
+    assert result == 0, clean_intent_lint_test() 
 
 
 #   check first call
     with open('output.dat','r') as reader:
-        assert not any(f'intent inconsistency in {calls[0]} for arg v_inout' == line.strip() for line in reader),clean_intent_lint_test()
+        assert not any(f'intent inconsistency in {calls[0]} for arg v_inout' == line.strip() for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert any(f'intent inconsistency in {calls[0]} for arg v_out' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any(f'intent inconsistency in {calls[0]} for arg v_out' == line.strip() for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert any(f'intent inconsistency in {calls[0]} for arg v_in' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any(f'intent inconsistency in {calls[0]} for arg v_in' == line.strip() for line in reader), clean_intent_lint_test()
 
 #   check second call
     with open('output.dat','r') as reader:
-        assert not any(f'intent inconsistency in {calls[1]} for arg v_inout' == line.strip() for line in reader),clean_intent_lint_test()
+        assert not any(f'intent inconsistency in {calls[1]} for arg v_inout' == line.strip() for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert not any(f'intent inconsistency in {calls[1]} for arg v_out' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any(f'intent inconsistency in {calls[1]} for arg v_out' == line.strip() for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert not any(f'intent inconsistency in {calls[1]} for arg v_in' == line.strip() for line in reader),clean_intent_lint_test()
+        assert not any(f'intent inconsistency in {calls[1]} for arg v_in' == line.strip() for line in reader), clean_intent_lint_test()
 
 #   check third call
     with open('output.dat','r') as reader:
-        assert any(f'intent inconsistency in {calls[2]} for arg v_inout' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any(f'intent inconsistency in {calls[2]} for arg v_inout' == line.strip() for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert any(f'intent inconsistency in {calls[2]} for arg v_out' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any(f'intent inconsistency in {calls[2]} for arg v_out' == line.strip() for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert not any(f'intent inconsistency in {calls[2]} for arg v_in' == line.strip() for line in reader),clean_intent_lint_test()
+        assert not any(f'intent inconsistency in {calls[2]} for arg v_in' == line.strip() for line in reader), clean_intent_lint_test()
     
     clean_intent_lint_test()
 
@@ -364,7 +365,7 @@ end subroutine test
     source.write(path='test_intent_lint_tmp.F90')
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
-    assert result == 0,clean_intent_lint_test() 
+    assert result == 0, clean_intent_lint_test() 
 
     clean_intent_lint_test()
 
@@ -406,13 +407,13 @@ end subroutine test
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
 
     with open('output.dat','r') as reader:
-        assert any(f'intent inconsistency in Call:: internal_routine for arg a' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any(f'intent inconsistency in Call:: internal_routine for arg a' == line.strip() for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert any(f'intent(out) rule broken for a' == line.strip() for line in reader),clean_intent_lint_test()
+        assert any(f'intent(out) rule broken for a' == line.strip() for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert not any('unused' in line for line in reader),clean_intent_lint_test()
+        assert not any('unused' in line for line in reader), clean_intent_lint_test()
 
-    assert result == 0,clean_intent_lint_test()
+    assert result == 0, clean_intent_lint_test()
 
     clean_intent_lint_test()
 
@@ -447,11 +448,11 @@ end subroutine test
 
     result = os.system("loki-intent-lint.py --mode rule-unused --setup manual --path test_intent_lint_tmp.F90 --output output.dat")
 
-    assert result == 0,clean_intent_lint_test()
+    assert result == 0, clean_intent_lint_test()
 
     with open('output.dat','r') as reader:
-        assert not any('unused' in line for line in reader),clean_intent_lint_test()
+        assert not any('unused' in line for line in reader), clean_intent_lint_test()
     with open('output.dat','r') as reader:
-        assert not any('broken' in line for line in reader),clean_intent_lint_test()
+        assert not any('broken' in line for line in reader), clean_intent_lint_test()
 
     clean_intent_lint_test()
