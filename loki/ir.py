@@ -75,6 +75,23 @@ class Node:
         self._label = label
 
     @property
+    def _canonical(self):
+        """
+        Base definition for comparing :any:`Node` objects.
+        """
+        # We include all natural constructor args, but exclude the source
+        _ignore = ('source', )
+        return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
+
+    def __eq__(self, other):
+        if isinstance(other, Node):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)
+
+    @property
     def children(self):
         """
         The traversable children of the node.
@@ -201,6 +218,7 @@ class Node:
     @property
     def uses_symbols(self):
         """
+
         Yield the list of symbols used by this node before defining it.
 
         This property is attached to the Node by
