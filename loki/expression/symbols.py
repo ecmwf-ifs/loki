@@ -10,6 +10,7 @@ from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
 from loki.expression.mappers import ExpressionRetriever
+from loki.config import config
 
 
 __all__ = [
@@ -96,6 +97,8 @@ class StrCompareMixin:
     @staticmethod
     def _canonical(s):
         """ Define canonical string representations (lower-case, no spaces) """
+        if config['case-sensitive']:
+            return str(s).replace(' ', '')
         return str(s).lower().replace(' ', '')
 
     def __hash__(self):

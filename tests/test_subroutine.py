@@ -1608,3 +1608,42 @@ end subroutine my_routine
     assert r1.spec == r3.spec
     assert not r1.body == r3.body
     assert not r1 == r3
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_comparison_case_sensitive(frontend):
+    """
+    Test that string-equivalence works and is case sensitive.
+    """
+    from loki import config, config_override  # pylint: disable=import-outside-toplevel
+
+    fcode = """
+subroutine my_routine(n, a, b, d)
+  integer, intent(in) :: n
+  real, intent(in) :: a(n), b(n)
+  real, intent(out) :: d(n)
+  integer :: i
+
+  do i=1, n
+    d(i) = a(i) + b(i)
+  end do
+end subroutine my_routine
+"""
+    # Create two subroutine objects, but capitalize a variable in one
+    r1 = Subroutine.from_source(fcode)
+    r2 = Subroutine.from_source(fcode.replace('d(i)', 'D(I)'))
+
+    assert not 'D(I)' in fgen(r1)
+    assert 'D(I)' in fgen(r2)
+
+    # Ensure basic non-case-sensitive equivalence
+    assert r1.symbol_attrs == r2.symbol_attrs
+    assert r1.spec == r2.spec
+    assert r1.body == r2.body
+    assert r1 == r2
+
+    with config_override({'case-sensitive': True}):
+        assert r1.symbol_attrs == r2.symbol_attrs
+        assert r1.spec == r2.spec
+        assert not r1.body == r2.body
+        assert not r1 == r2
