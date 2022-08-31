@@ -71,6 +71,12 @@ log_levels = {
     'info': INFO,
     'warning': WARNING,
     'error': ERROR,
+    # Enum keys for idempotence
+    DEBUG: DEBUG,
+    PERF: PERF,
+    INFO: INFO,
+    WARNING: WARNING,
+    ERROR: ERROR,
 }
 
 # Internally used log colours (in simple mode)

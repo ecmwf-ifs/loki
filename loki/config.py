@@ -1,5 +1,6 @@
 import os
 from collections import OrderedDict
+from contextlib import contextmanager
 
 
 class Configuration(OrderedDict):
@@ -96,3 +97,17 @@ class Configuration(OrderedDict):
 
 
 config = Configuration('Loki configuration')
+
+
+@contextmanager
+def config_override(settings):
+    """
+    Simple context manager for testing purposes that temporarily overrides
+    config options with :param:`settings` and restores the original after.
+    """
+    original = tuple(config.items())
+    config.update(settings)
+
+    yield
+
+    config.update(dict(original))
