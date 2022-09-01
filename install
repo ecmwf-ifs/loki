@@ -483,6 +483,11 @@ module load java/${ecmwf_java_version}
 " >> "${loki_path}/loki-activate"
   fi
 
+  echo "
+module unload cmake
+module load cmake/${ecmwf_cmake_version}
+" >> "${loki_path}/loki-activate"
+
 elif [ "${is_hpc2020}" == true ]; then
   if [ "$with_jdk" == false ]; then
     echo "
@@ -490,6 +495,11 @@ module unload java
 module load java/${hpc2020_java_version}
 " >> "${loki_path}/loki-activate"
   fi
+
+  echo "
+module unload cmake
+module load cmake/${hpc2020_cmake_version}
+" >> "${loki_path}/loki-activate"
 fi
 
 # Setup Java for OFP
