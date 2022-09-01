@@ -133,6 +133,19 @@ class DerivedType(DataType):
     def __repr__(self):
         return f'<DerivedType {self.name}>'
 
+    @property
+    def _canonical(self):
+        return (self._name, self.typedef)
+
+    def __eq__(self, other):
+        if isinstance(other, DerivedType):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)
+
+
 
 class ProcedureType(DataType):
     """
@@ -182,6 +195,18 @@ class ProcedureType(DataType):
             self._is_function = self.procedure.is_function
             # TODO: compare return type once type comparison is more robust
             self._return_type = self.procedure.return_type
+
+    @property
+    def _canonical(self):
+        return (self._name, self._procedure, self.is_function, self.is_generic, self.return_type)
+
+    def __eq__(self, other):
+        if isinstance(other, ProcedureType):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)
 
     @property
     def name(self):

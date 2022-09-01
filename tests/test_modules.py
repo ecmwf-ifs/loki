@@ -1033,3 +1033,36 @@ end module spec_parts
         assert isinstance(module.docstring, tuple) and len(module.docstring) == 1
 
     assert part_lengths == tuple(len(p) for p in module.spec_parts)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_comparison(frontend):
+    """
+    Test that string-equivalence works on relevant components.
+    """
+
+    fcode = """
+module a_module
+  integer, parameter :: x = 2
+  integer, parameter :: y = 3
+
+  type derived_type
+    real :: array(x, y)
+  end type derived_type
+contains
+
+  subroutine my_routine(pt)
+    type(derived_type) :: pt
+    pt%array(:,:) = 42.0
+  end subroutine my_routine
+end module a_module
+"""
+
+    # Two distinct string-equivalent subroutine objects
+    m1 = Module.from_source(fcode)
+    m2 = Module.from_source(fcode)
+
+    assert m1.symbol_attrs == m2.symbol_attrs
+    assert m1.spec == m2.spec
+    assert m1.contains == m2.contains
+    assert m1 == m2

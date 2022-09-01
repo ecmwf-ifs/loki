@@ -1292,6 +1292,16 @@ class TypeDef(ScopedNode, LeafNode):
             self.parent.symbol_attrs[self.name] = SymbolAttributes(self.dtype)
 
     @property
+    def _canonical(self):
+        """
+        Base definition for comparing :any:`Node` objects.
+        """
+        # We include all natural constructor args, but exclude the source
+        # and for TypeDefs we also exclude the parent (a weakref).
+        _ignore = ('source', 'parent')
+        return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
+
+    @property
     def declarations(self):
         return as_tuple(c for c in self.body if isinstance(c, (VariableDeclaration, ProcedureDeclaration)))
 
