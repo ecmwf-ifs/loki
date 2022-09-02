@@ -368,6 +368,10 @@ class Associate(ScopedNode, Section):
         super().__init__(body=body, parent=parent, symbol_attrs=symbol_attrs, **kwargs)
 
     @property
+    def _canonical(self):
+        return (self.associations, self.body, self.symbol_attrs)
+
+    @property
     def association_map(self):
         """
         An :any:`collections.OrderedDict` of associated expressions.

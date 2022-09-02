@@ -79,9 +79,7 @@ def cluster_comments(ir):
         else:
             source = None
         block = CommentBlock(comments, label=comments[0].label, source=source)
-        comment_mapper[comments[0]] = block
-        for c in comments[1:]:
-            comment_mapper[c] = None
+        comment_mapper[comments] = block
     return NestedTransformer(comment_mapper, invalidate_source=False).visit(ir)
 
 

@@ -1153,10 +1153,11 @@ def test_derived_type_rescope_symbols_shadowed(here, shadowed_typedef_symbols_fc
 
     if frontend != OMNI:
         # FIXME: OMNI doesn't retain the initializer expressions in the typedef
+        from loki.expression import Scalar  # pylint: disable=import-outside-toplevel
         assert tdef_var.type.initial == 'NMaxStreams'
         assert tdef_var.type.initial.scope is module
         assert tdef_var.type.initial == mod_var
-        assert tdef_var.type.initial != tdef_var
+        assert isinstance(tdef_var.type.initial, Scalar)
 
         # Test the outcome works as expected
         filepath = here/f'{module.name}_{frontend}.F90'
