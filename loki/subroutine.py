@@ -289,7 +289,7 @@ class Subroutine(ProgramUnit):
         #Note that if the map is not loaded, Python will recreate it for every arguement,
         #resulting in a large overhead.
         symbol_map = self.symbol_map
-        return as_tuple(symbol_map[arg] for arg in self._dummies)
+        return as_tuple(symbol_map.get(arg, sym.Variable(name=arg)) for arg in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):
