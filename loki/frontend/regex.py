@@ -21,7 +21,7 @@ HAVE_REGEX = True
 
 
 @timeit(log_level=PERF)
-def parse_regex_source(source, filepath=None):
+def parse_regex_source(source, scope=None):
     """
     Generate a reduced Loki IR from regex parsing of the given Fortran source
 
@@ -32,14 +32,14 @@ def parse_regex_source(source, filepath=None):
     ----------
     source : str or :any:`Source`
         The raw source string
-    filepath : :any:`Path` or str, optional
-        The path of the file from which the source string stems
+    scope : :any:`Scope`, optional
+        The enclosing parent scope
     """
     candidates = (match_module, match_subroutine_function)
     if not isinstance(source, Source):
         lines = (1, source.count('\n') + 1)
-        source = Source(lines=lines, string=source, file=filepath)
-    ir_ = match_block_candidates(source, candidates)
+        source = Source(lines=lines, string=source)
+    ir_ = match_block_candidates(source, candidates, scope=scope)
     return ir.Section(body=as_tuple(ir_), source=source)
 
 
@@ -75,7 +75,7 @@ def match_block_candidates(source, candidates, scope=None):
 _whitespace_comment_lineend_pattern = r'(?:[ \t]*|[ \t]*\![\S \t]*)$\n'
 """Helper pattern capturing the common case of a comment until line end with optional leading white space."""
 
-_comment_pattern = re.compile(_whitespace_comment_lineend_pattern)
+_comment_pattern = re.compile(_whitespace_comment_lineend_pattern, re.MULTILINE)
 """Compiled version of :any:`_whitespace_comment_lineend_pattern`."""
 
 _contains_pattern = (
@@ -116,7 +116,9 @@ _re_subroutine_function = re.compile(
         r'(?P<spec>.*?)'  # Spec and body of routine
     ) + _contains_pattern + (  # Contains section
         r'end\s+(?P=keyword)(?:\s*(?P=name))?'  # End keyword with optionally routine name repeated after end keyword
-    ) + _whitespace_comment_lineend_pattern, # optional whitespace/comment until line end
+    ) + _whitespace_comment_lineend_pattern + ( # optional whitespace/comment until line end...
+        r'?' # ...with the '\n' optional
+    ),
     re.IGNORECASE | re.DOTALL | re.MULTILINE
 )
 """Pattern to match subroutine/function definitions."""
@@ -202,9 +204,9 @@ def match_subroutine_function(source, scope):
         return None, None, source
 
     if match['args']:
-        args = match['args'].strip('()').strip().splitlines()
-        args = [_comment_pattern.sub('', arg) for arg in args]
-        args = tuple(arg.strip() for arg in '\n'.join(args).split(','))
+        args = match['args'].strip('() \t\n')
+        args = _comment_pattern.sub('', args)
+        args = tuple(arg.strip() for arg in args.split(','))
     else:
         args = ()
     is_function = match['keyword'].lower() == 'function'

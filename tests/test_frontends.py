@@ -9,7 +9,7 @@ import pytest
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
-    BasicType, OMNI, OFP, Enumeration, config
+    BasicType, OMNI, OFP, Enumeration, config, REGEX
 )
 from loki.expression import symbols as sym
 
@@ -363,3 +363,74 @@ end module frontend_strict_mode
     module = Module.from_source(fcode, frontend=frontend)
     assert 'matrix' in module.symbol_attrs
     assert 'matrix' in module.typedefs
+
+
+def test_regex_subroutine_from_source():
+    """
+    Verify that the regex frontend is able to parse subroutines
+    """
+    fcode = """
+subroutine routine_b(
+    ! arg 1
+    i,
+    ! arg2
+    j
+)
+    implicit none
+    integer, intent(in) :: i, j
+    integer b
+    b = 4
+
+    call contained_c(i)
+
+    call routine_a()
+contains
+!abc ^$^**
+    subroutine contained_c(i)
+        integer, intent(in) :: i
+        integer c
+        c = 5
+    end subroutine contained_c
+    ! cc£$^£$^
+    integer function contained_e(i)
+        integer, intent(in) :: i
+        contained_e = i
+    end function
+
+    subroutine contained_d(i)
+        integer, intent(in) :: i
+        integer c
+        c = 8
+    end subroutine !add"£^£$
+end subroutine routine_b
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=REGEX)
+    assert routine.name == 'routine_b'
+    assert not routine.is_function
+    assert routine.arguments == ('i', 'j')
+    assert routine.argnames == ['i', 'j']
+    assert [r.name for r in routine.subroutines] == ['contained_c', 'contained_e', 'contained_d']
+
+    contained_c = routine['contained_c']
+    assert contained_c.name == 'contained_c'
+    assert not contained_c.is_function
+    assert contained_c.arguments == ('i',)
+    assert contained_c.argnames == ['i']
+
+    contained_e = routine['contained_e']
+    assert contained_e.name == 'contained_e'
+    assert contained_e.is_function
+    assert contained_e.arguments == ('i',)
+    assert contained_e.argnames == ['i']
+
+    contained_d = routine['contained_d']
+    assert contained_d.name == 'contained_d'
+    assert not contained_d.is_function
+    assert contained_d.arguments == ('i',)
+    assert contained_d.argnames == ['i']
+
+    code = routine.to_fortran()
+    assert code.count('SUBROUTINE') == 6
+    assert code.count('FUNCTION') == 2
+    assert code.count('contains') == 1

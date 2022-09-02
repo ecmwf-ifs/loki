@@ -104,6 +104,9 @@ class ProgramUnit(Scope):
             ast = parse_fparser_source(source)
             return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions)
 
+        if frontend == Frontend.REGEX:
+            return cls.from_regex(raw_source=source)
+
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @classmethod
@@ -169,6 +172,22 @@ class ProgramUnit(Scope):
             List of external :any:`Module` to provide derived-type and procedure declarations
         pp_info :
             Preprocessing info as obtained by :any:`sanitize_input`
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the module.
+        """
+
+    @classmethod
+    @abstractmethod
+    def from_regex(cls, raw_source, parent=None):
+        """
+        Create the :any:`ProgramUnit` object from source regex'ing.
+
+        This method must be implemented by the derived class.
+
+        Parameters
+        ----------
+        raw_source : str
+            Fortran source string
         parent : :any:`Scope`, optional
             The enclosing parent scope of the module.
         """
