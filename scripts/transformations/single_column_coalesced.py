@@ -5,7 +5,7 @@ from loki.transform import resolve_associates
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
-    FindExpressions, Transformer, NestedMaskedTransformer,
+    FindExpressions, Transformer, NestedTransformer, NestedMaskedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten
 )
@@ -501,7 +501,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         if not self.hoist_column_arrays:
             # Promote vector loops to be the outermost loop dimension in the kernel
             mapper = dict((s, wrap_vector_section(s, routine, self.horizontal)) for s in sections)
-            routine.body = Transformer(mapper).visit(routine.body)
+            routine.body = NestedTransformer(mapper).visit(routine.body)
 
         # Demote all private local variables
         if self.demote_local_arrays:
