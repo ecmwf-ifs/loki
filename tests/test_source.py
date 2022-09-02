@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from loki import read_file, Source
+from loki import read_file, Source, source_to_lines
 
 
 @pytest.fixture(scope='module', name='here')
@@ -138,7 +138,6 @@ def test_source_clone_lines(here):
     filepath = here/'sources/sourcefile.f90'
     fcode = read_file(filepath)
     lines = (1, fcode.count('\n') + 1)
-
     source = Source(lines, fcode, filepath)
 
     source_lines = source.clone_lines()
@@ -163,3 +162,51 @@ def test_source_clone_lines(here):
         assert source_line.lines[0] == idx+routine_b_source.lines[0]
         assert source_line.lines[1] == idx+routine_b_source.lines[0]
         assert source_line.file == filepath
+
+
+def test_source_to_lines():
+    """Test the `source_to_lines` utility"""
+    fcode = """
+module some_module
+    implicit none
+
+    integer :: var1, &
+        & var2, &
+        & var3, &
+& var4, &
+            &var5,&
+            &var6, &
+            & var7
+
+    ! This is a &
+    ! & comment
+contains
+    subroutine my_routine
+      integer j
+      j = var1 &
+        &+1
+    end subroutine my_routine
+end module some_module
+    """.strip()
+
+    lines = (1, fcode.count('\n') + 1)
+    source = Source(lines, fcode)
+
+    source_lines = source_to_lines(source)
+
+    # All line numbers present?
+    assert set(range(lines[0], lines[1] + 1)) == {
+        n for s in source_lines for n in range(s.lines[0], s.lines[1] + 1)
+    }
+    # Line numbers don't overlap?
+    assert all(
+        l1.lines[0] <= l1.lines[1] and l1.lines[1] + 1 == l2.lines[0] and l2.lines[0] <= l2.lines[1]
+        for l1, l2 in zip(source_lines[:-1], source_lines[1:])
+    )
+
+    # The known line continuations:
+    assert source_lines[3].lines == (4, 10)
+    assert source_lines[10].lines == (17, 18)
+    assert '    integer ::' in source_lines[3].string
+    assert ',  var7' in source_lines[3].string
+    assert '      j = var1 +1' in source_lines[10].string

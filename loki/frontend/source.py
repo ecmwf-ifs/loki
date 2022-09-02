@@ -2,7 +2,9 @@
 Implementation of :any:`Source` and adjacent utilities
 """
 
-__all = ['Source', 'extract_source', 'extract_source_from_range']
+import re
+
+__all = ['Source', 'extract_source', 'extract_source_from_range', 'source_to_lines']
 
 
 class Source:
@@ -173,3 +175,61 @@ def extract_source_from_range(lines, columns, text, label=None, full_lines=False
         lines[-1] = lines[-1][:cend]
 
     return Source(string=''.join(lines).strip('\n'), lines=(lstart, lend))
+
+
+def _merge_source_match_source(pre, match, post):
+    """
+    Merge a triple of :class:`Source`, :class:`re.Match`, :class:`Source` objects
+    into a single :class:`Source` object spanning multiple lines
+
+    Helper routine for :any:`source_to_lines`.
+    """
+    assert isinstance(pre, Source)
+    assert isinstance(match, re.Match)
+    assert isinstance(post, Source)
+    if pre.lines and post.lines:
+        lines = (pre.lines[0], post.lines[1])
+    else:
+        lines = None
+    return Source(lines, pre.string + post.string, pre.file)
+
+
+def _create_lines_and_merge(source_lines, source, span):
+    """
+    Create line-wise :class:`Source` objects for the substring in :data:`source`
+    given by :data:`span`
+
+    If the existing list of source lines ends with (:class:`Source`, :class:`re.Match`),
+    they are joined with the first line in the new substring.
+
+    Helper routine for :any:`source_to_lines`.
+    """
+    new_lines = source.clone_lines(span)
+    if len(source_lines) >= 2 and isinstance(source_lines[-1], re.Match):
+        source_lines = (
+            source_lines[:-2]
+            + [_merge_source_match_source(source_lines[-2], source_lines[-1], new_lines[0])]
+            + new_lines[1:]
+        )
+    else:
+        source_lines += new_lines
+    return source_lines
+
+
+_re_line_cont = re.compile(r'&([ \t]*)\n([ \t]*)&')
+"""Pattern to match Fortran line continuation."""
+
+
+def source_to_lines(source):
+    """
+    Create line-wise :class:`Source` objects, resolving Fortran line-continuation.
+    """
+    source_lines = []
+    ptr = 0
+    for match in _re_line_cont.finditer(source.string):
+        source_lines = _create_lines_and_merge(source_lines, source, (ptr, match.span()[0]))
+        source_lines += [match]
+        ptr = match.span()[1]
+    if ptr < len(source.string):
+        source_lines = _create_lines_and_merge(source_lines, source, (ptr, len(source.string)))
+    return source_lines
