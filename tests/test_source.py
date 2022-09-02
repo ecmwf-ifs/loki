@@ -131,3 +131,35 @@ def test_source_clone_with_span(here):
     assert source.string == routine_b_fcode.upper()
     assert source.lines == routine_b_lines
     assert source.file == filepath
+
+
+def test_source_clone_lines(here):
+    """Test the `clone_lines` utility of :any:`Source`"""
+    filepath = here/'sources/sourcefile.f90'
+    fcode = read_file(filepath)
+    lines = (1, fcode.count('\n') + 1)
+
+    source = Source(lines, fcode, filepath)
+
+    source_lines = source.clone_lines()
+    str_lines = fcode.splitlines()
+    assert len(source_lines) == len(str_lines)
+
+    for idx, (source_line, str_line) in enumerate(zip(source_lines, str_lines)):
+        assert source_line.string == str_line
+        assert source_line.lines[0] == idx+1
+        assert source_line.lines[1] == idx+1
+        assert source_line.file == filepath
+
+    routine_b_match = re.search(r'(subroutine routine_b.*?end subroutine routine_b)', fcode, re.DOTALL)
+    routine_b_source = source.clone_with_span(routine_b_match.span())
+
+    source_lines = source.clone_lines(routine_b_match.span())
+    routine_b_str_lines = str_lines[routine_b_source.lines[0]-1:routine_b_source.lines[1]]
+    assert len(source_lines) == len(routine_b_str_lines)
+
+    for idx, (source_line, str_line) in enumerate(zip(source_lines, routine_b_str_lines)):
+        assert source_line.string == str_line
+        assert source_line.lines[0] == idx+routine_b_source.lines[0]
+        assert source_line.lines[1] == idx+routine_b_source.lines[0]
+        assert source_line.file == filepath

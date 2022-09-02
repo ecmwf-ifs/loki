@@ -1,4 +1,6 @@
-
+"""
+Implementation of :any:`Source` and adjacent utilities
+"""
 
 __all = ['Source', 'extract_source', 'extract_source_from_range']
 
@@ -83,6 +85,24 @@ class Source:
         else:
             lines = None
         return Source(lines=lines, string=string, file=self.file)
+
+    def clone_lines(self, span=None):
+        """
+        Create source object clones for each line.
+        """
+        if span is not None:
+            return self.clone_with_span(span).clone_lines()
+        if self.lines is not None:
+            lines = [
+                Source(lines=(self.lines[0]+idx,)*2, string=line, file=self.file)
+                for idx, line in enumerate(self.string.splitlines())
+            ]
+        else:
+            lines = [
+                Source(lines=None, string=line, file=self.file)
+                for line in self.string.splitlines()
+            ]
+        return lines
 
 
 def extract_source(ast, text, label=None, full_lines=False):
