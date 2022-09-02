@@ -39,6 +39,8 @@ class Source:
         if ignore_case:
             string = string.lower()
             self_string = self.string.lower()
+        else:
+            self_string = self.string
         if string in self_string:
             # string is contained as is
             idx = self_string.find(string)
@@ -58,9 +60,29 @@ class Source:
         or use the provided string.
         """
         cstart, cend = self.find(string, ignore_case=ignore_case, ignore_space=ignore_space)
-        if cstart is not None and cend is not None:
+        if None not in (cstart, cend):
             string = self.string[cstart:cend]
-        return Source(self.lines, string, self.file)
+        if None not in (self.lines, cstart, cend):
+            lstart = self.lines[0] + self.string[:cstart].count('\n')
+            lend = lstart + string.count('\n')
+            lines = (lstart, lend)
+        else:
+            lines = self.lines
+        return Source(lines=lines, string=string, file=self.file)
+
+    def clone_with_span(self, span):
+        """
+        Clone the source object and extract the given line span from the original source
+        string (relative to the string length).
+        """
+        string = self.string[span[0]:span[1]]
+        if self.lines is not None:
+            lstart = self.lines[0] + self.string[:span[0]].count('\n')
+            lend = lstart + string.count('\n')
+            lines = (lstart, lend)
+        else:
+            lines = None
+        return Source(lines=lines, string=string, file=self.file)
 
 
 def extract_source(ast, text, label=None, full_lines=False):
