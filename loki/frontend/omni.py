@@ -486,7 +486,7 @@ class OMNI2IR(GenericVisitor):
         return body
 
     def visit_FimportDecl(self, o, **kwargs):
-        symbols = [self.visit(i, **kwargs) for i in o]
+        symbols = tuple(self.visit(i, **kwargs) for i in o)
         symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
         return ir.Import(
             module=None, symbols=symbols, f_import=True, source=kwargs['source']
@@ -934,8 +934,8 @@ class OMNI2IR(GenericVisitor):
         return variable
 
     def visit_FwhereStatement(self, o, **kwargs):
-        conditions = [self.visit(c, **kwargs) for c in o.findall('condition')]
-        bodies = [self.visit(b, **kwargs) for b in o.findall('then/body')]
+        conditions = tuple(self.visit(c, **kwargs) for c in o.findall('condition'))
+        bodies = tuple(self.visit(b, **kwargs) for b in o.findall('then/body'))
         if o.find('else') is not None:
             default = self.visit(o.find('else/body'), **kwargs)
         else:
@@ -986,7 +986,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FselectCaseStatement(self, o, **kwargs):
         expr = self.visit(o.find('value'), **kwargs)
-        cases = [self.visit(case, **kwargs) for case in o.findall('FcaseLabel')]
+        cases = tuple(self.visit(case, **kwargs) for case in o.findall('FcaseLabel'))
         values, bodies = zip(*cases)
         if None in values:
             else_index = values.index(None)

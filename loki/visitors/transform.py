@@ -505,7 +505,7 @@ class NestedMaskedTransformer(MaskedTransformer):
         body_index = o._traversable.index('body')
 
         if rebuilt[body_index]:
-            rebuilt[body_index] = flatten(rebuilt[body_index])
+            rebuilt[body_index] = as_tuple(flatten(rebuilt[body_index]))
 
         # check if body still exists, otherwise delete this node
         if not rebuilt[body_index]:

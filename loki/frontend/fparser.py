@@ -2068,8 +2068,10 @@ class FParser2IR(GenericVisitor):
             pre += as_tuple(self.visit(c, **kwargs) for c in o.children[select_case_stmt_index+1:case_stmt_index[0]])
 
         values = as_tuple(self.visit(c, **kwargs) for c in case_stmts)
-        bodies = [as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])
-                  for start, stop in zip(case_stmt_index, case_stmt_index[1:] + (end_select_stmt_index,))]
+        bodies = tuple(
+            as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])
+            for start, stop in zip(case_stmt_index, case_stmt_index[1:] + (end_select_stmt_index,))
+        )
 
         if 'DEFAULT' in values:
             default_index = values.index('DEFAULT')
@@ -2528,7 +2530,8 @@ class FParser2IR(GenericVisitor):
         assert not o.children[end_where_stmt_index+1:]
 
         masked_statement = ir.MaskedStatement(
-            conditions=conditions, bodies=bodies, default=default, label=kwargs.get('label'), source=source
+            conditions=as_tuple(conditions), bodies=as_tuple(bodies),
+            default=default, label=kwargs.get('label'), source=source
         )
         return (*pre, masked_statement)
 
@@ -2581,7 +2584,7 @@ class FParser2IR(GenericVisitor):
         condition = self.visit(o.children[0], **kwargs)
         body = as_tuple(self.visit(o.children[1], **kwargs))
         return ir.MaskedStatement(
-            conditions=[condition], bodies=[body], default=(), inline=True,
+            conditions=(condition, ), bodies=(body, ), default=(), inline=True,
             label=kwargs.get('label'), source=kwargs.get('source')
         )
 
