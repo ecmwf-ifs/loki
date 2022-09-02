@@ -135,8 +135,12 @@ class Transformer(Visitor):
         """
         Visit all elements in a tuple, injecting any one-to-many mappings.
         """
+        # First inject tuples that match at least a sub-set of current nodes
         o = self._inject_tuple_mapping(o)
+
+        # Then recurse over the new nodes
         visited = tuple(self.visit(i, **kwargs) for i in o)
+
         # Strip empty sublists/subtuples or None entries
         return tuple(i for i in visited if i is not None and as_tuple(i))
 
@@ -233,6 +237,20 @@ class NestedTransformer(Transformer):
     """
     A :class:`Transformer` that applies replacements in a depth-first fashion.
     """
+
+    def visit_tuple(self, o, **kwargs):
+        """
+        Visit all elements in a tuple, injecting any one-to-many mappings.
+        """
+
+        # Recurse to children first !
+        visited = tuple(self.visit(i, **kwargs) for i in o)
+
+        # Inject any matching sub-set of nodes into current tuple
+        visited = self._inject_tuple_mapping(visited)
+
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i))
 
     def visit_Node(self, o, **kwargs):
         """
