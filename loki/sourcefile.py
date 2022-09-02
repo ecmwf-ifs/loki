@@ -7,11 +7,11 @@ from pathlib import Path
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
-from loki.logging import info
+from loki.logging import info, error
 from loki.frontend import (
-    OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp,
+    OMNI, OFP, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
-    parse_omni_ast, parse_ofp_ast, parse_fparser_ast
+    parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source
 )
 from loki.ir import Section
 from loki.backend.fgen import fgen
@@ -52,7 +52,7 @@ class Sourcefile:
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
                   includes=None, defines=None, omni_includes=None,
-                  xmods=None, frontend=FP):
+                  xmods=None, frontend=FP, lazy=False):
         """
         Constructor from raw source files that can apply a
         C-preprocessor before invoking frontend parsers.
@@ -98,6 +98,13 @@ class Sourcefile:
         else:
             source = raw_source
 
+        if lazy and frontend != FP:
+            error('Lazy parsing is only implemented with Fparser frontend')
+            raise RuntimeError('Lazy parsing is only implemented with Fparser frontend')
+
+        if frontend == REGEX:
+            return cls.from_regex(source, filepath)
+
         if frontend == OMNI:
             return cls.from_omni(source, filepath, definitions=definitions,
                                  includes=includes, defines=defines,
@@ -115,7 +122,7 @@ class Sourcefile:
     def from_omni(cls, raw_source, filepath, definitions=None, includes=None,
                   defines=None, xmods=None, omni_includes=None):
         """
-        Parse a given source file using the OMNI frontend
+        Parse a given source string using the OMNI frontend
 
         Parameters
         ----------
@@ -175,7 +182,7 @@ class Sourcefile:
     @classmethod
     def from_ofp(cls, raw_source, filepath, definitions=None):
         """
-        Parse a given source file using the Open Fortran Parser (OFP) frontend
+        Parse a given source string using the Open Fortran Parser (OFP) frontend
 
         Parameters
         ----------
@@ -211,7 +218,7 @@ class Sourcefile:
     @classmethod
     def from_fparser(cls, raw_source, filepath, definitions=None):
         """
-        Parse a given source file using the fparser frontend
+        Parse a given source string using the fparser frontend
 
         Parameters
         ----------
@@ -245,6 +252,16 @@ class Sourcefile:
         return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
+    def from_regex(cls, raw_source, filepath):
+        """
+        Parse a given source string using the fparser frontend
+        """
+        lines = (1, raw_source.count('\n') + 1)
+        source = Source(lines, string=raw_source, file=filepath)
+        ir = parse_regex_source(source)
+        return cls(path=filepath, ir=ir, source=source)
+
+    @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
         """
         Constructor from raw source string that invokes specified frontend parser
@@ -275,6 +292,9 @@ class Sourcefile:
         if frontend == FP:
             ast = parse_fparser_source(source)
             return cls._from_fparser_ast(path=None, ast=ast, raw_source=source, definitions=definitions)
+
+        if frontend == REGEX:
+            return cls.from_regex(raw_source=source, filepath=None)
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 

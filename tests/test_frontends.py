@@ -9,7 +9,7 @@ import pytest
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
-    BasicType, OMNI, OFP, Enumeration, config, REGEX
+    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile
 )
 from loki.expression import symbols as sym
 
@@ -468,3 +468,128 @@ end module some_module
     assert code.count('SUBROUTINE') == 2
     assert code.count('FUNCTION') == 2
     assert code.count('contains') == 1
+
+
+def test_regex_sourcefile_from_source():
+    """
+    Verify that the regex frontend is able to parse source files containing
+    multiple modules and subroutines
+    """
+    fcode = """
+subroutine routine_a
+    integer a, i
+    a = 1
+    i = a + 1
+
+    call routine_b(a, i)
+end subroutine routine_a
+
+module some_module
+contains
+    subroutine module_routine
+        integer m
+        m = 2
+
+        call routine_b(m, 6)
+    end subroutine module_routine
+
+    function module_function(n)
+        integer n
+        n = 3
+    end function module_function
+end module some_module
+
+module other_module
+    integer :: n
+end module
+
+subroutine routine_b(
+    ! arg 1
+    i,
+    ! arg2
+    j,
+    k!arg3
+)
+  integer, intent(in) :: i, j, k
+  integer b
+  b = 4
+
+  call contained_c(i)
+
+  call routine_a()
+contains
+!abc ^$^**
+    subroutine contained_c(i)
+        integer, intent(in) :: i
+        integer c
+        c = 5
+    end subroutine contained_c
+    ! cc£$^£$^
+    integer function contained_e(i)
+        integer, intent(in) :: i
+        contained_e = i
+    end function
+
+    subroutine contained_d(i)
+        integer, intent(in) :: i
+        integer c
+        c = 8
+    end subroutine !add"£^£$
+end subroutine routine_b
+
+function function_d(d)
+    integer d
+    d = 6
+end function function_d
+    """.strip()
+
+    sourcefile = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert [m.name for m in sourcefile.modules] == ['some_module', 'other_module']
+    assert [r.name for r in sourcefile.routines] == [
+        'routine_a', 'routine_b', 'function_d'
+    ]
+    assert [r.name for r in sourcefile.all_subroutines] == [
+        'routine_a', 'routine_b', 'function_d', 'module_routine', 'module_function'
+    ]
+
+    code = sourcefile.to_fortran()
+    assert code.count('SUBROUTINE') == 10
+    assert code.count('FUNCTION') == 6
+    assert code.count('contains') == 2
+    assert code.count('MODULE') == 4
+
+
+def test_regex_sourcefile_from_file(here):
+    """
+    Verify that the regex frontend is able to parse source files containing
+    multiple modules and subroutines
+    """
+
+    sourcefile = Sourcefile.from_file(here/'sources/sourcefile.f90', frontend=REGEX)
+    assert [m.name for m in sourcefile.modules] == ['some_module']
+    assert [r.name for r in sourcefile.routines] == [
+        'routine_a', 'routine_b', 'function_d'
+    ]
+    assert [r.name for r in sourcefile.all_subroutines] == [
+        'routine_a', 'routine_b', 'function_d', 'module_routine', 'module_function'
+    ]
+
+    routine_b = sourcefile['ROUTINE_B']
+    assert routine_b.name == 'routine_b'
+    assert not routine_b.is_function
+    assert routine_b.arguments == ()
+    assert routine_b.argnames == []
+    assert [r.name for r in routine_b.subroutines] == ['contained_c']
+
+    function_d = sourcefile['function_d']
+    assert function_d.name == 'function_d'
+    assert function_d.is_function
+    assert function_d.arguments == ('d',)
+    assert function_d.argnames == ['d']
+    assert not function_d.contains
+
+    code = sourcefile.to_fortran()
+    assert code.count('SUBROUTINE') == 8
+    assert code.count('FUNCTION') == 4
+    assert code.count('contains') == 2
+    assert code.count('MODULE') == 2
