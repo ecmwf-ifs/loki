@@ -17,7 +17,7 @@ from loki.frontend.source import Source
 from loki.logging import warning
 
 __all__ = [
-    'Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments', 'read_file',
+    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'inline_comments', 'cluster_comments', 'read_file',
     'combine_multiline_pragmas', 'inject_statement_functions', 'sanitize_ir'
 ]
 
@@ -32,6 +32,8 @@ class Frontend(IntEnum):
     OFP = 2
     #: Fparser 2 from STFC
     FP = 3
+    #: Reduced functionality parsing using regular expressions
+    REGEX = 4
 
     def __str__(self):
         return self.name.lower()  # pylint: disable=no-member
@@ -39,6 +41,7 @@ class Frontend(IntEnum):
 OMNI = Frontend.OMNI
 OFP = Frontend.OFP
 FP = Frontend.FP
+REGEX = Frontend.REGEX
 
 
 def inline_comments(ir):

@@ -6,7 +6,7 @@ import pytest
 
 from loki import (
     Sourcefile, Module, Subroutine, fgen, OFP, compile_and_load, FindNodes, CallStatement,
-    as_tuple, Frontend, Section
+    as_tuple, Frontend, Section, REGEX
 )
 from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
@@ -267,7 +267,7 @@ def available_frontends(xfail=None, skip=None):
             params += [pytest.param(f, marks=pytest.mark.skip(reason=skip[f]))]
         elif f in xfail:
             params += [pytest.param(f, marks=pytest.mark.xfail(reason=xfail[f]))]
-        else:
+        elif f != REGEX:
             params += [f]
 
     return params
