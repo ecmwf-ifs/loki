@@ -9,9 +9,12 @@ parse tree.
 import re
 
 from loki import ir
-from loki.frontend import Source
+from loki.expression import symbols as sym
+from loki.frontend import Source, source_to_lines
 from loki.logging import PERF
+from loki.scope import SymbolAttributes
 from loki.tools import timeit, as_tuple
+from loki.types import BasicType
 
 __all__ = ['parse_regex_source', 'HAVE_REGEX']
 
@@ -72,6 +75,34 @@ def match_block_candidates(source, candidates, scope=None):
     return blocks
 
 
+def match_statement_candidates(source, candidates, scope=None):
+    """
+    Apply single-statement match functions to :data:`source`
+
+    Parameters
+    ----------
+    source : :any:`Source`
+        A source file object with the string to match
+    candidates : list
+        The list of candidate match functions to call
+    scope : :any:`Scope`
+        The parent scope for this source code snippet
+    """
+    source_lines = source_to_lines(source)
+
+    ir_ = []
+    for line in source_lines:
+        for candidate in candidates:
+            match = candidate(line, scope=scope)
+            if match:
+                ir_ += [match]
+                break
+        else:
+            # TODO: re-assemble into a single RawSource object
+            ir_ += [ir.RawSource(line.string, source=line.string)]
+    return ir_
+
+
 _whitespace_comment_lineend_pattern = r'(?:[ \t]*|[ \t]*\![\S \t]*)$\n'
 """Helper pattern capturing the common case of a comment until line end with optional leading white space."""
 
@@ -108,7 +139,6 @@ _re_module = re.compile(
     re.IGNORECASE | re.DOTALL | re.MULTILINE
 )
 """Pattern to match module definitions."""
-print(_re_module.pattern)
 
 _re_subroutine_function = re.compile(
     (
@@ -124,6 +154,13 @@ _re_subroutine_function = re.compile(
     re.IGNORECASE | re.DOTALL | re.MULTILINE
 )
 """Pattern to match subroutine/function definitions."""
+
+_re_imports = re.compile(
+    r'^ *use +(?P<module>\w+)(?: *, *(?P<only>only *:)?'  # The use statement including an optional ``only``
+    r'(?P<imports>(?: *\w+(?: *=> *\w+)? *,?)+))?',  # The optional list of names (with optional renames)
+    re.IGNORECASE | re.MULTILINE
+)
+"""Pattern to match Fortran imports (``USE`` statements)"""
 
 
 def match_module(source, scope):  # pylint:disable=unused-argument
@@ -153,11 +190,12 @@ def match_module(source, scope):  # pylint:disable=unused-argument
     if not match:
         return None, None, source
 
+    module = Module(name=match['name'], source=source.clone_with_span(match.span()))
     if match['spec']:
-        spec = ir.RawSource(text=match['spec'], source=source.clone_with_span((match.span('spec'))))
+        candidates = (match_imports, )
+        spec = match_statement_candidates(source.clone_with_span(match.span('spec')), candidates, scope=module)
     else:
         spec = None
-    module = Module(name=match['name'], spec=spec, source=source.clone_with_span(match.span()))
 
     if match['contains']:
         keyword_source = source.clone_with_span(match.span('contains_keyword'))
@@ -165,11 +203,14 @@ def match_module(source, scope):  # pylint:disable=unused-argument
         if match['contains_body']:
             contains_source = source.clone_with_span(match.span('contains_body'))
             contains += match_block_candidates(contains_source, [match_subroutine_function], scope=module)
-        # pylint: disable=unnecessary-dunder-call
-        module.__init__(
-            name=module.name, spec=module.spec, contains=contains,
-            parent=module.parent, source=module.source, symbol_attrs=module.symbol_attrs
-        )
+    else:
+        contains = None
+
+    # pylint: disable=unnecessary-dunder-call
+    module.__init__(
+        name=module.name, spec=spec, contains=contains,
+        parent=module.parent, source=module.source, symbol_attrs=module.symbol_attrs
+    )
 
     return (
         source.clone_with_span((0, match.span()[0])),
@@ -212,15 +253,17 @@ def match_subroutine_function(source, scope):
     else:
         args = ()
     is_function = match['keyword'].lower() == 'function'
+
+    routine = Subroutine(
+        name=match['name'], args=args, is_function=is_function,
+        source=source.clone_with_span(match.span()), parent=scope
+    )
     if match['spec']:
-        spec = ir.RawSource(text=match['spec'], source=source.clone_with_span((match.span('spec'))))
+        candidates = (match_imports, )
+        spec = match_statement_candidates(source.clone_with_span(match.span('spec')), candidates, scope=routine)
     else:
         spec = None
 
-    routine = Subroutine(
-        name=match['name'], args=args, is_function=is_function, spec=spec,
-        source=source.clone_with_span(match.span()), parent=scope
-    )
 
     if match['contains']:
         keyword_source = source.clone_with_span(match.span('contains_keyword'))
@@ -228,15 +271,63 @@ def match_subroutine_function(source, scope):
         if match['contains_body']:
             contains_source = source.clone_with_span(match.span('contains_body'))
             contains += match_block_candidates(contains_source, [match_subroutine_function], scope=routine)
-        # pylint: disable=unnecessary-dunder-call
-        routine.__init__(
-            name=routine.name, args=routine._dummies, is_function=routine.is_function,
-            spec=routine.spec, contains=contains,
-            parent=routine.parent, source=routine.source, symbol_attrs=routine.symbol_attrs
-        )
+    else:
+        contains = None
+
+    # pylint: disable=unnecessary-dunder-call
+    routine.__init__(
+        name=routine.name, args=routine._dummies, is_function=routine.is_function,
+        spec=spec, contains=contains,
+        parent=routine.parent, source=routine.source, symbol_attrs=routine.symbol_attrs
+    )
 
     return (
         source.clone_with_span((0, match.span()[0])),
         routine,
         source.clone_with_span((match.span()[1], len(source.string)))
     )
+
+
+def match_imports(source, scope):
+    """
+    Search for imports via Fortran's ``USE`` statement
+
+    Parameters
+    ----------
+    source : :any:`Source`
+        The source file object containing a single-line string to match
+    scope : :any:`Scope`
+        The enclosing scope a matched object is embedded into
+
+    Returns
+    -------
+    :any:`Import` or NoneType
+        The matched object or `None`
+    """
+    match = _re_imports.search(source.string)
+    if not match:
+        return None
+    module = match['module']
+
+    type_ = SymbolAttributes(BasicType.DEFERRED, imported=True)
+    if match['imports']:
+        imports = match['imports'].replace(' ', '').split(',')
+        imports = [s.split('=>') for s in imports]
+        if match['only']:
+            rename_list = None
+            symbols = []
+            for s in imports:
+                if len(s) == 1:
+                    symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
+                else:
+                    symbols += [sym.Variable(name=s[0], type=type_.clone(use_name=s[1]), scope=scope)]
+        else:
+            rename_list = [
+                (s[1], sym.Variable(name=s[0], type=type_.clone(use_name=s[1]), scope=scope))
+                for s in imports
+            ]
+            symbols = None
+    else:
+        rename_list = None
+        symbols = None
+    return ir.Import(module, symbols=symbols, rename_list=rename_list, source=source.clone_with_span(match.span()))

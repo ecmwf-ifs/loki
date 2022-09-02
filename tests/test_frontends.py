@@ -9,7 +9,7 @@ import pytest
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
-    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile
+    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import
 )
 from loki.expression import symbols as sym
 
@@ -593,3 +593,69 @@ def test_regex_sourcefile_from_file(here):
     assert code.count('FUNCTION') == 4
     assert code.count('contains') == 2
     assert code.count('MODULE') == 2
+
+
+def test_regex_module_imports():
+    """
+    Verify that the regex frontend is able to find and correctly parse
+    Fortran imports
+    """
+    fcode = """
+module some_mod
+    use no_symbols_mod
+    use only_mod, only: my_var
+    use test_rename_mod, first_var1 => var1, first_var3 => var3
+    use test_other_rename_mod, only: second_var1 => var1
+    use test_other_rename_mod, only: other_var2 => var2, other_var3 => var3
+    implicit none
+end module some_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=REGEX)
+    imports = FindNodes(Import).visit(module.spec)
+    assert len(imports) == 5
+    assert [import_.module for import_ in imports] == [
+        'no_symbols_mod', 'only_mod', 'test_rename_mod', 'test_other_rename_mod',
+        'test_other_rename_mod'
+    ]
+    assert set(module.imported_symbols) == {
+        'my_var', 'first_var1', 'first_var3', 'second_var1', 'other_var2', 'other_var3'
+    }
+    assert module.imported_symbol_map['first_var1'].type.use_name == 'var1'
+    assert module.imported_symbol_map['first_var3'].type.use_name == 'var3'
+    assert module.imported_symbol_map['second_var1'].type.use_name == 'var1'
+    assert module.imported_symbol_map['other_var2'].type.use_name == 'var2'
+    assert module.imported_symbol_map['other_var3'].type.use_name == 'var3'
+
+
+def test_regex_subroutine_imports():
+    """
+    Verify that the regex frontend is able to find and correctly parse
+    Fortran imports
+    """
+    fcode = """
+subroutine some_routine
+    use no_symbols_mod
+    use only_mod, only: my_var
+    use test_rename_mod, first_var1 => var1, first_var3 => var3
+    use test_other_rename_mod, only: second_var1 => var1
+    use test_other_rename_mod, only: other_var2 => var2, other_var3 => var3
+    implicit none
+end subroutine some_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=REGEX)
+    imports = FindNodes(Import).visit(routine.spec)
+    assert len(imports) == 5
+    assert [import_.module for import_ in imports] == [
+        'no_symbols_mod', 'only_mod', 'test_rename_mod', 'test_other_rename_mod',
+        'test_other_rename_mod'
+    ]
+    assert set(routine.imported_symbols) == {
+        'my_var', 'first_var1', 'first_var3', 'second_var1', 'other_var2', 'other_var3'
+    }
+    assert routine.imported_symbol_map['first_var1'].type.use_name == 'var1'
+    assert routine.imported_symbol_map['first_var3'].type.use_name == 'var3'
+    assert routine.imported_symbol_map['second_var1'].type.use_name == 'var1'
+    assert routine.imported_symbol_map['other_var2'].type.use_name == 'var2'
+    assert routine.imported_symbol_map['other_var3'].type.use_name == 'var3'
