@@ -311,7 +311,11 @@ class ProgramUnit(Scope):
         """
         Return the symbols imported in this unit
         """
-        return as_tuple(flatten(imprt.symbols for imprt in FindNodes(ir.Import).visit(self.spec or ())))
+        imports = FindNodes(ir.Import).visit(self.spec or ())
+        return as_tuple(flatten(
+            imprt.symbols or [s[1] for s in imprt.rename_list or []]
+            for imprt in imports
+        ))
 
     @property
     def imported_symbol_map(self):
