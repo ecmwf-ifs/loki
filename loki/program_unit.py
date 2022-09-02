@@ -55,8 +55,14 @@ class ProgramUnit(Scope):
         # Bring arguments into shape
         if spec is not None and not isinstance(spec, ir.Section):
             spec = ir.Section(body=spec)
-        if contains is not None and not isinstance(contains, ir.Section):
-            contains = ir.Section(body=contains)
+        if contains is not None:
+            if not isinstance(contains, ir.Section):
+                contains = ir.Section(body=contains)
+            for node in contains.body:
+                if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():
+                    break
+                else:
+                    contains.prepend(ir.Intrinsic(text='CONTAINS'))
 
         # Primary IR components
         self.docstring = as_tuple(docstring)
