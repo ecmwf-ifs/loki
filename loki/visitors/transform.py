@@ -542,8 +542,8 @@ class NestedMaskedTransformer(MaskedTransformer):
             return super().visit(o, **kwargs)
 
         condition = self.visit(o.condition, **kwargs)
-        body = flatten(as_tuple(self.visit(o.body, **kwargs)))
-        else_body = flatten(as_tuple(self.visit(o.else_body, **kwargs)))
+        body = as_tuple(flatten(as_tuple(self.visit(o.body, **kwargs))))
+        else_body = as_tuple(flatten(as_tuple(self.visit(o.else_body, **kwargs))))
 
         if not body:
             return else_body
