@@ -1,7 +1,10 @@
 """
 Contains the declaration of :any:`Module` to represent Fortran modules.
 """
-from loki.frontend import get_fparser_node, parse_omni_ast, parse_ofp_ast, parse_fparser_ast
+from loki.frontend import (
+    get_fparser_node, parse_omni_ast, parse_ofp_ast, parse_fparser_ast,
+    parse_regex_source, Source
+)
 from loki.ir import VariableDeclaration
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 from loki.program_unit import ProgramUnit
@@ -158,6 +161,23 @@ class Module(ProgramUnit):
             ast, pp_info=pp_info, definitions=definitions,
             raw_source=raw_source, scope=parent
         )[-1]
+
+    @classmethod
+    def from_regex(cls, raw_source, parent=None):
+        """
+        Create :any:`Module` from source regex'ing
+
+        Parameters
+        ----------
+        raw_source : str
+            Fortran source string
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the subroutine, typically a :any:`Module`.
+        """
+        lines = (1, raw_source.count('\n') + 1)
+        source = Source(lines, string=raw_source)
+        ir_ = parse_regex_source(source, scope=parent)
+        return [node for node in ir_.body if isinstance(node, cls)][0]
 
     def clone(self, **kwargs):
         """

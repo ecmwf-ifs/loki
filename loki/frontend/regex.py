@@ -102,7 +102,9 @@ _re_module = re.compile(
         r'(?P<spec>.*?)'  # Module spec
     ) + _contains_pattern + (  # Module body (`contains`` section)
         r'end\s+module(?:\s*(?P=name))?'  # End keyword with optionally module name repeated after end keyword
-    ) + _whitespace_comment_lineend_pattern, # optional whitespace/comment until line end
+    ) + _whitespace_comment_lineend_pattern + ( # optional whitespace/comment until line end
+        r'?' # ...with the '\n' optional
+    ),
     re.IGNORECASE | re.DOTALL | re.MULTILINE
 )
 """Pattern to match module definitions."""

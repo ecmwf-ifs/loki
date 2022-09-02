@@ -434,3 +434,37 @@ end subroutine routine_b
     assert code.count('SUBROUTINE') == 6
     assert code.count('FUNCTION') == 2
     assert code.count('contains') == 1
+
+
+def test_regex_module_from_source():
+    """
+    Verify that the regex frontend is able to parse modules
+    """
+    fcode = """
+module some_module
+    implicit none
+    use foobar
+contains
+    subroutine module_routine
+        integer m
+        m = 2
+
+        call routine_b(m, 6)
+    end subroutine module_routine
+
+    function module_function(n)
+        integer n
+        n = 3
+    end function module_function
+end module some_module
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=REGEX)
+    assert module.name == 'some_module'
+    assert [r.name for r in module.subroutines] == ['module_routine', 'module_function']
+
+    code = module.to_fortran()
+    assert code.count('MODULE') == 2
+    assert code.count('SUBROUTINE') == 2
+    assert code.count('FUNCTION') == 2
+    assert code.count('contains') == 1
