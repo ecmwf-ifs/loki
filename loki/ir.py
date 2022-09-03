@@ -78,10 +78,12 @@ class Node:
     def _canonical(self):
         """
         Base definition for comparing :any:`Node` objects.
+
+        We use all constructor args for this, including `source`.
+        The ``source`` attributes makes IR nodes near-unqiue due to
+        strict adherence to line numbering.
         """
-        # We include all natural constructor args, but exclude the source
-        _ignore = ('source', )
-        return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
+        return tuple(sorted(self._args.items()))
 
     def __eq__(self, other):
         if isinstance(other, Node):
@@ -369,7 +371,7 @@ class Associate(ScopedNode, Section):
 
     @property
     def _canonical(self):
-        return (self.associations, self.body, self.symbol_attrs)
+        return (self.associations, self.body, self.symbol_attrs, self.source)
 
     @property
     def association_map(self):
@@ -1299,10 +1301,11 @@ class TypeDef(ScopedNode, LeafNode):
     def _canonical(self):
         """
         Base definition for comparing :any:`Node` objects.
+
+        We include all natural constructor args, but exclude parents,
+        since these are only stored as weakrefs.
         """
-        # We include all natural constructor args, but exclude the source
-        # and for TypeDefs we also exclude the parent (a weakref).
-        _ignore = ('source', 'parent')
+        _ignore = ('parent', )
         return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
 
     @property
