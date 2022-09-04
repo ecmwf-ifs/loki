@@ -300,6 +300,9 @@ class SymbolAttributes:
             if v is not None:
                 self.__setattr__(k, v)
 
+    def __hash__(self):
+        return hash(tuple(self.__dict__))
+
     def __setattr__(self, name, value):
         if value is None and name in dir(self):
             delattr(self, name)
