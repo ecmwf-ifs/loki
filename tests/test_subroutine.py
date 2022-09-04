@@ -1613,9 +1613,8 @@ end subroutine my_routine
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_comparison_case_sensitive(frontend):
     """
-    Test that string-equivalence works and is case sensitive.
+    Test that semantic, but no string-equivalence evaluates as not eqal
     """
-    from loki import config, config_override  # pylint: disable=import-outside-toplevel
 
     fcode = """
 subroutine my_routine(n, a, b, d)
@@ -1636,14 +1635,8 @@ end subroutine my_routine
     assert not 'D(I)' in fgen(r1)
     assert 'D(I)' in fgen(r2)
 
-    # Ensure basic non-case-sensitive equivalence
+    # Ensure that the equivalent parts match, but body and routine do not!
     assert r1.symbol_attrs == r2.symbol_attrs
     assert r1.spec == r2.spec
-    assert r1.body == r2.body
-    assert r1 == r2
-
-    with config_override({'case-sensitive': True}):
-        assert r1.symbol_attrs == r2.symbol_attrs
-        assert r1.spec == r2.spec
-        assert not r1.body == r2.body
-        assert not r1 == r2
+    assert not r1.body == r2.body
+    assert not r1 == r2
