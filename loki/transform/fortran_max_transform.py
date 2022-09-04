@@ -127,7 +127,7 @@ class FortranMaxTransformation(Transformation):
                 # Enlist declaration of modified argument for removal
                 decl = decl_map[arg]
                 if len(decl.symbols) > 1:
-                    out_map[decl] = decl.clone(symbols=[v for v in decl.symbols if v != arg])
+                    out_map[decl] = decl.clone(symbols=tuple(v for v in decl.symbols if v != arg))
                 else:
                     out_map[decl] = None
             elif arg.type.intent is not None:
@@ -479,7 +479,7 @@ class FortranMaxTransformation(Transformation):
         for stream in streams['inout'] + streams['out']:
             body += [ir.Intrinsic(
                 f'addStreamToCPU("{stream.name}") <== kernelBlock.getOutput("{stream.name}");')]
-        setup.body = ir.Section(body=body)
+        setup.body = ir.Section(body=as_tuple(body))
 
         # Insert functions into manager class
         manager.contains = ir.Section(body=as_tuple(setup))
@@ -507,7 +507,7 @@ class FortranMaxTransformation(Transformation):
         body = [ir.CallStatement(sym.Variable(name='super'), arguments=(params,)),
                 ir.CallStatement(sym.Variable(name='setup'), arguments=())]
         constructor.arguments = as_tuple(params)
-        constructor.body = ir.Section(body=body)
+        constructor.body = ir.Section(body=as_tuple(body))
 
         # Create the main function for maxJavaRun
         main = Subroutine(name='public static void main', parent=manager,
@@ -525,7 +525,7 @@ class FortranMaxTransformation(Transformation):
                 sym.ProcedureSymbol(f'new {manager.name}', scope=main), parameters=(params,)))
         mgr = sym.Variable(name='manager', type=mgr_type, scope=main)
         main.variables += as_tuple([params, mgr])
-        body = [ir.CallStatement(sym.Variable(name='manager.build'), arguments=())]
+        body = (ir.CallStatement(sym.Variable(name='manager.build'), arguments=()), )
         main.body = ir.Section(body=body)
 
         # Insert functions into manager class

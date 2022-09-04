@@ -137,7 +137,7 @@ def eliminate_unused_imports(module_or_routine, used_symbols):
         imprt_map = {}
         for im in imports:
             if im.symbols is not None:
-                symbols = [s for s in im.symbols if s not in redundant_symbols]
+                symbols = tuple(s for s in im.symbols if s not in redundant_symbols)
                 if not symbols:
                     # Symbol list is empty: Remove the import
                     imprt_map[im] = None

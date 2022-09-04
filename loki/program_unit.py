@@ -257,9 +257,9 @@ class ProgramUnit(Scope):
             if v not in decl_map:
                 # By default, append new variables to the end of the spec
                 if isinstance(v.type.dtype, ProcedureType):
-                    new_decl = ir.ProcedureDeclaration(symbols=[v])
+                    new_decl = ir.ProcedureDeclaration(symbols=(v, ))
                 else:
-                    new_decl = ir.VariableDeclaration(symbols=[v])
+                    new_decl = ir.VariableDeclaration(symbols=(v, ))
                 self.spec.append(new_decl)
 
         # Run through existing declarations and check that all variables still exist
