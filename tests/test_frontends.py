@@ -776,3 +776,64 @@ end module typebound_item
     assert len(proc_bindings) == len(some_type.variables)
     assert all(proc in some_type.variables for proc in proc_bindings)
     assert all(some_type.variable_map[proc].type.initial == init for proc, init in proc_bindings.items())
+
+
+def test_regex_typedef_generic():
+    fcode = """
+module typebound_header
+    implicit none
+
+    type header_type
+    contains
+        procedure :: member_routine => header_member_routine
+        procedure :: routine_real => header_routine_real
+        procedure :: routine_integer
+        generic :: routine => routine_real, routine_integer
+    end type header_type
+
+contains
+
+    subroutine header_member_routine(self, val)
+        class(header_type) :: self
+        integer, intent(in) :: val
+        integer :: j
+        j = val
+    end subroutine header_member_routine
+
+    subroutine header_routine_real(self, val)
+        class(header_type) :: self
+        real, intent(out) :: val
+        val = 1.0
+    end subroutine header_routine_real
+
+    subroutine routine_integer(self, val)
+        class(header_type) :: self
+        integer, intent(out) :: val
+        val = 1
+    end subroutine routine_integer
+end module typebound_header
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=REGEX)
+
+    assert 'header_type' in module.typedefs
+    header_type = module.typedefs['header_type']
+
+    proc_bindings = {
+        'member_routine': 'header_member_routine',
+        'routine_real': 'header_routine_real',
+        'routine_integer': None,
+        'routine': ('routine_real', 'routine_integer')
+    }
+    assert len(proc_bindings) == len(header_type.variables)
+    assert all(proc in header_type.variables for proc in proc_bindings)
+    assert all(
+        (
+            header_type.variable_map[proc].type.bind_names == bind
+            and header_type.variable_map[proc].type.initial is None
+        ) if isinstance(bind, tuple) else (
+            header_type.variable_map[proc].type.bind_names is None
+            and header_type.variable_map[proc].type.initial == bind
+        )
+        for proc, bind in proc_bindings.items()
+    )

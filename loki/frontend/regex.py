@@ -248,6 +248,25 @@ It matches the full binding-name, i.e., including any optional rename such as
 ``name => bind_name``.
 """
 
+_re_generic_binding = re.compile(
+    (
+        r'^[ \t]*generic'  # Match ``generic`` keyword after optional white space
+        r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
+        r'(?:[ \t]*::)?'  # Optional `::` delimiter
+        r'[ \t]*'  # Some white space
+        r'(?P<name>\w+)'  # Binding name
+        r'[ \t]*=>[ \t]*'  # Separator ``=>``
+        r'(?P<bindings>\w+(?:[ \t]*,[ \t]*\w+)*)*'  # Match binding name list
+    ),
+    re.IGNORECASE
+)
+"""
+Pattern to match generic name declarations for type-bound procedures within the
+typebound-procedures part of a derived type definition via ``generic...`` keyword.
+
+It matches the generic name and the binding name list
+"""
+
 def match_module(source, scope):  # pylint:disable=unused-argument
     """
     Search for a module definition in :data:`source`
@@ -412,7 +431,7 @@ def match_typedef(source, scope):
     else:
         spec = ()
     if match['contains']:
-        candidates = (match_procedure_binding, )
+        candidates = (match_procedure_binding, match_generic_binding)
         contains = match_statement_candidates(source.clone_with_span(match.span('contains')), candidates, scope=typedef)
     else:
         contains = ()
@@ -457,6 +476,32 @@ def match_procedure_binding(source, scope):
             initial = sym.Variable(name=s[1], type=type_, scope=scope.parent)
             symbols += [sym.Variable(name=s[0], type=type_.clone(initial=initial), scope=scope)]
     return ir.ProcedureDeclaration(symbols=symbols, source=source.clone_with_span(match.span()))
+
+
+def match_generic_binding(source, scope):
+    """
+    Search for generic bindings in derived types
+
+    Parameters
+    ----------
+    source : :any:`Source`
+        The source file object containing a single-line string to match
+    scope : :any:`Scope`
+        The enclosing scope a matched object is embedded into
+
+    Returns
+    -------
+    :any:`ProcedureDeclaration` or NoneType
+        The matched object or `None`
+    """
+    match = _re_generic_binding.search(source.string)
+    if not match:
+        return None
+    bindings = match['bindings'].replace(' ', '').split(',')
+    name = match['name']
+    type_ = SymbolAttributes(ProcedureType(name=name, is_generic=True), bind_names=as_tuple(bindings))
+    symbols = (sym.Variable(name=name, type=type_, scope=scope),)
+    return ir.ProcedureDeclaration(symbols=symbols, generic=True, source=source.clone_with_span(match.span()))
 
 
 def match_import(source, scope):
