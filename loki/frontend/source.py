@@ -71,7 +71,6 @@ class Source:
         cstart, cend = self.find(string, ignore_case=ignore_case, ignore_space=ignore_space)
         if None not in (cstart, cend):
             string = self.string[cstart:cend]
-        if None not in (self.lines, cstart, cend):
             lstart = self.lines[0] + self.string[:cstart].count('\n')
             lend = lstart + string.count('\n')
             lines = (lstart, lend)
@@ -85,13 +84,9 @@ class Source:
         string (relative to the string length).
         """
         string = self.string[span[0]:span[1]]
-        if self.lines is not None:
-            lstart = self.lines[0] + self.string[:span[0]].count('\n')
-            lend = lstart + string.count('\n')
-            lines = (lstart, lend)
-        else:
-            lines = None
-        return Source(lines=lines, string=string, file=self.file)
+        lstart = self.lines[0] + self.string[:span[0]].count('\n')
+        lend = lstart + string.count('\n')
+        return Source(lines=(lstart, lend), string=string, file=self.file)
 
     def clone_lines(self, span=None):
         """

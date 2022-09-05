@@ -11,6 +11,7 @@ import re
 from loki import ir
 from loki.expression import symbols as sym
 from loki.frontend import Source, source_to_lines
+from loki.frontend.source import join_source_list
 from loki.logging import PERF
 from loki.scope import SymbolAttributes
 from loki.tools import timeit, as_tuple
@@ -91,15 +92,22 @@ def match_statement_candidates(source, candidates, scope=None):
     source_lines = source_to_lines(source)
 
     ir_ = []
+    source_stack = []
     for line in source_lines:
         for candidate in candidates:
             match = candidate(line, scope=scope)
             if match:
+                if source_stack:
+                    s = join_source_list(source_stack)
+                    ir_ += [ir.RawSource(s.string, source=s)]
+                    source_stack = []
                 ir_ += [match]
                 break
         else:
-            # TODO: re-assemble into a single RawSource object
-            ir_ += [ir.RawSource(line.string, source=line.string)]
+            source_stack += [line]
+    if source_stack:
+        s = join_source_list(source_stack)
+        ir_ += [ir.RawSource(s.string, source=s)]
     return ir_
 
 
@@ -263,7 +271,6 @@ def match_subroutine_function(source, scope):
         spec = match_statement_candidates(source.clone_with_span(match.span('spec')), candidates, scope=routine)
     else:
         spec = None
-
 
     if match['contains']:
         keyword_source = source.clone_with_span(match.span('contains_keyword'))

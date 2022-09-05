@@ -9,7 +9,7 @@ import pytest
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
-    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import
+    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource
 )
 from loki.expression import symbols as sym
 
@@ -593,6 +593,54 @@ def test_regex_sourcefile_from_file(here):
     assert code.count('FUNCTION') == 4
     assert code.count('contains') == 2
     assert code.count('MODULE') == 2
+
+
+def test_regex_raw_source():
+    """
+    Verify that unparsed source appears in-between matched objects
+    """
+    fcode = """
+! Some comment before the module
+!
+module some_mod
+    ! Some docstring
+    ! docstring
+    ! docstring
+    use some_mod
+    ! Some comment
+    ! comment
+    ! comment
+end module some_mod
+
+! Other comment at the end
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+
+    assert len(source.ir.body) == 3
+
+    assert isinstance(source.ir.body[0], RawSource)
+    assert source.ir.body[0].source.lines == (1, 3)
+    assert source.ir.body[0].text == '! Some comment before the module\n!\n'
+    assert source.ir.body[0].source.string == source.ir.body[0].text
+
+    assert isinstance(source.ir.body[1], Module)
+    assert source.ir.body[1].source.lines == (3, 12)
+    assert source.ir.body[1].source.string.startswith('module')
+    assert source.ir.body[1].source.string[-1] == '\n'
+
+    assert isinstance(source.ir.body[2], RawSource)
+    assert source.ir.body[2].source.lines == (12, 13)
+    assert source.ir.body[2].text == '\n! Other comment at the end'
+    assert source.ir.body[2].source.string == source.ir.body[2].text
+
+    module = source['some_mod']
+    assert len(module.spec.body) == 3
+    assert isinstance(module.spec.body[0], RawSource)
+    assert isinstance(module.spec.body[1], Import)
+    assert isinstance(module.spec.body[2], RawSource)
+
+    assert module.spec.body[0].text.count('docstring') == 3
+    assert module.spec.body[2].text.count('comment') == 3
 
 
 def test_regex_module_imports():
