@@ -5,6 +5,7 @@ Expression tree node classes for
 import weakref
 from sys import intern
 import pymbolic.primitives as pmbl
+from pymbolic.mapper.evaluator import UnknownVariableError
 
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
@@ -905,7 +906,7 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
 
         try:
             return float(self.value) == float(other)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, UnknownVariableError):
             return False
 
     def __lt__(self, other):
