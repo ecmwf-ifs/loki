@@ -3,8 +3,12 @@ Implementation of :any:`Source` and adjacent utilities
 """
 
 import re
+from loki.logging import warning
 
-__all = ['Source', 'extract_source', 'extract_source_from_range', 'source_to_lines']
+__all = [
+    'Source', 'extract_source', 'extract_source_from_range', 'source_to_lines',
+    'join_source_list'
+]
 
 
 class Source:
@@ -18,6 +22,7 @@ class Source:
     """
 
     def __init__(self, lines, string=None, file=None):
+        assert lines and len(lines) == 2 and (lines[1] is None or lines[1] >= lines[0])
         self.lines = lines
         self.string = string
         self.file = file
@@ -94,17 +99,10 @@ class Source:
         """
         if span is not None:
             return self.clone_with_span(span).clone_lines()
-        if self.lines is not None:
-            lines = [
-                Source(lines=(self.lines[0]+idx,)*2, string=line, file=self.file)
-                for idx, line in enumerate(self.string.splitlines())
-            ]
-        else:
-            lines = [
-                Source(lines=None, string=line, file=self.file)
-                for line in self.string.splitlines()
-            ]
-        return lines
+        return [
+            Source(lines=(self.lines[0]+idx,)*2, string=line, file=self.file)
+            for idx, line in enumerate(self.string.splitlines())
+        ]
 
 
 def extract_source(ast, text, label=None, full_lines=False):
@@ -187,10 +185,7 @@ def _merge_source_match_source(pre, match, post):
     assert isinstance(pre, Source)
     assert isinstance(match, re.Match)
     assert isinstance(post, Source)
-    if pre.lines and post.lines:
-        lines = (pre.lines[0], post.lines[1])
-    else:
-        lines = None
+    lines = (pre.lines[0], post.lines[1])
     return Source(lines, pre.string + post.string, pre.file)
 
 
@@ -233,3 +228,26 @@ def source_to_lines(source):
     if ptr < len(source.string):
         source_lines = _create_lines_and_merge(source_lines, source, (ptr, len(source.string)))
     return source_lines
+
+
+def join_source_list(source_list):
+    """
+    Combine a list of :class:`Source` objects into a single object containing
+    the joined source string.
+
+    This will annotate the joined source object with the maximum range of line
+    numbers provided in :data:`source_list` objects and insert empty lines for
+    any missing line numbers inbetween the provided source objects.
+    """
+    if not source_list:
+        return None
+    string = source_list[0].string
+    lines = [source_list[0].lines[0], source_list[0].lines[1] or source_list[0].lines[0]]
+    for source in source_list[1:]:
+        newlines = source.lines[0] - lines[1]
+        if newlines < 0:
+            warning('join_source_list: overlapping line range')
+            newlines = 0
+        string += '\n' * newlines + source.string
+        lines[1] = source.lines[1] if source.lines[1] else lines[1] + newlines + source.string.count('\n')
+    return Source(lines, string, source_list[0].file)
