@@ -184,88 +184,6 @@ _re_module = re.compile(
 )
 """Pattern to match module definitions."""
 
-_re_subroutine_function = re.compile(
-    (
-        r'^(?:[ \t\w()]*?)'  # Whitespace and subroutine/function attributes before subroutine/function keyword
-        r'(?P<keyword>subroutine|function)\s+(?P<name>\w+)'  # Subroutine/function keyword and name
-        r'(?P<args>\s*\((?:(?:\s|\![\S \t]*$)*\w+\s*,?)+\))?[\S \t]*$' # Arguments
-        r'(?P<spec>.*?)'  # Spec and body of routine
-    ) + _contains_pattern + (  # Contains section
-        r'end\s+(?P=keyword)(?:\s*(?P=name))?'  # End keyword with optionally routine name repeated after end keyword
-    ) + _whitespace_comment_lineend_pattern + ( # optional whitespace/comment until line end...
-        r'?' # ...with the '\n' optional
-    ),
-    re.IGNORECASE | re.DOTALL | re.MULTILINE
-)
-"""Pattern to match subroutine/function definitions."""
-
-_re_imports = re.compile(
-    r'^ *use +(?P<module>\w+)(?: *, *(?P<only>only *:)?'  # The use statement including an optional ``only``
-    r'(?P<imports>(?: *\w+(?: *=> *\w+)? *,?)+))?',  # The optional list of names (with optional renames)
-    re.IGNORECASE
-)
-"""Pattern to match Fortran imports (``USE`` statements)"""
-
-_re_typedef = re.compile(
-    (
-        r'^[ \t]*'  # Whitespace before type keyword
-        r'type(?:\s*,\s*[\w\(\)]+)*?'  # type keyword with optional parameters
-        r'(?:\s*::\s*|\s+)'  # optional `::` separator or white space
-        r'(?P<name>\w+)[\S \t]*$'  # Type name
-        r'(?P<spec>.*?)'  # Type spec
-        r'(?P<contains>contains.*?)?'  # Optional procedure bindings part (after ``contains`` keyword)
-        r'\s+end\s+type(?:\s*(?P=name))?'  # End keyword with optionally type name repeated
-    ),
-    re.IGNORECASE | re.DOTALL | re.MULTILINE
-)
-"""
-Pattern to match derived type definitions via ``type...end type`` keywords.
-
-Spec and typebound-procedures-part (``contains`` and everything thereafter)
-are matched in separate groups for subsequent processing with :any:`_re_proc_binding`.
-"""
-
-_re_proc_binding = re.compile(
-    (
-        r'^[ \t]*procedure'  # Match ``procedure keyword after optional white space
-        r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
-        r'(?:[ \t]*::)?'  # Optional `::` delimiter
-        r'[ \t]*'  # Some white space
-        r'(?P<bindings>'  # Beginning of bindings group
-        r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Binding name with optional binding name specifier (via ``=>``)
-        r'(?:[ \t]*,[ \t]*' # Optional group for additional bindings, separated by ``,``
-        r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Additional binding name with optional binding name specifier
-        r')*'  # End of optional group for additional bindings
-        r')'  # End of bindings group
-    ),
-    re.IGNORECASE
-)
-"""
-Pattern to match type-bound procedure declarations within the
-typebound-procedures-part of a derived type definition via ``procedure...`` keyword.
-
-It matches the full binding-name, i.e., including any optional rename such as
-``name => bind_name``.
-"""
-
-_re_generic_binding = re.compile(
-    (
-        r'^[ \t]*generic'  # Match ``generic`` keyword after optional white space
-        r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
-        r'(?:[ \t]*::)?'  # Optional `::` delimiter
-        r'[ \t]*'  # Some white space
-        r'(?P<name>\w+)'  # Binding name
-        r'[ \t]*=>[ \t]*'  # Separator ``=>``
-        r'(?P<bindings>\w+(?:[ \t]*,[ \t]*\w+)*)*'  # Match binding name list
-    ),
-    re.IGNORECASE
-)
-"""
-Pattern to match generic name declarations for type-bound procedures within the
-typebound-procedures part of a derived type definition via ``generic...`` keyword.
-
-It matches the generic name and the binding name list
-"""
 
 def match_module(source, scope):  # pylint:disable=unused-argument
     """
@@ -325,6 +243,23 @@ def match_module(source, scope):  # pylint:disable=unused-argument
         module,
         source.clone_with_span((match.span()[1], len(source.string)))
     )
+
+
+_re_subroutine_function = re.compile(
+    (
+        r'^(?:[ \t\w()]*?)'  # Whitespace and subroutine/function attributes before subroutine/function keyword
+        r'(?P<keyword>subroutine|function)\s+(?P<name>\w+)'  # Subroutine/function keyword and name
+        r'(?P<args>\s*\((?:(?:\s|\![\S \t]*$)*\w+\s*,?)+\))?[\S \t]*$' # Arguments
+        r'(?P<spec>.*?)'  # Spec and body of routine
+    ) + _contains_pattern + (  # Contains section
+        r'end\s+(?P=keyword)(?:\s*(?P=name))?'  # End keyword with optionally routine name repeated after end keyword
+    ) + _whitespace_comment_lineend_pattern + ( # optional whitespace/comment until line end...
+        r'?' # ...with the '\n' optional
+    ),
+    re.IGNORECASE | re.DOTALL | re.MULTILINE
+)
+"""Pattern to match subroutine/function definitions."""
+
 
 def match_subroutine_function(source, scope):
     """
@@ -395,6 +330,26 @@ def match_subroutine_function(source, scope):
     )
 
 
+_re_typedef = re.compile(
+    (
+        r'^[ \t]*'  # Whitespace before type keyword
+        r'type(?:\s*,\s*[\w\(\)]+)*?'  # type keyword with optional parameters
+        r'(?:\s*::\s*|\s+)'  # optional `::` separator or white space
+        r'(?P<name>\w+)[\S \t]*$'  # Type name
+        r'(?P<spec>.*?)'  # Type spec
+        r'(?P<contains>contains.*?)?'  # Optional procedure bindings part (after ``contains`` keyword)
+        r'\s+end\s+type(?:\s*(?P=name))?'  # End keyword with optionally type name repeated
+    ),
+    re.IGNORECASE | re.DOTALL | re.MULTILINE
+)
+"""
+Pattern to match derived type definitions via ``type...end type`` keywords.
+
+Spec and typebound-procedures-part (``contains`` and everything thereafter)
+are matched in separate groups for subsequent processing with :any:`_re_proc_binding`.
+"""
+
+
 def match_typedef(source, scope):
     """
     Search for a derived type definition in :data:`source`
@@ -444,6 +399,30 @@ def match_typedef(source, scope):
     )
 
 
+_re_proc_binding = re.compile(
+    (
+        r'^[ \t]*procedure'  # Match ``procedure keyword after optional white space
+        r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
+        r'(?:[ \t]*::)?'  # Optional `::` delimiter
+        r'[ \t]*'  # Some white space
+        r'(?P<bindings>'  # Beginning of bindings group
+        r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Binding name with optional binding name specifier (via ``=>``)
+        r'(?:[ \t]*,[ \t]*' # Optional group for additional bindings, separated by ``,``
+        r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Additional binding name with optional binding name specifier
+        r')*'  # End of optional group for additional bindings
+        r')'  # End of bindings group
+    ),
+    re.IGNORECASE
+)
+"""
+Pattern to match type-bound procedure declarations within the
+typebound-procedures-part of a derived type definition via ``procedure...`` keyword.
+
+It matches the full binding-name, i.e., including any optional rename such as
+``name => bind_name``.
+"""
+
+
 def match_procedure_binding(source, scope):
     """
     Search for procedure bindings in derived types
@@ -478,6 +457,26 @@ def match_procedure_binding(source, scope):
     return ir.ProcedureDeclaration(symbols=symbols, source=source.clone_with_span(match.span()))
 
 
+_re_generic_binding = re.compile(
+    (
+        r'^[ \t]*generic'  # Match ``generic`` keyword after optional white space
+        r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
+        r'(?:[ \t]*::)?'  # Optional `::` delimiter
+        r'[ \t]*'  # Some white space
+        r'(?P<name>\w+)'  # Binding name
+        r'[ \t]*=>[ \t]*'  # Separator ``=>``
+        r'(?P<bindings>\w+(?:[ \t]*,[ \t]*\w+)*)*'  # Match binding name list
+    ),
+    re.IGNORECASE
+)
+"""
+Pattern to match generic name declarations for type-bound procedures within the
+typebound-procedures part of a derived type definition via ``generic...`` keyword.
+
+It matches the generic name and the binding name list
+"""
+
+
 def match_generic_binding(source, scope):
     """
     Search for generic bindings in derived types
@@ -502,6 +501,14 @@ def match_generic_binding(source, scope):
     type_ = SymbolAttributes(ProcedureType(name=name, is_generic=True), bind_names=as_tuple(bindings))
     symbols = (sym.Variable(name=name, type=type_, scope=scope),)
     return ir.ProcedureDeclaration(symbols=symbols, generic=True, source=source.clone_with_span(match.span()))
+
+
+_re_imports = re.compile(
+    r'^ *use +(?P<module>\w+)(?: *, *(?P<only>only *:)?'  # The use statement including an optional ``only``
+    r'(?P<imports>(?: *\w+(?: *=> *\w+)? *,?)+))?',  # The optional list of names (with optional renames)
+    re.IGNORECASE
+)
+"""Pattern to match Fortran imports (``USE`` statements)"""
 
 
 def match_import(source, scope):
