@@ -15,7 +15,7 @@ from loki.frontend.source import join_source_list
 from loki.logging import PERF
 from loki.scope import SymbolAttributes
 from loki.tools import timeit, as_tuple
-from loki.types import BasicType
+from loki.types import BasicType, ProcedureType
 
 __all__ = ['parse_regex_source', 'HAVE_REGEX']
 
@@ -111,6 +111,42 @@ def match_statement_candidates(source, candidates, scope=None):
     return ir_
 
 
+def match_block_statement_candidates(source, block_candidates, statement_candidates, scope=None):
+    """
+    Apply match functions to :data:`source` recursively
+
+    This tries to first match any block candidates, and then runs through
+    unmatched source sections trying to match statement candidates
+
+    Parameters
+    ----------
+    source : :any:`Source`
+        A source file object with the string to match
+    block_candidates : list
+        The list of candidate match functions for blocks to call
+    statement_candidates : list
+        The list of candidate match functions for individual statements to call
+    scope : :any:`Scope`
+        The parent scope for this source code snippet
+    """
+    blocks = []
+    for idx, candidate in enumerate(block_candidates):
+        while source.string:
+            pre, match, source = candidate(source, scope=scope)
+            if not match:
+                assert pre is None
+                break
+            if pre:
+                # See if any of the other candidates match before this match
+                blocks += match_block_statement_candidates(
+                    pre, block_candidates[idx+1:], statement_candidates, scope=scope
+                )
+            blocks += [match]
+    if source.string.strip():
+        blocks += match_statement_candidates(source, statement_candidates, scope=scope)
+    return blocks
+
+
 _whitespace_comment_lineend_pattern = r'(?:[ \t]*|[ \t]*\![\S \t]*)$\n'
 """Helper pattern capturing the common case of a comment until line end with optional leading white space."""
 
@@ -136,7 +172,7 @@ _contains_pattern = (
 
 _re_module = re.compile(
     (
-        r'^(?:[ \t]*?)'  # Whitespace before module keyword
+        r'^[ \t]*'  # Whitespace before module keyword
         r'module\s+(?P<name>\w+)[\S \t]*$'  # Module keyword and module name
         r'(?P<spec>.*?)'  # Module spec
     ) + _contains_pattern + (  # Module body (`contains`` section)
@@ -166,10 +202,51 @@ _re_subroutine_function = re.compile(
 _re_imports = re.compile(
     r'^ *use +(?P<module>\w+)(?: *, *(?P<only>only *:)?'  # The use statement including an optional ``only``
     r'(?P<imports>(?: *\w+(?: *=> *\w+)? *,?)+))?',  # The optional list of names (with optional renames)
-    re.IGNORECASE | re.MULTILINE
+    re.IGNORECASE
 )
 """Pattern to match Fortran imports (``USE`` statements)"""
 
+_re_typedef = re.compile(
+    (
+        r'^[ \t]*'  # Whitespace before type keyword
+        r'type(?:\s*,\s*[\w\(\)]+)*?'  # type keyword with optional parameters
+        r'(?:\s*::\s*|\s+)'  # optional `::` separator or white space
+        r'(?P<name>\w+)[\S \t]*$'  # Type name
+        r'(?P<spec>.*?)'  # Type spec
+        r'(?P<contains>contains.*?)?'  # Optional procedure bindings part (after ``contains`` keyword)
+        r'\s+end\s+type(?:\s*(?P=name))?'  # End keyword with optionally type name repeated
+    ),
+    re.IGNORECASE | re.DOTALL | re.MULTILINE
+)
+"""
+Pattern to match derived type definitions via ``type...end type`` keywords.
+
+Spec and typebound-procedures-part (``contains`` and everything thereafter)
+are matched in separate groups for subsequent processing with :any:`_re_proc_binding`.
+"""
+
+_re_proc_binding = re.compile(
+    (
+        r'^[ \t]*procedure'  # Match ``procedure keyword after optional white space
+        r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
+        r'(?:[ \t]*::)?'  # Optional `::` delimiter
+        r'[ \t]*'  # Some white space
+        r'(?P<bindings>'  # Beginning of bindings group
+        r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Binding name with optional binding name specifier (via ``=>``)
+        r'(?:[ \t]*,[ \t]*' # Optional group for additional bindings, separated by ``,``
+        r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Additional binding name with optional binding name specifier
+        r')*'  # End of optional group for additional bindings
+        r')'  # End of bindings group
+    ),
+    re.IGNORECASE
+)
+"""
+Pattern to match type-bound procedure declarations within the
+typebound-procedures-part of a derived type definition via ``procedure...`` keyword.
+
+It matches the full binding-name, i.e., including any optional rename such as
+``name => bind_name``.
+"""
 
 def match_module(source, scope):  # pylint:disable=unused-argument
     """
@@ -200,8 +277,12 @@ def match_module(source, scope):  # pylint:disable=unused-argument
 
     module = Module(name=match['name'], source=source.clone_with_span(match.span()))
     if match['spec']:
-        candidates = (match_imports, )
-        spec = match_statement_candidates(source.clone_with_span(match.span('spec')), candidates, scope=module)
+        block_candidates = (match_typedef, )
+        statement_candidates = (match_import, )
+        spec = match_block_statement_candidates(
+            source.clone_with_span(match.span('spec')), block_candidates, statement_candidates,
+            scope=module
+        )
     else:
         spec = None
 
@@ -267,7 +348,7 @@ def match_subroutine_function(source, scope):
         source=source.clone_with_span(match.span()), parent=scope
     )
     if match['spec']:
-        candidates = (match_imports, )
+        candidates = (match_import, )
         spec = match_statement_candidates(source.clone_with_span(match.span('spec')), candidates, scope=routine)
     else:
         spec = None
@@ -295,7 +376,90 @@ def match_subroutine_function(source, scope):
     )
 
 
-def match_imports(source, scope):
+def match_typedef(source, scope):
+    """
+    Search for a derived type definition in :data:`source`
+
+    This will only match the first occurence of a derived type definition,
+    repeated calls using the remainder string are necessary to match
+    further occurences.
+
+    Parameters
+    ----------
+    source : :any:`Source`
+        The source file object containing a string to match
+    scope : :any:`Scope`
+        The enclosing scope a matched object is embedded into
+
+    Returns
+    -------
+    :any:`Source`, :any:`TypeDef`, :any:`Source`
+        A 3-tuple containing a source object with the source string before the match, the
+        matched typedef object, and a source object with the source string after the match.
+        If no match is found, the first two entries are `None` and the last is the original
+        :data:`source` object.
+    """
+    match = _re_typedef.search(source.string)
+    if not match:
+        return None, None, source
+    typedef = ir.TypeDef(
+        name=match['name'], body=(), parent=scope,
+        source=source.clone_with_span(match.span())
+    )
+    if match['spec']:
+        spec_source = source.clone_with_span(match.span('spec'))
+        spec = [ir.RawSource(text=spec_source.string, source=spec_source)]
+    else:
+        spec = ()
+    if match['contains']:
+        candidates = (match_procedure_binding, )
+        contains = match_statement_candidates(source.clone_with_span(match.span('contains')), candidates, scope=typedef)
+    else:
+        contains = ()
+    typedef._update(body=spec + contains)
+
+    return (
+        source.clone_with_span((0, match.span()[0])),
+        typedef,
+        source.clone_with_span((match.span()[1], len(source.string)))
+    )
+
+
+def match_procedure_binding(source, scope):
+    """
+    Search for procedure bindings in derived types
+
+    Parameters
+    ----------
+    source : :any:`Source`
+        The source file object containing a single-line string to match
+    scope : :any:`Scope`
+        The enclosing scope a matched object is embedded into
+
+    Returns
+    -------
+    :any:`ProcedureDeclaration` or NoneType
+        The matched object or `None`
+    """
+    match = _re_proc_binding.search(source.string)
+    if not match:
+        return None
+    bindings = match['bindings'].replace(' ', '').split(',')
+    bindings = [s.split('=>') for s in bindings]
+
+    symbols = []
+    for s in bindings:
+        if len(s) == 1:
+            type_ = SymbolAttributes(ProcedureType(name=s[0]))
+            symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
+        else:
+            type_ = SymbolAttributes(ProcedureType(name=s[1]))
+            initial = sym.Variable(name=s[1], type=type_, scope=scope.parent)
+            symbols += [sym.Variable(name=s[0], type=type_.clone(initial=initial), scope=scope)]
+    return ir.ProcedureDeclaration(symbols=symbols, source=source.clone_with_span(match.span()))
+
+
+def match_import(source, scope):
     """
     Search for imports via Fortran's ``USE`` statement
 

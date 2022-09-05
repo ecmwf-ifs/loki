@@ -707,3 +707,72 @@ end subroutine some_routine
     assert routine.imported_symbol_map['second_var1'].type.use_name == 'var1'
     assert routine.imported_symbol_map['other_var2'].type.use_name == 'var2'
     assert routine.imported_symbol_map['other_var3'].type.use_name == 'var3'
+
+
+def test_regex_typedef():
+    """
+    Verify that the regex frontend is able to parse type definitions and
+    correctly parse procedure bindings.
+    """
+    fcode = """
+module typebound_item
+    implicit none
+    type some_type
+    contains
+        procedure, nopass :: routine => module_routine
+        procedure :: some_routine
+        procedure, pass :: other_routine
+        procedure :: routine1, &
+            & routine2 => routine
+        ! procedure :: routine1
+        ! procedure :: routine2 => routine
+    end type some_type
+contains
+    subroutine module_routine
+        integer m
+        m = 2
+    end subroutine module_routine
+
+    subroutine some_routine(self)
+        class(some_type) :: self
+
+        call self%routine
+    end subroutine some_routine
+
+    subroutine other_routine(self, m)
+        class(some_type), intent(inout) :: self
+        integer, intent(in) :: m
+        integer :: j
+
+        j = m
+        call self%routine1
+        call self%routine2
+    end subroutine other_routine
+
+    subroutine routine(self)
+        class(some_type) :: self
+        call self%some_routine
+    end subroutine routine
+
+    subroutine routine1(self)
+        class(some_type) :: self
+        call module_routine
+    end subroutine routine1
+end module typebound_item
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=REGEX)
+
+    assert 'some_type' in module.typedefs
+    some_type = module.typedefs['some_type']
+
+    proc_bindings = {
+        'routine': 'module_routine',
+        'some_routine': None,
+        'other_routine': None,
+        'routine1': None,
+        'routine2': 'routine'
+    }
+    assert len(proc_bindings) == len(some_type.variables)
+    assert all(proc in some_type.variables for proc in proc_bindings)
+    assert all(some_type.variable_map[proc].type.initial == init for proc, init in proc_bindings.items())
