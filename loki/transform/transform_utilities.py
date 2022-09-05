@@ -33,7 +33,7 @@ def convert_to_lower_case(routine):
     """
 
     # Force all variables in a subroutine body to lower-caps
-    variables = FindVariables().visit(routine.ir)
+    variables = FindVariables(unique=False).visit(routine.ir)
     vmap = {v: v.clone(name=v.name.lower()) for v in variables
             if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
 
