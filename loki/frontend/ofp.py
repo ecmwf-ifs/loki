@@ -1086,7 +1086,7 @@ class OFP2IR(GenericVisitor):
                     names=group[0], proc_stmt=group[1], scope=scope, source=kwargs['source']
                 ))
 
-        return ir.Interface(abstract=abstract, body=as_tuple(body), spec=as_tuple(spec),
+        return ir.Interface(abstract=abstract, body=as_tuple(body), spec=spec,
                             label=kwargs['label'], source=kwargs['source'])
 
     def visit_generic_spec(self, o, **kwargs):
