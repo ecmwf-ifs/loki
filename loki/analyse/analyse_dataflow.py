@@ -3,7 +3,7 @@ Collection of dataflow analysis schema routines.
 """
 
 from contextlib import contextmanager
-from loki.expression import FindVariables, Array, FindInlineCalls, SubstituteExpressions
+from loki.expression import FindVariables, Array, FindInlineCalls
 from loki.visitors import Visitor, Transformer
 from loki.tools import as_tuple, flatten
 
@@ -22,6 +22,8 @@ class DataflowAnalysisAttacher(Transformer):
 
     def __init__(self, **kwargs):
         super().__init__(inplace=True, **kwargs)
+        # group of functions that only query memory properties and don't read/write variable value
+        self._mem_property_queries = ('size', 'lbound', 'ubound', 'present')
 
     # Utility routines
 
@@ -117,7 +119,9 @@ class DataflowAnalysisAttacher(Transformer):
         live = kwargs.pop('live_symbols', set())
 
         # exclude arguments to functions that just check the memory attributes of a variable
-        cset = set(v for v in FindVariables().visit(o.condition) if not v in flatten([FindVariables().visit(i.parameters) for i in FindInlineCalls().visit(o.condition) if i.name.lower() in {'size', 'lbound', 'ubound', 'present'}]))
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.condition) if i.name.lower() in self._mem_property_queries)
+        query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
+        cset = set(v for v in FindVariables().visit(o.condition) if not v in query_args)
 
         body, defines, uses = self._visit_body(o.body, live=live, uses=self._symbols_from_expr(as_tuple(cset)), **kwargs)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
@@ -128,8 +132,13 @@ class DataflowAnalysisAttacher(Transformer):
         live = kwargs.pop('live_symbols', set())
 
         # exclude arguments to functions that just check the memory attributes of a variable
-        eset = set(v for v in FindVariables().visit(o.expr) if not v in flatten([FindVariables().visit(i.parameters) for i in FindInlineCalls().visit(o.expr) if i.name.lower() in {'size', 'lbound', 'ubound', 'present'}]))
-        vset = set(v for v in FindVariables().visit(o.values) if not v in flatten([FindVariables().visit(i.parameters) for i in FindInlineCalls().visit(o.values) if i.name.lower() in {'size', 'lbound', 'ubound', 'present'}]))
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.expr) if i.name.lower() in self._mem_property_queries)
+        query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
+        eset = set(v for v in FindVariables().visit(o.expr) if not v in query_args)
+
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.values) if i.name.lower() in self._mem_property_queries)
+        query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
+        vset = set(v for v in FindVariables().visit(o.values) if not v in query_args)
 
         body, defines, uses = self._visit_body(o.bodies, live=live, uses=(self._symbols_from_expr(as_tuple(eset)) | self._symbols_from_expr(as_tuple(vset))), **kwargs)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
@@ -149,7 +158,9 @@ class DataflowAnalysisAttacher(Transformer):
 
     def visit_Assignment(self, o, **kwargs):
         # exclude arguments to functions that just check the memory attributes of a variable
-        rset = set(v for v in FindVariables().visit(o.rhs) if not v in flatten([FindVariables().visit(i.parameters) for i in FindInlineCalls().visit(o.rhs) if i.name.lower() in {'size', 'lbound', 'ubound', 'present'}]))
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.rhs) if i.name.lower() in self._mem_property_queries)
+        query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
+        rset = set(v for v in FindVariables().visit(o.rhs) if not v in query_args)
 
         # The left-hand side variable is defined by this statement
         defines, uses = self._symbols_from_lhs_expr(o.lhs)

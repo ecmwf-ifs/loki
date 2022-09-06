@@ -1,14 +1,13 @@
 import pytest
 
-from conftest import available_frontends
 from loki import (
-    Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile, Frontend, 
+    Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
     CallStatement, MultiConditional, MaskedStatement
 )
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )
-
+from conftest import available_frontends
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_live_symbols(frontend):
@@ -232,15 +231,16 @@ end subroutine analyse_loop_carried_dependencies
     with dataflow_analysis_attached(routine):
         assert loop_carried_dependencies(loops[0]) == {variable_map['b'], variable_map['c']}
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_enriched_call(frontend):
     fcode = """
 subroutine random_call(v_out,v_in,v_inout)
 implicit none
 
-  real(kind=jprb),intent(in)  :: v_in
-  real(kind=jprb),intent(out)  :: v_out
-  real(kind=jprb),intent(inout)  :: v_inout
+  real,intent(in)  :: v_in
+  real,intent(out)  :: v_out
+  real,intent(inout)  :: v_inout
 
 
 end subroutine random_call
@@ -248,9 +248,9 @@ end subroutine random_call
 subroutine test(v_out,v_in,v_inout)
 implicit none
 
-  real(kind=jprb),intent(in   )  :: v_in
-  real(kind=jprb),intent(out  )  :: v_out
-  real(kind=jprb),intent(inout)  :: v_inout
+  real,intent(in   )  :: v_in
+  real,intent(out  )  :: v_out
+  real,intent(inout)  :: v_inout
 
   call random_call(v_out,v_in,v_inout)
 
@@ -260,9 +260,12 @@ end subroutine test
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
     routine.enrich_calls(source.all_subroutines)
+    call = FindNodes(CallStatement).visit(routine.body)[0]
     
     with dataflow_analysis_attached(routine):
-        pass
+        assert all(i in call.defines_symbols for i in ('v_out', 'v_inout'))
+        assert all(i in call.uses_symbols for i in ('v_in', 'v_inout'))
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_allocate_statement(frontend):
@@ -272,7 +275,7 @@ implicit none
 
   integer,intent(in   ) :: n
   integer,intent(inout) :: m
-  real(kind=jprb),allocatable :: a(:,:)
+  real,allocatable :: a(:,:)
 
   allocate(a(n,m))
 
@@ -284,21 +287,51 @@ end subroutine test
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     with dataflow_analysis_attached(routine):
-        assert not all(i in routine.body.defines_symbols for i in ['m', 'n'])
+        assert all(i not in routine.body.defines_symbols for i in ['m', 'n'])
         assert all(i in routine.body.uses_symbols for i in ['m', 'n'])
         assert 'a' in routine.body.defines_symbols
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_analyse_import_kind(frontend):
+    fcode = """
+subroutine test(n,m)
+use iso_fortran_env, only: real64
+implicit none
+
+  integer,intent(in   ) :: n
+  integer,intent(inout) :: m
+  real(kind=real64),allocatable :: a(:,:)
+
+  a = 0._real64
+
+end subroutine test
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    with dataflow_analysis_attached(routine):
+        assert 'real64' in routine.body.uses_symbols
+        assert 'real64' not in routine.body.defines_symbols
+        assert 'a' in routine.body.defines_symbols
+        assert 'a' not in routine.body.uses_symbols
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_query_memory_attributes(frontend):
+    """
+    Test that checks whether variables used only in function calls that
+    query memory attributes appear in uses_symbols.
+    """
+
     fcode = """
 subroutine test(a)
 implicit none
 
-  real(kind=jprb),intent(out) :: a(:,:)
-  real(kind=jprb)             :: b(10)
+  real,intent(out) :: a(:,:)
+  real             :: b(10)
   integer                     :: bsize
 
-  if(size(a)>0) a(:,:) = 0._jprb
+  if(size(a) > 0) a(:,:) = 0.
   bsize = size(b)
 
 end subroutine test
@@ -306,9 +339,11 @@ end subroutine test
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     with dataflow_analysis_attached(routine):
+        print(frontend, routine.body.uses_symbols)
         assert not 'a' in routine.body.uses_symbols   
         assert 'a' in routine.body.defines_symbols   
         assert not 'b' in routine.body.uses_symbols
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_call_args_array_slicing(frontend):
@@ -340,8 +375,9 @@ end subroutine test
     routine.enrich_calls(source.all_subroutines)
     
     with dataflow_analysis_attached(routine):
-        assert 'n' in [s.name for s in call.uses_symbols]
-        assert not 'n' in [s.name for s in call.defines_symbols]
+        assert 'n' in call.uses_symbols
+        assert not 'n' in call.defines_symbols
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_multiconditional(frontend):
@@ -369,20 +405,21 @@ end subroutine test
         assert all(i in mcond.uses_symbols for i in ['ic', 'ia', 'ib'])
         assert all(i in mcond.defines_symbols for i in ['a', 'b'])
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_maskedstatement(frontend):
     fcode = """
 subroutine masked_statements(n, mask, vec1, vec2)
   integer, intent(in) :: n
   integer, intent(in), dimension(n) :: mask
-  real(kind=jprb), intent(out), dimension(n) :: vec1,vec2
+  real, intent(out), dimension(n) :: vec1,vec2
 
   where (mask(:) < -5)
-    vec1(:) = -5.0_jprb
+    vec1(:) = -5.0
   elsewhere (mask(:) > 5)
-    vec1(:) =  5.0_jprb
+    vec1(:) =  5.0
   elsewhere
-    vec1(:) = 0.0_jprb
+    vec1(:) = 0.0
   endwhere
 
 end subroutine masked_statements
@@ -391,7 +428,7 @@ end subroutine masked_statements
     routine = Subroutine.from_source(fcode, frontend=frontend)
     mask = FindNodes(MaskedStatement).visit(routine.body)[0]
     with dataflow_analysis_attached(routine):
-        assert len(mask.uses_symbols) == 2
+        assert len(mask.uses_symbols) == 1
         assert len(mask.defines_symbols) == 1
-        assert all(i in mask.uses_symbols for i in ['mask', 'jprb'])
+        assert 'mask' in mask.uses_symbols 
         assert 'vec1' in mask.defines_symbols
