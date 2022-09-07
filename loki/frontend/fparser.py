@@ -1730,7 +1730,8 @@ class FParser2IR(GenericVisitor):
             name=routine.name, args=routine._dummies,
             docstring=docs, spec=spec, body=body, contains=contains,
             ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
-            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs
+            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
+            frontend=FP, incomplete=False
         )
 
         # Big, but necessary hack:
@@ -1921,7 +1922,7 @@ class FParser2IR(GenericVisitor):
             name=module.name, docstring=docs, spec=spec, contains=contains,
             default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
             private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
-            parent=module.parent, symbol_attrs=module.symbol_attrs
+            parent=module.parent, symbol_attrs=module.symbol_attrs, frontend=FP, incomplete=False
         )
 
         return (*pre, module)

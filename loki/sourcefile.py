@@ -14,6 +14,7 @@ from loki.frontend import (
 from loki.ir import Section
 from loki.logging import info
 from loki.module import Module
+from loki.program_unit import ProgramUnit
 from loki.scope import GLOBAL_SCOPE
 from loki.subroutine import Subroutine
 from loki.tools import flatten, as_tuple
@@ -46,8 +47,7 @@ class Sourcefile:
     incomplete : bool, optional
         Mark the object as incomplete, i.e. only partially parsed. This is
         typically the case when it was instantiated using the :any:`Frontend.REGEX`
-        frontend and a full parse using one of the other frontends is still
-        missing.
+        frontend and a full parse using one of the other frontends is pending.
     """
 
     def __init__(self, path, ir=None, ast=None, source=None, frontend=None, incomplete=False):
@@ -97,6 +97,10 @@ class Sourcefile:
             value of :data:`includes`.
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
+        lazy : bool, optional
+            Delay a full parse of the source and use the :any:`REGEX` frontend
+            to produce an incomplete IR. A complete IR can be obtained by calling
+            :meth:`make_complete` explicitly or implicitly when applying a transformation.
         """
         filepath = Path(filename)
         raw_source = read_file(filepath)
@@ -270,7 +274,7 @@ class Sourcefile:
         """
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=filepath)
-        ir = parse_regex_source(source, scope=GLOBAL_SCOPE)
+        ir = parse_regex_source(source, scope=GLOBAL_SCOPE, lazy_frontend=lazy_frontend)
         if lazy_frontend is not None:
             return cls(path=filepath, ir=ir, source=source, incomplete=True, frontend=lazy_frontend)
         return cls(path=filepath, ir=ir, source=source, frontend=REGEX)
@@ -292,6 +296,10 @@ class Sourcefile:
             definitions.
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
+        lazy : bool, optional
+            Delay a full parse of the source and use the :any:`REGEX` frontend
+            to produce an incomplete IR. A complete IR can be obtained by calling
+            :meth:`make_complete` explicitly or implicitly when applying a transformation.
         """
         if frontend == REGEX or lazy:
             return cls.from_regex(source, filepath=None, lazy_frontend=frontend if lazy else None)
@@ -311,6 +319,35 @@ class Sourcefile:
             return cls._from_fparser_ast(path=None, ast=ast, raw_source=source, definitions=definitions)
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
+
+    def make_complete(self):
+        """
+        Trigger a re-parse of the source file if incomplete to produce a full Loki IR
+
+        If the source file is marked to be incomplete, i.e. when using the `lazy` constructor
+        option, this triggers a new parsing of all :any:`ProgramUnit` objects and any
+        :any:`RawSource` nodes in the :attr:`Sourcefile.ir`.
+
+        Existing :any:`Module` and :any:`Subroutine` objects continue to exist and references
+        to them stay valid, as they will only be updated instead of replaced.
+        """
+        if not self._incomplete:
+            return
+
+        body = []
+        for node in self.ir.body:
+            if isinstance(node, ProgramUnit):
+                node.make_complete()
+                # program_unit = node.from_source(node.source.string, frontend=self._frontend, parent=GLOBAL_SCOPE)
+                # assert node is program_unit
+                body += [node]
+            else:
+                ast = parse_fparser_source(node.source.string)
+                ir_ = parse_fparser_ast(ast, raw_source=node.source.string)
+                body += [ir_]
+        self.ir._update(body=as_tuple(body))
+        # TODO: use pp_info and definitions as for direct parse and re-use existing Module/Subroutine objects
+        self._incomplete = False
 
     @property
     def source(self):

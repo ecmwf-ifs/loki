@@ -41,16 +41,24 @@ class ProgramUnit(Scope):
         Defaults to `False`.
     symbol_attrs : :any:`SymbolTable`, optional
         Use the provided :any:`SymbolTable` object instead of creating a new
+    frontend : :any:`Frontend`, optional
+        The frontend used to create this object.
+    incomplete : bool, optional
+        Mark the object as incomplete, i.e. only partially parsed. This is
+        typically the case when it was instantiated using the :any:`Frontend.REGEX`
+        frontend and a full parse using one of the other frontends is pending.
     """
 
     def __init__(self, name, docstring=None, spec=None, contains=None,
                  ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None):
+                 rescope_symbols=False, symbol_attrs=None, frontend=None, incomplete=False):
         # Common properties
         assert name and isinstance(name, str)
         self.name = name
         self._ast = ast
         self._source = source
+        self._frontend = frontend
+        self._incomplete = incomplete
 
         # Bring arguments into shape
         if spec is not None and not isinstance(spec, ir.Section):
@@ -73,7 +81,7 @@ class ProgramUnit(Scope):
         super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
 
     @classmethod
-    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP, parent=None):
+    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP, parent=None, lazy=False):
         """
         Instantiate an object derived from :any:`ProgramUnit` from raw source string
 
@@ -92,9 +100,15 @@ class ProgramUnit(Scope):
             Choice of frontend to use for parsing source (default :any:`Frontend.FP`)
         parent : :any:`Scope`, optional
             The parent scope this module or subroutine is nested into
+        lazy : bool, optional
+            Delay a full parse of the source and use the :any:`REGEX` frontend
+            to produce an incomplete IR. A complete IR can be obtained by calling
+            :meth:`make_complete` explicitly or implicitly when applying a transformation.
         """
-        if frontend == Frontend.REGEX:
-            return cls.from_regex(raw_source=source, parent=parent)
+        if frontend == Frontend.REGEX or lazy:
+            return cls.from_regex(
+                raw_source=source, parent=parent, lazy_frontend=(frontend or Frontend.FP) if lazy else None
+            )
 
         if frontend == Frontend.OMNI:
             ast = parse_omni_source(source, xmods=xmods)
@@ -180,7 +194,7 @@ class ProgramUnit(Scope):
 
     @classmethod
     @abstractmethod
-    def from_regex(cls, raw_source, parent=None):
+    def from_regex(cls, raw_source, parent=None, lazy_frontend=None):
         """
         Create the :any:`ProgramUnit` object from source regex'ing.
 
@@ -192,7 +206,25 @@ class ProgramUnit(Scope):
             Fortran source string
         parent : :any:`Scope`, optional
             The enclosing parent scope of the module.
+        lazy_frontend : :any:`Frontend`, optional
+            The frontend to use when triggering a full parse.
         """
+
+    def make_complete(self):
+        """
+        Trigger a re-parse of the object if incomplete to produce a full Loki IR
+
+        If the object is marked to be incomplete, i.e. when using the `lazy` constructor
+        option, this triggers a new parsing of all :any:`ProgramUnit` objects and any
+        :any:`RawSource` nodes in the :attr:`ir`.
+
+        Existing :any:`Module` and :any:`Subroutine` objects continue to exist and references
+        to them stay valid, as they will only be updated instead of replaced.
+        """
+        if not self._incomplete:
+            return
+        ir_ = self.from_source(self.source.string, frontend=self._frontend, parent=self.parent)
+        assert ir_ is self
 
     def clone(self, **kwargs):
         """

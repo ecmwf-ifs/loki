@@ -6,7 +6,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Sourcefile, OFP, OMNI, FindNodes, PreprocessorDirective,
     Intrinsic, Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
-    StatementFunction, Comment, CommentBlock
+    StatementFunction, Comment, CommentBlock, RawSource
 )
 
 
@@ -221,3 +221,36 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
     assert (zfoeew == 0.25).all()
 
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sourcefile_lazy_construction(here, frontend):
+    """
+    Test delayed ("lazy") parsing of sourcefile content
+    """
+    filepath = here/'sources/sourcefile.f90'
+    source = Sourcefile.from_file(filepath, frontend=frontend, lazy=True)
+    assert len(source.subroutines) == 3
+    assert len(source.all_subroutines) == 5
+
+    some_module = source['some_module']
+    routine_b = source['routine_b']
+    module_routine = some_module['module_routine']
+
+    # Make sure we have an incomplete parse tree until now
+    assert source._incomplete
+    assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
+
+    # Trigger the full parse
+    source.make_complete()
+    assert not source._incomplete
+
+    # Make sure no RawSource nodes are left
+    for routine in source.all_subroutines:
+        assert not FindNodes(RawSource).visit(routine.ir)
+        assert len(FindNodes(Assignment).visit(routine.ir)) == 1
+
+    # The previously generated ProgramUnit objects should be the same as before
+    assert routine_b is source['routine_b']
+    assert some_module is source['some_module']
+    assert module_routine is source['some_module']['module_routine']

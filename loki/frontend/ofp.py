@@ -75,9 +75,9 @@ def parse_ofp_source(source, filepath=None):
 @timeit(log_level=DEBUG)
 def parse_ofp_ast(ast, pp_info=None, raw_source=None, definitions=None, scope=None):
     """
-    Generate an internal IR from the raw OMNI parser AST.
+    Generate an internal IR from the raw OFP parser AST.
     """
-    # Parse the raw OMNI language AST
+    # Parse the raw OFP language AST
     _ir = OFP2IR(definitions=definitions, raw_source=raw_source, pp_info=pp_info, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
@@ -1169,7 +1169,7 @@ class OFP2IR(GenericVisitor):
             docstring=docstring, spec=spec, body=body, contains=contains,
             ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
             rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-            source=kwargs['source']
+            source=kwargs['source'], frontend=OFP, incomplete=False
         )
 
         # Big, but necessary hack:
@@ -1256,7 +1256,8 @@ class OFP2IR(GenericVisitor):
             name=module.name, docstring=docstring, spec=spec, contains=contains,
             default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
             private_access_spec=module.private_access_spec, ast=o, source=kwargs['source'],
-            rescope_symbols=True, parent=module.parent, symbol_attrs=module.symbol_attrs
+            rescope_symbols=True, parent=module.parent, symbol_attrs=module.symbol_attrs,
+            frontend=OFP, incomplete=False
         )
         return module
 

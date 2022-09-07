@@ -54,12 +54,18 @@ class Module(ProgramUnit):
         module's IR exist in the module's scope. Defaults to `False`.
     symbol_attrs : :any:`SymbolTable`, optional
         Use the provided :any:`SymbolTable` object instead of creating a new
+    frontend : :any:`Frontend`, optional
+        The frontend used to create this object.
+    incomplete : bool, optional
+        Mark the object as incomplete, i.e. only partially parsed. This is
+        typically the case when it was instantiated using the :any:`Frontend.REGEX`
+        frontend and a full parse using one of the other frontends is pending.
     """
 
     def __init__(self, name=None, docstring=None, spec=None, contains=None,
                  default_access_spec=None, public_access_spec=None, private_access_spec=None,
-                 ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None):
+                 ast=None, source=None, parent=None, rescope_symbols=False, symbol_attrs=None,
+                 frontend=None, incomplete=False):
         # Apply dimension pragma annotations to declarations
         if spec:
             with pragmas_attached(self, VariableDeclaration):
@@ -80,7 +86,7 @@ class Module(ProgramUnit):
         super().__init__(
             name=name, docstring=docstring, spec=spec, contains=contains,
             ast=ast, source=source, parent=parent, rescope_symbols=rescope_symbols,
-            symbol_attrs=symbol_attrs
+            symbol_attrs=symbol_attrs, frontend=frontend, incomplete=incomplete
         )
 
         # Finally, register this module in the parent scope
@@ -168,7 +174,7 @@ class Module(ProgramUnit):
         )[-1]
 
     @classmethod
-    def from_regex(cls, raw_source, parent=None):
+    def from_regex(cls, raw_source, parent=None, lazy_frontend=None):
         """
         Create :any:`Module` from source regex'ing
 
@@ -178,10 +184,12 @@ class Module(ProgramUnit):
             Fortran source string
         parent : :any:`Scope`, optional
             The enclosing parent scope of the subroutine, typically a :any:`Module`.
+        lazy_frontend : :any:`Frontend`, optional
+            The frontend to use when triggering a full parse.
         """
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source)
-        ir_ = parse_regex_source(source, scope=parent)
+        ir_ = parse_regex_source(source, scope=parent, lazy_frontend=lazy_frontend)
         return [node for node in ir_.body if isinstance(node, cls)][0]
 
     def clone(self, **kwargs):
