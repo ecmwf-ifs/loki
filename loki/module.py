@@ -9,6 +9,7 @@ from loki.ir import VariableDeclaration
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 from loki.program_unit import ProgramUnit
 from loki.tools import as_tuple
+from loki.types import ModuleType, SymbolAttributes
 
 
 __all__ = ['Module']
@@ -81,6 +82,10 @@ class Module(ProgramUnit):
             ast=ast, source=source, parent=parent, rescope_symbols=rescope_symbols,
             symbol_attrs=symbol_attrs
         )
+
+        # Finally, register this module in the parent scope
+        if self.parent:
+            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.module_type)
 
     @classmethod
     def from_omni(cls, ast, raw_source, definitions=None, parent=None, type_map=None):
@@ -204,6 +209,13 @@ class Module(ProgramUnit):
 
         # Escalate to parent class
         return super().clone(**kwargs)
+
+    @property
+    def module_type(self):
+        """
+        Return the :any:`ModuleType` of this module
+        """
+        return ModuleType(module=self)
 
     @property
     def _canonical(self):

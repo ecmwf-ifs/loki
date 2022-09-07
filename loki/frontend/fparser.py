@@ -1847,8 +1847,6 @@ class FParser2IR(GenericVisitor):
         * The module subprogram part :class:`fparser.two.Fortran2003.Module_Subprogram_Part`
         * the closing :class:`fparser.two.Fortran2003.End_Module_Stmt`
         """
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
-
         # Find start and end of construct
         module_stmt = get_child(o, Fortran2003.Module_Stmt)
         module_stmt_index = o.children.index(module_stmt)
@@ -1867,7 +1865,7 @@ class FParser2IR(GenericVisitor):
         source = Source(lines=lines, string=string)
 
         # Instantiate the object
-        module = Module(name=module_stmt.children[1].tostr(), ast=o, source=source)
+        module = self.visit(module_stmt, **kwargs)
         kwargs['scope'] = module
 
         # We make sure the subroutine objects for all member routines are
@@ -1927,6 +1925,30 @@ class FParser2IR(GenericVisitor):
         )
 
         return (*pre, module)
+
+    def visit_Module_Stmt(self, o, **kwargs):
+        """
+        The ``MODULE`` statement
+
+        :class:`fparser.two.Fortran2003.Module_Stmt` has 2 children:
+            * keyword `MODULE` (str)
+            * name :class:`fparser.two.Fortran2003.Module_Name`
+        """
+        from loki.module import Module  # pylint: disable=import-outside-toplevel
+
+        name = self.visit(o.children[1], **kwargs)
+        name = name.name
+
+        # Check if the Module node has been created before by looking it up in the scope
+        if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
+            module_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
+            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+                return module_type.dtype.module
+
+        return Module(name=name, parent=kwargs['scope'])
+
+    visit_Module_Name = visit_Name
+
 
     #
     # Conditional

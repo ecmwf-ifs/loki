@@ -4,17 +4,19 @@ manipulate (Fortran) source code files.
 """
 from pathlib import Path
 
-from loki.subroutine import Subroutine
-from loki.module import Module
-from loki.tools import flatten, as_tuple
-from loki.logging import info, error
+from loki.backend.fgen import fgen
 from loki.frontend import (
     OMNI, OFP, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source
+
 )
 from loki.ir import Section
-from loki.backend.fgen import fgen
+from loki.logging import info
+from loki.module import Module
+from loki.scope import GLOBAL_SCOPE
+from loki.subroutine import Subroutine
+from loki.tools import flatten, as_tuple
 
 
 __all__ = ['Sourcefile']
@@ -39,15 +41,24 @@ class Sourcefile:
         Parser-AST of the original source file.
     source : :any:`Source`, optional
         Raw source string and line information about the original source file.
+    frontend : :any:`Frontend`, optional
+        The frontend used to create this object.
+    incomplete : bool, optional
+        Mark the object as incomplete, i.e. only partially parsed. This is
+        typically the case when it was instantiated using the :any:`Frontend.REGEX`
+        frontend and a full parse using one of the other frontends is still
+        missing.
     """
 
-    def __init__(self, path, ir=None, ast=None, source=None):
+    def __init__(self, path, ir=None, ast=None, source=None, frontend=None, incomplete=False):
         self.path = Path(path) if path is not None else path
         if ir is not None and not isinstance(ir, Section):
             ir = Section(body=ir)
         self.ir = ir
         self._ast = ast
         self._source = source
+        self._frontend = frontend
+        self._incomplete = incomplete
 
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
@@ -98,12 +109,8 @@ class Sourcefile:
         else:
             source = raw_source
 
-        if lazy and frontend != FP:
-            error('Lazy parsing is only implemented with Fparser frontend')
-            raise RuntimeError('Lazy parsing is only implemented with Fparser frontend')
-
-        if frontend == REGEX:
-            return cls.from_regex(source, filepath)
+        if frontend == REGEX or lazy:
+            return cls.from_regex(source, filepath, lazy_frontend=frontend if lazy else None)
 
         if frontend == OMNI:
             return cls.from_omni(source, filepath, definitions=definitions,
@@ -172,12 +179,12 @@ class Sourcefile:
 
         ir = parse_omni_ast(
             ast=ast, definitions=definitions, raw_source=raw_source,
-            type_map=type_map, symbol_map=symbol_map
+            type_map=type_map, symbol_map=symbol_map, scope=GLOBAL_SCOPE
         )
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, ir=ir, ast=ast, source=source)
+        return cls(path=path, ir=ir, ast=ast, source=source, frontend=OMNI)
 
     @classmethod
     def from_ofp(cls, raw_source, filepath, definitions=None):
@@ -209,11 +216,14 @@ class Sourcefile:
         Generate the full set of :any:`Subroutine` and :any:`Module` members
         in the :any:`Sourcefile`.
         """
-        ir = parse_ofp_ast(ast.find('file'), pp_info=pp_info, definitions=definitions, raw_source=raw_source)
+        ir = parse_ofp_ast(
+            ast.find('file'), pp_info=pp_info, definitions=definitions, raw_source=raw_source,
+            scope=GLOBAL_SCOPE
+        )
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, ir=ir, ast=ast, source=source)
+        return cls(path=path, ir=ir, ast=ast, source=source, frontend=OFP)
 
     @classmethod
     def from_fparser(cls, raw_source, filepath, definitions=None):
@@ -245,24 +255,28 @@ class Sourcefile:
         Generate the full set of :any:`Subroutine` and :any:`Module` members
         in the :any:`Sourcefile`.
         """
-        ir = parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source)
+        ir = parse_fparser_ast(
+            ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=GLOBAL_SCOPE
+        )
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, ir=ir, ast=ast, source=source)
+        return cls(path=path, ir=ir, ast=ast, source=source, frontend=FP)
 
     @classmethod
-    def from_regex(cls, raw_source, filepath):
+    def from_regex(cls, raw_source, filepath, lazy_frontend=None):
         """
         Parse a given source string using the fparser frontend
         """
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=filepath)
-        ir = parse_regex_source(source)
-        return cls(path=filepath, ir=ir, source=source)
+        ir = parse_regex_source(source, scope=GLOBAL_SCOPE)
+        if lazy_frontend is not None:
+            return cls(path=filepath, ir=ir, source=source, incomplete=True, frontend=lazy_frontend)
+        return cls(path=filepath, ir=ir, source=source, frontend=REGEX)
 
     @classmethod
-    def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
+    def from_source(cls, source, xmods=None, definitions=None, frontend=FP, lazy=False):
         """
         Constructor from raw source string that invokes specified frontend parser
 
@@ -279,6 +293,9 @@ class Sourcefile:
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
         """
+        if frontend == REGEX or lazy:
+            return cls.from_regex(source, filepath=None, lazy_frontend=frontend if lazy else None)
+
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)
             typetable = ast.find('typeTable')
@@ -292,9 +309,6 @@ class Sourcefile:
         if frontend == FP:
             ast = parse_fparser_source(source)
             return cls._from_fparser_ast(path=None, ast=ast, raw_source=source, definitions=definitions)
-
-        if frontend == REGEX:
-            return cls.from_regex(raw_source=source, filepath=None)
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 

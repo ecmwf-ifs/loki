@@ -415,16 +415,28 @@ class OMNI2IR(GenericVisitor):
         symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
         return ir.ProcedureDeclaration(symbols=symbols, module=True, source=kwargs.get('source'))
 
-    def visit_FmoduleDefinition(self, o, **kwargs):
+    def _create_Module_object(self, o, scope):
+        """Helper method to instantiate a Module object"""
         from loki.module import Module  # pylint: disable=import-outside-toplevel
 
+        name = o.attrib['name']
+
+        # Check if the Module node has been created before by looking it up in the scope
+        if scope is not None and name in scope.symbol_attrs:
+            module_type = scope.symbol_attrs[name]  # Look-up only in current scope
+            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+                return module_type.dtype.module
+
+        return Module(name=name, parent=scope)
+
+
+    def visit_FmoduleDefinition(self, o, **kwargs):
         # Update the symbol map with local entries
         kwargs['symbol_map'] = kwargs['symbol_map'].copy()
         kwargs['symbol_map'].update({s.attrib['type']: s for s in o.find('symbols')})
 
         # Instantiate the object
-        name = o.attrib['name']
-        module = Module(name=name, parent=kwargs['scope'], ast=o, source=kwargs['source'])
+        module = self._create_Module_object(o, kwargs['scope'])
         kwargs['scope'] = module
 
         # Pre-populate symbol table with procedure types declared in this module

@@ -73,7 +73,7 @@ class ProgramUnit(Scope):
         super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
 
     @classmethod
-    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP):
+    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP, parent=None):
         """
         Instantiate an object derived from :any:`ProgramUnit` from raw source string
 
@@ -90,22 +90,24 @@ class ProgramUnit(Scope):
             List of locations with "xmods" module files. Only relevant for :any:`OMNI` frontend
         frontend : :any:`Frontend`, optional
             Choice of frontend to use for parsing source (default :any:`Frontend.FP`)
+        parent : :any:`Scope`, optional
+            The parent scope this module or subroutine is nested into
         """
+        if frontend == Frontend.REGEX:
+            return cls.from_regex(raw_source=source, parent=parent)
+
         if frontend == Frontend.OMNI:
             ast = parse_omni_source(source, xmods=xmods)
             type_map = {t.attrib['type']: t for t in ast.find('typeTable')}
-            return cls.from_omni(ast=ast, raw_source=source, definitions=definitions, type_map=type_map)
+            return cls.from_omni(ast=ast, raw_source=source, definitions=definitions, type_map=type_map, parent=parent)
 
         if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
-            return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions)
+            return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions, parent=parent)
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
-            return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions)
-
-        if frontend == Frontend.REGEX:
-            return cls.from_regex(raw_source=source)
+            return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions, parent=parent)
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 

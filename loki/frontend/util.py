@@ -17,7 +17,8 @@ from loki.frontend.source import Source
 from loki.logging import warning
 
 __all__ = [
-    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'inline_comments', 'cluster_comments', 'read_file',
+    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX',
+    'inline_comments', 'cluster_comments', 'read_file',
     'combine_multiline_pragmas', 'inject_statement_functions', 'sanitize_ir'
 ]
 

@@ -6,7 +6,7 @@ import weakref
 from loki.types import SymbolAttributes, BasicType
 
 
-__all__ = ['SymbolTable', 'Scope']
+__all__ = ['SymbolTable', 'Scope', 'GLOBAL_SCOPE']
 
 
 class SymbolTable(dict):
@@ -325,3 +325,7 @@ class Scope:
                 return scope
             scope = scope.parent
         return None
+
+
+GLOBAL_SCOPE = Scope()
+"""The global scope that acts as the parent for all nested scopes"""

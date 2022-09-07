@@ -1190,9 +1190,21 @@ class OFP2IR(GenericVisitor):
         body = [c for c in body if c is not None]
         return ir.Section(body=as_tuple(body), source=kwargs['source'])
 
-    def visit_module(self, o, **kwargs):
+    def _create_Module_object(self, o, scope):
+        """Helper method to instantiate a Module object"""
         from loki.module import Module  # pylint: disable=import-outside-toplevel
 
+        name = o.attrib['name']
+
+        # Check if the Module node has been created before by looking it up in the scope
+        if scope is not None and name in scope.symbol_attrs:
+            module_type = scope.symbol_attrs[name]  # Look-up only in current scope
+            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+                return module_type.dtype.module
+
+        return Module(name=name, parent=scope)
+
+    def visit_module(self, o, **kwargs):
         # Extract known sections
         body_ast = list(o.find('body'))
         spec_ast = o.find('body/specification')
@@ -1200,8 +1212,7 @@ class OFP2IR(GenericVisitor):
         docs_ast, body_ast = body_ast[:spec_ast_idx], body_ast[spec_ast_idx+1:]
 
         # Instantiate the object
-        name = o.attrib['name']
-        module = Module(name=name, parent=kwargs['scope'], ast=o, source=kwargs['source'])
+        module = self._create_Module_object(o, kwargs['scope'])
         kwargs['scope'] = module
 
         # Pre-populate symbol table with procedure types declared in this module

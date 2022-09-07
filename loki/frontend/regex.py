@@ -185,7 +185,7 @@ _re_module = re.compile(
 """Pattern to match module definitions."""
 
 
-def match_module(source, scope):  # pylint:disable=unused-argument
+def match_module(source, scope):
     """
     Search for a module definition in :data:`source`
 
@@ -212,7 +212,7 @@ def match_module(source, scope):  # pylint:disable=unused-argument
     if not match:
         return None, None, source
 
-    module = Module(name=match['name'], source=source.clone_with_span(match.span()))
+    module = Module(name=match['name'], source=source.clone_with_span(match.span()), parent=scope)
     if match['spec']:
         block_candidates = (match_typedef, )
         statement_candidates = (match_import, )
