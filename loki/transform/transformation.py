@@ -122,6 +122,9 @@ class Transformation:
         if not isinstance(sourcefile, Sourcefile):
             raise TypeError('Transformation.apply_file can only be applied to Sourcefile object')
 
+        if sourcefile._incomplete:
+            sourcefile.make_complete()
+
         # Apply file-level transformations
         self.transform_file(sourcefile, **kwargs)
 
@@ -148,6 +151,9 @@ class Transformation:
         if not isinstance(subroutine, Subroutine):
             raise TypeError('Transformation.apply_subroutine can only be applied to Subroutine object')
 
+        if subroutine._incomplete:
+            subroutine.make_complete()
+
         # Apply the actual transformation for subroutines
         self.transform_subroutine(subroutine, **kwargs)
 
@@ -171,6 +177,9 @@ class Transformation:
         """
         if not isinstance(module, Module):
             raise TypeError('Transformation.apply_module can only be applied to Module object')
+
+        if module._incomplete:
+            module.make_complete()
 
         # Apply the actual transformation for modules
         self.transform_module(module, **kwargs)
