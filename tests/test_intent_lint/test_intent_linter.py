@@ -1,12 +1,13 @@
 import os
 import pytest
 import importlib
+import subprocess
 
 from loki import (
    Sourcefile, Subroutine, FindVariables, FindNodes, Assignment, Array, Scalar, CallStatement
    )
 
-loki_intent_lint = importlib.import_module("scripts.loki-intent-lint",package="../../")
+loki_intent_lint = importlib.import_module("scripts.loki_intent_lint",package="../../")
 
 findvarsnotdims = loki_intent_lint.findvarsnotdims
 finddimsnotvars = loki_intent_lint.finddimsnotvars
@@ -27,9 +28,9 @@ def fixture_fcode_call():
 subroutine first_random_call(v_out,v_in,v_inout)
 implicit none
 
-  real(kind=jprb),intent(inout)  :: v_in
-  real(kind=jprb),intent(in   )  :: v_out
-  real(kind=jprb),intent(in   )  :: v_inout
+  real,intent(inout)  :: v_in
+  real,intent(in   )  :: v_out
+  real,intent(in   )  :: v_inout
 
 
 end subroutine first_random_call
@@ -37,9 +38,9 @@ end subroutine first_random_call
 subroutine second_random_call(v_out,v_in,v_inout)
 implicit none
 
-  real(kind=jprb),intent(in)  :: v_in
-  real(kind=jprb),intent(in)  :: v_out
-  real(kind=jprb),intent(in)  :: v_inout
+  real,intent(in)  :: v_in
+  real,intent(in)  :: v_out
+  real,intent(in)  :: v_inout
 
 
 end subroutine second_random_call
@@ -47,9 +48,9 @@ end subroutine second_random_call
 subroutine third_random_call(v_out,v_in,v_inout)
 implicit none
 
-  real(kind=jprb),intent(in )  :: v_in
-  real(kind=jprb),intent(out)  :: v_out
-  real(kind=jprb),intent(out)  :: v_inout
+  real,intent(in )  :: v_in
+  real,intent(out)  :: v_out
+  real,intent(out)  :: v_inout
 
 
 end subroutine third_random_call
@@ -57,15 +58,15 @@ end subroutine third_random_call
 subroutine test(v_out,v_in,v_inout)
 implicit none
 
-  real(kind=jprb),intent(in   )  :: v_in
-  real(kind=jprb),intent(out  )  :: v_out
-  real(kind=jprb),intent(inout)  :: v_inout
+  real,intent(in   )  :: v_in
+  real,intent(out  )  :: v_out
+  real,intent(inout)  :: v_inout
 
   call first_random_call(v_out,v_in,v_inout)
   call second_random_call(v_out,v_in,v_inout)
 
-  v_out = 0._jprb
-  v_inout = 0._jprb
+  v_out = 0.
+  v_inout = 0.
 
   call third_random_call(v_out,v_in,v_inout)
 
@@ -80,8 +81,8 @@ subroutine test(a,b,n)
 implicit none
 
   integer,intent(in)          :: n
-  real(kind=jprb),intent(in)  :: b(n,n)
-  real(kind=jprb),intent(out) :: a(n,n)
+  real,intent(in)  :: b(n,n)
+  real,intent(out) :: a(n,n)
 
   integer                     :: i,j
 
@@ -122,9 +123,9 @@ def test_intent_lint_inline_conditional_mem_check():
 subroutine test(a)
 implicit none
 
-  real(kind=jprb),intent(out) :: a(:,:)
+  real,intent(out) :: a(:,:)
 
-  if(size(a)>0) a(:,:) = 0._jprb
+  if(size(a)>0) a(:,:) = 0.
 
 end subroutine test
 """
@@ -147,9 +148,9 @@ def test_intent_lint_conditional_out_check():
 subroutine test(a)
 implicit none
 
-  real(kind=jprb),intent(out) :: a(:,:)
+  real,intent(out) :: a(:,:)
 
-  if(a(1,1) == 0._jprb) a(2,2) = a(1,1)
+  if(a(1,1) == 0.) a(2,2) = a(1,1)
 
 end subroutine test
 """
@@ -170,7 +171,7 @@ def test_intent_lint_disable_call():
 subroutine test(a)
 implicit none
 
-  real(kind=jprb),intent(out) :: a
+  real,intent(out) :: a
 
   call random_call(a)
 
@@ -195,9 +196,9 @@ implicit none
 
   integer               :: n
   integer,intent(inout) :: m
-  real(kind=jprb),intent(out) :: a(n,m)
+  real,intent(out) :: a(n,m)
 
-  a = 0._jprb
+  a = 0.
 
 end subroutine test
 """
@@ -225,7 +226,7 @@ implicit none
 
   integer,intent(in   ) :: n
   integer,intent(inout) :: m
-  real(kind=jprb),allocatable :: a(:,:)
+  real,allocatable :: a(:,:)
 
   allocate(a(n,m))
 
@@ -376,18 +377,18 @@ subroutine test(a,b,c,n,m)
 implicit none
 
   integer,intent(in) :: n,m
-  real(kind=jprb),intent(out) :: a(n)
-  real(kind=jprb),intent(out) :: b(n)
-  real(kind=jprb),intent(in ) :: c(n)
+  real,intent(out) :: a(n)
+  real,intent(out) :: b(n)
+  real,intent(in ) :: c(n)
 
   call internal_routine(c,a0=a,b=b)
 
 contains
    subroutine internal_routine(c,b,a0)
 
-       real(kind=jprb),intent(in)  ::  a0(n)
-       real(kind=jprb),intent(in)  ::  c(n)
-       real(kind=jprb),intent(out) ::  b(n)
+       real,intent(in)  ::  a0(n)
+       real,intent(in)  ::  c(n)
+       real,intent(out) ::  b(n)
 
        integer                     ::  i
 
@@ -421,18 +422,19 @@ def test_intent_lint_resolve_associations():
 
     fcode = """
 subroutine test(n,a_target,b_target)
+use iso_fortran_env, only: real64
 implicit none
 
   integer,intent(in) :: n
-  real(kind=jprb),intent(out),target :: a_target(n)
-  real(kind=jprb),intent(out),target :: b_target(n)
+  real(kind=real64),intent(out),target :: a_target(n)
+  real(kind=real64),intent(out),target :: b_target(n)
 
-  real(kind=jprb),pointer     :: a_pointer
+  real(kind=real64),pointer :: a_pointer
 
   a_pointer => a_target
   associate(temp_a=>a_pointer)
       do i=1,n
-         temp_a(i) = 0._jprb 
+         temp_a(i) = 0. 
       enddo
   end associate
 
