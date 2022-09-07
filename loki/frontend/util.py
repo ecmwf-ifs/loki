@@ -78,7 +78,8 @@ def cluster_comments(ir):
                 string = '\n'.join(c.source.string for c in comments)
             else:
                 string = None
-            lines = (comments[0].source.lines[0], comments[-1].source.lines[1])
+            lines = {l for c in comments for l in c.source.lines if l is not None}
+            lines = (min(lines), max(lines))
             source = Source(lines=lines, string=string, file=comments[0].source.file)
         else:
             source = None
