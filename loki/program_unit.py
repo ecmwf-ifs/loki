@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import weakref
 
 from loki import ir
 from loki.frontend import Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source
@@ -79,6 +80,9 @@ class ProgramUnit(Scope):
 
         # Call the parent constructor to take care of symbol table and rescoping
         super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
+
+        # Finally, register this object in the parent scope
+        self.register_in_parent_scope()
 
     @classmethod
     def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP, parent=None, lazy=False):
@@ -233,8 +237,27 @@ class ProgramUnit(Scope):
         """
         if not self._incomplete:
             return
-        ir_ = self.from_source(self.source.string, frontend=self._frontend, parent=self.parent)
+        frontend = frontend_args.get('frontend', self._frontend)
+        definitions = frontend_args.get('definitions')
+        xmods = frontend_args.get('xmods')
+
+        # If this object does not have a parent, we create a temporary parent scope
+        # and make sure the node exists in the parent scope. This way, the existing
+        # object is re-used while converting the parse tree to Loki-IR.
+        has_parent = self.parent is not None
+        if not has_parent:
+            parent_scope = Scope()
+            self._parent = weakref.ref(parent_scope)
+        if self.name not in self.parent.symbol_attrs:
+            self.register_in_parent_scope()
+
+        ir_ = self.from_source(
+            self.source.string, frontend=frontend, definitions=definitions, xmods=xmods, parent=self.parent
+        )
         assert ir_ is self
+
+        if not has_parent:
+            self._parent = None
 
     def clone(self, **kwargs):
         """

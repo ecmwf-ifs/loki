@@ -399,13 +399,13 @@ def match_typedef(source, scope):
         spec_source = source.clone_with_span(match.span('spec'))
         spec = [ir.RawSource(text=spec_source.string, source=spec_source)]
     else:
-        spec = ()
+        spec = []
     if match['contains']:
         candidates = (match_procedure_binding, match_generic_binding)
         contains = match_statement_candidates(source.clone_with_span(match.span('contains')), candidates, scope=typedef)
     else:
-        contains = ()
-    typedef._update(body=spec + contains)
+        contains = []
+    typedef._update(body=as_tuple(spec + contains))
 
     return (
         source.clone_with_span((0, match.span()[0])),

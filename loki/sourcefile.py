@@ -15,7 +15,6 @@ from loki.ir import Section
 from loki.logging import info
 from loki.module import Module
 from loki.program_unit import ProgramUnit
-from loki.scope import GLOBAL_SCOPE
 from loki.subroutine import Subroutine
 from loki.tools import flatten, as_tuple
 
@@ -183,7 +182,7 @@ class Sourcefile:
 
         ir = parse_omni_ast(
             ast=ast, definitions=definitions, raw_source=raw_source,
-            type_map=type_map, symbol_map=symbol_map, scope=GLOBAL_SCOPE
+            type_map=type_map, symbol_map=symbol_map
         )
 
         lines = (1, raw_source.count('\n') + 1)
@@ -220,10 +219,7 @@ class Sourcefile:
         Generate the full set of :any:`Subroutine` and :any:`Module` members
         in the :any:`Sourcefile`.
         """
-        ir = parse_ofp_ast(
-            ast.find('file'), pp_info=pp_info, definitions=definitions, raw_source=raw_source,
-            scope=GLOBAL_SCOPE
-        )
+        ir = parse_ofp_ast(ast.find('file'), pp_info=pp_info, definitions=definitions, raw_source=raw_source)
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
@@ -259,9 +255,7 @@ class Sourcefile:
         Generate the full set of :any:`Subroutine` and :any:`Module` members
         in the :any:`Sourcefile`.
         """
-        ir = parse_fparser_ast(
-            ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=GLOBAL_SCOPE
-        )
+        ir = parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source)
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
@@ -274,7 +268,7 @@ class Sourcefile:
         """
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=filepath)
-        ir = parse_regex_source(source, scope=GLOBAL_SCOPE, lazy_frontend=lazy_frontend)
+        ir = parse_regex_source(source, lazy_frontend=lazy_frontend)
         if lazy_frontend is not None:
             return cls(path=filepath, ir=ir, source=source, incomplete=True, frontend=lazy_frontend)
         return cls(path=filepath, ir=ir, source=source, frontend=REGEX)
@@ -320,7 +314,7 @@ class Sourcefile:
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 
-    def make_complete(self):
+    def make_complete(self, **frontend_args):
         """
         Trigger a re-parse of the source file if incomplete to produce a full Loki IR
 
@@ -337,13 +331,13 @@ class Sourcefile:
         body = []
         for node in self.ir.body:
             if isinstance(node, ProgramUnit):
-                node.make_complete()
+                node.make_complete(**frontend_args)
                 # program_unit = node.from_source(node.source.string, frontend=self._frontend, parent=GLOBAL_SCOPE)
                 # assert node is program_unit
                 body += [node]
             else:
                 ast = parse_fparser_source(node.source.string)
-                ir_ = parse_fparser_ast(ast, raw_source=node.source.string)
+                ir_ = parse_fparser_ast(ast, raw_source=node.source.string, **frontend_args)
                 body += [ir_]
         self.ir._update(body=as_tuple(body))
         # TODO: use pp_info and definitions as for direct parse and re-use existing Module/Subroutine objects

@@ -2,11 +2,12 @@
 Representation of symbol tables and scopes in
 :doc:`internal_representation`
 """
+
 import weakref
 from loki.types import SymbolAttributes, BasicType
 
 
-__all__ = ['SymbolTable', 'Scope', 'GLOBAL_SCOPE']
+__all__ = ['SymbolTable', 'Scope']
 
 
 class SymbolTable(dict):
@@ -325,7 +326,3 @@ class Scope:
                 return scope
             scope = scope.parent
         return None
-
-
-GLOBAL_SCOPE = Scope()
-"""The global scope that acts as the parent for all nested scopes"""

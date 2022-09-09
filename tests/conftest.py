@@ -6,7 +6,7 @@ import pytest
 
 from loki import (
     Sourcefile, Module, Subroutine, fgen, OFP, compile_and_load, FindNodes, CallStatement,
-    as_tuple, Frontend, Section, REGEX, GLOBAL_SCOPE
+    as_tuple, Frontend, Section, REGEX
 )
 from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
@@ -15,8 +15,7 @@ import loki.frontend
 
 __all__ = [
     'generate_identity', 'jit_compile', 'jit_compile_lib', 'clean_test',
-    'stdchannel_redirected', 'stdchannel_is_captured', 'available_frontends',
-    'fixture_clean_global_scope'
+    'stdchannel_redirected', 'stdchannel_is_captured', 'available_frontends'
 ]
 
 
@@ -274,10 +273,3 @@ def available_frontends(xfail=None, skip=None):
             params += [f]
 
     return params
-
-
-@pytest.fixture(autouse=True, scope='function')
-def fixture_clean_global_scope():
-    """Fixture used in every test to make sure the symbol table is
-    always cleared before each test"""
-    GLOBAL_SCOPE.symbol_attrs.clear()
