@@ -85,10 +85,6 @@ class Subroutine(ProgramUnit):
             symbol_attrs=symbol_attrs, frontend=frontend, incomplete=incomplete
         )
 
-        # Finally, register this procedure in the parent scope
-        if self.parent:
-            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.procedure_type)
-
     @staticmethod
     def _infer_allocatable_shapes(spec, body):
         """
@@ -213,6 +209,15 @@ class Subroutine(ProgramUnit):
         source = Source(lines, string=raw_source)
         ir_ = parse_regex_source(source, scope=parent, lazy_frontend=lazy_frontend)
         return [node for node in ir_.body if isinstance(node, cls)][0]
+
+    def register_in_parent_scope(self):
+        """
+        Insert the type information for this object in the parent's symbol table
+
+        If :attr:`parent` is `None`, this does nothing.
+        """
+        if self.parent:
+            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.procedure_type)
 
     def clone(self, **kwargs):
         """

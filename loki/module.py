@@ -89,10 +89,6 @@ class Module(ProgramUnit):
             symbol_attrs=symbol_attrs, frontend=frontend, incomplete=incomplete
         )
 
-        # Finally, register this module in the parent scope
-        if self.parent:
-            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.module_type)
-
     @classmethod
     def from_omni(cls, ast, raw_source, definitions=None, parent=None, type_map=None):
         """
@@ -191,6 +187,15 @@ class Module(ProgramUnit):
         source = Source(lines, string=raw_source)
         ir_ = parse_regex_source(source, scope=parent, lazy_frontend=lazy_frontend)
         return [node for node in ir_.body if isinstance(node, cls)][0]
+
+    def register_in_parent_scope(self):
+        """
+        Insert the type information for this object in the parent's symbol table
+
+        If :attr:`parent` is `None`, this does nothing.
+        """
+        if self.parent:
+            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.module_type)
 
     def clone(self, **kwargs):
         """
