@@ -374,11 +374,18 @@ class ProgramUnit(Scope):
         return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
     @property
+    def imports(self):
+        """
+        Return the list of :any:`Import` in this unit
+        """
+        return FindNodes(ir.Import).visit(self.spec or ())
+
+    @property
     def imported_symbols(self):
         """
         Return the symbols imported in this unit
         """
-        imports = FindNodes(ir.Import).visit(self.spec or ())
+        imports = self.imports
         return as_tuple(flatten(
             imprt.symbols or [s[1] for s in imprt.rename_list or []]
             for imprt in imports
