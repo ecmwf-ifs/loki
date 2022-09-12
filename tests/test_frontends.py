@@ -837,3 +837,62 @@ end module typebound_header
         )
         for proc, bind in proc_bindings.items()
     )
+
+
+def test_regex_loki_69():
+    """
+    Test compliance of REGEX frontend with edge cases reported in LOKI-69.
+    This should become a full-blown Scheduler test when REGEX frontend undeprins the scheduler.
+    """
+    fcode = """
+subroutine random_call_0(v_out,v_in,v_inout)
+implicit none
+
+    real(kind=jprb),intent(in)  :: v_in
+    real(kind=jprb),intent(out)  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+
+end subroutine random_call_0
+
+!subroutine random_call_1(v_out,v_in,v_inout)
+!implicit none
+!
+!  real(kind=jprb),intent(in)  :: v_in
+!  real(kind=jprb),intent(out)  :: v_out
+!  real(kind=jprb),intent(inout)  :: v_inout
+!
+!
+!end subroutine random_call_1
+
+subroutine random_call_2(v_out,v_in,v_inout)
+implicit none
+
+    real(kind=jprb),intent(in)  :: v_in
+    real(kind=jprb),intent(out)  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+
+end subroutine random_call_2
+
+subroutine test(v_out,v_in,v_inout,some_logical)
+implicit none
+
+    real(kind=jprb),intent(in   )  :: v_in
+    real(kind=jprb),intent(out  )  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+    logical,intent(in)             :: some_logical
+
+    v_inout = 0._jprb
+    if(some_logical)then
+        call random_call_0(v_out,v_in,v_inout)
+    endif
+
+    if(some_logical) call random_call_2
+
+end subroutine test
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert [r.name for r in source.all_subroutines] == ['random_call_0', 'random_call_2', 'test']
