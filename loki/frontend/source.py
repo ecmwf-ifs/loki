@@ -184,7 +184,7 @@ def _merge_source_match_source(pre, match, post):
     return Source(lines, pre.string + post.string, pre.file)
 
 
-def _create_lines_and_merge(source_lines, source, span):
+def _create_lines_and_merge(source_lines, source, span, lineno=None):
     """
     Create line-wise :class:`Source` objects for the substring in :data:`source`
     given by :data:`span`
@@ -194,7 +194,11 @@ def _create_lines_and_merge(source_lines, source, span):
 
     Helper routine for :any:`source_to_lines`.
     """
-    new_lines = source.clone_lines(span)
+    if lineno is None:
+        new_lines = source.clone_lines(span)
+    else:
+        new_lines = Source((lineno, None), source.string[span[0]:span[1]], source.file).clone_lines()
+
     if len(source_lines) >= 2 and isinstance(source_lines[-1], re.Match):
         source_lines = (
             source_lines[:-2]
@@ -216,12 +220,14 @@ def source_to_lines(source):
     """
     source_lines = []
     ptr = 0
+    lineno = source.lines[0]
     for match in _re_line_cont.finditer(source.string):
-        source_lines = _create_lines_and_merge(source_lines, source, (ptr, match.span()[0]))
+        source_lines = _create_lines_and_merge(source_lines, source, (ptr, match.span()[0]), lineno=lineno)
+        lineno = source_lines[-1].lines[1] + 1
         source_lines += [match]
         ptr = match.span()[1]
     if ptr < len(source.string):
-        source_lines = _create_lines_and_merge(source_lines, source, (ptr, len(source.string)))
+        source_lines = _create_lines_and_merge(source_lines, source, (ptr, len(source.string)), lineno=lineno)
     return source_lines
 
 
