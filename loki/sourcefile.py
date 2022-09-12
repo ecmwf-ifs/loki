@@ -11,7 +11,7 @@ from loki.frontend import (
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source
 
 )
-from loki.ir import Section
+from loki.ir import Section, RawSource, Comment
 from loki.logging import info
 from loki.module import Module
 from loki.program_unit import ProgramUnit
@@ -332,15 +332,24 @@ class Sourcefile:
         for node in self.ir.body:
             if isinstance(node, ProgramUnit):
                 node.make_complete(**frontend_args)
-                # program_unit = node.from_source(node.source.string, frontend=self._frontend, parent=GLOBAL_SCOPE)
-                # assert node is program_unit
                 body += [node]
             else:
+                if isinstance(node, RawSource):
+                    # Fparser is unable to parse comment-only source files/strings,
+                    # so we see if this is only comments and convert them ourselves
+                    # (https://github.com/stfc/fparser/issues/375)
+                    lines = [l.lstrip() for l in node.text.splitlines()]
+                    if all(not l or l[0] == '!' for l in lines):
+                        body += [
+                            Comment(text=line.string, source=line)
+                            for line in node.source.clone_lines()
+                        ]
+                        continue
+
                 ast = parse_fparser_source(node.source.string)
                 ir_ = parse_fparser_ast(ast, raw_source=node.source.string, **frontend_args)
                 body += [ir_]
         self.ir._update(body=as_tuple(body))
-        # TODO: use pp_info and definitions as for direct parse and re-use existing Module/Subroutine objects
         self._incomplete = False
 
     @property

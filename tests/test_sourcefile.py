@@ -254,3 +254,36 @@ def test_sourcefile_lazy_construction(here, frontend):
     assert routine_b is source['routine_b']
     assert some_module is source['some_module']
     assert module_routine is source['some_module']['module_routine']
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sourcefile_lazy_comments(frontend):
+    """
+    Make sure that lazy construction can handle comments on source file level
+    (i.e. outside a program unit)
+    """
+    fcode = """
+! Comment outside
+subroutine myroutine
+    ! Comment inside
+end subroutine myroutine
+! Other comment outside
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend, lazy=True)
+
+    assert isinstance(source.ir.body[0], RawSource)
+    assert isinstance(source.ir.body[2], RawSource)
+
+    myroutine = source['myroutine']
+    assert isinstance(myroutine.spec.body[0], RawSource)
+
+    source.make_complete()
+
+    assert isinstance(source.ir.body[0], Comment)
+    assert isinstance(source.ir.body[2], Comment)
+    assert isinstance(myroutine.body.body[0], Comment)
+
+    code = source.to_fortran()
+    assert '! Comment outside' in code
+    assert '! Comment inside' in code
+    assert '! Other comment outside' in code
