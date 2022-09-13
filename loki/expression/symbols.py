@@ -106,7 +106,7 @@ class StrCompareMixin:
         return hash(self._canonical(self))
 
     def __eq__(self, other):
-        if isinstance(other, str) or isinstance(other, type(self)):
+        if isinstance(other, (str, type(self))):
             # Do comparsion based on canonical string representations
             return self._canonical(self) == self._canonical(other)
 
