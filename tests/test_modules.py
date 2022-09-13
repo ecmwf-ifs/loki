@@ -1059,10 +1059,51 @@ end module a_module
 """
 
     # Two distinct string-equivalent subroutine objects
-    m1 = Module.from_source(fcode)
-    m2 = Module.from_source(fcode)
+    m1 = Module.from_source(fcode, frontend=frontend)
+    m2 = Module.from_source(fcode, frontend=frontend)
 
     assert m1.symbol_attrs == m2.symbol_attrs
     assert m1.spec == m2.spec
     assert m1.contains == m2.contains
     assert m1 == m2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_comparison_case_sensitive(frontend):
+    """
+    Test that semantic, but no string-equivalence evaluates as not eqal
+    """
+
+    fcode = """
+module a_module
+  integer, parameter :: x = 2
+  integer, parameter :: y = 3
+
+  type derived_type
+    real :: array(x, y)
+  end type derived_type
+contains
+
+  subroutine my_routine(pt)
+    type(derived_type) :: pt
+    pt%array(:,:) = 42.0
+  end subroutine my_routine
+end module a_module
+"""
+
+    # Two distinct string-equivalent subroutine objects
+    m1 = Module.from_source(fcode, frontend=frontend)
+    m2 = Module.from_source(fcode.replace('pt%array', 'pT%aRrAy'), frontend=frontend)
+
+    assert not 'pT%aRrAy' in fgen(m1)
+    if frontend != OMNI:  # OMNI always downcases!
+        assert 'pT%aRrAy' in fgen(m2)
+
+    # Since the routine is different the procedure type will be!
+    assert not m1.symbol_attrs == m2.symbol_attrs
+    # OMNI source file paths are affected by the string change, which
+    # are attached and check to each source node object
+    if frontend != OMNI:
+        assert m1.spec == m2.spec
+    assert not m1.contains == m2.contains
+    assert not m1 == m2
