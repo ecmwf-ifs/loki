@@ -252,6 +252,8 @@ class NestedTransformer(Transformer):
         # Strip empty sublists/subtuples or None entries
         return tuple(i for i in visited if i is not None and as_tuple(i))
 
+    visit_list = visit_tuple
+
     def visit_Node(self, o, **kwargs):
         """
         Handler for :any:`Node` objects.
