@@ -7,7 +7,6 @@ from loki.expression import FindVariables, Array, FindInlineCalls
 from loki.visitors import Visitor, Transformer
 from loki.tools import as_tuple, flatten
 
-
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
     'loop_carried_dependencies'
@@ -20,10 +19,11 @@ class DataflowAnalysisAttacher(Transformer):
     symbols.
     """
 
+    # group of functions that only query memory properties and don't read/write variable value
+    _mem_property_queries = ('size', 'lbound', 'ubound', 'present')
+
     def __init__(self, **kwargs):
         super().__init__(inplace=True, **kwargs)
-        # group of functions that only query memory properties and don't read/write variable value
-        self._mem_property_queries = ('size', 'lbound', 'ubound', 'present')
 
     # Utility routines
 
@@ -119,11 +119,12 @@ class DataflowAnalysisAttacher(Transformer):
         live = kwargs.pop('live_symbols', set())
 
         # exclude arguments to functions that just check the memory attributes of a variable
-        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.condition) if i.name.lower() in self._mem_property_queries)
-        query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
+        mem_call = as_tuple(i for i in FindInlineCalls().visit(o.condition) if i.function in self._mem_property_queries)
+        query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_call))
         cset = set(v for v in FindVariables().visit(o.condition) if not v in query_args)
 
-        body, defines, uses = self._visit_body(o.body, live=live, uses=self._symbols_from_expr(as_tuple(cset)), **kwargs)
+        condition = self._symbols_from_expr(as_tuple(cset))
+        body, defines, uses = self._visit_body(o.body, live=live, uses=condition, **kwargs)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
         o._update(body=body, else_body=else_body)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines|else_defines, uses_symbols=uses, **kwargs)
@@ -132,23 +133,26 @@ class DataflowAnalysisAttacher(Transformer):
         live = kwargs.pop('live_symbols', set())
 
         # exclude arguments to functions that just check the memory attributes of a variable
-        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.expr) if i.name.lower() in self._mem_property_queries)
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.expr) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         eset = set(v for v in FindVariables().visit(o.expr) if not v in query_args)
 
-        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.values) if i.name.lower() in self._mem_property_queries)
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.values) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         vset = set(v for v in FindVariables().visit(o.values) if not v in query_args)
 
-        body, defines, uses = self._visit_body(o.bodies, live=live, uses=(self._symbols_from_expr(as_tuple(eset)) | self._symbols_from_expr(as_tuple(vset))), **kwargs)
+        uses = self._symbols_from_expr(as_tuple(eset)) | self._symbols_from_expr(as_tuple(vset))
+        body, defines, uses = self._visit_body(o.bodies, live=live, uses=uses, **kwargs)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
         body = [as_tuple(b,) for b in body]
         o._update(bodies=body, else_body=else_body)
-        return self.visit_Node(o, live_symbols=live, defines_symbols=defines|else_defines, uses_symbols=uses, **kwargs)
+        defines = defines | else_defines
+        return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_MaskedStatement(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
-        body, defines, uses = self._visit_body(o.bodies, live=live, uses=self._symbols_from_expr(o.conditions), **kwargs)
+        conditions = self._symbols_from_expr(o.conditions)
+        body, defines, uses = self._visit_body(o.bodies, live=live, uses=conditions, **kwargs)
         body = [as_tuple(b,) for b in body]
         default, default_defs, uses = self._visit_body(o.default, live=live, uses=uses, **kwargs)
         o._update(bodies=body, default=default)
@@ -158,7 +162,7 @@ class DataflowAnalysisAttacher(Transformer):
 
     def visit_Assignment(self, o, **kwargs):
         # exclude arguments to functions that just check the memory attributes of a variable
-        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.rhs) if i.name.lower() in self._mem_property_queries)
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.rhs) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         rset = set(v for v in FindVariables().visit(o.rhs) if not v in query_args)
 
@@ -182,25 +186,35 @@ class DataflowAnalysisAttacher(Transformer):
             # are potentially defined and which are definitely only used by
             # this call
             defines, uses = set(), set()
-            for arg, val in o.arg_iter():
-                if str(arg.type.intent).lower() in ('inout', 'out'):
-                    dims = set(flatten([FindVariables().visit(v.dimensions) for v in FindVariables().visit(val) if isinstance(v, Array)]))
-                    defines |= self._symbols_from_expr(val, condition=lambda x: x not in dims)
-                    uses |= dims
-                if str(arg.type.intent).lower() in ('in', 'inout'):
-                    uses |= self._symbols_from_expr(val)
+            outvals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'out')]
+            invals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'in')]
+
+            for val in outvals:
+                arrays = [v for v in FindVariables().visit(outvals) if isinstance(v, Array)]
+                dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
+                exprs = self._symbols_from_expr(val)
+                defines |= {e for e in exprs if not e in dims}
+                uses |= dims
+
+            uses |= {s for val in invals for s in self._symbols_from_expr(val)}
         else:
             # We don't know the intent of any of these arguments and thus have
             # to assume all of them are potentially used or defined by this
             # statement
-            dims = set(flatten([FindVariables().visit(v.dimensions) for v in FindVariables().visit(o.children) if isinstance(v, Array)]))
-            defines = self._symbols_from_expr(o.children, condition=lambda x: x not in dims)
+            arrays = [v for v in FindVariables().visit(o.arguments) if isinstance(v, Array)]
+            arrays += [v for arg, val in o.kwarguments for v in FindVariables().visit(val) if isinstance(v, Array)]
+
+            dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
+            defines = self._symbols_from_expr(o.arguments, condition=lambda x: x not in dims)
+            for arg, val in o.kwarguments:
+                defines |= self._symbols_from_expr(val, condition=lambda x: x not in dims)
             uses = defines.copy() | dims
 
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_Allocation(self, o, **kwargs):
-        dims = set(flatten([FindVariables().visit(v.dimensions) for v in FindVariables().visit(o.variables) if isinstance(v, Array)]))
+        arrays = [v for v in FindVariables().visit(o.variables) if isinstance(v, Array)]
+        dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
         defines = self._symbols_from_expr(o.variables, condition=lambda x: x not in dims)
         uses = self._symbols_from_expr(o.data_source or ()) | dims
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)

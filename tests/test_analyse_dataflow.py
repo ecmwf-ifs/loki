@@ -1,5 +1,6 @@
 import pytest
 
+from conftest import available_frontends
 from loki import (
     Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
     CallStatement, MultiConditional, MaskedStatement
@@ -7,7 +8,6 @@ from loki import (
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )
-from conftest import available_frontends
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_live_symbols(frontend):
@@ -261,10 +261,34 @@ end subroutine test
     routine = source['test']
     routine.enrich_calls(source.all_subroutines)
     call = FindNodes(CallStatement).visit(routine.body)[0]
-    
+
     with dataflow_analysis_attached(routine):
         assert all(i in call.defines_symbols for i in ('v_out', 'v_inout'))
         assert all(i in call.uses_symbols for i in ('v_in', 'v_inout'))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_analyse_unenriched_call(frontend):
+    fcode = """
+subroutine test(v_out,v_in,v_inout)
+implicit none
+
+  real,intent(in   )  :: v_in
+  real,intent(out  )  :: v_out
+  real,intent(inout)  :: v_inout
+
+  call random_call(v_out,v_in,var=v_inout)
+
+end subroutine test
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test']
+    call = FindNodes(CallStatement).visit(routine.body)[0]
+
+    with dataflow_analysis_attached(routine):
+        assert all(i in call.defines_symbols for i in ('v_out', 'v_inout', 'v_in'))
+        assert all(i in call.uses_symbols for i in ('v_in', 'v_inout', 'v_in'))
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -339,9 +363,8 @@ end subroutine test
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     with dataflow_analysis_attached(routine):
-        print(frontend, routine.body.uses_symbols)
-        assert not 'a' in routine.body.uses_symbols   
-        assert 'a' in routine.body.defines_symbols   
+        assert not 'a' in routine.body.uses_symbols
+        assert 'a' in routine.body.defines_symbols
         assert not 'b' in routine.body.uses_symbols
 
 
@@ -370,10 +393,10 @@ end subroutine test
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
-    
+
     call = FindNodes(CallStatement).visit(routine.body)[0]
     routine.enrich_calls(source.all_subroutines)
-    
+
     with dataflow_analysis_attached(routine):
         assert 'n' in call.uses_symbols
         assert not 'n' in call.defines_symbols
@@ -430,5 +453,5 @@ end subroutine masked_statements
     with dataflow_analysis_attached(routine):
         assert len(mask.uses_symbols) == 1
         assert len(mask.defines_symbols) == 1
-        assert 'mask' in mask.uses_symbols 
+        assert 'mask' in mask.uses_symbols
         assert 'vec1' in mask.defines_symbols
