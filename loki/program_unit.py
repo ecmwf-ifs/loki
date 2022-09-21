@@ -70,8 +70,8 @@ class ProgramUnit(Scope):
             for node in contains.body:
                 if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():
                     break
-                else:
-                    contains.prepend(ir.Intrinsic(text='CONTAINS'))
+            else:
+                contains.prepend(ir.Intrinsic(text='CONTAINS'))
 
         # Primary IR components
         self.docstring = as_tuple(docstring)
