@@ -14,12 +14,9 @@ from loki import (
   FindNodes, FindVariables, Loop, Assignment, CallStatement, Scalar, Array, Associate, Allocation,
   Transformer, Conditional, Intrinsic, SubstituteExpressions, as_tuple, convert_to_lower_case,
   Sourcefile, Subroutine, Nullify, Node, InlineCall, FindInlineCalls, flatten, Section, Scheduler,
-  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer
+  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer, ResolveAssociationsVisitor
   )
 
-
-sys.path.append('/Users/naan/Documents')
-from random_dev.pointer_visitor import ResolveAssociationsVisitor
 
 def count_violations(output, summary):
     routines = []
@@ -350,6 +347,7 @@ def check(mode, setup, path, disable, output, summary):
 #   build list of files to be checked and excluded functions
     files = ()
     routines = ()
+    sources = ()
     if setup == 'manual':
 
         current_dir = os.getcwd()
@@ -367,7 +365,8 @@ def check(mode, setup, path, disable, output, summary):
                 with open(output,'a') as outfile:
                     outfile.write(f'read in File :: {file}\n')
 
-            routines += Sourcefile.from_file(file).all_subroutines
+            sources += as_tuple(Sourcefile.from_file(file))
+            routines += as_tuple(sources[-1].all_subroutines)
 
     else:
         assert len(path) == 1, f'only one config file should be specified'
@@ -419,8 +418,7 @@ def check(mode, setup, path, disable, output, summary):
             routine.enrich_calls(routines)
 
 #   main outer loop
-    for c, routine in enumerate(routines):
-#        if c > 0: break
+    for routine in routines:
 
         print(f'checking {routine}')
         if output:
@@ -433,12 +431,6 @@ def check(mode, setup, path, disable, output, summary):
             for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
                 convert_to_lower_case(node)
 
-        # check if intent is specified for all dummy arguments
-        decl_check(routine, output)
-        if routine.contains:
-            for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
-                decl_check(node, output)
-
         # collect variables for which intent is defined
         intent_vars = defaultdict(list)
         for var in routine.arguments:
@@ -446,6 +438,11 @@ def check(mode, setup, path, disable, output, summary):
         in_vars = intent_vars['in']
         out_vars = intent_vars['out']
         inout_vars = intent_vars['inout']
+        # check if intent is specified for all dummy arguments
+        decl_check(routine, output)
+        if routine.contains:
+            for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
+                decl_check(node, output)
 
 #        # resolving associations in the order in which they appear
 #        for pointer in FindNodes((Associate, Assignment)).visit(routine.body):
@@ -454,10 +451,11 @@ def check(mode, setup, path, disable, output, summary):
 #            elif isinstance(pointer, Associate):
 #                resolve_association(routine)
         node_map = ResolveAssociationsVisitor().visit(routine.body)
-#        routine.body = Transformer(node_map).visit(routine.body)
+        routine.body = Transformer(node_map).visit(routine.body)
         routine.rescope_symbols()
-        print(fgen(routine.body))
-        sys.exit()
+#        sys.exit()
+
+
 
         # intialize intent rule checks
         var_check = {var.name: [True, "Unused"] for var in in_vars+out_vars+inout_vars}
