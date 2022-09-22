@@ -12,38 +12,41 @@ from collections import defaultdict
 
 from loki import (
   FindNodes, FindVariables, Loop, Assignment, CallStatement, Scalar, Array, Associate, Allocation,
-  Transformer, Conditional, Intrinsic, SubstituteExpressions, as_tuple, convert_to_lower_case, 
+  Transformer, Conditional, Intrinsic, SubstituteExpressions, as_tuple, convert_to_lower_case,
   Sourcefile, Subroutine, Nullify, Node, InlineCall, FindInlineCalls, flatten, Section, Scheduler,
-  LeafNode, InternalNode, fgen, dataflow_analysis_attached
+  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer
   )
 
 
+sys.path.append('/Users/naan/Documents')
+from random_dev.pointer_visitor import ResolveAssociationsVisitor
+
 def count_violations(output, summary):
     routines = []
-    
+
     body_rule_break=['intent', 'rule', 'broken']
     loop_rule_break=['intent', 'loop', 'induction']
     call_rule_break=['intent', 'inconsistency']
     alloc_rule_break=['Allocatable', 'wrong', 'intent']
     spec_rule_break=['intent(out)', 'subroutine', 'specification']
-    
+
     var_unused=['intent', 'unused']
     inout_unused=['intent(inout)', 'only', 'intent(in)']
     io_only=['intent', 'I/O']
 
     intent_undeclared=['Dummy', 'no declared', 'intent']
-    
+
     unused_list=[var_unused, io_only, inout_unused]
     break_list=[body_rule_break, loop_rule_break, call_rule_break, alloc_rule_break, spec_rule_break]
     undeclared_list=[intent_undeclared]
-    
+
     ucount_tot = 0
     bcount_tot = 0
     dcount_tot = 0
-    
+
     with open(summary,'w') as writer:
         writer.write('')
-    
+
     with open(output,'r') as f,open(summary,'a') as writer:
         line0 = None
         for line in f:
@@ -55,11 +58,11 @@ def count_violations(output, summary):
                 ucount_loc = 0
                 bcount_loc = 0
                 dcount_loc = 0
-    
+
             if any(all(m in line for m in matches) for matches in break_list):
                 bcount_loc += 1
                 bcount_tot += 1
-    
+
             if any(all(m in line for m in matches) for matches in unused_list):
                 ucount_loc += 1
                 ucount_tot += 1
@@ -122,7 +125,7 @@ def findvarsnotdims(o, return_vars=True):
         return [var for var in FindVariables().visit(o) if not var in dims]
     else:
         return [var.name for var in FindVariables().visit(o) if not var in dims]
-                
+
 def finddimsnotvars(o, return_vars=True):
     """
     Returns only the array dimensions present in an expression or node.
@@ -136,7 +139,7 @@ def finddimsnotvars(o, return_vars=True):
     if return_vars:
         return [var for var in dims]
     else:
-        return [var.name for var in dims]           
+        return [var.name for var in dims]
 
 def loop_check(routine, vars, var_check, output):
     """Checks whether variables with declared intent are used as loop induction variables."""
@@ -184,7 +187,7 @@ def call_check(calls, routine, output):
                             if output:
                                 with open(output, 'a') as outfile:
                                     outfile.write(f'intent inconsistency in {n} for arg {a.name}\n')
-     
+
                 assign_type.update({var: 'rhs' for var in assign_type if var in flatten([findvarsnotdims(s) for s in n.uses_symbols]) and var in flatten([findvarsnotdims(s) for s in n.live_symbols])})
                 if isinstance(n, LeafNode):
                     assign_type.update({var: 'lhs' for var in assign_type if var in flatten([findvarsnotdims(s) for s in n.defines_symbols])})
@@ -276,37 +279,37 @@ def resolve_member_routine(routine, var_check, in_vars, out_vars, inout_vars):
     out_vars += intent_vars['out']
     inout_vars += intent_vars['inout']
 
-def resolve_association(routine):
-    """Resolves variable associations and replaces associate block with its body"""
-
-    assoc = FindNodes(Associate).visit(routine.body)[0]
-    vmap = {}
-    for rexpr,lexpr in assoc.associations:
-        vmap.update({var: rexpr.clone(dimensions=getattr(var, "dimensions", None)) for var in [v for v in FindVariables().visit(assoc.body) if lexpr.name.lower() == v.name.lower()]})
-    assoc_map = {assoc: SubstituteExpressions(vmap).visit(assoc.body)}
-    routine.body = Transformer(assoc_map).visit(routine.body)
-
-def resolve_pointer(routine):
-    """Resolves pointer associations and deletes assignment and matching nullify statements"""
-
-    assign = [p for p in FindNodes(Assignment).visit(routine.body) if getattr(p, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(p, "rhs", None))]][0]
-
-    loc = [k for k, n in enumerate(FindNodes(Node).visit(routine.body)) if n == assign]
-    assert len(loc)==1, f'location of pointer {assign} not found'
-
-    pointer_map = {assign: None}
-    for n in FindNodes(Node).visit(routine.body)[loc[0]+1:]:
-        if isinstance(n, Nullify) and assign.lhs in findvarsnotdims(getattr(n, "variables", None)):
-            pointer_map[n] = None
-            break
-        elif isinstance(n, Assignment) and 'null' in [var.name.lower() for var in findvarsnotdims(getattr(n, "rhs", None))]:
-            pointer_map[n] = None
-            break
-                
-        vmap = {var: assign.rhs.clone() for var in [v for v in FindVariables().visit(n) if assign.lhs.name == v.name]}
-        pointer_map[n] = SubstituteExpressions(vmap).visit(n)
-
-    routine.body = Transformer(pointer_map).visit(routine.body)
+#def resolve_association(routine):
+#    """Resolves variable associations and replaces associate block with its body"""
+#
+#    assoc = FindNodes(Associate).visit(routine.body)[0]
+#    vmap = {}
+#    for rexpr,lexpr in assoc.associations:
+#        vmap.update({var: rexpr.clone(dimensions=getattr(var, "dimensions", None)) for var in [v for v in FindVariables().visit(assoc.body) if lexpr.name.lower() == v.name.lower()]})
+#    assoc_map = {assoc: SubstituteExpressions(vmap).visit(assoc.body)}
+#    routine.body = Transformer(assoc_map).visit(routine.body)
+#
+#def resolve_pointer(routine):
+#    """Resolves pointer associations and deletes assignment and matching nullify statements"""
+#
+#    assign = [p for p in FindNodes(Assignment).visit(routine.body) if getattr(p, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(p, "rhs", None))]][0]
+#
+#    loc = [k for k, n in enumerate(FindNodes(Node).visit(routine.body)) if n == assign]
+#    assert len(loc)==1, f'location of pointer {assign} not found'
+#
+#    pointer_map = {assign: None}
+#    for n in FindNodes(Node).visit(routine.body)[loc[0]+1:]:
+#        if isinstance(n, Nullify) and assign.lhs in findvarsnotdims(getattr(n, "variables", None)):
+#            pointer_map[n] = None
+#            break
+#        elif isinstance(n, Assignment) and 'null' in [var.name.lower() for var in findvarsnotdims(getattr(n, "rhs", None))]:
+#            pointer_map[n] = None
+#            break
+#
+#        vmap = {var: assign.rhs.clone() for var in [v for v in FindVariables().visit(n) if assign.lhs.name == v.name]}
+#        pointer_map[n] = SubstituteExpressions(vmap).visit(n)
+#
+#    routine.body = Transformer(pointer_map).visit(routine.body)
 
 def decl_check(routine, output):
     "Checks whether all dummy arguments have a specified intent."
@@ -319,7 +322,7 @@ def decl_check(routine, output):
                     file.write(f'Dummy argument {v.name} has no declared intent\n')
 
 def require_output_param(ctx, param, value):
-    """Callback function for click that checks the output param is set if summary is set.""" 
+    """Callback function for click that checks the output param is set if summary is set."""
 
     if value:
         if ctx.get_parameter_source('output') == click.core.ParameterSource.DEFAULT:
@@ -359,11 +362,11 @@ def check(mode, setup, path, disable, output, summary):
         #  collect all routines
         for file in files:
             print(f'read in File :: {file}')
-    
+
             if output:
                 with open(output,'a') as outfile:
                     outfile.write(f'read in File :: {file}\n')
-         
+
             routines += Sourcefile.from_file(file).all_subroutines
 
     else:
@@ -372,20 +375,20 @@ def check(mode, setup, path, disable, output, summary):
 
         with Path(path).open('r') as file:
             config = toml.load(file)
-    
+
         scheduler_config = {'default': config['scheduler_config']}
-    
+
         search_dirs = ()
         searches = config['search']
-    
+
         assert all(search['mode'] == 'select' for search in searches) or all(search['mode'] == 'all' for search in searches)
-    
+
         for search in searches:
            for s in search['dirs']:
                p = Path(PurePath(s))
                p.resolve()
                search_dirs += as_tuple(str(p))
-            
+
         scheduler = Scheduler(paths=search_dirs, config=scheduler_config)
         for search in searches:
             if search['mode'] == 'select':
@@ -401,7 +404,7 @@ def check(mode, setup, path, disable, output, summary):
             assert i.routine
             routines += as_tuple(i.routine)
             print(f'collected from scheduler {i.routine}')
-    
+
             if output:
                 with open(output,'a') as outfile:
                     outfile.write(f'collected from scheduler {i.routine}\n')
@@ -418,7 +421,7 @@ def check(mode, setup, path, disable, output, summary):
 #   main outer loop
     for c, routine in enumerate(routines):
 #        if c > 0: break
-    
+
         print(f'checking {routine}')
         if output:
             with open(output,'a') as outfile:
@@ -444,12 +447,17 @@ def check(mode, setup, path, disable, output, summary):
         out_vars = intent_vars['out']
         inout_vars = intent_vars['inout']
 
-        # resolving associations in the order in which they appear
-        for pointer in FindNodes((Associate, Assignment)).visit(routine.body):
-            if isinstance(pointer, Assignment) and getattr(pointer, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(pointer, "rhs", None))]:
-                resolve_pointer(routine)
-            elif isinstance(pointer, Associate):
-                resolve_association(routine)
+#        # resolving associations in the order in which they appear
+#        for pointer in FindNodes((Associate, Assignment)).visit(routine.body):
+#            if isinstance(pointer, Assignment) and getattr(pointer, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(pointer, "rhs", None))]:
+#                resolve_pointer(routine)
+#            elif isinstance(pointer, Associate):
+#                resolve_association(routine)
+        node_map = ResolveAssociationsVisitor().visit(routine.body)
+#        routine.body = Transformer(node_map).visit(routine.body)
+        routine.rescope_symbols()
+        print(fgen(routine.body))
+        sys.exit()
 
         # intialize intent rule checks
         var_check = {var.name: [True, "Unused"] for var in in_vars+out_vars+inout_vars}
@@ -464,7 +472,7 @@ def check(mode, setup, path, disable, output, summary):
 
         #  checking the intent of allocatable vars passed as dummy arguments
         alloc_check(calls, routine, output)
-    
+
         #  checking the intent consistency across function calls
         call_check(calls, routine, output)
 
