@@ -66,6 +66,8 @@ class Node:
         argnames = inspect.getfullargspec(cls.__init__).args
         obj._args = dict(zip(argnames[1:], args))
         obj._args.update(kwargs.items())
+        # Convert stored lists to tuples to make self._args hashable!
+        obj._args.update({k: tuple(v) for k, v in obj._args.items() if isinstance(v, list)})
         obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
         return obj
 
@@ -143,6 +145,8 @@ class Node:
         argnames = [i for i in self._traversable if i not in kwargs]
         self._args.update(OrderedDict(zip(argnames, args)))
         self._args.update(kwargs)
+        # Convert stored lists to tuples to make self._args hashable!
+        self._args.update({k: tuple(v) for k, v in self._args.items() if isinstance(v, list)})
         self.__init__(**self._args)  # pylint: disable=unnecessary-dunder-call
 
     @property
