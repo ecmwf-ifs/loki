@@ -22,6 +22,14 @@ class Source:
         line_end = f'-{self.lines[1]}' if self.lines[1] else ''
         return f'Source<line {self.lines[0]}{line_end}>'
 
+    def __eq__(self, o):
+        if isinstance(o, Source):
+            return self.__dict__ == o.__dict__
+        return super().__eq__(o)
+
+    def __hash__(self):
+        return hash((self.lines, self.string, self.file))
+
     def find(self, string, ignore_case=True, ignore_space=True):
         """
         Find the given string in the source and return start and end index or None if not found.

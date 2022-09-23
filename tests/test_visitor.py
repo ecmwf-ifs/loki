@@ -7,8 +7,9 @@ from loki import (
     Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, ExpressionRetriever, Stringifier, Transformer, MaskedTransformer,
-    NestedMaskedTransformer, is_parent_of, is_child_of, fgen, FindScopes, Intrinsic
+    ExpressionCallbackMapper, ExpressionRetriever, Stringifier, Transformer,
+    NestedTransformer, MaskedTransformer, NestedMaskedTransformer,
+    is_parent_of, is_child_of, fgen, FindScopes, Intrinsic
 )
 
 
@@ -835,7 +836,9 @@ end subroutine routine_simple
     assigns = tuple(a for a in assigns if a.lhs in ['c(i)', 'd(i)'])
     loop = Loop(variable=routine.variable_map['i'], bounds=bounds,
                 body=tuple(a.clone() for a in assigns))
-    transformed = Transformer({assigns: loop}).visit(routine.body)
+    # Need to use NestedTransformer here, since replacement contains
+    # the original nodes.
+    transformed = NestedTransformer({assigns: loop}).visit(routine.body)
 
     new_loops = FindNodes(Loop).visit(transformed)
     assert len(new_loops) == 1

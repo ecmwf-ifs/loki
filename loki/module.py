@@ -184,3 +184,21 @@ class Module(ProgramUnit):
 
         # Escalate to parent class
         return super().clone(**kwargs)
+
+    @property
+    def _canonical(self):
+        """
+        Base definition for comparing :any:`Module` objects.
+        """
+        return (
+            self.name, self.docstring, self.spec, self.contains, self.symbol_attrs,
+            self.default_access_spec, self.public_access_spec, self.private_access_spec,
+        )
+
+    def __eq__(self, other):
+        if isinstance(other, Module):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)

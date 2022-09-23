@@ -385,7 +385,7 @@ class OFP2IR(GenericVisitor):
                     # Build the masked statement
                     stmts += [
                         ir.MaskedStatement(
-                            conditions=conditions, bodies=bodies, default=default,
+                            conditions=as_tuple(conditions), bodies=as_tuple(bodies), default=default,
                             label=kwargs['label'], source=kwargs['source']
                         )
                     ]
@@ -406,8 +406,8 @@ class OFP2IR(GenericVisitor):
                     # Build the masked statement
                     stmts += [
                         ir.MaskedStatement(
-                            conditions=conditions, bodies=bodies, default=(), inline=True,
-                            label=kwargs['label'], source=kwargs['source']
+                            conditions=as_tuple(conditions), bodies=as_tuple(bodies), default=(),
+                            inline=True, label=kwargs['label'], source=kwargs['source']
                         )
                     ]
 
@@ -1086,7 +1086,8 @@ class OFP2IR(GenericVisitor):
                     names=group[0], proc_stmt=group[1], scope=scope, source=kwargs['source']
                 ))
 
-        return ir.Interface(abstract=abstract, body=body, spec=spec, label=kwargs['label'], source=kwargs['source'])
+        return ir.Interface(abstract=abstract, body=as_tuple(body), spec=spec,
+                            label=kwargs['label'], source=kwargs['source'])
 
     def visit_generic_spec(self, o, **kwargs):
         name = o.attrib['name']

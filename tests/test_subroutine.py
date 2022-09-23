@@ -1572,3 +1572,78 @@ end function f_elem
     assert 'PURE' in code
     assert 'ELEMENTAL' in code
     assert fgen(decl) in code
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_comparison(frontend):
+    """
+    Test that string-equivalence works on relevant components.
+    """
+
+    fcode = """
+subroutine my_routine(n, a, b, d)
+  integer, intent(in) :: n
+  real, intent(in) :: a(n), b(n)
+  real, intent(out) :: d(n)
+  integer :: i
+
+  do i=1, n
+    d(i) = a(i) + b(i)
+  end do
+end subroutine my_routine
+"""
+    # Two distinct string-equivalent subroutine objects
+    r1 = Subroutine.from_source(fcode, frontend=frontend)
+    r2 = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert r1.symbol_attrs == r2.symbol_attrs
+    assert r1.spec == r2.spec
+    assert r1.body == r2.body
+    assert r1 == r2
+
+    # Counter example: Change the semantic meaning by adding an index
+    # offset, so that symbol table and declaration spec are identical.
+    r3 = Subroutine.from_source(fcode.replace('d(i)', 'd(i+1)'), frontend=frontend)
+    assert r1.symbol_attrs == r3.symbol_attrs
+    # OMNI source file paths are affected by the string change, which
+    # are attached and check to each source node object
+    if frontend != OMNI:
+        assert r1.spec == r3.spec
+    assert not r1.body == r3.body
+    assert not r1 == r3
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_comparison_case_sensitive(frontend):
+    """
+    Test that semantic, but no string-equivalence evaluates as not eqal
+    """
+
+    fcode = """
+subroutine my_routine(n, a, b, d)
+  integer, intent(in) :: n
+  real, intent(in) :: a(n), b(n)
+  real, intent(out) :: d(n)
+  integer :: i
+
+  do i=1, n
+    d(i) = a(i) + b(i)
+  end do
+end subroutine my_routine
+"""
+    # Create two subroutine objects, but capitalize a variable in one
+    r1 = Subroutine.from_source(fcode, frontend=frontend)
+    r2 = Subroutine.from_source(fcode.replace('d(i)', 'D(I)'), frontend=frontend)
+
+    assert not 'D(I)' in fgen(r1)
+    if frontend != OMNI:  # OMNI always downcases!
+        assert 'D(I)' in fgen(r2)
+
+    # Ensure that the equivalent parts match, but body and routine do not!
+    assert r1.symbol_attrs == r2.symbol_attrs
+    # OMNI source file paths are affected by the string change, which
+    # are attached and check to each source node object
+    if frontend != OMNI:
+        assert r1.spec == r2.spec
+    assert not r1.body == r2.body
+    assert not r1 == r2

@@ -604,7 +604,7 @@ def loop_fusion(routine):
                     condition = conditions[0]
                 else:
                     condition = sym.LogicalAnd(as_tuple(conditions))
-                body = Conditional(condition=condition, body=body, else_body=())
+                body = Conditional(condition=condition, body=as_tuple(body), else_body=())
 
             fusion_bodies += [body]
 

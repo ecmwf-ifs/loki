@@ -66,6 +66,8 @@ class Node:
         argnames = inspect.getfullargspec(cls.__init__).args
         obj._args = dict(zip(argnames[1:], args))
         obj._args.update(kwargs.items())
+        # Convert stored lists to tuples to make self._args hashable!
+        obj._args.update({k: tuple(v) for k, v in obj._args.items() if isinstance(v, list)})
         obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
         return obj
 
@@ -73,6 +75,25 @@ class Node:
         super().__init__()
         self._source = source
         self._label = label
+
+    @property
+    def _canonical(self):
+        """
+        Base definition for comparing :any:`Node` objects.
+
+        We use all constructor args for this, including `source`.
+        The ``source`` attributes makes IR nodes near-unqiue due to
+        strict adherence to line numbering.
+        """
+        return tuple(sorted(self._args.items()))
+
+    def __eq__(self, other):
+        if isinstance(other, Node):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)
 
     @property
     def children(self):
@@ -124,6 +145,8 @@ class Node:
         argnames = [i for i in self._traversable if i not in kwargs]
         self._args.update(OrderedDict(zip(argnames, args)))
         self._args.update(kwargs)
+        # Convert stored lists to tuples to make self._args hashable!
+        self._args.update({k: tuple(v) for k, v in self._args.items() if isinstance(v, list)})
         self.__init__(**self._args)  # pylint: disable=unnecessary-dunder-call
 
     @property
@@ -201,6 +224,7 @@ class Node:
     @property
     def uses_symbols(self):
         """
+
         Yield the list of symbols used by this node before defining it.
 
         This property is attached to the Node by
@@ -348,6 +372,10 @@ class Associate(ScopedNode, Section):
             self.associations = associations
 
         super().__init__(body=body, parent=parent, symbol_attrs=symbol_attrs, **kwargs)
+
+    @property
+    def _canonical(self):
+        return (self.associations, self.body, self.symbol_attrs, self.source)
 
     @property
     def association_map(self):
@@ -1272,6 +1300,17 @@ class TypeDef(ScopedNode, LeafNode):
         # Finally, register this typedef in the parent scope
         if self.parent:
             self.parent.symbol_attrs[self.name] = SymbolAttributes(self.dtype)
+
+    @property
+    def _canonical(self):
+        """
+        Base definition for comparing :any:`Node` objects.
+
+        We include all natural constructor args, but exclude parents,
+        since these are only stored as weakrefs.
+        """
+        _ignore = ('parent', )
+        return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
 
     @property
     def declarations(self):

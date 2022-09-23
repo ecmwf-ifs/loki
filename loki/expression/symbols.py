@@ -5,11 +5,13 @@ Expression tree node classes for
 import weakref
 from sys import intern
 import pymbolic.primitives as pmbl
+from pymbolic.mapper.evaluator import UnknownVariableError
 
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
 from loki.expression.mappers import ExpressionRetriever
+from loki.config import config
 
 
 __all__ = [
@@ -96,13 +98,15 @@ class StrCompareMixin:
     @staticmethod
     def _canonical(s):
         """ Define canonical string representations (lower-case, no spaces) """
+        if config['case-sensitive']:
+            return str(s).replace(' ', '')
         return str(s).lower().replace(' ', '')
 
     def __hash__(self):
         return hash(self._canonical(self))
 
     def __eq__(self, other):
-        if isinstance(other, str):
+        if isinstance(other, (str, type(self))):
             # Do comparsion based on canonical string representations
             return self._canonical(self) == self._canonical(other)
 
@@ -902,7 +906,7 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
 
         try:
             return float(self.value) == float(other)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, UnknownVariableError):
             return False
 
     def __lt__(self, other):

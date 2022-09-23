@@ -133,6 +133,19 @@ class DerivedType(DataType):
     def __repr__(self):
         return f'<DerivedType {self.name}>'
 
+    @property
+    def _canonical(self):
+        return (self._name, self.typedef)
+
+    def __eq__(self, other):
+        if isinstance(other, DerivedType):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)
+
+
 
 class ProcedureType(DataType):
     """
@@ -182,6 +195,18 @@ class ProcedureType(DataType):
             self._is_function = self.procedure.is_function
             # TODO: compare return type once type comparison is more robust
             self._return_type = self.procedure.return_type
+
+    @property
+    def _canonical(self):
+        return (self._name, self._procedure, self.is_function, self.is_generic, self.return_type)
+
+    def __eq__(self, other):
+        if isinstance(other, ProcedureType):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)
 
     @property
     def name(self):
@@ -275,6 +300,9 @@ class SymbolAttributes:
             if v is not None:
                 self.__setattr__(k, v)
 
+    def __hash__(self):
+        return hash(tuple(self.__dict__))
+
     def __setattr__(self, name, value):
         if value is None and name in dir(self):
             delattr(self, name)
@@ -311,6 +339,12 @@ class SymbolAttributes:
                 continue
             args += [(k, v)]
         return tuple(args)
+
+    def __eq__(self, other):
+        """
+        Compare :any:`SymbolAttributes` via internal comparison but without execptions.
+        """
+        return self.compare(other, ignore=None)
 
     def clone(self, **kwargs):
         """

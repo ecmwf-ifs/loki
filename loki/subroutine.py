@@ -221,6 +221,25 @@ class Subroutine(ProgramUnit):
         return super().clone(**kwargs)
 
     @property
+    def _canonical(self):
+        """
+        Base definition for comparing :any:`Subroutine` objects.
+        """
+        return (
+            self.name, self.is_function, self._dummies, self.prefix,
+            self.bind, self.docstring, self.spec, self.body,
+            self.contains, self.symbol_attrs
+        )
+
+    def __eq__(self, other):
+        if isinstance(other, Subroutine):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)
+
+    @property
     def procedure_symbol(self):
         """
         Return the procedure symbol for this subroutine
@@ -291,9 +310,9 @@ class Subroutine(ProgramUnit):
                 # By default, append new variables to the end of the spec
                 assert arg.type.intent is not None
                 if isinstance(arg.type, ProcedureType):
-                    new_decl = ir.ProcedureDeclaration(symbols=[arg])
+                    new_decl = ir.ProcedureDeclaration(symbols=(arg, ))
                 else:
-                    new_decl = ir.VariableDeclaration(symbols=[arg])
+                    new_decl = ir.VariableDeclaration(symbols=(arg, ))
                 self.spec.append(new_decl)
 
         # Set new dummy list according to input

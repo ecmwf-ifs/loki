@@ -135,8 +135,12 @@ class Transformer(Visitor):
         """
         Visit all elements in a tuple, injecting any one-to-many mappings.
         """
+        # First inject tuples that match at least a sub-set of current nodes
         o = self._inject_tuple_mapping(o)
+
+        # Then recurse over the new nodes
         visited = tuple(self.visit(i, **kwargs) for i in o)
+
         # Strip empty sublists/subtuples or None entries
         return tuple(i for i in visited if i is not None and as_tuple(i))
 
@@ -233,6 +237,22 @@ class NestedTransformer(Transformer):
     """
     A :class:`Transformer` that applies replacements in a depth-first fashion.
     """
+
+    def visit_tuple(self, o, **kwargs):
+        """
+        Visit all elements in a tuple, injecting any one-to-many mappings.
+        """
+
+        # Recurse to children first !
+        visited = tuple(self.visit(i, **kwargs) for i in o)
+
+        # Inject any matching sub-set of nodes into current tuple
+        visited = self._inject_tuple_mapping(visited)
+
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i))
+
+    visit_list = visit_tuple
 
     def visit_Node(self, o, **kwargs):
         """
@@ -505,7 +525,7 @@ class NestedMaskedTransformer(MaskedTransformer):
         body_index = o._traversable.index('body')
 
         if rebuilt[body_index]:
-            rebuilt[body_index] = flatten(rebuilt[body_index])
+            rebuilt[body_index] = as_tuple(flatten(rebuilt[body_index]))
 
         # check if body still exists, otherwise delete this node
         if not rebuilt[body_index]:
@@ -524,8 +544,8 @@ class NestedMaskedTransformer(MaskedTransformer):
             return super().visit(o, **kwargs)
 
         condition = self.visit(o.condition, **kwargs)
-        body = flatten(as_tuple(self.visit(o.body, **kwargs)))
-        else_body = flatten(as_tuple(self.visit(o.else_body, **kwargs)))
+        body = as_tuple(flatten(as_tuple(self.visit(o.body, **kwargs))))
+        else_body = as_tuple(flatten(as_tuple(self.visit(o.else_body, **kwargs))))
 
         if not body:
             return else_body

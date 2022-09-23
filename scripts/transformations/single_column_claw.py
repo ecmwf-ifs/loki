@@ -189,8 +189,8 @@ class ExtractSCATransformation(Transformation):
                 # Remove call-side arguments (in-place)
                 arguments = tuple(darg for darg, karg in zip(arguments, routine.arguments)
                                   if karg not in self.horizontal.variables)
-                kwarguments = list((darg, karg) for darg, karg in kwarguments
-                                   if karg not in self.horizontal.variables)
+                kwarguments = tuple((darg, karg) for darg, karg in kwarguments
+                                    if karg not in self.horizontal.variables)
                 new_call = call.clone(arguments=arguments, kwarguments=kwarguments)
 
                 # Create and insert new loop over self.horizontal dimension

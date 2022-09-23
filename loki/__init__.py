@@ -63,6 +63,10 @@ config.register('frontend-strict-mode', False, env_variable='LOKI_FRONTEND_STRIC
 config.register('disk-cache', False, env_variable='LOKI_DISK_CACHE',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)
 
+# Force symbol comparison and object equality to be case sensitive
+config.register('case-sensitive', False, env_variable='LOKI_CASE_SENSITIVE',
+                preprocess=lambda i: bool(i) if isinstance(i, int) else i)
+
 # Trigger configuration initialisation, including
 # a scan of the current environment variables
 config.initialize()

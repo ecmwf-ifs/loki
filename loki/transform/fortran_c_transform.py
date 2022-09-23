@@ -103,7 +103,7 @@ class FortranCTransformation(Transformation):
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type, typedef))
             vnew = v.clone(name=v.basename.lower(), scope=typedef, type=ctype)
             declarations += (VariableDeclaration(symbols=(vnew,)),)
-        typedef._update(body=declarations)
+        typedef._update(body=as_tuple(declarations))
         return typedef
 
     @staticmethod
@@ -170,11 +170,12 @@ class FortranCTransformation(Transformation):
                 casts_out += [Assignment(lhs=arg, rhs=cast_out)]
                 local_arg_map[arg.name] = cvar
 
-        arguments = [local_arg_map[a] if a in local_arg_map else Variable(name=a) for a in routine.argnames]
+        arguments = tuple(local_arg_map[a] if a in local_arg_map else Variable(name=a)
+                          for a in routine.argnames)
         wrapper_body = casts_in
         wrapper_body += [CallStatement(name=Variable(name=interface.body[0].name), arguments=arguments)]
         wrapper_body += casts_out
-        wrapper.body = Section(body=wrapper_body)
+        wrapper.body = Section(body=as_tuple(wrapper_body))
 
         # Copy internal argument and declaration definitions
         wrapper.variables = tuple(arg.clone(scope=wrapper) for arg in routine.arguments) + tuple(local_arg_map.values())
@@ -211,10 +212,10 @@ class FortranCTransformation(Transformation):
                 gettername = f'{module.name.lower()}__get__{v.name.lower()}'
                 getter = Subroutine(name=gettername, bind=gettername, is_function=True, parent=wrapper_module)
 
-                getter.spec = Section(body=[Import(module=module.name, symbols=[v.clone(scope=getter)])])
+                getter.spec = Section(body=(Import(module=module.name, symbols=(v.clone(scope=getter), )), ))
                 isoctype = SymbolAttributes(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
-                    getter.spec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
+                    getter.spec.append(Import(module='iso_c_binding', symbols=(isoctype.kind, )))
                 getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
                 getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
                 wrappers += [getter]
@@ -240,7 +241,7 @@ class FortranCTransformation(Transformation):
                 intf_fct.arguments = intf_args
                 sanitise_imports(intf_fct)
                 intfs.append(intf_fct)
-        spec.append(Interface(body=(intfs,)))
+        spec.append(Interface(body=(as_tuple(intfs),)))
 
         # Remove any unused imports
         sanitise_imports(wrapper_module)
@@ -315,9 +316,9 @@ class FortranCTransformation(Transformation):
                         variables += [v.clone(name=v.name.lower(), type=new_type, scope=header_td)]
                     else:
                         variables += [v.clone(name=v.name.lower(), scope=header_td)]
-                declarations += [VariableDeclaration(symbols=variables, dimensions=decl.dimensions,
+                declarations += [VariableDeclaration(symbols=as_tuple(variables), dimensions=decl.dimensions,
                                                      comment=decl.comment, pragma=decl.pragma)]
-            header_td._update(body=declarations)
+            header_td._update(body=as_tuple(declarations))
             spec += [header_td]
 
         # Generate a header declaration for module routines
