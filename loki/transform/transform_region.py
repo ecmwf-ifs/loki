@@ -4,11 +4,12 @@ Collection of utility routines that provide transformations for code regions.
 """
 from collections import defaultdict
 
-from loki import Subroutine, info
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import FindVariables, Variable
 from loki.ir import CallStatement, Comment, Import, Loop, Pragma, PragmaRegion, Section
+from loki.logging import info
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragma_regions_attached
+from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.transform.transform_array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables

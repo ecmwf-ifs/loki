@@ -1,8 +1,11 @@
 import re
-from loki import (
-    Sourcefile, Module, Subroutine, Transformer, FindNodes,
-    Comment, CommentBlock, LeafNode
-)
+
+from loki.ir import Comment, CommentBlock, LeafNode
+from loki.module import Module
+from loki.sourcefile import Sourcefile
+from loki.subroutine import Subroutine
+from loki.visitors import FindNodes, Transformer
+
 
 __all__ = ['Fixer', 'get_filename_from_parent', 'is_rule_disabled']
 

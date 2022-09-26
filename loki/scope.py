@@ -266,7 +266,7 @@ class Scope:
         Make sure all symbols declared and used inside this node belong
         to a scope in the scope hierarchy
         """
-        from loki.expression import AttachScopes  # pylint: disable=import-outside-toplevel
+        from loki.expression import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
         AttachScopes().visit(self)
 
     def clone(self, **kwargs):

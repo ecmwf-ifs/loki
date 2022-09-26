@@ -466,7 +466,7 @@ class ProgramUnit(Scope):
         """
         List of :class:`Subroutine` objects that are declared in this unit
         """
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         if self.contains is None:
             return ()
         return as_tuple([

@@ -678,7 +678,7 @@ class OFP2IR(GenericVisitor):
         if not 'type' in o.attrib:
             if o.find('access-spec') is not None:
                 # access-stmt for module
-                from loki.module import Module  # pylint: disable=import-outside-toplevel
+                from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
                 assert isinstance(kwargs['scope'], Module)
                 access_spec = o.find('access-spec').attrib['keyword'].lower()
                 assert access_spec in ('public', 'private')
@@ -1101,7 +1101,7 @@ class OFP2IR(GenericVisitor):
 
     def _create_Subroutine_object(self, o, scope):
         """Helper method to instantiate a Subroutine object"""
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         assert o.tag in ('subroutine', 'function')
         name = o.attrib['name']
 
@@ -1192,7 +1192,7 @@ class OFP2IR(GenericVisitor):
 
     def _create_Module_object(self, o, scope):
         """Helper method to instantiate a Module object"""
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
+        from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
 
         name = o.attrib['name']
 

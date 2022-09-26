@@ -173,7 +173,7 @@ class ProcedureType(DataType):
     """
 
     def __init__(self, name=None, is_function=None, is_generic=False, procedure=None, return_type=None):
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         super().__init__()
         assert name or isinstance(procedure, Subroutine)
         assert isinstance(return_type, SymbolAttributes) or procedure or not is_function
@@ -282,7 +282,7 @@ class ModuleType(DataType):
     """
 
     def __init__(self, name=None, module=None):
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
+        from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
         super().__init__()
         assert name or isinstance(module, Module)
         if module is None or isinstance(module, LazyNodeLookup):
@@ -413,8 +413,7 @@ class SymbolAttributes:
         """
         args = self.__dict__.copy()
         args.update(kwargs)
-        dtype = args.pop('dtype')
-        return self.__class__(dtype, **args)
+        return self.__class__(**args)
 
     def compare(self, other, ignore=None):
         """

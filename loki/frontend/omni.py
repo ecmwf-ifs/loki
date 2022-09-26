@@ -290,7 +290,7 @@ class OMNI2IR(GenericVisitor):
 
     def _create_Subroutine_object(self, o, scope, symbol_map):
         """Helper method to instantiate a Subroutine object"""
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         assert o.tag in ('FfunctionDefinition', 'FfunctionDecl')
         name = o.find('name').text
 
@@ -417,7 +417,7 @@ class OMNI2IR(GenericVisitor):
 
     def _create_Module_object(self, o, scope):
         """Helper method to instantiate a Module object"""
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
+        from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
 
         name = o.attrib['name']
 

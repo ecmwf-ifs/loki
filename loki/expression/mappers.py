@@ -36,7 +36,7 @@ class LokiStringifyMapper(StringifyMapper):
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
     def __init__(self, *args, **kwargs):
-        from loki.expression import operations as op  # pylint: disable=import-outside-toplevel
+        from loki.expression import operations as op  # pylint: disable=import-outside-toplevel,cyclic-import
         super().__init__(*args, **kwargs)
 
         # This should really be a class property but due to the circular dependency
@@ -118,7 +118,7 @@ class LokiStringifyMapper(StringifyMapper):
         Since substraction and unary minus are mapped to multiplication with (-1), we are here
         looking for such cases and determine the matching operator for the output.
         """
-        from loki.expression.operations import ParenthesisedMul  # pylint: disable=import-outside-toplevel
+        from loki.expression.operations import ParenthesisedMul  # pylint: disable=import-outside-toplevel,cyclic-import
         def get_op_prec_expr(expr):
             if isinstance(expr, pmbl.Product) and not isinstance(expr, ParenthesisedMul):
                 if pmbl.is_zero(expr.children[0]+1):
@@ -328,7 +328,7 @@ class ExpressionDimensionsMapper(Mapper):
     # pylint: disable=abstract-method
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
-        # pylint: disable=import-outside-toplevel
+        # pylint: disable=import-outside-toplevel,cyclic-import
         from loki.expression.symbols import IntLiteral
         return as_tuple(IntLiteral(1))
 

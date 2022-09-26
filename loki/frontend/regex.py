@@ -10,7 +10,8 @@ import re
 
 from loki import ir
 from loki.expression import symbols as sym
-from loki.frontend import Source, source_to_lines, join_source_list, REGEX
+from loki.frontend.util import REGEX
+from loki.frontend.source import Source, source_to_lines, join_source_list
 from loki.logging import PERF
 from loki.scope import SymbolAttributes
 from loki.tools import timeit, as_tuple
@@ -214,7 +215,7 @@ def match_module(source, scope, lazy_frontend=None):
         If no match is found, the first two entries are `None` and the last is the original
         :data:`source` object.
     """
-    from loki import Module  # pylint: disable=import-outside-toplevel
+    from loki import Module  # pylint: disable=import-outside-toplevel,cyclic-import
     match = _re_module.search(source.string)
     if not match:
         return None, None, source
@@ -296,7 +297,7 @@ def match_subroutine_function(source, scope, lazy_frontend=None):
         If no match is found, the first two entries are `None` and the last is the original
         :data:`source` object.
     """
-    from loki import Subroutine  # pylint: disable=import-outside-toplevel
+    from loki import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
     match = _re_subroutine_function.search(source.string)
     if not match:
         return None, None, source

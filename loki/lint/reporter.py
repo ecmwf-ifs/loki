@@ -12,9 +12,13 @@ try:
 except ImportError:
     HAVE_JUNIT_XML = False
 
-from loki import Sourcefile, Module, Subroutine, Node, filehash
-from loki.logging import logger, error
+from loki.ir import Node
 from loki.lint.utils import get_filename_from_parent, is_rule_disabled
+from loki.logging import logger, error
+from loki.module import Module
+from loki.sourcefile import Sourcefile
+from loki.subroutine import Subroutine
+from loki.tools import filehash
 
 
 class ProblemReport:

@@ -185,7 +185,7 @@ class Node:
         """
         Pretty-print the node hierachy under this node.
         """
-        # pylint: disable=import-outside-toplevel
+        # pylint: disable=import-outside-toplevel,cyclic-import
         from loki.visitors import pprint
         pprint(self)
 
@@ -1353,7 +1353,7 @@ class TypeDef(ScopedNode, LeafNode):
         return f'TypeDef:: {self.name}'
 
     def clone(self, **kwargs):
-        from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel
+        from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel,cyclic-import
         if 'body' not in kwargs:
             kwargs['body'] = Transformer().visit(self.body)
         return super().clone(**kwargs)

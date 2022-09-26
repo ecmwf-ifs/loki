@@ -850,7 +850,7 @@ class FParser2IR(GenericVisitor):
         * keyword ``PRIVATE`` or ``PUBLIC`` (`str`)
         * optional list of names (:class:`fparser.two.Fortran2003.Access_Id_List`) or `None`
         """
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
+        from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
         assert isinstance(kwargs['scope'], Module)
         assert o.children[0] in ('PUBLIC', 'PRIVATE')
 
@@ -1767,7 +1767,7 @@ class FParser2IR(GenericVisitor):
         * dummy argument list :class:`fparser.two.Fortran2003.Dummy_Arg_List`
         * language binding specs :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
         """
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
 
         # Parse the prefix
         prefix = ()
@@ -1935,7 +1935,7 @@ class FParser2IR(GenericVisitor):
             * keyword `MODULE` (str)
             * name :class:`fparser.two.Fortran2003.Module_Name`
         """
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
+        from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
 
         name = self.visit(o.children[1], **kwargs)
         name = name.name

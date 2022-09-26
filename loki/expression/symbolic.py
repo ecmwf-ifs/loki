@@ -6,7 +6,8 @@ import operator as _op
 import numpy as np
 import pymbolic.primitives as pmbl
 
-from loki.expression import symbols as sym, LokiIdentityMapper
+from loki.expression.mappers import LokiIdentityMapper
+import loki.expression.symbols as sym
 from loki.tools import as_tuple
 
 __all__ = [
@@ -478,7 +479,7 @@ class Simplification(enum.Flag):
     IntegerArithmetic = enum.auto()
     CollectCoefficients = enum.auto()
 
-    ALL = Flatten | IntegerArithmetic | CollectCoefficients
+    ALL = Flatten | IntegerArithmetic | CollectCoefficients  # pylint: disable=unsupported-binary-operation
 
 
 class SimplifyMapper(LokiIdentityMapper):

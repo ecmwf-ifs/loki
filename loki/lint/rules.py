@@ -3,8 +3,10 @@ Base class for linter rules and available rule types
 """
 from enum import Enum
 
-from loki import Sourcefile, Module, Subroutine
-from loki.lint import is_rule_disabled
+from loki.lint.utils import is_rule_disabled
+from loki.module import Module
+from loki.sourcefile import Sourcefile
+from loki.subroutine import Subroutine
 
 
 class RuleType(Enum):
