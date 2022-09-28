@@ -11,7 +11,7 @@ from loki.frontend import (
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source
 
 )
-from loki.ir import Section, RawSource, Comment
+from loki.ir import Section, RawSource, Comment, PreprocessorDirective
 from loki.logging import info
 from loki.module import Module
 from loki.program_unit import ProgramUnit
@@ -328,27 +328,43 @@ class Sourcefile:
         if not self._incomplete:
             return
 
+        frontend = frontend_args.pop('frontend', FP)
+
         body = []
         for node in self.ir.body:
             if isinstance(node, ProgramUnit):
                 node.make_complete(**frontend_args)
                 body += [node]
-            else:
-                if isinstance(node, RawSource):
+            elif isinstance(node, RawSource):
+                # Typically, this should only be comments, PP statements etc., therefore
+                # we are not bothering with type tables, definitions or similar to parse them
+                if frontend == OMNI:
+                    ast = parse_omni_source(source=node.source.string)
+                    ir_ = parse_omni_ast(ast=ast, raw_source=node.source.string, **frontend_args)
+                elif frontend == OFP:
+                    ast = parse_ofp_source(source=node.source.string)
+                    ir_ = parse_ofp_ast(ast, raw_source=node.source.string, **frontend_args)
+                elif frontend == FP:
                     # Fparser is unable to parse comment-only source files/strings,
                     # so we see if this is only comments and convert them ourselves
                     # (https://github.com/stfc/fparser/issues/375)
+                    # This can be removed once fparser 0.0.17 is released
                     lines = [l.lstrip() for l in node.text.splitlines()]
-                    if all(not l or l[0] == '!' for l in lines):
-                        body += [
-                            Comment(text=line.string, source=line)
+                    if all(not l or l[0] in '!#' for l in lines):
+                        ir_ = [
+                            PreprocessorDirective(text=line.string, source=line) if line.string.lstrip().startswith('#')
+                            else Comment(text=line.string, source=line)
                             for line in node.source.clone_lines()
                         ]
-                        continue
+                    else:
+                        ast = parse_fparser_source(node.source.string)
+                        ir_ = parse_fparser_ast(ast, raw_source=node.source.string, **frontend_args)
+                else:
+                    raise NotImplementedError(f'Unknown frontend: {frontend}')
+                body += flatten([ir_])
+            else:
+                body += [node]
 
-                ast = parse_fparser_source(node.source.string)
-                ir_ = parse_fparser_ast(ast, raw_source=node.source.string, **frontend_args)
-                body += [ir_]
         self.ir._update(body=as_tuple(body))
         self._incomplete = False
 

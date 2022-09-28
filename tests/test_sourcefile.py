@@ -224,12 +224,47 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sourcefile_lazy_construction(here, frontend):
+def test_sourcefile_lazy_construction(frontend):
     """
     Test delayed ("lazy") parsing of sourcefile content
     """
-    filepath = here/'sources/sourcefile.f90'
-    source = Sourcefile.from_file(filepath, frontend=frontend, lazy=True)
+    fcode = """
+! A comment to test
+subroutine routine_a
+integer a
+a = 1
+end subroutine routine_a
+
+module some_module
+contains
+subroutine module_routine
+integer m
+m = 2
+end subroutine module_routine
+function module_function(n)
+integer n
+n = 3
+end function module_function
+end module some_module
+
+#ifndef SOME_PREPROC_VAR
+subroutine routine_b
+integer b
+b = 4
+contains
+subroutine contained_c
+integer c
+c = 5
+end subroutine contained_c
+end subroutine routine_b
+#endif
+
+function function_d(d)
+integer d
+d = 6
+end function function_d
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend, lazy=True)
     assert len(source.subroutines) == 3
     assert len(source.all_subroutines) == 5
 
@@ -239,6 +274,7 @@ def test_sourcefile_lazy_construction(here, frontend):
 
     # Make sure we have an incomplete parse tree until now
     assert source._incomplete
+    assert len(FindNodes(RawSource).visit(source.ir)) == 3
     assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
 
     # Trigger the full parse
@@ -246,6 +282,9 @@ def test_sourcefile_lazy_construction(here, frontend):
     assert not source._incomplete
 
     # Make sure no RawSource nodes are left
+    assert not FindNodes(RawSource).visit(source.ir)
+    assert len(FindNodes(Comment).visit(source.ir)) == 3 # Some newlines are also treated as comments
+    assert len(FindNodes(PreprocessorDirective).visit(source.ir)) == 2
     for routine in source.all_subroutines:
         assert not FindNodes(RawSource).visit(routine.ir)
         assert len(FindNodes(Assignment).visit(routine.ir)) == 1
