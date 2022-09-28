@@ -5,7 +5,7 @@ from conftest import available_frontends, jit_compile, clean_test
 from loki import (
     OFP, OMNI, Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
-    Transformer, fgen, SymbolAttributes, Variable, Import
+    Transformer, fgen, SymbolAttributes, Variable, Import, Section, Intrinsic
 )
 
 
@@ -1107,3 +1107,41 @@ end module a_module
         assert m1.spec == m2.spec
     assert not m1.contains == m2.contains
     assert not m1 == m2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_contains_auto_insert(frontend):
+    """
+    Test that `CONTAINS` keyword is automatically inserted into the `contains` section
+    of a :any:`ProgramUnit` object.
+    """
+    fcode_mod = """
+module empty_mod
+    implicit none
+end module empty_mod
+    """.strip()
+    fcode_routine1 = """
+subroutine routine1
+end subroutine routine1
+    """.strip()
+    fcode_routine2 = """
+subroutine routine2
+end subroutine routine2
+    """.strip()
+
+    module = Module.from_source(fcode_mod, frontend=frontend)
+    routine1 = Subroutine.from_source(fcode_routine1, frontend=frontend)
+    routine2 = Subroutine.from_source(fcode_routine2, frontend=frontend)
+
+    assert module.contains is None
+    assert routine1.contains is None
+
+    routine1 = routine1.clone(contains=routine2)
+    assert isinstance(routine1.contains, Section)
+    assert isinstance(routine1.contains.body[0], Intrinsic)
+    assert routine1.contains.body[0].text == 'CONTAINS'
+
+    module = module.clone(contains=routine1)
+    assert isinstance(module.contains, Section)
+    assert isinstance(module.contains.body[0], Intrinsic)
+    assert module.contains.body[0].text == 'CONTAINS'
