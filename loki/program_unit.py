@@ -67,7 +67,7 @@ class ProgramUnit(Scope):
             for node in contains.body:
                 if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():
                     break
-                elif isinstance(node, ProgramUnit):
+                if isinstance(node, ProgramUnit):
                     contains.prepend(ir.Intrinsic(text='CONTAINS'))
                     break
 

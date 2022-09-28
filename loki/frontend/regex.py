@@ -10,7 +10,6 @@ import re
 
 from loki import ir
 from loki.expression import symbols as sym
-from loki.frontend.util import REGEX
 from loki.frontend.source import Source, source_to_lines, join_source_list
 from loki.logging import PERF
 from loki.scope import SymbolAttributes
