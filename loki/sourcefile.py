@@ -41,28 +41,25 @@ class Sourcefile:
         Parser-AST of the original source file.
     source : :any:`Source`, optional
         Raw source string and line information about the original source file.
-    frontend : :any:`Frontend`, optional
-        The frontend used to create this object.
     incomplete : bool, optional
         Mark the object as incomplete, i.e. only partially parsed. This is
         typically the case when it was instantiated using the :any:`Frontend.REGEX`
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, path, ir=None, ast=None, source=None, frontend=None, incomplete=False):
+    def __init__(self, path, ir=None, ast=None, source=None, incomplete=False):
         self.path = Path(path) if path is not None else path
         if ir is not None and not isinstance(ir, Section):
             ir = Section(body=ir)
         self.ir = ir
         self._ast = ast
         self._source = source
-        self._frontend = frontend
         self._incomplete = incomplete
 
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
                   includes=None, defines=None, omni_includes=None,
-                  xmods=None, frontend=FP, lazy=False):
+                  xmods=None, frontend=FP):
         """
         Constructor from raw source files that can apply a
         C-preprocessor before invoking frontend parsers.
@@ -96,10 +93,6 @@ class Sourcefile:
             value of :data:`includes`.
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
-        lazy : bool, optional
-            Delay a full parse of the source and use the :any:`REGEX` frontend
-            to produce an incomplete IR. A complete IR can be obtained by calling
-            :meth:`make_complete` explicitly or implicitly when applying a transformation.
         """
         filepath = Path(filename)
         raw_source = read_file(filepath)
@@ -112,8 +105,8 @@ class Sourcefile:
         else:
             source = raw_source
 
-        if frontend == REGEX or lazy:
-            return cls.from_regex(source, filepath, lazy_frontend=frontend if lazy else None)
+        if frontend == REGEX:
+            return cls.from_regex(source, filepath)
 
         if frontend == OMNI:
             return cls.from_omni(source, filepath, definitions=definitions,
@@ -187,7 +180,7 @@ class Sourcefile:
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, ir=ir, ast=ast, source=source, frontend=OMNI)
+        return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
     def from_ofp(cls, raw_source, filepath, definitions=None):
@@ -223,7 +216,7 @@ class Sourcefile:
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, ir=ir, ast=ast, source=source, frontend=OFP)
+        return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
     def from_fparser(cls, raw_source, filepath, definitions=None):
@@ -259,22 +252,20 @@ class Sourcefile:
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, ir=ir, ast=ast, source=source, frontend=FP)
+        return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
-    def from_regex(cls, raw_source, filepath, lazy_frontend=None):
+    def from_regex(cls, raw_source, filepath):
         """
         Parse a given source string using the fparser frontend
         """
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=filepath)
-        ir = parse_regex_source(source, lazy_frontend=lazy_frontend)
-        if lazy_frontend is not None:
-            return cls(path=filepath, ir=ir, source=source, incomplete=True, frontend=lazy_frontend)
-        return cls(path=filepath, ir=ir, source=source, frontend=REGEX)
+        ir = parse_regex_source(source)
+        return cls(path=filepath, ir=ir, source=source, incomplete=True)
 
     @classmethod
-    def from_source(cls, source, xmods=None, definitions=None, frontend=FP, lazy=False):
+    def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
         """
         Constructor from raw source string that invokes specified frontend parser
 
@@ -290,13 +281,9 @@ class Sourcefile:
             definitions.
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
-        lazy : bool, optional
-            Delay a full parse of the source and use the :any:`REGEX` frontend
-            to produce an incomplete IR. A complete IR can be obtained by calling
-            :meth:`make_complete` explicitly or implicitly when applying a transformation.
         """
-        if frontend == REGEX or lazy:
-            return cls.from_regex(source, filepath=None, lazy_frontend=frontend if lazy else None)
+        if frontend == REGEX:
+            return cls.from_regex(source, filepath=None)
 
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)
@@ -333,7 +320,7 @@ class Sourcefile:
         body = []
         for node in self.ir.body:
             if isinstance(node, ProgramUnit):
-                node.make_complete(**frontend_args)
+                node.make_complete(frontend=frontend, **frontend_args)
                 body += [node]
             elif isinstance(node, RawSource):
                 # Typically, this should only be comments, PP statements etc., therefore
@@ -361,6 +348,8 @@ class Sourcefile:
                         ir_ = parse_fparser_ast(ast, raw_source=node.source.string, **frontend_args)
                 else:
                     raise NotImplementedError(f'Unknown frontend: {frontend}')
+                if isinstance(ir_, Section):
+                    ir_ = ir_.body
                 body += flatten([ir_])
             else:
                 body += [node]

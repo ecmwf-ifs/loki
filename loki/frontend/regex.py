@@ -25,7 +25,7 @@ HAVE_REGEX = True
 
 
 @timeit(log_level=PERF)
-def parse_regex_source(source, scope=None, lazy_frontend=None):
+def parse_regex_source(source, scope=None):
     """
     Generate a reduced Loki IR from regex parsing of the given Fortran source
 
@@ -38,18 +38,16 @@ def parse_regex_source(source, scope=None, lazy_frontend=None):
         The raw source string
     scope : :any:`Scope`, optional
         The enclosing parent scope
-    lazy_frontend : :any:`Frontend`, optional
-        The frontend to use when triggering a full parse.
     """
     candidates = (match_module, match_subroutine_function)
     if not isinstance(source, Source):
         lines = (1, source.count('\n') + 1)
         source = Source(lines=lines, string=source)
-    ir_ = match_block_candidates(source, candidates, scope=scope, lazy_frontend=lazy_frontend)
+    ir_ = match_block_candidates(source, candidates, scope=scope)
     return ir.Section(body=as_tuple(ir_), source=source)
 
 
-def match_block_candidates(source, candidates, scope=None, lazy_frontend=None):
+def match_block_candidates(source, candidates, scope=None):
     """
     Apply match functions to :data:`source` recursively
 
@@ -61,19 +59,17 @@ def match_block_candidates(source, candidates, scope=None, lazy_frontend=None):
         The list of candidate match functions to call
     scope : :any:`Scope`
         The parent scope for this source code snippet
-    lazy_frontend : :any:`Frontend`, optional
-        The frontend to use when triggering a full parse.
     """
     blocks = []
     for idx, candidate in enumerate(candidates):
         while source.string:
-            pre, match, source = candidate(source, scope=scope, lazy_frontend=lazy_frontend)
+            pre, match, source = candidate(source, scope=scope)
             if not match:
                 assert pre is None
                 break
             if pre:
                 # See if any of the other candidates match before this match
-                blocks += match_block_candidates(pre, candidates[idx+1:], scope=scope, lazy_frontend=lazy_frontend)
+                blocks += match_block_candidates(pre, candidates[idx+1:], scope=scope)
             blocks += [match]
     if source.string.strip():
         blocks += [ir.RawSource(text=source.string, source=source)]
@@ -115,7 +111,7 @@ def match_statement_candidates(source, candidates, scope=None):
     return ir_
 
 
-def match_block_statement_candidates(source, block_candidates, statement_candidates, scope=None, lazy_frontend=None):
+def match_block_statement_candidates(source, block_candidates, statement_candidates, scope=None):
     """
     Apply match functions to :data:`source` recursively
 
@@ -132,8 +128,6 @@ def match_block_statement_candidates(source, block_candidates, statement_candida
         The list of candidate match functions for individual statements to call
     scope : :any:`Scope`
         The parent scope for this source code snippet
-    lazy_frontend : :any:`Frontend`, optional
-        The frontend to use when triggering a full parse.
     """
     blocks = []
     for idx, candidate in enumerate(block_candidates):
@@ -145,7 +139,7 @@ def match_block_statement_candidates(source, block_candidates, statement_candida
             if pre:
                 # See if any of the other candidates match before this match
                 blocks += match_block_statement_candidates(
-                    pre, block_candidates[idx+1:], statement_candidates, scope=scope, lazy_frontend=lazy_frontend
+                    pre, block_candidates[idx+1:], statement_candidates, scope=scope
                 )
             blocks += [match]
     if source.string.strip():
@@ -191,7 +185,7 @@ _re_module = re.compile(
 """Pattern to match module definitions."""
 
 
-def match_module(source, scope, lazy_frontend=None):
+def match_module(source, scope):
     """
     Search for a module definition in :data:`source`
 
@@ -204,8 +198,6 @@ def match_module(source, scope, lazy_frontend=None):
         The source file object containing a string to match
     scope : :any:`Scope`
         The enclosing scope a matched object is embedded into
-    lazy_frontend : :any:`Frontend`, optional
-        The frontend to use when triggering a full parse.
 
     Returns
     -------
@@ -226,7 +218,7 @@ def match_module(source, scope, lazy_frontend=None):
         statement_candidates = (match_import, )
         spec = match_block_statement_candidates(
             source.clone_with_span(match.span('spec')), block_candidates, statement_candidates,
-            scope=module, lazy_frontend=lazy_frontend
+            scope=module
         )
     else:
         spec = None
@@ -237,16 +229,15 @@ def match_module(source, scope, lazy_frontend=None):
         if match['contains_body']:
             contains_source = source.clone_with_span(match.span('contains_body'))
             contains += match_block_candidates(
-                contains_source, [match_subroutine_function], scope=module, lazy_frontend=lazy_frontend
+                contains_source, [match_subroutine_function], scope=module
             )
     else:
         contains = None
 
     # pylint: disable=unnecessary-dunder-call
     module.__init__(
-        name=module.name, spec=spec, contains=contains,
-        parent=module.parent, source=module.source, symbol_attrs=module.symbol_attrs,
-        incomplete=lazy_frontend is not None, frontend=lazy_frontend or REGEX
+        name=module.name, spec=spec, contains=contains, parent=module.parent,
+        source=module.source, symbol_attrs=module.symbol_attrs, incomplete=True
     )
 
     return (
@@ -272,7 +263,7 @@ _re_subroutine_function = re.compile(
 """Pattern to match subroutine/function definitions."""
 
 
-def match_subroutine_function(source, scope, lazy_frontend=None):
+def match_subroutine_function(source, scope):
     """
     Search for a subroutine or function definition in :data:`source`
 
@@ -286,8 +277,6 @@ def match_subroutine_function(source, scope, lazy_frontend=None):
         The source file object containing a string to match
     scope : :any:`Scope`
         The enclosing scope a matched object is embedded into
-    lazy_frontend : :any:`Frontend`, optional
-        The frontend to use when triggering a full parse.
 
     Returns
     -------
@@ -326,7 +315,7 @@ def match_subroutine_function(source, scope, lazy_frontend=None):
         if match['contains_body']:
             contains_source = source.clone_with_span(match.span('contains_body'))
             contains += match_block_candidates(
-                contains_source, [match_subroutine_function], scope=routine, lazy_frontend=lazy_frontend
+                contains_source, [match_subroutine_function], scope=routine
             )
     else:
         contains = None
@@ -334,9 +323,8 @@ def match_subroutine_function(source, scope, lazy_frontend=None):
     # pylint: disable=unnecessary-dunder-call
     routine.__init__(
         name=routine.name, args=routine._dummies, is_function=routine.is_function,
-        spec=spec, contains=contains,
-        parent=routine.parent, source=routine.source, symbol_attrs=routine.symbol_attrs,
-        incomplete=lazy_frontend is not None, frontend=lazy_frontend or REGEX
+        spec=spec, contains=contains, parent=routine.parent, source=routine.source,
+        symbol_attrs=routine.symbol_attrs, incomplete=True
     )
 
     return (

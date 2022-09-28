@@ -56,8 +56,6 @@ class Subroutine(ProgramUnit):
         Defaults to `False`.
     symbol_attrs : :any:`SymbolTable`, optional
         Use the provided :any:`SymbolTable` object instead of creating a new
-    frontend : :any:`Frontend`, optional
-        The frontend used to create this object.
     incomplete : bool, optional
         Mark the object as incomplete, i.e. only partially parsed. This is
         typically the case when it was instantiated using the :any:`Frontend.REGEX`
@@ -66,7 +64,7 @@ class Subroutine(ProgramUnit):
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, contains=None,
                  prefix=None, bind=None, is_function=False, ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None, frontend=None, incomplete=False):
+                 rescope_symbols=False, symbol_attrs=None, incomplete=False):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self.prefix = as_tuple(prefix)
@@ -82,7 +80,7 @@ class Subroutine(ProgramUnit):
         super().__init__(
             name=name, docstring=docstring, spec=spec, contains=contains,
             ast=ast, source=source, parent=parent, rescope_symbols=rescope_symbols,
-            symbol_attrs=symbol_attrs, frontend=frontend, incomplete=incomplete
+            symbol_attrs=symbol_attrs, incomplete=incomplete
         )
 
     @staticmethod
@@ -192,7 +190,7 @@ class Subroutine(ProgramUnit):
         )[-1]
 
     @classmethod
-    def from_regex(cls, raw_source, parent=None, lazy_frontend=None):
+    def from_regex(cls, raw_source, parent=None):
         """
         Create :any:`Subroutine` from source regex'ing
 
@@ -202,12 +200,10 @@ class Subroutine(ProgramUnit):
             Fortran source string
         parent : :any:`Scope`, optional
             The enclosing parent scope of the subroutine, typically a :any:`Module`.
-        lazy_frontend : :any:`Frontend`, optional
-            The frontend to use when triggering a full parse.
         """
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source)
-        ir_ = parse_regex_source(source, scope=parent, lazy_frontend=lazy_frontend)
+        ir_ = parse_regex_source(source, scope=parent)
         return [node for node in ir_.body if isinstance(node, cls)][0]
 
     def register_in_parent_scope(self):

@@ -388,7 +388,7 @@ class OMNI2IR(GenericVisitor):
             docstring=docstring, spec=spec, body=body, contains=contains,
             ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
             rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-            source=routine.source, frontend=OMNI, incomplete=False
+            source=routine.source, incomplete=False
         )
 
         # Big, but necessary hack:
@@ -483,7 +483,7 @@ class OMNI2IR(GenericVisitor):
             name=module.name, docstring=docstring, spec=spec, contains=contains,
             ast=o, rescope_symbols=True, source=kwargs['source'],
             parent=module.parent, symbol_attrs=module.symbol_attrs,
-            frontend=OMNI, incomplete=False
+            incomplete=False
         )
 
         return module

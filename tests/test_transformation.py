@@ -3,7 +3,7 @@ import pytest
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    OMNI, Sourcefile, Subroutine, CallStatement, Import,
+    OMNI, REGEX, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen,
     Assignment, IntLiteral, Module
 )
@@ -53,11 +53,19 @@ subroutine myroutine(a, b)
 end subroutine myroutine
 """
     # Let source apply transformation to all items and verify
-    source = Sourcefile.from_source(fcode, frontend=frontend, lazy=lazy)
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
     assert source._incomplete is lazy
     if method == 'source':
+        if lazy:
+            with pytest.raises(RuntimeError):
+                source.apply(rename_transform)
+            source.make_complete(frontend=frontend)
         source.apply(rename_transform)
     elif method == 'transformation':
+        if lazy:
+            with pytest.raises(RuntimeError):
+                rename_transform.apply(source)
+            source.make_complete(frontend=frontend)
         rename_transform.apply(source)
     else:
         raise ValueError(f'Unknown method "{method}"')
@@ -104,10 +112,16 @@ subroutine myroutine(a, b)
   a = a + b
 end subroutine myroutine
 """
-    source = Sourcefile.from_source(fcode, frontend=frontend, lazy=lazy)
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
     assert source._incomplete is lazy
     assert source[target]._incomplete is lazy
+
+    if lazy:
+        with pytest.raises(RuntimeError):
+            apply_method(rename_transform, source[target])
+        source[target].make_complete(frontend=frontend)
     apply_method(rename_transform, source[target])
+
     assert source._incomplete is lazy  # This should only have triggered a re-parse on the actual transformation target
     assert not source[f'{target}_test']._incomplete
     assert source.modules[0].name == 'mymodule'
@@ -160,11 +174,17 @@ subroutine myroutine(a, b)
   a = a + b
 end subroutine myroutine
 """
-    source = Sourcefile.from_source(fcode, frontend=frontend, lazy=lazy)
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
     assert source._incomplete is lazy
     assert source['mymodule']._incomplete is lazy
     assert source['myroutine']._incomplete is lazy
+
+    if lazy:
+        with pytest.raises(RuntimeError):
+            apply_method(rename_transform, source['mymodule'])
+        source['mymodule'].make_complete(frontend=frontend)
     apply_method(rename_transform, source['mymodule'])
+
     assert source._incomplete is lazy
     assert not source['mymodule_test']._incomplete
     assert source['myroutine']._incomplete is lazy
