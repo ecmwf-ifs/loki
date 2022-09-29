@@ -6,7 +6,7 @@ from collections import defaultdict
 from itertools import count
 import operator as op
 
-from loki import info
+from loki.logging import info
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
     symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions

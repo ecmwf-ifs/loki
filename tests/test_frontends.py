@@ -9,7 +9,7 @@ import pytest
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
-    BasicType, OMNI, OFP, Enumeration, config
+    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource
 )
 from loki.expression import symbols as sym
 
@@ -363,3 +363,536 @@ end module frontend_strict_mode
     module = Module.from_source(fcode, frontend=frontend)
     assert 'matrix' in module.symbol_attrs
     assert 'matrix' in module.typedefs
+
+
+def test_regex_subroutine_from_source():
+    """
+    Verify that the regex frontend is able to parse subroutines
+    """
+    fcode = """
+subroutine routine_b(
+    ! arg 1
+    i,
+    ! arg2
+    j
+)
+    implicit none
+    integer, intent(in) :: i, j
+    integer b
+    b = 4
+
+    call contained_c(i)
+
+    call routine_a()
+contains
+!abc ^$^**
+    subroutine contained_c(i)
+        integer, intent(in) :: i
+        integer c
+        c = 5
+    end subroutine contained_c
+    ! cc£$^£$^
+    integer function contained_e(i)
+        integer, intent(in) :: i
+        contained_e = i
+    end function
+
+    subroutine contained_d(i)
+        integer, intent(in) :: i
+        integer c
+        c = 8
+    end subroutine !add"£^£$
+end subroutine routine_b
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=REGEX)
+    assert routine.name == 'routine_b'
+    assert not routine.is_function
+    assert routine.arguments == ('i', 'j')
+    assert routine.argnames == ['i', 'j']
+    assert [r.name for r in routine.subroutines] == ['contained_c', 'contained_e', 'contained_d']
+
+    contained_c = routine['contained_c']
+    assert contained_c.name == 'contained_c'
+    assert not contained_c.is_function
+    assert contained_c.arguments == ('i',)
+    assert contained_c.argnames == ['i']
+
+    contained_e = routine['contained_e']
+    assert contained_e.name == 'contained_e'
+    assert contained_e.is_function
+    assert contained_e.arguments == ('i',)
+    assert contained_e.argnames == ['i']
+
+    contained_d = routine['contained_d']
+    assert contained_d.name == 'contained_d'
+    assert not contained_d.is_function
+    assert contained_d.arguments == ('i',)
+    assert contained_d.argnames == ['i']
+
+    code = routine.to_fortran()
+    assert code.count('SUBROUTINE') == 6
+    assert code.count('FUNCTION') == 2
+    assert code.count('contains') == 1
+
+
+def test_regex_module_from_source():
+    """
+    Verify that the regex frontend is able to parse modules
+    """
+    fcode = """
+module some_module
+    implicit none
+    use foobar
+contains
+    subroutine module_routine
+        integer m
+        m = 2
+
+        call routine_b(m, 6)
+    end subroutine module_routine
+
+    function module_function(n)
+        integer n
+        n = 3
+    end function module_function
+end module some_module
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=REGEX)
+    assert module.name == 'some_module'
+    assert [r.name for r in module.subroutines] == ['module_routine', 'module_function']
+
+    code = module.to_fortran()
+    assert code.count('MODULE') == 2
+    assert code.count('SUBROUTINE') == 2
+    assert code.count('FUNCTION') == 2
+    assert code.count('contains') == 1
+
+
+def test_regex_sourcefile_from_source():
+    """
+    Verify that the regex frontend is able to parse source files containing
+    multiple modules and subroutines
+    """
+    fcode = """
+subroutine routine_a
+    integer a, i
+    a = 1
+    i = a + 1
+
+    call routine_b(a, i)
+end subroutine routine_a
+
+module some_module
+contains
+    subroutine module_routine
+        integer m
+        m = 2
+
+        call routine_b(m, 6)
+    end subroutine module_routine
+
+    function module_function(n)
+        integer n
+        n = 3
+    end function module_function
+end module some_module
+
+module other_module
+    integer :: n
+end module
+
+subroutine routine_b(
+    ! arg 1
+    i,
+    ! arg2
+    j,
+    k!arg3
+)
+  integer, intent(in) :: i, j, k
+  integer b
+  b = 4
+
+  call contained_c(i)
+
+  call routine_a()
+contains
+!abc ^$^**
+    subroutine contained_c(i)
+        integer, intent(in) :: i
+        integer c
+        c = 5
+    end subroutine contained_c
+    ! cc£$^£$^
+    integer function contained_e(i)
+        integer, intent(in) :: i
+        contained_e = i
+    end function
+
+    subroutine contained_d(i)
+        integer, intent(in) :: i
+        integer c
+        c = 8
+    end subroutine !add"£^£$
+end subroutine routine_b
+
+function function_d(d)
+    integer d
+    d = 6
+end function function_d
+    """.strip()
+
+    sourcefile = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert [m.name for m in sourcefile.modules] == ['some_module', 'other_module']
+    assert [r.name for r in sourcefile.routines] == [
+        'routine_a', 'routine_b', 'function_d'
+    ]
+    assert [r.name for r in sourcefile.all_subroutines] == [
+        'routine_a', 'routine_b', 'function_d', 'module_routine', 'module_function'
+    ]
+
+    code = sourcefile.to_fortran()
+    assert code.count('SUBROUTINE') == 10
+    assert code.count('FUNCTION') == 6
+    assert code.count('contains') == 2
+    assert code.count('MODULE') == 4
+
+
+def test_regex_sourcefile_from_file(here):
+    """
+    Verify that the regex frontend is able to parse source files containing
+    multiple modules and subroutines
+    """
+
+    sourcefile = Sourcefile.from_file(here/'sources/sourcefile.f90', frontend=REGEX)
+    assert [m.name for m in sourcefile.modules] == ['some_module']
+    assert [r.name for r in sourcefile.routines] == [
+        'routine_a', 'routine_b', 'function_d'
+    ]
+    assert [r.name for r in sourcefile.all_subroutines] == [
+        'routine_a', 'routine_b', 'function_d', 'module_routine', 'module_function'
+    ]
+
+    routine_b = sourcefile['ROUTINE_B']
+    assert routine_b.name == 'routine_b'
+    assert not routine_b.is_function
+    assert routine_b.arguments == ()
+    assert routine_b.argnames == []
+    assert [r.name for r in routine_b.subroutines] == ['contained_c']
+
+    function_d = sourcefile['function_d']
+    assert function_d.name == 'function_d'
+    assert function_d.is_function
+    assert function_d.arguments == ('d',)
+    assert function_d.argnames == ['d']
+    assert not function_d.contains
+
+    code = sourcefile.to_fortran()
+    assert code.count('SUBROUTINE') == 8
+    assert code.count('FUNCTION') == 4
+    assert code.count('contains') == 2
+    assert code.count('MODULE') == 2
+
+
+def test_regex_raw_source():
+    """
+    Verify that unparsed source appears in-between matched objects
+    """
+    fcode = """
+! Some comment before the module
+!
+module some_mod
+    ! Some docstring
+    ! docstring
+    ! docstring
+    use some_mod
+    ! Some comment
+    ! comment
+    ! comment
+end module some_mod
+
+! Other comment at the end
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+
+    assert len(source.ir.body) == 3
+
+    assert isinstance(source.ir.body[0], RawSource)
+    assert source.ir.body[0].source.lines == (1, 3)
+    assert source.ir.body[0].text == '! Some comment before the module\n!\n'
+    assert source.ir.body[0].source.string == source.ir.body[0].text
+
+    assert isinstance(source.ir.body[1], Module)
+    assert source.ir.body[1].source.lines == (3, 12)
+    assert source.ir.body[1].source.string.startswith('module')
+    assert source.ir.body[1].source.string[-1] == '\n'
+
+    assert isinstance(source.ir.body[2], RawSource)
+    assert source.ir.body[2].source.lines == (12, 13)
+    assert source.ir.body[2].text == '\n! Other comment at the end'
+    assert source.ir.body[2].source.string == source.ir.body[2].text
+
+    module = source['some_mod']
+    assert len(module.spec.body) == 3
+    assert isinstance(module.spec.body[0], RawSource)
+    assert isinstance(module.spec.body[1], Import)
+    assert isinstance(module.spec.body[2], RawSource)
+
+    assert module.spec.body[0].text.count('docstring') == 3
+    assert module.spec.body[2].text.count('comment') == 3
+
+
+def test_regex_module_imports():
+    """
+    Verify that the regex frontend is able to find and correctly parse
+    Fortran imports
+    """
+    fcode = """
+module some_mod
+    use no_symbols_mod
+    use only_mod, only: my_var
+    use test_rename_mod, first_var1 => var1, first_var3 => var3
+    use test_other_rename_mod, only: second_var1 => var1
+    use test_other_rename_mod, only: other_var2 => var2, other_var3 => var3
+    implicit none
+end module some_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=REGEX)
+    imports = FindNodes(Import).visit(module.spec)
+    assert len(imports) == 5
+    assert [import_.module for import_ in imports] == [
+        'no_symbols_mod', 'only_mod', 'test_rename_mod', 'test_other_rename_mod',
+        'test_other_rename_mod'
+    ]
+    assert set(module.imported_symbols) == {
+        'my_var', 'first_var1', 'first_var3', 'second_var1', 'other_var2', 'other_var3'
+    }
+    assert module.imported_symbol_map['first_var1'].type.use_name == 'var1'
+    assert module.imported_symbol_map['first_var3'].type.use_name == 'var3'
+    assert module.imported_symbol_map['second_var1'].type.use_name == 'var1'
+    assert module.imported_symbol_map['other_var2'].type.use_name == 'var2'
+    assert module.imported_symbol_map['other_var3'].type.use_name == 'var3'
+
+
+def test_regex_subroutine_imports():
+    """
+    Verify that the regex frontend is able to find and correctly parse
+    Fortran imports
+    """
+    fcode = """
+subroutine some_routine
+    use no_symbols_mod
+    use only_mod, only: my_var
+    use test_rename_mod, first_var1 => var1, first_var3 => var3
+    use test_other_rename_mod, only: second_var1 => var1
+    use test_other_rename_mod, only: other_var2 => var2, other_var3 => var3
+    implicit none
+end subroutine some_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=REGEX)
+    imports = FindNodes(Import).visit(routine.spec)
+    assert len(imports) == 5
+    assert [import_.module for import_ in imports] == [
+        'no_symbols_mod', 'only_mod', 'test_rename_mod', 'test_other_rename_mod',
+        'test_other_rename_mod'
+    ]
+    assert set(routine.imported_symbols) == {
+        'my_var', 'first_var1', 'first_var3', 'second_var1', 'other_var2', 'other_var3'
+    }
+    assert routine.imported_symbol_map['first_var1'].type.use_name == 'var1'
+    assert routine.imported_symbol_map['first_var3'].type.use_name == 'var3'
+    assert routine.imported_symbol_map['second_var1'].type.use_name == 'var1'
+    assert routine.imported_symbol_map['other_var2'].type.use_name == 'var2'
+    assert routine.imported_symbol_map['other_var3'].type.use_name == 'var3'
+
+
+def test_regex_typedef():
+    """
+    Verify that the regex frontend is able to parse type definitions and
+    correctly parse procedure bindings.
+    """
+    fcode = """
+module typebound_item
+    implicit none
+    type some_type
+    contains
+        procedure, nopass :: routine => module_routine
+        procedure :: some_routine
+        procedure, pass :: other_routine
+        procedure :: routine1, &
+            & routine2 => routine
+        ! procedure :: routine1
+        ! procedure :: routine2 => routine
+    end type some_type
+contains
+    subroutine module_routine
+        integer m
+        m = 2
+    end subroutine module_routine
+
+    subroutine some_routine(self)
+        class(some_type) :: self
+
+        call self%routine
+    end subroutine some_routine
+
+    subroutine other_routine(self, m)
+        class(some_type), intent(inout) :: self
+        integer, intent(in) :: m
+        integer :: j
+
+        j = m
+        call self%routine1
+        call self%routine2
+    end subroutine other_routine
+
+    subroutine routine(self)
+        class(some_type) :: self
+        call self%some_routine
+    end subroutine routine
+
+    subroutine routine1(self)
+        class(some_type) :: self
+        call module_routine
+    end subroutine routine1
+end module typebound_item
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=REGEX)
+
+    assert 'some_type' in module.typedefs
+    some_type = module.typedefs['some_type']
+
+    proc_bindings = {
+        'routine': 'module_routine',
+        'some_routine': None,
+        'other_routine': None,
+        'routine1': None,
+        'routine2': 'routine'
+    }
+    assert len(proc_bindings) == len(some_type.variables)
+    assert all(proc in some_type.variables for proc in proc_bindings)
+    assert all(some_type.variable_map[proc].type.initial == init for proc, init in proc_bindings.items())
+
+
+def test_regex_typedef_generic():
+    fcode = """
+module typebound_header
+    implicit none
+
+    type header_type
+    contains
+        procedure :: member_routine => header_member_routine
+        procedure :: routine_real => header_routine_real
+        procedure :: routine_integer
+        generic :: routine => routine_real, routine_integer
+    end type header_type
+
+contains
+
+    subroutine header_member_routine(self, val)
+        class(header_type) :: self
+        integer, intent(in) :: val
+        integer :: j
+        j = val
+    end subroutine header_member_routine
+
+    subroutine header_routine_real(self, val)
+        class(header_type) :: self
+        real, intent(out) :: val
+        val = 1.0
+    end subroutine header_routine_real
+
+    subroutine routine_integer(self, val)
+        class(header_type) :: self
+        integer, intent(out) :: val
+        val = 1
+    end subroutine routine_integer
+end module typebound_header
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=REGEX)
+
+    assert 'header_type' in module.typedefs
+    header_type = module.typedefs['header_type']
+
+    proc_bindings = {
+        'member_routine': 'header_member_routine',
+        'routine_real': 'header_routine_real',
+        'routine_integer': None,
+        'routine': ('routine_real', 'routine_integer')
+    }
+    assert len(proc_bindings) == len(header_type.variables)
+    assert all(proc in header_type.variables for proc in proc_bindings)
+    assert all(
+        (
+            header_type.variable_map[proc].type.bind_names == bind
+            and header_type.variable_map[proc].type.initial is None
+        ) if isinstance(bind, tuple) else (
+            header_type.variable_map[proc].type.bind_names is None
+            and header_type.variable_map[proc].type.initial == bind
+        )
+        for proc, bind in proc_bindings.items()
+    )
+
+
+def test_regex_loki_69():
+    """
+    Test compliance of REGEX frontend with edge cases reported in LOKI-69.
+    This should become a full-blown Scheduler test when REGEX frontend undeprins the scheduler.
+    """
+    fcode = """
+subroutine random_call_0(v_out,v_in,v_inout)
+implicit none
+
+    real(kind=jprb),intent(in)  :: v_in
+    real(kind=jprb),intent(out)  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+
+end subroutine random_call_0
+
+!subroutine random_call_1(v_out,v_in,v_inout)
+!implicit none
+!
+!  real(kind=jprb),intent(in)  :: v_in
+!  real(kind=jprb),intent(out)  :: v_out
+!  real(kind=jprb),intent(inout)  :: v_inout
+!
+!
+!end subroutine random_call_1
+
+subroutine random_call_2(v_out,v_in,v_inout)
+implicit none
+
+    real(kind=jprb),intent(in)  :: v_in
+    real(kind=jprb),intent(out)  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+
+end subroutine random_call_2
+
+subroutine test(v_out,v_in,v_inout,some_logical)
+implicit none
+
+    real(kind=jprb),intent(in   )  :: v_in
+    real(kind=jprb),intent(out  )  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+    logical,intent(in)             :: some_logical
+
+    v_inout = 0._jprb
+    if(some_logical)then
+        call random_call_0(v_out,v_in,v_inout)
+    endif
+
+    if(some_logical) call random_call_2
+
+end subroutine test
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert [r.name for r in source.all_subroutines] == ['random_call_0', 'random_call_2', 'test']

@@ -3,7 +3,7 @@ import pytest
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    OMNI, Sourcefile, Subroutine, CallStatement, Import,
+    OMNI, REGEX, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen,
     Assignment, IntLiteral, Module
 )
@@ -33,9 +33,13 @@ def fixture_rename_transform():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_apply(rename_transform, frontend):
+@pytest.mark.parametrize('method', ['source', 'transformation'])
+@pytest.mark.parametrize('lazy', [False, True])
+def test_transformation_apply(rename_transform, frontend, method, lazy):
     """
-    Apply a simple transformation that renames routines and modules
+    Apply a simple transformation that renames routines and modules, and
+    test that this also works when the original source object was parsed
+    using lazy construction.
     """
     fcode = """
 module mymodule
@@ -49,16 +53,23 @@ subroutine myroutine(a, b)
 end subroutine myroutine
 """
     # Let source apply transformation to all items and verify
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    source.apply(rename_transform)
-    assert source.modules[0].name == 'mymodule_test'
-    assert source['mymodule_test'] == source.modules[0]
-    assert source.subroutines[0].name == 'myroutine_test'
-    assert source['myroutine_test'] == source.subroutines[0]
-
-    # Apply transformation explicitly to whole source and verify
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    rename_transform.apply(source)
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
+    assert source._incomplete is lazy
+    if method == 'source':
+        if lazy:
+            with pytest.raises(RuntimeError):
+                source.apply(rename_transform)
+            source.make_complete(frontend=frontend)
+        source.apply(rename_transform)
+    elif method == 'transformation':
+        if lazy:
+            with pytest.raises(RuntimeError):
+                rename_transform.apply(source)
+            source.make_complete(frontend=frontend)
+        rename_transform.apply(source)
+    else:
+        raise ValueError(f'Unknown method "{method}"')
+    assert not source._incomplete
     assert source.modules[0].name == 'mymodule_test'
     assert source['mymodule_test'] == source.modules[0]
     assert source.subroutines[0].name == 'myroutine_test'
@@ -66,7 +77,12 @@ end subroutine myroutine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_apply_subroutine(rename_transform, frontend):
+@pytest.mark.parametrize('target, apply_method', [
+    ('module_routine', lambda transform, obj: obj.apply(transform)),
+    ('myroutine', lambda transform, obj: transform.apply_subroutine(obj))
+])
+@pytest.mark.parametrize('lazy', [False, True])
+def test_transformation_apply_subroutine(rename_transform, frontend, target, apply_method, lazy):
     """
     Apply a simple transformation that renames routines and modules
     """
@@ -96,33 +112,46 @@ subroutine myroutine(a, b)
   a = a + b
 end subroutine myroutine
 """
-    # Let only the inner module routine apply the transformation
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    source['module_routine'].apply(rename_transform)
-    assert source.modules[0].name == 'mymodule'
-    assert source['mymodule'] == source.modules[0]
-    assert source.subroutines[0].name == 'myroutine'
-    assert source['myroutine'] == source.subroutines[0]
-    assert len(source.all_subroutines) == 2  # Ignore member func
-    assert source.all_subroutines[1].name == 'module_routine_test'
-    assert source['module_routine_test'] == source.all_subroutines[1]
-    assert len(source['module_routine_test'].members) == 1
-    assert source['module_routine_test'].members[0].name == 'member_func_test'
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
+    assert source._incomplete is lazy
+    assert source[target]._incomplete is lazy
 
-    # Apply transformation explicitly to the outer routine
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    rename_transform.apply_subroutine(source['myroutine'])
+    if lazy:
+        with pytest.raises(RuntimeError):
+            apply_method(rename_transform, source[target])
+        source[target].make_complete(frontend=frontend)
+    apply_method(rename_transform, source[target])
+
+    assert source._incomplete is lazy  # This should only have triggered a re-parse on the actual transformation target
+    assert not source[f'{target}_test']._incomplete
     assert source.modules[0].name == 'mymodule'
     assert source['mymodule'] == source.modules[0]
-    assert source.subroutines[0].name == 'myroutine_test'
-    assert source['myroutine_test'] == source.subroutines[0]
-    assert len(source.all_subroutines) == 2
-    assert source.all_subroutines[1].name == 'module_routine'
-    assert source['module_routine'] == source.all_subroutines[1]
+    if target == 'module_routine':
+        # Let only the inner module routine apply the transformation
+        assert source.subroutines[0].name == 'myroutine'
+        assert source['myroutine'] == source.subroutines[0]
+    elif target == 'myroutine':
+        # Apply transformation explicitly to the outer routine
+        assert source.subroutines[0].name == 'myroutine_test'
+        assert source['myroutine_test'] == source.subroutines[0]
+    assert len(source.all_subroutines) == 2  # Ignore member func
+    if target == 'module_routine':
+        assert source.all_subroutines[1].name == 'module_routine_test'
+        assert source['module_routine_test'] == source.all_subroutines[1]
+        assert len(source['module_routine_test'].members) == 1
+        assert source['module_routine_test'].members[0].name == 'member_func_test'
+    elif target == 'myroutine':
+        assert source.all_subroutines[1].name == 'module_routine'
+        assert source['module_routine'] == source.all_subroutines[1]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_apply_module(rename_transform, frontend):
+@pytest.mark.parametrize('apply_method', [
+    lambda transform, obj: obj.apply(transform),
+    lambda transform, obj: transform.apply_module(obj)
+])
+@pytest.mark.parametrize('lazy', [False, True])
+def test_transformation_apply_module(rename_transform, frontend, apply_method, lazy):
     """
     Apply a simple transformation that renames routines and modules
     """
@@ -145,25 +174,25 @@ subroutine myroutine(a, b)
   a = a + b
 end subroutine myroutine
 """
-    # Let the module and apply the transformation to everything it contains
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    source['mymodule'].apply(rename_transform)
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
+    assert source._incomplete is lazy
+    assert source['mymodule']._incomplete is lazy
+    assert source['myroutine']._incomplete is lazy
+
+    if lazy:
+        with pytest.raises(RuntimeError):
+            apply_method(rename_transform, source['mymodule'])
+        source['mymodule'].make_complete(frontend=frontend)
+    apply_method(rename_transform, source['mymodule'])
+
+    assert source._incomplete is lazy
+    assert not source['mymodule_test']._incomplete
+    assert source['myroutine']._incomplete is lazy
     assert source.modules[0].name == 'mymodule_test'
     assert source['mymodule_test'] == source.modules[0]
     assert len(source.all_subroutines) == 2
     # Outer subroutine is untouched, since we apply all
     # transformations to anything in the module.
-    assert source.subroutines[0].name == 'myroutine'
-    assert source['myroutine'] == source.subroutines[0]
-    assert source.all_subroutines[1].name == 'module_routine_test'
-    assert source['module_routine_test'] == source.all_subroutines[1]
-
-    # Apply transformation only to modules, not subroutines, in the source
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    rename_transform.apply_module(source['mymodule'])
-    assert source.modules[0].name == 'mymodule_test'
-    assert source['mymodule_test'] == source.modules[0]
-    assert len(source.all_subroutines) == 2
     assert source.subroutines[0].name == 'myroutine'
     assert source['myroutine'] == source.subroutines[0]
     assert source.all_subroutines[1].name == 'module_routine_test'

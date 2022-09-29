@@ -1,11 +1,15 @@
 """
 Contains the declaration of :any:`Module` to represent Fortran modules.
 """
-from loki.frontend import get_fparser_node, parse_omni_ast, parse_ofp_ast, parse_fparser_ast
+from loki.frontend import (
+    get_fparser_node, parse_omni_ast, parse_ofp_ast, parse_fparser_ast,
+    parse_regex_source, Source
+)
 from loki.ir import VariableDeclaration
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 from loki.program_unit import ProgramUnit
 from loki.tools import as_tuple
+from loki.types import ModuleType, SymbolAttributes
 
 
 __all__ = ['Module']
@@ -50,12 +54,16 @@ class Module(ProgramUnit):
         module's IR exist in the module's scope. Defaults to `False`.
     symbol_attrs : :any:`SymbolTable`, optional
         Use the provided :any:`SymbolTable` object instead of creating a new
+    incomplete : bool, optional
+        Mark the object as incomplete, i.e. only partially parsed. This is
+        typically the case when it was instantiated using the :any:`Frontend.REGEX`
+        frontend and a full parse using one of the other frontends is pending.
     """
 
     def __init__(self, name=None, docstring=None, spec=None, contains=None,
                  default_access_spec=None, public_access_spec=None, private_access_spec=None,
-                 ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None):
+                 ast=None, source=None, parent=None, rescope_symbols=False, symbol_attrs=None,
+                 incomplete=False):
         # Apply dimension pragma annotations to declarations
         if spec:
             with pragmas_attached(self, VariableDeclaration):
@@ -76,7 +84,7 @@ class Module(ProgramUnit):
         super().__init__(
             name=name, docstring=docstring, spec=spec, contains=contains,
             ast=ast, source=source, parent=parent, rescope_symbols=rescope_symbols,
-            symbol_attrs=symbol_attrs
+            symbol_attrs=symbol_attrs, incomplete=incomplete
         )
 
     @classmethod
@@ -159,6 +167,32 @@ class Module(ProgramUnit):
             raw_source=raw_source, scope=parent
         )[-1]
 
+    @classmethod
+    def from_regex(cls, raw_source, parent=None):
+        """
+        Create :any:`Module` from source regex'ing
+
+        Parameters
+        ----------
+        raw_source : str
+            Fortran source string
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the subroutine, typically a :any:`Module`.
+        """
+        lines = (1, raw_source.count('\n') + 1)
+        source = Source(lines, string=raw_source)
+        ir_ = parse_regex_source(source, scope=parent)
+        return [node for node in ir_.body if isinstance(node, cls)][0]
+
+    def register_in_parent_scope(self):
+        """
+        Insert the type information for this object in the parent's symbol table
+
+        If :attr:`parent` is `None`, this does nothing.
+        """
+        if self.parent:
+            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.module_type)
+
     def clone(self, **kwargs):
         """
         Create a copy of the module with the option to override individual
@@ -184,6 +218,13 @@ class Module(ProgramUnit):
 
         # Escalate to parent class
         return super().clone(**kwargs)
+
+    @property
+    def module_type(self):
+        """
+        Return the :any:`ModuleType` of this module
+        """
+        return ModuleType(module=self)
 
     @property
     def _canonical(self):

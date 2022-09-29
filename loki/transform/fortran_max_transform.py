@@ -2,21 +2,24 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 from hashlib import sha256
 
-from loki.transform.transformation import Transformation
-from loki.transform.fortran_c_transform import FortranCTransformation
-from loki.transform.transform_array_indexing import (
-    shift_to_zero_indexing, invert_array_indices,
-    resolve_vector_notation, normalize_range_indexing
-)
-from loki.transform.transform_utilities import replace_intrinsics
 from loki.backend import maxjgen, fgen, cgen
 from loki.expression import (
     FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
     SubstituteExpressionsMapper, ExpressionRetriever, symbols as sym
 )
-from loki import Module, Subroutine, Sourcefile, ir
+from loki import ir
+from loki.module import Module
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
+from loki.sourcefile import Sourcefile
+from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten
+from loki.transform.fortran_c_transform import FortranCTransformation
+from loki.transform.transformation import Transformation
+from loki.transform.transform_array_indexing import (
+    shift_to_zero_indexing, invert_array_indices,
+    resolve_vector_notation, normalize_range_indexing
+)
+from loki.transform.transform_utilities import replace_intrinsics
 from loki.types import SymbolAttributes, BasicType, DerivedType
 from loki.visitors import Transformer, FindNodes
 

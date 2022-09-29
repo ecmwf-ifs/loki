@@ -6,15 +6,17 @@ import pytest
 
 from loki import (
     Sourcefile, Module, Subroutine, fgen, OFP, compile_and_load, FindNodes, CallStatement,
-    as_tuple, Frontend, Section
+    as_tuple, Frontend, Section, REGEX
 )
 from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
 import loki.frontend
 
 
-__all__ = ['generate_identity', 'jit_compile', 'jit_compile_lib', 'clean_test',
-           'stdchannel_redirected', 'stdchannel_is_captured', 'available_frontends']
+__all__ = [
+    'generate_identity', 'jit_compile', 'jit_compile_lib', 'clean_test',
+    'stdchannel_redirected', 'stdchannel_is_captured', 'available_frontends'
+]
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -267,7 +269,7 @@ def available_frontends(xfail=None, skip=None):
             params += [pytest.param(f, marks=pytest.mark.skip(reason=skip[f]))]
         elif f in xfail:
             params += [pytest.param(f, marks=pytest.mark.xfail(reason=xfail[f]))]
-        else:
+        elif f != REGEX:
             params += [f]
 
     return params

@@ -139,7 +139,7 @@ def fixture_cmake_project(here, config, srcdir):
     proj_b = '${CMAKE_CURRENT_SOURCE_DIR}/projB'
 
     file_content = f"""
-cmake_minimum_required( VERSION 3.17 FATAL_ERROR )
+cmake_minimum_required( VERSION 3.19 FATAL_ERROR )
 find_package( ecbuild REQUIRED )
 
 project( cmake_test VERSION 1.0.0 LANGUAGES Fortran )

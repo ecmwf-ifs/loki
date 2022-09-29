@@ -5,7 +5,7 @@ Transformations to be used in build-system level tasks
 from pathlib import Path
 
 from loki.logging import info
-from loki.transform import Transformation
+from loki.transform.transformation import Transformation
 
 __all__ = ['CMakePlanner']
 

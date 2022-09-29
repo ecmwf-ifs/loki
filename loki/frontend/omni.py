@@ -290,7 +290,7 @@ class OMNI2IR(GenericVisitor):
 
     def _create_Subroutine_object(self, o, scope, symbol_map):
         """Helper method to instantiate a Subroutine object"""
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         assert o.tag in ('FfunctionDefinition', 'FfunctionDecl')
         name = o.find('name').text
 
@@ -388,7 +388,7 @@ class OMNI2IR(GenericVisitor):
             docstring=docstring, spec=spec, body=body, contains=contains,
             ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
             rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-            source=routine.source
+            source=routine.source, incomplete=False
         )
 
         # Big, but necessary hack:
@@ -415,16 +415,28 @@ class OMNI2IR(GenericVisitor):
         symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
         return ir.ProcedureDeclaration(symbols=symbols, module=True, source=kwargs.get('source'))
 
-    def visit_FmoduleDefinition(self, o, **kwargs):
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
+    def _create_Module_object(self, o, scope):
+        """Helper method to instantiate a Module object"""
+        from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
 
+        name = o.attrib['name']
+
+        # Check if the Module node has been created before by looking it up in the scope
+        if scope is not None and name in scope.symbol_attrs:
+            module_type = scope.symbol_attrs[name]  # Look-up only in current scope
+            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+                return module_type.dtype.module
+
+        return Module(name=name, parent=scope)
+
+
+    def visit_FmoduleDefinition(self, o, **kwargs):
         # Update the symbol map with local entries
         kwargs['symbol_map'] = kwargs['symbol_map'].copy()
         kwargs['symbol_map'].update({s.attrib['type']: s for s in o.find('symbols')})
 
         # Instantiate the object
-        name = o.attrib['name']
-        module = Module(name=name, parent=kwargs['scope'], ast=o, source=kwargs['source'])
+        module = self._create_Module_object(o, kwargs['scope'])
         kwargs['scope'] = module
 
         # Pre-populate symbol table with procedure types declared in this module
@@ -470,7 +482,8 @@ class OMNI2IR(GenericVisitor):
         module.__init__(
             name=module.name, docstring=docstring, spec=spec, contains=contains,
             ast=o, rescope_symbols=True, source=kwargs['source'],
-            parent=module.parent, symbol_attrs=module.symbol_attrs
+            parent=module.parent, symbol_attrs=module.symbol_attrs,
+            incomplete=False
         )
 
         return module

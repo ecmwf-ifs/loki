@@ -1,6 +1,14 @@
+"""
+Implementation of :any:`Source` and adjacent utilities
+"""
 
+import re
+from loki.logging import warning
 
-__all = ['Source', 'extract_source', 'extract_source_from_range']
+__all = [
+    'Source', 'extract_source', 'extract_source_from_range', 'source_to_lines',
+    'join_source_list'
+]
 
 
 class Source:
@@ -14,6 +22,7 @@ class Source:
     """
 
     def __init__(self, lines, string=None, file=None):
+        assert lines and len(lines) == 2 and (lines[1] is None or lines[1] >= lines[0])
         self.lines = lines
         self.string = string
         self.file = file
@@ -39,6 +48,8 @@ class Source:
         if ignore_case:
             string = string.lower()
             self_string = self.string.lower()
+        else:
+            self_string = self.string
         if string in self_string:
             # string is contained as is
             idx = self_string.find(string)
@@ -58,9 +69,35 @@ class Source:
         or use the provided string.
         """
         cstart, cend = self.find(string, ignore_case=ignore_case, ignore_space=ignore_space)
-        if cstart is not None and cend is not None:
+        if None not in (cstart, cend):
             string = self.string[cstart:cend]
-        return Source(self.lines, string, self.file)
+            lstart = self.lines[0] + self.string[:cstart].count('\n')
+            lend = lstart + string.count('\n')
+            lines = (lstart, lend)
+        else:
+            lines = self.lines
+        return Source(lines=lines, string=string, file=self.file)
+
+    def clone_with_span(self, span):
+        """
+        Clone the source object and extract the given line span from the original source
+        string (relative to the string length).
+        """
+        string = self.string[span[0]:span[1]]
+        lstart = self.lines[0] + self.string[:span[0]].count('\n')
+        lend = lstart + string.count('\n')
+        return Source(lines=(lstart, lend), string=string, file=self.file)
+
+    def clone_lines(self, span=None):
+        """
+        Create source object clones for each line.
+        """
+        if span is not None:
+            return self.clone_with_span(span).clone_lines()
+        return [
+            Source(lines=(self.lines[0]+idx,)*2, string=line, file=self.file)
+            for idx, line in enumerate(self.string.splitlines())
+        ]
 
 
 def extract_source(ast, text, label=None, full_lines=False):
@@ -131,3 +168,87 @@ def extract_source_from_range(lines, columns, text, label=None, full_lines=False
         lines[-1] = lines[-1][:cend]
 
     return Source(string=''.join(lines).strip('\n'), lines=(lstart, lend))
+
+
+def _merge_source_match_source(pre, match, post):
+    """
+    Merge a triple of :class:`Source`, :class:`re.Match`, :class:`Source` objects
+    into a single :class:`Source` object spanning multiple lines
+
+    Helper routine for :any:`source_to_lines`.
+    """
+    assert isinstance(pre, Source)
+    assert isinstance(match, re.Match)
+    assert isinstance(post, Source)
+    lines = (pre.lines[0], post.lines[1])
+    return Source(lines, pre.string + post.string, pre.file)
+
+
+def _create_lines_and_merge(source_lines, source, span, lineno=None):
+    """
+    Create line-wise :class:`Source` objects for the substring in :data:`source`
+    given by :data:`span`
+
+    If the existing list of source lines ends with (:class:`Source`, :class:`re.Match`),
+    they are joined with the first line in the new substring.
+
+    Helper routine for :any:`source_to_lines`.
+    """
+    if lineno is None:
+        new_lines = source.clone_lines(span)
+    else:
+        new_lines = Source((lineno, None), source.string[span[0]:span[1]], source.file).clone_lines()
+
+    if len(source_lines) >= 2 and isinstance(source_lines[-1], re.Match):
+        source_lines = (
+            source_lines[:-2]
+            + [_merge_source_match_source(source_lines[-2], source_lines[-1], new_lines[0])]
+            + new_lines[1:]
+        )
+    else:
+        source_lines += new_lines
+    return source_lines
+
+
+_re_line_cont = re.compile(r'&([ \t]*)\n([ \t]*)&')
+"""Pattern to match Fortran line continuation."""
+
+
+def source_to_lines(source):
+    """
+    Create line-wise :class:`Source` objects, resolving Fortran line-continuation.
+    """
+    source_lines = []
+    ptr = 0
+    lineno = source.lines[0]
+    for match in _re_line_cont.finditer(source.string):
+        source_lines = _create_lines_and_merge(source_lines, source, (ptr, match.span()[0]), lineno=lineno)
+        lineno = source_lines[-1].lines[1] + 1
+        source_lines += [match]
+        ptr = match.span()[1]
+    if ptr < len(source.string):
+        source_lines = _create_lines_and_merge(source_lines, source, (ptr, len(source.string)), lineno=lineno)
+    return source_lines
+
+
+def join_source_list(source_list):
+    """
+    Combine a list of :class:`Source` objects into a single object containing
+    the joined source string.
+
+    This will annotate the joined source object with the maximum range of line
+    numbers provided in :data:`source_list` objects and insert empty lines for
+    any missing line numbers inbetween the provided source objects.
+    """
+    if not source_list:
+        return None
+    string = source_list[0].string
+    lines = [source_list[0].lines[0], source_list[0].lines[1] or source_list[0].lines[0]]
+    for source in source_list[1:]:
+        newlines = source.lines[0] - lines[1]
+        if newlines < 0:
+            warning('join_source_list: overlapping line range')
+            newlines = 0
+        string += '\n' * newlines + source.string
+        lines[1] = source.lines[1] if source.lines[1] else lines[1] + newlines + source.string.count('\n')
+    return Source(lines, string, source_list[0].file)

@@ -27,7 +27,7 @@ __all__ = [
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
     'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
-    'Intrinsic', 'Enumeration'
+    'Intrinsic', 'Enumeration', 'RawSource'
 ]
 
 
@@ -185,7 +185,7 @@ class Node:
         """
         Pretty-print the node hierachy under this node.
         """
-        # pylint: disable=import-outside-toplevel
+        # pylint: disable=import-outside-toplevel,cyclic-import
         from loki.visitors import pprint
         pprint(self)
 
@@ -1353,7 +1353,7 @@ class TypeDef(ScopedNode, LeafNode):
         return f'TypeDef:: {self.name}'
 
     def clone(self, **kwargs):
-        from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel
+        from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel,cyclic-import
         if 'body' not in kwargs:
             kwargs['body'] = Transformer().visit(self.body)
         return super().clone(**kwargs)
@@ -1492,3 +1492,27 @@ class Enumeration(LeafNode):
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
         return f'Enumeration:: {symbols}'
+
+
+class RawSource(LeafNode):
+    """
+    Generic node for unparsed source code sections
+
+    This is used by the :any:`REGEX` frontend to store unparsed code sections
+    in the IR. Currently, they don't serve any other purpose than making sure
+    the entire string content of the original Fortran source is retained.
+
+    Parameters
+    ----------
+    text : str
+        The source code as a string.
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+    def __init__(self, text=None, **kwargs):
+        super().__init__(**kwargs)
+
+        self.text = text
+
+    def __repr__(self):
+        return f'RawSource:: {truncate_string(self.text.strip())}'

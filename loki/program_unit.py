@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import weakref
 
 from loki import ir
 from loki.frontend import Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source
@@ -41,22 +42,34 @@ class ProgramUnit(Scope):
         Defaults to `False`.
     symbol_attrs : :any:`SymbolTable`, optional
         Use the provided :any:`SymbolTable` object instead of creating a new
+    incomplete : bool, optional
+        Mark the object as incomplete, i.e. only partially parsed. This is
+        typically the case when it was instantiated using the :any:`Frontend.REGEX`
+        frontend and a full parse using one of the other frontends is pending.
     """
 
     def __init__(self, name, docstring=None, spec=None, contains=None,
                  ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None):
+                 rescope_symbols=False, symbol_attrs=None, incomplete=False):
         # Common properties
         assert name and isinstance(name, str)
         self.name = name
         self._ast = ast
         self._source = source
+        self._incomplete = incomplete
 
         # Bring arguments into shape
         if spec is not None and not isinstance(spec, ir.Section):
-            spec = ir.Section(body=spec)
-        if contains is not None and not isinstance(contains, ir.Section):
-            contains = ir.Section(body=contains)
+            spec = ir.Section(body=as_tuple(spec))
+        if contains is not None:
+            if not isinstance(contains, ir.Section):
+                contains = ir.Section(body=contains)
+            for node in contains.body:
+                if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():
+                    break
+                if isinstance(node, ProgramUnit):
+                    contains.prepend(ir.Intrinsic(text='CONTAINS'))
+                    break
 
         # Primary IR components
         self.docstring = as_tuple(docstring)
@@ -66,8 +79,11 @@ class ProgramUnit(Scope):
         # Call the parent constructor to take care of symbol table and rescoping
         super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
 
+        # Finally, register this object in the parent scope
+        self.register_in_parent_scope()
+
     @classmethod
-    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP):
+    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP, parent=None):
         """
         Instantiate an object derived from :any:`ProgramUnit` from raw source string
 
@@ -84,19 +100,24 @@ class ProgramUnit(Scope):
             List of locations with "xmods" module files. Only relevant for :any:`OMNI` frontend
         frontend : :any:`Frontend`, optional
             Choice of frontend to use for parsing source (default :any:`Frontend.FP`)
+        parent : :any:`Scope`, optional
+            The parent scope this module or subroutine is nested into
         """
+        if frontend == Frontend.REGEX:
+            return cls.from_regex(raw_source=source, parent=parent)
+
         if frontend == Frontend.OMNI:
             ast = parse_omni_source(source, xmods=xmods)
             type_map = {t.attrib['type']: t for t in ast.find('typeTable')}
-            return cls.from_omni(ast=ast, raw_source=source, definitions=definitions, type_map=type_map)
+            return cls.from_omni(ast=ast, raw_source=source, definitions=definitions, type_map=type_map, parent=parent)
 
         if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
-            return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions)
+            return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions, parent=parent)
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
-            return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions)
+            return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions, parent=parent)
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 
@@ -167,6 +188,67 @@ class ProgramUnit(Scope):
             The enclosing parent scope of the module.
         """
 
+    @classmethod
+    @abstractmethod
+    def from_regex(cls, raw_source, parent=None):
+        """
+        Create the :any:`ProgramUnit` object from source regex'ing.
+
+        This method must be implemented by the derived class.
+
+        Parameters
+        ----------
+        raw_source : str
+            Fortran source string
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the module.
+        """
+
+    @abstractmethod
+    def register_in_parent_scope(self):
+        """
+        Insert the type information for this object in the parent's symbol table
+
+        If :attr:`parent` is `None`, this does nothing.
+
+        This method must be implemented by the derived class.
+        """
+
+    def make_complete(self, **frontend_args):
+        """
+        Trigger a re-parse of the object if incomplete to produce a full Loki IR
+
+        If the object is marked to be incomplete, i.e. when using the `lazy` constructor
+        option, this triggers a new parsing of all :any:`ProgramUnit` objects and any
+        :any:`RawSource` nodes in the :attr:`ir`.
+
+        Existing :any:`Module` and :any:`Subroutine` objects continue to exist and references
+        to them stay valid, as they will only be updated instead of replaced.
+        """
+        if not self._incomplete:
+            return
+        frontend = frontend_args.pop('frontend', Frontend.FP)
+        definitions = frontend_args.get('definitions')
+        xmods = frontend_args.get('xmods')
+
+        # If this object does not have a parent, we create a temporary parent scope
+        # and make sure the node exists in the parent scope. This way, the existing
+        # object is re-used while converting the parse tree to Loki-IR.
+        has_parent = self.parent is not None
+        if not has_parent:
+            parent_scope = Scope()
+            self._parent = weakref.ref(parent_scope)
+        if self.name not in self.parent.symbol_attrs:
+            self.register_in_parent_scope()
+
+        ir_ = self.from_source(
+            self.source.string, frontend=frontend, definitions=definitions, xmods=xmods, parent=self.parent
+        )
+        assert ir_ is self
+
+        if not has_parent:
+            self._parent = None
+
     def clone(self, **kwargs):
         """
         Create a deep copy of the object with the option to override individual
@@ -195,6 +277,7 @@ class ProgramUnit(Scope):
             kwargs['ast'] = self._ast
         if self._source is not None and 'source' not in kwargs:
             kwargs['source'] = self._source
+        kwargs.setdefault('incomplete', self._incomplete)
 
         # Rebuild IRs
         if 'docstring' in kwargs:
@@ -282,11 +365,22 @@ class ProgramUnit(Scope):
         return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
     @property
+    def imports(self):
+        """
+        Return the list of :any:`Import` in this unit
+        """
+        return FindNodes(ir.Import).visit(self.spec or ())
+
+    @property
     def imported_symbols(self):
         """
         Return the symbols imported in this unit
         """
-        return as_tuple(flatten(imprt.symbols for imprt in FindNodes(ir.Import).visit(self.spec or ())))
+        imports = self.imports
+        return as_tuple(flatten(
+            imprt.symbols or [s[1] for s in imprt.rename_list or []]
+            for imprt in imports
+        ))
 
     @property
     def imported_symbol_map(self):
@@ -363,7 +457,7 @@ class ProgramUnit(Scope):
         """
         List of :class:`Subroutine` objects that are declared in this unit
         """
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         if self.contains is None:
             return ()
         return as_tuple([

@@ -4,17 +4,19 @@ manipulate (Fortran) source code files.
 """
 from pathlib import Path
 
-from loki.subroutine import Subroutine
-from loki.module import Module
-from loki.tools import flatten, as_tuple
-from loki.logging import info
-from loki.frontend import (
-    OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp,
-    parse_omni_source, parse_ofp_source, parse_fparser_source,
-    parse_omni_ast, parse_ofp_ast, parse_fparser_ast
-)
-from loki.ir import Section
 from loki.backend.fgen import fgen
+from loki.frontend import (
+    OMNI, OFP, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
+    parse_omni_source, parse_ofp_source, parse_fparser_source,
+    parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source
+
+)
+from loki.ir import Section, RawSource, Comment, PreprocessorDirective
+from loki.logging import info
+from loki.module import Module
+from loki.program_unit import ProgramUnit
+from loki.subroutine import Subroutine
+from loki.tools import flatten, as_tuple
 
 
 __all__ = ['Sourcefile']
@@ -39,15 +41,20 @@ class Sourcefile:
         Parser-AST of the original source file.
     source : :any:`Source`, optional
         Raw source string and line information about the original source file.
+    incomplete : bool, optional
+        Mark the object as incomplete, i.e. only partially parsed. This is
+        typically the case when it was instantiated using the :any:`Frontend.REGEX`
+        frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, path, ir=None, ast=None, source=None):
+    def __init__(self, path, ir=None, ast=None, source=None, incomplete=False):
         self.path = Path(path) if path is not None else path
         if ir is not None and not isinstance(ir, Section):
             ir = Section(body=ir)
         self.ir = ir
         self._ast = ast
         self._source = source
+        self._incomplete = incomplete
 
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
@@ -98,6 +105,9 @@ class Sourcefile:
         else:
             source = raw_source
 
+        if frontend == REGEX:
+            return cls.from_regex(source, filepath)
+
         if frontend == OMNI:
             return cls.from_omni(source, filepath, definitions=definitions,
                                  includes=includes, defines=defines,
@@ -115,7 +125,7 @@ class Sourcefile:
     def from_omni(cls, raw_source, filepath, definitions=None, includes=None,
                   defines=None, xmods=None, omni_includes=None):
         """
-        Parse a given source file using the OMNI frontend
+        Parse a given source string using the OMNI frontend
 
         Parameters
         ----------
@@ -175,7 +185,7 @@ class Sourcefile:
     @classmethod
     def from_ofp(cls, raw_source, filepath, definitions=None):
         """
-        Parse a given source file using the Open Fortran Parser (OFP) frontend
+        Parse a given source string using the Open Fortran Parser (OFP) frontend
 
         Parameters
         ----------
@@ -211,7 +221,7 @@ class Sourcefile:
     @classmethod
     def from_fparser(cls, raw_source, filepath, definitions=None):
         """
-        Parse a given source file using the fparser frontend
+        Parse a given source string using the fparser frontend
 
         Parameters
         ----------
@@ -245,6 +255,16 @@ class Sourcefile:
         return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
+    def from_regex(cls, raw_source, filepath):
+        """
+        Parse a given source string using the fparser frontend
+        """
+        lines = (1, raw_source.count('\n') + 1)
+        source = Source(lines, string=raw_source, file=filepath)
+        ir = parse_regex_source(source)
+        return cls(path=filepath, ir=ir, source=source, incomplete=True)
+
+    @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
         """
         Constructor from raw source string that invokes specified frontend parser
@@ -262,6 +282,9 @@ class Sourcefile:
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
         """
+        if frontend == REGEX:
+            return cls.from_regex(source, filepath=None)
+
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)
             typetable = ast.find('typeTable')
@@ -277,6 +300,62 @@ class Sourcefile:
             return cls._from_fparser_ast(path=None, ast=ast, raw_source=source, definitions=definitions)
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
+
+    def make_complete(self, **frontend_args):
+        """
+        Trigger a re-parse of the source file if incomplete to produce a full Loki IR
+
+        If the source file is marked to be incomplete, i.e. when using the `lazy` constructor
+        option, this triggers a new parsing of all :any:`ProgramUnit` objects and any
+        :any:`RawSource` nodes in the :attr:`Sourcefile.ir`.
+
+        Existing :any:`Module` and :any:`Subroutine` objects continue to exist and references
+        to them stay valid, as they will only be updated instead of replaced.
+        """
+        if not self._incomplete:
+            return
+
+        frontend = frontend_args.pop('frontend', FP)
+
+        body = []
+        for node in self.ir.body:
+            if isinstance(node, ProgramUnit):
+                node.make_complete(frontend=frontend, **frontend_args)
+                body += [node]
+            elif isinstance(node, RawSource):
+                # Typically, this should only be comments, PP statements etc., therefore
+                # we are not bothering with type tables, definitions or similar to parse them
+                if frontend == OMNI:
+                    ast = parse_omni_source(source=node.source.string)
+                    ir_ = parse_omni_ast(ast=ast, raw_source=node.source.string, **frontend_args)
+                elif frontend == OFP:
+                    ast = parse_ofp_source(source=node.source.string)
+                    ir_ = parse_ofp_ast(ast, raw_source=node.source.string, **frontend_args)
+                elif frontend == FP:
+                    # Fparser is unable to parse comment-only source files/strings,
+                    # so we see if this is only comments and convert them ourselves
+                    # (https://github.com/stfc/fparser/issues/375)
+                    # This can be removed once fparser 0.0.17 is released
+                    lines = [l.lstrip() for l in node.text.splitlines()]
+                    if all(not l or l[0] in '!#' for l in lines):
+                        ir_ = [
+                            PreprocessorDirective(text=line.string, source=line) if line.string.lstrip().startswith('#')
+                            else Comment(text=line.string, source=line)
+                            for line in node.source.clone_lines()
+                        ]
+                    else:
+                        ast = parse_fparser_source(node.source.string)
+                        ir_ = parse_fparser_ast(ast, raw_source=node.source.string, **frontend_args)
+                else:
+                    raise NotImplementedError(f'Unknown frontend: {frontend}')
+                if isinstance(ir_, Section):
+                    ir_ = ir_.body
+                body += flatten([ir_])
+            else:
+                body += [node]
+
+        self.ir._update(body=as_tuple(body))
+        self._incomplete = False
 
     @property
     def source(self):

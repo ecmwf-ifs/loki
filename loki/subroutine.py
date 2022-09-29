@@ -1,6 +1,9 @@
 from loki import ir
 from loki.expression import FindVariables, SubstituteExpressions, symbols as sym
-from loki.frontend import parse_omni_ast, parse_ofp_ast, parse_fparser_ast, get_fparser_node
+from loki.frontend import (
+    parse_omni_ast, parse_ofp_ast, parse_fparser_ast, get_fparser_node,
+    parse_regex_source, Source
+)
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.program_unit import ProgramUnit
 from loki.visitors import FindNodes, Transformer
@@ -53,11 +56,15 @@ class Subroutine(ProgramUnit):
         Defaults to `False`.
     symbol_attrs : :any:`SymbolTable`, optional
         Use the provided :any:`SymbolTable` object instead of creating a new
+    incomplete : bool, optional
+        Mark the object as incomplete, i.e. only partially parsed. This is
+        typically the case when it was instantiated using the :any:`Frontend.REGEX`
+        frontend and a full parse using one of the other frontends is pending.
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, contains=None,
                  prefix=None, bind=None, is_function=False, ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None):
+                 rescope_symbols=False, symbol_attrs=None, incomplete=False):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self.prefix = as_tuple(prefix)
@@ -73,12 +80,8 @@ class Subroutine(ProgramUnit):
         super().__init__(
             name=name, docstring=docstring, spec=spec, contains=contains,
             ast=ast, source=source, parent=parent, rescope_symbols=rescope_symbols,
-            symbol_attrs=symbol_attrs
+            symbol_attrs=symbol_attrs, incomplete=incomplete
         )
-
-        # Finally, register this procedure in the parent scope
-        if self.parent:
-            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.procedure_type)
 
     @staticmethod
     def _infer_allocatable_shapes(spec, body):
@@ -186,6 +189,32 @@ class Subroutine(ProgramUnit):
             raw_source=raw_source, scope=parent
         )[-1]
 
+    @classmethod
+    def from_regex(cls, raw_source, parent=None):
+        """
+        Create :any:`Subroutine` from source regex'ing
+
+        Parameters
+        ----------
+        raw_source : str
+            Fortran source string
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the subroutine, typically a :any:`Module`.
+        """
+        lines = (1, raw_source.count('\n') + 1)
+        source = Source(lines, string=raw_source)
+        ir_ = parse_regex_source(source, scope=parent)
+        return [node for node in ir_.body if isinstance(node, cls)][0]
+
+    def register_in_parent_scope(self):
+        """
+        Insert the type information for this object in the parent's symbol table
+
+        If :attr:`parent` is `None`, this does nothing.
+        """
+        if self.parent:
+            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.procedure_type)
+
     def clone(self, **kwargs):
         """
         Create a copy of the subroutine with the option to override individual
@@ -289,7 +318,7 @@ class Subroutine(ProgramUnit):
         #Note that if the map is not loaded, Python will recreate it for every arguement,
         #resulting in a large overhead.
         symbol_map = self.symbol_map
-        return as_tuple(symbol_map[arg] for arg in self._dummies)
+        return as_tuple(symbol_map.get(arg, sym.Variable(name=arg)) for arg in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):

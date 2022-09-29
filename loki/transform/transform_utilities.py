@@ -5,16 +5,17 @@ Collection of utility routines to deal with general language conversion.
 """
 import platform
 
-from loki import Subroutine, Module
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
 from loki.ir import Associate, Import, TypeDef
-from loki.visitors import Transformer, FindNodes
+from loki.module import Module
+from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
 from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
+from loki.visitors import Transformer, FindNodes
 
 
 __all__ = [

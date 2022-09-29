@@ -24,7 +24,7 @@ from loki.expression.operations import (
 from loki.expression import (
     ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
 )
-from loki.logging import DEBUG, warning, error, info
+from loki.logging import PERF, warning, error, info
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
@@ -37,7 +37,7 @@ __all__ = ['HAVE_FP', 'FParser2IR', 'parse_fparser_file', 'parse_fparser_source'
            'parse_fparser_ast', 'parse_fparser_expression', 'get_fparser_node']
 
 
-@timeit(log_level=DEBUG)
+@timeit(log_level=PERF)
 def parse_fparser_file(filename):
     """
     Generate a parse tree from file via fparser
@@ -47,7 +47,7 @@ def parse_fparser_file(filename):
     return parse_fparser_source(source=fcode)
 
 
-@timeit(log_level=DEBUG)
+@timeit(log_level=PERF)
 def parse_fparser_source(source):
     """
     Generate a parse tree from string
@@ -69,7 +69,7 @@ def parse_fparser_source(source):
     return f2008_parser(reader)
 
 
-@timeit(log_level=DEBUG)
+@timeit(log_level=PERF)
 def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
     Generate an internal IR from fparser parse tree
@@ -850,7 +850,7 @@ class FParser2IR(GenericVisitor):
         * keyword ``PRIVATE`` or ``PUBLIC`` (`str`)
         * optional list of names (:class:`fparser.two.Fortran2003.Access_Id_List`) or `None`
         """
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
+        from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
         assert isinstance(kwargs['scope'], Module)
         assert o.children[0] in ('PUBLIC', 'PRIVATE')
 
@@ -1730,7 +1730,8 @@ class FParser2IR(GenericVisitor):
             name=routine.name, args=routine._dummies,
             docstring=docs, spec=spec, body=body, contains=contains,
             ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
-            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs
+            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
+            incomplete=False
         )
 
         # Big, but necessary hack:
@@ -1766,7 +1767,7 @@ class FParser2IR(GenericVisitor):
         * dummy argument list :class:`fparser.two.Fortran2003.Dummy_Arg_List`
         * language binding specs :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
         """
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
 
         # Parse the prefix
         prefix = ()
@@ -1847,8 +1848,6 @@ class FParser2IR(GenericVisitor):
         * The module subprogram part :class:`fparser.two.Fortran2003.Module_Subprogram_Part`
         * the closing :class:`fparser.two.Fortran2003.End_Module_Stmt`
         """
-        from loki.module import Module  # pylint: disable=import-outside-toplevel
-
         # Find start and end of construct
         module_stmt = get_child(o, Fortran2003.Module_Stmt)
         module_stmt_index = o.children.index(module_stmt)
@@ -1867,7 +1866,7 @@ class FParser2IR(GenericVisitor):
         source = Source(lines=lines, string=string)
 
         # Instantiate the object
-        module = Module(name=module_stmt.children[1].tostr(), ast=o, source=source)
+        module = self.visit(module_stmt, **kwargs)
         kwargs['scope'] = module
 
         # We make sure the subroutine objects for all member routines are
@@ -1923,10 +1922,34 @@ class FParser2IR(GenericVisitor):
             name=module.name, docstring=docs, spec=spec, contains=contains,
             default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
             private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
-            parent=module.parent, symbol_attrs=module.symbol_attrs
+            parent=module.parent, symbol_attrs=module.symbol_attrs, incomplete=False
         )
 
         return (*pre, module)
+
+    def visit_Module_Stmt(self, o, **kwargs):
+        """
+        The ``MODULE`` statement
+
+        :class:`fparser.two.Fortran2003.Module_Stmt` has 2 children:
+            * keyword `MODULE` (str)
+            * name :class:`fparser.two.Fortran2003.Module_Name`
+        """
+        from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
+
+        name = self.visit(o.children[1], **kwargs)
+        name = name.name
+
+        # Check if the Module node has been created before by looking it up in the scope
+        if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
+            module_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
+            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+                return module_type.dtype.module
+
+        return Module(name=name, parent=kwargs['scope'])
+
+    visit_Module_Name = visit_Name
+
 
     #
     # Conditional

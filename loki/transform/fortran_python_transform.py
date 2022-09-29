@@ -1,5 +1,10 @@
 from pathlib import Path
 
+from loki.backend import pygen, dacegen
+from loki import ir
+from loki.pragma_utils import pragmas_attached
+from loki.sourcefile import Sourcefile
+from loki.subroutine import Subroutine
 from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
@@ -7,10 +12,7 @@ from loki.transform.transform_array_indexing import (
 from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics, resolve_associates
 )
-from loki.backend import pygen, dacegen
 from loki.visitors import Transformer
-from loki.pragma_utils import pragmas_attached
-from loki import ir, Subroutine, Sourcefile
 
 
 __all__ = ['FortranPythonTransformation']

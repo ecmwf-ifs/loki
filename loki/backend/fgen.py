@@ -238,6 +238,12 @@ class FortranCodegen(Stringifier):
         """
         return self.format_line(str(o.text).lstrip())
 
+    def visit_RawSource(self, o, **kwargs):
+        """
+        Format raw source nodes.
+        """
+        return o.text
+
     def visit_Comment(self, o, **kwargs):
         """
         Format comments.
