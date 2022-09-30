@@ -2,8 +2,7 @@ from pathlib import Path
 from collections import deque, OrderedDict
 import networkx as nx
 
-from loki.build import Obj
-from loki.frontend import FP
+from loki.frontend import FP, REGEX
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, timeit
@@ -110,7 +109,7 @@ class Scheduler:
     """
 
     # TODO: Should be user-definable!
-    source_suffixes = ['.f90', '_mod.f90']
+    source_suffixes = ['.f90', '.F90', '.f', '.F', '.c']
 
     def __init__(self, paths, config=None, preprocess=False, includes=None,
                  defines=None, definitions=None, xmods=None, omni_includes=None,
@@ -141,14 +140,18 @@ class Scheduler:
         self.item_graph = nx.DiGraph()
         self.item_map = {}
 
-        # Scan all source paths and create light-weight `Obj` objects for each file.
+        self._populate_maps()
+
+    @timeit(log_level=PERF)
+    def _populate_maps(self):
+        # Scan all source paths and create light-weight `Sourcefile` objects for each file.
         obj_list = []
         for path in self.paths:
-            for ext in Obj._ext:
-                obj_list += [Obj(source_path=f) for f in path.glob(f'**/*{ext}')]
+            for ext in self.source_suffixes:
+                obj_list += [Sourcefile.from_file(f, frontend=REGEX) for f in path.glob(f'**/*{ext}')]
 
         # Create a map of all potential target routines for fast lookup later
-        self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in as_tuple(obj.subroutines))
+        self.obj_map = CaseInsensitiveDict((r.name, obj) for obj in obj_list for r in as_tuple(obj.all_subroutines))
 
         self.source_map = {}
 
@@ -178,7 +181,7 @@ class Scheduler:
         :param routine: Name of the source routine to locate.
         """
         if routine in self.obj_map:
-            return self.obj_map[routine].source_path
+            return self.obj_map[routine].path
 
         raise FileNotFoundError(f'Source path not found for routine: {routine}')
 
