@@ -709,6 +709,50 @@ end subroutine some_routine
     assert routine.imported_symbol_map['other_var3'].type.use_name == 'var3'
 
 
+def test_regex_import_linebreaks():
+    """
+    Verify correct handling of line breaks in import statements
+    """
+    fcode = """
+module file_io_mod
+    USE PARKIND1 , ONLY : JPIM, JPRB, JPRD
+
+#ifdef HAVE_SERIALBOX
+    USE m_serialize, ONLY: &
+        fs_create_savepoint, &
+        fs_add_serializer_metainfo, &
+        fs_get_serializer_metainfo, &
+        fs_read_field, &
+        fs_write_field
+    USE utils_ppser, ONLY:  &
+        ppser_initialize, &
+        ppser_finalize, &
+        ppser_serializer, &
+        ppser_serializer_ref, &
+        ppser_set_mode, &
+        ppser_savepoint
+#endif
+
+#ifdef HAVE_HDF5
+    USE hdf5_file_mod, only: hdf5_file
+#endif
+
+    implicit none
+end module file_io_mod
+    """.strip()
+    module = Module.from_source(fcode, frontend=REGEX)
+    imports = FindNodes(Import).visit(module.spec)
+    assert len(imports) == 4
+    assert [import_.module for import_ in imports] == ['PARKIND1', 'm_serialize', 'utils_ppser', 'hdf5_file_mod']
+    assert all(
+        s in module.imported_symbols for s in [
+            'JPIM', 'JPRB', 'JPRD', 'fs_create_savepoint', 'fs_add_serializer_metainfo', 'fs_get_serializer_metainfo',
+            'fs_read_field', 'fs_write_field', 'ppser_initialize', 'ppser_finalize', 'ppser_serializer',
+            'ppser_serializer_ref', 'ppser_set_mode', 'ppser_savepoint', 'hdf5_file'
+        ]
+    )
+
+
 def test_regex_typedef():
     """
     Verify that the regex frontend is able to parse type definitions and

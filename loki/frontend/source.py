@@ -210,7 +210,7 @@ def _create_lines_and_merge(source_lines, source, span, lineno=None):
     return source_lines
 
 
-_re_line_cont = re.compile(r'&([ \t]*)\n([ \t]*)&')
+_re_line_cont = re.compile(r'&([ \t]*)\n([ \t]*)(?:&|(?!\!)(?=\S))')
 """Pattern to match Fortran line continuation."""
 
 
