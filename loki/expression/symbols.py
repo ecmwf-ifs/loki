@@ -1251,6 +1251,15 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     mapper_method = intern('map_inline_call')
 
     @property
+    def _canonical(self):
+        return (self.function, self.parameters, as_tuple(self.kw_parameters))
+
+    def __hash__(self):
+        # A custom `__hash__` function to protect us from unhashasble
+        # dicts that `pmbl.CallWithKwargs` uses internally
+        return hash(self._canonical)
+
+    @property
     def name(self):
         return self.function.name
 
