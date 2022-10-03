@@ -9,7 +9,8 @@ import pytest
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
-    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource
+    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource,
+    CallStatement
 )
 from loki.expression import symbols as sym
 
@@ -940,3 +941,6 @@ end subroutine test
 
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     assert [r.name for r in source.all_subroutines] == ['random_call_0', 'random_call_2', 'test']
+
+    calls = FindNodes(CallStatement).visit(source['test'].ir)
+    assert [call.name for call in calls] == ['RANDOM_CALL_0', 'random_call_2']

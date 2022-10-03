@@ -303,7 +303,7 @@ def match_subroutine_function(source, scope):
         source=source.clone_with_span(match.span()), parent=scope
     )
     if match['spec']:
-        candidates = (match_import, )
+        candidates = (match_import, match_call)
         spec = match_statement_candidates(source.clone_with_span(match.span('spec')), candidates, scope=routine)
     else:
         spec = None
@@ -557,3 +557,43 @@ def match_import(source, scope):
         rename_list = None
         symbols = None
     return ir.Import(module, symbols=symbols, rename_list=rename_list, source=source.clone_with_span(match.span()))
+
+
+_re_call = re.compile(
+    r'^[ \t]*(?P<conditional>if[ \t]*\(.*?\)[ \t]*)?'  # Optional inline-conditional preceeding the call
+    r'call[ \t]+(?P<routine>[\w_% ]+)',  # Call keyword followed by routine name
+    re.IGNORECASE
+)
+"""
+Pattern to match a subroutine call via a ``call`` statement, even after an inline conditional statement.
+"""
+
+def match_call(source, scope):
+    """
+    Search for subroutine calls via Fortran's ``USE`` statement
+
+    Parameters
+    ----------
+    source : :any:`Source`
+        The source file object containing a single-line string to match
+    scope : :any:`Scope`
+        The enclosing scope a matched object is embedded into
+
+    Returns
+    -------
+    :any:`CallStatement` or NoneType
+        The matched object or `None`
+    """
+    match = _re_call.match(source.string)
+    if not match:
+        return None
+    routine = match['routine'].replace(' ', '')
+    type_ = SymbolAttributes(ProcedureType(name=routine, is_function=False))
+    name = sym.Variable(name=routine, type=type_, scope=scope)
+    if match['conditional']:
+        span = match.span('conditional')
+        return [
+            ir.RawSource(text=match['conditional'], source=source.clone_with_span(span)),
+            ir.CallStatement(name=name, arguments=(), source=source.clone_with_span((span[1], None)))
+        ]
+    return ir.CallStatement(name=name, arguments=(), source=source)
