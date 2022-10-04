@@ -746,3 +746,95 @@ def test_scheduler_item(here):
     assert 'contained_c' in item_b._re_subroutine_members
     assert 'contained_d' in item_b._re_subroutine_members
     assert item_b.children == ('routine_a',)
+
+
+@pytest.fixture(name='loki_69_dir')
+def fixture_loki_69_dir(here):
+    """
+    Fixture to write test file for LOKI-69 test.
+    """
+    fcode = """
+subroutine random_call_0(v_out,v_in,v_inout)
+implicit none
+
+    real(kind=jprb),intent(in)  :: v_in
+    real(kind=jprb),intent(out)  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+
+end subroutine random_call_0
+
+!subroutine random_call_1(v_out,v_in,v_inout)
+!implicit none
+!
+!  real(kind=jprb),intent(in)  :: v_in
+!  real(kind=jprb),intent(out)  :: v_out
+!  real(kind=jprb),intent(inout)  :: v_inout
+!
+!
+!end subroutine random_call_1
+
+subroutine random_call_2(v_out,v_in,v_inout)
+implicit none
+
+    real(kind=jprb),intent(in)  :: v_in
+    real(kind=jprb),intent(out)  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+
+end subroutine random_call_2
+
+subroutine test(v_out,v_in,v_inout,some_logical)
+implicit none
+
+    real(kind=jprb),intent(in   )  :: v_in
+    real(kind=jprb),intent(out  )  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+    logical,intent(in)             :: some_logical
+
+    v_inout = 0._jprb
+    if(some_logical)then
+        call random_call_0(v_out,v_in,v_inout)
+    endif
+
+    if(some_logical) call random_call_2
+
+end subroutine test
+    """.strip()
+
+    dirname = here/'loki69'
+    dirname.mkdir(exist_ok=True)
+    filename = dirname/'test.F90'
+    filename.write_text(fcode)
+    yield dirname
+    try:
+        filename.unlink()
+        dirname.rmdir()
+    except FileNotFoundError:
+        pass
+
+
+def test_scheduler_loki_69(loki_69_dir):
+    """
+    Test compliance of scheduler with edge cases reported in LOKI-69.
+    """
+    config = {
+        'default': {
+            'expand': True,
+            'strict': True,
+        },
+    }
+
+    scheduler = Scheduler(paths=loki_69_dir, config=config)
+    assert sorted(scheduler.obj_map.keys()) == ['random_call_0', 'random_call_2', 'test']
+    assert 'random_call_1' not in scheduler.obj_map
+    scheduler.populate('test')
+
+    children_map = {
+        'test': ('random_call_0', 'random_call_2'),
+        'random_call_0': (),
+        'random_call_2': ()
+    }
+    assert len(scheduler.items) == len(children_map)
+    assert all(item.children == children_map[item.name] for item in scheduler.items)
