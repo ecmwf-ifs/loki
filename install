@@ -315,6 +315,7 @@ fi
 
 pip install $PIPPROXYOPTIONS -e .$pip_opts  # Installs Loki dev copy in editable mode
 pip install $PIPPROXYOPTIONS -e scripts/transformations$pip_opts
+pip install $PIPPROXYOPTIONS -e scripts/lint_rules$pip_opts
 
 #
 # Install Java

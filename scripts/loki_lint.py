@@ -17,9 +17,6 @@ from loki.build import workqueue
 from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler, ViolationFileHandler
 from loki.tools import yaml_include_constructor, auto_post_mortem_debugger, as_tuple
 
-# Bootstrap the local linting rules directory
-sys.path.insert(0, str(Path(__file__).parent))
-
 
 class OutputFile:
     """
@@ -117,6 +114,8 @@ def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=Fals
               help='Select Python module with rules in lint_rules.')
 @click.pass_context
 def cli(ctx, debug, log, rules_module):  # pylint:disable=redefined-outer-name
+    if ctx.obj is None:
+        ctx.obj = {}
     ctx.obj['DEBUG'] = debug
     ctx.obj['rules_module'] = rules_module
     if debug:
