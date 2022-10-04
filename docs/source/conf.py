@@ -51,8 +51,8 @@ extensions = [
 
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
 autosummary_filename_map = {
-    'scripts.loki-lint': 'scripts/loki-lint.py',
-    'scripts.loki-transform': 'scripts/loki-transform.py',
+    'scripts.loki_lint': 'scripts/loki_lint.py',
+    'scripts.loki_transform': 'scripts/loki_transform.py',
 }
 html_show_sourcelink = False  # Remove 'view source code' from top of page (for html, not python)
 add_module_names = False # Remove namespaces from class/method signatures

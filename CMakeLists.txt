@@ -57,7 +57,8 @@ if( NOT ${HAVE_EDITABLE} )
 endif()
 
 # The list of Loki frontend scripts
-file( GLOB _LOKI_EXECUTABLES ${CMAKE_CURRENT_SOURCE_DIR}/scripts/loki-*.py )
+file( GLOB _LOKI_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/loki_*.py" )
+string( REPLACE "scripts/loki_" "scripts/loki-" _LOKI_EXECUTABLES ${_LOKI_SCRIPTS} )
 set( LOKI_EXECUTABLES "" )
 foreach( _exe IN LISTS _LOKI_EXECUTABLES )
     get_filename_component( _exe_name ${_exe} NAME )
