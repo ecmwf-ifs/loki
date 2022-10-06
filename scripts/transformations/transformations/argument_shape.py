@@ -6,7 +6,10 @@ to the called subroutine.
 """
 
 
-from loki import Transformation, FindNodes, CallStatement, Array, FindVariables, SubstituteExpressions
+from loki import (
+    Transformation, FindNodes, CallStatement, Array, FindVariables, SubstituteExpressions,
+    BasicType
+)
 
 
 class InferArgShapeTransformation(Transformation):
@@ -18,7 +21,7 @@ class InferArgShapeTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
 
         for call in FindNodes(CallStatement).visit(routine.body):
-            if not call.not_active and call.routine:
+            if not call.not_active and call.routine is not BasicType.DEFERRED:
                 routine = call.routine
 
                 # Create a variable map with new shape information from source

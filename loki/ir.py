@@ -790,6 +790,24 @@ class CallStatement(LeafNode):
         return f'Call:: {self.name}'
 
     @property
+    def procedure_type(self):
+        """
+        The :any:`ProcedureType` of the :any:`Subroutine` object of the called routine
+
+        For a :class:`CallStatement` node called ``call``, this is shorthand for ``call.name.type.dtype``.
+
+        If the procedure type object has been linked up with the corresponding
+        :any:`Subroutine` object, then it is available via ``call.procedure_type.procedure``.
+
+        Returns
+        -------
+        :any:`ProcedureType` or :any:`BasicType.DEFERRED`
+            The type of the called procedure. If the symbol type of the called routine
+            has not been identified correctly, this may yield :any:`BasicType.DEFERRED`.
+        """
+        return self.name.type.dtype
+
+    @property
     def routine(self):
         """
         The :any:`Subroutine` object of the called routine
@@ -798,14 +816,14 @@ class CallStatement(LeafNode):
 
         Returns
         -------
-        :any:`Subroutine` or `None`
+        :any:`Subroutine` or :any:`BasicType.DEFERRED`
             If the :any:`ProcedureType` object of the :any:`ProcedureSymbol`
             in :attr:`name` is linked up to the target routine, this returns
             the corresponding :any:`Subroutine` object, otherwise `None`.
         """
-        procedure_type = self.name.type.dtype
+        procedure_type = self.procedure_type
         if procedure_type is BasicType.DEFERRED:
-            return None
+            return BasicType.DEFERRED
         return procedure_type.procedure
 
     def arg_iter(self):
@@ -819,9 +837,10 @@ class CallStatement(LeafNode):
             An iterator that traverses the mapping ``(arg name, call arg)`` for
             all positional and then keyword arguments.
         """
-        assert self.routine is not None
-        r_args = {arg.name: arg for arg in self.routine.arguments}
-        args = zip(self.routine.arguments, self.arguments)
+        routine = self.routine
+        assert routine is not BasicType.DEFERRED
+        r_args = {arg.name: arg for arg in routine.arguments}
+        args = zip(routine.arguments, self.arguments)
         kwargs = ((r_args[kw], arg) for kw, arg in self.kwarguments)
         return chain(args, kwargs)
 

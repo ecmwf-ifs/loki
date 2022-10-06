@@ -4,8 +4,9 @@ Collection of dataflow analysis schema routines.
 
 from contextlib import contextmanager
 from loki.expression import FindVariables, Array, FindInlineCalls
-from loki.visitors import Visitor, Transformer
 from loki.tools import as_tuple, flatten
+from loki.types import BasicType
+from loki.visitors import Visitor, Transformer
 
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
@@ -181,7 +182,7 @@ class DataflowAnalysisAttacher(Transformer):
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_CallStatement(self, o, **kwargs):
-        if o.routine:
+        if o.routine is not BasicType.DEFERRED:
             # With a call context provided we can determine which arguments
             # are potentially defined and which are definitely only used by
             # this call

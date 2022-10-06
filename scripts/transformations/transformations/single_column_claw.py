@@ -147,7 +147,7 @@ class ExtractSCATransformation(Transformation):
         replacements = {}
 
         for call in FindNodes(CallStatement).visit(caller.body):
-            if not call.not_active and call.routine:
+            if not call.not_active and call.routine is not BasicType.DEFERRED:
                 routine = call.routine
                 argmap = {}
 
@@ -254,7 +254,7 @@ class CLAWTransformation(ExtractSCATransformation):
         for call in FindNodes(CallStatement).visit(routine.body):
             call_name = str(call.name).lower()
             if call_name in targets:
-                if call.routine:
+                if call.routine is not BasicType.DEFERRED:
                     self.item_depth[call_name] = self.item_depth[routine.name.lower()] + 1
                 else:
                     warning(f'[Loki] CLAWTransform: Routine {routine.name} not attached to call context ' +
@@ -269,7 +269,7 @@ class CLAWTransformation(ExtractSCATransformation):
         # association in the function call though, so we generate local version of the
         # dimension variables in the calling driver routine before applying SCA.
         for call in FindNodes(CallStatement).visit(routine.body):
-            if not call.not_active and call.routine:
+            if not call.not_active and call.routine is not BasicType.DEFERRED:
 
                 # Explicitly create and assign local variables
                 # that mimic dimension variables in the kernel
