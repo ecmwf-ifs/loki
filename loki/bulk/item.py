@@ -1,4 +1,3 @@
-import re
 try:
     from functools import cached_property
 except ImportError:
@@ -8,33 +7,12 @@ except ImportError:
         def cached_property(func):
             return func
 
-from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.tools import as_tuple
 from loki.visitors import FindNodes
-from loki.sourcefile import Sourcefile
 from loki.ir import CallStatement
 
 
 __all__ = ['Item']
-
-
-"""
-Matches subroutine calls within a string via the ``call`` keyword.
-"""
-_re_call = re.compile(r'^\s*call\s+(?P<routine>[a-zA-Z0-9_% ]+)', re.IGNORECASE | re.MULTILINE)
-
-"""
-Matches subroutines and potential member subroutines via the
-``subroutine...end subroutine`` keywords. This is safe, since F2008's
-C1260 limits nesting to one level.
-"""
-_re_subroutine_members = re.compile(
-    r'\bsubroutine\s+(?P<routine>\w+)'  # Match the initial routine name
-    r'(?P<body>.*?)'  # Match the body and store it
-    # Match the optional internal-subprogram part
-    r'(?P<contains>contains.*?(?:(?:subroutine\s+).*?(?:end\s+subroutine).*?)*)?'
-    r'end\s+subroutine(?:(?=\s+\1)|(?!\s*\1))',  # Match the named or unnamed `end subroutine`
-    re.IGNORECASE | re.DOTALL
-)
 
 
 class Item:
@@ -43,21 +21,6 @@ class Item:
     processed. Each :any:`Item` spawns new work items according to its
     own subroutine calls and can be configured to ignore individual
     sub-tree.
-
-    Parameters
-    ----------
-    name : str
-        Name to identify items in the schedulers graph
-    path : path
-        Filepath to the underlying source file
-    config : dict
-        Dict of item-specific config markers
-    source_cache : dict
-        Dict to cache and lookup :any:`Sourcefile` objects that might have been
-        built previously. This avoids two :any:`Item` objects aliasing to the same
-        source file, which can lead to overriding prior source changes.
-    build_args : dict
-        Dict of build arguments to pass to ``Sourcefile.from_file`` constructors
 
     Notes
     -----
@@ -82,16 +45,20 @@ class Item:
     * ``block``: List of subroutines that should should not be added to the scheduler
       tree. Note, these might still be shown in the graph visulisation.
 
+    Parameters
+    ----------
+    name : str
+        Name to identify items in the schedulers graph
+    source : :any:`Sourcefile`
+        The underlying source file that contains the associated item
+    config : dict
+        Dict of item-specific config markers
     """
 
-    def __init__(self, name, path, config=None, source_cache=None, build_args=None):
+    def __init__(self, name, source, config=None):
         self.name = name
-        self.path = path
+        self.source = source
         self.config = config or {}
-
-        # Private constructor arguments for delayed sourcefile creation
-        self._source_cache = {} if source_cache is None else source_cache
-        self._build_args = {} if build_args is None else build_args
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
@@ -107,49 +74,6 @@ class Item:
         return hash(self.name)
 
     @cached_property
-    def source_string(self):
-        """
-        The original source string as read from file. This property is cached.
-
-        This is primarily used for establishing dependency trees via
-        regexes during the initial planning stage.
-        """
-        with self.path.open(encoding='latin1') as f:
-            source = f.read()
-        return source
-
-    @cached_property
-    def _re_subroutines(self):
-        """
-        A :any:`CaseInsensitiveDict` matching subroutine names to
-        their body as determined by fast regex-matching.
-
-        This is intended for fast subroutine detection without triggering full frontend parsers.
-        """
-        result = _re_subroutine_members.findall(self.source_string)
-        s = CaseInsensitiveDict((r[0], r[1]) for r in result)
-        m = CaseInsensitiveDict((r[0], r[2]) for r in result)
-        return s, m
-
-    @property
-    def _re_subroutine_calls(self):
-        """
-        A :any:`tuple` of strings with subroutine calls in the
-        :any:`Item`'s associated subroutine.
-        """
-        body, _ = self._re_subroutines
-        return tuple(r.replace(' ', '') for r in _re_call.findall(body[self.name]))
-
-    @property
-    def _re_subroutine_members(self):
-        """
-        A :any:`tuple` of strings with names of member subroutines
-        contained in the :any:`Item`'s associated subroutine.
-        """
-        _, members = self._re_subroutines
-        return tuple(r[0] for r in _re_subroutine_members.findall(members[self.name]))
-
-    @cached_property
     def routine(self):
         """
         :any:`Subroutine` object that this :any:`Item` encapsulates for processing.
@@ -161,22 +85,19 @@ class Item:
         return self.source[self.name]
 
     @cached_property
-    def source(self):
+    def calls(self):
+        return tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+
+    @cached_property
+    def members(self):
+        return tuple(member.name.lower() for member in self.routine.members)
+
+    @property
+    def path(self):
         """
-        :any:`Sourcefile` that this :any:`Item` encapsulates for processing.
-
-        Note that this property is cached, so that we may defer the creation of the
-        :any:`Sourcefile` to the processing stage, as it triggers the potentially
-        costly full frontend parser.
+        The filepath of the associated source file
         """
-        if self.path in self._source_cache:
-            return self._source_cache[self.path]
-
-        # Parse the sourcefile with build options and store in cache
-        source = Sourcefile.from_file(filename=self.path, **self._build_args)
-        self._source_cache[self.path]= source
-
-        return source
+        return self.source.path
 
     @property
     def role(self):
@@ -251,14 +172,13 @@ class Item:
         will apply a transformation over, but rather the set of nodes that
         defines the next level of the internal call tree.
         """
-        members = [str(m).lower() for m in self._re_subroutine_members]
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
         # Base definition of child is a procedure call (for now)
-        children = as_tuple(str(call).lower() for call in self._re_subroutine_calls)
+        children = self.calls
 
         # Filter out local members and disabled sub-branches
-        children = [c for c in children if c not in members]
+        children = [c for c in children if c not in self.members]
         children = [c for c in children if c not in disabled]
         return as_tuple(children)
 

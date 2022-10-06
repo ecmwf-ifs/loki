@@ -46,8 +46,8 @@ import pytest
 
 from loki import (
     Scheduler, SchedulerConfig, Item, DependencyTransformation, FP,
-    OFP, HAVE_FP, HAVE_OFP, Sourcefile, FindNodes, CallStatement,
-    fexprgen, Transformation, BasicType, CMakePlanner
+    OFP, HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
+    fexprgen, Transformation, BasicType, CMakePlanner, Subroutine
 )
 
 
@@ -306,6 +306,7 @@ def test_scheduler_definitions(here, config, frontend):
     scheduler = Scheduler(paths=projA, definitions=header['header_mod'],
                           includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverA')
+    scheduler.enrich()
 
     driver = scheduler.item_map['driverA'].routine
     call = FindNodes(CallStatement).visit(driver.body)[0]
@@ -476,7 +477,7 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
 
     # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
     call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelB'].routine.body)[1]
-    assert call.routine is not None
+    assert isinstance(call.routine, Subroutine)
     assert fexprgen(call.routine.arguments) == '(vector(:), matrix(:, :))'
 
     # Test callgraph visualisation
@@ -732,19 +733,20 @@ def test_scheduler_item(here):
     Test the basic regex accessors in :any:`Item` objects for fast dependency detection.
     """
     filepath = here/'sources/sourcefile_item.f90'
+    sourcefile = Sourcefile.from_file(filepath, frontend=REGEX)
 
-    item_a = Item(name='routine_a', path=filepath)
-    assert item_a._re_subroutine_calls == ('routine_b',)
-    assert not item_a._re_subroutine_members
+    item_a = Item(name='routine_a', source=sourcefile)
+    assert item_a.calls == ('routine_b',)
+    assert not item_a.members
 
-    item_module = Item(name='module_routine', path=filepath)
-    assert item_module._re_subroutine_calls == ('routine_b',)
-    assert not item_module._re_subroutine_members
+    item_module = Item(name='module_routine', source=sourcefile)
+    assert item_module.calls == ('routine_b',)
+    assert not item_module.members
 
-    item_b = Item(name='routine_b', path=filepath)
-    assert item_b._re_subroutine_calls == ('contained_c', 'routine_a')
-    assert 'contained_c' in item_b._re_subroutine_members
-    assert 'contained_d' in item_b._re_subroutine_members
+    item_b = Item(name='routine_b', source=sourcefile)
+    assert item_b.calls == ('contained_c', 'routine_a')
+    assert 'contained_c' in item_b.members
+    assert 'contained_d' in item_b.members
     assert item_b.children == ('routine_a',)
 
 

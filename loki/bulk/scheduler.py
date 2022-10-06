@@ -109,7 +109,7 @@ class Scheduler:
     """
 
     # TODO: Should be user-definable!
-    source_suffixes = ['.f90', '.F90', '.f', '.F', '.c']
+    source_suffixes = ['.f90', '.F90', '.f', '.F']
 
     def __init__(self, paths, config=None, preprocess=False, includes=None,
                  defines=None, definitions=None, xmods=None, omni_includes=None,
@@ -140,20 +140,20 @@ class Scheduler:
         self.item_graph = nx.DiGraph()
         self.item_map = {}
 
-        self._populate_maps()
+        self._populate_obj_map()
 
     @timeit(log_level=PERF)
-    def _populate_maps(self):
+    def _populate_obj_map(self):
         # Scan all source paths and create light-weight `Sourcefile` objects for each file.
+        populate_args = self.build_args.copy()
+        populate_args['frontend'] = REGEX
         obj_list = []
         for path in self.paths:
             for ext in self.source_suffixes:
-                obj_list += [Sourcefile.from_file(f, frontend=REGEX) for f in path.glob(f'**/*{ext}')]
+                obj_list += [Sourcefile.from_file(f, **populate_args) for f in path.glob(f'**/*{ext}')]
 
         # Create a map of all potential target routines for fast lookup later
         self.obj_map = CaseInsensitiveDict((r.name, obj) for obj in obj_list for r in as_tuple(obj.all_subroutines))
-
-        self.source_map = {}
 
     @property
     def routines(self):
@@ -174,17 +174,6 @@ class Scheduler:
         """
         return as_tuple(self.item_graph.edges)
 
-    def find_path(self, routine):
-        """
-        Find path of file containing a given routine from the internal `obj_cache`.
-
-        :param routine: Name of the source routine to locate.
-        """
-        if routine in self.obj_map:
-            return self.obj_map[routine].path
-
-        raise FileNotFoundError(f'Source path not found for routine: {routine}')
-
     def create_item(self, source):
         """
         Create an `Item` by looking up the path and setting all inferred properties.
@@ -199,23 +188,21 @@ class Scheduler:
         if source in self.item_map:
             return self.item_map[source]
 
-        # Use default as base and overrid individual options
+        # Use default as base and override individual options
         item_conf = self.config.default.copy()
         if source in self.config.routines:
             item_conf.update(self.config.routines[source])
 
         name = item_conf.pop('name', source)
-        try:
-            path = self.find_path(source)
-        except FileNotFoundError as fnferr:
+        sourcefile = self.obj_map.get(source)
+        if sourcefile is None:
             warning(f'Scheduler could not create item: {source}')
             if self.config.default['strict']:
-                raise fnferr
+                raise FileNotFoundError(f'Sourcefile not found for routine {source}')
             return None
 
-        debug(f'[Loki] Scheduler creating item: {name} => {path}')
-        return Item(name=name, path=path, config=item_conf, source_cache=self.source_map,
-                    build_args=self.build_args)
+        debug(f'[Loki] Scheduler creating item: {name} => {sourcefile.path}')
+        return Item(name=name, source=sourcefile, config=item_conf)
 
     @timeit(log_level=PERF)
     def populate(self, routines):
@@ -270,22 +257,18 @@ class Scheduler:
         """
 
         for item in self.item_graph:
+            item.source.make_complete(**self.build_args)
             item.routine.enrich_calls(routines=self.routines)
 
             # Enrich item with meta-info from outside of the callgraph
             for routine in item.enrich:
-                try:
-                    path = self.find_path(routine)
-                except FileNotFoundError as err:
+                if routine not in self.obj_map:
                     warning(f'Scheduler could not find file for enrichment:\n{routine}')
                     if self.config.default['strict']:
-                        raise err
+                        raise FileNotFoundError(f'Source path not found for routine {routine}')
                     continue
-
-                if path not in self.source_map:
-                    source = Sourcefile.from_file(path, **self.build_args)
-                    self.source_map[path] = source
-                item.routine.enrich_calls(self.source_map[path].all_subroutines)
+                self.obj_map[routine].make_complete(**self.build_args)
+                item.routine.enrich_calls(self.obj_map[routine].all_subroutines)
 
     def process(self, transformation):
         """
