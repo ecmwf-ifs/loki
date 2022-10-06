@@ -1106,10 +1106,16 @@ class OFP2IR(GenericVisitor):
         name = o.attrib['name']
 
         # Check if the Subroutine node has been created before by looking it up in the scope
+        routine = None
         if scope is not None and name in scope.symbol_attrs:
             proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
             if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
-                return proc_type.dtype.procedure
+                routine = proc_type.dtype.procedure
+                if not routine._incomplete:
+                    # We return the existing object right away, unless it exists from a
+                    # previous incomplete parse for which we have to make sure we get a
+                    # full parse first
+                    return routine
 
         # Dummy args and procedure attributes
         header_ast = o.find('header')
@@ -1122,11 +1128,19 @@ class OFP2IR(GenericVisitor):
             if header_ast.find('subroutine-stmt').attrib['hasBindingSpec'] == 'true':
                 self.warn_or_fail('binding-spec not implemented')
 
-        routine = Subroutine(
-            name=name, args=args, prefix=None, bind=None,
-            is_function=is_function, parent=scope,
-            ast=o, source=self.get_source(o)
-        )
+        if routine is None:
+            routine = Subroutine(
+                name=name, args=args, prefix=None, bind=None,
+                is_function=is_function, parent=scope,
+                ast=o, source=self.get_source(o)
+            )
+        else:
+            routine.__init__(  # pylint: disable=unnecessary-dunder-call
+                name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
+                contains=routine.contains, prefix=None, bind=None, is_function=is_function,
+                ast=o, source=self.get_source(o), parent=routine.parent, symbol_attrs=routine.symbol_attrs,
+                incomplete=routine._incomplete
+            )
 
         return routine
 

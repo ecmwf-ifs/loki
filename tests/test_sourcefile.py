@@ -6,7 +6,8 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Sourcefile, OFP, OMNI, REGEX, FindNodes, PreprocessorDirective,
     Intrinsic, Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
-    StatementFunction, Comment, CommentBlock, RawSource
+    StatementFunction, Comment, CommentBlock, RawSource, DeferredTypeSymbol,
+    Scalar
 )
 
 
@@ -271,6 +272,9 @@ end function function_d
     some_module = source['some_module']
     routine_b = source['routine_b']
     module_routine = some_module['module_routine']
+    function_d = source['function_d']
+    assert function_d.arguments == ('d',)
+    assert isinstance(function_d.arguments[0], DeferredTypeSymbol)
 
     # Make sure we have an incomplete parse tree until now
     assert source._incomplete
@@ -296,6 +300,8 @@ end function function_d
     assert routine_b is source['routine_b']
     assert some_module is source['some_module']
     assert module_routine is source['some_module']['module_routine']
+    assert function_d.arguments == ('d',)
+    assert isinstance(function_d.arguments[0], Scalar)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
