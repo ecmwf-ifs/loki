@@ -88,8 +88,8 @@ def fixture_ecbuild():
     shutil.rmtree(ecbuilddir)
 
 
-@pytest.fixture(scope='module', name='loki_install')
-def fixture_loki_install(here, ecbuild, silent):
+@pytest.fixture(scope='module', name='loki_install', params=[True, False])
+def fixture_loki_install(here, ecbuild, silent, request):
     """
     Install Loki using CMake into an install directory
     """
@@ -97,10 +97,12 @@ def fixture_loki_install(here, ecbuild, silent):
     if builddir.exists():
         shutil.rmtree(builddir)
     builddir.mkdir()
-    execute(
-        [f'{ecbuild}/bin/ecbuild', str(here.parent), '-DENABLE_CLAW=OFF'],
-        silent=silent, cwd=builddir
-    )
+    cmd = [f'{ecbuild}/bin/ecbuild', str(here.parent), '-DENABLE_CLAW=OFF']
+    if request.param:
+        cmd += ['-DENABLE_EDITABLE=ON']
+    else:
+        cmd += ['-DENABLE_EDITABLE=OFF']
+    execute(cmd, silent=silent, cwd=builddir)
 
     lokidir = gettempdir()/'loki'
     if lokidir.exists():

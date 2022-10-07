@@ -18,7 +18,6 @@ help:
 
 apidoc:
 	@$(SPHINXAPIDOC) -o "$(SOURCEDIR)" -e --no-toc -f ../loki
-	@$(SPHINXAPIDOC) -o "$(SOURCEDIR)" -e --no-toc -f ../scripts
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).

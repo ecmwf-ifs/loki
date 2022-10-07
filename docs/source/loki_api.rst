@@ -8,3 +8,5 @@ API reference
 
    loki
    scripts
+   transformations
+   lint_rules

@@ -19,14 +19,14 @@ from loki.transform import (
     DependencyTransformation, FortranCTransformation
 )
 
-# Bootstrap the local transformations directory for custom transformations
-sys.path.insert(0, str(Path(__file__).parent))
-# pylint: disable=wrong-import-position,wrong-import-order
-from transformations import DerivedTypeArgumentsTransformation, InferArgShapeTransformation
-from transformations import DataOffloadTransformation
-from transformations import ExtractSCATransformation, CLAWTransformation
-from transformations import SingleColumnCoalescedTransformation
-from transformations import DrHookTransformation
+# pylint: disable=wrong-import-order
+from transformations import (
+    DerivedTypeArgumentsTransformation, InferArgShapeTransformation,
+    DataOffloadTransformation,
+    ExtractSCATransformation, CLAWTransformation,
+    SingleColumnCoalescedTransformation,
+    DrHookTransformation
+)
 
 
 """

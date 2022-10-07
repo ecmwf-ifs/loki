@@ -314,6 +314,8 @@ else
 fi
 
 pip install $PIPPROXYOPTIONS -e .$pip_opts  # Installs Loki dev copy in editable mode
+pip install $PIPPROXYOPTIONS -e scripts/transformations
+pip install $PIPPROXYOPTIONS -e scripts/lint_rules
 
 #
 # Install Java

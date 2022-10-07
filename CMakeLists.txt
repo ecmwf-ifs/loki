@@ -52,12 +52,9 @@ ecbuild_add_option(
 add_subdirectory( cmake )
 install( DIRECTORY cmake DESTINATION ${INSTALL_DATA_DIR} PATTERN "CMakeLists.txt" EXCLUDE )
 
-if( NOT ${HAVE_EDITABLE} )
-    message( FATAL_ERROR "Loki currently supports only editable install" )
-endif()
-
 # The list of Loki frontend scripts
-file( GLOB _LOKI_EXECUTABLES ${CMAKE_CURRENT_SOURCE_DIR}/scripts/loki-*.py )
+file( GLOB _LOKI_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/loki_*.py" )
+string( REPLACE "scripts/loki_" "scripts/loki-" _LOKI_EXECUTABLES ${_LOKI_SCRIPTS} )
 set( LOKI_EXECUTABLES "" )
 foreach( _exe IN LISTS _LOKI_EXECUTABLES )
     get_filename_component( _exe_name ${_exe} NAME )
@@ -65,9 +62,9 @@ foreach( _exe IN LISTS _LOKI_EXECUTABLES )
 endforeach()
 
 # Install Loki and dependencies
-if( NOT ${HAVE_NO_INSTALL} )
+if( NOT HAVE_NO_INSTALL )
 
-    if( ${HAVE_CLAW} )
+    if( HAVE_CLAW )
         include( claw_compiler )
         install_claw_compiler( mlange-dev )
     endif()
@@ -79,12 +76,14 @@ if( NOT ${HAVE_NO_INSTALL} )
     install( DIRECTORY ${loki_VENV_PATH} DESTINATION . USE_SOURCE_PERMISSIONS )
 
     # Enable Pytest tests as ecbuild/ctest targets
-    if( ${ENABLE_TESTS} )
+    if( HAVE_TESTS )
 
-        if( ${HAVE_CLAW} )
+        if( HAVE_CLAW )
             set( _TEST_SELECTOR "not ofp" )
+            set( _TEST_PATH "${CLAW_DIR}/bin:${ENV_PATH}" )
         else()
             set( _TEST_SELECTOR "not ofp and not omni" )
+            set( _TEST_PATH "${ENV_PATH}" )
         endif()
 
         # ecbuild_add_test relies on the variables set by the _very_ outdated
@@ -98,7 +97,7 @@ if( NOT ${HAVE_NO_INSTALL} )
             TARGET loki_tests
             ARGS -m pytest -k ${_TEST_SELECTOR} -v tests
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-            ENVIRONMENT PATH=${Python3_VENV_BIN}:${CLAW_DIR}/bin:$ENV{PATH}
+            ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
         ecbuild_add_test(
@@ -106,7 +105,7 @@ if( NOT ${HAVE_NO_INSTALL} )
             TARGET loki_scripts
             ARGS -m pytest -k ${_TEST_SELECTOR} -v scripts
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-            ENVIRONMENT PATH=${Python3_VENV_BIN}:${CLAW_DIR}/bin:$ENV{PATH}
+            ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
         list( APPEND LOKI_INSTALL_OPTIONS "tests" )
@@ -118,7 +117,7 @@ if( NOT ${HAVE_NO_INSTALL} )
         # Less verbose output
         list ( APPEND PIP_OPTIONS "-q" )
     endif()
-    if( ${HAVE_EDITABLE} )
+    if( HAVE_EDITABLE )
         # Use checked-out source instead of installing into venv
         list( APPEND PIP_OPTIONS "-e" )
     endif()
@@ -134,6 +133,14 @@ if( NOT ${HAVE_NO_INSTALL} )
     message( STATUS "Install Loki in virtual environment" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
     message( STATUS "Install Loki in virtual environment - done" )
+
+    message( STATUS "Install Loki transformations in virtual environment" )
+    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/transformations )
+    message( STATUS "Install Loki transformations in virtual environment - done" )
+
+    message( STATUS "Install Loki lint_rules in virtual environment" )
+    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint_rules )
+    message( STATUS "Install Loki lint_rules in virtual environment - done" )
 
     # Make the shebang in Python scripts use relative paths
     list(

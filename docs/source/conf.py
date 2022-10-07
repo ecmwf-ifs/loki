@@ -12,12 +12,7 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import os
-import sys
 from importlib import metadata
-
-# sys.path.insert(0, os.path.abspath('../..'))
-sys.path.insert(0, os.path.abspath('../../scripts'))
 
 
 # -- Project information -----------------------------------------------------
@@ -50,16 +45,13 @@ extensions = [
 ]
 
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
-autosummary_filename_map = {
-    'scripts.loki-lint': 'scripts/loki-lint.py',
-    'scripts.loki-transform': 'scripts/loki-transform.py',
-}
 html_show_sourcelink = False  # Remove 'view source code' from top of page (for html, not python)
 add_module_names = False # Remove namespaces from class/method signatures
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
     'pymbolic': ('https://documen.tician.de/pymbolic/', None),
+    'fparser': ('https://fparser.readthedocs.io/en/latest/', None)
 }
 
 # The file extensions of source files. Sphinx considers the files with
@@ -76,7 +68,7 @@ templates_path = ['_templates']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = []
+exclude_patterns = ['**/tests/**/*.py']
 
 # Prefix each section label with the document it is in, followed by a colon
 autosectionlabel_prefix_document = True
