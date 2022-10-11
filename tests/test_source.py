@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from loki import read_file, Source, source_to_lines, join_source_list
+from loki import read_file, Source, source_to_lines, join_source_list, FortranReader
 
 
 @pytest.fixture(scope='module', name='here')
@@ -270,3 +270,139 @@ def test_join_source_list(source_list, expected):
         assert result.lines == expected.lines
         assert result.string == expected.string
         assert result.file == expected.file
+
+
+def test_fortran_reader(here):
+    """Test :any:`FortranReader` constructor"""
+    filepath = here/'sources/Fortran-extract-interface-source.f90'
+    fcode = read_file(filepath)
+    lines = (1, fcode.count('\n') + 1)
+
+    reader = FortranReader(fcode)
+
+    # Check for line continuation in sanitized string
+    _re_line_cont = re.compile(r'&([ \t]*)\n([ \t]*)(?:&|(?!\!)(?=\S))', re.MULTILINE)
+    assert _re_line_cont.search(fcode) is not None
+    assert _re_line_cont.search(reader.sanitized_string) is None
+    assert 'end subroutine sub_simple_3' in reader.sanitized_string
+
+    # Sanity check for line numbers
+    assert reader.sanitized_lines[0].span[0] >= lines[0]
+    assert reader.sanitized_lines[1].span[1] <= lines[1]
+    assert len(reader.source_lines) == lines[1] - lines[0]
+
+    # Check for comments at the top that are removed
+    source = reader.source_from_head()
+    assert source.lines == (1, 4)
+    assert all(line.strip().startswith('!') or not line.strip() for line in source.string.splitlines())
+
+    assert reader.source_from_tail() is None
+
+    # Test extracting substrings
+    start = reader.sanitized_string.find('module foo')
+    end = reader.sanitized_string.find('end module foo') + len('end module foo')
+    assert start > 0 and end > start
+
+    # without padding
+    new_reader = reader.reader_from_sanitized_span((start, end))
+    assert new_reader.sanitized_lines[0].span[0] == 51
+    assert new_reader.sanitized_lines[-1].span[1] == 64
+
+    source = new_reader.to_source()
+    assert source.lines == (51, 64)
+    assert source.string.startswith('module foo')
+    assert source.string.endswith('end module foo')
+
+    assert new_reader.source_from_tail() is None
+
+    # with padding
+    new_reader = reader.reader_from_sanitized_span((start, end), include_padding=True)
+    assert new_reader.sanitized_lines[0].span[0] == 51
+    assert new_reader.sanitized_lines[-1].span[1] == 64
+
+    source = new_reader.to_source()
+    assert source.lines == (51, 64)
+    assert source.string.startswith('module foo')
+    assert source.string.endswith('end module foo')
+
+    source = new_reader.to_source(include_padding=True)
+    assert source.lines == (49, 66)
+    assert source.string.startswith('\n!')
+    assert source.string.splitlines()[-1].startswith('!')
+
+    source = new_reader.source_from_tail()
+    assert source.lines == (65, 66)
+    assert all(line.strip().startswith('!') or not line.strip() for line in source.string.splitlines())
+
+    source = reader.source_from_sanitized_span((start, end))
+    assert source.lines == (51, 64)
+    assert source.string.startswith('module foo')
+    assert source.string.endswith('end module foo')
+
+    source = reader.source_from_sanitized_span((start, end), include_padding=True)
+    assert source.lines == (49, 66)
+    assert source.string.startswith('\n!')
+    assert source.string.splitlines()[-1].startswith('!')
+
+    # Test nested reader
+    start = new_reader.sanitized_string.find('subroutine foo_sub')
+    end = new_reader.sanitized_string.find('end subroutine foo_sub') + len('end subroutine foo_sub')
+    assert start > 0 and end > start and end < len(new_reader.sanitized_string)
+
+    nested_reader = new_reader.reader_from_sanitized_span((start, end))
+    assert nested_reader.sanitized_lines[0].span[0] == 55
+    assert nested_reader.sanitized_lines[-1].span[1] == 59
+
+    source = nested_reader.to_source()
+    assert source.lines == (55, 59)
+    assert source.string.startswith('subroutine foo_sub')
+
+    source = new_reader.source_from_sanitized_span((start, end))
+    assert source.lines == (55, 59)
+    assert source.string.startswith('subroutine foo_sub')
+    assert source.string.splitlines()[-1].startswith('end subroutine foo_sub')
+
+    # Test extracting substring at the start
+    start = reader.sanitized_string.find('logical function func_simple')
+    end = reader.sanitized_string.find('end function func_simple') + len('end function func_simple')
+    assert start == 0 and end > start
+
+    new_reader = reader.reader_from_sanitized_span((start, end))
+    assert new_reader.sanitized_lines[0].span[0] == 5
+    assert new_reader.sanitized_lines[-1].span[1] == 7
+
+    source = reader.source_from_sanitized_span((start, end), include_padding=True)
+    assert source.lines == (1, 9)
+    assert source.string.startswith('!')
+    assert source.string.splitlines()[-1].startswith('!')
+
+    source = reader.source_from_sanitized_span((start, end))
+    assert source.lines == (5, 7)
+    assert source.string.startswith('logical function func_simple')
+    assert source.string.endswith('end function func_simple')
+
+    # Test extracting substring at the end
+    start = reader.sanitized_string.find('subroutine sub_with_end')
+    end = reader.sanitized_string.find('end subroutine sub_with_end') + len('end subroutine sub_with_end')
+    assert start > 0 and end > start and end == len(reader.sanitized_string)
+
+    new_reader = reader.reader_from_sanitized_span((start, end))
+    assert new_reader.sanitized_lines[0].span[0] == 181
+    assert new_reader.sanitized_lines[-1].span[1] == 184
+
+    source = reader.source_from_sanitized_span((start, end))
+    assert source.lines == (181, 184)
+    assert source.string.startswith('subroutine sub_with_end')
+    assert source.string.splitlines()[-1].startswith('end subroutine')
+
+    # Test extracting open-ended substring
+    end = None
+
+    new_reader = reader.reader_from_sanitized_span((start, end))
+    assert new_reader.sanitized_lines[0].span[0] == 181
+    assert new_reader.sanitized_lines[-1].span[1] == 184
+
+    source = reader.source_from_sanitized_span((start, end))
+    assert source.lines == (181, 184)
+    assert source.string.startswith('subroutine sub_with_end')
+    assert source.string.splitlines()[-1].startswith('end subroutine')

@@ -1,12 +1,20 @@
 """
 Implementation of :any:`Source` and adjacent utilities
 """
-
+from bisect import bisect_left
+from itertools import accumulate
 import re
-from loki.logging import warning
 
-__all = [
-    'Source', 'extract_source', 'extract_source_from_range', 'source_to_lines',
+try:
+    from fparser.common.readfortran import FortranStringReader
+except ImportError:
+    FortranStringReader = None
+
+from loki.logging import warning, PERF
+from loki.tools import timeit
+
+__all__ = [
+    'Source', 'FortranReader', 'extract_source', 'extract_source_from_range', 'source_to_lines',
     'join_source_list'
 ]
 
@@ -15,10 +23,14 @@ class Source:
     """
     Store information about the original source for an IR node.
 
-    :param tuple line: tuple with start and (optional) end line number
-                       in original source file.
-    :param str string: the original source string.
-    :pram str file: the file name.
+    Parameters
+    ----------
+    line : tuple
+        Start and (optional) end line number in original source file
+    string : str (optional)
+        The original raw source string
+    file : str (optional)
+        The file name
     """
 
     def __init__(self, lines, string=None, file=None):
@@ -98,6 +110,210 @@ class Source:
             Source(lines=(self.lines[0]+idx,)*2, string=line, file=self.file)
             for idx, line in enumerate(self.string.splitlines())
         ]
+
+
+class FortranReader:
+    """
+    Reader for Fortran source strings that provides a sanitized version of the source code
+
+    It performs the following sanitizer steps:
+
+    - Remove all comments and preprocessor directives
+    - Remove empty lines
+    - Remove all whitespace at the beginning and end of lines
+    - Resolve all line continuations
+
+    This enables easier pattern matching in the source code. The original source code
+    can be recovered (with some restrictions) for each position in the sanitized source string.
+
+    Parameters
+    ----------
+    raw_source : str
+        The Fortran source code
+
+    Attributes
+    ----------
+    source_lines : list
+        The lines of the original source code
+    sanitized_lines : list of :any:`fparser.common.Line`
+        Lines in the sanitized source code
+    sanitized_string : str
+        The sanitized source code
+    sanitized_spans : list of int
+        Start index of each line in the sanitized string
+    """
+
+    def __init__(self, raw_source):
+        self.line_offset = 0
+        raw_source = raw_source.strip()
+        self.source_lines = raw_source.splitlines()
+        self._sanitize_raw_source(raw_source)
+
+    @timeit(log_level=PERF)
+    def _sanitize_raw_source(self, raw_source):
+        """
+        Helper routine to create a sanitized Fortran source string
+        with comments removed and whitespace stripped from line beginning and end
+        """
+        if FortranStringReader is None:
+            raise RuntimeError('FortranReader needs fparser2')
+        reader = FortranStringReader(raw_source)
+        self.sanitized_lines = tuple(item for item in reader)
+        self.sanitized_spans = (0,) + tuple(accumulate(len(item.line)+1 for item in self.sanitized_lines))
+        self.sanitized_string = '\n'.join(item.line for item in self.sanitized_lines)
+
+    def get_line_index(self, line_number):
+        """
+        Yield the index in :attr:`source_lines` for the given :data:`line_number`
+        """
+        return line_number - self.line_offset - 1
+
+    def get_line_indices_from_span(self, span, include_padding=False):
+        """
+        Yield the line indices in :attr:`source_lines` and :attr:`sanitized_lines` for
+        the given :data:`span` in the :attr:`sanitized_string`
+
+        Parameters
+        ----------
+        span : tuple
+            Start and end in the :attr:`sanitized_string`. The end can optionally be `None`,
+            which includes everything up to the end
+        include_padding : bool (optional)
+            Includes lines from the original source that are missing in the sanitized string
+            (i.e. comments etc.) and that are located immediately before/after the specified
+            span.
+
+        Returns
+        -------
+        sanitized_start, sanitized_end, source_start, source_end
+            Start and end indices corresponding to :attr:`sanitized_lines` and
+            :attr:`source_lines`, respectively. Indices for `start` are inclusive and for
+            `end` exclusive (i.e. ``[start, end)``).
+        """
+        # First, find the corresponding line indices in the sanitized string
+        sanitized_start = bisect_left(self.sanitized_spans, span[0])
+        if span[1] is None:
+            sanitized_end = len(self.sanitized_lines)
+        else:
+            sanitized_end = bisect_left(self.sanitized_spans, span[1], lo=sanitized_start)
+
+        # Next, find the corresponding line indices in the original string
+        if include_padding:
+            if sanitized_start == 0:
+                # Span starts at the beginning of the sanitized string: include everything
+                # before as well
+                source_start = 0
+            elif sanitized_start == len(self.sanitized_lines):
+                # Span starts after the sanitized string: include only lines after it
+                source_start = self.get_line_index(self.sanitized_lines[-1].span[1] + 1)
+            elif self.sanitized_lines[sanitized_start].span[0] - self.sanitized_lines[sanitized_start-1].span[1] > 1:
+                # There are lines in the original string that are missing in the sanitized string
+                # between the previous and the start line
+                source_start = self.get_line_index(self.sanitized_lines[sanitized_start-1].span[1] + 1)
+            else:
+                source_start = self.get_line_index(self.sanitized_lines[sanitized_start].span[0])
+
+            if sanitized_end == len(self.sanitized_lines):
+                # Span reaches until the end of the sanitized_string: include everything
+                # after it as well
+                source_end = len(self.source_lines)
+            else:
+                # Include everything until (but not including) the line corresponding to the
+                # first line after the span in the sanitized string
+                source_end = self.get_line_index(self.sanitized_lines[sanitized_end].span[0])
+        elif sanitized_start == len(self.sanitized_lines):
+            # Span starts after the sanitized string: Point to the first line after it
+            source_start = self.get_line_index(self.sanitized_lines[-1].span[1] + 1)
+            source_end = source_start
+        else:
+            source_start = self.get_line_index(self.sanitized_lines[sanitized_start].span[0])
+            source_end = self.get_line_index(self.sanitized_lines[sanitized_end-1].span[1] + 1)
+
+        return sanitized_start, sanitized_end, source_start, source_end
+
+    def to_source(self, include_padding=False):
+        """
+        Create a :any:`Source` object with the content of the reader
+        """
+        if include_padding:
+            string = '\n'.join(self.source_lines)
+            lines = (self.line_offset + 1, self.line_offset + len(self.source_lines))
+        else:
+            lines = (self.sanitized_lines[0].span[0], self.sanitized_lines[-1].span[1])
+            index = (lines[0] - self.line_offset - 1, lines[1] - self.line_offset)
+            string = '\n'.join(self.source_lines[index[0]:index[1]])
+        return Source(lines=lines, string=string)
+
+    def source_from_head(self):
+        """
+        Create a :any:`Source` object that contains raw source lines present in the
+        original source string before the sanitized source string
+
+        This means typically comments or preprocessor directives. Returns `None` if there
+        is nothing.
+        """
+        line_diff = self.sanitized_lines[0].span[0] - self.line_offset
+        if line_diff == 1:
+            return None
+        assert line_diff > 0
+
+        string = '\n'.join(self.source_lines[:line_diff - 1])
+        lines = (self.line_offset + 1, self.sanitized_lines[0].span[0] - 1)
+        return Source(lines=lines, string=string)
+
+    def source_from_tail(self):
+        """
+        Create a :any:`Source` object that contains raw source lines present in the
+        original source string after the sanitized source string
+
+        This means typically comments or preprocessor directives. Returns `None` if there
+        is nothing.
+        """
+        line_diff = len(self.source_lines) + self.line_offset - self.sanitized_lines[-1].span[1]
+        if line_diff == 0:
+            return None
+        assert line_diff > 0
+
+        start = self.sanitized_lines[-1].span[1] + 1
+        string = '\n'.join(self.source_lines[self.get_line_index(start):])
+        lines = (start, start + line_diff - 1)
+        return Source(lines=lines, string=string)
+
+    def source_from_sanitized_span(self, span, include_padding=False):
+        """
+        Create a :any:`Source` object containing the original source string corresponding
+        to the given span in the sanitized string
+        """
+        *_, source_start, source_end = self.get_line_indices_from_span(span, include_padding)
+        string = '\n'.join(self.source_lines[source_start:source_end])
+        if not string:
+            return None
+        lines = (self.line_offset + source_start + 1, self.line_offset + source_end)
+        return Source(lines=lines, string=string)
+
+    def reader_from_sanitized_span(self, span, include_padding=False):
+        """
+        Create a new :any:`FortranReader` object covering only the source code section corresponding
+        to the given span in the sanitized string
+        """
+        sanit_start, sanit_end, source_start, source_end = self.get_line_indices_from_span(span, include_padding)
+        if sanit_start == len(self.sanitized_lines):
+            return None
+
+        new_reader = FortranReader.__new__(FortranReader)
+        new_reader.line_offset = self.line_offset + source_start
+        new_reader.source_lines = self.source_lines[source_start:source_end]
+        new_reader.sanitized_lines = self.sanitized_lines[sanit_start:sanit_end]
+        span_offset = self.sanitized_spans[sanit_start]
+        new_reader.sanitized_spans = tuple(span - span_offset for span in self.sanitized_spans[sanit_start:sanit_end+1])
+
+        if sanit_end + 1 < len(self.sanitized_spans):
+            sanitized_span = [self.sanitized_spans[sanit_start], self.sanitized_spans[sanit_end + 1]]
+        else:
+            sanitized_span = [self.sanitized_spans[sanit_start], None]
+        new_reader.sanitized_string = self.sanitized_string[sanitized_span[0]:sanitized_span[1]]
+
+        return new_reader
 
 
 def extract_source(ast, text, label=None, full_lines=False):
