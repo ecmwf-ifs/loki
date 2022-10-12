@@ -12,7 +12,7 @@ import re
 from loki import ir
 from loki.expression import symbols as sym
 from loki.frontend.source import Source, FortranReader
-from loki.logging import PERF
+from loki.logging import DEBUG
 from loki.scope import SymbolAttributes
 from loki.tools import timeit, as_tuple
 from loki.types import BasicType, ProcedureType
@@ -260,7 +260,7 @@ class Pattern:
         return ir_
 
 
-@timeit(log_level=PERF)
+@timeit(log_level=DEBUG)
 def parse_regex_source(source, parser_classes=None, scope=None):
     """
     Generate a reduced Loki IR from regex parsing of the given Fortran source

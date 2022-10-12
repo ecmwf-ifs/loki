@@ -97,7 +97,6 @@ class Sourcefile:
         """
         filepath = Path(filename)
         raw_source = read_file(filepath)
-        info(f'Parsing {filepath}...')
 
         if preprocess:
             # Trigger CPP-preprocessing explicitly, as includes and

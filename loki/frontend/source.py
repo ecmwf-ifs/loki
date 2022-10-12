@@ -10,7 +10,7 @@ try:
 except ImportError:
     FortranStringReader = None
 
-from loki.logging import warning, PERF
+from loki.logging import warning, DEBUG
 from loki.tools import timeit
 
 __all__ = [
@@ -149,7 +149,7 @@ class FortranReader:
         self.source_lines = raw_source.splitlines()
         self._sanitize_raw_source(raw_source)
 
-    @timeit(log_level=PERF)
+    @timeit(log_level=DEBUG)
     def _sanitize_raw_source(self, raw_source):
         """
         Helper routine to create a sanitized Fortran source string
