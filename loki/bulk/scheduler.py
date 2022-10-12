@@ -2,7 +2,7 @@ from pathlib import Path
 from collections import deque, OrderedDict
 import networkx as nx
 
-from loki.frontend import FP, REGEX
+from loki.frontend import FP, REGEX, RegexParserClass
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, timeit
@@ -145,12 +145,18 @@ class Scheduler:
     @timeit(log_level=PERF)
     def _populate_obj_map(self):
         # Scan all source paths and create light-weight `Sourcefile` objects for each file.
-        populate_args = self.build_args.copy()
-        populate_args['frontend'] = REGEX
+        frontend_args = {
+            'preprocess': self.build_args['preprocess'],
+            'includes': self.build_args['includes'],
+            'defines': self.build_args['defines'],
+            'parser_classes': RegexParserClass.ProgramUnit | RegexParserClass.Call,
+            'frontend': REGEX
+        }
+
         obj_list = []
         for path in self.paths:
             for ext in self.source_suffixes:
-                obj_list += [Sourcefile.from_file(f, **populate_args) for f in path.glob(f'**/*{ext}')]
+                obj_list += [Sourcefile.from_file(filename=f, **frontend_args) for f in path.glob(f'**/*{ext}')]
 
         # Create a map of all potential target routines for fast lookup later
         self.obj_map = CaseInsensitiveDict((r.name, obj) for obj in obj_list for r in as_tuple(obj.all_subroutines))
@@ -202,6 +208,7 @@ class Scheduler:
             return None
 
         debug(f'[Loki] Scheduler creating item: {name} => {sourcefile.path}')
+        sourcefile[name].make_complete(frontend=REGEX, parser_classes=RegexParserClass.All)
         return Item(name=name, source=sourcefile, config=item_conf)
 
     @timeit(log_level=PERF)
