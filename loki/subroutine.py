@@ -2,7 +2,7 @@ from loki import ir
 from loki.expression import FindVariables, SubstituteExpressions, symbols as sym
 from loki.frontend import (
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, get_fparser_node,
-    parse_regex_source, Source
+    parse_regex_source
 )
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.program_unit import ProgramUnit
@@ -190,7 +190,7 @@ class Subroutine(ProgramUnit):
         )[-1]
 
     @classmethod
-    def from_regex(cls, raw_source, parent=None):
+    def from_regex(cls, raw_source, parser_classes=None, parent=None):
         """
         Create :any:`Subroutine` from source regex'ing
 
@@ -201,9 +201,7 @@ class Subroutine(ProgramUnit):
         parent : :any:`Scope`, optional
             The enclosing parent scope of the subroutine, typically a :any:`Module`.
         """
-        lines = (1, raw_source.count('\n') + 1)
-        source = Source(lines, string=raw_source)
-        ir_ = parse_regex_source(source, scope=parent)
+        ir_ = parse_regex_source(raw_source,parser_classes=parser_classes, scope=parent)
         return [node for node in ir_.body if isinstance(node, cls)][0]
 
     def register_in_parent_scope(self):

@@ -10,7 +10,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
     BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource,
-    CallStatement
+    CallStatement, RegexParserClass
 )
 from loki.expression import symbols as sym
 
@@ -409,32 +409,32 @@ end subroutine routine_b
     routine = Subroutine.from_source(fcode, frontend=REGEX)
     assert routine.name == 'routine_b'
     assert not routine.is_function
-    assert routine.arguments == ('i', 'j')
-    assert routine.argnames == ['i', 'j']
+    assert routine.arguments == ()
+    assert routine.argnames == []
     assert [r.name for r in routine.subroutines] == ['contained_c', 'contained_e', 'contained_d']
 
     contained_c = routine['contained_c']
     assert contained_c.name == 'contained_c'
     assert not contained_c.is_function
-    assert contained_c.arguments == ('i',)
-    assert contained_c.argnames == ['i']
+    assert contained_c.arguments == ()
+    assert contained_c.argnames == []
 
     contained_e = routine['contained_e']
     assert contained_e.name == 'contained_e'
     assert contained_e.is_function
-    assert contained_e.arguments == ('i',)
-    assert contained_e.argnames == ['i']
+    assert contained_e.arguments == ()
+    assert contained_e.argnames == []
 
     contained_d = routine['contained_d']
     assert contained_d.name == 'contained_d'
     assert not contained_d.is_function
-    assert contained_d.arguments == ('i',)
-    assert contained_d.argnames == ['i']
+    assert contained_d.arguments == ()
+    assert contained_d.argnames == []
 
     code = routine.to_fortran()
     assert code.count('SUBROUTINE') == 6
     assert code.count('FUNCTION') == 2
-    assert code.count('contains') == 1
+    assert code.count('CONTAINS') == 1
 
 
 def test_regex_module_from_source():
@@ -468,7 +468,7 @@ end module some_module
     assert code.count('MODULE') == 2
     assert code.count('SUBROUTINE') == 2
     assert code.count('FUNCTION') == 2
-    assert code.count('contains') == 1
+    assert code.count('CONTAINS') == 1
 
 
 def test_regex_sourcefile_from_source():
@@ -556,7 +556,7 @@ end function function_d
     code = sourcefile.to_fortran()
     assert code.count('SUBROUTINE') == 10
     assert code.count('FUNCTION') == 6
-    assert code.count('contains') == 2
+    assert code.count('CONTAINS') == 2
     assert code.count('MODULE') == 4
 
 
@@ -585,15 +585,102 @@ def test_regex_sourcefile_from_file(here):
     function_d = sourcefile['function_d']
     assert function_d.name == 'function_d'
     assert function_d.is_function
-    assert function_d.arguments == ('d',)
-    assert function_d.argnames == ['d']
+    assert function_d.arguments == ()
+    assert function_d.argnames == []
     assert not function_d.contains
 
     code = sourcefile.to_fortran()
     assert code.count('SUBROUTINE') == 8
     assert code.count('FUNCTION') == 4
-    assert code.count('contains') == 2
+    assert code.count('CONTAINS') == 2
     assert code.count('MODULE') == 2
+
+
+def test_regex_sourcefile_from_file_parser_classes(here):
+
+    filepath = here/'sources/Fortran-extract-interface-source.f90'
+    module_names = {'bar', 'foo'}
+    routine_names = {
+        'func_simple', 'func_simple_1', 'func_simple_2', 'func_simple_pure', 'func_simple_recursive_pure',
+        'func_simple_elemental', 'func_with_use_and_args', 'func_with_parameters', 'func_with_parameters_1',
+        'func_with_contains', 'func_mix_local_and_result', 'sub_simple', 'sub_simple_1', 'sub_simple_2',
+        'sub_simple_3', 'sub_with_contains', 'sub_with_renamed_import', 'sub_with_external', 'sub_with_end'
+    }
+    module_routine_names = {'foo_sub', 'foo_func'}
+
+    # Empty parse (since we don't match typedef without having the enclosing module first)
+    sourcefile = Sourcefile.from_file(filepath, frontend=REGEX, parser_classes=RegexParserClass.TypeDef)
+    assert not sourcefile.subroutines
+    assert not sourcefile.modules
+    assert FindNodes(RawSource).visit(sourcefile.ir)
+    assert sourcefile._incomplete
+
+    # Incremental addition of program unit objects
+    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnit)
+
+    assert {module.name.lower() for module in sourcefile.modules} == module_names
+    assert {routine.name.lower() for routine in sourcefile.routines} == routine_names
+    assert {routine.name.lower() for routine in sourcefile.all_subroutines} == routine_names | module_routine_names
+
+    assert {routine.name.lower() for routine in sourcefile['func_with_contains'].routines} == {'func_with_contains_1'}
+    assert {routine.name.lower() for routine in sourcefile['sub_with_contains'].routines} == {
+        'sub_with_contains_first', 'sub_with_contains_second', 'sub_with_contains_third'
+    }
+
+    for module in sourcefile.modules:
+        assert not module.imports
+    for routine in sourcefile.all_subroutines:
+        assert not routine.imports
+    assert not sourcefile['bar'].typedefs
+
+    # Incremental addition of imports
+    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnit | RegexParserClass.Import)
+
+    assert {module.name.lower() for module in sourcefile.modules} == module_names
+    assert {routine.name.lower() for routine in sourcefile.routines} == routine_names
+    assert {routine.name.lower() for routine in sourcefile.all_subroutines} == routine_names | module_routine_names
+
+    assert {routine.name.lower() for routine in sourcefile['func_with_contains'].routines} == {'func_with_contains_1'}
+    assert {routine.name.lower() for routine in sourcefile['sub_with_contains'].routines} == {
+        'sub_with_contains_first', 'sub_with_contains_second', 'sub_with_contains_third'
+    }
+
+    program_units_with_imports = {
+        'foo': ['bar'], 'func_with_use_and_args': ['foo', 'bar'], 'sub_with_contains': ['bar'],
+        'sub_with_renamed_import': ['bar']
+    }
+
+    for unit in module_names | routine_names | module_routine_names:
+        if unit in program_units_with_imports:
+            assert [import_.module.lower() for import_ in sourcefile[unit].imports] == program_units_with_imports[unit]
+        else:
+            assert not sourcefile[unit].imports
+    assert not sourcefile['bar'].typedefs
+
+    # Parse the rest
+    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.All)
+
+    assert {module.name.lower() for module in sourcefile.modules} == module_names
+    assert {routine.name.lower() for routine in sourcefile.routines} == routine_names
+    assert {routine.name.lower() for routine in sourcefile.all_subroutines} == routine_names | module_routine_names
+
+    assert {routine.name.lower() for routine in sourcefile['func_with_contains'].routines} == {'func_with_contains_1'}
+    assert {routine.name.lower() for routine in sourcefile['sub_with_contains'].routines} == {
+        'sub_with_contains_first', 'sub_with_contains_second', 'sub_with_contains_third'
+    }
+
+    program_units_with_imports = {
+        'foo': ['bar'], 'func_with_use_and_args': ['foo', 'bar'], 'sub_with_contains': ['bar'],
+        'sub_with_renamed_import': ['bar']
+    }
+
+    for unit in module_names | routine_names | module_routine_names:
+        if unit in program_units_with_imports:
+            assert [import_.module.lower() for import_ in sourcefile[unit].imports] == program_units_with_imports[unit]
+        else:
+            assert not sourcefile[unit].imports
+
+    assert sorted(sourcefile['bar'].typedefs) == ['food', 'organic']
 
 
 def test_regex_raw_source():
@@ -620,14 +707,13 @@ end module some_mod
     assert len(source.ir.body) == 3
 
     assert isinstance(source.ir.body[0], RawSource)
-    assert source.ir.body[0].source.lines == (1, 3)
-    assert source.ir.body[0].text == '! Some comment before the module\n!\n'
+    assert source.ir.body[0].source.lines == (1, 2)
+    assert source.ir.body[0].text == '! Some comment before the module\n!'
     assert source.ir.body[0].source.string == source.ir.body[0].text
 
     assert isinstance(source.ir.body[1], Module)
-    assert source.ir.body[1].source.lines == (3, 12)
+    assert source.ir.body[1].source.lines == (3, 11)
     assert source.ir.body[1].source.string.startswith('module')
-    assert source.ir.body[1].source.string[-1] == '\n'
 
     assert isinstance(source.ir.body[2], RawSource)
     assert source.ir.body[2].source.lines == (12, 13)

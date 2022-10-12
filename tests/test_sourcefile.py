@@ -6,8 +6,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Sourcefile, OFP, OMNI, REGEX, FindNodes, PreprocessorDirective,
     Intrinsic, Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
-    StatementFunction, Comment, CommentBlock, RawSource, DeferredTypeSymbol,
-    Scalar
+    StatementFunction, Comment, CommentBlock, RawSource, Scalar
 )
 
 
@@ -273,12 +272,11 @@ end function function_d
     routine_b = source['routine_b']
     module_routine = some_module['module_routine']
     function_d = source['function_d']
-    assert function_d.arguments == ('d',)
-    assert isinstance(function_d.arguments[0], DeferredTypeSymbol)
+    assert function_d.arguments == ()
 
     # Make sure we have an incomplete parse tree until now
     assert source._incomplete
-    assert len(FindNodes(RawSource).visit(source.ir)) == 3
+    assert len(FindNodes(RawSource).visit(source.ir)) == 6
     assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
 
     # Trigger the full parse
@@ -287,7 +285,7 @@ end function function_d
 
     # Make sure no RawSource nodes are left
     assert not FindNodes(RawSource).visit(source.ir)
-    assert len(FindNodes(Comment).visit(source.ir)) in (1, 3) # Some newlines are also treated as comments
+    assert len(FindNodes(Comment).visit(source.ir)) in (1, 2) # Some newlines are also treated as comments
     if frontend == OMNI:
         assert not FindNodes(PreprocessorDirective).visit(source.ir)
     else:

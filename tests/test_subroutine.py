@@ -1651,16 +1651,14 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_subroutine_lazy_arguments_complete(frontend):
+def test_subroutine_lazy_arguments_incomplete1(frontend):
     """
     Test that argument lists for subroutines are correctly captured when the object is made
     complete.
 
-    This test validates a case where the REGEX frontend should identify the arguments correctly.
-
     The rationale for this test is that for dummy argument lists with interleaved comments and line
     breaks, matching is non-trivial and, since we don't currently need the argument list
-    in the incomplete REGEX-parsed IR, we accept that this information may be incomplete initially.
+    in the incomplete REGEX-parsed IR, we accept that this information is incomplete initially.
     Here, we make sure this information is captured correctly after completing the full frontend
     parse.
     """
@@ -1679,9 +1677,9 @@ end subroutine my_routine
 
     routine = Subroutine.from_source(fcode, frontend=REGEX)
     assert routine._incomplete
-    assert routine.arguments == ('n', 'a', 'b', 'd')
-    assert routine.argnames == ['n', 'a', 'b', 'd']
-    assert routine._dummies == ('n', 'a', 'b', 'd')
+    assert routine.arguments == ()
+    assert routine.argnames == []
+    assert routine._dummies == ()
     assert all(isinstance(arg, DeferredTypeSymbol) for arg in routine.arguments)
 
     routine.make_complete(frontend=frontend)
@@ -1697,16 +1695,14 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_subroutine_lazy_arguments_incomplete(frontend):
+def test_subroutine_lazy_arguments_incomplete2(frontend):
     """
     Test that argument lists for subroutines are correctly captured when the object is made
     complete.
 
-    This test represents a case where the REGEX frontend fails to identify the arguments correctly.
-
     The rationale for this test is that for dummy argument lists with interleaved comments and line
     breaks, matching is non-trivial and, since we don't currently need the argument list
-    in the incomplete REGEX-parsed IR, we accept that this information may be incomplete initially.
+    in the incomplete REGEX-parsed IR, we accept that this information is not available initially.
     Here, we make sure this information is captured correctly after completing the full frontend
     parse.
     """
@@ -1812,7 +1808,7 @@ end function f_elem
     routine = Subroutine.from_source(fcode, frontend=REGEX)
     assert routine._incomplete
     assert routine.prefix == ()
-    assert routine.arguments == ('a',)
+    assert routine.arguments == ()
     assert routine.is_function is True
     assert routine.return_type is None
 

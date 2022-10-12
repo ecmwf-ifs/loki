@@ -12,11 +12,11 @@ from loki.frontend import (
 
 )
 from loki.ir import Section, RawSource, Comment, PreprocessorDirective
-from loki.logging import info
+from loki.logging import info, PERF
 from loki.module import Module
 from loki.program_unit import ProgramUnit
 from loki.subroutine import Subroutine
-from loki.tools import flatten, as_tuple
+from loki.tools import flatten, as_tuple, timeit
 
 
 __all__ = ['Sourcefile']
@@ -57,9 +57,10 @@ class Sourcefile:
         self._incomplete = incomplete
 
     @classmethod
+    @timeit(log_level=PERF, getter=lambda x: str(x.get('filename', '')))
     def from_file(cls, filename, definitions=None, preprocess=False,
                   includes=None, defines=None, omni_includes=None,
-                  xmods=None, frontend=FP):
+                  xmods=None, frontend=FP, parser_classes=None):
         """
         Constructor from raw source files that can apply a
         C-preprocessor before invoking frontend parsers.
@@ -96,6 +97,7 @@ class Sourcefile:
         """
         filepath = Path(filename)
         raw_source = read_file(filepath)
+        info(f'Parsing {filepath}...')
 
         if preprocess:
             # Trigger CPP-preprocessing explicitly, as includes and
@@ -106,7 +108,7 @@ class Sourcefile:
             source = raw_source
 
         if frontend == REGEX:
-            return cls.from_regex(source, filepath)
+            return cls.from_regex(source, filepath, parser_classes=parser_classes)
 
         if frontend == OMNI:
             return cls.from_omni(source, filepath, definitions=definitions,
@@ -255,17 +257,17 @@ class Sourcefile:
         return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
-    def from_regex(cls, raw_source, filepath):
+    def from_regex(cls, raw_source, filepath, parser_classes=None):
         """
         Parse a given source string using the fparser frontend
         """
+        ir = parse_regex_source(raw_source, parser_classes=parser_classes)
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=filepath)
-        ir = parse_regex_source(source)
         return cls(path=filepath, ir=ir, source=source, incomplete=True)
 
     @classmethod
-    def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
+    def from_source(cls, source, xmods=None, definitions=None, parser_classes=None, frontend=FP):
         """
         Constructor from raw source string that invokes specified frontend parser
 
@@ -283,7 +285,7 @@ class Sourcefile:
             Frontend to use for producing the AST (default :any:`FP`).
         """
         if frontend == REGEX:
-            return cls.from_regex(source, filepath=None)
+            return cls.from_regex(source, filepath=None, parser_classes=parser_classes)
 
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)
@@ -317,7 +319,9 @@ class Sourcefile:
 
         # Sanitize frontend_args
         frontend = frontend_args.pop('frontend', FP)
-        if frontend == OMNI:
+        if frontend == REGEX:
+            frontend_argnames = ['parser_classes']
+        elif frontend == OMNI:
             frontend_argnames = ['definitions', 'type_map', 'symbol_map', 'scope']
             xmods = frontend_args.get('xmods')
         elif frontend in (OFP, FP):
@@ -334,7 +338,9 @@ class Sourcefile:
             elif isinstance(node, RawSource):
                 # Typically, this should only be comments, PP statements etc., therefore
                 # we are not bothering with type tables, definitions or similar to parse them
-                if frontend == OMNI:
+                if frontend == REGEX:
+                    ir_ = parse_regex_source(node.source.string, **sanitized_frontend_args)
+                elif frontend == OMNI:
                     ast = parse_omni_source(source=node.source.string, xmods=xmods)
                     ir_ = parse_omni_ast(ast=ast, raw_source=node.source.string, **sanitized_frontend_args)
                 elif frontend == OFP:
@@ -364,7 +370,7 @@ class Sourcefile:
                 body += [node]
 
         self.ir._update(body=as_tuple(body))
-        self._incomplete = False
+        self._incomplete = frontend == REGEX
 
     @property
     def source(self):
