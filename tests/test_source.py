@@ -406,3 +406,42 @@ def test_fortran_reader(here):
     assert source.lines == (181, 184)
     assert source.string.startswith('subroutine sub_with_end')
     assert source.string.splitlines()[-1].startswith('end subroutine')
+
+
+def test_fortran_reader_iterate(here):
+    """Test :any:`FortranReader` iteration"""
+    filepath = here/'sources/Fortran-extract-interface-source.f90'
+    fcode = read_file(filepath)
+
+    reader = FortranReader(fcode)
+    sanitized_code = reader.sanitized_string
+
+    assert reader.current_line is None
+
+    # Test that iterating reproduces the sanitized code
+    assert sanitized_code == '\n'.join(item.line for item in reader)
+
+    # Test that we can request the current line string within the iteration range
+    iterated_code = ''
+    for _ in reader:
+        iterated_code += reader.current_line.line + '\n'
+    iterated_code = iterated_code[:-1]
+    assert sanitized_code == iterated_code
+
+    assert reader.current_line is None
+
+    # Test that we can generate source objects while iterating, that contain
+    # the original formatting (this excludes lines missing due to sanitzation)
+
+    def sanitize_empty_lines_and_comments(string):
+        sanitized_string = ''
+        for line in string.splitlines():
+            if not line.lstrip() or line.lstrip().startswith('!'):
+                continue
+            sanitized_string += line + '\n'
+        return sanitized_string
+
+    iterated_code = ''
+    for _ in reader:
+        iterated_code += reader.source_from_current_line().string + '\n'
+    assert sanitize_empty_lines_and_comments(fcode) == iterated_code

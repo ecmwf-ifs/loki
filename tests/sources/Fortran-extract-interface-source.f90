@@ -22,12 +22,12 @@ func_simple_pure = .true.
 end function func_simple_pure
 
 ! A pure recursive function
-recursive pure integer function func_simple_recursive_pure(i)
+recursive pure integer function func_simple_recursive_pure(i) result(result)
 integer, intent(in) :: i
 if (i <= 0) then
-    func_simple_recursive_pure = i
+    result = i
 else
-    func_simple_recursive_pure = i + func_simple_recursive_pure(i - 1)
+    result = i + func_simple_recursive_pure(i - 1)
 end if
 end function func_simple_recursive_pure
 

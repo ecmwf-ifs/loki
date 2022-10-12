@@ -252,6 +252,14 @@ class FortranReader:
         This means typically comments or preprocessor directives. Returns `None` if there
         is nothing.
         """
+        if not self.source_lines:
+            return None
+
+        if not self.sanitized_lines:
+            string = '\n'.join(self.source_lines)
+            lines = (self.line_offset + 1, self.line_offset + len(self.source_lines))
+            return Source(lines=lines, string=string)
+
         line_diff = self.sanitized_lines[0].span[0] - self.line_offset
         if line_diff == 1:
             return None
@@ -269,6 +277,9 @@ class FortranReader:
         This means typically comments or preprocessor directives. Returns `None` if there
         is nothing.
         """
+        if not self.sanitized_lines:
+            return None
+
         line_diff = len(self.source_lines) + self.line_offset - self.sanitized_lines[-1].span[1]
         if line_diff == 0:
             return None
@@ -314,6 +325,36 @@ class FortranReader:
         new_reader.sanitized_string = self.sanitized_string[sanitized_span[0]:sanitized_span[1]]
 
         return new_reader
+
+    def __iter__(self):
+        """Initialize iteration over lines in the sanitized string"""
+        self._current_index = 0
+        return self
+
+    def __next__(self):
+        self._current_index += 1
+        if self._current_index > len(self.sanitized_lines):
+            raise StopIteration
+        return self.current_line
+
+    @property
+    def current_line(self):
+        """
+        Return the current line of the iterator or `None` if outside of iteration range
+        """
+        _current_index = getattr(self, '_current_index', 0)
+        if _current_index <= 0 or _current_index > len(self.sanitized_lines):
+            return None
+        return self.sanitized_lines[_current_index - 1]
+
+    def source_from_current_line(self):
+        """
+        Return a :class:`Source` object for the current line
+        """
+        line = self.current_line
+        start = self.get_line_index(line.span[0])
+        end = self.get_line_index(line.span[1])
+        return Source(lines=line.span, string='\n'.join(self.source_lines[start:end+1]))
 
 
 def extract_source(ast, text, label=None, full_lines=False):
