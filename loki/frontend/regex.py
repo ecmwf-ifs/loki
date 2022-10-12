@@ -37,7 +37,7 @@ class RegexParserClass(Flag):
     Import = auto()
     TypeDef = auto()
     Call = auto()
-    All = ProgramUnit | Import | TypeDef | Call
+    All = ProgramUnit | Import | TypeDef | Call  # pylint: disable=unsupported-binary-operation
 
 
 class Pattern:

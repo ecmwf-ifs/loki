@@ -301,7 +301,7 @@ def test_fortran_reader(here):
     # Test extracting substrings
     start = reader.sanitized_string.find('module foo')
     end = reader.sanitized_string.find('end module foo') + len('end module foo')
-    assert start > 0 and end > start
+    assert 0 < start < end
 
     # without padding
     new_reader = reader.reader_from_sanitized_span((start, end))
@@ -347,7 +347,7 @@ def test_fortran_reader(here):
     # Test nested reader
     start = new_reader.sanitized_string.find('subroutine foo_sub')
     end = new_reader.sanitized_string.find('end subroutine foo_sub') + len('end subroutine foo_sub')
-    assert start > 0 and end > start and end < len(new_reader.sanitized_string)
+    assert 0 < start < end < len(new_reader.sanitized_string)
 
     nested_reader = new_reader.reader_from_sanitized_span((start, end))
     assert nested_reader.sanitized_lines[0].span[0] == 55
@@ -384,7 +384,7 @@ def test_fortran_reader(here):
     # Test extracting substring at the end
     start = reader.sanitized_string.find('subroutine sub_with_end')
     end = reader.sanitized_string.find('end subroutine sub_with_end') + len('end subroutine sub_with_end')
-    assert start > 0 and end > start and end == len(reader.sanitized_string)
+    assert 0 < start < end == len(reader.sanitized_string)
 
     new_reader = reader.reader_from_sanitized_span((start, end))
     assert new_reader.sanitized_lines[0].span[0] == 181

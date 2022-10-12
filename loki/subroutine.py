@@ -201,7 +201,7 @@ class Subroutine(ProgramUnit):
         parent : :any:`Scope`, optional
             The enclosing parent scope of the subroutine, typically a :any:`Module`.
         """
-        ir_ = parse_regex_source(raw_source,parser_classes=parser_classes, scope=parent)
+        ir_ = parse_regex_source(raw_source, parser_classes=parser_classes, scope=parent)
         return [node for node in ir_.body if isinstance(node, cls)][0]
 
     def register_in_parent_scope(self):

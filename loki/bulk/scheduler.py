@@ -158,6 +158,8 @@ class Scheduler:
             for ext in self.source_suffixes:
                 obj_list += [Sourcefile.from_file(filename=f, **frontend_args) for f in path.glob(f'**/*{ext}')]
 
+        debug(f'Total number of lines parsed: {sum(obj.source.lines[1] for obj in obj_list)}')
+
         # Create a map of all potential target routines for fast lookup later
         self.obj_map = CaseInsensitiveDict((r.name, obj) for obj in obj_list for r in as_tuple(obj.all_subroutines))
 
@@ -208,7 +210,6 @@ class Scheduler:
             return None
 
         debug(f'[Loki] Scheduler creating item: {name} => {sourcefile.path}')
-        sourcefile[name].make_complete(frontend=REGEX, parser_classes=RegexParserClass.All)
         return Item(name=name, source=sourcefile, config=item_conf)
 
     @timeit(log_level=PERF)
