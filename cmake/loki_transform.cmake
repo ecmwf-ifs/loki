@@ -674,7 +674,7 @@ function( loki_transform_target )
             BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
             SOURCES   ${_PAR_SOURCES}
             HEADERS   ${_PAR_HEADERS}
-            DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_HEADER}
+            DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_HEADER} ${_PAR_CONFIG}
         )
     endif()
 
