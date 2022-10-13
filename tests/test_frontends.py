@@ -10,7 +10,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
     BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource,
-    CallStatement, RegexParserClass
+    CallStatement, RegexParserClass, ProcedureType, DerivedType
 )
 from loki.expression import symbols as sym
 
@@ -1030,3 +1030,48 @@ end subroutine test
 
     calls = FindNodes(CallStatement).visit(source['test'].ir)
     assert [call.name for call in calls] == ['RANDOM_CALL_0', 'random_call_2']
+
+
+def test_regex_variable_declaration(here):
+    """
+    Test correct parsing of derived type variable declarations
+
+    Note: this currently only matches ``TYPE(..)`` and ``CLASS(...)`` declarations
+    """
+    filepath = here/'sources/projTypeBound/typebound_item.F90'
+    source = Sourcefile.from_file(filepath, frontend=REGEX)
+
+    driver = source['driver']
+    assert driver.variables == ('obj', 'obj2', 'derived')
+    assert not source['module_routine'].variables
+    assert source['other_routine'].variables == ('self',)
+    assert source['routine'].variables == ('self',)
+    assert source['routine1'].variables == ('self',)
+
+    # Check this for REGEX and complete parse to make sure their behaviour is aligned
+    for _ in range(2):
+        var_map = driver.symbol_map
+        assert isinstance(var_map['obj'].type.dtype, DerivedType)
+        assert var_map['obj'].type.dtype.name == 'some_type'
+        assert isinstance(var_map['obj2'].type.dtype, DerivedType)
+        assert var_map['obj2'].type.dtype.name == 'some_type'
+        assert isinstance(var_map['derived'].type.dtype, DerivedType)
+        assert var_map['derived'].type.dtype.name == 'other_type'
+
+        # While we're here: let's check the call statements, too
+        calls = FindNodes(CallStatement).visit(driver.ir)
+        assert len(calls) == 3
+        assert all(isinstance(call.name.type.dtype, ProcedureType) for call in calls)
+
+        # Note: we're explicitly accessing the string name here (instead of relying
+        # on the StrCompareMixing) as some have dimensions that only show up in the full
+        # parse
+        assert calls[0].name.name == 'obj%other_routine'
+        assert calls[0].name.parent.name == 'obj'
+        assert calls[1].name.name == 'obj2%some_routine'
+        assert calls[1].name.parent.name == 'obj2'
+        assert calls[2].name.name == 'derived%var%member_routine'
+        assert calls[2].name.parent.name == 'derived%var'
+        assert calls[2].name.parent.parent.name == 'derived'
+
+        source.make_complete()

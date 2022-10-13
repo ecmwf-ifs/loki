@@ -15,7 +15,7 @@ from loki.frontend.source import Source, FortranReader
 from loki.logging import DEBUG
 from loki.scope import SymbolAttributes
 from loki.tools import timeit, as_tuple
-from loki.types import BasicType, ProcedureType
+from loki.types import BasicType, ProcedureType, DerivedType
 
 __all__ = ['RegexParserClass', 'parse_regex_source', 'HAVE_REGEX']
 
@@ -36,8 +36,9 @@ class RegexParserClass(Flag):
     ProgramUnit = auto()
     Import = auto()
     TypeDef = auto()
+    Declaration = auto()
     Call = auto()
-    All = ProgramUnit | Import | TypeDef | Call  # pylint: disable=unsupported-binary-operation
+    All = ProgramUnit | Import | TypeDef | Declaration | Call  # pylint: disable=unsupported-binary-operation
 
 
 class Pattern:
@@ -338,7 +339,7 @@ class ModulePattern(Pattern):
 
         if match['spec'] and match['spec'].strip():
             block_candidates = ('TypedefPattern',)
-            statement_candidates = ('ImportPattern',)
+            statement_candidates = ('ImportPattern', 'VariableDeclarationPattern')
             spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
                 block_candidates, statement_candidates, parser_classes=parser_classes, scope=module
@@ -422,7 +423,7 @@ class SubroutineFunctionPattern(Pattern):
             )
 
         if match['spec']:
-            statement_candidates = ('ImportPattern', 'CallPattern')
+            statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern')
             spec = self.match_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
                 statement_candidates, parser_classes=parser_classes, scope=routine
@@ -683,6 +684,52 @@ class ImportPattern(Pattern):
         )
 
 
+class VariableDeclarationPattern(Pattern):
+    """
+    Pattern to match :any:`VariableDeclaration` nodes
+
+    For the moment, this only matches variable declarations for derived type objects
+    (via ``TYPE`` or ``CLASS`` keywords).
+    """
+
+    parser_class = RegexParserClass.Declaration
+
+    def __init__(self):
+        super().__init__(
+            r'^(?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\)'  # TYPE or CLASS keyword with typename
+            r'(?:[ \t]*,[ \t]*[a-z]+(?:\(.*?\))?)*'  # Optional attributes
+            r'(?:[ \t]*::)?'  # Optional `::` delimiter
+            r'[ \t]*'  # Some white space
+            r'(?P<variables>\w+\b(?:\(.*?\))?(?:[ \t]*,[ \t]\w+\b(?:\(.*?\))?)*)',  # Variable names
+            re.IGNORECASE
+        )
+        self._dimensions_pattern = re.compile(r'\(.*?\)')
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`Import`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+        if not match:
+            return None
+
+        type_ = SymbolAttributes(DerivedType(match['typename']))
+        variables = self._dimensions_pattern.sub('', match['variables'])  # Remove dimensions
+        variables = variables.replace(' ', '').split(',')  # Variable names without white space
+        variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
+        return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
+
+
 class CallPattern(Pattern):
     """
     Pattern to match :any:`CallStatement` nodes
@@ -693,9 +740,10 @@ class CallPattern(Pattern):
     def __init__(self):
         super().__init__(
             r'^(?P<conditional>if[ \t]*\(.*?\)[ \t]*)?'  # Optional inline-conditional preceeding the call
-            r'call[ \t]+(?P<routine>[\w_% ]+)',  # Call keyword followed by routine name
+            r'call',  # Call keyword
             re.IGNORECASE
         )
+        self._dimensions_pattern = re.compile(r'\(.*?\)')
 
     def match(self, reader, parser_classes, scope):
         """
@@ -715,9 +763,20 @@ class CallPattern(Pattern):
         if not match:
             return None
 
-        routine = match['routine'].replace(' ', '')
-        type_ = SymbolAttributes(ProcedureType(name=routine, is_function=False))
-        name = sym.Variable(name=routine, type=type_, scope=scope)
+        # Extract the called routine name
+        call = line.line[match.span()[1]:].strip()
+        if not call:
+            return None
+        call = self._dimensions_pattern.sub('', call)  # Remove arguments and dimension expressions
+        call = call.replace(' ', '')  # Remove any white space
+
+        name_parts = call.split('%')
+        name = sym.Variable(name=name_parts[0], scope=scope)
+        for cname in name_parts[1:]:
+            name = sym.Variable(name=name.name + '%' + cname, parent=name, scope=scope)
+
+        scope.symbol_attrs[call] = scope.symbol_attrs[call].clone(dtype=ProcedureType(name=call, is_function=False))
+
         source = reader.source_from_current_line()
         if match['conditional']:
             span = match.span('conditional')
