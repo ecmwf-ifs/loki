@@ -86,7 +86,16 @@ class Item:
 
     @cached_property
     def calls(self):
-        return tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+        def _canonical_name(var):
+            pos = var.name.find('%')
+            if pos != -1:
+                # Map the derived type's variable name to the type name
+                var_name = var.name[:pos]
+                type_name = self.routine.variable_map[var_name].type.dtype.name
+                return type_name + var.name[pos:]
+            return var.name
+
+        return tuple(_canonical_name(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
 
     @cached_property
     def members(self):

@@ -840,3 +840,27 @@ def test_scheduler_loki_69(loki_69_dir):
     }
     assert len(scheduler.items) == len(children_map)
     assert all(item.children == children_map[item.name] for item in scheduler.items)
+
+
+def test_scheduler_typebound_item(here):
+    """
+    Test the basic regex accessors in :any:`Item` objects for fast dependency detection
+    for type-bound procedures.
+    """
+    filepath = here/'sources/projTypeBound/typebound_item.F90'
+    source = Sourcefile.from_file(filepath, frontend=REGEX)
+
+    driver = Item(name='driver', source=source)
+    assert driver.calls == (
+        'some_type%other_routine', 'some_type%some_routine',
+        'other_type%var%member_routine'
+    )
+
+    other_routine = Item(name='other_routine', source=source)
+    assert other_routine.calls == ('some_type%routine1', 'some_type%routine2')
+
+    routine = Item(name='routine', source=source)
+    assert routine.calls == ('some_type%some_routine',)
+
+    routine1 = Item(name='routine1', source=source)
+    assert routine1.calls == ('module_routine',)
