@@ -417,6 +417,11 @@ class Sourcefile:
         if name.lower() in subroutine_map:
             return subroutine_map[name.lower()]
 
+        for module in module_map.values():
+            typedef_map = module.typedefs
+            if name in typedef_map:
+                return typedef_map[name]
+
         return None
 
     def __iter__(self):
