@@ -73,6 +73,34 @@ class Item:
     def __hash__(self):
         return hash(self.name)
 
+    @property
+    def bind_names(self):
+        """
+        For items representing type-bound procedures, this returns the names of the
+        routines it binds to
+        """
+        if '%' not in self.name:
+            return ()
+        name_parts = self.name.split('%')
+        typedef = self.source[name_parts[0]]
+        symbol = typedef.variable_map[name_parts[1]]
+        type_ = symbol.type
+        if len(name_parts) > 2:
+            # This is a type-bound procedure in a derived type member of a derived type
+            typename = type_.dtype.name
+            return as_tuple('%'.join([typename] + name_parts[2:]))
+        if type_.is_generic:
+            # This is a generic binding, so we need to refer to other type-bound procedures
+            # in this type
+            return tuple(name_parts[0] + '%' + name for name in type_.bind_names)
+        if type_.initial is not None:
+            # This has a bind name explicitly specified:
+            return (type_.initial.name.lower(), )
+        # The name of the procedure is identical to the name of the binding
+        return (name_parts[1],)
+
+
+
     @cached_property
     def routine(self):
         """

@@ -48,11 +48,13 @@ end module typebound_item
 
 subroutine driver
     type(some_type), allocatable :: obj(:), obj2(:,:)
+    type(header_type) :: header
     type(other_type) :: derived(2)
 
     allocate(obj(1))
     allocate(obj2(1,1))
     call obj(1)%other_routine(5)
     call obj2(1,1)%some_routine
+    call header%member_routine(1)
     call derived(1)% var( 2 ) % member_routine(2)
 end subroutine driver

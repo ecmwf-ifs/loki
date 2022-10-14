@@ -848,12 +848,14 @@ def test_scheduler_typebound_item(here):
     for type-bound procedures.
     """
     filepath = here/'sources/projTypeBound/typebound_item.F90'
+    headerpath = here/'sources/projTypeBound/typebound_header.F90'
     source = Sourcefile.from_file(filepath, frontend=REGEX)
+    header = Sourcefile.from_file(headerpath, frontend=REGEX)
 
     driver = Item(name='driver', source=source)
     assert driver.calls == (
         'some_type%other_routine', 'some_type%some_routine',
-        'other_type%var%member_routine'
+        'header_type%member_routine', 'other_type%var%member_routine'
     )
 
     other_routine = Item(name='other_routine', source=source)
@@ -864,3 +866,17 @@ def test_scheduler_typebound_item(here):
 
     routine1 = Item(name='routine1', source=source)
     assert routine1.calls == ('module_routine',)
+
+    some_type_some_routine = Item(name='some_type%some_routine', source=source)
+    assert some_type_some_routine.bind_names == ('some_routine',)
+
+    some_type_routine = Item(name='some_type%routine', source=source)
+    assert some_type_routine.bind_names == ('module_routine',)
+
+    other_type_var_member_routine = Item(name='other_type%var%member_routine', source=header)
+    assert other_type_var_member_routine.bind_names == ('header_type%member_routine',)
+
+    header_type_member_routine = Item(name='header_type%member_routine', source=header)
+    assert header_type_member_routine.bind_names == ('header_member_routine',)
+
+

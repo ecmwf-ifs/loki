@@ -535,8 +535,11 @@ class TypedefPattern(Pattern):
         typedef = ir.TypeDef(name=match['name'], body=(), parent=scope, source=source)
 
         if match['spec'] and match['spec'].strip():
-            spec_source = reader.source_from_sanitized_span(match.span('spec'), include_padding=True)
-            spec = [ir.RawSource(text=spec_source.string, source=spec_source)]
+            statement_candidates = ('VariableDeclarationPattern',)
+            spec = self.match_statement_candidates(
+                reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
+                statement_candidates, parser_classes=parser_classes, scope=typedef
+            )
         else:
             spec = []
 
@@ -546,7 +549,7 @@ class TypedefPattern(Pattern):
             span = (span[0] + 8, span[1])  # Skip the "contains" keyword as it has been added
 
             statement_candidates = ('ProcedureBindingPattern', 'GenericBindingPattern')
-            spec = self.match_statement_candidates(
+            contains += self.match_statement_candidates(
                 reader.reader_from_sanitized_span(span, include_padding=True),
                 statement_candidates, parser_classes=parser_classes, scope=typedef
             )
