@@ -857,7 +857,7 @@ def test_scheduler_typebound_item(here):
     )
 
     other_routine = Item(name='other_routine', source=source)
-    assert other_routine.calls == ('some_type%routine1', 'some_type%routine2')
+    assert other_routine.calls == ('abor1', 'some_type%routine1', 'some_type%routine2')
 
     routine = Item(name='routine', source=source)
     assert routine.calls == ('some_type%some_routine',)

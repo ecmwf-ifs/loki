@@ -260,6 +260,47 @@ class Pattern:
             )
         return ir_
 
+    _pattern_opening_parenthesis = re.compile(r'\(')
+    _pattern_closing_parenthesis = re.compile(r'\)')
+    _pattern_quoted_string = re.compile(r'(?:\'.*?\')|(?:".*?")')
+
+    @classmethod
+    def _remove_quoted_string_nested_parentheses(cls, string):
+        """
+        Remove any quoted strings and parentheses with their content in the given string
+        """
+        string = cls._pattern_quoted_string.sub('', string)
+        p_open = [match.start() for match in cls._pattern_opening_parenthesis.finditer(string)]
+        p_close = [match.start() for match in cls._pattern_closing_parenthesis.finditer(string)]
+        assert len(p_open) == len(p_close)
+        if not p_close:
+            return string
+
+        # We match pairs of parentheses starting at the end by pushing and popping from a stack.
+        # Whenever the stack runs out, we have fully resolved a set of (nested) parenthesis and
+        # record the corresponding span
+        spans = []
+        stack = [p_close.pop()]
+        while p_open:
+            if not p_close or p_open[-1] > p_close[-1]:
+                assert stack
+                start = p_open.pop()
+                end = stack.pop()
+                if not stack:
+                    spans.append((start, end))
+            else:
+                stack.append(p_close.pop())
+
+        # We should now be left with no parentheses anymore and can build the new string
+        # by using everything between these parenthesis "spans"
+        assert not (stack or p_open or p_close)
+        spans.reverse()
+        new_string = string[:spans[0][0]]
+        for (_, start), (end, _) in zip(spans[:-1], spans[1:]):
+            new_string += string[start+1:end]
+        new_string += string[spans[-1][1]+1:]
+        return new_string
+
 
 @timeit(log_level=DEBUG)
 def parse_regex_source(source, parser_classes=None, scope=None):
@@ -412,7 +453,7 @@ class SubroutineFunctionPattern(Pattern):
         name = match['name']
         if scope is not None and name in scope.symbol_attrs:
             proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
-            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+            if proc_type and getattr(proc_type.dtype, 'procedure', BasicType.DEFERRED) != BasicType.DEFERRED:
                 routine = proc_type.dtype.procedure
 
         if routine is None:
@@ -703,7 +744,6 @@ class VariableDeclarationPattern(Pattern):
             r'(?P<variables>\w+\b(?:\(.*?\))?(?:[ \t]*,[ \t]\w+\b(?:\(.*?\))?)*)',  # Variable names
             re.IGNORECASE
         )
-        self._dimensions_pattern = re.compile(r'\(.*?\)')
 
     def match(self, reader, parser_classes, scope):
         """
@@ -724,7 +764,7 @@ class VariableDeclarationPattern(Pattern):
             return None
 
         type_ = SymbolAttributes(DerivedType(match['typename']))
-        variables = self._dimensions_pattern.sub('', match['variables'])  # Remove dimensions
+        variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
         variables = variables.replace(' ', '').split(',')  # Variable names without white space
         variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
         return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
@@ -743,7 +783,6 @@ class CallPattern(Pattern):
             r'call',  # Call keyword
             re.IGNORECASE
         )
-        self._dimensions_pattern = re.compile(r'\(.*?\)')
 
     def match(self, reader, parser_classes, scope):
         """
@@ -767,7 +806,7 @@ class CallPattern(Pattern):
         call = line.line[match.span()[1]:].strip()
         if not call:
             return None
-        call = self._dimensions_pattern.sub('', call)  # Remove arguments and dimension expressions
+        call = self._remove_quoted_string_nested_parentheses(call)  # Remove arguments and dimension expressions
         call = call.replace(' ', '')  # Remove any white space
 
         name_parts = call.split('%')
