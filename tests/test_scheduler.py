@@ -70,6 +70,7 @@ def fixture_config():
             'role': 'kernel',
             'expand': True,
             'strict': True,
+            'disable': ['abort']
         },
         'routines': []
     }
@@ -92,8 +93,8 @@ class VisGraphWrapper:
     Testing utility to parse the generated callgraph visualisation.
     """
 
-    _re_nodes = re.compile(r'\s*(?P<node>\w+) \[color', re.IGNORECASE)
-    _re_edges = re.compile(r'\s*(?P<parent>\w+) -> (?P<child>\w+)', re.IGNORECASE)
+    _re_nodes = re.compile(r'\s*\"?(?P<node>[\w%]+)\"? \[colo', re.IGNORECASE)
+    _re_edges = re.compile(r'\s*\"?(?P<parent>[\w%]+)\"? -> \"?(?P<child>[\w%]+)\"?', re.IGNORECASE)
 
     def __init__(self, path):
         with Path(path).open('r') as f:
@@ -880,3 +881,52 @@ def test_scheduler_typebound_item(here):
     assert header_type_member_routine.bind_names == ('header_member_routine',)
 
 
+@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+def test_scheduler_typebound(here, config, frontend):
+    """
+    Test correct dependency chasing for typebound procedure calls.
+
+    projTypeBound: driver -> some_type%other_routine -> other_routine -> some_type%routine1 -> routine1
+                    | | |                                          |                                |
+                    | | |       +- routine <- some_type%routine2 <-+                                +---------+
+                    | | |       |                                                                             |
+                    | | +--> some_type%some_routine -> some_routine -> some_type%routine -> module_routine  <-+
+                    +------> header_type%member_routine -> header_member_routine
+    """
+    proj = here/'sources/projTypeBound'
+
+    scheduler = Scheduler(paths=proj, config=config, frontend=frontend)
+    scheduler.populate('driver')
+
+    expected_items = {
+        'driver', 'some_type%some_routine', 'some_type%other_routine', 'other_routine',
+        'some_type%routine1', 'routine1', 'some_type%routine2', 'routine',
+        'header_type%member_routine', 'header_member_routine', 'some_type%routine',
+        'module_routine', 'some_routine', 'abor1', 'other_type%var%member_routine'
+    }
+    expected_dependencies = {
+        ('driver', 'some_type%other_routine'), ('some_type%other_routine', 'other_routine'),
+        ('other_routine', 'some_type%routine1'), ('some_type%routine1', 'routine1'),
+        ('routine1', 'module_routine'),
+        ('other_routine', 'some_type%routine2'), ('some_type%routine2', 'routine'),
+        ('routine', 'some_type%some_routine'), ('driver', 'some_type%some_routine'),
+        ('some_type%some_routine', 'some_routine'), ('some_routine', 'some_type%routine'),
+        ('some_type%routine', 'module_routine'),
+        ('driver', 'header_type%member_routine'), ('header_type%member_routine', 'header_member_routine'),
+        ('driver', 'other_type%var%member_routine'),
+        ('other_type%var%member_routine', 'header_type%member_routine'),
+        ('other_routine', 'abor1')
+    }
+    assert expected_items == {n.name for n in scheduler.items}
+    assert expected_dependencies == {(e[0].name, e[1].name) for e in scheduler.dependencies}
+
+    # Testing of callgraph visualisation
+    cg_path = here/'callgraph_typebound'
+    scheduler.callgraph(cg_path)
+
+    vgraph = VisGraphWrapper(cg_path)
+    assert all(n.upper() in vgraph.nodes for n in expected_items)
+    assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
+
+    cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()

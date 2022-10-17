@@ -99,8 +99,6 @@ class Item:
         # The name of the procedure is identical to the name of the binding
         return (name_parts[1],)
 
-
-
     @cached_property
     def routine(self):
         """
@@ -110,10 +108,17 @@ class Item:
         :any:`Subroutine` with (eg. via the :any:`DependencyTransformation`) may not
         break the association with this :any:`Item`.
         """
+        if '%' in self.name:
+            return None
         return self.source[self.name]
 
     @cached_property
     def calls(self):
+
+        if '%' in self.name:
+            # This is a type-bound procedure item: we are mapping to the names it binds to
+            return self.bind_names
+
         def _canonical_name(var):
             pos = var.name.find('%')
             if pos != -1:
@@ -127,6 +132,8 @@ class Item:
 
     @cached_property
     def members(self):
+        if self.routine is None:
+            return ()
         return tuple(member.name.lower() for member in self.routine.members)
 
     @property

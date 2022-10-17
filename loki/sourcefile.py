@@ -385,9 +385,9 @@ class Sourcefile:
         """
         if self.ir is None:
             return ()
-        return as_tuple([
+        return as_tuple(
             module for module in self.ir.body if isinstance(module, Module)
-        ])
+        )
 
     @property
     def routines(self):
@@ -396,11 +396,22 @@ class Sourcefile:
         """
         if self.ir is None:
             return ()
-        return as_tuple([
+        return as_tuple(
             routine for routine in self.ir.body if isinstance(routine, Subroutine)
-        ])
+        )
 
     subroutines = routines
+
+    @property
+    def typedefs(self):
+        """
+        List of :class:`TypeDef` objects that are declared in the :any:`Module` in this :class:`Sourcefile`.
+        """
+        if self.ir is None:
+            return ()
+        return as_tuple(
+            tdef for module in self.modules for tdef in module.typedefs.values()
+        )
 
     @property
     def all_subroutines(self):

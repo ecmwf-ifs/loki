@@ -161,7 +161,9 @@ class Scheduler:
         debug(f'Total number of lines parsed: {sum(obj.source.lines[1] for obj in obj_list)}')
 
         # Create a map of all potential target routines for fast lookup later
-        self.obj_map = CaseInsensitiveDict((r.name, obj) for obj in obj_list for r in as_tuple(obj.all_subroutines))
+        self.obj_map = CaseInsensitiveDict(
+            (r.name, obj) for obj in obj_list for r in obj.all_subroutines + obj.typedefs
+        )
 
     @property
     def routines(self):
@@ -182,7 +184,7 @@ class Scheduler:
         """
         return as_tuple(self.item_graph.edges)
 
-    def create_item(self, source):
+    def create_item(self, name):
         """
         Create an `Item` by looking up the path and setting all inferred properties.
 
@@ -193,20 +195,22 @@ class Scheduler:
         item-specific dict with override options, as well as given attributes that
         might be forced on this item from its parent.
         """
-        if source in self.item_map:
-            return self.item_map[source]
+        if name in self.item_map:
+            return self.item_map[name]
 
         # Use default as base and override individual options
         item_conf = self.config.default.copy()
-        if source in self.config.routines:
-            item_conf.update(self.config.routines[source])
+        if name in self.config.routines:
+            item_conf.update(self.config.routines[name])
 
-        name = item_conf.pop('name', source)
-        sourcefile = self.obj_map.get(source)
+        lookup_name = item_conf.pop('name', name)
+        if '%' in lookup_name:
+            lookup_name = lookup_name[:lookup_name.index('%')]
+        sourcefile = self.obj_map.get(lookup_name)
         if sourcefile is None:
-            warning(f'Scheduler could not create item: {source}')
+            warning(f'Scheduler could not create item: {name}')
             if self.config.default['strict']:
-                raise FileNotFoundError(f'Sourcefile not found for routine {source}')
+                raise FileNotFoundError(f'Sourcefile not found for {lookup_name}')
             return None
 
         debug(f'[Loki] Scheduler creating item: {name} => {sourcefile.path}')
