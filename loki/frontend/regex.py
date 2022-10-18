@@ -723,7 +723,7 @@ class ImportPattern(Pattern):
             symbols = None
 
         return ir.Import(
-            module, symbols=symbols, rename_list=rename_list,
+            module, symbols=as_tuple(symbols), rename_list=rename_list,
             source=reader.source_from_current_line()
         )
 

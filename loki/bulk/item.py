@@ -148,7 +148,7 @@ class Item:
         """
         Return modules imported in the current item and parent scopes
         """
-        scope = self.routine
+        scope = self.routine or self.scope
         imports = []
         while scope is not None:
             imports += [import_.module for import_ in scope.imports]
@@ -161,12 +161,13 @@ class Item:
         Return the mapping of named imports (i.e. explicitly qualified imports via a use-list
         or rename-list) to their canonical name
         """
-        scope = self.routine
+        scope = self.routine or self.scope
         import_map = CaseInsensitiveDict()
         while scope is not None:
             import_map.update(
                 (symbol.name, f'{import_.module}#{symbol.type.use_name or symbol.name}')
-                for import_ in scope.imports for symbol in import_.symbols
+                for import_ in scope.imports
+                for symbol in import_.symbols + tuple(s for _, s in as_tuple(import_.rename_list))
             )
             scope = scope.parent
         return import_map
@@ -176,7 +177,7 @@ class Item:
         """
         Return modules imported without explicit ``ONLY`` list
         """
-        scope = self.routine
+        scope = self.routine or self.scope
         imports = []
         while scope is not None:
             imports += [import_.module for import_ in scope.imports if not import_.symbols]
@@ -208,7 +209,7 @@ class Item:
         if len(name_parts) > 2:
             # This is a type-bound procedure in a derived type member of a derived type
             typename = type_.dtype.name
-            return as_tuple('%'.join([typename] + name_parts[2:]))
+            return as_tuple('%'.join([self.named_imports.get(typename, typename)] + name_parts[2:]))
         if type_.dtype.is_generic:
             # This is a generic binding, so we need to refer to other type-bound procedures
             # in this type
