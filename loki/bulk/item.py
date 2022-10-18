@@ -8,6 +8,7 @@ except ImportError:
             return func
 
 from loki.tools import as_tuple
+from loki.tools.util import CaseInsensitiveDict
 from loki.visitors import FindNodes
 from loki.ir import CallStatement
 
@@ -36,14 +37,17 @@ class Item:
     * ``expand``: Flag to generally enable/disable expansion under this item
     * ``strict``: Flag controlling whether to strictly fail if source file cannot be parsed
     * ``replicated``: Flag indicating whether to mark item as "replicated" in call graphs
+    * ``disable``: List of subroutines that are completely ignored and are not reported as
+      ``children``. Useful to exclude entire call trees or utility routines.
+    * ``block``: List of subroutines that should should not be added to the scheduler
+      tree. Note, these might still be shown in the graph visulisation.
     * ``ignore``: Individual list of subroutine calls to "ignore" during expansion.
-      The routines will still be added to the schedulers tree, but not
-      followed during expansion.
+      Calls to these routines may be processed on the caller side but not the called subroutine
+      itself. This facilitates processing across build targets, where caller and callee-side
+      are transformed in different Loki passes.
     * ``enrich``: List of subroutines that should still be looked up and used to "enrich"
       :any:`CallStatement` nodes in this :any:`Item` for inter-procedural
       transformation passes.
-    * ``block``: List of subroutines that should should not be added to the scheduler
-      tree. Note, these might still be shown in the graph visulisation.
 
     Parameters
     ----------
@@ -73,31 +77,58 @@ class Item:
     def __hash__(self):
         return hash(self.name)
 
-    @property
-    def bind_names(self):
+    @staticmethod
+    def name_is_in(name, list_of_names):
         """
-        For items representing type-bound procedures, this returns the names of the
-        routines it binds to
+        Check if any of the names in :data:`list_of_names` matches :data:`name`
+
+        It is considered a match if either :data:`name` is in :data:`list_of_names`
+        or, if :data:`name` contains a ``#`` and the local name (i.e. everything after
+        the ``#``) is in :data:`list_of_names`. The comparison is not case sensitive.
+        This allows to check if :data:`name` is in a list of (possibly) not fully-qualified name.
         """
-        if '%' not in self.name:
-            return ()
-        name_parts = self.name.split('%')
-        typedef = self.source[name_parts[0]]
-        symbol = typedef.variable_map[name_parts[1]]
-        type_ = symbol.type
-        if len(name_parts) > 2:
-            # This is a type-bound procedure in a derived type member of a derived type
-            typename = type_.dtype.name
-            return as_tuple('%'.join([typename] + name_parts[2:]))
-        if type_.is_generic:
-            # This is a generic binding, so we need to refer to other type-bound procedures
-            # in this type
-            return tuple(name_parts[0] + '%' + name for name in type_.bind_names)
-        if type_.initial is not None:
-            # This has a bind name explicitly specified:
-            return (type_.initial.name.lower(), )
-        # The name of the procedure is identical to the name of the binding
-        return (name_parts[1],)
+        lower_name = name.lower()
+        list_of_names = [name.lower() for name in list_of_names]
+        if '#' in lower_name:
+            local_name = lower_name.split('#')[-1]
+            return local_name in list_of_names or lower_name in list_of_names
+        return lower_name in list_of_names
+
+    def is_in(self, list_of_names):
+        """
+        Check if this item matches any of the names in :data:`list_of_names`
+
+        See :meth:`name_is_in` for the methodology.
+        """
+        return self.name_is_in(self.name, list_of_names)
+
+    @cached_property
+    def scope_name(self):
+        """
+        The name of this item's scope
+        """
+        return self.name[:self.name.index('#')] or None
+
+    @cached_property
+    def local_name(self):
+        """
+        The item name without the scope
+        """
+        return self.name[self.name.index('#')+1:]
+
+    @cached_property
+    def scope(self):
+        """
+        :any:`Module` object that is the enclosing scope of this :any:`Item`
+
+        Note that this property is cached, so that updating the name of an associated
+        :any:`Module` with (eg. via the :any:`DependencyTransformation`) may not
+        break the association with this :any:`Item`.
+        """
+        name = self.scope_name
+        if name is None:
+            return None
+        return self.source[name]
 
     @cached_property
     def routine(self):
@@ -110,31 +141,104 @@ class Item:
         """
         if '%' in self.name:
             return None
-        return self.source[self.name]
+        return self.source[self.local_name]
+
+    @cached_property
+    def imports(self):
+        """
+        Return modules imported in the current item and parent scopes
+        """
+        scope = self.routine
+        imports = []
+        while scope is not None:
+            imports += [import_.module for import_ in scope.imports]
+            scope = scope.parent
+        return as_tuple(imports)
+
+    @cached_property
+    def named_imports(self):
+        """
+        Return the mapping of named imports (i.e. explicitly qualified imports via a use-list
+        or rename-list) to their canonical name
+        """
+        scope = self.routine
+        import_map = CaseInsensitiveDict()
+        while scope is not None:
+            import_map.update(
+                (symbol.name, f'{import_.module}#{symbol.type.use_name or symbol.name}')
+                for import_ in scope.imports for symbol in import_.symbols
+            )
+            scope = scope.parent
+        return import_map
+
+    @cached_property
+    def unqualified_imports(self):
+        """
+        Return modules imported without explicit ``ONLY`` list
+        """
+        scope = self.routine
+        imports = []
+        while scope is not None:
+            imports += [import_.module for import_ in scope.imports if not import_.symbols]
+            scope = scope.parent
+        return as_tuple(imports)
+
+    @cached_property
+    def members(self):
+        """
+        Names of member routines contained in the subroutine corresponding to this item
+        """
+        if self.routine is None:
+            return ()
+        return tuple(member.name.lower() for member in self.routine.members)
+
+    @property
+    def bind_names(self):
+        """
+        For items representing type-bound procedures, this returns the names of the
+        routines it binds to
+        """
+        if '%' not in self.name:
+            return ()
+        module = self.source[self.scope_name]
+        name_parts = self.local_name.split('%')
+        typedef = module[name_parts[0]]
+        symbol = typedef.variable_map[name_parts[1]]
+        type_ = symbol.type
+        if len(name_parts) > 2:
+            # This is a type-bound procedure in a derived type member of a derived type
+            typename = type_.dtype.name
+            return as_tuple('%'.join([typename] + name_parts[2:]))
+        if type_.dtype.is_generic:
+            # This is a generic binding, so we need to refer to other type-bound procedures
+            # in this type
+            return tuple(name_parts[0] + '%' + name for name in type_.bind_names)
+        if type_.initial is not None:
+            # This has a bind name explicitly specified:
+            return (type_.initial.name.lower(), )
+        # The name of the procedure is identical to the name of the binding
+        return (name_parts[1],)
 
     @cached_property
     def calls(self):
-
         if '%' in self.name:
             # This is a type-bound procedure item: we are mapping to the names it binds to
             return self.bind_names
 
         def _canonical_name(var):
+            # For type bound procedure calls, map the variable name to the type name
             pos = var.name.find('%')
             if pos != -1:
-                # Map the derived type's variable name to the type name
                 var_name = var.name[:pos]
                 type_name = self.routine.variable_map[var_name].type.dtype.name
+                type_name = self.named_imports.get(type_name, type_name)
                 return type_name + var.name[pos:]
-            return var.name
+            return self.named_imports.get(var.name, var.name)
 
-        return tuple(_canonical_name(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
-
-    @cached_property
-    def members(self):
-        if self.routine is None:
-            return ()
-        return tuple(member.name.lower() for member in self.routine.members)
+        return tuple(
+            _canonical_name(call.name).lower()
+            for call in FindNodes(CallStatement).visit(self.routine.ir)
+        )
 
     @property
     def path(self):
@@ -210,11 +314,13 @@ class Item:
     @property
     def children(self):
         """
-        Set of all child routines that this work item has in the call tree.
+        Set of all child routines that this work item has in the call tree
 
         Note that this is not the set of active children that a traversal
         will apply a transformation over, but rather the set of nodes that
         defines the next level of the internal call tree.
+
+        This includes potentially non-existent routines where
         """
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
@@ -223,7 +329,41 @@ class Item:
 
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in self.members]
-        children = [c for c in children if c not in disabled]
+        children = [c for c in children if not any(c.endswith(d) for d in disabled)]
+
+        def _canonical_names(name):
+            # Inject module names for unqualified child names
+            if '#' in name:
+                return as_tuple(name)
+
+            pos = name.find('%')
+            if pos != -1:
+                # Search for named import of the derived type
+                type_name = name[:pos]
+                if type_name in self.named_imports:
+                    return as_tuple(self.named_imports[type_name])
+
+                # Search for definition of the type in parent scope
+                scope = self.scope
+                if scope is not None and type_name in scope.typedefs:
+                    return as_tuple(f'{self.scope_name}#{name}')
+            else:
+                # Search for named import of the subroutine
+                if name in self.named_imports:
+                    return as_tuple(self.named_imports[name])
+
+                # Search for subroutine in parent scope
+                scope = self.scope
+                if scope is not None and name in scope:
+                    return as_tuple(f'{self.scope_name}#{name}')
+
+            # This child has to come from an unqualified import or exists in the global
+            # scope (i.e. defined directly in a source file). We return all
+            # possibilities, of which only one should match (otherwise we would
+            # have duplicate symbols in this compilation unit)
+            return tuple(f'{import_}#{name}' for import_ in ('',) + self.unqualified_imports)
+
+        children = [_canonical_names(c) for c in children]
         return as_tuple(children)
 
     @property

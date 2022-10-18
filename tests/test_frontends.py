@@ -1042,7 +1042,7 @@ def test_regex_variable_declaration(here):
     source = Sourcefile.from_file(filepath, frontend=REGEX)
 
     driver = source['driver']
-    assert driver.variables == ('obj', 'obj2', 'derived')
+    assert driver.variables == ('obj', 'obj2', 'header', 'derived')
     assert not source['module_routine'].variables
     assert source['other_routine'].variables == ('self',)
     assert source['routine'].variables == ('self',)
@@ -1060,7 +1060,7 @@ def test_regex_variable_declaration(here):
 
         # While we're here: let's check the call statements, too
         calls = FindNodes(CallStatement).visit(driver.ir)
-        assert len(calls) == 3
+        assert len(calls) == 6
         assert all(isinstance(call.name.type.dtype, ProcedureType) for call in calls)
 
         # Note: we're explicitly accessing the string name here (instead of relying
@@ -1070,8 +1070,19 @@ def test_regex_variable_declaration(here):
         assert calls[0].name.parent.name == 'obj'
         assert calls[1].name.name == 'obj2%some_routine'
         assert calls[1].name.parent.name == 'obj2'
-        assert calls[2].name.name == 'derived%var%member_routine'
-        assert calls[2].name.parent.name == 'derived%var'
-        assert calls[2].name.parent.parent.name == 'derived'
+        assert calls[2].name.name == 'header%member_routine'
+        assert calls[2].name.parent.name == 'header'
+        assert calls[3].name.name == 'header%routine'
+        assert calls[3].name.parent.name == 'header'
+        assert calls[4].name.name == 'header%routine'
+        assert calls[4].name.parent.name == 'header'
+        assert calls[5].name.name == 'derived%var%member_routine'
+        assert calls[5].name.parent.name == 'derived%var'
+        assert calls[5].name.parent.parent.name == 'derived'
+
+        # Hack: Split the procedure binding into one-per-line until Fparser
+        # supports this...
+        module = source['typebound_item']
+        module.source.string = module.source.string.replace('procedure :: routine1,', 'procedure :: routine1\nprocedure ::')
 
         source.make_complete()

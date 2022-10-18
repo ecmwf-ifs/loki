@@ -95,12 +95,12 @@ def test_dr_hook_transformation(frontend, config, source):
         assert len(drhook_calls) == 2
         if item.role == 'driver':
             assert all(
-                str(call.arguments[0]).lower().strip("'") == item.name.lower()
+                str(call.arguments[0]).lower().strip("'") == item.local_name.lower()
                 for call in drhook_calls
             )
         elif item.role == 'kernel':
             assert all(
-                str(call.arguments[0]).lower().strip("'") == f'{item.name.lower()}_you_up'
+                str(call.arguments[0]).lower().strip("'") == f'{item.local_name.lower()}_you_up'
                 for call in drhook_calls
             )
 
@@ -123,7 +123,7 @@ def test_dr_hook_transformation_remove(frontend, config, source):
         if item.role == 'driver':
             assert len(drhook_calls) == 2
             assert all(
-                str(call.arguments[0]).lower().strip("'") == item.name.lower()
+                str(call.arguments[0]).lower().strip("'") == item.local_name.lower()
                 for call in drhook_calls
             )
         elif item.role == 'kernel':

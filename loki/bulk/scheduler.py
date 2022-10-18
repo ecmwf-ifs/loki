@@ -140,10 +140,10 @@ class Scheduler:
         self.item_graph = nx.DiGraph()
         self.item_map = {}
 
-        self._populate_obj_map()
+        self._discover()
 
     @timeit(log_level=PERF)
-    def _populate_obj_map(self):
+    def _discover(self):
         # Scan all source paths and create light-weight `Sourcefile` objects for each file.
         frontend_args = {
             'preprocess': self.build_args['preprocess'],
@@ -160,14 +160,19 @@ class Scheduler:
 
         debug(f'Total number of lines parsed: {sum(obj.source.lines[1] for obj in obj_list)}')
 
-        # Create a map of all potential target routines for fast lookup later
+        # Create a map of all potential target objs for fast lookup later
         self.obj_map = CaseInsensitiveDict(
-            (r.name, obj) for obj in obj_list for r in obj.all_subroutines + obj.typedefs
+            (f'#{r.name}', obj) for obj in obj_list for r in obj.subroutines
+        )
+        self.obj_map.update(
+            (f'{module.name}#{r.name}', obj)
+            for obj in obj_list for module in obj.modules
+            for r in module.subroutines + tuple(module.typedefs.values())
         )
 
     @property
     def routines(self):
-        return [item.routine for item in self.item_graph.nodes]
+        return as_tuple(item.routine for item in self.item_graph.nodes if item.routine is not None)
 
     @property
     def items(self):
@@ -184,7 +189,7 @@ class Scheduler:
         """
         return as_tuple(self.item_graph.edges)
 
-    def create_item(self, name):
+    def create_item(self, names):
         """
         Create an `Item` by looking up the path and setting all inferred properties.
 
@@ -195,26 +200,85 @@ class Scheduler:
         item-specific dict with override options, as well as given attributes that
         might be forced on this item from its parent.
         """
-        if name in self.item_map:
-            return self.item_map[name]
+        names = as_tuple(names)
+
+        item_name = None
+        for name in names:
+            if name in self.item_map:
+                return self.item_map[name]
+
+            # For type bound procedures, we use the (fully-qualified) type name to
+            # look up the corresponding sourcefile (since we're not storing every
+            # procedure binding in obj_map)
+            pos = name.find('%')
+            if pos != -1:
+                lookup_name = name[:pos]
+                child_name = name[pos:]
+            else:
+                lookup_name = name
+                child_name = ''
+
+            if lookup_name and lookup_name in self.obj_map:
+                item_name = f'{lookup_name.lower()}{child_name.lower()}'
+                break
+
+        if item_name is None:
+            warning(f'Scheduler could not create item: {names}')
+            if self.config.default['strict']:
+                raise FileNotFoundError(f'Sourcefile not found for {names}')
+            return None
+        sourcefile = self.obj_map[lookup_name]
 
         # Use default as base and override individual options
         item_conf = self.config.default.copy()
-        if name in self.config.routines:
-            item_conf.update(self.config.routines[name])
+        config_matches = [r for r in self.config.routines if item_name.endswith(r.lower())]
+        if config_matches:
+            if len(config_matches) != 1:
+                warning(f'Multiple config entries matching {item_name}')
+                if self.config.default['strict']:
+                    raise RuntimeError(f'Multiple config entries matching {item_name}')
+            item_conf.update(self.config.routines[config_matches[0]])
 
-        lookup_name = item_conf.pop('name', name)
-        if '%' in lookup_name:
-            lookup_name = lookup_name[:lookup_name.index('%')]
-        sourcefile = self.obj_map.get(lookup_name)
-        if sourcefile is None:
-            warning(f'Scheduler could not create item: {name}')
+        debug(f'[Loki] Scheduler creating item: {item_name} => {sourcefile.path}')
+        return Item(name=item_name, source=sourcefile, config=item_conf)
+
+    def find_routine(self, routine):
+        """
+        Find the given routine name in the :attr:`obj_map`
+
+        This looks for matching candidates, possibly ignoring module scopes.
+        If this yields more than one match, it will print a warning and use the
+        first match. If ``strict`` mode is active, :class:`RuntimeError` is raised.
+
+        This is used when filling the scheduler graph with the initial starting
+        points without the need to provide these with fully-qualified names.
+
+        Parameters
+        ----------
+        routine : str
+            The name of the routine to look for
+
+        Returns
+        -------
+        str :
+            The fully-qualified name corresponding to :data:`routine` from
+            the set of discovered routines
+        """
+        if '#' in routine:
+            name = routine.lower()
+        else:
+            name = f'#{routine.lower()}'
+
+        candidates = [c for c in self.obj_map if c.lower().endswith(name)]
+        if not candidates:
+            warning(f'Scheduler could not find routine {routine}')
             if self.config.default['strict']:
-                raise FileNotFoundError(f'Sourcefile not found for {lookup_name}')
-            return None
-
-        debug(f'[Loki] Scheduler creating item: {name} => {sourcefile.path}')
-        return Item(name=name, source=sourcefile, config=item_conf)
+                raise RuntimeError(f'Scheduler could not find routine {routine}')
+        elif len(candidates) != 1:
+            warning(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
+            if self.config.default['strict']:
+                raise RuntimeError(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
+        return candidates[0]
 
     @timeit(log_level=PERF)
     def populate(self, routines):
@@ -222,15 +286,18 @@ class Scheduler:
         Populate the callgraph of this scheduler through automatic expansion of
         subroutine-call induced dependencies from a set of starting routines.
 
-        :param routines: Names of root routines from which to populate the callgraph.
+        Parameters
+        ----------
+        routines : list of str
+            Names of root routines from which to populate the callgraph.
         """
         queue = deque()
         for routine in as_tuple(routines):
-            item = self.create_item(routine)
+            item = self.create_item(self.find_routine(routine))
             if item:
                 queue.append(item)
 
-                self.item_map[routine] = item
+                self.item_map[item.name] = item
                 self.item_graph.add_node(item)
 
         while len(queue) > 0:
@@ -243,7 +310,7 @@ class Scheduler:
                     continue
 
                 # Skip blocked children as well
-                if child in item.block:
+                if child.is_in(item.block):
                     continue
 
                 # Append child to work queue if expansion is configured
@@ -252,7 +319,7 @@ class Scheduler:
                     # Note that, unlike blackisted items, "ignore" items
                     # are still marked as targets during bulk-processing,
                     # so that calls to "ignore" routines will be renamed.
-                    if child in item.ignore:
+                    if child.is_in(item.ignore):
                         continue
 
                     if child not in self.item_map:
@@ -267,20 +334,24 @@ class Scheduler:
         """
         Enrich subroutine calls for inter-procedural transformations
         """
-
+        # Force the parsing of the routines in the call tree
         for item in self.item_graph:
             item.source.make_complete(**self.build_args)
+
+        for item in self.item_graph:
+            # Enrich with all routines in the call tree
             item.routine.enrich_calls(routines=self.routines)
 
             # Enrich item with meta-info from outside of the callgraph
             for routine in item.enrich:
-                if routine not in self.obj_map:
+                lookup_name = self.find_routine(routine)
+                if not lookup_name:
                     warning(f'Scheduler could not find file for enrichment:\n{routine}')
                     if self.config.default['strict']:
                         raise FileNotFoundError(f'Source path not found for routine {routine}')
                     continue
-                self.obj_map[routine].make_complete(**self.build_args)
-                item.routine.enrich_calls(self.obj_map[routine].all_subroutines)
+                self.obj_map[lookup_name].make_complete(**self.build_args)
+                item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
     def process(self, transformation):
         """
@@ -289,16 +360,10 @@ class Scheduler:
         order, which ensures that :any:`CallStatement` objects are
         always processed before their target :any:`Subroutine`.
         """
-
-        # Force the parsing of the routines
-        for item in nx.topological_sort(self.item_graph):
-            _ = item.routine
-
         # Enrich routines in graph with type info
         self.enrich()
 
         for item in nx.topological_sort(self.item_graph):
-
             # Process work item with appropriate kernel
             transformation.apply(item.source, role=item.role, mode=item.mode,
                                  item=item, targets=item.targets)
@@ -329,17 +394,19 @@ class Scheduler:
 
         # Insert all nodes we were told to either block or ignore
         for item in self.items:
-            for child in item.children:
-                if child in item.block:
-                    callgraph.node(child.upper(), color='black', shape='box',
-                                   fillcolor='orangered', style='filled')
-                    callgraph.edge(item.name.upper(), child.upper())
+            for children in item.children:
+                for child in children:
+                    if Item.name_is_in(child, item.block):
+                        callgraph.node(child.upper(), color='black', shape='box',
+                                    fillcolor='orangered', style='filled')
+                        callgraph.edge(item.name.upper(), child.upper())
 
-            for child in item.children:
-                if child in item.ignore:
-                    callgraph.node(child.upper(), color='black', shape='box',
-                                   fillcolor='lightblue', style='filled')
-                    callgraph.edge(item.name.upper(), child.upper())
+            for children in item.children:
+                for child in children:
+                    if Item.name_is_in(child, item.ignore):
+                        callgraph.node(child.upper(), color='black', shape='box',
+                                    fillcolor='lightblue', style='filled')
+                        callgraph.edge(item.name.upper(), child.upper())
 
         callgraph.render(cg_path, view=False)
 

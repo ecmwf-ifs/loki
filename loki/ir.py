@@ -1332,6 +1332,10 @@ class TypeDef(ScopedNode, LeafNode):
         return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
 
     @property
+    def ir(self):
+        return self.body
+
+    @property
     def declarations(self):
         return as_tuple(c for c in self.body if isinstance(c, (VariableDeclaration, ProcedureDeclaration)))
 
