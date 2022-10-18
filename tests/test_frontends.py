@@ -1042,7 +1042,7 @@ def test_regex_variable_declaration(here):
     source = Sourcefile.from_file(filepath, frontend=REGEX)
 
     driver = source['driver']
-    assert driver.variables == ('obj', 'obj2', 'header', 'derived')
+    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived')
     assert not source['module_routine'].variables
     assert source['other_routine'].variables == ('self',)
     assert source['routine'].variables == ('self',)
@@ -1055,12 +1055,16 @@ def test_regex_variable_declaration(here):
         assert var_map['obj'].type.dtype.name == 'some_type'
         assert isinstance(var_map['obj2'].type.dtype, DerivedType)
         assert var_map['obj2'].type.dtype.name == 'some_type'
+        assert isinstance(var_map['header'].type.dtype, DerivedType)
+        assert var_map['header'].type.dtype.name == 'header_type'
+        assert isinstance(var_map['other_obj'].type.dtype, DerivedType)
+        assert var_map['other_obj'].type.dtype.name == 'other'
         assert isinstance(var_map['derived'].type.dtype, DerivedType)
-        assert var_map['derived'].type.dtype.name == 'other_type'
+        assert var_map['derived'].type.dtype.name == 'other'
 
         # While we're here: let's check the call statements, too
         calls = FindNodes(CallStatement).visit(driver.ir)
-        assert len(calls) == 6
+        assert len(calls) == 7
         assert all(isinstance(call.name.type.dtype, ProcedureType) for call in calls)
 
         # Note: we're explicitly accessing the string name here (instead of relying
@@ -1076,13 +1080,17 @@ def test_regex_variable_declaration(here):
         assert calls[3].name.parent.name == 'header'
         assert calls[4].name.name == 'header%routine'
         assert calls[4].name.parent.name == 'header'
-        assert calls[5].name.name == 'derived%var%member_routine'
-        assert calls[5].name.parent.name == 'derived%var'
-        assert calls[5].name.parent.parent.name == 'derived'
+        assert calls[5].name.name == 'other_obj%member'
+        assert calls[5].name.parent.name == 'other_obj'
+        assert calls[6].name.name == 'derived%var%member_routine'
+        assert calls[6].name.parent.name == 'derived%var'
+        assert calls[6].name.parent.parent.name == 'derived'
 
         # Hack: Split the procedure binding into one-per-line until Fparser
         # supports this...
         module = source['typebound_item']
-        module.source.string = module.source.string.replace('procedure :: routine1,', 'procedure :: routine1\nprocedure ::')
+        module.source.string = module.source.string.replace(
+            'procedure :: routine1,', 'procedure :: routine1\nprocedure ::'
+        )
 
         source.make_complete()
