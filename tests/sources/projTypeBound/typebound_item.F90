@@ -50,11 +50,12 @@ end module typebound_item
 subroutine driver
     use typebound_item
     use typebound_header
+    use typebound_other, only: other => other_type
     implicit none
 
     type(some_type), allocatable :: obj(:), obj2(:,:)
     type(header_type) :: header
-    type(other_type) :: derived(2)
+    type(other) :: other_obj, derived(2)
     real :: x
     integer :: i
 
@@ -65,5 +66,6 @@ subroutine driver
     call header%member_routine(1)
     call header%routine(x)
     call header%routine(i)
+    call other_obj%member(2, 2)
     call derived(1)% var( 2 ) % member_routine(2)
 end subroutine driver

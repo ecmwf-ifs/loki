@@ -9,10 +9,6 @@ module typebound_header
         generic :: routine => routine_real, routine_integer
     end type header_type
 
-    type other_type
-      type(header_type) :: var(2)
-    end type other_type
-
 contains
 
     subroutine header_member_routine(self, val)

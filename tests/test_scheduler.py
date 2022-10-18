@@ -905,15 +905,21 @@ def test_scheduler_typebound_item(here):
     """
     filepath = here/'sources/projTypeBound/typebound_item.F90'
     headerpath = here/'sources/projTypeBound/typebound_header.F90'
+    otherpath = here/'sources/projTypeBound/typebound_other.F90'
     source = Sourcefile.from_file(filepath, frontend=REGEX)
     header = Sourcefile.from_file(headerpath, frontend=REGEX)
+    other = Sourcefile.from_file(otherpath, frontend=REGEX)
 
     driver = Item(name='#driver', source=source)
     assert driver.calls == (
         'some_type%other_routine', 'some_type%some_routine',
         'header_type%member_routine', 'header_type%routine',
-        'header_type%routine', 'other_type%var%member_routine'
+        'header_type%routine', 'typebound_other#other_type%member',
+        'typebound_other#other_type%var%member_routine'
     )
+    assert driver.imports == ('typebound_item', 'typebound_header', 'typebound_other')
+    assert driver.unqualified_imports == ('typebound_item', 'typebound_header')
+    assert driver.named_imports == {'other': 'typebound_other#other_type'}
 
     other_routine = Item(name='typebound_item#other_routine', source=source)
     assert other_routine.calls == ('abor1', 'some_type%routine1', 'some_type%routine2')
@@ -930,8 +936,11 @@ def test_scheduler_typebound_item(here):
     some_type_routine = Item(name='typebound_item#some_type%routine', source=source)
     assert some_type_routine.bind_names == ('module_routine',)
 
-    other_type_var_member_routine = Item(name='typebound_header#other_type%var%member_routine', source=header)
-    assert other_type_var_member_routine.bind_names == ('header_type%member_routine',)
+    other_type_member = Item(name='typebound_other#other_type%member', source=other)
+    assert other_type_member.named_imports == {'header': 'typebound_header#header_type'}
+
+    other_type_var_member_routine = Item(name='typebound_other#other_type%var%member_routine', source=other)
+    assert other_type_var_member_routine.bind_names == ('typebound_header#header_type%member_routine',)
 
     header_type_member_routine = Item(name='typebound_header#header_type%member_routine', source=header)
     assert header_type_member_routine.bind_names == ('header_member_routine',)
@@ -943,14 +952,17 @@ def test_scheduler_typebound(here, config, frontend):
     Test correct dependency chasing for typebound procedure calls.
 
     projTypeBound: driver -> some_type%other_routine -> other_routine -> some_type%routine1 -> routine1
-                  | | | |                                          |                                |
-                  | | | |       +- routine <- some_type%routine2 <-+                                +---------+
-                  | | | |       |                                                                             |
-                  | | | +--> some_type%some_routine -> some_routine -> some_type%routine -> module_routine  <-+
-                  | +------> header_type%member_routine -> header_member_routine
-                  +--------> header_type%routine -> header_type%routine_real -> header_routine_real
-                                            |
-                                            +---> header_type%routine_integer -> routine_integer
+                 | | | | | |                                          |                                |
+                 | | | | | |       +- routine <- some_type%routine2 <-+                                +---------+
+                 | | | | | |       |                                                                             |
+                 | | | | | +--> some_type%some_routine -> some_routine -> some_type%routine -> module_routine  <-+
+                 | | | +------> header_type%member_routine -> header_member_routine
+                 | | +--------> header_type%routine -> header_type%routine_real -> header_routine_real
+                 | |                           |
+                 | |                           +---> header_type%routine_integer -> routine_integer
+                 | +---------->other_type%member -> other_member -> header_member_routine   <--+
+                 |                                                                             |
+                 +------------>other_type%var%%member_routine -> header_type%member_routine  --+
     """
     proj = here/'sources/projTypeBound'
 
@@ -968,7 +980,8 @@ def test_scheduler_typebound(here, config, frontend):
         'typebound_item#some_routine', 'typebound_header#header_type%routine',
         'typebound_header#header_type%routine_real', 'typebound_header#header_routine_real',
         'typebound_header#header_type%routine_integer', 'typebound_header#routine_integer',
-        'typebound_header#abor1', 'typebound_header#other_type%var%member_routine'
+        'typebound_header#abor1', 'typebound_other#other_type%member',
+        'typebound_other#other_member', 'typebound_other#other_type%var%member_routine'
     }
     expected_dependencies = {
         ('#driver', 'typebound_item#some_type%other_routine'),
@@ -985,8 +998,12 @@ def test_scheduler_typebound(here, config, frontend):
         ('typebound_item#some_type%routine', 'typebound_item#module_routine'),
         ('#driver', 'typebound_header#header_type%member_routine'),
         ('typebound_header#header_type%member_routine', 'typebound_header#header_member_routine'),
-        ('#driver', 'typebound_header#other_type%var%member_routine'),
-        ('typebound_header#other_type%var%member_routine', 'typebound_header#header_type%member_routine'),
+        ('#driver', 'typebound_other#other_type%member'),
+        ('typebound_other#other_type%member', 'typebound_other#other_member'),
+        ('typebound_other#other_member', 'typebound_header#header_member_routine'),
+        ('typebound_other#other_member', 'typebound_other#other_type%var%member_routine'),
+        ('#driver', 'typebound_other#other_type%var%member_routine'),
+        ('typebound_other#other_type%var%member_routine', 'typebound_header#header_type%member_routine'),
         ('typebound_item#other_routine', 'typebound_header#abor1'),
         ('#driver', 'typebound_header#header_type%routine'),
         ('typebound_header#header_type%routine', 'typebound_header#header_type%routine_real'),
@@ -1016,14 +1033,15 @@ def test_scheduler_typebound_ignore(here, config, frontend):
     typebound procedures correctly.
 
     projTypeBound: driver -> some_type%other_routine -> other_routine -> some_type%routine1 -> routine1
-                  | | | |                                          |                                |
-                  | | | |       +- routine <- some_type%routine2 <-+                                +---------+
-                  | | | |       |                                                                             |
-                  | | | +--> some_type%some_routine -> some_routine -> some_type%routine -> module_routine  <-+
-                  | +------> header_type%member_routine -> header_member_routine
-                  +--------> header_type%routine -> header_type%routine_real -> header_routine_real
-                                            |
-                                            +---> header_type%routine_integer -> routine_integer
+                   | | | | |                                          |                                |
+                   | | | | |       +- routine <- some_type%routine2 <-+                                +---------+
+                   | | | | |       |                                                                             |
+                   | | | | +--> some_type%some_routine -> some_routine -> some_type%routine -> module_routine  <-+
+                   | | +------> header_type%member_routine -> header_member_routine
+                   | +--------> header_type%routine -> header_type%routine_real -> header_routine_real
+                   |                           |
+                   |                           +---> header_type%routine_integer -> routine_integer
+                   +---------->other_type%member -> other_member -> header_member_routine
     """
     proj = here/'sources/projTypeBound'
 
@@ -1043,7 +1061,8 @@ def test_scheduler_typebound_ignore(here, config, frontend):
         'typebound_header#header_type%routine',
         'typebound_header#header_type%routine_real', 'typebound_header#header_routine_real',
         'typebound_header#header_type%routine_integer', 'typebound_header#routine_integer',
-        'typebound_header#abor1', 'typebound_header#other_type%var%member_routine'
+        'typebound_header#abor1', 'typebound_other#other_type%member',
+        'typebound_other#other_member', 'typebound_other#other_type%var%member_routine'
     }
     expected_dependencies = {
         ('#driver', 'typebound_item#some_type%other_routine'),
@@ -1054,8 +1073,11 @@ def test_scheduler_typebound_ignore(here, config, frontend):
         ('typebound_item#other_routine', 'typebound_item#some_type%routine2'),
         ('typebound_item#some_type%routine2', 'typebound_item#routine'),
         ('#driver', 'typebound_header#header_type%member_routine'),
-        ('#driver', 'typebound_header#other_type%var%member_routine'),
-        ('typebound_header#other_type%var%member_routine', 'typebound_header#header_type%member_routine'),
+        ('#driver', 'typebound_other#other_type%member'),
+        ('typebound_other#other_type%member', 'typebound_other#other_member'),
+        ('typebound_other#other_member', 'typebound_other#other_type%var%member_routine'),
+        ('#driver', 'typebound_other#other_type%var%member_routine'),
+        ('typebound_other#other_type%var%member_routine', 'typebound_header#header_type%member_routine'),
         ('typebound_item#other_routine', 'typebound_header#abor1'),
         ('#driver', 'typebound_header#header_type%routine'),
         ('typebound_header#header_type%routine', 'typebound_header#header_type%routine_real'),
