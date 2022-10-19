@@ -1094,3 +1094,17 @@ def test_regex_variable_declaration(here):
         )
 
         source.make_complete()
+
+
+def test_regex_variable_declaration_parentheses():
+    fcode = """
+subroutine definitely_not_allfpos(ydfpdata)
+implicit none
+type(tfpdata), intent(in) :: ydfpdata
+type(tfpofn) :: ylofn(size(ydfpdata%yfpos%yfpgeometry%yfpusergeo))
+end subroutine definitely_not_allfpos
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    routine = source['definitely_not_allfpos']
+    assert routine.variables == ['ydfpdata', 'ylofn']

@@ -272,6 +272,15 @@ class Pattern:
         string = cls._pattern_quoted_string.sub('', string)
         p_open = [match.start() for match in cls._pattern_opening_parenthesis.finditer(string)]
         p_close = [match.start() for match in cls._pattern_closing_parenthesis.finditer(string)]
+        if len(p_open) > len(p_close):
+            # Note: fparser's reader has currently problems with opening
+            # quotes in comments in combination with line continuation, thus
+            # potentially failing to sanitize the string correctly.
+            # In that case, we'll just discard everything after the first
+            # opening parenthesis, well aware that we're potentially
+            # loosing information...
+            # See https://github.com/stfc/fparser/issues/264
+            return string[:p_open[0]]
         assert len(p_open) == len(p_close)
         if not p_close:
             return string
@@ -744,7 +753,7 @@ class VariableDeclarationPattern(Pattern):
             r'(?:[ \t]*,[ \t]*[a-z]+(?:\(.*?\))?)*'  # Optional attributes
             r'(?:[ \t]*::)?'  # Optional `::` delimiter
             r'[ \t]*'  # Some white space
-            r'(?P<variables>\w+\b(?:\(.*?\))?(?:[ \t]*,[ \t]\w+\b(?:\(.*?\))?)*)',  # Variable names
+            r'(?P<variables>\w+\b.*?)$',  # Variable names
             re.IGNORECASE
         )
 
