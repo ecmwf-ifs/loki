@@ -226,6 +226,61 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_pickle_module_with_routines(frontend):
+    """
+    Ensure that :any:`Module` object with cross-calling subroutines
+    pickle cleanly, including the procedure type symbols.
+    """
+
+    fcode = """
+module my_module
+  implicit none
+
+  contains
+  subroutine my_routine(n, a, b, d)
+    integer, intent(in) :: n
+    real, intent(in) :: a(n), b(n)
+    real, intent(out) :: d(n)
+    integer :: i
+
+    call other_routine(a, b)
+  end subroutine my_routine
+
+  subroutine other_routine(n, a, b)
+    integer, intent(in) :: n
+    real, intent(in) :: a(n), b(n)
+
+  end subroutine other_routine
+end module my_module
+"""
+    module = Module.from_source(fcode)
+
+    # First, replicate the scope individually, ...
+    scope_new = Scope()
+    scope_new.symbol_attrs = loads(dumps(module.symbol_attrs))
+
+    # Replicate spec and body independently...
+    spec_new = loads(dumps(module.spec))
+    spec_new = AttachScopes().visit(spec_new, scope=scope_new)
+    assert spec_new == module.spec
+
+    contains_new = loads(dumps(module.contains))
+    # We need to attach the parent here first, so that the deferred
+    # procedure type symbol in the call can be resolved
+    contains_new.body[1].parent = scope_new
+    contains_new.body[-1].parent = scope_new
+    contains_new = AttachScopes().visit(contains_new, scope=scope_new)
+    assert contains_new == module.contains
+
+    # Ensure equivalence after pickle-cyle with scope-level replication
+    module_new = loads(dumps(module))
+    assert module_new.spec == module.spec
+    assert module_new.contains == module.contains
+    assert module_new.symbol_attrs == module.symbol_attrs
+    assert module_new == module
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pickle_scheduler_item(here, frontend):
     """
     Test that :any:`Item` objects are picklable, so that we may use
