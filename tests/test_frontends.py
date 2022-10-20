@@ -1111,6 +1111,38 @@ end subroutine definitely_not_allfpos
     assert routine.variables == ('ydfpdata', 'ylofn')
 
 
+def test_regex_preproc_in_contains():
+    fcode = """
+module preproc_in_contains
+    implicit none
+    public  :: routine1, routine2, func
+contains
+#include "some_include.h"
+    subroutine routine1
+    end subroutine routine1
+
+    module subroutine mod_routine
+        call other_routine
+    contains
+#define something
+    subroutine other_routine
+    end subroutine other_routine
+    end subroutine mod_routine
+
+    elemental function func
+    real func
+    end function func
+end module preproc_in_contains
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+
+    expected_names = {'preproc_in_contains', 'routine1', 'mod_routine', 'func'}
+    actual_names = {r.name for r in source.all_subroutines} | {m.name for m in source.modules}
+    assert expected_names == actual_names
+
+    assert isinstance(source['mod_routine']['other_routine'], Subroutine)
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_frontend_pragma_vs_comment(frontend):
     """

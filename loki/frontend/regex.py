@@ -350,9 +350,11 @@ class ModulePattern(Pattern):
         super().__init__(
             r'^module[ \t]+(?P<name>\w+)\b.*?$'
             r'(?P<spec>.*?)'
-            r'(?P<contains>^contains\n'
-            r'[ \t\w()]*?(?:subroutine|function).*?'
-            r'^end[ \t]*(?:subroutine|function)\b(?:[ \t]\w+)?\n)?'
+            r'(?P<contains>^contains\n(?:'
+            r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
+            r'(?:[ \t\w()]*?function.*?^end[ \t]*function\b(?:[ \t]\w+)?\n)|'
+            r'(?:^#\w+.*?\n)'
+            r')*)?'
             r'^end[ \t]*module\b(?:[ \t](?P=name))?',
             re.IGNORECASE | re.DOTALL | re.MULTILINE
         )
@@ -432,9 +434,11 @@ class SubroutineFunctionPattern(Pattern):
         super().__init__(
             r'^[ \t\w()]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
             r'(?P<spec>.*?)'
-            r'(?P<contains>^contains\n'
-            r'[ \t\w()]*?(?:subroutine|function).*?'
-            r'^end[ \t]*(?:subroutine|function)\b(?:[ \t]\w+)?\n)?'
+            r'(?P<contains>^contains\n(?:'
+            r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
+            r'(?:[ \t\w()]*?function.*?^end[ \t]*function\b(?:[ \t]\w+)?\n)|'
+            r'(?:^#\w+.*?\n)'
+            r')*)?'
             r'^end[ \t]*(?P=keyword)\b(?:[ \t](?P=name))?',
             re.IGNORECASE | re.DOTALL | re.MULTILINE
         )
