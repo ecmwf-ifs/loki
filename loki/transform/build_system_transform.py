@@ -71,7 +71,7 @@ class CMakePlanner(Transformation):
         role = kwargs.get('role')
 
         # Back out, if this Subroutine is not part of the plan
-        if not item.is_in([routine.name]):
+        if not item.local_name == routine.name.lower():
             return
 
         sourcepath = item.path.resolve()

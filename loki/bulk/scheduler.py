@@ -7,7 +7,7 @@ from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, timeit
 from loki.logging import info, warning, debug, PERF
-from loki.bulk.item import Item
+from loki.bulk.item import Item, SubroutineItem
 
 
 __all__ = ['Scheduler', 'SchedulerConfig']
@@ -189,7 +189,7 @@ class Scheduler:
         """
         return as_tuple(self.item_graph.edges)
 
-    def create_item(self, names):
+    def create_item(self, name):
         """
         Create an `Item` by looking up the path and setting all inferred properties.
 
@@ -200,47 +200,39 @@ class Scheduler:
         item-specific dict with override options, as well as given attributes that
         might be forced on this item from its parent.
         """
-        names = as_tuple(names)
+        if name in self.item_map:
+            return self.item_map[name]
 
-        item_name = None
-        for name in names:
-            if name in self.item_map:
-                return self.item_map[name]
+        name = name.lower()
 
-            # For type bound procedures, we use the (fully-qualified) type name to
-            # look up the corresponding sourcefile (since we're not storing every
-            # procedure binding in obj_map)
-            pos = name.find('%')
-            if pos != -1:
-                lookup_name = name[:pos]
-                child_name = name[pos:]
-            else:
-                lookup_name = name
-                child_name = ''
+        # For type bound procedures, we use the (fully-qualified) type name to
+        # look up the corresponding sourcefile (since we're not storing every
+        # procedure binding in obj_map)
+        pos = name.find('%')
+        if pos == -1:
+            sourcefile = self.obj_map.get(name)
+        else:
+            sourcefile = self.obj_map.get(name[:pos])
 
-            if lookup_name and lookup_name in self.obj_map:
-                item_name = f'{lookup_name.lower()}{child_name.lower()}'
-                break
-
-        if item_name is None:
-            warning(f'Scheduler could not create item: {names}')
+        if sourcefile is None:
+            warning(f'Scheduler could not create item: {name}')
             if self.config.default['strict']:
-                raise FileNotFoundError(f'Sourcefile not found for {names}')
+                raise FileNotFoundError(f'Sourcefile not found for {name}')
             return None
-        sourcefile = self.obj_map[lookup_name]
 
         # Use default as base and override individual options
         item_conf = self.config.default.copy()
-        config_matches = [r for r in self.config.routines if item_name.endswith(r.lower())]
+        routine_names = {name, name[name.index('#')+1:]}
+        config_matches = [r for r in self.config.routines if r.lower() in routine_names]
         if config_matches:
             if len(config_matches) != 1:
-                warning(f'Multiple config entries matching {item_name}')
+                warning(f'Multiple config entries matching {name}')
                 if self.config.default['strict']:
-                    raise RuntimeError(f'Multiple config entries matching {item_name}')
+                    raise RuntimeError(f'Multiple config entries matching {name}')
             item_conf.update(self.config.routines[config_matches[0]])
 
-        debug(f'[Loki] Scheduler creating item: {item_name} => {sourcefile.path}')
-        return Item(name=item_name, source=sourcefile, config=item_conf)
+        debug(f'[Loki] Scheduler creating item: {name} => {sourcefile.path}')
+        return Item(name=name, source=sourcefile, config=item_conf)
 
     def find_routine(self, routine):
         """
@@ -303,14 +295,15 @@ class Scheduler:
         while len(queue) > 0:
             item = queue.popleft()
 
-            for c in item.children:
+            children = item.qualify_names(item.children, available_names=self.obj_map.keys())
+            for c in children:
                 child = self.create_item(c)
 
                 if child is None:
                     continue
 
                 # Skip blocked children as well
-                if child.is_in(item.block):
+                if child.local_name in item.block:
                     continue
 
                 # Append child to work queue if expansion is configured
@@ -319,7 +312,7 @@ class Scheduler:
                     # Note that, unlike blackisted items, "ignore" items
                     # are still marked as targets during bulk-processing,
                     # so that calls to "ignore" routines will be renamed.
-                    if child.is_in(item.ignore):
+                    if child.local_name in item.ignore:
                         continue
 
                     if child not in self.item_map:
@@ -339,6 +332,9 @@ class Scheduler:
             item.source.make_complete(**self.build_args)
 
         for item in self.item_graph:
+            if not isinstance(item, SubroutineItem):
+                continue
+
             # Enrich with all routines in the call tree
             item.routine.enrich_calls(routines=self.routines)
 
@@ -353,6 +349,7 @@ class Scheduler:
                 self.obj_map[lookup_name].make_complete(**self.build_args)
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
+    @timeit(log_level=PERF, getter=lambda x: str(x.get('transformation', '')))
     def process(self, transformation):
         """
         Process all enqueued source modules and routines with the
@@ -364,6 +361,8 @@ class Scheduler:
         self.enrich()
 
         for item in nx.topological_sort(self.item_graph):
+            if not isinstance(item, SubroutineItem):
+                continue
             # Process work item with appropriate kernel
             transformation.apply(item.source, role=item.role, mode=item.mode,
                                  item=item, targets=item.targets)
@@ -394,19 +393,19 @@ class Scheduler:
 
         # Insert all nodes we were told to either block or ignore
         for item in self.items:
-            for children in item.children:
-                for child in children:
-                    if Item.name_is_in(child, item.block):
-                        callgraph.node(child.upper(), color='black', shape='box',
-                                    fillcolor='orangered', style='filled')
-                        callgraph.edge(item.name.upper(), child.upper())
+            blocked_children = [child for child in item.children if child in item.block]
+            blocked_children = item.qualify_names(blocked_children, self.obj_map.keys())
+            for child in blocked_children:
+                callgraph.node(child.upper(), color='black', shape='box',
+                            fillcolor='orangered', style='filled')
+                callgraph.edge(item.name.upper(), child.upper())
 
-            for children in item.children:
-                for child in children:
-                    if Item.name_is_in(child, item.ignore):
-                        callgraph.node(child.upper(), color='black', shape='box',
-                                    fillcolor='lightblue', style='filled')
-                        callgraph.edge(item.name.upper(), child.upper())
+            ignored_children = [child for child in item.children if child in item.ignore]
+            ignored_children = item.qualify_names(ignored_children, self.obj_map.keys())
+            for child in ignored_children:
+                callgraph.node(child.upper(), color='black', shape='box',
+                            fillcolor='lightblue', style='filled')
+                callgraph.edge(item.name.upper(), child.upper())
 
         callgraph.render(cg_path, view=False)
 

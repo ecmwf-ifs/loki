@@ -74,7 +74,7 @@ class DependencyTransformation(Transformation):
         item = kwargs.get('item', None)
 
         # Bail if this routine is not part of a scheduler traversal
-        if item and not item.is_in([routine.name]):
+        if item and not item.local_name == routine.name.lower():
             return
 
         if role == 'kernel':

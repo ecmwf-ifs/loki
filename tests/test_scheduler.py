@@ -47,7 +47,8 @@ import pytest
 from loki import (
     Scheduler, SchedulerConfig, Item, DependencyTransformation, FP,
     OFP, HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
-    fexprgen, Transformation, BasicType, CMakePlanner, Subroutine
+    fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
+    SubroutineItem, ProcedureBindingItem
 )
 
 
@@ -748,24 +749,59 @@ def test_scheduler_cmake_planner(here, frontend):
 
 def test_scheduler_item(here):
     """
-    Test the basic regex accessors in :any:`Item` objects for fast dependency detection.
+    Test the basic regex frontend nodes in :any:`Item` objects for fast dependency detection.
     """
     filepath = here/'sources/sourcefile_item.f90'
     sourcefile = Sourcefile.from_file(filepath, frontend=REGEX)
 
+    available_names = [f'#{r.name}' for r in sourcefile.subroutines]
+    available_names += [f'{m.name}#{r.name}' for m in sourcefile.modules for r in m.subroutines]
+
     item_a = Item(name='#routine_a', source=sourcefile)
     assert item_a.calls == ('routine_b',)
     assert not item_a.members
+    assert item_a.children == ('routine_b',)
+    assert item_a.qualify_names(item_a.children, available_names) == ('#routine_b',)
+    assert item_a.targets == item_a.children
 
     item_module = Item(name='some_module#module_routine', source=sourcefile)
     assert item_module.calls == ('routine_b',)
     assert not item_module.members
+    assert item_module.children == ('routine_b',)
+    assert item_module.qualify_names(item_module.children, available_names) == ('#routine_b',)
+    assert item_module.targets == item_module.children
 
     item_b = Item(name='#routine_b', source=sourcefile)
     assert item_b.calls == ('contained_c', 'routine_a')
     assert 'contained_c' in item_b.members
     assert 'contained_d' in item_b.members
-    assert item_b.children == (('#routine_a',),)
+    assert item_b.children == ('routine_a',)
+    assert item_b.qualify_names(item_b.children, available_names) == ('#routine_a',)
+    assert item_b.targets == ('contained_c', 'routine_a')
+
+    item_b = Item(name='#routine_b', source=sourcefile, config={'disable': ['routine_a']})
+    assert item_b.calls == ('contained_c', 'routine_a')
+    assert 'contained_c' in item_b.members
+    assert 'contained_d' in item_b.members
+    assert not item_b.children
+    assert not item_b.qualify_names(item_b.children, available_names)
+    assert item_b.targets == ('contained_c',)
+
+    item_b = Item(name='#routine_b', source=sourcefile, config={'ignore': ['routine_a']})
+    assert item_b.calls == ('contained_c', 'routine_a')
+    assert 'contained_c' in item_b.members
+    assert 'contained_d' in item_b.members
+    assert item_b.children == ('routine_a',)
+    assert item_b.qualify_names(item_b.children, available_names) == ('#routine_a',)
+    assert item_b.targets == ('contained_c',)
+
+    item_b = Item(name='#routine_b', source=sourcefile, config={'block': ['routine_a']})
+    assert item_b.calls == ('contained_c', 'routine_a')
+    assert 'contained_c' in item_b.members
+    assert 'contained_d' in item_b.members
+    assert item_b.children == ('routine_a',)
+    assert item_b.qualify_names(item_b.children, available_names) == ('#routine_a',)
+    assert item_b.targets == ('contained_c',)
 
 
 @pytest.fixture(name='loki_69_dir')
@@ -852,7 +888,7 @@ def test_scheduler_loki_69(loki_69_dir):
     scheduler.populate('test')
 
     children_map = {
-        '#test': (('#random_call_0',), ('#random_call_2',)),
+        '#test': ('random_call_0', 'random_call_2'),
         '#random_call_0': (),
         '#random_call_2': ()
     }
@@ -900,7 +936,7 @@ def test_scheduler_scopes(here, config, frontend):
 
 def test_scheduler_typebound_item(here):
     """
-    Test the basic regex accessors in :any:`Item` objects for fast dependency detection
+    Test the basic regex frontend nodes in :any:`Item` objects for fast dependency detection
     for type-bound procedures.
     """
     filepath = here/'sources/projTypeBound/typebound_item.F90'
@@ -910,40 +946,125 @@ def test_scheduler_typebound_item(here):
     header = Sourcefile.from_file(headerpath, frontend=REGEX)
     other = Sourcefile.from_file(otherpath, frontend=REGEX)
 
+    available_names = []
+    for s in [source, header, other]:
+        available_names += [f'#{r.name.lower()}' for r in s.subroutines]
+        available_names += [f'{m.name.lower()}#{r.name.lower()}' for m in s.modules for r in m.subroutines]
+        available_names += [f'{m.name.lower()}#{t.lower()}' for m in s.modules for t in m.typedefs]
+
     driver = Item(name='#driver', source=source)
+
+    # Check that calls (= dependencies) are correctly identified
     assert driver.calls == (
         'some_type%other_routine', 'some_type%some_routine',
         'header_type%member_routine', 'header_type%routine',
-        'header_type%routine', 'typebound_other#other_type%member',
+        'header_type%routine', 'other%member', 'other%var%member_routine'
+    )
+
+    # Check that imports are correctly identified
+    assert [i.module for i in driver.imports] == ['typebound_item', 'typebound_header', 'typebound_other']
+    assert driver.unqualified_imports == ('typebound_item', 'typebound_header')
+    assert driver.qualified_imports == {'other': 'typebound_other#other_type'}
+
+    # Check that calls are propagated as children
+    assert driver.children == driver.calls
+
+    # Check that fully-qualified names are correctly picked from the available names
+    assert driver.qualify_names(driver.children, available_names) == (
+        'typebound_item#some_type%other_routine', 'typebound_item#some_type%some_routine',
+        'typebound_header#header_type%member_routine', 'typebound_header#header_type%routine',
+        'typebound_header#header_type%routine', 'typebound_other#other_type%member',
         'typebound_other#other_type%var%member_routine'
     )
-    assert driver.imports == ('typebound_item', 'typebound_header', 'typebound_other')
-    assert driver.unqualified_imports == ('typebound_item', 'typebound_header')
-    assert driver.named_imports == {'other': 'typebound_other#other_type'}
 
     other_routine = Item(name='typebound_item#other_routine', source=source)
+    assert isinstance(other_routine, SubroutineItem)
+    assert isinstance(other_routine.routine, Subroutine)
     assert other_routine.calls == ('abor1', 'some_type%routine1', 'some_type%routine2')
+    assert other_routine.children == other_routine.calls
+    assert other_routine.qualify_names(other_routine.children, available_names) == (
+        'typebound_header#abor1', 'typebound_item#some_type%routine1', 'typebound_item#some_type%routine2'
+    )
 
-    routine = Item(name='typebound_item#routine', source=source)
+    # Local names (i.e. within the same scope) can be qualified in any case, while non-local names
+    # can potentially exist globally or come from one of the unqualified imports, for which we return
+    # a tuple of candidates
+    assert other_routine.qualify_names(other_routine.children, available_names=[]) == (
+        ('#abor1', 'typebound_header#abor1'), 'typebound_item#some_type%routine1', 'typebound_item#some_type%routine2'
+    )
+
+    routine = Item(name='typebound_item#routine', source=source, config={'disable': ['some_type%some_routine']})
+    assert isinstance(routine, SubroutineItem)
+    assert isinstance(routine.routine, Subroutine)
     assert routine.calls == ('some_type%some_routine',)
+    # No children due to `disable` config
+    assert not routine.children
+    assert not routine.qualify_names(routine.children, available_names)
 
-    routine1 = Item(name='typebound_item#routine1', source=source)
+    routine1 = Item(name='typebound_item#routine1', source=source, config={'disable': ['module_routine']})
+    assert isinstance(routine1, SubroutineItem)
+    assert isinstance(routine1.routine, Subroutine)
     assert routine1.calls == ('module_routine',)
+    assert not routine1.children
+    assert not routine1.qualify_names(routine1.children, available_names)
 
-    some_type_some_routine = Item(name='typebound_item#some_type%some_routine', source=source)
-    assert some_type_some_routine.bind_names == ('some_routine',)
+    some_type_some_routine = Item(name='typebound_item#some_type%some_routine', source=source,
+                                  config={'ignore': ['some_routine']})
+    assert isinstance(some_type_some_routine, ProcedureBindingItem)
+    assert some_type_some_routine.routine is None
+    assert some_type_some_routine.calls == ('some_routine',)
+    # Ignored routines still show up as children
+    assert some_type_some_routine.children == some_type_some_routine.calls
+    assert some_type_some_routine.qualify_names(some_type_some_routine.children, available_names) == (
+        'typebound_item#some_routine',
+    )
 
-    some_type_routine = Item(name='typebound_item#some_type%routine', source=source)
-    assert some_type_routine.bind_names == ('module_routine',)
+    some_type_routine = Item(name='typebound_item#some_type%routine', source=source,
+                             config={'block': ['module_routine']})
+    assert isinstance(some_type_routine, ProcedureBindingItem)
+    assert some_type_routine.routine is None
+    assert some_type_routine.calls == ('module_routine',)
+    # Blocked routines still show up as children
+    assert some_type_routine.children == some_type_routine.calls
+    assert some_type_routine.qualify_names(some_type_routine.children, available_names) == (
+        'typebound_item#module_routine',
+    )
+    assert some_type_routine.qualify_names(some_type_routine.children) == (
+        'typebound_item#module_routine',
+    )
 
     other_type_member = Item(name='typebound_other#other_type%member', source=other)
-    assert other_type_member.named_imports == {'header': 'typebound_header#header_type'}
+    assert isinstance(other_type_member, ProcedureBindingItem)
+    assert other_type_member.routine is None
+    assert other_type_member.qualified_imports == {'header': 'typebound_header#header_type'}
+    assert other_type_member.calls == ('other_member',)
+    assert other_type_member.children == other_type_member.calls
+    assert other_type_member.qualify_names(other_type_member.children, available_names) == (
+        'typebound_other#other_member',
+    )
 
     other_type_var_member_routine = Item(name='typebound_other#other_type%var%member_routine', source=other)
-    assert other_type_var_member_routine.bind_names == ('typebound_header#header_type%member_routine',)
+    assert isinstance(other_type_var_member_routine, ProcedureBindingItem)
+    assert other_type_var_member_routine.routine is None
+    assert other_type_var_member_routine.qualified_imports == {'header': 'typebound_header#header_type'}
+    assert other_type_var_member_routine.calls == ('header%member_routine',)
+    assert other_type_var_member_routine.children == other_type_var_member_routine.calls
+    # typebound names can also be fully qualified if they are declared in the same scope
+    assert other_type_var_member_routine.qualify_names(other_type_var_member_routine.calls, available_names) == (
+        'typebound_header#header_type%member_routine',
+    )
+    assert other_type_var_member_routine.qualify_names(other_type_var_member_routine.calls) == (
+        'typebound_header#header_type%member_routine',
+    )
 
     header_type_member_routine = Item(name='typebound_header#header_type%member_routine', source=header)
-    assert header_type_member_routine.bind_names == ('header_member_routine',)
+    assert isinstance(header_type_member_routine, ProcedureBindingItem)
+    assert header_type_member_routine.routine is None
+    assert header_type_member_routine.calls == ('header_member_routine',)
+    assert header_type_member_routine.children == header_type_member_routine.calls
+    assert header_type_member_routine.qualify_names(header_type_member_routine.children, available_names) == (
+        'typebound_header#header_member_routine',
+    )
 
 
 @pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
@@ -1047,8 +1168,14 @@ def test_scheduler_typebound_ignore(here, config, frontend):
 
     my_config = config.copy()
     my_config['default']['disable'] += ['some_type%some_routine', 'header_member_routine']
+    my_config['routine'] = [
+        {
+            'name': 'other_member',
+            'disable': my_config['default']['disable'] + ['member_routine']
+        }
+    ]
 
-    scheduler = Scheduler(paths=proj, config=config, frontend=frontend)
+    scheduler = Scheduler(paths=proj, config=my_config, frontend=frontend)
     scheduler.populate('driver')
 
     expected_items = {

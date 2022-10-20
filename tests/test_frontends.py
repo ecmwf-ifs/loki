@@ -1107,4 +1107,4 @@ end subroutine definitely_not_allfpos
 
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     routine = source['definitely_not_allfpos']
-    assert routine.variables == ['ydfpdata', 'ylofn']
+    assert routine.variables == ('ydfpdata', 'ylofn')
