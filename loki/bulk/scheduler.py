@@ -410,6 +410,7 @@ class Scheduler:
         for item in self.items:
             blocked_children = [child for child in item.children if child in item.block]
             blocked_children = item.qualify_names(blocked_children, self.obj_map.keys())
+            blocked_children = [child for child in blocked_children if isinstance(child, str)]
             for child in blocked_children:
                 callgraph.node(child.upper(), color='black', shape='box',
                             fillcolor='orangered', style='filled')
@@ -417,9 +418,17 @@ class Scheduler:
 
             ignored_children = [child for child in item.children if child in item.ignore]
             ignored_children = item.qualify_names(ignored_children, self.obj_map.keys())
+            ignored_children = [child for child in ignored_children if isinstance(child, str)]
             for child in ignored_children:
                 callgraph.node(child.upper(), color='black', shape='box',
                             fillcolor='lightblue', style='filled')
+                callgraph.edge(item.name.upper(), child.upper())
+
+            missing_children = item.qualify_names(item.children, self.obj_map.keys())
+            missing_children = [child[0] for child in missing_children if isinstance(child, tuple)]
+            for child in missing_children:
+                callgraph.node(child.upper(), color='black', shape='box',
+                            fillcolor='lightgray', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
         callgraph.render(cg_path, view=False)
