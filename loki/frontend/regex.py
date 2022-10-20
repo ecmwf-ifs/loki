@@ -828,7 +828,7 @@ class CallPattern(Pattern):
         name_parts = call.split('%')
         name = sym.Variable(name=name_parts[0], scope=scope)
         for cname in name_parts[1:]:
-            name = sym.Variable(name=name.name + '%' + cname, parent=name, scope=scope)
+            name = sym.Variable(name=name.name + '%' + cname, parent=name, scope=scope)  # pylint:disable=no-member
 
         scope.symbol_attrs[call] = scope.symbol_attrs[call].clone(dtype=ProcedureType(name=call, is_function=False))
 
