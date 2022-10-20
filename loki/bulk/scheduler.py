@@ -203,6 +203,21 @@ class Scheduler:
         if name in self.item_map:
             return self.item_map[name]
 
+        if isinstance(name, tuple):
+            # If we have a list of candidates, try to create the item for each and
+            # use the first one that is successful
+            for candidate in name:
+                item = None
+                try:
+                    item = self.create_item(candidate)
+                except FileNotFoundError:
+                    continue
+                if item is not None:
+                    break
+            if item is None and self.config.default['strict']:
+                raise FileNotFoundError(f'Sourcefile not found for {name}')
+            return item
+
         name = name.lower()
 
         # For type bound procedures, we use the (fully-qualified) type name to
