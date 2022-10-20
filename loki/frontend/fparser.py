@@ -24,7 +24,7 @@ from loki.expression.operations import (
 from loki.expression import (
     ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
 )
-from loki.logging import PERF, warning, error, info
+from loki.logging import DEBUG, warning, error, info
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
@@ -37,7 +37,7 @@ __all__ = ['HAVE_FP', 'FParser2IR', 'parse_fparser_file', 'parse_fparser_source'
            'parse_fparser_ast', 'parse_fparser_expression', 'get_fparser_node']
 
 
-@timeit(log_level=PERF)
+@timeit(log_level=DEBUG)
 def parse_fparser_file(filename):
     """
     Generate a parse tree from file via fparser
@@ -47,7 +47,7 @@ def parse_fparser_file(filename):
     return parse_fparser_source(source=fcode)
 
 
-@timeit(log_level=PERF)
+@timeit(log_level=DEBUG)
 def parse_fparser_source(source):
     """
     Generate a parse tree from string
@@ -69,7 +69,7 @@ def parse_fparser_source(source):
     return f2008_parser(reader)
 
 
-@timeit(log_level=PERF)
+@timeit(log_level=DEBUG)
 def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
     Generate an internal IR from fparser parse tree

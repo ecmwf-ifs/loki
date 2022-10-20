@@ -12,7 +12,7 @@ from loki.frontend import (
 
 )
 from loki.ir import Section, RawSource, Comment, PreprocessorDirective
-from loki.logging import info, PERF
+from loki.logging import info, DEBUG
 from loki.module import Module
 from loki.program_unit import ProgramUnit
 from loki.subroutine import Subroutine
@@ -57,7 +57,7 @@ class Sourcefile:
         self._incomplete = incomplete
 
     @classmethod
-    @timeit(log_level=PERF, getter=lambda x: str(x.get('filename', '')))
+    @timeit(log_level=DEBUG, getter=lambda x: str(x.get('filename', '')))
     def from_file(cls, filename, definitions=None, preprocess=False,
                   includes=None, defines=None, omni_includes=None,
                   xmods=None, frontend=FP, parser_classes=None):
