@@ -57,11 +57,18 @@ class ExprMetadataMixin:
         Raw source string and line information from original source code.
     """
 
+    @property
+    def init_arg_names(self):
+        return super().init_arg_names + ('_metadata', )
+
     def __init__(self, *args, **kwargs):
         self._metadata = {
             'source': kwargs.pop('source', None)
         }
         super().__init__(*args, **kwargs)
+
+    def __getinitargs__(self):
+        return super().__getinitargs__() + (self._metadata, )
 
     def get_metadata(self):
         """All metadata as a dict."""
@@ -150,6 +157,8 @@ class TypedSymbol:
         Any other keyword arguments for other parent classes
     """
 
+    init_arg_names = ('name', 'scope', 'parent', 'type', )
+
     def __init__(self, *args, **kwargs):
         self.name = kwargs['name']
         self.parent = kwargs.pop('parent', None)
@@ -162,8 +171,15 @@ class TypedSymbol:
         super().__init__(*args, **kwargs)
 
     def __getinitargs__(self):
-        args = [self.name, ('scope', self.scope)]
-        return tuple(args)
+        """
+        Fixed tuple of initialisation arguments, corresponding to
+        ``init_arg_names`` above.
+
+        Note that this defines the pickling behaviour of pymbolic
+        symbol objects. We do not recurse here, since we own the
+        "name" attribute, which pymbolic will otherwise replicate.
+        """
+        return (self.name, None, self._parent, self._type, )
 
     @property
     def scope(self):
@@ -628,12 +644,6 @@ class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
         symbol = VariableSymbol(name=name, scope=scope, type=type, **kwargs)
         super().__init__(symbol=symbol)
 
-    def __getinitargs__(self):
-        args = []
-        if self.parent:
-            args += [('parent', self.parent)]
-        return super().__getinitargs__() + tuple(args)
-
     mapper_method = intern('map_scalar')
 
 
@@ -692,10 +702,7 @@ class Array(MetaSymbol):
         return self.type.shape
 
     def __getinitargs__(self):
-        args = super().__getinitargs__()
-        if self.dimensions:
-            args += (('dimensions', self.dimensions),)
-        return args
+        return super().__getinitargs__() + (self.dimensions, )
 
     mapper_method = intern('map_array')
 
