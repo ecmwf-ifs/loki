@@ -152,13 +152,8 @@ class TypedSymbol:
 
     def __init__(self, *args, **kwargs):
         self.name = kwargs['name']
-
-        self._parent = kwargs.pop('parent', None)
-        assert self._parent is None or isinstance(self._parent, (TypedSymbol, MetaSymbol))
-
-        scope = kwargs.pop('scope', None)
-        assert scope is None or isinstance(scope, Scope)
-        self._scope = None if scope is None else weakref.ref(scope)
+        self.parent = kwargs.pop('parent', None)
+        self.scope = kwargs.pop('scope', None)
 
         # Use provided type or try to determine from scope
         self._type = None
@@ -178,6 +173,11 @@ class TypedSymbol:
         if self._scope is None:
             return None
         return self._scope()
+
+    @scope.setter
+    def scope(self, scope):
+        assert scope is None or isinstance(scope, Scope)
+        self._scope = None if scope is None else weakref.ref(scope)
 
     def _lookup_type(self, scope):
         """
@@ -262,6 +262,11 @@ class TypedSymbol:
         if not self._parent and '%' in self.name and self.scope:
             self._parent = self._lookup_parent(self.scope)
         return self._parent
+
+    @parent.setter
+    def parent(self, parent):
+        assert parent is None or isinstance(parent, (TypedSymbol, MetaSymbol))
+        self._parent = parent
 
     @property
     def variables(self):
