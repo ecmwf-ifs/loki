@@ -391,7 +391,7 @@ class Scheduler:
         import graphviz as gviz  # pylint: disable=import-outside-toplevel
 
         cg_path = Path(path)
-        callgraph = gviz.Digraph(format='pdf', strict=True)
+        callgraph = gviz.Digraph(format='pdf', strict=True, graph_attr=(('rankdir', 'LR'),))
 
         # Insert all nodes in the schedulers graph
         for item in self.items:
