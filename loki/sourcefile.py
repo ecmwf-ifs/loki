@@ -415,6 +415,26 @@ class Sourcefile:
         """
         return True
 
+    @property
+    def _canonical(self):
+        """
+        Base definition for comparing :any:`Subroutine` objects.
+        """
+        return (self.path, self.ir, self.source, )
+
+    def __eq__(self, other):
+        if isinstance(other, Sourcefile):
+            return self._canonical == other._canonical
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self._canonical)
+
+    def __getstate__(self):
+        # Do not pickle the AST, as it is not pickle-safe for certain frontends
+        _ignore = ('_ast',)
+        return dict((k, v) for k, v in self.__dict__.items() if k not in _ignore)
+
     def apply(self, op, **kwargs):
         """
         Apply a given transformation to the source file object.
