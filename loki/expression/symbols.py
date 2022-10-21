@@ -59,29 +59,19 @@ class ExprMetadataMixin:
 
     @property
     def init_arg_names(self):
-        return super().init_arg_names + ('_metadata', )
+        return super().init_arg_names + ('_source', )
 
     def __init__(self, *args, **kwargs):
-        self._metadata = {
-            'source': kwargs.pop('source', None)
-        }
+        self._source = kwargs.pop('source', None)
         super().__init__(*args, **kwargs)
 
     def __getinitargs__(self):
-        return super().__getinitargs__() + (self._metadata, )
-
-    def get_metadata(self):
-        """All metadata as a dict."""
-        return self._metadata.copy()
-
-    def update_metadata(self, data):
-        """Update the metadata for this expression node."""
-        self._metadata.update(data)
+        return super().__getinitargs__() + (self._source, )
 
     @property
     def source(self):
         """The :any:`Source` object for this expression node."""
-        return self._metadata['source']
+        return self._source
 
     make_stringifier = loki_make_stringifier
 

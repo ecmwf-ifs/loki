@@ -2,6 +2,7 @@
 Mappers for traversing and transforming the
 :ref:`internal_representation:Expression tree`.
 """
+from copy import deepcopy
 import re
 from itertools import zip_longest
 import pymbolic.primitives as pmbl
@@ -477,11 +478,12 @@ class LokiIdentityMapper(IdentityMapper):
         if expr is None:
             return None
         new_expr = super().__call__(expr, *args, **kwargs)
-        if new_expr is not expr and hasattr(new_expr, 'update_metadata'):
-            metadata = getattr(expr, 'get_metadata', dict)()
-            if self.invalidate_source:
-                metadata['source'] = None
-            new_expr.update_metadata(metadata)
+        if new_expr is not expr and hasattr(expr, '_source'):
+            if expr._source:
+                if self.invalidate_source:
+                    new_expr._source = None
+                else:
+                    new_expr._source = deepcopy(expr._source)
         return new_expr
 
     rec = __call__
