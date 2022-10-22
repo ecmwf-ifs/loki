@@ -358,13 +358,15 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
     """
     bounds_str = f'{bounds[0]}:{bounds[1]}'
 
+    bounds_v = (sym.Variable(name=bounds[0]), sym.Variable(name=bounds[1]))
+
     mapper = {}
     for stmt in FindNodes(ir.Assignment).visit(routine.body):
         ranges = [e for e in FindExpressions().visit(stmt)
                   if isinstance(e, sym.RangeIndex) and e == bounds_str]
         if ranges:
             exprmap = {r: loop_variable for r in ranges}
-            loop = ir.Loop(variable=loop_variable, bounds=sym.LoopRange(bounds),
+            loop = ir.Loop(variable=loop_variable, bounds=sym.LoopRange(bounds_v),
                            body=SubstituteExpressions(exprmap).visit(stmt))
             mapper[stmt] = loop
 
