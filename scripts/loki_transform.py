@@ -20,13 +20,14 @@ from loki.transform import (
 )
 
 # pylint: disable=wrong-import-order
-from transformations.argument_shape import ArgumentArrayShapeAnalysis
-from transformations import (
-    DerivedTypeArgumentsTransformation, DataOffloadTransformation,
-    ExtractSCATransformation, CLAWTransformation,
-    SingleColumnCoalescedTransformation,
-    DrHookTransformation
+from transformations.argument_shape import (
+    ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
+from transformations.data_offload import DataOffloadTransformation
+from transformations.derived_types import DerivedTypeArgumentsTransformation
+from transformations.dr_hook import DrHookTransformation
+from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
+from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
 
 
 """
@@ -369,6 +370,8 @@ def ecphys(mode, config, header, source, build, frontend):
 
     # Backward insert argument shapes (for surface routines)
     scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+
+    scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
 
     # Remove DR_HOOK calls first, so they don't interfere with SCC loop hoisting
     scheduler.process(transformation=DrHookTransformation(mode=mode, remove='scc' in mode))

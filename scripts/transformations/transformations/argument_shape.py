@@ -7,12 +7,12 @@ to the called subroutine.
 
 
 from loki import (
-    Transformation, FindNodes, CallStatement, Array, FindVariables, SubstituteExpressions,
-    BasicType
+    Transformation, FindNodes, CallStatement, Array, FindVariables,
+    SubstituteExpressions, BasicType, as_tuple, Transformer
 )
 
 
-__all__ = ['ArgumentArrayShapeAnalysis']
+__all__ = ['ArgumentArrayShapeAnalysis', 'ExplicitArgumentArrayShapeTransformation']
 
 
 class ArgumentArrayShapeAnalysis(Transformation):
@@ -68,3 +68,60 @@ class ArgumentArrayShapeAnalysis(Transformation):
                     new_shape = vname_map[v.name.lower()].shape
                     vmap_body[v] = v.clone(type=v.type.clone(shape=new_shape))
             routine.body = SubstituteExpressions(vmap_body).visit(routine.body)
+
+
+class ExplicitArgumentArrayShapeTransformation(Transformation):
+    """
+    Inter-procedural :any:`Transformation` that inserts explicit array
+    shape dimensions for :any:`Subroutine` arguments that use deferred
+    shape notation, and updates :any:`CallStatement` in any calling
+    subroutines in the traversal graph. Critically, this depends on
+    the ``.shape`` attribute of the corresponding argument symbol
+    being set, which can be derived from a call context via the
+    accompanying :any:`ArgumentArrayShapeAnalysis` transformation.
+    """
+
+    def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
+
+        # First, replace assumed array shapes with concrete shapes for
+        # all arguments if the shape is known.
+        arg_map = {}
+        for arg in routine.arguments:
+            if isinstance(arg, Array):
+                assumed = tuple(':' for _ in arg.shape)
+                if arg.shape != assumed and arg.dimensions == assumed:
+                    arg_map[arg] = arg.clone(dimensions=tuple(arg.shape))
+        routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
+
+        # We also need to ensure that all potential integer dimensions
+        # are passed as arguments in deep subroutine call trees.
+        call_map = {}
+        for call in FindNodes(CallStatement).visit(routine.body):
+
+            # Skip if call-side info is not available or call is not active
+            if call.routine is BasicType.DEFERRED or call.not_active:
+                continue
+
+            callee = call.routine
+
+            # Collect all potential dimension variables and filter for scalar integers
+            dims = set(d for arg in callee.arguments if isinstance(arg, Array) for d in arg.shape)
+            dim_vars = tuple(d for d in FindVariables().visit(as_tuple(dims))
+                             if d not in callee.arguments and d.type.dtype == BasicType.INTEGER)
+
+            # Add all new dimension arguments to the callee signature
+            new_vars = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in dim_vars)
+            callee.arguments += new_vars
+
+            # Map all local dimension args to unknown callee dimension args
+            if len(callee.arguments) > len(list(call.arg_iter())):
+                arg_keys = dict(call.arg_iter()).keys()
+                missing = [a for a in callee.arguments if a not in arg_keys
+                           and not a.type.optional]
+
+                # Add missing dimension variables (scalars
+                new_kwargs = tuple((m, m) for m in missing if m.type.dtype == BasicType.INTEGER)
+                call_map[call] = call.clone(kwarguments=call.kwarguments + new_kwargs)
+
+        # Replace all adjusted calls on the caller-side
+        routine.body = Transformer(call_map).visit(routine.body)
