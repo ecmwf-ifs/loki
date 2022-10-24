@@ -2,7 +2,7 @@ import pytest
 
 from conftest import available_frontends
 from loki import CallStatement, FindNodes, OMNI, Subroutine
-from transformations import InferArgShapeTransformation
+from transformations import ArgumentArrayShapeAnalysis
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -48,7 +48,7 @@ def test_argument_shape_simple(frontend):
     assert calls[0].routine.arguments[1].shape == (':', ':')
     assert calls[0].routine.arguments[2].shape == (':', ':')
 
-    arg_shape_trafo = InferArgShapeTransformation()
+    arg_shape_trafo = ArgumentArrayShapeAnalysis()
     arg_shape_trafo.apply(driver, role='driver')
 
     assert kernel.arguments[0].shape == ('nlon',)
@@ -112,7 +112,7 @@ def test_argument_shape_nested(frontend):
     assert tuple(a.shape for a in calls[0].routine.arguments) == ((':', ':'), (':', ':'))
 
     # Apply the shape propagation in a manual forward pass
-    arg_shape_trafo = InferArgShapeTransformation()
+    arg_shape_trafo = ArgumentArrayShapeAnalysis()
     arg_shape_trafo.apply(driver, role='driver')
     arg_shape_trafo.apply(kernel_a, role='kernel')
 
@@ -211,7 +211,7 @@ def test_argument_shape_multiple(frontend):
     assert tuple(a.shape for a in calls[2].routine.arguments[2:]) == (('nlev', 'nlon'), ('nlev', 'nlev'))
 
     # Apply the legal shape propagation in a manual forward pass
-    arg_shape_trafo = InferArgShapeTransformation()
+    arg_shape_trafo = ArgumentArrayShapeAnalysis()
     arg_shape_trafo.apply(driver, role='driver')
     arg_shape_trafo.apply(kernel_a1, role='kernel')
     arg_shape_trafo.apply(kernel_a2, role='kernel')
