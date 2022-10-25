@@ -106,18 +106,19 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
 
             # Collect all potential dimension variables and filter for scalar integers
             dims = set(d for arg in callee.arguments if isinstance(arg, Array) for d in arg.shape)
-            dim_vars = tuple(d for d in FindVariables().visit(as_tuple(dims))
-                             if d not in callee.arguments and d.type.dtype == BasicType.INTEGER)
+            dim_vars = tuple(d for d in FindVariables().visit(as_tuple(dims)))
 
             # Add all new dimension arguments to the callee signature
-            new_vars = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in dim_vars)
-            callee.arguments += new_vars
+            new_args = tuple(d for d in dim_vars if d not in callee.arguments)
+            new_args = tuple(d for d in new_args if d.type.dtype == BasicType.INTEGER)
+            new_args = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in new_args)
+            callee.arguments += new_args
 
             # Map all local dimension args to unknown callee dimension args
             if len(callee.arguments) > len(list(call.arg_iter())):
                 arg_keys = dict(call.arg_iter()).keys()
                 missing = [a for a in callee.arguments if a not in arg_keys
-                           and not a.type.optional]
+                           and not a.type.optional and a in dim_vars]
 
                 # Add missing dimension variables (scalars
                 new_kwargs = tuple((m, m) for m in missing if m.type.dtype == BasicType.INTEGER)
