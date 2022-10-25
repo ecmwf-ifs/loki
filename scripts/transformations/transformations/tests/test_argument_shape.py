@@ -2,7 +2,7 @@ import pytest
 
 from conftest import available_frontends
 from loki import CallStatement, FindNodes, OMNI, Subroutine
-from transformations import ArgumentArrayShapeAnalysis
+from transformations import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -237,3 +237,112 @@ def test_argument_shape_multiple(frontend):
     arg_shape_trafo.apply(kernel_a3, role='kernel')
     assert kernel_b.arguments[0].shape == ('nlon', 'nlev')
     assert kernel_b.arguments[1].shape == ('nlon', 5) if frontend == OMNI else ('nlon', 'n')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_argument_shape_transformation(frontend):
+    """
+    Test that ensures that explicit argument shapes are indeed inserted
+    in a multi-layered call tree.
+    """
+
+    fcode_driver = """
+  SUBROUTINE trafo_driver(nlon, nlev, a, b, c)
+    INTEGER, INTENT(IN)   :: nlon, nlev  ! Dimension sizes
+    INTEGER, PARAMETER    :: n = 5
+    REAL, INTENT(INOUT)   :: a(nlon)
+    REAL, INTENT(INOUT)   :: b(nlon,nlev)
+    REAL, INTENT(INOUT)   :: c(nlon,n)
+
+    call trafo_kernel_a1(a, b, c)
+
+    call trafo_kernel_a2(b, c)
+  END SUBROUTINE trafo_driver
+    """
+
+    fcode_kernel_a1 = """
+  SUBROUTINE trafo_kernel_a1(a, b, c)
+    ! First-level kernel call, as before
+    REAL, INTENT(INOUT)   :: a(:)
+    REAL, INTENT(INOUT)   :: b(:,:)
+    REAL, INTENT(INOUT)   :: c(:,:)
+
+    CALL trafo_kernel_b(b, c)
+  END SUBROUTINE trafo_kernel_a1
+    """
+
+    fcode_kernel_a2 = """
+  SUBROUTINE trafo_kernel_a2(b, c)
+    ! First-level kernel call that agrees with kernel_a1
+    REAL, INTENT(INOUT)   :: b(:,:)
+    REAL, INTENT(INOUT)   :: c(:,:)
+
+    CALL trafo_kernel_b(b, c)
+  END SUBROUTINE trafo_kernel_a2
+    """
+
+    fcode_kernel_b = """
+  SUBROUTINE trafo_kernel_b(b, c)
+    ! Second-level kernel call
+    REAL, INTENT(INOUT)   :: b(:,:)
+    REAL, INTENT(INOUT)   :: c(:,:)
+
+  END SUBROUTINE trafo_kernel_b
+    """
+
+    # Manually create subroutines and attach call-signature info
+    kernel_b = Subroutine.from_source(fcode_kernel_b, frontend=frontend)
+    kernel_a1 = Subroutine.from_source(fcode_kernel_a1, frontend=frontend)
+    kernel_a1.enrich_calls(kernel_b)  # Attach kernel source to call
+    kernel_a2 = Subroutine.from_source(fcode_kernel_a2, frontend=frontend)
+    kernel_a2.enrich_calls(kernel_b)  # Attach kernel source to call
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(kernel_a1)  # Attach kernel source to call
+    driver.enrich_calls(kernel_a2)  # Attach kernel source to call
+
+    # Ensure initial call uses implicit argument shapes
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 2 and all(c.routine for c in calls)
+    assert tuple(a.shape for a in calls[0].routine.arguments) == ((':', ), (':', ':'), (':', ':'))
+    assert tuple(a.shape for a in calls[1].routine.arguments) == ((':', ':'), (':', ':'))
+
+    # Apply the legal shape propagation in a manual forward pass
+    arg_shape_analysis = ArgumentArrayShapeAnalysis()
+    arg_shape_analysis.apply(driver)
+    arg_shape_analysis.apply(kernel_a1)
+    arg_shape_analysis.apply(kernel_a2)
+    arg_shape_analysis.apply(kernel_b)
+
+    # Apply the insertion of explicit array argument shapes in a backward pass
+    arg_shape_trafo = ExplicitArgumentArrayShapeTransformation()
+    arg_shape_trafo.apply(kernel_b)
+    arg_shape_trafo.apply(kernel_a2)
+    arg_shape_trafo.apply(kernel_a1)
+    arg_shape_trafo.apply(driver)
+
+    # Check that argument shapes have been applied
+    assert kernel_a1.arguments[0].dimensions == ('nlon',)
+    assert kernel_a1.arguments[1].dimensions == ('nlon', 'nlev')
+    assert kernel_a1.arguments[2].dimensions == ('nlon', 5) if frontend == OMNI else ('nlon', 'n')
+    assert 'nlon' in kernel_a1.arguments
+    assert 'nlon' in kernel_a1.arguments
+    assert 'n' in kernel_a1.arguments or frontend == OMNI
+
+    assert kernel_a2.arguments[0].dimensions == ('nlon', 'nlev')
+    assert kernel_a2.arguments[1].dimensions == ('nlon', 5) if frontend == OMNI else ('nlon', 'n')
+    assert 'nlon' in kernel_a2.arguments
+    assert 'nlon' in kernel_a2.arguments
+    assert 'n' in kernel_a2.arguments or frontend == OMNI
+
+    assert kernel_b.arguments[0].dimensions == ('nlon', 'nlev')
+    assert kernel_b.arguments[1].dimensions == ('nlon', 5) if frontend == OMNI else ('nlon', 'n')
+    assert 'nlon' in kernel_b.arguments
+    assert 'nlon' in kernel_b.arguments
+    assert 'n' in kernel_b.arguments or frontend == OMNI
+
+    # And finally, check that scalar dimension size variables have been added to calls
+    for v  in ('nlon', 'nlev') if frontend == OMNI else ('nlon', 'nlev', 'n'):
+        assert (v, v) in FindNodes(CallStatement).visit(kernel_a1.body)[0].kwarguments
+        assert (v, v) in FindNodes(CallStatement).visit(kernel_a2.body)[0].kwarguments
+        assert (v, v) in FindNodes(CallStatement).visit(driver.body)[0].kwarguments
+        assert (v, v) in FindNodes(CallStatement).visit(driver.body)[1].kwarguments
