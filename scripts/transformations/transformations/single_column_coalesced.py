@@ -1,11 +1,11 @@
-from more_itertools import pairwise
+from more_itertools import pairwise, split_at
 
 from loki.expression import symbols as sym
 from loki.transform import resolve_associates
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
-    FindExpressions, Transformer, NestedTransformer, NestedMaskedTransformer,
+    FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten
 )
@@ -49,22 +49,6 @@ def kernel_remove_vector_loops(routine, horizontal):
         if loop.variable == horizontal.index:
             loop_map[loop] = loop.body
     routine.body = Transformer(loop_map).visit(routine.body)
-
-
-def kernel_sections_from_nodes(nodes, section):
-    """
-    Extract a list of code sub-sections from a section tuple and separator nodes.
-    """
-    nodes = [None, *nodes, None]
-    sections = []
-    for start, stop in pairwise(nodes):
-        t = NestedMaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
-        sec = as_tuple(t.visit(section))
-        if start is not None:
-            sec = sec[1:]  # Strip `start` node
-        sections.append(sec)
-
-    return sections
 
 
 def wrap_vector_section(section, routine, horizontal):
@@ -124,7 +108,9 @@ def extract_vector_sections(section, horizontal):
             if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
                 separator_nodes.append(ancestor_scopes[0])
 
-    subsections = kernel_sections_from_nodes(separator_nodes, section)
+    # Extract contiguous node sections between separator nodes
+    assert all(n in section for n in separator_nodes)
+    subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
 
     # Filter sub-sections that do not use the horizontal loop index variable
     subsections = [s for s in subsections if horizontal.index in list(FindVariables().visit(s))]
