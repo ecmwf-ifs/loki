@@ -56,6 +56,10 @@ class SymbolTable(dict):
         """
         return self._parent() if self._parent is not None else None
 
+    @parent.setter
+    def parent(self, parent):
+        self._parent = weakref.ref(parent) if parent is not None else None
+
     @property
     def case_sensitive(self):
         """
@@ -166,6 +170,15 @@ class SymbolTable(dict):
 
     def __repr__(self):
         return f'<loki.types.SymbolTable object at {hex(id(self))}>'
+
+    def __getstate__(self):
+        _ignored = ('_parent', )
+        return {k: v for k, v in self.__dict__.items() if k not in _ignored}
+
+    def __setstate__(self, s):
+        self.__dict__.update(s)
+
+        self._parent = None
 
     def setdefault(self, key, default=None):
         """
