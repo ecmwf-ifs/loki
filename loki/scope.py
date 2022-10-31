@@ -253,9 +253,8 @@ class Scope:
 
     def __init__(self, parent=None, symbol_attrs=None, rescope_symbols=False, **kwargs):
         super().__init__(**kwargs)
-        assert parent is None or isinstance(parent, Scope)
         assert symbol_attrs is None or isinstance(symbol_attrs, SymbolTable)
-        self._parent = weakref.ref(parent) if parent is not None else None
+        self.parent = parent
 
         parent_symbol_attrs = self.parent.symbol_attrs if self.parent is not None else None
         if symbol_attrs is None:
@@ -280,6 +279,11 @@ class Scope:
         Access the enclosing scope.
         """
         return self._parent() if self._parent is not None else None
+
+    @parent.setter
+    def parent(self, parent):
+        assert parent is None or isinstance(parent, Scope)
+        self._parent = weakref.ref(parent) if parent is not None else None
 
     def rescope_symbols(self):
         """
