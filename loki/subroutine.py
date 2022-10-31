@@ -93,6 +93,10 @@ class Subroutine(ProgramUnit):
         self._ast = None
         self._parent = None
 
+        # Re-register all encapulated member procedures
+        for member in self.members:
+            self.symbol_attrs[member.name] = SymbolAttributes(ProcedureType(procedure=member))
+
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
 

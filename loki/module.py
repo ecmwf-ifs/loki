@@ -8,8 +8,10 @@ from loki.frontend import (
 from loki.ir import VariableDeclaration
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 from loki.program_unit import ProgramUnit
+from loki.scope import Scope
+from loki.subroutine import Subroutine
 from loki.tools import as_tuple
-from loki.types import ModuleType, SymbolAttributes
+from loki.types import ModuleType, ProcedureType, SymbolAttributes
 
 
 __all__ = ['Module']
@@ -253,5 +255,14 @@ class Module(ProgramUnit):
 
     def __setstate__(self, s):
         self.__dict__.update(s)
+
+        # Re-register all contained procedures in symbol table and update parentage
+        for node in self.contains.body:
+            if isinstance(node, Subroutine):
+                self.symbol_attrs[node.name] = SymbolAttributes(ProcedureType(procedure=node))
+
+            if isinstance(node, Scope):
+                node.parent = self
+
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
