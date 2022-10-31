@@ -265,6 +265,15 @@ class ProcedureType(DataType):
     def __repr__(self):
         return f'<ProcedureType {self.name}>'
 
+    def __getstate__(self):
+        _ignore = ('_procedure')
+        return dict((k, v) for k, v in self.__dict__.items() if k not in _ignore)
+
+    def __setstate__(self, s):
+        self.__dict__.update(s)
+
+        self._procedure = None
+
 
 class ModuleType(DataType):
     """
