@@ -20,9 +20,10 @@ def resolve_associates(routine):
     vmap = {}
     for assoc in FindNodes(Associate).visit(routine.body):
         invert_assoc = CaseInsensitiveDict({v.name: k for k, v in assoc.associations})
-        for v in FindVariables(unique=False).visit(routine.body):
+        for v in FindVariables(unique=False).visit(assoc.body):
             if v.name in invert_assoc:
-                vmap[v] = invert_assoc[v.name]
+                inv = invert_assoc[v.name]
+                vmap[v] = v.clone(parent=inv.parent, scope=inv.scope)
         assoc_map[assoc] = assoc.body
 
     routine.body = Transformer(assoc_map).visit(routine.body)
