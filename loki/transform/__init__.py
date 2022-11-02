@@ -1,6 +1,7 @@
 from loki.transform.transformation import * # noqa
 from loki.transform.transform_utilities import * # noqa
 from loki.transform.transform_array_indexing import * # noqa
+from loki.transform.transform_associates import * # noqa
 from loki.transform.transform_inline import * # noqa
 from loki.transform.transform_loop import * # noqa
 from loki.transform.transform_region import * # noqa
