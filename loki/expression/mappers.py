@@ -555,11 +555,12 @@ class LokiIdentityMapper(IdentityMapper):
         symbol = self.rec(expr.symbol, *args, **kwargs)
         dimensions = self.rec(expr.dimensions, *args, **kwargs)
         shape = self.rec(symbol.type.shape, *args, **kwargs)
+        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent else None
         if (getattr(symbol, 'symbol', symbol) is expr.symbol and
                 all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ())) and
                 all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))):
             return expr
-        return symbol.clone(dimensions=dimensions, type=symbol.type.clone(shape=shape))
+        return symbol.clone(dimensions=dimensions, type=symbol.type.clone(shape=shape), parent=parent)
 
     def map_array_subscript(self, expr, *args, **kwargs):
         raise RuntimeError('Recursion should have ended at map_array')
