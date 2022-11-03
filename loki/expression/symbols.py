@@ -683,6 +683,10 @@ class Array(MetaSymbol):
         super().__init__(symbol=symbol)
 
     @property
+    def name_parts(self):
+        return self.symbol.name_parts
+
+    @property
     def symbol(self):
         if isinstance(self._symbol, ArraySubscript):
             return self._symbol.aggregate
