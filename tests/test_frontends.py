@@ -730,6 +730,37 @@ end module some_mod
     assert module.spec.body[2].text.count('comment') == 3
 
 
+def test_regex_raw_source_with_cpp():
+    """
+    Verify that unparsed source appears in-between matched objects
+    and preprocessor statements are preserved
+    """
+    fcode = """
+! Some comment before the subroutine
+#ifdef RS6K
+@PROCESS HOT(NOVECTOR) NOSTRICT
+#endif
+SUBROUTINE SOME_ROUTINE (KLON, KLEV)
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: KLON, KLEV
+! Comment inside routine
+END SUBROUTINE SOME_ROUTINE
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+
+    assert len(source.ir.body) == 2
+
+    assert isinstance(source.ir.body[0], RawSource)
+    assert source.ir.body[0].source.lines == (1, 4)
+    assert source.ir.body[0].text.startswith('! Some comment before the subroutine\n#')
+    assert source.ir.body[0].text.endswith('#endif')
+    assert source.ir.body[0].source.string == source.ir.body[0].text
+
+    assert isinstance(source.ir.body[1], Subroutine)
+    assert source.ir.body[1].source.lines == (5, 9)
+    assert source.ir.body[1].source.string.startswith('SUBROUTINE')
+
+
 def test_regex_module_imports():
     """
     Verify that the regex frontend is able to find and correctly parse

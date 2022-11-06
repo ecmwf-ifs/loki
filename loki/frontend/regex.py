@@ -134,12 +134,12 @@ class Pattern:
                     )
                 ir_ += [match]
 
-        if head is not None and (not ir_ or ir_[0].source != head):
-            # Insert the header bit only if the recursion hasn't already taken care of it
-            ir_ = [ir.RawSource(text=head.string, source=head)] + ir_
         if reader:
             source = reader.to_source(include_padding=True)
             ir_ += [ir.RawSource(text=source.string, source=source)]
+        if head is not None and (not ir_ or ir_[0].source.lines[0] > head.lines[1]):
+            # Insert the header bit only if the recursion hasn't already taken care of it
+            ir_ = [ir.RawSource(text=head.string, source=head)] + ir_
         if tail is not None:
             ir_ += [ir.RawSource(text=tail.string, source=tail)]
         return ir_
