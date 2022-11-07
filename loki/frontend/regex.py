@@ -5,555 +5,736 @@ This is intended to allow for fast, partial extraction of IR objects
 from Fortran source files without the need to generate a complete
 parse tree.
 """
-
+from abc import abstractmethod
+from enum import Flag, auto
 import re
 
 from loki import ir
 from loki.expression import symbols as sym
-from loki.frontend.source import Source, source_to_lines, join_source_list
-from loki.logging import PERF
+from loki.frontend.source import Source, FortranReader
+from loki.logging import DEBUG
 from loki.scope import SymbolAttributes
 from loki.tools import timeit, as_tuple
 from loki.types import BasicType, ProcedureType
 
-__all__ = ['parse_regex_source', 'HAVE_REGEX']
+__all__ = ['RegexParserClass', 'parse_regex_source', 'HAVE_REGEX']
 
 
 HAVE_REGEX = True
 """Indicate that the regex frontend is available."""
 
 
-@timeit(log_level=PERF)
-def parse_regex_source(source, scope=None):
+class RegexParserClass(Flag):
+    """
+    Classes to configure active patterns in the :any:`REGEX` frontend
+
+    Every :class:`Pattern` in the frontend is categorized as one of these classes.
+    By specifying some (or all of them) as ``parser_classes`` to :any:`parse_regex_source`,
+    pattern matching can be switched on and off for some pattern classes, and thus the overall
+    parse time reduced.
+    """
+    ProgramUnit = auto()
+    Import = auto()
+    TypeDef = auto()
+    Call = auto()
+    All = ProgramUnit | Import | TypeDef | Call  # pylint: disable=unsupported-binary-operation
+
+
+class Pattern:
+    """
+    Base class for patterns used in the :any:`REGEX` frontend
+
+    Parameters
+    ----------
+    pattern : str
+        The regex pattern used for matching
+    flags : re.RegexFlag
+        Regular expression flag(s) to use when compiling and matching the pattern
+    """
+
+    def __init__(self, pattern, flags=None):
+        self.pattern = re.compile(pattern, flags)
+
+    @abstractmethod
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the stored pattern against the source string in the reader object
+
+        This method must be implemented by every child class to provide the
+        matching logic. It is not necessary to check the selected :data:`parser_classes`
+        here, as the relevant :meth:`match` method will only be called for :class:`Pattern`
+        classes that are active. :data:`parser_classes` is only passed here to forward it
+        to use it when matching recursively.
+
+        If this match method matches against a single line, it should return a :any:`Node`
+        if matched successfully, or otherwise `None`.
+
+        If this match method matches a block, e.g. a :any:`Subroutine`, then this should
+        return a 3-tupel ``(pre, node, new_reader)``, with each entry:
+
+        - ``pre`` : A :any:`FortranReader` object representing any unmatched source code
+                    fragments prior to the matched object. Can be `None` if there are none
+                    or if there was no match.
+        - ``node``: The object created as the result of a successful match, or `None`.
+        - ``new_reader``: A :any:`FortranReader` object representing any unmatched source
+                          code fragments past the matched object. Can be `None` if there
+                          are none and should be the original :data:`reader` object if
+                          there was no match.
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+
+    @classmethod
+    def match_block_candidates(cls, reader, candidates, parser_classes=None, scope=None):
+        """
+        Attempt to match block candidates
+
+        It will automatically skip :data:`candidates` that are inactive due to the chosen
+        :data:`parser_classes`.
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        candidates : list of str
+            The list of candidate classes to match
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        if parser_classes is None:
+            parser_classes = RegexParserClass.All
+        ir_ = []
+
+        # Extract source bits that would be swept under the rag when sanitizing
+        head = reader.source_from_head()
+        tail = reader.source_from_tail()
+
+        for idx, candidate_name in enumerate(candidates):
+            candidate = PATTERN_REGISTRY[candidate_name]
+            if not candidate.parser_class & parser_classes:
+                continue
+            while reader:
+                pre, match, reader = candidate.match(reader, parser_classes=parser_classes, scope=scope)
+                if not match:
+                    assert pre is None
+                    break
+                if pre:
+                    # See if any of the other candidates match before this match
+                    ir_ += cls.match_block_candidates(
+                        pre, candidates[idx+1:], parser_classes=parser_classes, scope=scope
+                    )
+                ir_ += [match]
+
+        if reader:
+            source = reader.to_source(include_padding=True)
+            ir_ += [ir.RawSource(text=source.string, source=source)]
+        if head is not None and (not ir_ or ir_[0].source.lines[0] > head.lines[1]):
+            # Insert the header bit only if the recursion hasn't already taken care of it
+            ir_ = [ir.RawSource(text=head.string, source=head)] + ir_
+        if tail is not None:
+            ir_ += [ir.RawSource(text=tail.string, source=tail)]
+        return ir_
+
+    @classmethod
+    def match_statement_candidates(cls, reader, candidates, parser_classes=None, scope=None):
+        """
+        Attempt to match single-line statement candidates
+
+        It will automatically skip :data:`candidates` that are inactive due to the chosen
+        :data:`parser_classes`.
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        candidates : list of str
+            The list of candidate classes to match
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        if parser_classes is None:
+            parser_classes = RegexParserClass.All
+        # Extract source bits that would be swept under the rag when sanitizing
+        head = reader.source_from_head()
+
+        filtered_candidates = [PATTERN_REGISTRY[candidate_name] for candidate_name in candidates]
+        filtered_candidates = [
+            candidate for candidate in filtered_candidates if candidate.parser_class & parser_classes
+        ]
+        if not filtered_candidates:
+            return []
+
+        ir_ = []
+        last_match = -1
+        for idx, _ in enumerate(reader):
+            for candidate in filtered_candidates:
+                match = candidate.match(reader, parser_classes=parser_classes, scope=scope)
+                if match:
+                    if last_match - idx > 1:
+                        span = (reader.sanitized_spans[last_match + 1], reader.sanitized_spans[idx])
+                        source = reader.source_from_sanitized_span(span)
+                        ir_ += [ir.RawSource(source.string, source=source)]
+                    last_match = idx
+                    ir_ += [match]
+                    break
+
+        if head is not None and ir_:
+            ir_ = [ir.RawSource(text=head.string, source=head)] + ir_
+
+        tail_span = (reader.sanitized_spans[last_match + 1], None)
+        source = reader.source_from_sanitized_span(tail_span, include_padding=True)
+        if source:
+            ir_ += [ir.RawSource(source.string, source=source)]
+        return ir_
+
+    @classmethod
+    def match_block_statement_candidates(
+        cls, reader, block_candidates, statement_candidates, parser_classes=None, scope=None
+    ):
+        """
+        Attempt to match block candidates and subsequently attempt to match statement candidates
+        on unmatched sections
+
+        It will automatically skip :data:`candidates` that are inactive due to the chosen
+        :data:`parser_classes`.
+
+        This is essentially equivalent to :meth:`match_block_candidates` but applies
+        :meth:`match_statement_candidates` to the unmatched tail source instead of returning
+        it as a :any:`RawSource` object straight away.
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        block_candidates : list of str
+            The list of block candidate classes to match
+        statement_candidates : list of str
+            The list of statement candidate classes to match
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        if parser_classes is None:
+            parser_classes = RegexParserClass.All
+        # Extract source bits that would be swept under the rag when sanitizing
+        head = reader.source_from_head()
+
+        ir_ = []
+        for idx, candidate_name in enumerate(block_candidates):
+            candidate = PATTERN_REGISTRY[candidate_name]
+            if not candidate.parser_class & parser_classes:
+                continue
+            while reader:
+                pre, match, reader = candidate.match(reader, parser_classes=parser_classes, scope=scope)
+                if not match:
+                    assert pre is None
+                    break
+                if pre:
+                    # See if any of the other candidates match before this match
+                    ir_ += cls.match_block_statement_candidates(
+                        pre, block_candidates[idx+1:], statement_candidates, scope=scope
+                    )
+                ir_ += [match]
+
+        if head is not None and ir_ and reader:
+            # Insert the head source bits only if we have matched something, otherwise
+            # the statement candidate matching will take care of this
+            ir_ = [ir.RawSource(text=head.string, source=head)] + ir_
+
+        if reader:
+            ir_ += cls.match_statement_candidates(
+                reader, statement_candidates, parser_classes=parser_classes, scope=scope
+            )
+        return ir_
+
+
+@timeit(log_level=DEBUG)
+def parse_regex_source(source, parser_classes=None, scope=None):
     """
     Generate a reduced Loki IR from regex parsing of the given Fortran source
 
-    Currently, this only extracts :any:`Module` and :any:`Subroutine` objects.
+    The IR nodes that should be matched can be configured via :data:`parser_classes`.
     Any non-matched source code snippets are retained as :any:`RawSource` objects.
 
     Parameters
     ----------
     source : str or :any:`Source`
         The raw source string
+    parser_classes : RegexParserClass
+        Active parser classes for matching
     scope : :any:`Scope`, optional
         The enclosing parent scope
     """
-    candidates = (match_module, match_subroutine_function)
-    if not isinstance(source, Source):
-        lines = (1, source.count('\n') + 1)
-        source = Source(lines=lines, string=source)
-    ir_ = match_block_candidates(source, candidates, scope=scope)
+    if parser_classes is None:
+        parser_classes = RegexParserClass.All
+    candidates = ('ModulePattern', 'SubroutineFunctionPattern')
+    if isinstance(source, Source):
+        reader = FortranReader(source.string)
+    else:
+        reader = FortranReader(source)
+    ir_ = Pattern.match_block_candidates(reader, candidates, parser_classes=parser_classes, scope=scope)
     return ir.Section(body=as_tuple(ir_), source=source)
 
 
-def match_block_candidates(source, candidates, scope=None):
+class ModulePattern(Pattern):
     """
-    Apply match functions to :data:`source` recursively
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        A source file object with the string to match
-    candidates : list
-        The list of candidate match functions to call
-    scope : :any:`Scope`
-        The parent scope for this source code snippet
+    Pattern to match :any:`Module` objects
     """
-    blocks = []
-    for idx, candidate in enumerate(candidates):
-        while source.string:
-            pre, match, source = candidate(source, scope=scope)
-            if not match:
-                assert pre is None
-                break
-            if pre:
-                # See if any of the other candidates match before this match
-                blocks += match_block_candidates(pre, candidates[idx+1:], scope=scope)
-            blocks += [match]
-    if source.string.strip():
-        blocks += [ir.RawSource(text=source.string, source=source)]
-    return blocks
 
+    parser_class = RegexParserClass.ProgramUnit
 
-def match_statement_candidates(source, candidates, scope=None):
-    """
-    Apply single-statement match functions to :data:`source`
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        A source file object with the string to match
-    candidates : list
-        The list of candidate match functions to call
-    scope : :any:`Scope`
-        The parent scope for this source code snippet
-    """
-    source_lines = source_to_lines(source)
-
-    ir_ = []
-    source_stack = []
-    for line in source_lines:
-        for candidate in candidates:
-            match = candidate(line, scope=scope)
-            if match:
-                if source_stack:
-                    s = join_source_list(source_stack)
-                    ir_ += [ir.RawSource(s.string, source=s)]
-                    source_stack = []
-                ir_ += [match]
-                break
-        else:
-            source_stack += [line]
-    if source_stack:
-        s = join_source_list(source_stack)
-        ir_ += [ir.RawSource(s.string, source=s)]
-    return ir_
-
-
-def match_block_statement_candidates(source, block_candidates, statement_candidates, scope=None):
-    """
-    Apply match functions to :data:`source` recursively
-
-    This tries to first match any block candidates, and then runs through
-    unmatched source sections trying to match statement candidates
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        A source file object with the string to match
-    block_candidates : list
-        The list of candidate match functions for blocks to call
-    statement_candidates : list
-        The list of candidate match functions for individual statements to call
-    scope : :any:`Scope`
-        The parent scope for this source code snippet
-    """
-    blocks = []
-    for idx, candidate in enumerate(block_candidates):
-        while source.string:
-            pre, match, source = candidate(source, scope=scope)
-            if not match:
-                assert pre is None
-                break
-            if pre:
-                # See if any of the other candidates match before this match
-                blocks += match_block_statement_candidates(
-                    pre, block_candidates[idx+1:], statement_candidates, scope=scope
-                )
-            blocks += [match]
-    if source.string.strip():
-        blocks += match_statement_candidates(source, statement_candidates, scope=scope)
-    return blocks
-
-
-_whitespace_comment_lineend_pattern = r'(?:[ \t]*|[ \t]*\![\S \t]*)$\n'
-"""Helper pattern capturing the common case of a comment until line end with optional leading white space."""
-
-_comment_pattern = re.compile(_whitespace_comment_lineend_pattern, re.MULTILINE)
-"""Compiled version of :any:`_whitespace_comment_lineend_pattern`."""
-
-_contains_pattern = (
-    r'(?P<contains>(?P<contains_keyword>^[ \t]*?contains'  # Optional contains keyword
-) + _whitespace_comment_lineend_pattern + ( # optional whitespace/comment until line end
-    r')(?P<contains_body>(?:'  # Group around a contained function/subroutine
-    r'(?:^'
-) + _whitespace_comment_lineend_pattern + ( # Allow for multiple empty lines/comments before subroutines
-    r')*'
-    r'^[ \t\w()]*?' # parameter/white space/attribute banter before subroutine/function keyword
-    r'(?:subroutine\s\w+.*?end\s+subroutine|function\s\w+.*?end\s+function)' # keyword to end keyword
-    r'(?:\s+\w+)?'  # optionally repeated routine name
-) + _whitespace_comment_lineend_pattern + ( # optional whitespace/comment until line end
-    r'.*?'  # Allow for arbitrary characters between subroutines/functions
-    r')*?)'  # End group around contained function/subroutine (0+ times repeated)
-    r')?'  # End optional contains sections
-)
-"""Helper pattern capturing the ``contains`` part of a module or subroutine/function."""
-
-_re_module = re.compile(
-    (
-        r'^[ \t]*'  # Whitespace before module keyword
-        r'module\s+(?P<name>\w+)[\S \t]*$'  # Module keyword and module name
-        r'(?P<spec>.*?)'  # Module spec
-    ) + _contains_pattern + (  # Module body (`contains`` section)
-        r'end\s+module(?:\s*(?P=name))?'  # End keyword with optionally module name repeated after end keyword
-    ) + _whitespace_comment_lineend_pattern + ( # optional whitespace/comment until line end
-        r'?' # ...with the '\n' optional
-    ),
-    re.IGNORECASE | re.DOTALL | re.MULTILINE
-)
-"""Pattern to match module definitions."""
-
-
-def match_module(source, scope):
-    """
-    Search for a module definition in :data:`source`
-
-    This will only match the first occurence of a module, repeated calls using
-    the remainder string are necessary to match further occurences.
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        The source file object containing a string to match
-    scope : :any:`Scope`
-        The enclosing scope a matched object is embedded into
-
-    Returns
-    -------
-    :any:`Source`, :any:`Module`, :any:`Source`
-        A 3-tuple containing a source object with the source string before the match, the
-        matched module object, and a source object with the source string after the match.
-        If no match is found, the first two entries are `None` and the last is the original
-        :data:`source` object.
-    """
-    from loki import Module  # pylint: disable=import-outside-toplevel,cyclic-import
-    match = _re_module.search(source.string)
-    if not match:
-        return None, None, source
-
-    module = Module(name=match['name'], source=source.clone_with_span(match.span()), parent=scope)
-    if match['spec']:
-        block_candidates = (match_typedef, )
-        statement_candidates = (match_import, )
-        spec = match_block_statement_candidates(
-            source.clone_with_span(match.span('spec')), block_candidates, statement_candidates,
-            scope=module
+    def __init__(self):
+        super().__init__(
+            r'^module[ \t]+(?P<name>\w+)\b.*?$'
+            r'(?P<spec>.*?)'
+            r'(?P<contains>^contains\n'
+            r'[ \t\w()]*?(?:subroutine|function).*?'
+            r'^end[ \t]*(?:subroutine|function)\b(?:[ \t]\w+)?\n)?'
+            r'^end[ \t]*module\b(?:[ \t](?P=name))?',
+            re.IGNORECASE | re.DOTALL | re.MULTILINE
         )
-    else:
-        spec = None
 
-    if match['contains']:
-        keyword_source = source.clone_with_span(match.span('contains_keyword'))
-        contains = [ir.Intrinsic(text=match['contains_keyword'], source=keyword_source)]
-        if match['contains_body']:
-            contains_source = source.clone_with_span(match.span('contains_body'))
-            contains += match_block_candidates(
-                contains_source, [match_subroutine_function], scope=module
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`Module`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        from loki import Module  # pylint: disable=import-outside-toplevel,cyclic-import
+        match = self.pattern.search(reader.sanitized_string)
+        if not match:
+            return None, None, reader
+
+        # Check if the Module node has been created before by looking it up in the scope
+        module = None
+        name = match['name']
+        if scope is not None and name in scope.symbol_attrs:
+            module_type = scope.symbol_attrs[name]  # Look-up only in current scope!
+            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+                module = module_type.dtype.module
+
+        if module is None:
+            source = reader.source_from_sanitized_span(match.span())
+            module = Module(name=name, source=source, parent=scope)
+
+        if match['spec'] and match['spec'].strip():
+            block_candidates = ('TypedefPattern',)
+            statement_candidates = ('ImportPattern',)
+            spec = self.match_block_statement_candidates(
+                reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
+                block_candidates, statement_candidates, parser_classes=parser_classes, scope=module
             )
-    else:
-        contains = None
-
-    # pylint: disable=unnecessary-dunder-call
-    module.__init__(
-        name=module.name, spec=spec, contains=contains, parent=module.parent,
-        source=module.source, symbol_attrs=module.symbol_attrs, incomplete=True
-    )
-
-    return (
-        source.clone_with_span((0, match.span()[0])),
-        module,
-        source.clone_with_span((match.span()[1], len(source.string)))
-    )
-
-
-_re_subroutine_function = re.compile(
-    (
-        r'^(?:[ \t\w()]*?)'  # Whitespace and subroutine/function attributes before subroutine/function keyword
-        r'(?P<keyword>subroutine|function)\s+(?P<name>\w+)'  # Subroutine/function keyword and name
-        r'(?P<args>\s*\((?:(?:\s|\![\S \t]*$)*\w+\s*,?)+\))?[\S \t]*$' # Arguments
-        r'(?P<spec>.*?)'  # Spec and body of routine
-    ) + _contains_pattern + (  # Contains section
-        r'end\s+(?P=keyword)(?:\s*(?P=name))?'  # End keyword with optionally routine name repeated after end keyword
-    ) + _whitespace_comment_lineend_pattern + ( # optional whitespace/comment until line end...
-        r'?' # ...with the '\n' optional
-    ),
-    re.IGNORECASE | re.DOTALL | re.MULTILINE
-)
-"""Pattern to match subroutine/function definitions."""
-
-
-def match_subroutine_function(source, scope):
-    """
-    Search for a subroutine or function definition in :data:`source`
-
-    This will only match the first occurence of a subroutine or function,
-    repeated calls using the remainder string are necessary to match
-    further occurences.
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        The source file object containing a string to match
-    scope : :any:`Scope`
-        The enclosing scope a matched object is embedded into
-
-    Returns
-    -------
-    :any:`Source`, :any:`Subroutine`, :any:`Source`
-        A 3-tuple containing a source object with the source string before the match, the
-        matched subroutine object, and a source object with the source string after the match.
-        If no match is found, the first two entries are `None` and the last is the original
-        :data:`source` object.
-    """
-    from loki import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
-    match = _re_subroutine_function.search(source.string)
-    if not match:
-        return None, None, source
-
-    if match['args']:
-        args = match['args'].strip('() \t\n')
-        args = _comment_pattern.sub('', args)
-        args = tuple(arg.strip() for arg in args.split(','))
-    else:
-        args = ()
-    is_function = match['keyword'].lower() == 'function'
-
-    routine = Subroutine(
-        name=match['name'], args=args, is_function=is_function,
-        source=source.clone_with_span(match.span()), parent=scope
-    )
-    if match['spec']:
-        candidates = (match_import, )
-        spec = match_statement_candidates(source.clone_with_span(match.span('spec')), candidates, scope=routine)
-    else:
-        spec = None
-
-    if match['contains']:
-        keyword_source = source.clone_with_span(match.span('contains_keyword'))
-        contains = [ir.Intrinsic(text=match['contains_keyword'], source=keyword_source)]
-        if match['contains_body']:
-            contains_source = source.clone_with_span(match.span('contains_body'))
-            contains += match_block_candidates(
-                contains_source, [match_subroutine_function], scope=routine
-            )
-    else:
-        contains = None
-
-    # pylint: disable=unnecessary-dunder-call
-    routine.__init__(
-        name=routine.name, args=routine._dummies, is_function=routine.is_function,
-        spec=spec, contains=contains, parent=routine.parent, source=routine.source,
-        symbol_attrs=routine.symbol_attrs, incomplete=True
-    )
-
-    return (
-        source.clone_with_span((0, match.span()[0])),
-        routine,
-        source.clone_with_span((match.span()[1], len(source.string)))
-    )
-
-
-_re_typedef = re.compile(
-    (
-        r'^[ \t]*'  # Whitespace before type keyword
-        r'type(?:\s*,\s*[\w\(\)]+)*?'  # type keyword with optional parameters
-        r'(?:\s*::\s*|\s+)'  # optional `::` separator or white space
-        r'(?P<name>\w+)[\S \t]*$'  # Type name
-        r'(?P<spec>.*?)'  # Type spec
-        r'(?P<contains>contains.*?)?'  # Optional procedure bindings part (after ``contains`` keyword)
-        r'\s+end\s+type(?:\s*(?P=name))?'  # End keyword with optionally type name repeated
-    ),
-    re.IGNORECASE | re.DOTALL | re.MULTILINE
-)
-"""
-Pattern to match derived type definitions via ``type...end type`` keywords.
-
-Spec and typebound-procedures-part (``contains`` and everything thereafter)
-are matched in separate groups for subsequent processing with :any:`_re_proc_binding`.
-"""
-
-
-def match_typedef(source, scope):
-    """
-    Search for a derived type definition in :data:`source`
-
-    This will only match the first occurence of a derived type definition,
-    repeated calls using the remainder string are necessary to match
-    further occurences.
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        The source file object containing a string to match
-    scope : :any:`Scope`
-        The enclosing scope a matched object is embedded into
-
-    Returns
-    -------
-    :any:`Source`, :any:`TypeDef`, :any:`Source`
-        A 3-tuple containing a source object with the source string before the match, the
-        matched typedef object, and a source object with the source string after the match.
-        If no match is found, the first two entries are `None` and the last is the original
-        :data:`source` object.
-    """
-    match = _re_typedef.search(source.string)
-    if not match:
-        return None, None, source
-    typedef = ir.TypeDef(
-        name=match['name'], body=(), parent=scope,
-        source=source.clone_with_span(match.span())
-    )
-    if match['spec']:
-        spec_source = source.clone_with_span(match.span('spec'))
-        spec = [ir.RawSource(text=spec_source.string, source=spec_source)]
-    else:
-        spec = []
-    if match['contains']:
-        candidates = (match_procedure_binding, match_generic_binding)
-        contains = match_statement_candidates(source.clone_with_span(match.span('contains')), candidates, scope=typedef)
-    else:
-        contains = []
-    typedef._update(body=as_tuple(spec + contains))
-
-    return (
-        source.clone_with_span((0, match.span()[0])),
-        typedef,
-        source.clone_with_span((match.span()[1], len(source.string)))
-    )
-
-
-_re_proc_binding = re.compile(
-    (
-        r'^[ \t]*procedure'  # Match ``procedure keyword after optional white space
-        r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
-        r'(?:[ \t]*::)?'  # Optional `::` delimiter
-        r'[ \t]*'  # Some white space
-        r'(?P<bindings>'  # Beginning of bindings group
-        r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Binding name with optional binding name specifier (via ``=>``)
-        r'(?:[ \t]*,[ \t]*' # Optional group for additional bindings, separated by ``,``
-        r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Additional binding name with optional binding name specifier
-        r')*'  # End of optional group for additional bindings
-        r')'  # End of bindings group
-    ),
-    re.IGNORECASE
-)
-"""
-Pattern to match type-bound procedure declarations within the
-typebound-procedures-part of a derived type definition via ``procedure...`` keyword.
-
-It matches the full binding-name, i.e., including any optional rename such as
-``name => bind_name``.
-"""
-
-
-def match_procedure_binding(source, scope):
-    """
-    Search for procedure bindings in derived types
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        The source file object containing a single-line string to match
-    scope : :any:`Scope`
-        The enclosing scope a matched object is embedded into
-
-    Returns
-    -------
-    :any:`ProcedureDeclaration` or NoneType
-        The matched object or `None`
-    """
-    match = _re_proc_binding.search(source.string)
-    if not match:
-        return None
-    bindings = match['bindings'].replace(' ', '').split(',')
-    bindings = [s.split('=>') for s in bindings]
-
-    symbols = []
-    for s in bindings:
-        if len(s) == 1:
-            type_ = SymbolAttributes(ProcedureType(name=s[0]))
-            symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
         else:
-            type_ = SymbolAttributes(ProcedureType(name=s[1]))
-            initial = sym.Variable(name=s[1], type=type_, scope=scope.parent)
-            symbols += [sym.Variable(name=s[0], type=type_.clone(initial=initial), scope=scope)]
-    return ir.ProcedureDeclaration(symbols=symbols, source=source.clone_with_span(match.span()))
+            spec = None
+
+        if match['contains']:
+            contains = [ir.Intrinsic(text='CONTAINS')]
+            span = match.span('contains')
+            span = (span[0] + 8, span[1])  # Skip the "contains" keyword as it has been added
+            candidates = ['SubroutineFunctionPattern']
+            contains += self.match_block_candidates(
+                reader.reader_from_sanitized_span(span, include_padding=True),
+                candidates, parser_classes=parser_classes, scope=module
+            )
+        else:
+            contains = None
+
+        module.__init__(  # pylint: disable=unnecessary-dunder-call
+            name=module.name, spec=spec, contains=contains, parent=module.parent,
+            source=module.source, symbol_attrs=module.symbol_attrs, incomplete=True
+        )
+
+        if match.span()[0] > 0:
+            pre = reader.reader_from_sanitized_span((0, match.span()[0]), include_padding=True)
+        else:
+            pre = None
+        return pre, module, reader.reader_from_sanitized_span((match.span()[1], None), include_padding=True)
 
 
-_re_generic_binding = re.compile(
-    (
-        r'^[ \t]*generic'  # Match ``generic`` keyword after optional white space
-        r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
-        r'(?:[ \t]*::)?'  # Optional `::` delimiter
-        r'[ \t]*'  # Some white space
-        r'(?P<name>\w+)'  # Binding name
-        r'[ \t]*=>[ \t]*'  # Separator ``=>``
-        r'(?P<bindings>\w+(?:[ \t]*,[ \t]*\w+)*)*'  # Match binding name list
-    ),
-    re.IGNORECASE
-)
-"""
-Pattern to match generic name declarations for type-bound procedures within the
-typebound-procedures part of a derived type definition via ``generic...`` keyword.
-
-It matches the generic name and the binding name list
-"""
-
-
-def match_generic_binding(source, scope):
+class SubroutineFunctionPattern(Pattern):
     """
-    Search for generic bindings in derived types
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        The source file object containing a single-line string to match
-    scope : :any:`Scope`
-        The enclosing scope a matched object is embedded into
-
-    Returns
-    -------
-    :any:`ProcedureDeclaration` or NoneType
-        The matched object or `None`
+    Pattern to match :any:`Subroutine` objects
     """
-    match = _re_generic_binding.search(source.string)
-    if not match:
-        return None
-    bindings = match['bindings'].replace(' ', '').split(',')
-    name = match['name']
-    type_ = SymbolAttributes(ProcedureType(name=name, is_generic=True), bind_names=as_tuple(bindings))
-    symbols = (sym.Variable(name=name, type=type_, scope=scope),)
-    return ir.ProcedureDeclaration(symbols=symbols, generic=True, source=source.clone_with_span(match.span()))
+
+    parser_class = RegexParserClass.ProgramUnit
+
+    def __init__(self):
+        super().__init__(
+            r'^[ \t\w()]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
+            r'(?P<spec>.*?)'
+            r'(?P<contains>^contains\n'
+            r'[ \t\w()]*?(?:subroutine|function).*?'
+            r'^end[ \t]*(?:subroutine|function)\b(?:[ \t]\w+)?\n)?'
+            r'^end[ \t]*(?P=keyword)\b(?:[ \t](?P=name))?',
+            re.IGNORECASE | re.DOTALL | re.MULTILINE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`Subroutine`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        from loki import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
+        match = self.pattern.search(reader.sanitized_string)
+        if not match:
+            return None, None, reader
+
+        # Check if the Subroutine node has been created before by looking it up in the scope
+        routine = None
+        name = match['name']
+        if scope is not None and name in scope.symbol_attrs:
+            proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
+            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+                routine = proc_type.dtype.procedure
+
+        if routine is None:
+            is_function = match['keyword'].lower() == 'function'
+            source = reader.source_from_sanitized_span(match.span())
+            routine = Subroutine(
+                name=name, args=(), is_function=is_function, source=source, parent=scope
+            )
+
+        if match['spec']:
+            statement_candidates = ('ImportPattern', 'CallPattern')
+            spec = self.match_statement_candidates(
+                reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
+                statement_candidates, parser_classes=parser_classes, scope=routine
+            )
+        else:
+            spec = None
+
+        if match['contains']:
+            contains = [ir.Intrinsic(text='CONTAINS')]
+            span = match.span('contains')
+            span = (span[0] + 8, span[1])  # Skip the "contains" keyword as it has been added
+            block_children = ['SubroutineFunctionPattern']
+            contains += self.match_block_candidates(
+                reader.reader_from_sanitized_span(span), block_children, parser_classes=parser_classes, scope=routine
+            )
+        else:
+            contains = None
+
+        routine.__init__(  # pylint: disable=unnecessary-dunder-call
+            name=routine.name, args=routine._dummies, is_function=routine.is_function,
+            spec=spec, contains=contains, parent=routine.parent, source=routine.source,
+            symbol_attrs=routine.symbol_attrs, incomplete=True
+        )
+
+        if match.span()[0] > 0:
+            pre = reader.reader_from_sanitized_span((0, match.span()[0]), include_padding=True)
+        else:
+            pre = None
+        return pre, routine, reader.reader_from_sanitized_span((match.span()[1], None), include_padding=True)
 
 
-_re_imports = re.compile(
-    r'^ *use +(?P<module>\w+)(?: *, *(?P<only>only *:)?'  # The use statement including an optional ``only``
-    r'(?P<imports>(?: *\w+(?: *=> *\w+)? *,?)+))?',  # The optional list of names (with optional renames)
-    re.IGNORECASE
-)
-"""Pattern to match Fortran imports (``USE`` statements)"""
-
-
-def match_import(source, scope):
+class TypedefPattern(Pattern):
     """
-    Search for imports via Fortran's ``USE`` statement
-
-    Parameters
-    ----------
-    source : :any:`Source`
-        The source file object containing a single-line string to match
-    scope : :any:`Scope`
-        The enclosing scope a matched object is embedded into
-
-    Returns
-    -------
-    :any:`Import` or NoneType
-        The matched object or `None`
+    Pattern to match :any:`TypeDef` objects
     """
-    match = _re_imports.search(source.string)
-    if not match:
-        return None
-    module = match['module']
 
-    type_ = SymbolAttributes(BasicType.DEFERRED, imported=True)
-    if match['imports']:
-        imports = match['imports'].replace(' ', '').split(',')
-        imports = [s.split('=>') for s in imports]
-        if match['only']:
+    parser_class = RegexParserClass.TypeDef
+
+    def __init__(self):
+        super().__init__(
+            r'type(?:[ \t]*,[ \t]*[\w\(\)]+)*?'  # type keyword with optional parameters
+            r'(?:[ \t]*::[ \t]*|[ \t]+)'  # optional `::` separator or white space
+            r'(?P<name>\w+)\b.*?$'  # Type name
+            r'(?P<spec>.*?)'  # Type spec
+            r'(?P<contains>^contains\n.*?)?'  # Optional procedure bindings part (after ``contains`` keyword)
+            r'^end[ \t]*type\b(?:[ \t]+(?P=name))?',  # End keyword with optionally type name repeated
+            re.IGNORECASE | re.DOTALL | re.MULTILINE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`TypeDef`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        match = self.pattern.search(reader.sanitized_string)
+        if not match:
+            return None, None, reader
+
+        source = reader.source_from_sanitized_span(match.span())
+        typedef = ir.TypeDef(name=match['name'], body=(), parent=scope, source=source)
+
+        if match['spec'] and match['spec'].strip():
+            spec_source = reader.source_from_sanitized_span(match.span('spec'), include_padding=True)
+            spec = [ir.RawSource(text=spec_source.string, source=spec_source)]
+        else:
+            spec = []
+
+        if match['contains']:
+            contains = [ir.Intrinsic(text='CONTAINS')]
+            span = match.span('contains')
+            span = (span[0] + 8, span[1])  # Skip the "contains" keyword as it has been added
+
+            statement_candidates = ('ProcedureBindingPattern', 'GenericBindingPattern')
+            spec = self.match_statement_candidates(
+                reader.reader_from_sanitized_span(span, include_padding=True),
+                statement_candidates, parser_classes=parser_classes, scope=typedef
+            )
+        else:
+            contains = []
+        typedef._update(body=as_tuple(spec + contains))
+
+        if match.span()[0] > 0:
+            pre = reader.reader_from_sanitized_span((0, match.span()[0]), include_padding=True)
+        else:
+            pre = None
+        return pre, typedef, reader.reader_from_sanitized_span((match.span()[1], None), include_padding=True)
+
+
+class ProcedureBindingPattern(Pattern):
+    """
+    Pattern to match procedure bindings
+    """
+
+    parser_class = RegexParserClass.TypeDef
+
+    def __init__(self):
+        super().__init__(
+            r'^procedure\b'  # Match ``procedure`` keyword
+            r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
+            r'(?:[ \t]*::)?'  # Optional `::` delimiter
+            r'[ \t]*'  # Some white space
+            r'(?P<bindings>'  # Beginning of bindings group
+            r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Binding name with optional binding name specifier (via ``=>``)
+            r'(?:[ \t]*,[ \t]*' # Optional group for additional bindings, separated by ``,``
+            r'\w+(?:[ \t]*=>[ \t]*\w+)?'  # Additional binding name with optional binding name specifier
+            r')*'  # End of optional group for additional bindings
+            r')',  # End of bindings group
+            re.IGNORECASE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a procedure binding
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+        if not match:
+            return None
+
+        bindings = match['bindings'].replace(' ', '').split(',')
+        bindings = [s.split('=>') for s in bindings]
+
+        symbols = []
+        for s in bindings:
+            if len(s) == 1:
+                type_ = SymbolAttributes(ProcedureType(name=s[0]))
+                symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
+            else:
+                type_ = SymbolAttributes(ProcedureType(name=s[1]))
+                initial = sym.Variable(name=s[1], type=type_, scope=scope.parent)
+                symbols += [sym.Variable(name=s[0], type=type_.clone(initial=initial), scope=scope)]
+
+        return ir.ProcedureDeclaration(symbols=symbols, source=reader.source_from_current_line)
+
+
+class GenericBindingPattern(Pattern):
+    """
+    Pattern to match generic bindings
+    """
+
+    parser_class = RegexParserClass.TypeDef
+
+    def __init__(self):
+        super().__init__(
+            r'^generic'  # Match ``generic`` keyword
+            r'(?P<attributes>(?:[ \t]*,[ \t]*\w+)*?)'  # Optional attributes
+            r'(?:[ \t]*::)?'  # Optional `::` delimiter
+            r'[ \t]*'  # Some white space
+            r'(?P<name>\w+)'  # Binding name
+            r'[ \t]*=>[ \t]*'  # Separator ``=>``
+            r'(?P<bindings>\w+(?:[ \t]*,[ \t]*\w+)*)*',  # Match binding name list
+            re.IGNORECASE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a generic procedure binding
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+        if not match:
+            return None
+
+        bindings = match['bindings'].replace(' ', '').split(',')
+        name = match['name']
+        type_ = SymbolAttributes(ProcedureType(name=name, is_generic=True), bind_names=as_tuple(bindings))
+        symbols = (sym.Variable(name=name, type=type_, scope=scope),)
+        return ir.ProcedureDeclaration(symbols=symbols, generic=True, source=reader.source_from_current_line())
+
+
+class ImportPattern(Pattern):
+    """
+    Pattern to match :any:`Import` nodes
+    """
+
+    parser_class = RegexParserClass.Import
+
+    def __init__(self):
+        super().__init__(
+            r'^use +(?P<module>\w+)(?: *, *(?P<only>only *:)?'  # The use statement including an optional ``only``
+            r'(?P<imports>(?: *\w+(?: *=> *\w+)? *,?)+))?',  # The optional list of names (with optional renames)
+            re.IGNORECASE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`Import`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+        if not match:
+            return None
+
+        module = match['module']
+        type_ = SymbolAttributes(BasicType.DEFERRED, imported=True)
+        if match['imports']:
+            imports = match['imports'].replace(' ', '').split(',')
+            imports = [s.split('=>') for s in imports]
+            imports = [s for s in imports if s and s[0]]
+            if match['only']:
+                rename_list = None
+                symbols = []
+                for s in imports:
+                    if not s[0]:
+                        continue
+                    if len(s) == 1:
+                        symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
+                    else:
+                        symbols += [sym.Variable(name=s[0], type=type_.clone(use_name=s[1]), scope=scope)]
+            else:
+                rename_list = [
+                    (s[1], sym.Variable(name=s[0], type=type_.clone(use_name=s[1]), scope=scope))
+                    for s in imports
+                ]
+                symbols = None
+        else:
             rename_list = None
-            symbols = []
-            for s in imports:
-                if len(s) == 1:
-                    symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
-                else:
-                    symbols += [sym.Variable(name=s[0], type=type_.clone(use_name=s[1]), scope=scope)]
-        else:
-            rename_list = [
-                (s[1], sym.Variable(name=s[0], type=type_.clone(use_name=s[1]), scope=scope))
-                for s in imports
-            ]
             symbols = None
-    else:
-        rename_list = None
-        symbols = None
-    return ir.Import(module, symbols=symbols, rename_list=rename_list, source=source.clone_with_span(match.span()))
+
+        return ir.Import(
+            module, symbols=symbols, rename_list=rename_list,
+            source=reader.source_from_current_line()
+        )
+
+
+class CallPattern(Pattern):
+    """
+    Pattern to match :any:`CallStatement` nodes
+    """
+
+    parser_class = RegexParserClass.Call
+
+    def __init__(self):
+        super().__init__(
+            r'^(?P<conditional>if[ \t]*\(.*?\)[ \t]*)?'  # Optional inline-conditional preceeding the call
+            r'call[ \t]+(?P<routine>[\w_% ]+)',  # Call keyword followed by routine name
+            re.IGNORECASE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`CallStatement`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+        if not match:
+            return None
+
+        routine = match['routine'].replace(' ', '')
+        type_ = SymbolAttributes(ProcedureType(name=routine, is_function=False))
+        name = sym.Variable(name=routine, type=type_, scope=scope)
+        source = reader.source_from_current_line()
+        if match['conditional']:
+            span = match.span('conditional')
+            return [
+                ir.RawSource(text=match['conditional'], source=source.clone_with_span(span)),
+                ir.CallStatement(name=name, arguments=(), source=source.clone_with_span((span[1], None)))
+            ]
+        return ir.CallStatement(name=name, arguments=(), source=source)
+
+
+PATTERN_REGISTRY = {
+    name: globals()[name]() for name in dir()
+    if name.endswith('Pattern') and name != 'Pattern'
+}
+"""
+A global registry of all available patterns
+
+This exists to ensure every :any:`Pattern` implementation is only instantiated
+once to ensure the corresponding regular expressions are not compiled multiple times.
+"""

@@ -602,7 +602,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         call : :any:`CallStatement`
             Call to subroutine from which we hoist the column arrays.
         """
-        if call.not_active or not call.routine:
+        if call.not_active or call.routine is BasicType.DEFERRED:
             raise RuntimeError(
                 '[Loki] SingleColumnCoalescedTransform: Target kernel is not attached '
                 'to call in driver routine.'

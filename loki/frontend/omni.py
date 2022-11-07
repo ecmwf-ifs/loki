@@ -295,10 +295,16 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name').text
 
         # Check if the Subroutine node has been created before by looking it up in the scope
+        routine = None
         if scope is not None and name in scope.symbol_attrs:
             proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
             if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
-                return proc_type.dtype.procedure
+                routine = proc_type.dtype.procedure
+                if not routine._incomplete:
+                    # We return the existing object right away, unless it exists from a
+                    # previous incomplete parse for which we have to make sure we get a
+                    # full parse first
+                    return routine
 
         # Return type and dummy args
         ftype = self.type_map[o.find('name').attrib['type']]
@@ -313,11 +319,19 @@ class OMNI2IR(GenericVisitor):
             proc_type = proc_type.clone(prefix=None)
 
         # Instantiate the object
-        routine = Subroutine(
-            name=name, args=args, prefix=prefix, bind=None,
-            is_function=is_function, parent=scope,
-            ast=o, source=self.get_source(o)
-        )
+        if routine is None:
+            routine = Subroutine(
+                name=name, args=args, prefix=prefix, bind=None,
+                is_function=is_function, parent=scope,
+                ast=o, source=self.get_source(o)
+            )
+        else:
+            routine.__init__(  # pylint: disable=unnecessary-dunder-call
+                name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
+                contains=routine.contains, prefix=prefix, bind=None, is_function=is_function,
+                ast=o, source=self.get_source(o), parent=routine.parent, symbol_attrs=routine.symbol_attrs,
+                incomplete=routine._incomplete
+            )
 
         return routine
 

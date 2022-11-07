@@ -83,7 +83,7 @@ class ProgramUnit(Scope):
         self.register_in_parent_scope()
 
     @classmethod
-    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP, parent=None):
+    def from_source(cls, source, definitions=None, xmods=None, parser_classes=None, frontend=Frontend.FP, parent=None):
         """
         Instantiate an object derived from :any:`ProgramUnit` from raw source string
 
@@ -104,7 +104,7 @@ class ProgramUnit(Scope):
             The parent scope this module or subroutine is nested into
         """
         if frontend == Frontend.REGEX:
-            return cls.from_regex(raw_source=source, parent=parent)
+            return cls.from_regex(raw_source=source, parser_classes=parser_classes, parent=parent)
 
         if frontend == Frontend.OMNI:
             ast = parse_omni_source(source, xmods=xmods)
@@ -190,7 +190,7 @@ class ProgramUnit(Scope):
 
     @classmethod
     @abstractmethod
-    def from_regex(cls, raw_source, parent=None):
+    def from_regex(cls, raw_source, parser_classes=None, parent=None):
         """
         Create the :any:`ProgramUnit` object from source regex'ing.
 
@@ -230,6 +230,7 @@ class ProgramUnit(Scope):
         frontend = frontend_args.pop('frontend', Frontend.FP)
         definitions = frontend_args.get('definitions')
         xmods = frontend_args.get('xmods')
+        parser_classes = frontend_args.get('parser_classes')
 
         # If this object does not have a parent, we create a temporary parent scope
         # and make sure the node exists in the parent scope. This way, the existing
@@ -242,7 +243,8 @@ class ProgramUnit(Scope):
             self.register_in_parent_scope()
 
         ir_ = self.from_source(
-            self.source.string, frontend=frontend, definitions=definitions, xmods=xmods, parent=self.parent
+            self.source.string, frontend=frontend, definitions=definitions, xmods=xmods,
+            parser_classes=parser_classes, parent=self.parent
         )
         assert ir_ is self
 

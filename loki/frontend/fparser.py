@@ -1783,10 +1783,16 @@ class FParser2IR(GenericVisitor):
         name = name.name
 
         # Check if the Subroutine node has been created before by looking it up in the scope
+        routine = None
         if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
             proc_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
             if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
-                return (proc_type.dtype.procedure, proc_type.dtype.return_type)
+                routine = proc_type.dtype.procedure
+                if not routine._incomplete:
+                    # We return the existing object right away, unless it exists from a
+                    # previous incomplete parse for which we have to make sure we get a
+                    # full parse first
+                    return (routine, proc_type.dtype.return_type)
 
         # Build the dummy argument list
         if o.children[2] is None:
@@ -1800,10 +1806,19 @@ class FParser2IR(GenericVisitor):
 
         # Instantiate the object
         is_function = isinstance(o, Fortran2003.Function_Stmt)
-        routine = Subroutine(
-            name=name, args=args, prefix=prefix, bind=bind,
-            is_function=is_function, parent=kwargs['scope']
-        )
+        if routine is None:
+            routine = Subroutine(
+                name=name, args=args, prefix=prefix, bind=bind,
+                is_function=is_function, parent=kwargs['scope']
+            )
+        else:
+            routine.__init__(  # pylint: disable=unnecessary-dunder-call
+                name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
+                contains=routine.contains, prefix=prefix, bind=bind, is_function=is_function,
+                ast=routine._ast, source=routine._source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
+                incomplete=routine._incomplete
+            )
+
         return (routine, return_type)
 
     visit_Function_Stmt = visit_Subroutine_Stmt

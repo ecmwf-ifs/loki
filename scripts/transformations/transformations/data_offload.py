@@ -1,6 +1,6 @@
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
-    CallStatement, Pragma, Array, as_tuple, Transformer, warning
+    CallStatement, Pragma, Array, as_tuple, Transformer, warning, BasicType
 )
 
 
@@ -103,8 +103,8 @@ class DataOffloadTransformation(Transformation):
                 outargs = []
 
                 for call in calls:
-                    if not call.routine:
-                        warning(f'[Loki] Data offload: Routine {routine.name} not attached to call context' +
+                    if call.routine is BasicType.DEFERRED:
+                        warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched with ' +
                                 f'in {str(call.name).lower()}')
 
                         continue

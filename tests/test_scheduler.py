@@ -46,8 +46,8 @@ import pytest
 
 from loki import (
     Scheduler, SchedulerConfig, Item, DependencyTransformation, FP,
-    OFP, HAVE_FP, HAVE_OFP, Sourcefile, FindNodes, CallStatement,
-    fexprgen, Transformation, BasicType, CMakePlanner
+    OFP, HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
+    fexprgen, Transformation, BasicType, CMakePlanner, Subroutine
 )
 
 
@@ -306,6 +306,7 @@ def test_scheduler_definitions(here, config, frontend):
     scheduler = Scheduler(paths=projA, definitions=header['header_mod'],
                           includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverA')
+    scheduler.enrich()
 
     driver = scheduler.item_map['driverA'].routine
     call = FindNodes(CallStatement).visit(driver.body)[0]
@@ -476,7 +477,7 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
 
     # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
     call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelB'].routine.body)[1]
-    assert call.routine is not None
+    assert isinstance(call.routine, Subroutine)
     assert fexprgen(call.routine.arguments) == '(vector(:), matrix(:, :))'
 
     # Test callgraph visualisation
@@ -732,17 +733,110 @@ def test_scheduler_item(here):
     Test the basic regex accessors in :any:`Item` objects for fast dependency detection.
     """
     filepath = here/'sources/sourcefile_item.f90'
+    sourcefile = Sourcefile.from_file(filepath, frontend=REGEX)
 
-    item_a = Item(name='routine_a', path=filepath)
-    assert item_a._re_subroutine_calls == ('routine_b',)
-    assert not item_a._re_subroutine_members
+    item_a = Item(name='routine_a', source=sourcefile)
+    assert item_a.calls == ('routine_b',)
+    assert not item_a.members
 
-    item_module = Item(name='module_routine', path=filepath)
-    assert item_module._re_subroutine_calls == ('routine_b',)
-    assert not item_module._re_subroutine_members
+    item_module = Item(name='module_routine', source=sourcefile)
+    assert item_module.calls == ('routine_b',)
+    assert not item_module.members
 
-    item_b = Item(name='routine_b', path=filepath)
-    assert item_b._re_subroutine_calls == ('contained_c', 'routine_a')
-    assert 'contained_c' in item_b._re_subroutine_members
-    assert 'contained_d' in item_b._re_subroutine_members
+    item_b = Item(name='routine_b', source=sourcefile)
+    assert item_b.calls == ('contained_c', 'routine_a')
+    assert 'contained_c' in item_b.members
+    assert 'contained_d' in item_b.members
     assert item_b.children == ('routine_a',)
+
+
+@pytest.fixture(name='loki_69_dir')
+def fixture_loki_69_dir(here):
+    """
+    Fixture to write test file for LOKI-69 test.
+    """
+    fcode = """
+subroutine random_call_0(v_out,v_in,v_inout)
+implicit none
+
+    real(kind=jprb),intent(in)  :: v_in
+    real(kind=jprb),intent(out)  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+
+end subroutine random_call_0
+
+!subroutine random_call_1(v_out,v_in,v_inout)
+!implicit none
+!
+!  real(kind=jprb),intent(in)  :: v_in
+!  real(kind=jprb),intent(out)  :: v_out
+!  real(kind=jprb),intent(inout)  :: v_inout
+!
+!
+!end subroutine random_call_1
+
+subroutine random_call_2(v_out,v_in,v_inout)
+implicit none
+
+    real(kind=jprb),intent(in)  :: v_in
+    real(kind=jprb),intent(out)  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+
+end subroutine random_call_2
+
+subroutine test(v_out,v_in,v_inout,some_logical)
+implicit none
+
+    real(kind=jprb),intent(in   )  :: v_in
+    real(kind=jprb),intent(out  )  :: v_out
+    real(kind=jprb),intent(inout)  :: v_inout
+
+    logical,intent(in)             :: some_logical
+
+    v_inout = 0._jprb
+    if(some_logical)then
+        call random_call_0(v_out,v_in,v_inout)
+    endif
+
+    if(some_logical) call random_call_2
+
+end subroutine test
+    """.strip()
+
+    dirname = here/'loki69'
+    dirname.mkdir(exist_ok=True)
+    filename = dirname/'test.F90'
+    filename.write_text(fcode)
+    yield dirname
+    try:
+        filename.unlink()
+        dirname.rmdir()
+    except FileNotFoundError:
+        pass
+
+
+def test_scheduler_loki_69(loki_69_dir):
+    """
+    Test compliance of scheduler with edge cases reported in LOKI-69.
+    """
+    config = {
+        'default': {
+            'expand': True,
+            'strict': True,
+        },
+    }
+
+    scheduler = Scheduler(paths=loki_69_dir, config=config)
+    assert sorted(scheduler.obj_map.keys()) == ['random_call_0', 'random_call_2', 'test']
+    assert 'random_call_1' not in scheduler.obj_map
+    scheduler.populate('test')
+
+    children_map = {
+        'test': ('random_call_0', 'random_call_2'),
+        'random_call_0': (),
+        'random_call_2': ()
+    }
+    assert len(scheduler.items) == len(children_map)
+    assert all(item.children == children_map[item.name] for item in scheduler.items)

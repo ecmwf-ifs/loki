@@ -11,7 +11,7 @@ from collections import defaultdict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable, SymbolAttributes,
-    RangeIndex, as_tuple
+    RangeIndex, as_tuple, BasicType
 )
 
 
@@ -81,12 +81,12 @@ class DerivedTypeArgumentsTransformation(Transformation):
         """
         call_mapper = {}
         for call in FindNodes(CallStatement).visit(caller.body):
-            if not call.not_active and call.routine:
+            if not call.not_active and call.routine is not BasicType.DEFERRED:
                 candidates = self._derived_type_arguments(call.routine)
 
                 # Simultaneously walk caller and subroutine arguments
                 new_arguments = list(call.arguments)
-                for d_arg, k_arg in zip(call.arguments, call.routine.arguments):
+                for k_arg, d_arg in call.arg_iter():
                     if k_arg in candidates:
                         # Found derived-type argument, unroll according to candidate map
                         new_args = []
