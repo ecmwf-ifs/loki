@@ -1,12 +1,13 @@
 from pathlib import Path
 from collections import deque, OrderedDict
 import networkx as nx
+from codetiming import Timer
 
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
-from loki.tools import as_tuple, CaseInsensitiveDict, timeit
-from loki.logging import info, warning, debug, INFO, PERF
+from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.logging import info, perf, warning, debug
 from loki.bulk.item import ProcedureBindingItem, SubroutineItem
 
 
@@ -153,7 +154,7 @@ class Scheduler:
             # Attach interprocedural call-tree information
             self._enrich()
 
-    @timeit(log_level=PERF)
+    @Timer(logger=info, text=lambda s: f'[Loki::Scheduler] Performed initial source scan in {s:.2f}s')
     def _discover(self):
         # Scan all source paths and create light-weight `Sourcefile` objects for each file.
         frontend_args = {
@@ -300,7 +301,7 @@ class Scheduler:
                 raise RuntimeError(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
         return candidates[0]
 
-    @timeit(log_level=PERF)
+    @Timer(logger=perf, text=lambda s: f'[Loki::Scheduler] Populated initial call tree in {s:.2f}s')
     def _populate(self, routines):
         """
         Populate the callgraph of this scheduler through automatic expansion of
@@ -350,7 +351,7 @@ class Scheduler:
 
                     self.item_graph.add_edge(item, child)
 
-    @timeit(log_level=INFO)
+    @Timer(logger=info, text=lambda s: f'[Loki::Scheduler] Performed full source parse in {s:.2f}s')
     def _parse_items(self):
         """
         Prepare processing by triggering a full parse of the items in
@@ -360,7 +361,7 @@ class Scheduler:
         for item in nx.topological_sort(self.item_graph):
             item.source.make_complete(**self.build_args)
 
-    @timeit(log_level=PERF)
+    @Timer(logger=perf, text=lambda s: f'[Loki::Scheduler] Enriched call tree in {s:.2f}s')
     def _enrich(self):
         """
         Enrich subroutine calls for inter-procedural transformations
@@ -384,7 +385,6 @@ class Scheduler:
                 self.obj_map[lookup_name].make_complete(**self.build_args)
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
-    @timeit(log_level=INFO, getter=lambda x: str(x['transformation'].__class__.__name__))
     def process(self, transformation, reverse=False):
         """
         Process all enqueued source modules and routines with the
@@ -393,17 +393,23 @@ class Scheduler:
         always processed before their target :any:`Subroutine`.
         """
 
-        traversal = nx.topological_sort(self.item_graph)
-        if reverse:
-            traversal = reversed(list(traversal))
+        trafo_name = transformation.__class__.__name__
+        logtext = lambda s: f'[Loki::Scheduler] Applied transformation <{trafo_name}> in {s:.2f}s'
+        with Timer(logger=info, text=logtext) as t:
 
-        for item in traversal:
-            if not isinstance(item, SubroutineItem):
-                continue
+            traversal = nx.topological_sort(self.item_graph)
+            if reverse:
+                traversal = reversed(list(traversal))
 
-            # Process work item with appropriate kernel
-            transformation.apply(item.source, role=item.role, mode=item.mode,
-                                 item=item, targets=item.targets)
+            for item in traversal:
+                if not isinstance(item, SubroutineItem):
+                    continue
+
+                # Process work item with appropriate kernel
+                transformation.apply(
+                    item.source, role=item.role, mode=item.mode,
+                    item=item, targets=item.targets
+                )
 
     def callgraph(self, path):
         """
@@ -463,7 +469,7 @@ class Scheduler:
         except gviz.ExecutableNotFound as e:
             warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')
 
-    @timeit(log_level=PERF)
+    @Timer(logger=perf, text=lambda s: f'[Loki::Scheduler] Wrote CMake plan file in {s:.2f}s')
     def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
         """
         Generate the "plan file", a CMake file defining three lists
