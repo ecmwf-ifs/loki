@@ -164,7 +164,6 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend,
                           definitions=definitions, **build_args)
-    scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
@@ -318,8 +317,7 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
 
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, frontend=frontend)
-    scheduler.populate(routines=config.routines.keys())
+    scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False)
 
     # Construct the transformation plan as a set of CMake lists of source files
     scheduler.write_cmake_plan(filepath=plan_file, mode=mode, buildpath=build, rootpath=root)
@@ -363,7 +361,6 @@ def ecphys(mode, config, header, source, build, frontend):
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
-    scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())

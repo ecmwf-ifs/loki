@@ -104,6 +104,9 @@ class Scheduler:
         the OMNI frontend parse. If set, this **replaces** (!)
         :data:`includes`, otherwise :data:`omni_includes` defaults to the
         value of :data:`includes`.
+    full_parse: bool, optional
+        Flag indicating whether a full parse of all sourcefiles is required.
+        By default a full parse is executed, use this flag to suppress.
     frontend : :any:`Frontend`, optional
         Frontend to use when parsing source files (default :any:`FP`).
     """
@@ -113,7 +116,7 @@ class Scheduler:
 
     def __init__(self, paths, config=None, preprocess=False, includes=None,
                  defines=None, definitions=None, xmods=None, omni_includes=None,
-                 frontend=FP):
+                 full_parse=True, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -141,6 +144,14 @@ class Scheduler:
         self.item_map = {}
 
         self._discover()
+
+        self._populate(routines=self.config.routines.keys())
+
+        if full_parse:
+            self._parse_items()
+
+            # Attach interprocedural call-tree information
+            self._enrich()
 
     @timeit(log_level=PERF)
     def _discover(self):
@@ -290,7 +301,7 @@ class Scheduler:
         return candidates[0]
 
     @timeit(log_level=PERF)
-    def populate(self, routines):
+    def _populate(self, routines):
         """
         Populate the callgraph of this scheduler through automatic expansion of
         subroutine-call induced dependencies from a set of starting routines.
@@ -339,15 +350,22 @@ class Scheduler:
 
                     self.item_graph.add_edge(item, child)
 
+    @timeit(log_level=INFO)
+    def _parse_items(self):
+        """
+        Prepare processing by triggering a full parse of the items in
+        the execution plan and enriching subroutine calls.
+        """
+        # Force the parsing of the routines
+        for item in nx.topological_sort(self.item_graph):
+            item.source.make_complete(**self.build_args)
+
     @timeit(log_level=PERF)
-    def enrich(self):
+    def _enrich(self):
         """
         Enrich subroutine calls for inter-procedural transformations
         """
         # Force the parsing of the routines in the call tree
-        for item in self.item_graph:
-            item.source.make_complete(**self.build_args)
-
         for item in self.item_graph:
             if not isinstance(item, SubroutineItem):
                 continue
@@ -374,8 +392,6 @@ class Scheduler:
         order, which ensures that :any:`CallStatement` objects are
         always processed before their target :any:`Subroutine`.
         """
-        # Enrich routines in graph with type info
-        self.enrich()
 
         traversal = nx.topological_sort(self.item_graph)
         if reverse:
