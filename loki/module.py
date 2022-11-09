@@ -260,7 +260,8 @@ class Module(ProgramUnit):
         if self.contains:
             for node in self.contains.body:
                 if isinstance(node, Subroutine):
-                    self.symbol_attrs[node.name] = SymbolAttributes(ProcedureType(procedure=node))
+                    node.parent = self
+                    node.register_in_parent_scope()
 
                 if isinstance(node, Scope):
                     node.parent = self
