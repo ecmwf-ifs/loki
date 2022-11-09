@@ -685,7 +685,7 @@ class AttachScopesMapper(LokiIdentityMapper):
 
         # If we cannot resolve scope or type of an expression, we mark it as deferred
         if not new_expr.scope and not new_expr.type:
-            new_expr = new_expr.clone(type=SymbolAttributes(dtype=BasicType.DEFERRED))
+            new_expr.type = SymbolAttributes(dtype=BasicType.DEFERRED)
 
         return map_fn(new_expr, *args, **kwargs)
 

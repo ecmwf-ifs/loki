@@ -22,6 +22,7 @@ def test_pickle_expression():
     """
     Ensure pickle-replication of Pymbolic-backed expressions.
     """
+    # pylint: disable=no-member
 
     # Ensure basic variable components are picklable
     t = SymbolAttributes(BasicType.INTEGER)

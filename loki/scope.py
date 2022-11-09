@@ -29,7 +29,7 @@ class SymbolTable(dict):
         Respect the case of symbol names in lookups (default: `False`).
     """
 
-    def __new__(cls, case_sensitive=False, *args, **kwargs):
+    def __new__(cls, *args, case_sensitive=False, **kwargs):
         """
         Set the lookup function on object creation, so that they are safe to pickle
         """
