@@ -16,7 +16,7 @@ from loki import (
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, FortranCTransformation
+    DependencyTransformation, FortranCTransformation, FileWriteTransformation
 )
 
 # pylint: disable=wrong-import-order
@@ -211,10 +211,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    for item in scheduler.items:
-        suffix = f'.{mode}.F90'
-        sourcefile = item.source
-        sourcefile.write(path=Path(out_path)/sourcefile.path.with_suffix(suffix).name)
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, suffix=mode))
 
 
 @cli.command()
@@ -402,22 +399,8 @@ def ecphys(mode, config, header, source, build, frontend):
                                           suffix=f'_{mode.upper()}')
     scheduler.process(transformation=dependency)
 
-    class FileWriteTransformation(Transformation):
-        """
-        Write out modified source files to a select build directory
-        """
-        def __init__(self, builddir=None):
-            self.builddir = Path(builddir)
-
-        def transform_file(self, sourcefile, **kwargs):
-            item = kwargs.get('item', None)
-
-            sourcepath = Path(item.path).with_suffix(f'.{mode.lower()}.F90')
-            if self.builddir is not None:
-                sourcepath = self.builddir/sourcepath.name
-            sourcefile.write(path=sourcepath)
-
-    scheduler.process(transformation=FileWriteTransformation(builddir=build))
+    # Write out all modified source files into the build directory
+    scheduler.process(transformation=FileWriteTransformation(builddir=build, suffix=mode))
 
 
 if __name__ == "__main__":
