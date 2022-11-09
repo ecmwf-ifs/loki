@@ -121,8 +121,10 @@ def test_scheduler_graph_simple(here, config, frontend):
     """
     projA = here/'sources/projA'
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate('driverA')
+    scheduler = Scheduler(
+        paths=projA, includes=projA/'include', config=config,
+        seed_routines=['driverA'], frontend=frontend
+    )
 
     expected_items = [
         'driverA_mod#driverA', 'kernelA_mod#kernelA',
@@ -176,7 +178,6 @@ def test_scheduler_graph_partial(here, config, frontend):
     ]
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate(scheduler.config.routines)
 
     expected_items = [
         'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2', '#another_l1', '#another_l2'
@@ -220,7 +221,6 @@ def test_scheduler_graph_config_file(here, frontend):
     config = projA/'scheduler_partial.config'
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate(scheduler.config.routines)
 
     expected_items = ['compute_l1_mod#compute_l1', '#another_l1', '#another_l2']
     expected_dependencies = [('#another_l1', '#another_l2')]
@@ -260,8 +260,10 @@ def test_scheduler_graph_blocked(here, config, frontend):
 
     config['default']['block'] = ['another_l1']
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate('driverA')
+    scheduler = Scheduler(
+        paths=projA, includes=projA/'include', config=config,
+        seed_routines=['driverA'], frontend=frontend
+    )
 
     expected_items = [
         'driverA_mod#driverA', 'kernelA_mod#kernelA', 'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2'
@@ -311,10 +313,10 @@ def test_scheduler_definitions(here, config, frontend):
 
     header = Sourcefile.from_file(projA/'module/header_mod.f90', frontend=frontend)
 
-    scheduler = Scheduler(paths=projA, definitions=header['header_mod'],
-                          includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate('driverA')
-    scheduler.enrich()
+    scheduler = Scheduler(
+        paths=projA, definitions=header['header_mod'], includes=projA/'include',
+        config=config, seed_routines=['driverA'], frontend=frontend
+    )
 
     driver = scheduler.item_map['drivera_mod#drivera'].routine
     call = FindNodes(CallStatement).visit(driver.body)[0]
@@ -350,7 +352,6 @@ def test_scheduler_process(here, config, frontend):
     ]
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate([r['name'] for r in config['routine']])
 
     class AppendRole(Transformation):
         """
@@ -380,8 +381,10 @@ def test_scheduler_graph_multiple_combined(here, config, frontend):
     projA = here/'sources/projA'
     projB = here/'sources/projB'
 
-    scheduler = Scheduler(paths=[projA, projB], includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate('driverB')
+    scheduler = Scheduler(
+        paths=[projA, projB], includes=projA/'include', config=config,
+        seed_routines=['driverB'], frontend=frontend
+    )
 
     expected_items = [
         'driverB_mod#driverB', 'kernelB_mod#kernelB',
@@ -438,8 +441,10 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
         },
     ]
 
-    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA, frontend=frontend)
-    schedulerA.populate('driverB')
+    schedulerA = Scheduler(
+        paths=[projA, projB], includes=projA/'include', config=configA,
+        seed_routines=['driverB'], frontend=frontend
+    )
 
     expected_itemsA = [
         'driverB_mod#driverB', 'kernelB_mod#kernelB',
@@ -477,16 +482,15 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
         },
     ]
 
-    schedulerB = Scheduler(paths=projB, config=configB, frontend=frontend)
-    schedulerB.populate('ext_driver')
+    schedulerB = Scheduler(
+        paths=projB, config=configB, seed_routines=['ext_driver'],
+        frontend=frontend
+    )
 
     # TODO: Technically we should check that the role=kernel has been honoured in B
     assert 'ext_driver_mod#ext_driver' in schedulerB.items
     assert 'ext_kernel_mod#ext_kernel' in schedulerB.items
     assert ('ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel') in schedulerB.dependencies
-
-    # Enforce type enrichment to get call context
-    schedulerA.enrich()
 
     # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
     call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelb_mod#kernelb'].routine.body)[1]
@@ -519,8 +523,10 @@ def test_scheduler_module_dependency(here, config, frontend):
     projA = here/'sources/projA'
     projC = here/'sources/projC'
 
-    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate('driverC')
+    scheduler = Scheduler(
+        paths=[projA, projC], includes=projA/'include', config=config,
+        seed_routines=['driverC'], frontend=frontend
+    )
 
     expected_items = [
         'driverC_mod#driverC', 'kernelC_mod#kernelC',
@@ -555,8 +561,10 @@ def test_scheduler_module_dependencies_unqualified(here, config, frontend):
     projA = here/'sources/projA'
     projC = here/'sources/projC'
 
-    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate('driverD')
+    scheduler = Scheduler(
+        paths=[projA, projC], includes=projA/'include', config=config,
+        seed_routines=['driverD'], frontend=frontend
+    )
 
     expected_items = [
         'driverD_mod#driverD', 'kernelD_mod#kernelD',
@@ -590,13 +598,17 @@ def test_scheduler_missing_files(here, config, frontend):
     projA = here/'sources/projA'
 
     config['default']['strict'] = True
-    scheduler = Scheduler(paths=[projA], includes=projA/'include', config=config, frontend=frontend)
     with pytest.raises(FileNotFoundError):
-        scheduler.populate('driverC')
+        scheduler = Scheduler(
+            paths=[projA], includes=projA/'include', config=config,
+            seed_routines=['driverC'], frontend=frontend
+        )
 
     config['default']['strict'] = False
-    scheduler = Scheduler(paths=[projA], includes=projA/'include', config=config, frontend=frontend)
-    scheduler.populate('driverC')
+    scheduler = Scheduler(
+        paths=[projA], includes=projA/'include', config=config,
+        seed_routines=['driverC'], frontend=frontend
+    )
 
     expected_items = [
         'driverC_mod#driverC', 'kernelC_mod#kernelC',
@@ -643,10 +655,8 @@ def test_scheduler_dependencies_ignore(here, frontend):
     })
 
     schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA, frontend=frontend)
-    schedulerA.populate(routines=configA.routines.keys())
 
     schedulerB = Scheduler(paths=projB, includes=projB/'include', config=configB, frontend=frontend)
-    schedulerB.populate(routines=configB.routines.keys())
 
     assert all(n in schedulerA.items for n in [
         'driverB_mod#driverB', 'kernelB_mod#kernelB',
@@ -701,8 +711,10 @@ def test_scheduler_cmake_planner(here, frontend):
     # Populate the scheduler
     # (this is the same as SchedulerA in test_scheduler_dependencies_ignore, so no need to
     # check scheduler set-up itself)
-    scheduler = Scheduler(paths=[proj_a, proj_b], includes=proj_a/'include', config=config, frontend=frontend)
-    scheduler.populate(routines=config.routines.keys())
+    scheduler = Scheduler(
+        paths=[proj_a, proj_b], includes=proj_a/'include',
+        config=config, frontend=frontend
+    )
 
     # Apply the transformation
     builddir = here/'scheduler_cmake_planner_dummy_dir'
@@ -889,10 +901,9 @@ def test_scheduler_loki_69(loki_69_dir):
         },
     }
 
-    scheduler = Scheduler(paths=loki_69_dir, config=config)
+    scheduler = Scheduler(paths=loki_69_dir, seed_routines=['test'], config=config)
     assert sorted(scheduler.obj_map.keys()) == ['#random_call_0', '#random_call_2', '#test']
     assert '#random_call_1' not in scheduler.obj_map
-    scheduler.populate('test')
 
     children_map = {
         '#test': ('random_call_0', 'random_call_2'),
@@ -913,8 +924,7 @@ def test_scheduler_scopes(here, config, frontend):
     """
     proj = here/'sources/projScopes'
 
-    scheduler = Scheduler(paths=proj, config=config, frontend=frontend)
-    scheduler.populate('driver')
+    scheduler = Scheduler(paths=proj, seed_routines=['driver'], config=config, frontend=frontend)
 
     expected_items = {
         '#driver', 'kernel1_mod#kernel', 'kernel1_impl#kernel_impl',
@@ -1104,8 +1114,10 @@ def test_scheduler_typebound(here, config, frontend):
     """
     proj = here/'sources/projTypeBound'
 
-    scheduler = Scheduler(paths=proj, config=config, frontend=frontend)
-    scheduler.populate('driver')
+    scheduler = Scheduler(
+        paths=proj, seed_routines=['driver'], config=config,
+        full_parse=False, frontend=frontend
+    )
 
     expected_items = {
         '#driver',
@@ -1192,8 +1204,10 @@ def test_scheduler_typebound_ignore(here, config, frontend):
         }
     ]
 
-    scheduler = Scheduler(paths=proj, config=my_config, frontend=frontend)
-    scheduler.populate('driver')
+    scheduler = Scheduler(
+        paths=proj, seed_routines=['driver'], config=my_config,
+        full_parse=False, frontend=frontend
+    )
 
     expected_items = {
         '#driver',

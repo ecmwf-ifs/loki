@@ -88,6 +88,9 @@ class Scheduler:
         List of paths to search for automated source file detection.
     config : dict or str, optional
         Configuration dict or path to scheduler configuration file
+    seed_routines : list of str, optional
+        Names of routines from which to populate the callgraph initially.
+        If not provided, these will be inferred from the given config.
     preprocess : bool, optional
         Flag to trigger CPP preprocessing (by default `False`).
     includes : list of str, optional
@@ -115,9 +118,9 @@ class Scheduler:
     # TODO: Should be user-definable!
     source_suffixes = ['.f90', '.F90', '.f', '.F']
 
-    def __init__(self, paths, config=None, preprocess=False, includes=None,
-                 defines=None, definitions=None, xmods=None, omni_includes=None,
-                 full_parse=True, frontend=FP):
+    def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
+                 includes=None, defines=None, definitions=None, xmods=None,
+                 omni_includes=None, full_parse=True, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -146,7 +149,9 @@ class Scheduler:
 
         self._discover()
 
-        self._populate(routines=self.config.routines.keys())
+        if not seed_routines:
+            seed_routines = self.config.routines.keys()
+        self._populate(routines=seed_routines)
 
         if full_parse:
             self._parse_items()
