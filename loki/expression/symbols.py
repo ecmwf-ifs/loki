@@ -953,7 +953,7 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
         except ValueError:
             return super().__ge__(other)
 
-    init_arg_names = ['value', 'kind']
+    init_arg_names = ('value', 'kind')
 
     def __getinitargs__(self):
         return (self.value, self.kind)
@@ -1023,7 +1023,7 @@ class IntLiteral(ExprMetadataMixin, _Literal):
             return self.value >= other
         return super().__ge__(other)
 
-    init_arg_names = ['value', 'kind']
+    init_arg_names = ('value', 'kind')
 
     def __getinitargs__(self):
         return (self.value, self.kind)
@@ -1055,7 +1055,7 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
         self.value = value.lower() in ('true', '.true.')
         super().__init__(**kwargs)
 
-    init_arg_names = ['value']
+    init_arg_names = ('value', )
 
     def __getinitargs__(self):
         return (self.value, )
@@ -1092,7 +1092,7 @@ class StringLiteral(ExprMetadataMixin, _Literal):
             return self.value == other
         return False
 
-    init_arg_names = ['value']
+    init_arg_names = ('value', )
 
     def __getinitargs__(self):
         return (self.value, )
@@ -1117,7 +1117,7 @@ class IntrinsicLiteral(ExprMetadataMixin, _Literal):
         self.value = value
         super().__init__(**kwargs)
 
-    init_arg_names = ['value']
+    init_arg_names = ('value', )
 
     def __getinitargs__(self):
         return (self.value, )
