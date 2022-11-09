@@ -1,16 +1,17 @@
 """
 Preprocessing utilities for frontends.
 """
+from codetiming import Timer
+from collections import defaultdict, OrderedDict
+from pathlib import Path
 import io
 import re
-import pickle
-from pathlib import Path
-from collections import defaultdict, OrderedDict
 import pcpp
+import pickle
 
-from loki.logging import debug, DEBUG
+from loki.logging import debug, perf
 from loki.config import config
-from loki.tools import as_tuple, gettempdir, filehash, timeit
+from loki.tools import as_tuple, gettempdir, filehash
 from loki.visitors import FindNodes
 from loki.ir import VariableDeclaration, Intrinsic
 from loki.frontend.util import OMNI, OFP, FP, REGEX
@@ -89,7 +90,7 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     return s.getvalue()
 
 
-@timeit(log_level=DEBUG)
+@Timer(logger=perf, text=lambda s: f'[Loki::Frontend] Executed sanitize_input in {s:.2f}s')
 def sanitize_input(source, frontend):
     """
     Apply internal regex-based sanitisation rules to filter out known

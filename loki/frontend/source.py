@@ -2,6 +2,7 @@
 Implementation of :any:`Source` and adjacent utilities
 """
 from bisect import bisect_left
+from codetiming import Timer
 from itertools import accumulate
 import re
 
@@ -10,8 +11,7 @@ try:
 except ImportError:
     FortranStringReader = None
 
-from loki.logging import warning, DEBUG
-from loki.tools import timeit
+from loki.logging import debug, warning
 
 __all__ = [
     'Source', 'FortranReader', 'extract_source', 'extract_source_from_range', 'source_to_lines',
@@ -149,7 +149,7 @@ class FortranReader:
         self.source_lines = raw_source.splitlines()
         self._sanitize_raw_source(raw_source)
 
-    @timeit(log_level=DEBUG)
+    @Timer(logger=debug, text=lambda s: f'[Loki::Frontend] Executed _sanitize_raw_source in {s:.2f}s')
     def _sanitize_raw_source(self, raw_source):
         """
         Helper routine to create a sanitized Fortran source string

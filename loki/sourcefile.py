@@ -17,7 +17,7 @@ from loki.logging import info, perf
 from loki.module import Module
 from loki.program_unit import ProgramUnit
 from loki.subroutine import Subroutine
-from loki.tools import flatten, as_tuple, timeit
+from loki.tools import flatten, as_tuple
 
 
 __all__ = ['Sourcefile']

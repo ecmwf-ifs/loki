@@ -6,15 +6,16 @@ from Fortran source files without the need to generate a complete
 parse tree.
 """
 from abc import abstractmethod
+from codetiming import Timer
 from enum import Flag, auto
 import re
 
 from loki import ir
 from loki.expression import symbols as sym
 from loki.frontend.source import Source, FortranReader
-from loki.logging import DEBUG
+from loki.logging import debug
 from loki.scope import SymbolAttributes
-from loki.tools import timeit, as_tuple
+from loki.tools import as_tuple
 from loki.types import BasicType, ProcedureType, DerivedType
 
 __all__ = ['RegexParserClass', 'parse_regex_source', 'HAVE_REGEX']
@@ -311,7 +312,7 @@ class Pattern:
         return new_string
 
 
-@timeit(log_level=DEBUG)
+@Timer(logger=debug, text=lambda s: f'[Loki::REGEX] Executed parse_regex_source in {s:.2f}s')
 def parse_regex_source(source, parser_classes=None, scope=None):
     """
     Generate a reduced Loki IR from regex parsing of the given Fortran source
