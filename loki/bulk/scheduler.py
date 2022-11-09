@@ -313,7 +313,7 @@ class Scheduler:
         """
         try:
             import graphviz as gviz  # pylint: disable=import-outside-toplevel
-        except:
+        except ImportError:
             warning('[Loki] Failed to load graphviz, skipping callgraph generation...')
             return
 
