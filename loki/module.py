@@ -257,12 +257,13 @@ class Module(ProgramUnit):
         self.__dict__.update(s)
 
         # Re-register all contained procedures in symbol table and update parentage
-        for node in self.contains.body:
-            if isinstance(node, Subroutine):
-                self.symbol_attrs[node.name] = SymbolAttributes(ProcedureType(procedure=node))
+        if self.contains:
+            for node in self.contains.body:
+                if isinstance(node, Subroutine):
+                    self.symbol_attrs[node.name] = SymbolAttributes(ProcedureType(procedure=node))
 
-            if isinstance(node, Scope):
-                node.parent = self
+                if isinstance(node, Scope):
+                    node.parent = self
 
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()

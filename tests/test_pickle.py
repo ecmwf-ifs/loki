@@ -8,7 +8,7 @@ import pytest
 
 from conftest import available_frontends
 
-from loki import Subroutine, Module, SymbolAttributes, BasicType, Scope, AttachScopes
+from loki import Subroutine, Module, SymbolAttributes, BasicType, Scope, AttachScopes, OMNI
 from loki.expression import symbols
 from loki.bulk import Item
 
@@ -81,7 +81,7 @@ subroutine my_routine(n, a, b, d)
   end do
 end subroutine my_routine
 """
-    routine = Subroutine.from_source(fcode)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # First, replicate the scope individually, ...
     scope_new = Scope()
@@ -109,12 +109,12 @@ def test_pickle_module(frontend):
     fcode = """
 module my_type_mod
 
-contains
   real(8) :: a, b
   integer :: s
+
 end module my_type_mod
 """
-    module = Module.from_source(fcode)
+    module = Module.from_source(fcode, frontend=frontend)
 
     # Ensure equivalence after pickle-cyle
     assert module.symbol_attrs == loads(dumps(module.symbol_attrs))
@@ -133,16 +133,15 @@ def test_pickle_module_with_typedef(frontend):
 module my_type_mod
 
   type a_type
-    real(kind=jprb) :: scalar
-    real(kind=jprb) :: vector(3)
+    real(kind=8) :: scalar
+    real(kind=8) :: vector(3)
   end type a_type
 
-contains
+  type(a_type) :: some_numbers
 
-  type(my_type) :: some_numbers
 end module my_type_mod
 """
-    module = Module.from_source(fcode)
+    module = Module.from_source(fcode, frontend=frontend)
 
     # Replicate the TypeDef individually
     typedef = module['a_type']
@@ -170,7 +169,7 @@ end module my_type_mod
     assert module == loads(dumps(module))
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No external module available')]))
 def test_pickle_subroutine_with_member(frontend):
     """
     Ensure that :any:`Subroutine` and its components are picklable.
@@ -196,7 +195,7 @@ subroutine my_routine(n, a, b, d)
   end subroutine member_routine
 end subroutine my_routine
 """
-    routine = Subroutine.from_source(fcode)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # First, replicate the scope individually, ...
     scope_new = Scope()
@@ -253,7 +252,7 @@ module my_module
   end subroutine other_routine
 end module my_module
 """
-    module = Module.from_source(fcode)
+    module = Module.from_source(fcode, frontend=frontend)
 
     # First, replicate the scope individually, ...
     scope_new = Scope()
