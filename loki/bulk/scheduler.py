@@ -305,7 +305,11 @@ class Scheduler:
 
         :param path: Path to write the callgraph figure to.
         """
-        import graphviz as gviz  # pylint: disable=import-outside-toplevel
+        try:
+            import graphviz as gviz  # pylint: disable=import-outside-toplevel
+        except ImportError:
+            warning('[Loki] Failed to load graphviz, skipping callgraph generation...')
+            return
 
         cg_path = Path(path)
         callgraph = gviz.Digraph(format='pdf', strict=True)
@@ -337,7 +341,10 @@ class Scheduler:
                                    fillcolor='lightblue', style='filled')
                     callgraph.edge(item.name.upper(), child.upper())
 
-        callgraph.render(cg_path, view=False)
+        try:
+            callgraph.render(cg_path, view=False)
+        except gviz.ExecutableNotFound as e:
+            warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')
 
     @timeit(log_level=PERF)
     def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
