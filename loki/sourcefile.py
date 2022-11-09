@@ -3,6 +3,7 @@ Contains the declaration of :any:`Sourcefile` that is used to represent and
 manipulate (Fortran) source code files.
 """
 from pathlib import Path
+from codetiming import Timer
 
 from loki.backend.fgen import fgen
 from loki.frontend import (
@@ -12,7 +13,7 @@ from loki.frontend import (
 
 )
 from loki.ir import Section, RawSource, Comment, PreprocessorDirective
-from loki.logging import info, DEBUG
+from loki.logging import info, perf
 from loki.module import Module
 from loki.program_unit import ProgramUnit
 from loki.subroutine import Subroutine
@@ -57,7 +58,6 @@ class Sourcefile:
         self._incomplete = incomplete
 
     @classmethod
-    @timeit(log_level=DEBUG, getter=lambda x: str(x.get('filename', '')))
     def from_file(cls, filename, definitions=None, preprocess=False,
                   includes=None, defines=None, omni_includes=None,
                   xmods=None, frontend=FP, parser_classes=None):
@@ -95,32 +95,37 @@ class Sourcefile:
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
         """
-        filepath = Path(filename)
-        raw_source = read_file(filepath)
 
-        if preprocess:
-            # Trigger CPP-preprocessing explicitly, as includes and
-            # defines can also be used by our OMNI frontend
-            source = preprocess_cpp(source=raw_source, filepath=filepath,
-                                    includes=includes, defines=defines)
-        else:
-            source = raw_source
+        # Log full parses at INFO and regex scans at PERF level
+        logtext = lambda s: f'[Loki::Sourcefile] Constructed from {filename} in {s:.2f}s'
+        with Timer(logger=perf if frontend is REGEX else info, text=logtext) as f:
 
-        if frontend == REGEX:
-            return cls.from_regex(source, filepath, parser_classes=parser_classes)
+            filepath = Path(filename)
+            raw_source = read_file(filepath)
 
-        if frontend == OMNI:
-            return cls.from_omni(source, filepath, definitions=definitions,
-                                 includes=includes, defines=defines,
-                                 xmods=xmods, omni_includes=omni_includes)
+            if preprocess:
+                # Trigger CPP-preprocessing explicitly, as includes and
+                # defines can also be used by our OMNI frontend
+                source = preprocess_cpp(source=raw_source, filepath=filepath,
+                                        includes=includes, defines=defines)
+            else:
+                source = raw_source
 
-        if frontend == OFP:
-            return cls.from_ofp(source, filepath, definitions=definitions)
+            if frontend == REGEX:
+                return cls.from_regex(source, filepath, parser_classes=parser_classes)
 
-        if frontend == FP:
-            return cls.from_fparser(source, filepath, definitions=definitions)
+            if frontend == OMNI:
+                return cls.from_omni(source, filepath, definitions=definitions,
+                                     includes=includes, defines=defines,
+                                     xmods=xmods, omni_includes=omni_includes)
 
-        raise NotImplementedError(f'Unknown frontend: {frontend}')
+            if frontend == OFP:
+                return cls.from_ofp(source, filepath, definitions=definitions)
+
+            if frontend == FP:
+                return cls.from_fparser(source, filepath, definitions=definitions)
+
+            raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @classmethod
     def from_omni(cls, raw_source, filepath, definitions=None, includes=None,
@@ -316,67 +321,70 @@ class Sourcefile:
         if not self._incomplete:
             return
 
-        # Sanitize frontend_args
-        frontend = frontend_args.pop('frontend', FP)
-        if frontend == REGEX:
-            frontend_argnames = ['parser_classes']
-        elif frontend == OMNI:
-            frontend_argnames = ['definitions', 'type_map', 'symbol_map', 'scope']
-            xmods = frontend_args.get('xmods')
-        elif frontend in (OFP, FP):
-            frontend_argnames = ['definitions', 'scope']
-        else:
-            raise NotImplementedError(f'Unknown frontend: {frontend}')
-        sanitized_frontend_args = {k: frontend_args.get(k) for k in frontend_argnames}
+        logtext = lambda s: f'[Loki::Sourcefile] Finished constructing from {self.path} in {s:.2f}s'
+        with Timer(logger=info, text=logtext) as f:
 
-        body = []
-        for node in self.ir.body:
-            if isinstance(node, ProgramUnit):
-                node.make_complete(frontend=frontend, **frontend_args)
-                body += [node]
-            elif isinstance(node, RawSource):
-                # Sanitize the input code to ensure non-supported features
-                # do not break frontend parsing ourside of program units
-                raw_source = node.source.string
-                source, pp_info = sanitize_input(source=raw_source, frontend=frontend)
-
-                # Typically, this should only be comments, PP statements etc., therefore
-                # we are not bothering with type tables, definitions or similar to parse them
-                if frontend == REGEX:
-                    ir_ = parse_regex_source(source, **sanitized_frontend_args)
-                elif frontend == OMNI:
-                    ast = parse_omni_source(source=source, xmods=xmods)
-                    ir_ = parse_omni_ast(ast=ast, raw_source=raw_source, **sanitized_frontend_args)
-                elif frontend == OFP:
-                    ast = parse_ofp_source(source=source)
-                    ir_ = parse_ofp_ast(ast, raw_source=raw_source, pp_info=pp_info,
-                                        **sanitized_frontend_args)
-                elif frontend == FP:
-                    # Fparser is unable to parse comment-only source files/strings,
-                    # so we see if this is only comments and convert them ourselves
-                    # (https://github.com/stfc/fparser/issues/375)
-                    # This can be removed once fparser 0.0.17 is released
-                    lines = [l.lstrip() for l in source.splitlines()]
-                    if all(not l or l[0] in '!#' for l in lines):
-                        ir_ = [
-                            PreprocessorDirective(text=line.string, source=line) if line.string.lstrip().startswith('#')
-                            else Comment(text=line.string, source=line)
-                            for line in node.source.clone_lines()
-                        ]
-                    else:
-                        ast = parse_fparser_source(source)
-                        ir_ = parse_fparser_ast(ast, raw_source=raw_source, pp_info=pp_info,
-                                                **sanitized_frontend_args)
-                else:
-                    raise NotImplementedError(f'Unknown frontend: {frontend}')
-                if isinstance(ir_, Section):
-                    ir_ = ir_.body
-                body += flatten([ir_])
+            # Sanitize frontend_args
+            frontend = frontend_args.pop('frontend', FP)
+            if frontend == REGEX:
+                frontend_argnames = ['parser_classes']
+            elif frontend == OMNI:
+                frontend_argnames = ['definitions', 'type_map', 'symbol_map', 'scope']
+                xmods = frontend_args.get('xmods')
+            elif frontend in (OFP, FP):
+                frontend_argnames = ['definitions', 'scope']
             else:
-                body += [node]
+                raise NotImplementedError(f'Unknown frontend: {frontend}')
+            sanitized_frontend_args = {k: frontend_args.get(k) for k in frontend_argnames}
 
-        self.ir._update(body=as_tuple(body))
-        self._incomplete = frontend == REGEX
+            body = []
+            for node in self.ir.body:
+                if isinstance(node, ProgramUnit):
+                    node.make_complete(frontend=frontend, **frontend_args)
+                    body += [node]
+                elif isinstance(node, RawSource):
+                    # Sanitize the input code to ensure non-supported features
+                    # do not break frontend parsing ourside of program units
+                    raw_source = node.source.string
+                    source, pp_info = sanitize_input(source=raw_source, frontend=frontend)
+
+                    # Typically, this should only be comments, PP statements etc., therefore
+                    # we are not bothering with type tables, definitions or similar to parse them
+                    if frontend == REGEX:
+                        ir_ = parse_regex_source(source, **sanitized_frontend_args)
+                    elif frontend == OMNI:
+                        ast = parse_omni_source(source=source, xmods=xmods)
+                        ir_ = parse_omni_ast(ast=ast, raw_source=raw_source, **sanitized_frontend_args)
+                    elif frontend == OFP:
+                        ast = parse_ofp_source(source=source)
+                        ir_ = parse_ofp_ast(ast, raw_source=raw_source, pp_info=pp_info,
+                                            **sanitized_frontend_args)
+                    elif frontend == FP:
+                        # Fparser is unable to parse comment-only source files/strings,
+                        # so we see if this is only comments and convert them ourselves
+                        # (https://github.com/stfc/fparser/issues/375)
+                        # This can be removed once fparser 0.0.17 is released
+                        lines = [l.lstrip() for l in source.splitlines()]
+                        if all(not l or l[0] in '!#' for l in lines):
+                            ir_ = [
+                                PreprocessorDirective(text=line.string, source=line) if line.string.lstrip().startswith('#')
+                                else Comment(text=line.string, source=line)
+                                for line in node.source.clone_lines()
+                            ]
+                        else:
+                            ast = parse_fparser_source(source)
+                            ir_ = parse_fparser_ast(ast, raw_source=raw_source, pp_info=pp_info,
+                                                    **sanitized_frontend_args)
+                    else:
+                        raise NotImplementedError(f'Unknown frontend: {frontend}')
+                    if isinstance(ir_, Section):
+                        ir_ = ir_.body
+                    body += flatten([ir_])
+                else:
+                    body += [node]
+
+            self.ir._update(body=as_tuple(body))
+            self._incomplete = frontend == REGEX
 
     @property
     def source(self):
@@ -505,7 +513,7 @@ class Sourcefile:
         """
         Same as :meth:`write` but can be called from a static context.
         """
-        info(f'Writing {path}')
+        info(f'[Loki::Sourcefile] Writing to {path}')
         with path.open('w') as f:
             f.write(source)
             if source[-1] != '\n':
