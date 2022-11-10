@@ -57,24 +57,21 @@ class ExprMetadataMixin:
         Raw source string and line information from original source code.
     """
 
+    @property
+    def init_arg_names(self):
+        return super().init_arg_names + ('_source', )
+
     def __init__(self, *args, **kwargs):
-        self._metadata = {
-            'source': kwargs.pop('source', None)
-        }
+        self._source = kwargs.pop('source', None)
         super().__init__(*args, **kwargs)
 
-    def get_metadata(self):
-        """All metadata as a dict."""
-        return self._metadata.copy()
-
-    def update_metadata(self, data):
-        """Update the metadata for this expression node."""
-        self._metadata.update(data)
+    def __getinitargs__(self):
+        return super().__getinitargs__() + (self._source, )
 
     @property
     def source(self):
         """The :any:`Source` object for this expression node."""
-        return self._metadata['source']
+        return self._source
 
     make_stringifier = loki_make_stringifier
 
@@ -150,36 +147,29 @@ class TypedSymbol:
         Any other keyword arguments for other parent classes
     """
 
+    init_arg_names = ('name', 'scope', 'parent', 'type', )
+
     def __init__(self, *args, **kwargs):
         self.name = kwargs['name']
-
-        self._parent = kwargs.pop('parent', None)
-        assert self._parent is None or isinstance(self._parent, (TypedSymbol, MetaSymbol))
-
-        scope = kwargs.pop('scope', None)
-        assert scope is None or isinstance(scope, Scope)
-        self._scope = None if scope is None else weakref.ref(scope)
+        self.parent = kwargs.pop('parent', None)
+        self.scope = kwargs.pop('scope', None)
 
         # Use provided type or try to determine from scope
         self._type = None
-        _type = kwargs.pop('type', None) or self.type
-
-        # Update the stored type information
-        if self._scope is None:
-            # Store locally if not attached to a scope
-            self._type = _type
-        elif _type is None:
-            # Store deferred type if unknown
-            self.scope.symbol_attrs[self.name] = SymbolAttributes(BasicType.DEFERRED)
-        elif _type is not self.scope.symbol_attrs.lookup(self.name):
-            # Update type if it differs from stored type
-            self.scope.symbol_attrs[self.name] = _type
+        self.type = kwargs.pop('type', None) or self.type
 
         super().__init__(*args, **kwargs)
 
     def __getinitargs__(self):
-        args = [self.name, ('scope', self.scope)]
-        return tuple(args)
+        """
+        Fixed tuple of initialisation arguments, corresponding to
+        ``init_arg_names`` above.
+
+        Note that this defines the pickling behaviour of pymbolic
+        symbol objects. We do not recurse here, since we own the
+        "name" attribute, which pymbolic will otherwise replicate.
+        """
+        return (self.name, None, self._parent, self._type, )
 
     @property
     def scope(self):
@@ -189,6 +179,11 @@ class TypedSymbol:
         if self._scope is None:
             return None
         return self._scope()
+
+    @scope.setter
+    def scope(self, scope):
+        assert scope is None or isinstance(scope, Scope)
+        self._scope = None if scope is None else weakref.ref(scope)
 
     def _lookup_type(self, scope):
         """
@@ -245,6 +240,21 @@ class TypedSymbol:
             return self._type
         return self._lookup_type(self.scope)
 
+    @type.setter
+    def type(self, _type):
+        """
+        Update the stored type information
+        """
+        if self._scope is None:
+            # Store locally if not attached to a scope
+            self._type = _type
+        elif _type is None:
+            # Store deferred type if unknown
+            self.scope.symbol_attrs[self.name] = SymbolAttributes(BasicType.DEFERRED)
+        elif _type is not self.scope.symbol_attrs.lookup(self.name):
+            # Update type if it differs from stored type
+            self.scope.symbol_attrs[self.name] = _type
+
     @property
     def parent(self):
         """
@@ -258,6 +268,11 @@ class TypedSymbol:
         if not self._parent and '%' in self.name and self.scope:
             self._parent = self._lookup_parent(self.scope)
         return self._parent
+
+    @parent.setter
+    def parent(self, parent):
+        assert parent is None or isinstance(parent, (TypedSymbol, MetaSymbol))
+        self._parent = parent
 
     @property
     def variables(self):
@@ -480,6 +495,12 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         super().__init__(*args, **kwargs)
         self._symbol = symbol
 
+    def __getstate__(self):
+        return self._symbol
+
+    def __setstate__(self, state):
+        self._symbol = state
+
     @property
     def symbol(self):
         """
@@ -613,12 +634,6 @@ class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
         symbol = VariableSymbol(name=name, scope=scope, type=type, **kwargs)
         super().__init__(symbol=symbol)
 
-    def __getinitargs__(self):
-        args = []
-        if self.parent:
-            args += [('parent', self.parent)]
-        return super().__getinitargs__() + tuple(args)
-
     mapper_method = intern('map_scalar')
 
 
@@ -677,10 +692,7 @@ class Array(MetaSymbol):
         return self.type.shape
 
     def __getinitargs__(self):
-        args = super().__getinitargs__()
-        if self.dimensions:
-            args += (('dimensions', self.dimensions),)
-        return args
+        return super().__getinitargs__() + (self.dimensions, )
 
     mapper_method = intern('map_array')
 
@@ -941,11 +953,10 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
         except ValueError:
             return super().__ge__(other)
 
+    init_arg_names = ('value', 'kind')
+
     def __getinitargs__(self):
-        args = [self.value]
-        if self.kind:
-            args += [('kind', self.kind)]
-        return tuple(args) + super().__getinitargs__()
+        return (self.value, self.kind)
 
     mapper_method = intern('map_float_literal')
 
@@ -1012,11 +1023,10 @@ class IntLiteral(ExprMetadataMixin, _Literal):
             return self.value >= other
         return super().__ge__(other)
 
+    init_arg_names = ('value', 'kind')
+
     def __getinitargs__(self):
-        args = [self.value]
-        if self.kind:
-            args += [('kind', self.kind)]
-        return tuple(args) + super().__getinitargs__()
+        return (self.value, self.kind)
 
     def __int__(self):
         return self.value
@@ -1045,8 +1055,10 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
         self.value = value.lower() in ('true', '.true.')
         super().__init__(**kwargs)
 
+    init_arg_names = ('value', )
+
     def __getinitargs__(self):
-        return (self.value,) + super().__getinitargs__()
+        return (self.value, )
 
     mapper_method = intern('map_logic_literal')
 
@@ -1080,8 +1092,10 @@ class StringLiteral(ExprMetadataMixin, _Literal):
             return self.value == other
         return False
 
+    init_arg_names = ('value', )
+
     def __getinitargs__(self):
-        return (self.value,) + super().__getinitargs__()
+        return (self.value, )
 
     mapper_method = intern('map_string_literal')
 
@@ -1103,8 +1117,10 @@ class IntrinsicLiteral(ExprMetadataMixin, _Literal):
         self.value = value
         super().__init__(**kwargs)
 
+    init_arg_names = ('value', )
+
     def __getinitargs__(self):
-        return (self.value,) + super().__getinitargs__()
+        return (self.value, )
 
     mapper_method = intern('map_intrinsic_literal')
 
@@ -1223,6 +1239,15 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
                          kw_parameters=kw_parameters, **kwargs)
 
     mapper_method = intern('map_inline_call')
+
+    @property
+    def _canonical(self):
+        return (self.function, self.parameters, as_tuple(self.kw_parameters))
+
+    def __hash__(self):
+        # A custom `__hash__` function to protect us from unhashasble
+        # dicts that `pmbl.CallWithKwargs` uses internally
+        return hash(self._canonical)
 
     @property
     def name(self):

@@ -83,6 +83,23 @@ class Subroutine(ProgramUnit):
             symbol_attrs=symbol_attrs, incomplete=incomplete
         )
 
+    def __getstate__(self):
+        _ignore = ('_ast', '_parent')
+        return dict((k, v) for k, v in self.__dict__.items() if k not in _ignore)
+
+    def __setstate__(self, s):
+        self.__dict__.update(s)
+
+        self._ast = None
+        self._parent = None
+
+        # Re-register all encapulated member procedures
+        for member in self.members:
+            self.symbol_attrs[member.name] = SymbolAttributes(ProcedureType(procedure=member))
+
+        # Ensure that we are attaching all symbols to the newly create ``self``.
+        self.rescope_symbols()
+
     @staticmethod
     def _infer_allocatable_shapes(spec, body):
         """

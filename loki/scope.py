@@ -29,14 +29,21 @@ class SymbolTable(dict):
         Respect the case of symbol names in lookups (default: `False`).
     """
 
+    def __new__(cls, *args, case_sensitive=False, **kwargs):
+        """
+        Set the lookup function on object creation, so that they are safe to pickle
+        """
+        obj = super(SymbolTable, cls).__new__(cls, *args, **kwargs)
+        obj._case_sensitive = case_sensitive
+        if obj.case_sensitive:
+            obj.format_lookup_name = SymbolTable._case_sensitive_format_lookup_name
+        else:
+            obj.format_lookup_name = SymbolTable._not_case_sensitive_format_lookup_name
+        return obj
+
     def __init__(self, parent=None, case_sensitive=False, **kwargs):
         super().__init__(**kwargs)
         self._parent = weakref.ref(parent) if parent is not None else None
-        self._case_sensitive = case_sensitive
-        if self.case_sensitive:
-            self.format_lookup_name = SymbolTable._case_sensitive_format_lookup_name
-        else:
-            self.format_lookup_name = SymbolTable._not_case_sensitive_format_lookup_name
 
     @property
     def parent(self):
@@ -48,6 +55,10 @@ class SymbolTable(dict):
         :any:`SymbolTable` or `None`
         """
         return self._parent() if self._parent is not None else None
+
+    @parent.setter
+    def parent(self, parent):
+        self._parent = weakref.ref(parent) if parent is not None else None
 
     @property
     def case_sensitive(self):
@@ -160,6 +171,15 @@ class SymbolTable(dict):
     def __repr__(self):
         return f'<loki.types.SymbolTable object at {hex(id(self))}>'
 
+    def __getstate__(self):
+        _ignored = ('_parent', )
+        return {k: v for k, v in self.__dict__.items() if k not in _ignored}
+
+    def __setstate__(self, s):
+        self.__dict__.update(s)
+
+        self._parent = None
+
     def setdefault(self, key, default=None):
         """
         Insert a default value for a key into the table if it does not exist
@@ -233,9 +253,8 @@ class Scope:
 
     def __init__(self, parent=None, symbol_attrs=None, rescope_symbols=False, **kwargs):
         super().__init__(**kwargs)
-        assert parent is None or isinstance(parent, Scope)
         assert symbol_attrs is None or isinstance(symbol_attrs, SymbolTable)
-        self._parent = weakref.ref(parent) if parent is not None else None
+        self.parent = parent
 
         parent_symbol_attrs = self.parent.symbol_attrs if self.parent is not None else None
         if symbol_attrs is None:
@@ -260,6 +279,11 @@ class Scope:
         Access the enclosing scope.
         """
         return self._parent() if self._parent is not None else None
+
+    @parent.setter
+    def parent(self, parent):
+        assert parent is None or isinstance(parent, Scope)
+        self._parent = weakref.ref(parent) if parent is not None else None
 
     def rescope_symbols(self):
         """

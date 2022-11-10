@@ -8,6 +8,8 @@ from loki.frontend import (
 from loki.ir import VariableDeclaration
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 from loki.program_unit import ProgramUnit
+from loki.scope import Scope
+from loki.subroutine import Subroutine
 from loki.tools import as_tuple
 from loki.types import ModuleType, SymbolAttributes
 
@@ -241,3 +243,26 @@ class Module(ProgramUnit):
 
     def __hash__(self):
         return hash(self._canonical)
+
+    def __getstate__(self):
+        s = self.__dict__.copy()
+        # TODO: We need to remove the AST, as certain AST types
+        # (eg. FParser) are not pickle-safe.
+        del s['_ast']
+        return s
+
+    def __setstate__(self, s):
+        self.__dict__.update(s)
+
+        # Re-register all contained procedures in symbol table and update parentage
+        if self.contains:
+            for node in self.contains.body:
+                if isinstance(node, Subroutine):
+                    node.parent = self
+                    node.register_in_parent_scope()
+
+                if isinstance(node, Scope):
+                    node.parent = self
+
+        # Ensure that we are attaching all symbols to the newly create ``self``.
+        self.rescope_symbols()

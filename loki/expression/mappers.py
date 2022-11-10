@@ -2,6 +2,7 @@
 Mappers for traversing and transforming the
 :ref:`internal_representation:Expression tree`.
 """
+from copy import deepcopy
 import re
 from itertools import zip_longest
 import pymbolic.primitives as pmbl
@@ -17,6 +18,8 @@ except ImportError:
 
 from loki.logging import debug
 from loki.tools import as_tuple, flatten
+from loki.types import SymbolAttributes, BasicType
+
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper',
@@ -477,11 +480,12 @@ class LokiIdentityMapper(IdentityMapper):
         if expr is None:
             return None
         new_expr = super().__call__(expr, *args, **kwargs)
-        if new_expr is not expr and hasattr(new_expr, 'update_metadata'):
-            metadata = getattr(expr, 'get_metadata', dict)()
-            if self.invalidate_source:
-                metadata['source'] = None
-            new_expr.update_metadata(metadata)
+        if new_expr is not expr and hasattr(expr, '_source'):
+            if expr._source:
+                if self.invalidate_source:
+                    new_expr._source = None
+                else:
+                    new_expr._source = deepcopy(expr._source)
         return new_expr
 
     rec = __call__
@@ -678,6 +682,11 @@ class AttachScopesMapper(LokiIdentityMapper):
             # all of which should be declared at or above the scope of the expression
             kwargs['scope'] = new_expr.scope
         map_fn = getattr(super(), new_expr.mapper_method)
+
+        # If we cannot resolve scope or type of an expression, we mark it as deferred
+        if not new_expr.scope and not new_expr.type:
+            new_expr.type = SymbolAttributes(dtype=BasicType.DEFERRED)
+
         return map_fn(new_expr, *args, **kwargs)
 
     map_deferred_type_symbol = map_variable_symbol
