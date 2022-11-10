@@ -11,7 +11,7 @@ from loki.program_unit import ProgramUnit
 from loki.scope import Scope
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
-from loki.types import ModuleType, ProcedureType, SymbolAttributes
+from loki.types import ModuleType, SymbolAttributes
 
 
 __all__ = ['Module']
