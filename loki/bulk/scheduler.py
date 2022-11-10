@@ -6,7 +6,7 @@ from codetiming import Timer
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
-from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug
 from loki.bulk.item import ProcedureBindingItem, SubroutineItem
 
@@ -170,10 +170,12 @@ class Scheduler:
             'frontend': REGEX
         }
 
-        obj_list = []
-        for path in self.paths:
-            for ext in self.source_suffixes:
-                obj_list += [Sourcefile.from_file(filename=f, **frontend_args) for f in path.glob(f'**/*{ext}')]
+        # Create a list of initial files to scan with the fast REGEX frontend
+        path_list = [path.glob(f'**/*{ext}') for path in self.paths for ext in self.source_suffixes]
+        path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
+
+        # Perform the full initial scan of the search space with the REGEX frontend
+        obj_list = [Sourcefile.from_file(filename=f, **frontend_args) for f in path_list]
 
         debug(f'Total number of lines parsed: {sum(obj.source.lines[1] for obj in obj_list)}')
 
