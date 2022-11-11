@@ -56,7 +56,7 @@ ecbuild_add_option(
 )
 ecbuild_add_option(
     FEATURE EDITABLE
-    DEFAULT ON
+    DEFAULT OFF
     DESCRIPTION "Install Loki as an editable Python package"
 )
 ecbuild_add_option(
