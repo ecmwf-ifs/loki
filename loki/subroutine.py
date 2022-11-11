@@ -422,6 +422,12 @@ class Subroutine(ProgramUnit):
 
                 # Update symbol table if necessary and present in routine_map
                 routine = routine_map.get(name)
+                if isinstance(routine, sym.ProcedureSymbol):
+                    # Type-bound procedure: shortcut to bound procedure if not generic
+                    if routine.type.bind_names and len(routine.type.bind_names) == 1:
+                        routine = routine.type.bind_names[0].type.dtype.procedure
+                    else:
+                        routine = None
                 if routine is not None:
                     name_type = call.name.type
                     update_symbol = (

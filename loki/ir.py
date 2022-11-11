@@ -1058,7 +1058,7 @@ class Import(LeafNode):
     _traversable = ['symbols', 'rename_list']
 
     def __init__(self, module, symbols=None, nature=None, c_import=False, f_include=False, f_import=False,
-                 rename_list=False, **kwargs):
+                 rename_list=None, **kwargs):
         super().__init__(**kwargs)
 
         self.module = module
@@ -1330,6 +1330,10 @@ class TypeDef(ScopedNode, LeafNode):
         """
         _ignore = ('parent', )
         return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
+
+    @property
+    def ir(self):
+        return self.body
 
     @property
     def declarations(self):

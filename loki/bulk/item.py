@@ -1,3 +1,4 @@
+from abc import abstractmethod
 try:
     from functools import cached_property
 except ImportError:
@@ -7,20 +8,41 @@ except ImportError:
         def cached_property(func):
             return func
 
+from loki.logging import warning
 from loki.tools import as_tuple
+from loki.tools.util import CaseInsensitiveDict
 from loki.visitors import FindNodes
 from loki.ir import CallStatement
 
 
-__all__ = ['Item']
+__all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem']
 
 
 class Item:
     """
-    A work item that represents a single source routine to be
-    processed. Each :any:`Item` spawns new work items according to its
+    Base class of a work item that represents a single source routine to be processed
+
+    Each :any:`Item` spawns new work items according to its
     own subroutine calls and can be configured to ignore individual
-    sub-tree.
+    sub-trees.
+
+    Depending of the nature of the work item, the implementation of :class:`Item` is
+    done in subclasses :class:`SubroutineItem` and :class:`ProcedureBindingItem`.
+
+    The :attr:`name` of a :class:`Item` refers to the routine name using
+    a fully-qualified name in the format ``<scope_name>#<local_name>``. The
+    ``<scope_name>`` corresponds to a Fortran module that a subroutine is declared
+    in, or can be empty if the subroutine is not enclosed in a module (i.e. exists
+    in the global scope). This is to enable use of routines with the same name that
+    are declared in different modules.
+    The corresponding parts of the name can be accessed via :attr:`scope_name` and
+    :attr:`local_name`.
+
+    For type-bound procedures, the :attr:`local_name` should take the format
+    ``<type_name>%<binding_name>``. This may also span across multiple derived types, e.g.,
+    to allow calls to type bound procedures of a derived type variable that in turn
+    is a member of another derived type, e.g., ``<type_name>%<member_name>%<binding_name>``.
+    See :class:`ProcedureBindingItem`` for more details.
 
     Notes
     -----
@@ -36,14 +58,17 @@ class Item:
     * ``expand``: Flag to generally enable/disable expansion under this item
     * ``strict``: Flag controlling whether to strictly fail if source file cannot be parsed
     * ``replicated``: Flag indicating whether to mark item as "replicated" in call graphs
+    * ``disable``: List of subroutines that are completely ignored and are not reported
+      as ``children``. Useful to exclude entire call trees or utility routines.
+    * ``block``: List of subroutines that should should not be added to the scheduler
+      tree. Note, these might still be shown in the graph visulisation.
     * ``ignore``: Individual list of subroutine calls to "ignore" during expansion.
-      The routines will still be added to the schedulers tree, but not
-      followed during expansion.
+      Calls to these routines may be processed on the caller side but not the called subroutine
+      itself. This facilitates processing across build targets, where caller and callee-side
+      are transformed in different Loki passes.
     * ``enrich``: List of subroutines that should still be looked up and used to "enrich"
       :any:`CallStatement` nodes in this :any:`Item` for inter-procedural
       transformation passes.
-    * ``block``: List of subroutines that should should not be added to the scheduler
-      tree. Note, these might still be shown in the graph visulisation.
 
     Parameters
     ----------
@@ -56,14 +81,35 @@ class Item:
     """
 
     def __init__(self, name, source, config=None):
+        assert '#' in name
         self.name = name
         self.source = source
         self.config = config or {}
+
+    def __new__(cls, name, source, config=None):
+        """
+        Factory for :class:`Item` implementations
+
+        This yields an instance of :class:`ProcedureBindingItem` or :class:`SubroutineItem`,
+        depending on the :data:`name` provided.
+        """
+        if '%' in name:
+            obj = super().__new__(ProcedureBindingItem)
+        else:
+            obj = super().__new__(SubroutineItem)
+        obj.__init__(name, source, config)
+        return obj
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
 
     def __eq__(self, other):
+        """
+        :class:`Item` objects are considered equal if they refer to the same
+        fully-qualified name, i.e., :attr:`name` is identical
+
+        This allows also comparison against a string.
+        """
         if isinstance(other, Item):
             return self.name.lower() == other.name.lower()
         if isinstance(other, str):
@@ -73,24 +119,94 @@ class Item:
     def __hash__(self):
         return hash(self.name)
 
-    @cached_property
-    def routine(self):
+    @property
+    def scope_name(self):
         """
-        :any:`Subroutine` object that this :any:`Item` encapsulates for processing.
+        The name of this item's scope
+        """
+        return self.name[:self.name.index('#')] or None
+
+    @property
+    def local_name(self):
+        """
+        The item name without the scope
+        """
+        return self.name[self.name.index('#')+1:]
+
+    @cached_property
+    def scope(self):
+        """
+        :any:`Module` object that is the enclosing scope of this :any:`Item`
 
         Note that this property is cached, so that updating the name of an associated
-        :any:`Subroutine` with (eg. via the :any:`DependencyTransformation`) may not
+        :any:`Module` (eg. via the :any:`DependencyTransformation`) may not
         break the association with this :any:`Item`.
+
+        Returns
+        -------
+        :any:`Module` or `NoneType`
         """
-        return self.source[self.name]
+        name = self.scope_name
+        if name is None:
+            return None
+        return self.source[name]
+
+    @property
+    @abstractmethod
+    def routine(self):
+        """
+        Return the :any:`Subroutine` object associated with this :class:`Item`
+
+        Returns
+        -------
+        :any:`Subroutine` or NoneType
+        """
+
+    @property
+    @abstractmethod
+    def imports(self):
+        """
+        Return a tuple of all :any:`Import` nodes relevant to this :class:`Item`
+
+        Note that this includes also imports from the parent scope.
+
+        Returns
+        -------
+        list of :any:`Import`
+        """
 
     @cached_property
-    def calls(self):
-        return tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+    def qualified_imports(self):
+        """
+        Return the mapping of named imports (i.e. explicitly qualified imports via a use-list
+        or rename-list) to their fully qualified name
+        """
+        return CaseInsensitiveDict(
+            (symbol.name, f'{import_.module}#{symbol.type.use_name or symbol.name}')
+            for import_ in self.imports
+            for symbol in import_.symbols + tuple(s for _, s in as_tuple(import_.rename_list))
+        )
 
     @cached_property
+    def unqualified_imports(self):
+        """
+        Return names of imported modules without explicit ``ONLY`` list
+        """
+        return tuple(import_.module for import_ in self.imports if not import_.symbols)
+
+    @property
+    @abstractmethod
     def members(self):
-        return tuple(member.name.lower() for member in self.routine.members)
+        """
+        The names of member routines contained in this :class:`Item`
+        """
+
+    @property
+    @abstractmethod
+    def calls(self):
+        """
+        The local name of all routines called from this :class:`Item`
+        """
 
     @property
     def path(self):
@@ -102,7 +218,7 @@ class Item:
     @property
     def role(self):
         """
-        Role in the transformation chain, for example 'driver' or 'kernel'
+        Role in the transformation chain, for example ``'driver'`` or ``'kernel'``
         """
         return self.config.get('role', None)
 
@@ -166,11 +282,18 @@ class Item:
     @property
     def children(self):
         """
-        Set of all child routines that this work item has in the call tree.
+        Set of all child routines that this work item has in the call tree
 
         Note that this is not the set of active children that a traversal
         will apply a transformation over, but rather the set of nodes that
         defines the next level of the internal call tree.
+
+        This returns the local names of children which can be fully qualified
+        via :meth:`qualify_names`.
+
+        Returns
+        -------
+        list of str
         """
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
@@ -182,6 +305,114 @@ class Item:
         children = [c for c in children if c not in disabled]
         return as_tuple(children)
 
+    def qualify_names(self, names, available_names=None):
+        """
+        Fully qualify names with their scope
+
+        This amends every entry in :data:`names` with their scope name in the
+        format ``<scope_name>#<local_name>``. Entries that already have a scope
+        name are unchanged.
+
+        The scope is derived using qualified imports and takes into account any
+        renaming that may happen as part of that.
+
+        For names that cannot be unambiguously attributed to a scope, either because
+        they stem from an unqualified import or because they refer to a subroutine
+        declared in the global scope, a tuple of fully-qualified candidate names
+        is returned. Of these, only one can be a possible match or the symbol would
+        be non-uniquely defined. If :data:`available_names` is provided, these
+        candidate lists are resolved by picking the correct fully-qualified name out
+        of these candidate lists.
+
+        Parameters
+        ----------
+        names : list of str
+            A list of local or fully-qualified names to process
+        available_names: list of str, optional
+            A list of all available fully-qualified names, to be provided, e.g.,
+            by the :any:`Scheduler`
+
+        Returns
+        -------
+        qualified_names : list of str
+            The fully-qualified names in the same order as :data:`names`. For names
+            that cannot be resolved unambiguously, a tuple of candidate names is
+            returned.
+        """
+        qualified_names = []
+
+        if all('#' in name for name in as_tuple(names)):
+            return as_tuple(names)
+
+        scope = self.scope
+        qualified_imports = self.qualified_imports
+
+        for name in as_tuple(names):
+            if '#' in name:
+                qualified_names += [name]
+                continue
+
+            pos = name.find('%')
+            if pos != -1:
+                # Search for named import of the derived type
+                type_name = name[:pos]
+                if type_name in qualified_imports:
+                    qualified_names += [self.qualified_imports[type_name] + name[pos:]]
+                    continue
+
+                # Search for definition of the type in parent scope
+                if scope is not None and type_name in scope.typedefs:
+                    qualified_names += [f'{self.scope_name}#{name}']
+                    continue
+            else:
+                # Search for named import of the subroutine
+                if name in qualified_imports:
+                    qualified_names += [self.qualified_imports[name]]
+                    continue
+
+                # Search for subroutine in parent scope
+                scope = self.scope
+                if scope is not None and name in scope:
+                    qualified_names += [f'{self.scope_name}#{name}']
+                    continue
+
+            # This name has to come from an unqualified import or exists in the global
+            # scope (i.e. defined directly in a source file). We add all
+            # possibilities, of which only one should match (otherwise we would
+            # have duplicate symbols in this compilation unit)
+            candidates = [f'#{name}']
+            candidates += [f'{import_}#{name}' for import_ in self.unqualified_imports]
+            qualified_names += [as_tuple(candidates)]
+
+        if available_names is None:
+            return as_tuple(qualified_names)
+
+        available_names = set(available_names)
+        def map_to_available_name(candidates):
+            # Resolve a tuple of candidate names by picking the matching name
+            # from available_names
+            pos = candidates[0].find('%')
+            if pos != -1:
+                candidate_types = {c[:c.index('%')] for c in candidates}
+                member_name = candidates[0][pos:]
+                matched_names = candidate_types & available_names
+            else:
+                member_name = ''
+                matched_names = set(candidates) & available_names
+
+            if not matched_names:
+                warning(f'{candidates} not found in available_names')
+                return candidates
+            if len(matched_names) != 1:
+                warning(f'Duplicate symbol: {name[name.index("#")+1:]}, can be one of {matched_names}')
+                return tuple(name + member_name for name in matched_names)
+            return matched_names.pop() + member_name
+
+        return tuple(
+            name if isinstance(name, str) else map_to_available_name(name)
+            for name in qualified_names
+        )
+
     @property
     def targets(self):
         """
@@ -191,16 +422,175 @@ class Item:
         This defines all child routines of an item that will be
         traversed when applying a :any:`Transformation` as well, after
         tree pruning rules are applied.
+
+        This returns the local names of children which can be fully qualified
+        via :meth:`qualify_names`.
+
+        Returns
+        -------
+        list of str
         """
         disabled = as_tuple(str(b).lower() for b in self.disable)
         blocked = as_tuple(str(b).lower() for b in self.block)
         ignored = as_tuple(str(b).lower() for b in self.ignore)
 
         # Base definition of child is a procedure call
-        targets = as_tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+        targets = self.calls
 
         # Filter out blocked and ignored children
         targets = [c for c in targets if c not in disabled]
         targets = [t for t in targets if t not in blocked]
         targets = [t for t in targets if t not in ignored]
         return as_tuple(targets)
+
+
+class SubroutineItem(Item):
+    """
+    Implementation of :class:`Item` to represent a Fortran subroutine work item
+    """
+
+    def __init__(self, name, source, config=None):
+        assert '%' not in name
+        super().__init__(name, source, config)
+
+    @cached_property
+    def routine(self):
+        """
+        :any:`Subroutine` object that this :any:`Item` encapsulates for processing
+
+        Note that this property is cached, so that updating the name of an associated
+        :any:`Subroutine` with (eg. via the :any:`DependencyTransformation`) may not
+        break the association with this :any:`Item`.
+
+        Returns
+        -------
+        :any:`Subroutine`
+        """
+        return self.source[self.local_name]
+
+    @cached_property
+    def members(self):
+        """
+        Names of member routines contained in the subroutine corresponding to this item
+
+        Returns
+        -------
+        tuple of str
+        """
+        return tuple(member.name.lower() for member in self.routine.members)
+
+    @cached_property
+    def imports(self):
+        """
+        Return a tuple of all :any:`Import` nodes relevant to this :class:`Item`
+
+        This includes imports in the corresponding :any:`Subroutine` as well as the
+        enclosing :any:`Module` scope, if applicable.
+
+        Returns
+        -------
+        list of :any:`Import`
+        """
+        scope = self.routine
+        imports = []
+        while scope is not None:
+            imports += scope.imports
+            scope = scope.parent
+        return imports
+
+    @property
+    def calls(self):
+        """
+        The local name of all routines called from this :class:`Item`
+
+        These are identified via :any:`CallStatement` nodes within the associated routine's IR.
+        """
+        return tuple(
+            self._variable_to_type_name(call.name).lower()
+            for call in FindNodes(CallStatement).visit(self.routine.ir)
+        )
+
+    def _variable_to_type_name(self, var):
+        """
+        For type bound procedure calls, map the variable symbol to the type name, otherwise
+        return the name unchanged
+        """
+        pos = var.name.find('%')
+        if pos == -1:
+            return var.name
+        # Find the type name for the outermost derived type parent
+        var_name = var.name[:pos]
+        type_name = self.routine.symbol_attrs[var_name].dtype.name
+        return type_name + var.name[pos:]
+
+
+class ProcedureBindingItem(Item):
+    """
+    Implementation of :class:`Item` to represent a Fortran procedure binding
+
+    This does not constitute a work item when applying transformations across the
+    call tree in the :any:`Scheduler` and is skipped during the processing phase.
+    However, it is necessary to provide the dependency link from calls to type bound
+    procedures to their implementation in a Fortran routine.
+    """
+
+    def __init__(self, name, source, config=None):
+        assert '%' in name
+        super().__init__(name, source, config)
+
+    @property
+    def routine(self):
+        """
+        Always returns `None` as this is not associated with a :any:`Subroutine`
+        """
+        return None
+
+    @property
+    def members(self):
+        """
+        Empty tuple as procedure bindings have no member routines
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
+    @cached_property
+    def imports(self):
+        """
+        Return modules imported in the parent scope
+        """
+        return self.scope.imports
+
+    @property
+    def calls(self):
+        """
+        The local names of the routines that are bound to the derived type under
+        the name of the current :class:`Item`
+
+        For procedure bindings that returns the local name of a subroutine.
+        For an item representing a call to a type bound procedure in a derived type
+        member, this returns the local name of the type bound procedure.
+        For a generic binding, this returns all local names of type bound procedures
+        that are combined under a generic binding.
+        """
+        if '%' not in self.name:
+            return ()
+        module = self.source[self.scope_name]
+        name_parts = self.local_name.split('%')
+        typedef = module[name_parts[0]]
+        symbol = typedef.variable_map[name_parts[1]]
+        type_ = symbol.type
+        if len(name_parts) > 2:
+            # This is a type-bound procedure in a derived type member of a derived type
+            return ('%'.join([type_.dtype.name, *name_parts[2:]]),)
+        if type_.dtype.is_generic:
+            # This is a generic binding, so we need to refer to other type-bound procedures
+            # in this type
+            return tuple(name_parts[0] + '%' + name for name in type_.bind_names)
+        if type_.initial is not None:
+            # This has a bind name explicitly specified:
+            return (type_.initial.name.lower(), )
+        # The name of the procedure is identical to the name of the binding
+        return (name_parts[1],)

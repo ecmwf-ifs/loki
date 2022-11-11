@@ -196,6 +196,7 @@ class FortranReader:
             sanitized_end = len(self.sanitized_lines)
         else:
             sanitized_end = bisect_left(self.sanitized_spans, span[1], lo=sanitized_start)
+            sanitized_end = min(len(self.sanitized_lines), sanitized_end)
 
         # Next, find the corresponding line indices in the original string
         if include_padding:
@@ -203,7 +204,7 @@ class FortranReader:
                 # Span starts at the beginning of the sanitized string: include everything
                 # before as well
                 source_start = 0
-            elif sanitized_start == len(self.sanitized_lines):
+            elif sanitized_start >= len(self.sanitized_lines):
                 # Span starts after the sanitized string: include only lines after it
                 source_start = self.get_line_index(self.sanitized_lines[-1].span[1] + 1)
             elif self.sanitized_lines[sanitized_start].span[0] - self.sanitized_lines[sanitized_start-1].span[1] > 1:
@@ -221,7 +222,7 @@ class FortranReader:
                 # Include everything until (but not including) the line corresponding to the
                 # first line after the span in the sanitized string
                 source_end = self.get_line_index(self.sanitized_lines[sanitized_end].span[0])
-        elif sanitized_start == len(self.sanitized_lines):
+        elif sanitized_start >= len(self.sanitized_lines):
             # Span starts after the sanitized string: Point to the first line after it
             source_start = self.get_line_index(self.sanitized_lines[-1].span[1] + 1)
             source_end = source_start
@@ -308,7 +309,7 @@ class FortranReader:
         to the given span in the sanitized string
         """
         sanit_start, sanit_end, source_start, source_end = self.get_line_indices_from_span(span, include_padding)
-        if sanit_start == len(self.sanitized_lines):
+        if sanit_start >= len(self.sanitized_lines):
             return None
 
         new_reader = FortranReader.__new__(FortranReader)

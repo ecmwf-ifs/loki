@@ -70,8 +70,8 @@ class CMakePlanner(Transformation):
         item = kwargs['item']
         role = kwargs.get('role')
 
-        # Back out, if this is Subroutine is not part of the plan
-        if item.name.lower() != routine.name.lower():
+        # Back out, if this Subroutine is not part of the plan
+        if not item.local_name == routine.name.lower():
             return
 
         sourcepath = item.path.resolve()

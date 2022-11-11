@@ -12,7 +12,7 @@ from loki.frontend import (
 
 )
 from loki.ir import Section, RawSource, Comment, PreprocessorDirective
-from loki.logging import info, PERF
+from loki.logging import info, DEBUG
 from loki.module import Module
 from loki.program_unit import ProgramUnit
 from loki.subroutine import Subroutine
@@ -57,7 +57,7 @@ class Sourcefile:
         self._incomplete = incomplete
 
     @classmethod
-    @timeit(log_level=PERF, getter=lambda x: str(x.get('filename', '')))
+    @timeit(log_level=DEBUG, getter=lambda x: str(x.get('filename', '')))
     def from_file(cls, filename, definitions=None, preprocess=False,
                   includes=None, defines=None, omni_includes=None,
                   xmods=None, frontend=FP, parser_classes=None):
@@ -385,9 +385,9 @@ class Sourcefile:
         """
         if self.ir is None:
             return ()
-        return as_tuple([
+        return as_tuple(
             module for module in self.ir.body if isinstance(module, Module)
-        ])
+        )
 
     @property
     def routines(self):
@@ -396,11 +396,22 @@ class Sourcefile:
         """
         if self.ir is None:
             return ()
-        return as_tuple([
+        return as_tuple(
             routine for routine in self.ir.body if isinstance(routine, Subroutine)
-        ])
+        )
 
     subroutines = routines
+
+    @property
+    def typedefs(self):
+        """
+        List of :class:`TypeDef` objects that are declared in the :any:`Module` in this :class:`Sourcefile`.
+        """
+        if self.ir is None:
+            return ()
+        return as_tuple(
+            tdef for module in self.modules for tdef in module.typedefs.values()
+        )
 
     @property
     def all_subroutines(self):
@@ -416,6 +427,11 @@ class Sourcefile:
         subroutine_map = {s.name.lower(): s for s in self.all_subroutines}  # pylint: disable=no-member
         if name.lower() in subroutine_map:
             return subroutine_map[name.lower()]
+
+        for module in module_map.values():
+            typedef_map = module.typedefs
+            if name in typedef_map:
+                return typedef_map[name]
 
         return None
 

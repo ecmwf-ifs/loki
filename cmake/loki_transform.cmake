@@ -524,6 +524,7 @@ function( loki_transform_plan )
 
     # Create a source transformation plan to tell CMake which files will be affected
     ecbuild_info( "[Loki] Creating plan: mode=${_PAR_MODE} frontend=${_PAR_FRONTEND} config=${_PAR_CONFIG}" )
+    ecbuild_debug( "COMMAND ${_LOKI_TRANSFORM_EXECUTABLE} plan ${_ARGS}" )
 
     execute_process(
         COMMAND ${_LOKI_TRANSFORM_EXECUTABLE} plan ${_ARGS}
@@ -578,6 +579,8 @@ function( loki_transform_ecphys )
     _loki_transform_parse_target_args( loki_transform_ecphys )
     _loki_transform_env_setup()
 
+    ecbuild_debug( "COMMAND ${_LOKI_TRANSFORM} ecphys ${_ARGS}" )
+
     add_custom_command(
         OUTPUT ${_PAR_OUTPUT}
         COMMAND ${_LOKI_TRANSFORM} ecphys ${_ARGS}
@@ -608,7 +611,7 @@ endfunction()
 # Applies a Loki bulk transformation to the source files belonging to particular
 # CMake target according to the specified entry points in the ``config-file``.
 # This is done via a call to ``loki-transform.py plan ...`` during configure
-# from which the specific additions and deletions of source objects within the 
+# from which the specific additions and deletions of source objects within the
 # target are derived. Subsequently, the actual bulk transformation of source
 # files (in EC-Physics mode) is scheduled via ``loki-transform.py ecphys``.
 #
@@ -671,7 +674,7 @@ function( loki_transform_target )
             BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
             SOURCES   ${_PAR_SOURCES}
             HEADERS   ${_PAR_HEADERS}
-            DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_HEADER}
+            DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_HEADER} ${_PAR_CONFIG}
         )
     endif()
 

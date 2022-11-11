@@ -1,5 +1,5 @@
 module ext_driver_mod
-  use ext_kernel, only: jprb, ext_kernel
+  use ext_kernel_mod, only: jprb, ext_kernel
 
 contains
 

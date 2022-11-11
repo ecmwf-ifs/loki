@@ -10,7 +10,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
     BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource,
-    CallStatement, RegexParserClass
+    CallStatement, RegexParserClass, ProcedureType, DerivedType, Comment, Pragma
 )
 from loki.expression import symbols as sym
 
@@ -341,7 +341,8 @@ end subroutine test_enum
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OFP, 'OFP fails to parse parameterized types')]
 ))
-def test_frontend_strict_mode(frontend, reset_frontend_mode):  # pylint: disable=unused-argument
+@pytest.mark.usefixtures('reset_frontend_mode')
+def test_frontend_strict_mode(frontend):
     """
     Verify that frontends fail on unsupported features if strict mode is enabled
     """
@@ -1061,3 +1062,144 @@ end subroutine test
 
     calls = FindNodes(CallStatement).visit(source['test'].ir)
     assert [call.name for call in calls] == ['RANDOM_CALL_0', 'random_call_2']
+
+
+def test_regex_variable_declaration(here):
+    """
+    Test correct parsing of derived type variable declarations
+
+    Note: this currently only matches ``TYPE(..)`` and ``CLASS(...)`` declarations
+    """
+    filepath = here/'sources/projTypeBound/typebound_item.F90'
+    source = Sourcefile.from_file(filepath, frontend=REGEX)
+
+    driver = source['driver']
+    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived')
+    assert not source['module_routine'].variables
+    assert source['other_routine'].variables == ('self',)
+    assert source['routine'].variables == ('self',)
+    assert source['routine1'].variables == ('self',)
+
+    # Check this for REGEX and complete parse to make sure their behaviour is aligned
+    for _ in range(2):
+        var_map = driver.symbol_map
+        assert isinstance(var_map['obj'].type.dtype, DerivedType)
+        assert var_map['obj'].type.dtype.name == 'some_type'
+        assert isinstance(var_map['obj2'].type.dtype, DerivedType)
+        assert var_map['obj2'].type.dtype.name == 'some_type'
+        assert isinstance(var_map['header'].type.dtype, DerivedType)
+        assert var_map['header'].type.dtype.name == 'header_type'
+        assert isinstance(var_map['other_obj'].type.dtype, DerivedType)
+        assert var_map['other_obj'].type.dtype.name == 'other'
+        assert isinstance(var_map['derived'].type.dtype, DerivedType)
+        assert var_map['derived'].type.dtype.name == 'other'
+
+        # While we're here: let's check the call statements, too
+        calls = FindNodes(CallStatement).visit(driver.ir)
+        assert len(calls) == 7
+        assert all(isinstance(call.name.type.dtype, ProcedureType) for call in calls)
+
+        # Note: we're explicitly accessing the string name here (instead of relying
+        # on the StrCompareMixing) as some have dimensions that only show up in the full
+        # parse
+        assert calls[0].name.name == 'obj%other_routine'
+        assert calls[0].name.parent.name == 'obj'
+        assert calls[1].name.name == 'obj2%some_routine'
+        assert calls[1].name.parent.name == 'obj2'
+        assert calls[2].name.name == 'header%member_routine'
+        assert calls[2].name.parent.name == 'header'
+        assert calls[3].name.name == 'header%routine'
+        assert calls[3].name.parent.name == 'header'
+        assert calls[4].name.name == 'header%routine'
+        assert calls[4].name.parent.name == 'header'
+        assert calls[5].name.name == 'other_obj%member'
+        assert calls[5].name.parent.name == 'other_obj'
+        assert calls[6].name.name == 'derived%var%member_routine'
+        assert calls[6].name.parent.name == 'derived%var'
+        assert calls[6].name.parent.parent.name == 'derived'
+
+        # Hack: Split the procedure binding into one-per-line until Fparser
+        # supports this...
+        module = source['typebound_item']
+        module.source.string = module.source.string.replace(
+            'procedure :: routine1,', 'procedure :: routine1\nprocedure ::'
+        )
+
+        source.make_complete()
+
+
+def test_regex_variable_declaration_parentheses():
+    fcode = """
+subroutine definitely_not_allfpos(ydfpdata)
+implicit none
+type(tfpdata), intent(in) :: ydfpdata
+type(tfpofn) :: ylofn(size(ydfpdata%yfpos%yfpgeometry%yfpusergeo))
+end subroutine definitely_not_allfpos
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    routine = source['definitely_not_allfpos']
+    assert routine.variables == ('ydfpdata', 'ylofn')
+
+
+def test_regex_preproc_in_contains():
+    fcode = """
+module preproc_in_contains
+    implicit none
+    public  :: routine1, routine2, func
+contains
+#include "some_include.h"
+    subroutine routine1
+    end subroutine routine1
+
+    module subroutine mod_routine
+        call other_routine
+    contains
+#define something
+    subroutine other_routine
+    end subroutine other_routine
+    end subroutine mod_routine
+
+    elemental function func
+    real func
+    end function func
+end module preproc_in_contains
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+
+    expected_names = {'preproc_in_contains', 'routine1', 'mod_routine', 'func'}
+    actual_names = {r.name for r in source.all_subroutines} | {m.name for m in source.modules}
+    assert expected_names == actual_names
+
+    assert isinstance(source['mod_routine']['other_routine'], Subroutine)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_frontend_pragma_vs_comment(frontend):
+    """
+    Make sure pragmas and comments are identified correctly
+    """
+    fcode = """
+module frontend_pragma_vs_comment
+    implicit none
+!$some pragma
+    integer :: var1
+!!$some comment
+    integer :: var2
+!some comment
+    integer :: var3
+    !$some pragma
+    integer :: var4
+    ! !$some comment
+    integer :: var5
+end module frontend_pragma_vs_comment
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    pragmas = FindNodes(Pragma).visit(module.ir)
+    comments = FindNodes(Comment).visit(module.ir)
+    assert len(pragmas) == 2
+    assert len(comments) == 3
+    assert all(pragma.keyword == 'some' for pragma in pragmas)
+    assert all(pragma.content == 'pragma' for pragma in pragmas)
+    assert all('some comment' in comment.text for comment in comments)
