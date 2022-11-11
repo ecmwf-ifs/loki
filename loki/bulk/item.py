@@ -548,7 +548,11 @@ class ProcedureBindingItem(Item):
     @property
     def members(self):
         """
-        Always returns `None` as this is not associated with a :any:`Subroutine`
+        Empty tuple as procedure bindings have no member routines
+
+        Returns
+        -------
+        tuple
         """
         return ()
 
