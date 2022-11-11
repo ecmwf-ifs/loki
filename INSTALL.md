@@ -112,7 +112,7 @@ The following options are available and can be enabled/disabled by providing `-D
 
 - `NO_INSTALL` (default: `OFF`): Do not install Loki but make the CMake functions below available. This is useful if Loki is available on the path from elsewhere and only the CMake integration is required
 - `EDITABLE` (default: `OFF`): Install Loki in editable mode, i.e. without copying any files
-- `CLAW` (default: `ON`): Install the CLAW and OMNI Compiler as well as its Java dependencies as required
+- `CLAW` (default: `OFF`): Install the CLAW and OMNI Compiler as well as its Java dependencies as required. Note that this is an experimental setup and comes with no support or guarantees.
 
 This method is also suitable to create a system-wide installation of Loki:
 

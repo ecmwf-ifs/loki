@@ -61,7 +61,7 @@ ecbuild_add_option(
 )
 ecbuild_add_option(
     FEATURE CLAW
-    DEFAULT ON
+    DEFAULT OFF
     DESCRIPTION "Build OMNI Compiler and CLAW Compiler"
 )
 
