@@ -17,6 +17,10 @@
 # under the License.
 #
 
+# This file has been adapted from the FindAnt.cmake module
+# of CLAW compiler:
+# https://github.com/claw-project/claw-compiler/blob/master/cmake/module/FindAnt.cmake
+
 
 #  ANT_FOUND - system has Ant
 #  Ant_EXECUTABLE - the Ant executable
