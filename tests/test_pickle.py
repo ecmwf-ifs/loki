@@ -8,7 +8,10 @@ import pytest
 
 from conftest import available_frontends
 
-from loki import Subroutine, Module, SymbolAttributes, BasicType, Scope, AttachScopes, OMNI
+from loki import (
+    Subroutine, Module, Sourcefile, SymbolAttributes, BasicType,
+    Scope, AttachScopes, OMNI
+)
 from loki.expression import symbols
 from loki.bulk import Item
 
@@ -286,9 +289,9 @@ def test_pickle_scheduler_item(here, frontend):
     Test that :any:`Item` objects are picklable, so that we may use
     them with parallel processes.
     """
-    build_args = {'frontend': frontend}
     filepath = here/'sources/sourcefile_item.f90'
-    item_a = Item(name='routine_a', path=filepath, build_args=build_args)
+    source = Sourcefile.from_file(filename=filepath, frontend=frontend)
+    item_a = Item(name='#routine_a', source=source)
 
     # Check the individual routines and modules in the parsed source file
     for node in item_a.source.ir.body:
