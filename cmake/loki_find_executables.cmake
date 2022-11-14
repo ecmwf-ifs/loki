@@ -59,19 +59,20 @@ macro( loki_find_executables )
         # Create a bin directory in the install location and add the Python binaries
         # as a quasi-symlink
         install( CODE "
-            file( MAKE_DIRECTORY \"${CMAKE_INSTALL_PREFIX}/bin\" )
-            file( WRITE \"${CMAKE_INSTALL_PREFIX}/bin/python\"
+            file( REAL_PATH \"\${CMAKE_INSTALL_PREFIX}\" _REAL_INSTALL_PREFIX )
+            file( MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/bin\" )
+            file( WRITE \"\${CMAKE_INSTALL_PREFIX}/bin/python\"
                 \"#!/bin/bash
-                \\\"${CMAKE_INSTALL_PREFIX}/${_REL_VENV_BIN}/python\\\" \\\"$@\\\"\"
+                \\\"\${_REAL_INSTALL_PREFIX}/${_REL_VENV_BIN}/python\\\" \\\"$@\\\"\"
             )
-            file( CHMOD \"${CMAKE_INSTALL_PREFIX}/bin/python\"
+            file( CHMOD \"\${CMAKE_INSTALL_PREFIX}/bin/python\"
                 PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
             )
-            file( WRITE \"${CMAKE_INSTALL_PREFIX}/bin/python3\"
+            file( WRITE \"\${CMAKE_INSTALL_PREFIX}/bin/python3\"
                 \"#!/bin/bash
-                \\\"${CMAKE_INSTALL_PREFIX}/${_REL_VENV_BIN}/python3\\\" \\\"$@\\\"\"
+                \\\"\${_REAL_INSTALL_PREFIX}/${_REL_VENV_BIN}/python3\\\" \\\"$@\\\"\"
             )
-            file( CHMOD \"${CMAKE_INSTALL_PREFIX}/bin/python3\"
+            file( CHMOD \"\${CMAKE_INSTALL_PREFIX}/bin/python3\"
                 PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
             )
         ")
@@ -87,9 +88,10 @@ macro( loki_find_executables )
 
             # Create symlinks for frontend scripts when actually installing Loki (in the CMake sense)
             install( CODE "
+                file( REAL_PATH \"\${CMAKE_INSTALL_PREFIX}\" _REAL_INSTALL_PREFIX )
                 file( CREATE_LINK
-                    ${CMAKE_INSTALL_PREFIX}/${_REL_VENV_BIN}/${_exe_name}
-                    ${CMAKE_INSTALL_PREFIX}/bin/${_exe_name}
+                    \${_REAL_INSTALL_PREFIX}/${_REL_VENV_BIN}/${_exe_name}
+                    \${CMAKE_INSTALL_PREFIX}/bin/${_exe_name}
                     SYMBOLIC
                 )
             ")
