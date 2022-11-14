@@ -45,8 +45,8 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Scheduler, SchedulerConfig, Item, DependencyTransformation, FP,
-    OFP, HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
+    Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP,
+    HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
     SubroutineItem, ProcedureBindingItem
 )
@@ -764,21 +764,21 @@ def test_scheduler_item(here):
     available_names = [f'#{r.name}' for r in sourcefile.subroutines]
     available_names += [f'{m.name}#{r.name}' for m in sourcefile.modules for r in m.subroutines]
 
-    item_a = Item(name='#routine_a', source=sourcefile)
+    item_a = SubroutineItem(name='#routine_a', source=sourcefile)
     assert item_a.calls == ('routine_b',)
     assert not item_a.members
     assert item_a.children == ('routine_b',)
     assert item_a.qualify_names(item_a.children, available_names) == ('#routine_b',)
     assert item_a.targets == item_a.children
 
-    item_module = Item(name='some_module#module_routine', source=sourcefile)
+    item_module = SubroutineItem(name='some_module#module_routine', source=sourcefile)
     assert item_module.calls == ('routine_b',)
     assert not item_module.members
     assert item_module.children == ('routine_b',)
     assert item_module.qualify_names(item_module.children, available_names) == ('#routine_b',)
     assert item_module.targets == item_module.children
 
-    item_b = Item(name='#routine_b', source=sourcefile)
+    item_b = SubroutineItem(name='#routine_b', source=sourcefile)
     assert item_b.calls == ('contained_c', 'routine_a')
     assert 'contained_c' in item_b.members
     assert 'contained_d' in item_b.members
@@ -786,7 +786,7 @@ def test_scheduler_item(here):
     assert item_b.qualify_names(item_b.children, available_names) == ('#routine_a',)
     assert item_b.targets == ('contained_c', 'routine_a')
 
-    item_b = Item(name='#routine_b', source=sourcefile, config={'disable': ['routine_a']})
+    item_b = SubroutineItem(name='#routine_b', source=sourcefile, config={'disable': ['routine_a']})
     assert item_b.calls == ('contained_c', 'routine_a')
     assert 'contained_c' in item_b.members
     assert 'contained_d' in item_b.members
@@ -794,7 +794,7 @@ def test_scheduler_item(here):
     assert not item_b.qualify_names(item_b.children, available_names)
     assert item_b.targets == ('contained_c',)
 
-    item_b = Item(name='#routine_b', source=sourcefile, config={'ignore': ['routine_a']})
+    item_b = SubroutineItem(name='#routine_b', source=sourcefile, config={'ignore': ['routine_a']})
     assert item_b.calls == ('contained_c', 'routine_a')
     assert 'contained_c' in item_b.members
     assert 'contained_d' in item_b.members
@@ -802,7 +802,7 @@ def test_scheduler_item(here):
     assert item_b.qualify_names(item_b.children, available_names) == ('#routine_a',)
     assert item_b.targets == ('contained_c',)
 
-    item_b = Item(name='#routine_b', source=sourcefile, config={'block': ['routine_a']})
+    item_b = SubroutineItem(name='#routine_b', source=sourcefile, config={'block': ['routine_a']})
     assert item_b.calls == ('contained_c', 'routine_a')
     assert 'contained_c' in item_b.members
     assert 'contained_d' in item_b.members
@@ -959,7 +959,7 @@ def test_scheduler_typebound_item(here):
         available_names += [f'{m.name.lower()}#{r.name.lower()}' for m in s.modules for r in m.subroutines]
         available_names += [f'{m.name.lower()}#{t.lower()}' for m in s.modules for t in m.typedefs]
 
-    driver = Item(name='#driver', source=source)
+    driver = SubroutineItem(name='#driver', source=source)
 
     # Check that calls (= dependencies) are correctly identified
     assert driver.calls == (
@@ -984,7 +984,7 @@ def test_scheduler_typebound_item(here):
         'typebound_other#other_type%var%member_routine'
     )
 
-    other_routine = Item(name='typebound_item#other_routine', source=source)
+    other_routine = SubroutineItem(name='typebound_item#other_routine', source=source)
     assert isinstance(other_routine, SubroutineItem)
     assert isinstance(other_routine.routine, Subroutine)
     assert other_routine.calls == ('abor1', 'some_type%routine1', 'some_type%routine2')
@@ -1000,7 +1000,9 @@ def test_scheduler_typebound_item(here):
         ('#abor1', 'typebound_header#abor1'), 'typebound_item#some_type%routine1', 'typebound_item#some_type%routine2'
     )
 
-    routine = Item(name='typebound_item#routine', source=source, config={'disable': ['some_type%some_routine']})
+    routine = SubroutineItem(
+        name='typebound_item#routine', source=source, config={'disable': ['some_type%some_routine']}
+    )
     assert isinstance(routine, SubroutineItem)
     assert isinstance(routine.routine, Subroutine)
     assert routine.calls == ('some_type%some_routine',)
@@ -1008,15 +1010,17 @@ def test_scheduler_typebound_item(here):
     assert not routine.children
     assert not routine.qualify_names(routine.children, available_names)
 
-    routine1 = Item(name='typebound_item#routine1', source=source, config={'disable': ['module_routine']})
+    routine1 = SubroutineItem(name='typebound_item#routine1', source=source, config={'disable': ['module_routine']})
     assert isinstance(routine1, SubroutineItem)
     assert isinstance(routine1.routine, Subroutine)
     assert routine1.calls == ('module_routine',)
     assert not routine1.children
     assert not routine1.qualify_names(routine1.children, available_names)
 
-    some_type_some_routine = Item(name='typebound_item#some_type%some_routine', source=source,
-                                  config={'ignore': ['some_routine']})
+    some_type_some_routine = ProcedureBindingItem(
+        name='typebound_item#some_type%some_routine', source=source,
+        config={'ignore': ['some_routine']}
+    )
     assert isinstance(some_type_some_routine, ProcedureBindingItem)
     assert some_type_some_routine.routine is None
     assert some_type_some_routine.calls == ('some_routine',)
@@ -1026,8 +1030,10 @@ def test_scheduler_typebound_item(here):
         'typebound_item#some_routine',
     )
 
-    some_type_routine = Item(name='typebound_item#some_type%routine', source=source,
-                             config={'block': ['module_routine']})
+    some_type_routine = ProcedureBindingItem(
+        name='typebound_item#some_type%routine', source=source,
+        config={'block': ['module_routine']}
+    )
     assert isinstance(some_type_routine, ProcedureBindingItem)
     assert some_type_routine.routine is None
     assert some_type_routine.calls == ('module_routine',)
@@ -1040,7 +1046,7 @@ def test_scheduler_typebound_item(here):
         'typebound_item#module_routine',
     )
 
-    other_type_member = Item(name='typebound_other#other_type%member', source=other)
+    other_type_member = ProcedureBindingItem(name='typebound_other#other_type%member', source=other)
     assert isinstance(other_type_member, ProcedureBindingItem)
     assert other_type_member.routine is None
     assert other_type_member.qualified_imports == {'header': 'typebound_header#header_type'}
@@ -1050,7 +1056,9 @@ def test_scheduler_typebound_item(here):
         'typebound_other#other_member',
     )
 
-    other_type_var_member_routine = Item(name='typebound_other#other_type%var%member_routine', source=other)
+    other_type_var_member_routine = ProcedureBindingItem(
+        name='typebound_other#other_type%var%member_routine', source=other
+    )
     assert isinstance(other_type_var_member_routine, ProcedureBindingItem)
     assert other_type_var_member_routine.routine is None
     assert other_type_var_member_routine.qualified_imports == {'header': 'typebound_header#header_type'}
@@ -1064,7 +1072,9 @@ def test_scheduler_typebound_item(here):
         'typebound_header#header_type%member_routine',
     )
 
-    header_type_member_routine = Item(name='typebound_header#header_type%member_routine', source=header)
+    header_type_member_routine = ProcedureBindingItem(
+        name='typebound_header#header_type%member_routine', source=header
+    )
     assert isinstance(header_type_member_routine, ProcedureBindingItem)
     assert header_type_member_routine.routine is None
     assert header_type_member_routine.calls == ('header_member_routine',)
