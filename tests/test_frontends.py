@@ -8,9 +8,11 @@ import pytest
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
-    BasicType, OMNI, OFP, Enumeration, config, REGEX, Sourcefile, Import, RawSource,
-    CallStatement, RegexParserClass, ProcedureType, DerivedType, Comment, Pragma
+    Module, Subroutine, FindNodes, FindVariables, Allocation,
+    Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
+    config, REGEX, Sourcefile, Import, RawSource, CallStatement,
+    RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
+    PreprocessorDirective
 )
 from loki.expression import symbols as sym
 
@@ -760,6 +762,42 @@ END SUBROUTINE SOME_ROUTINE
     assert isinstance(source.ir.body[1], Subroutine)
     assert source.ir.body[1].source.lines == (5, 9)
     assert source.ir.body[1].source.string.startswith('SUBROUTINE')
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'Non-standard notation needs full preprocessing')]
+))
+def test_make_complete_sanitize(frontend):
+    """
+    Test that attempts to first REGEX-parse and then complete source code
+    with unsupported features that require "frontend sanitization".
+    """
+    fcode = """
+! Some comment before the subroutine
+#ifdef RS6K
+@PROCESS HOT(NOVECTOR) NOSTRICT
+#endif
+SUBROUTINE SOME_ROUTINE (KLON, KLEV)
+  IMPLICIT NONE
+  INTEGER, INTENT(IN) :: KLON, KLEV
+  ! Comment inside routine
+END SUBROUTINE SOME_ROUTINE
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+
+    # Ensure completion handles the non-supported features (@PROCESS)
+    source.make_complete(frontend=frontend)
+
+    comments = FindNodes(Comment).visit(source.ir)
+    assert len(comments) == 2 if frontend == FP else 1
+    assert comments[0].text == '! Some comment before the subroutine'
+    if frontend == FP:
+        assert comments[1].text == '@PROCESS HOT(NOVECTOR) NOSTRICT'
+
+    directives = FindNodes(PreprocessorDirective).visit(source.ir)
+    assert len(directives) == 2
+    assert directives[0].text == '#ifdef RS6K'
+    assert directives[1].text == '#endif'
 
 
 def test_regex_module_imports():

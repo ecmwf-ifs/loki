@@ -13,7 +13,7 @@ from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash, timeit
 from loki.visitors import FindNodes
 from loki.ir import VariableDeclaration, Intrinsic
-from loki.frontend.util import OMNI, OFP, FP
+from loki.frontend.util import OMNI, OFP, FP, REGEX
 
 
 __all__ = ['preprocess_cpp', 'sanitize_input', 'sanitize_registry', 'PPRule']
@@ -229,6 +229,7 @@ mostly a regex expression that removes certains strings and stores
 them, so that they can be re-inserted into the IR by a callback.
 """
 sanitize_registry = {
+    REGEX: {},
     OMNI: {},
     OFP: {
         # Remove various IBM directives
