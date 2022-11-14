@@ -37,16 +37,8 @@ function(install_claw_compiler VERSION)
     set( CLAW_DIR "" )
     message( STATUS "Downloading OMNI Compiler and CLAW Compiler")
 
-    if( NOT DEFINED ENV{BITBUCKET} )
-        set( ENV{BITBUCKET} ssh://git@git.ecmwf.int )
-    endif()
-
     # Bootstrap OpenJDK and Ant, if necessary
-    FetchContent_Declare(
-        cmake-jdk-ant
-        GIT_REPOSITORY $ENV{BITBUCKET}/~nabr/cmake-jdk-ant.git
-    )
-    FetchContent_MakeAvailable( cmake-jdk-ant )
+    add_subdirectory( cmake/cmake-jdk-ant )
 
     # Build OMNI Compiler and the CLAW
     FetchContent_Declare(
