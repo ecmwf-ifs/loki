@@ -97,10 +97,10 @@ if( NOT HAVE_NO_INSTALL )
 
         if( HAVE_CLAW )
             set( _TEST_SELECTOR "not ofp" )
-            set( _TEST_PATH "${CLAW_DIR}/bin:${ENV_PATH}" )
+            set( _TEST_PATH "${CLAW_DIR}/bin:$ENV{PATH}" )
         else()
             set( _TEST_SELECTOR "not ofp and not omni" )
-            set( _TEST_PATH "${ENV_PATH}" )
+            set( _TEST_PATH "$ENV{PATH}" )
         endif()
 
         # ecbuild_add_test relies on the variables set by the _very_ outdated
@@ -112,16 +112,24 @@ if( NOT HAVE_NO_INSTALL )
         ecbuild_add_test(
             TYPE PYTHON
             TARGET loki_tests
-            ARGS -m pytest -k ${_TEST_SELECTOR} -v tests
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            ARGS -m pytest -k ${_TEST_SELECTOR} -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
         ecbuild_add_test(
             TYPE PYTHON
-            TARGET loki_scripts
-            ARGS -m pytest -k ${_TEST_SELECTOR} -v scripts
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            TARGET loki_transformations
+            ARGS -m pytest -k ${_TEST_SELECTOR} -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/transformations/transformations/tests
+            ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
+        )
+
+        ecbuild_add_test(
+            TYPE PYTHON
+            TARGET loki_lint_rules
+            ARGS -m pytest -k ${_TEST_SELECTOR} -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint_rules/lint_rules/tests
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
