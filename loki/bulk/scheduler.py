@@ -7,7 +7,7 @@ from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, timeit
 from loki.logging import info, warning, debug, PERF
-from loki.bulk.item import Item, SubroutineItem
+from loki.bulk.item import ProcedureBindingItem, SubroutineItem
 
 
 __all__ = ['Scheduler', 'SchedulerConfig']
@@ -246,8 +246,10 @@ class Scheduler:
                     raise RuntimeError(f'Multiple config entries matching {name}')
             item_conf.update(self.config.routines[config_matches[0]])
 
-        debug(f'[Loki] Scheduler creating item: {name} => {sourcefile.path}')
-        return Item(name=name, source=sourcefile, config=item_conf)
+        debug(f'[Loki] Scheduler creating Item: {name} => {sourcefile.path}')
+        if '%' in name:
+            return ProcedureBindingItem(name=name, source=sourcefile, config=item_conf)
+        return SubroutineItem(name=name, source=sourcefile, config=item_conf)
 
     def find_routine(self, routine):
         """

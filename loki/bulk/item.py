@@ -86,20 +86,6 @@ class Item:
         self.source = source
         self.config = config or {}
 
-    def __new__(cls, name, source, config=None):
-        """
-        Factory for :class:`Item` implementations
-
-        This yields an instance of :class:`ProcedureBindingItem` or :class:`SubroutineItem`,
-        depending on the :data:`name` provided.
-        """
-        if '%' in name:
-            obj = super().__new__(ProcedureBindingItem)
-        else:
-            obj = super().__new__(SubroutineItem)
-        obj.__init__(name, source, config)
-        return obj
-
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
 
