@@ -129,7 +129,7 @@ if( NOT HAVE_NO_INSTALL )
             TYPE PYTHON
             TARGET loki_lint_rules
             ARGS -m pytest -k ${_TEST_SELECTOR} -v
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint_rules/lint_rules/tests
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint_rules/tests
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
