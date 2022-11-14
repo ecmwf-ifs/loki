@@ -69,7 +69,7 @@ function(install_claw_compiler VERSION)
         PATCH_COMMAND ""
 
         # Specify in-build installation target and unset any CFLAGS
-        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CLAW_DIR} -DJAVA_HOME=${JAVA_HOME} -DANT_HOME=${ANT_HOME}
+        CMAKE_ARGS -DOMNI_CONF_OPTION=JAR=${Java_JAR_EXECUTABLE} -DCMAKE_INSTALL_PREFIX=${CLAW_DIR} -DJAVA_HOME=${JAVA_HOME} -DANT_HOME=${ANT_HOME}
     )
 
     add_executable( clawfc IMPORTED GLOBAL )
