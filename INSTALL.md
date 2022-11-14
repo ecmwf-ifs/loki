@@ -122,6 +122,8 @@ ecbuild --prefix=<install-path> <path-to-loki>
 make install
 ```
 
+*Note: Using this to install Loki system-wide does currently not install OMNI Compiler and CLAW Compiler with it, even if the relevant ecbuild option is activated. It is recommended to install them separately, if required.*
+
 The ecbuild installation method creates a virtual environment in the build directory and downloads OpenJDK and Ant on-demand if no up-to-date versions have been found.
 This installation method is particularly handy when used as a subproject of a larger CMake build.
 

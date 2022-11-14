@@ -52,6 +52,30 @@ macro( loki_find_executables )
 
     else()
 
+        # Find the path of the virtual environment relative to the binary directory
+        # because that is also how we install it in the prefix location
+        file( RELATIVE_PATH _REL_VENV_BIN ${CMAKE_CURRENT_BINARY_DIR} ${Python3_VENV_BIN} )
+
+        # Create a bin directory in the install location and add the Python binaries
+        # as a quasi-symlink
+        install( CODE "
+            file( MAKE_DIRECTORY \"${CMAKE_INSTALL_PREFIX}/bin\" )
+            file( WRITE \"${CMAKE_INSTALL_PREFIX}/bin/python\"
+                \"#!/bin/bash
+                \\\"${CMAKE_INSTALL_PREFIX}/${_REL_VENV_BIN}/python\\\" \\\"$@\\\"\"
+            )
+            file( CHMOD \"${CMAKE_INSTALL_PREFIX}/bin/python\"
+                PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+            )
+            file( WRITE \"${CMAKE_INSTALL_PREFIX}/bin/python3\"
+                \"#!/bin/bash
+                \\\"${CMAKE_INSTALL_PREFIX}/${_REL_VENV_BIN}/python3\\\" \\\"$@\\\"\"
+            )
+            file( CHMOD \"${CMAKE_INSTALL_PREFIX}/bin/python3\"
+                PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+            )
+        ")
+
         # Make CLI executables available in add_custom_command by setting
         # their location to the virtual environment's bin folder
         foreach( _exe_name IN LISTS LOKI_EXECUTABLES )
@@ -60,6 +84,15 @@ macro( loki_find_executables )
                 set_property( TARGET ${_exe_name} PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/${_exe_name} )
                 ecbuild_debug( "Adding executable ${_exe_name} from ${Python3_VENV_BIN}/${_exe_name}" )
             endif()
+
+            # Create symlinks for frontend scripts when actually installing Loki (in the CMake sense)
+            install( CODE "
+                file( CREATE_LINK
+                    ${CMAKE_INSTALL_PREFIX}/${_REL_VENV_BIN}/${_exe_name}
+                    ${CMAKE_INSTALL_PREFIX}/bin/${_exe_name}
+                    SYMBOLIC
+                )
+            ")
         endforeach()
 
         if( ${loki_HAVE_CLAW} )
