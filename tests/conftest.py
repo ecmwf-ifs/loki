@@ -18,6 +18,8 @@ __all__ = [
     'stdchannel_redirected', 'stdchannel_is_captured', 'available_frontends'
 ]
 
+_f90wrap_kind_map = Path(__file__).parent/'kind_map'
+
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
     """
@@ -39,7 +41,7 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
         routine.name += f'_{frontend}'
         source.write(path=testname, source=fgen(routine))
 
-    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
+    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True, f90wrap_kind_map=_f90wrap_kind_map)
 
     if modulename:
         # modname = '_'.join(s.capitalize() for s in refpath.stem.split('_'))
@@ -72,7 +74,7 @@ def jit_compile(source, filepath=None, objname=None):
             filepath = Path(filepath)
         Sourcefile(filepath).write(source=source)
 
-    pymod = compile_and_load(filepath, cwd=str(filepath.parent), use_f90wrap=True)
+    pymod = compile_and_load(filepath, cwd=str(filepath.parent), use_f90wrap=True, f90wrap_kind_map=_f90wrap_kind_map)
 
     if objname:
         return getattr(pymod, objname)
@@ -119,7 +121,7 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
     lib = Lib(name=name, objs=objects, shared=False)
     lib.build(builder=builder)
     wrap = wrap or sourcefiles
-    return lib.wrap(modname=name, sources=wrap, builder=builder)
+    return lib.wrap(modname=name, sources=wrap, builder=builder, kind_map=_f90wrap_kind_map)
 
 
 def clean_test(filepath):

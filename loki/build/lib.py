@@ -115,7 +115,7 @@ class Lib:
         logger.debug('Linking %s (%s objects)' % (self, len(objs)))
         compiler.link(target=target, objs=objs, shared=shared)
 
-    def wrap(self, modname, builder, sources=None, libs=None, lib_dirs=None):
+    def wrap(self, modname, builder, sources=None, libs=None, lib_dirs=None, kind_map=None):
         """
         Wrap the compiled library using ``f90wrap`` and return the loaded module.
 
@@ -126,7 +126,7 @@ class Lib:
         compiler = builder.compiler or _default_compiler
 
         sourcepaths = [str(i.source_path) for i in items]
-        compiler.f90wrap(modname=modname, source=sourcepaths, cwd=str(build_dir))
+        compiler.f90wrap(modname=modname, source=sourcepaths, cwd=str(build_dir), kind_map=kind_map)
 
         # Execute the second-level wrapper (f2py-f90wrap)
         wrappers = ['f90wrap_%s.f90' % item.source_path.stem for item in items]

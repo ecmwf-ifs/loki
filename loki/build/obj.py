@@ -156,7 +156,7 @@ class Obj:
         else:
             execute(args)
 
-    def wrap(self, builder=None):
+    def wrap(self, builder=None, kind_map=None):
         """
         Wrap the compiled object using ``f90wrap`` and return the loaded module.
         """
@@ -165,7 +165,7 @@ class Obj:
 
         module = self.source_path.stem
         source = [str(self.source_path)]
-        compiler.f90wrap(modname=module, source=source, cwd=build_dir)
+        compiler.f90wrap(modname=module, source=source, cwd=build_dir, kind_map=kind_map)
 
         # Execute the second-level wrapper (f2py-f90wrap)
         wrapper = 'f90wrap_%s.f90' % self.source_path.stem
