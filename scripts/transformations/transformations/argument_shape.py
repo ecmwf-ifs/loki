@@ -1,8 +1,16 @@
 """
-Utility transformation that performs inter-procedural analysis to
-infer shape symbols for deferred array dimensions. For this it propagates
-shape symbols from declaration or dynamic array allocations from a caller
-to the called subroutine.
+Inter-procedural analysis passes to derive and augment argument array shapes.
+
+A pair of utility :any:`Transformation` classes that allows thea shape
+of array arguments with deferred dimensions to be derived from the
+calling context via inter-procedural analysis.
+
+To infer the declared dimensions of array arguments
+:any:`ArgumentArrayShapeAnalysis` needs to be applied first to set the
+``shape`` property on respective :any:`Array` symbols, before
+:any:`ExplicitArgumentArrayShapeTransformation` can be applied in a
+reverse traversal order to apply the necessary changes to argument
+declarations and call signatures.
 """
 
 
@@ -17,19 +25,24 @@ __all__ = ['ArgumentArrayShapeAnalysis', 'ExplicitArgumentArrayShapeTransformati
 
 class ArgumentArrayShapeAnalysis(Transformation):
     """
-    Inter-procedural analysis :any:`Transformation` that infers shape
-    symbols for deferred argument array dimensions and sets the
-    :param:`shape` attribute accordingly. For this it propagates shape
-    symbols from from a caller to the called subroutine.
+    Infer shape of array arguments with deferred shape.
 
-    Please note that this transformation propagates from the caller
-    to the callee, so it needs to be applied in a forward order over
-    large sets of interdependent subroutines in a dependency graph via
-    the :any:`Scheduler`.
+    An inter-procedural analysis pass that passively infers the shape
+    symbols for argument arrays from calling contexts and sets the
+    ``shape`` attribute on :any:`Array` symbols accordingly.
 
-    Please also note that if the call-side shape of an array argument
-    is either set, or has already been derived (possibly with
-    conflicting information), this transformation will have no effect.
+    The shape information is propagated from a caller to the called
+    subroutine in a forward traversal of the call-tree. If the
+    call-side shape of an array argument is either set, or has already
+    been derived (possibly with conflicting information), this
+    transformation will have no effect.
+
+    Note: This transformation does not affect the generated source
+    code, as it only sets the ``shape`` property, which is ignored
+    during the code generation step (:any:`fgen`). To actively change
+    the argument array declarations and the resulting source code, the
+    :any:`ExplicitArgumentArrayShapeTransformation` needs to be applied
+    `after` this transformation.
     """
 
     def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
@@ -72,13 +85,22 @@ class ArgumentArrayShapeAnalysis(Transformation):
 
 class ExplicitArgumentArrayShapeTransformation(Transformation):
     """
-    Inter-procedural :any:`Transformation` that inserts explicit array
-    shape dimensions for :any:`Subroutine` arguments that use deferred
-    shape notation, and updates :any:`CallStatement` in any calling
-    subroutines in the traversal graph. Critically, this depends on
-    the ``.shape`` attribute of the corresponding argument symbol
-    being set, which can be derived from a call context via the
-    accompanying :any:`ArgumentArrayShapeAnalysis` transformation.
+    Add dimensions to array arguments and adjust call signatures.
+
+    Adjusts array argument declarations by inserting explicit shape
+    variables according to the ``shape`` property of the :any:`Array`
+    symbol. This property can be derived from the calling context via
+    :any:`ArgumentArrayShapeAnalysis`.
+
+    If the :any:`Scalar` symbol defining an array dimension is not yet
+    known in the local :any:`Subroutine`, it gets added to the call
+    signature. In the caller routine, the respective :any:`Scalar`
+    argument is added to the :any:`CallStatement` via keyword-argument
+    notation.
+
+    Note: Since the :any:`CallStatement` needs updating after the called
+    :any:`Subroutine` signature, this transformation has to be applied
+    in reverse order via ``Scheduler.process(..., reverse=True)``.
     """
 
     def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
