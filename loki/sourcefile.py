@@ -199,7 +199,7 @@ class Sourcefile:
         """
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
-        source, pp_info = sanitize_input(source=raw_source, frontend=OFP, filepath=filepath)
+        source, pp_info = sanitize_input(source=raw_source, frontend=OFP)
 
         # Parse the file content into a Fortran AST
         ast = parse_ofp_source(source, filepath=filepath)
@@ -235,7 +235,7 @@ class Sourcefile:
         """
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
-        source, pp_info = sanitize_input(source=raw_source, frontend=FP, filepath=filepath)
+        source, pp_info = sanitize_input(source=raw_source, frontend=FP)
 
         # Parse the file content into a Fortran AST
         ast = parse_fparser_source(source)
@@ -324,7 +324,7 @@ class Sourcefile:
             frontend_argnames = ['definitions', 'type_map', 'symbol_map', 'scope']
             xmods = frontend_args.get('xmods')
         elif frontend in (OFP, FP):
-            frontend_argnames = ['pp_info', 'definitions', 'scope']
+            frontend_argnames = ['definitions', 'scope']
         else:
             raise NotImplementedError(f'Unknown frontend: {frontend}')
         sanitized_frontend_args = {k: frontend_args.get(k) for k in frontend_argnames}
@@ -335,22 +335,28 @@ class Sourcefile:
                 node.make_complete(frontend=frontend, **frontend_args)
                 body += [node]
             elif isinstance(node, RawSource):
+                # Sanitize the input code to ensure non-supported features
+                # do not break frontend parsing ourside of program units
+                raw_source = node.source.string
+                source, pp_info = sanitize_input(source=raw_source, frontend=frontend)
+
                 # Typically, this should only be comments, PP statements etc., therefore
                 # we are not bothering with type tables, definitions or similar to parse them
                 if frontend == REGEX:
-                    ir_ = parse_regex_source(node.source.string, **sanitized_frontend_args)
+                    ir_ = parse_regex_source(source, **sanitized_frontend_args)
                 elif frontend == OMNI:
-                    ast = parse_omni_source(source=node.source.string, xmods=xmods)
-                    ir_ = parse_omni_ast(ast=ast, raw_source=node.source.string, **sanitized_frontend_args)
+                    ast = parse_omni_source(source=source, xmods=xmods)
+                    ir_ = parse_omni_ast(ast=ast, raw_source=raw_source, **sanitized_frontend_args)
                 elif frontend == OFP:
-                    ast = parse_ofp_source(source=node.source.string)
-                    ir_ = parse_ofp_ast(ast, raw_source=node.source.string, **sanitized_frontend_args)
+                    ast = parse_ofp_source(source=source)
+                    ir_ = parse_ofp_ast(ast, raw_source=raw_source, pp_info=pp_info,
+                                        **sanitized_frontend_args)
                 elif frontend == FP:
                     # Fparser is unable to parse comment-only source files/strings,
                     # so we see if this is only comments and convert them ourselves
                     # (https://github.com/stfc/fparser/issues/375)
                     # This can be removed once fparser 0.0.17 is released
-                    lines = [l.lstrip() for l in node.text.splitlines()]
+                    lines = [l.lstrip() for l in source.splitlines()]
                     if all(not l or l[0] in '!#' for l in lines):
                         ir_ = [
                             PreprocessorDirective(text=line.string, source=line) if line.string.lstrip().startswith('#')
@@ -358,8 +364,9 @@ class Sourcefile:
                             for line in node.source.clone_lines()
                         ]
                     else:
-                        ast = parse_fparser_source(node.source.string)
-                        ir_ = parse_fparser_ast(ast, raw_source=node.source.string, **sanitized_frontend_args)
+                        ast = parse_fparser_source(source)
+                        ir_ = parse_fparser_ast(ast, raw_source=raw_source, pp_info=pp_info,
+                                                **sanitized_frontend_args)
                 else:
                     raise NotImplementedError(f'Unknown frontend: {frontend}')
                 if isinstance(ir_, Section):

@@ -13,7 +13,7 @@ from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash, timeit
 from loki.visitors import FindNodes
 from loki.ir import VariableDeclaration, Intrinsic
-from loki.frontend.util import OMNI, OFP, FP
+from loki.frontend.util import OMNI, OFP, FP, REGEX
 
 
 __all__ = ['preprocess_cpp', 'sanitize_input', 'sanitize_registry', 'PPRule']
@@ -89,8 +89,8 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     return s.getvalue()
 
 
-@timeit(log_level=DEBUG, getter=lambda x: '' if 'filepath' not in x else x['filepath'].stem)
-def sanitize_input(source, frontend, filepath=None):
+@timeit(log_level=DEBUG)
+def sanitize_input(source, frontend):
     """
     Apply internal regex-based sanitisation rules to filter out known
     frontend incompatibilities.
@@ -102,32 +102,9 @@ def sanitize_input(source, frontend, filepath=None):
     The ``sanitize_registry`` (see below) holds pre-defined rules
     for each frontend.
     """
-    tmpdir = gettempdir()
-    pp_path = filepath.with_suffix(f'.{str(frontend)}{filepath.suffix}')
-    pp_path = tmpdir/pp_path.name
-    info_path = filepath.with_suffix(f'.{str(frontend)}.info')
-    info_path = tmpdir/info_path.name
-
-    debug(f'[Loki] Sanitizing source file {str(filepath)}')
-
-    # Check for previous preprocessing of this file
-    if config['frontend-pp-cache'] and pp_path.exists() and info_path.exists():
-        # Make sure the existing PP data belongs to this file
-        if pp_path.stat().st_mtime > filepath.stat().st_mtime:
-            debug(f'[Loki] Frontend preprocessor, reading {str(info_path)}')
-            with info_path.open('rb') as f:
-                pp_info = pickle.load(f)
-            if pp_info.get('original_file_path') == str(filepath):
-                # Already pre-processed this one,
-                # return the cached info and source.
-                debug(f'[Loki] Frontend preprocessor, reading {str(pp_path)}')
-                with pp_path.open() as f:
-                    source = f.read()
-                return source, pp_info
 
     # Apply preprocessing rules and store meta-information
     pp_info = OrderedDict()
-    pp_info['original_file_path'] = str(filepath)
     for name, rule in sanitize_registry[frontend].items():
         # Apply rule filter over source file
         rule.reset()
@@ -139,15 +116,6 @@ def sanitize_input(source, frontend, filepath=None):
         # Store met-information from rule
         pp_info[name] = rule.info
         source = new_source
-
-    if config['frontend-pp-cache']:
-        # Write out the preprocessed source and according info file
-        debug(f'[Loki] Frontend preprocessor, storing {str(pp_path)}')
-        with pp_path.open('w') as f:
-            f.write(source)
-        debug(f'[Loki] Frontend preprocessor, storing {str(info_path)}')
-        with info_path.open('wb') as f:
-            pickle.dump(pp_info, f)
 
     return source, pp_info
 
@@ -257,6 +225,7 @@ mostly a regex expression that removes certains strings and stores
 them, so that they can be re-inserted into the IR by a callback.
 """
 sanitize_registry = {
+    REGEX: {},
     OMNI: {},
     OFP: {
         # Remove various IBM directives
