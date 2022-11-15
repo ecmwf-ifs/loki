@@ -89,8 +89,8 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     return s.getvalue()
 
 
-@timeit(log_level=DEBUG, getter=lambda x: '' if 'filepath' not in x else x['filepath'].stem)
-def sanitize_input(source, frontend, filepath=None):
+@timeit(log_level=DEBUG)
+def sanitize_input(source, frontend):
     """
     Apply internal regex-based sanitisation rules to filter out known
     frontend incompatibilities.
@@ -102,13 +102,9 @@ def sanitize_input(source, frontend, filepath=None):
     The ``sanitize_registry`` (see below) holds pre-defined rules
     for each frontend.
     """
-    tmpdir = gettempdir()
-
-    debug(f'[Loki] Sanitizing source file {str(filepath)}')
 
     # Apply preprocessing rules and store meta-information
     pp_info = OrderedDict()
-    pp_info['original_file_path'] = str(filepath)
     for name, rule in sanitize_registry[frontend].items():
         # Apply rule filter over source file
         rule.reset()

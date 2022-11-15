@@ -199,7 +199,7 @@ class Sourcefile:
         """
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
-        source, pp_info = sanitize_input(source=raw_source, frontend=OFP, filepath=filepath)
+        source, pp_info = sanitize_input(source=raw_source, frontend=OFP)
 
         # Parse the file content into a Fortran AST
         ast = parse_ofp_source(source, filepath=filepath)
@@ -235,7 +235,7 @@ class Sourcefile:
         """
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
-        source, pp_info = sanitize_input(source=raw_source, frontend=FP, filepath=filepath)
+        source, pp_info = sanitize_input(source=raw_source, frontend=FP)
 
         # Parse the file content into a Fortran AST
         ast = parse_fparser_source(source)
