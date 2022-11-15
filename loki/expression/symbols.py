@@ -160,6 +160,16 @@ class TypedSymbol:
 
         super().__init__(*args, **kwargs)
 
+    @property
+    def name(self):
+        if self._parent:
+            return f'{self._parent.name}%{self._name}'
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name.split('%')[-1]
+
     def __getinitargs__(self):
         """
         Fixed tuple of initialisation arguments, corresponding to
@@ -265,8 +275,6 @@ class TypedSymbol:
         :any:`TypedSymbol` or :any:`MetaSymbol` or `NoneType`
             The parent variable or None
         """
-        if not self._parent and '%' in self.name and self.scope:
-            self._parent = self._lookup_parent(self.scope)
         return self._parent
 
     @parent.setter
@@ -311,15 +319,16 @@ class TypedSymbol:
         """
         The symbol name without the qualifier from the parent.
         """
-        idx = self.name.rfind('%')
-        return self.name[idx+1:]
+        return self._name
 
     @property
     def name_parts(self):
         """
         All name parts with parent qualifiers separated
         """
-        return self.name.split('%')
+        if self.parent:
+            return self.parent.name_parts + [self.basename]
+        return [self.basename]
 
     def clone(self, **kwargs):
         """
@@ -524,6 +533,10 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         the parent's name
         """
         return self.symbol.basename
+
+    @property
+    def name_parts(self):
+        return self.symbol.name_parts
 
     @property
     def parent(self):

@@ -10,7 +10,7 @@ from loki.expression import (
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
-from loki.ir import Associate, Import, TypeDef
+from loki.ir import Import, TypeDef
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
@@ -19,8 +19,8 @@ from loki.visitors import Transformer, FindNodes
 
 
 __all__ = [
-    'convert_to_lower_case', 'replace_intrinsics', 'resolve_associates',
-    'sanitise_imports', 'replace_selected_kind'
+    'convert_to_lower_case', 'replace_intrinsics', 'sanitise_imports',
+    'replace_selected_kind'
 ]
 
 
@@ -83,23 +83,6 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None):
         callmap = {k: mapper(v) for k, v in callmap.items()}
 
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
-
-
-def resolve_associates(routine):
-    """
-    Resolve implicit struct mappings through "associates"
-    """
-    assoc_map = {}
-    vmap = {}
-    for assoc in FindNodes(Associate).visit(routine.body):
-        invert_assoc = CaseInsensitiveDict({v.name: k for k, v in assoc.associations})
-        for v in FindVariables(unique=False).visit(routine.body):
-            if v.name in invert_assoc:
-                vmap[v] = invert_assoc[v.name]
-        assoc_map[assoc] = assoc.body
-    routine.body = Transformer(assoc_map).visit(routine.body)
-    routine.body = SubstituteExpressions(vmap).visit(routine.body)
-    routine.rescope_symbols()
 
 
 def used_names_from_symbol(symbol, modifier=str.lower):
