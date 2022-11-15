@@ -1,32 +1,63 @@
 # Installation
 
-Loki is a pure Python package that depends on a range of upstream packages,
-including some dependencies on dev branches. It is therefore recommended
-to create a Loki-specific virtual environment. The provided install script will do this automatically.
+There are multiple different ways of installing Loki, tailored towards various use-cases:
+
+- via `pip install` as a pure Python package
+- via the provided install script to ease the setup of optional dependencies
+- via CMake/ecbuild to enable installation as part of a CMake project
+- via ecbundle
+- manually
+
+Loki is a pure Python package that depends on a range of upstream packages. We recommend to use a
+[virtual environment](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/#creating-a-virtual-environment)
+to avoid conflicts with versions of system-wide installed packages. The CMake/ecbuild installation method
+as well as the provided [install script](install) will do this automatically.
 
 ## Requirements
 
-- Python 3.6+ (3.8 recommended) with virtualenv and pip
+- Python 3.8+ with virtualenv and pip
 - For OpenFortranParser/OMNI+CLAW:
   - JDK 1.8+ with ant (can be installed using the install script or ecbuild)
   - libxml2 (with headers)
 - For graphical output from the scheduler: graphviz
 
+## Installation via `pip install`
+
+The easiest way to obtain a useable installation of Loki with the fparser frontend:
+
+```bash
+python3 -m venv loki_env  # Create a virtual environment
+source loki_env/bin/activate  # Activate the virtual environment
+
+# Installation of the Loki core library
+pip install "loki @ git+https://github.com/ecmwf-ifs/loki.git"
+
+# Optional: Installation of additional transformations
+pip install "transformations @ git+https://github.com/ecmwf-ifs/loki.git#subdirectory=scripts/transformations"
+
+# Optional: Installation of rules for the use as a linter
+pip install "lint_rules @ git+https://github.com/ecmwf-ifs/loki.git#subdirectory=scripts/lint_rules"
+```
+
+This makes the Python package available and installs the scripts `loki-transform.py` and `loki-lint.py` on the PATH.
+
+
 ## Installation using install script
 
-To install Loki with selected dependencies and using a local virtual environment `loki_env` use the provided `install` script.
-Call it with `-h` to display usage information:
+The provided `install` script can be used to install Loki with selected dependencies inside a local virtual environment `loki_env`.
+This is the recommended way when additional optional dependencies, such as CLAW, the OMNI frontend, or Open Fortran Parser are required.
+
+After downloading Loki, call the script with `-h` to display usage information:
 
 ```text
 $ ./install -h
 Loki install script. This installs Loki and selected dependencies.
 
-Usage: ./install [-v] [--ecmwf] [--*-certificate[=]<path>] [--use-venv[=]<path>] [--with-*] [...]
+Usage: ./install [-v] [--hpc2020] [--*-certificate[=]<path>] [--use-venv[=]<path>] [--with-*] [...]
 
 Available options:
-  -h                           Display this help message
+  -h / --help                  Display this help message
   -v                           Enable verbose output
-  --ecmwf                      Load ECMWF workstation specific modules and settings
   --hpc2020                    Load HPC2020 (Atos) specific modules and settings
   --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant/OFP downloads
   --jdk-certificate[=]<path>   Provide trusted certificate for JDK runtime
@@ -38,32 +69,21 @@ Available options:
   --with[out]-dace             Install DaCe (default: enabled)
   --with[out]-tests            Install dependencies to run tests (default: enabled)
   --with[out]-docs             Install dependencies to generate documentation (default: disabled)
-  --with[out]-max              Enable experimental use of Maxeler simulator, requires --ecmwf (default: disabled)
+  --with[out]-examples         Install dependencies to run the example notebooks (default: enabled)
   --claw-install-env[=]<...>   Specify environmental variables for CLAW build and install
 ```
 
-On an ECMWF workstation the `--ecmwf` flag is recommended as it loads required modules and makes sure the proxy settings are correct.
 On the Atos HPC facility, the `--hpc2020` flag is recommended as it loads required modules.
-Omitting (other) options (i.e., any of the `--with-*`) will install only the Fparser2 frontend.
+Omitting all (other) options (i.e., any of the `--with-*`) will install only the Fparser2 frontend.
+
+After completion, this script writes a `loki-activate` file that can be sourced to bring up the virtual environment and set paths for the external dependencies.
 
 ### Examples:
 
-The default command on an ECMWF workstation for a full stack installation is
-
-```bash
-./install --ecmwf --with-ant --with-claw --with-ofp
-```
-
-The equivalent command on the Atos HPC facility for a full stack installation is
+The default command on ECMWF's Atos HPC facility for a full stack installation is
 
 ```bash
 ./install --hpc2020 --with-ant --with-claw --with-ofp
-```
-
-On the `volta` host it requires a local installation of JDK (note that it will mention missing modules but that does not cause problems because system-versions are sufficiently up-to-date)
-
-```bash
-./install --ecmwf --with-jdk --with-ant --with-claw --with-ofp
 ```
 
 On standard Linux hosts with up-to-date JDK and ant, it is as easy as
@@ -85,17 +105,41 @@ This requires ecbuild 3.4+ and CMake 3.17+.
 
 ```bash
 ecbuild <path-to-loki>
+make
 ```
 
-It creates a virtual environment and downloads OpenJDK and Ant on-demand if no up-to-date versions have been found.
+The following options are available and can be enabled/disabled by providing `-DENABLE_<feature>=<ON|OFF>`:
+
+- `NO_INSTALL` (default: `OFF`): Do not install Loki but make the CMake functions below available. This is useful if Loki is available on the path from elsewhere and only the CMake integration is required
+- `EDITABLE` (default: `OFF`): Install Loki in editable mode, i.e. without copying any files
+- `CLAW` (default: `OFF`): Install the CLAW and OMNI Compiler as well as its Java dependencies as required. Note that this is an experimental setup and comes with no support or guarantees.
+
+This method is also suitable to create a system-wide installation of Loki:
+
+```bash
+mkdir build && cd build
+ecbuild --prefix=<install-path> <path-to-loki>
+make install
+```
+
+*Note: Using this to install Loki system-wide does currently not install OMNI Compiler and CLAW Compiler with it, even if the relevant ecbuild option is activated. It is recommended to install them separately, if required.*
+
+The ecbuild installation method creates a virtual environment in the build directory and downloads OpenJDK and Ant on-demand if no up-to-date versions have been found.
 This installation method is particularly handy when used as a subproject of a larger CMake build.
+
 When used this way, it exports a number of CMake functions that can then be used elsewhere:
 
-- ``loki_transform_convert``: A wrapper for calls to ``loki-transform.py`` in ``convert`` mode that takes care of automatically setting path and environment.
-- ``loki_transform_transpile``: A wrapper for calls to ``loki-transform.py`` in ``transpile`` mode that takes care of automatically setting path and environment.
-- ``claw_compile``: A wrapper for calls to ``clawfc`` that takes care of automatically setting path and environment.
+- `loki_transform_convert`: A wrapper for calls to `loki-transform.py` in `convert` mode that takes care of automatically setting path and environment.
+- `loki_transform_transpile`: A wrapper for calls to `loki-transform.py` in `transpile` mode that takes care of automatically setting path and environment.
+- `claw_compile`: A wrapper for calls to `clawfc` that takes care of automatically setting path and environment.
+- `generate_xmod`: A wrapper for calls to OMNI's `F_Front` frontend to generate xmod dependency files.
+- `loki_transform_plan`: A wrapper for calls to `loki-transform.py` in `plan` mode to generate CMake plan files.
+- `loki_transform_ecphys`: A wrapper for calls to `loki-transform.py` in `ecphys` mode to apply bulk transformations across the ec_phys call tree
+- `loki_transform_target`: A wrapper that takes care of calling the plan mode during configuration and applying bulk transformations at build time to a CMake target. This includes updates to the target's source file list as determined during the planning stage.
 
-## Installation as part of a bundle
+This allows to apply transformations as part of the build process without the need to take care of PATH handling on the user side. See the [CLOUDSC dwarf](https://github.com/ecmwf-ifs/dwarf-p-cloudsc) for an example how this can be used.
+
+## Installation as part of an ecbundle bundle
 
 Loki being installable by CMake/ecbuild makes it easy to integrate with [ecbundle](https://github.com/ecmwf/ecbundle).
 Simply add the following to your ``bundle.yml``:
@@ -106,19 +150,21 @@ projects :
   # ...other projects ...
 
   - loki :
-    git     : ${BITBUCKET}/rdx/loki
-    version : master
+    git     : https://github.com/ecmwf-ifs/loki
+    version : main
 
 ```
 
+See the [CLOUDSC dwarf](https://github.com/ecmwf-ifs/dwarf-p-cloudsc) for an example how this can be used.
+
 ## Manual installation
 
-The following uses a virtual environment to install Loki on your local machine. You can create an empty directory and copy-paste the following steps to obtain a working version:
+The following outlines the manual steps for installing Loki using a virtual environment. This installation method is not recommended but may be used when maximum control over all steps is required or all of the above are not working. You can create an empty directory and copy-paste the following steps to obtain a working version:
 
 ### 1. Clone the Loki repository
 
 ```bash
-git clone ssh://git@git.ecmwf.int/rdx/loki.git
+git clone https://github.com/ecmwf-ifs/loki
 ```
 
 ### 2. Create and activate virtual environment
@@ -132,7 +178,9 @@ source loki_env/bin/activate
 
 ```bash
 pushd loki
-pip install -e .[tests]
+pip install -e .[tests,examples]
+pip install -e scripts/transformations
+pip install -e scripts/lint_rules
 popd
 ```
 

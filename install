@@ -5,13 +5,9 @@ set -euo pipefail
 # Configuration of package versions:
 loki_ant_version=1.10.12
 
-ecmwf_java_version=11.0.1
-ecmwf_python_version=3.8.8-01
-ecmwf_cmake_version=3.19.5
-
 hpc2020_java_version=11.0.6
 hpc2020_python_version=3.8.8-01
-hpc2020_cmake_version=3.19.5
+hpc2020_cmake_version=3.20.2
 
 # Determine base path for loki
 # Either take the root of the current git tree or, if not inside a git repository, then
@@ -24,7 +20,6 @@ fi
 
 # Configuration default values
 verbose=false
-is_ecmwf=false
 is_hpc2020=false
 proxy_certificate=""
 jdk_certificate=""
@@ -37,12 +32,34 @@ with_ofp=false
 with_docs=false
 with_dace=true
 with_tests=true
-with_examples=false
-with_max=false
+with_examples=true
 
 # Helper functions
 print_usage() {
-  echo "Usage: $0 [-v] [--ecmwf] [--*-certificate[=]<path>] [--use-venv[=]<path>] [--with-*] [...]" >&2
+  echo "Usage: $0 [-v] [--hpc2020] [--*-certificate[=]<path>] [--use-venv[=]<path>] [--with-*] [...]" >&2
+}
+
+print_usage_with_options() {
+  echo "Loki install script. This installs Loki and selected dependencies."
+  echo
+  print_usage
+  echo
+  echo "Available options:"
+  echo "  -h / --help                  Display this help message"
+  echo "  -v                           Enable verbose output"
+  echo "  --hpc2020                    Load HPC2020 (Atos) specific modules and settings"
+  echo "  --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant/OFP downloads"
+  echo "  --jdk-certificate[=]<path>   Provide trusted certificate for JDK runtime"
+  echo "  --use-venv[=]<path>          Use existing virtual environment at <path>"
+  echo "  --with[out]-jdk              Install JDK instead of using system version (default: use system version)"
+  echo "  --with[out]-ant              Install ant instead of using system version (default: use system version)"
+  echo "  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)"
+  echo "  --with[out]-ofp              Install Open Fortran Parser (default: disabled)"
+  echo "  --with[out]-dace             Install DaCe (default: enabled)"
+  echo "  --with[out]-tests            Install dependencies to run tests (default: enabled)"
+  echo "  --with[out]-docs             Install dependencies to generate documentation (default: disabled)"
+  echo "  --with[out]-examples         Install dependencies to run the example notebooks (default: enabled)"
+  echo "  --claw-install-env[=]<...>   Specify environmental variables for CLAW build and install"
 }
 
 print_step() {
@@ -78,9 +95,6 @@ while getopts "$optspec" optchar; do
           ;;
         claw-install-env=*)  # Provide custom environment variables for CLAW build
           claw_install_env="${!OPTARG#*=}"
-          ;;
-        ecmwf)       # Load ECMWF workstation specific modules and settings
-          is_ecmwf=true
           ;;
         hpc2020)     # Load ECMWF HPC2020 (Atos) specific modules and settings
           is_hpc2020=true
@@ -140,11 +154,9 @@ while getopts "$optspec" optchar; do
         without-examples) # Disable installation of dependencies for notebook examples
           with_examples=false
           ;;
-        with-max)    # Enable experimental use of Maxeler simulator
-          with_max=true
-          ;;
-        without-max) # Disable experimental use of Maxeler simulator
-          with_max=false
+        help)
+          print_usage_with_options
+          exit 2
           ;;
         *)
           echo "Unknown option '--${OPTARG}'." >&2
@@ -155,28 +167,7 @@ while getopts "$optspec" optchar; do
       esac
       ;;
     h)
-      echo "Loki install script. This installs Loki and selected dependencies."
-      echo
-      print_usage
-      echo
-      echo "Available options:"
-      echo "  -h                           Display this help message"
-      echo "  -v                           Enable verbose output"
-      echo "  --ecmwf                      Load ECMWF workstation specific modules and settings"
-      echo "  --hpc2020                    Load HPC2020 (Atos) specific modules and settings"
-      echo "  --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant/OFP downloads"
-      echo "  --jdk-certificate[=]<path>   Provide trusted certificate for JDK runtime"
-      echo "  --use-venv[=]<path>          Use existing virtual environment at <path>"
-      echo "  --with[out]-jdk              Install JDK instead of using system version (default: use system version)"
-      echo "  --with[out]-ant              Install ant instead of using system version (default: use system version)"
-      echo "  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)"
-      echo "  --with[out]-ofp              Install Open Fortran Parser (default: disabled)"
-      echo "  --with[out]-dace             Install DaCe (default: enabled)"
-      echo "  --with[out]-tests            Install dependencies to run tests (default: enabled)"
-      echo "  --with[out]-docs             Install dependencies to generate documentation (default: disabled)"
-      echo "  --with[out]-examples         Install dependencies to run the example notebooks (default: disabled)"
-      echo "  --with[out]-max              Enable experimental use of Maxeler simulator, requires --ecmwf (default: disabled)"
-      echo "  --claw-install-env[=]<...>   Specify environmental variables for CLAW build and install"
+      print_usage_with_options
       exit 2
       ;;
     v)
@@ -195,7 +186,6 @@ done
 if [ "$verbose" == true ]; then
   print_step "Installation configuration:"
 
-  [[ "$is_ecmwf" == true ]]  && echo "    --ecmwf"
   [[ "$is_hpc2020" == true ]]  && echo "    --hpc2020"
   [[ "$venv_path" != "" ]]   && echo "    --use-venv='$venv_path'"
   [[ "$with_jdk" == true ]]  && echo "    --with-jdk"
@@ -206,7 +196,6 @@ if [ "$verbose" == true ]; then
   [[ "$with_tests" == false ]] && echo "    --without-tests"
   [[ "$with_docs" == false ]] && echo "    --without-docs"
   [[ "$with_examples" == false ]] && echo "    --without-examples"
-  [[ "$with_max" == true ]]  && echo "    --with-max"
   [[ "$proxy_certificate" != "" ]] && echo "    --proxy-certificate='$proxy_certificate'"
   [[ "$jdk_certificate" != "" ]]   && echo "    --jdk-certificate='$jdk_certificate'"
   [[ "$claw_install_env" != "" ]]  && echo "    --claw_install_env='$claw_install_env'"
@@ -220,38 +209,8 @@ else
   WGETPROXYOPTIONS=""
 fi
 
-# Sanity checks
-if [[ "$with_max" == true && "$is_ecmwf" == false ]]; then
-  echo "Error: Option '--with-max' requires '--ecmwf'."
-  exit 1
-fi
-
-if [[ "$is_ecmwf" == true && "$is_hpc2020" == true ]]; then
-  echo "Error: Options '--ecmwf' and '--hpc2020' are mutually exclusive."
-  exit 1
-fi
-
 # Load modules
-if [ "$is_ecmwf" == true ]; then
-  print_step "Loading ECMWF modules and settings"
-
-  source /usr/local/apps/module/init/bash
-  module unload cmake
-  module load cmake/${ecmwf_cmake_version}
-
-  if [ "$with_jdk" == false ]; then
-    module unload java
-    module load java/${ecmwf_java_version}
-  fi
-
-  export ANT_OPTS="-Dhttp.proxyHost=proxy.ecmwf.int -Dhttp.proxyPort=3333 -Dhttps.proxyHost=proxy.ecmwf.int -Dhttps.proxyPort=3333"
-
-  if [ "$venv_path" == "" ]; then
-    module unload python3
-    module load python3/${ecmwf_python_version}
-  fi
-
-elif [ "$is_hpc2020" == true ]; then
+if [ "$is_hpc2020" == true ]; then
   print_step "Loading HPC2020 modules and settings"
 
   module unload cmake
@@ -288,7 +247,7 @@ source "${venv_path}/bin/activate"
 
 if [ "x$proxy_certificate" != "x" ]
 then
-export SSL_CERT_FILE=$proxy_certificate
+  export SSL_CERT_FILE=$proxy_certificate
 fi
 
 #
@@ -477,20 +436,7 @@ echo "
 " > "${loki_path}/loki-activate"
 
 # Load ECMWF modules, if required
-if [ "${is_ecmwf}" == true ]; then
-  if [ "$with_jdk" == false ]; then
-    echo "
-module unload java
-module load java/${ecmwf_java_version}
-" >> "${loki_path}/loki-activate"
-  fi
-
-  echo "
-module unload cmake
-module load cmake/${ecmwf_cmake_version}
-" >> "${loki_path}/loki-activate"
-
-elif [ "${is_hpc2020}" == true ]; then
+if [ "${is_hpc2020}" == true ]; then
   if [ "$with_jdk" == false ]; then
     echo "
 module unload java
@@ -523,14 +469,6 @@ fi
 # Inject CLAW into env
 if [ "$with_claw" == true ]; then
   path_var=${CLAW_INSTALL_DIR}/bin:$path_var
-fi
-
-if [ "$with_max" == true ]; then
-  path_var=/perm/rd/nabr/maxeler/bin:$path_var
-  echo "
-export MAXCOMPILERDIR=/perm/rd/nabr/maxeler/latest/maxcompiler
-export MAXELEROSDIR=/perm/rd/nabr/maxeler/latest/maxcompiler/lib/maxeleros-sim
-" >> "${loki_path}/loki-activate"
 fi
 
 # Update path variable

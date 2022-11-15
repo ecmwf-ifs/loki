@@ -151,19 +151,33 @@ class Builder:
         return import_module(module)
 
     def wrap_and_load(self, sources, modname=None, build=True,
-                      libs=None, lib_dirs=None, incl_dirs=None):
+                      libs=None, lib_dirs=None, incl_dirs=None,
+                      kind_map=None):
         """
         Performs the necessary build steps to compile and wrap a set
-        of sources using ``f90wrap``. It returns return dynamically
-        loaded Python module containinig wrappers for each Fortran
-        procedure and module specified in :param sources:.
+        of sources using ``f90wrap``
 
-        :param source: Name(s) of source files to wrap
-        :param modname: Optional module name for f90wrap to use
-        :param build: Flag to force building the source first; default: True.
-        :param libs: Optional override for library names to link
-        :param lib_dirs: Optional override for library paths to link from
-        :param incl_dirs: Optional override for include directories
+        This method returns a dynamically loaded Python module
+        containinig wrappers for each Fortran
+        procedure and module specified in :data:`sources`.
+
+        Parameters
+        ==========
+        source : str or list of str
+            Name(s) of source files to wrap
+        modname : str, optional
+            Optional module name for f90wrap to use
+        build : bool, optional
+            Flag to force building the source first; default: True.
+        libs : list of str, optional
+            Override for library names to link
+        lib_dirs : list of str, optional
+            Override for library paths to link from
+        incl_dirs : list of str, optional
+            Override for include directories
+        kind_map : str, optional
+            Path to ``f90wrap`` KIND_MAP file, containing a Python dictionary
+            in f2py_f2cmap format.
         """
         items = as_tuple(self.get_item(s) for s in as_tuple(sources))
         build_dir = str(self.build_dir) if self.build_dir else None
@@ -179,7 +193,7 @@ class Builder:
         # Execute the first-level wrapper (f90wrap)
         self.logger.info('Python-wrapping %s', items[0])
         sourcepaths = [str(i.path) for i in items]
-        self.compiler.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir)
+        self.compiler.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir, kind_map=kind_map)
 
         # Execute the second-level wrapper (f2py-f90wrap)
         wrappers = ['f90wrap_%s.f90' % item.path.stem for item in items]

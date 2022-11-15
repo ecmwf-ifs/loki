@@ -40,7 +40,7 @@ def test_build_object(builder):
     obj.build(builder=builder)
     assert (builder.build_dir/'base.o').exists
 
-    base = obj.wrap(builder=builder)
+    base = obj.wrap(builder=builder, kind_map=Path(__file__).parent.parent/'kind_map')
     assert base.Base.a_times_b_plus_c(a=2, b=3, c=1) == 7
 
 
@@ -59,7 +59,8 @@ def test_build_lib(builder):
     lib.build(builder=builder)
     assert (builder.build_dir/'liblibrary.a').exists
 
-    test = lib.wrap(modname='test', sources=['extension.f90'], builder=builder)
+    test = lib.wrap(modname='test', sources=['extension.f90'], builder=builder,
+                    kind_map=Path(__file__).parent.parent/'kind_map')
     assert test.extended_fma(2., 3., 1.) == 7.
 
 
@@ -78,7 +79,8 @@ def test_build_lib_with_c(builder):
     lib.build(builder=builder)
     assert (builder.build_dir/'liblibrary.so').exists
 
-    wrap = lib.wrap(modname='wrap', sources=['wrapper.f90'], builder=builder)
+    wrap = lib.wrap(modname='wrap', sources=['wrapper.f90'], builder=builder,
+                    kind_map=Path(__file__).parent.parent/'kind_map')
     assert wrap.wrapper.mult_add_external(2., 3., 1.) == 7.
 
 

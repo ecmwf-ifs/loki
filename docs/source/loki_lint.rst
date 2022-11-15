@@ -17,28 +17,12 @@ Installation
 ============
 
 A generic Loki installation as described in :doc:`INSTALL.md` also installs the
-linting script. However, the linting tool uses only the
-:doc:`Fparser frontend <frontends>` and therefore it is a pure Python package.
-If loki-lint is the only intended use case, a minimum installation that avoids
-all Java dependencies is sufficient and can be done using the install script:
-
-.. code-block:: bash
-
-   ./install [--ecmwf] --without-ofp
-
-(Note that ``--ecmwf`` is required on ECMWF workstations to load required
-modules and apply proxy configuration.)
+linting script. However, it requires linter rules to do anything useful. A basic
+set of rules for IFS is provided via the ``lint_rules`` module that can be
+optionally included in the installation as described in :doc:`INSTALL.md`.
 
 Basic usage
 ===========
-
-To be able to use loki-lint, the virtual environment created as part of Loki's
-installation needs to be loaded:
-
-.. code-block:: bash
-
-   cd /path/to/loki
-   source loki_env/bin/activate
 
 The basic command for loki-lint is
 
@@ -67,14 +51,15 @@ Examples
 
 .. dropdown:: Minimal example
 
-   This checks only the ``cloudsc.F90`` file:
+   This checks only the ``cloudsc.F90`` file from the
+   [dwarf-p-cloudsc](https://github.com/ecmwf-ifs/dwarf-p-cloudsc) mini-app:
 
    .. code-block:: bash
 
-      $~> loki-lint.py check --include ~/ifs-source/develop/ifs/phys_ec/cloudsc.F90
-      Base directory: /var/tmp/tmpdir/nabr/git/loki/nabr-linter
+      $~> $ loki-lint.py check --include src/cloudsc_fortran/cloudsc.F90
+      Base directory: <current working directory>
       Include patterns:
-        - /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90
+        - src/cloudsc_fortran/cloudsc.F90
       Exclude patterns:
 
       1 files selected for checking (0 files excluded).
@@ -83,49 +68,24 @@ Examples
       10 rules available.
       Checking against 10 rules.
 
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2527-2531) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2610-2624) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2611-2617) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2619-2623) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2666-2674) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2676-2682) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2747-2763) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2779-2783) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2785-2817) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2787-2815) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 2821-2825) - Nesting of conditionals exceeds limit of 3.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2434) - "0.4" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2437) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2486) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2487) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2488) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2489) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2802) - "0.4" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2855) - "0.4" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 2984) - "0.8" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 3117) - "0.4" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 3297) - "1.0" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 3297) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 3298) - "273.0" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 3298) - "1.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 3298) - "393.0" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 3298) - "120.0" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 3304-3305) - "0.65" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 3304-3305) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 3304-3305) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 3304-3305) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 4166) - "0.00001" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 4171) - ".5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 4171) - ".001" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 4172) - ".24" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 4172) - ".11" without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 4172) - "10." without explicit KIND declared.
-      [4.7] ExplicitKindRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (l. 4172) - ".03" without explicit KIND declared.
-      [2.2] LimitSubroutineStatementsRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 5-4215) in routine "CLOUDSC" - Subroutine has 1010 executable statements (should not have more than 300)
-      [3.6] MaxDummyArgsRule: /home/rd/nabr/ifs-source/develop/ifs/phys_ec/cloudsc.F90 (ll. 5-4215) in routine "CLOUDSC" - Subroutine has 75 dummy arguments (should not have more than 50)
+      [1.3] CodeBodyRule: src/cloudsc_fortran/cloudsc.F90 (ll. 1833-1837) - Nesting of conditionals exceeds limit of 3
+      [1.9] DrHookRule: src/cloudsc_fortran/cloudsc.F90 (ll. 10-2867) in routine "CLOUDSC" - First executable statement must be call to DR_HOOK
+      [1.9] DrHookRule: src/cloudsc_fortran/cloudsc.F90 (ll. 10-2867) in routine "CLOUDSC" - Last executable statement must be call to DR_HOOK
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (ll. 2046-2050) - 0.8 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (l. 2380) - 1.0 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (l. 2380) - 0.5 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (l. 2381) - 273.0 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (l. 2381) - 1.5 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (l. 2381) - 393.0 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (l. 2381) - 120.0 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (ll. 2387-2388) - 0.65 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (ll. 2387-2388) - 0.5 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (ll. 2387-2388) - 0.5 used without explicit KIND
+      [4.7] ExplicitKindRule: src/cloudsc_fortran/cloudsc.F90 (ll. 2387-2388) - 0.5 used without explicit KIND
+      [2.2] LimitSubroutineStatementsRule: src/cloudsc_fortran/cloudsc.F90 (ll. 10-2867) in routine "CLOUDSC" - Subroutine has 604 executable statements (should not have more than 300)
+      [3.6] MaxDummyArgsRule: src/cloudsc_fortran/cloudsc.F90 (ll. 10-2867) in routine "CLOUDSC" - Subroutine has 54 dummy arguments (should not have more than 50)
 
       1 files parsed successfully
-
 
 .. dropdown:: Minimal example with a different ``--basedir``
 
@@ -134,10 +94,10 @@ Examples
 
    .. code-block:: bash
 
-      $~> loki-lint.py check --basedir ~/ifs-source/develop/ifs --include phys_ec/cloudsc.F90
-      Base directory: /home/rd/nabr/ifs-source/develop/ifs
+      $~> $ loki-lint.py check --basedir src/cloudsc_fortran --include cloudsc.F90
+      Base directory: src/cloudsc_fortran
       Include patterns:
-        - phys_ec/cloudsc.F90
+        - cloudsc.F90
       Exclude patterns:
 
       1 files selected for checking (0 files excluded).
@@ -146,46 +106,22 @@ Examples
       10 rules available.
       Checking against 10 rules.
 
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2527-2531) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2610-2624) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2611-2617) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2619-2623) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2666-2674) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2676-2682) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2747-2763) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2779-2783) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2785-2817) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2787-2815) - Nesting of conditionals exceeds limit of 3.
-      [1.3] CodeBodyRule: phys_ec/cloudsc.F90 (ll. 2821-2825) - Nesting of conditionals exceeds limit of 3.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2434) - "0.4" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2437) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2486) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2487) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2488) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2489) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2802) - "0.4" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2855) - "0.4" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 2984) - "0.8" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 3117) - "0.4" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 3297) - "1.0" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 3297) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 3298) - "273.0" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 3298) - "1.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 3298) - "393.0" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 3298) - "120.0" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (ll. 3304-3305) - "0.65" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (ll. 3304-3305) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (ll. 3304-3305) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (ll. 3304-3305) - "0.5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 4166) - "0.00001" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 4171) - ".5" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 4171) - ".001" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 4172) - ".24" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 4172) - ".11" without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 4172) - "10." without explicit KIND declared.
-      [4.7] ExplicitKindRule: phys_ec/cloudsc.F90 (l. 4172) - ".03" without explicit KIND declared.
-      [2.2] LimitSubroutineStatementsRule: phys_ec/cloudsc.F90 (ll. 5-4215) in routine "CLOUDSC" - Subroutine has 1010 executable statements (should not have more than 300)
-      [3.6] MaxDummyArgsRule: phys_ec/cloudsc.F90 (ll. 5-4215) in routine "CLOUDSC" - Subroutine has 75 dummy arguments (should not have more than 50)
+      [1.3] CodeBodyRule: cloudsc.F90 (ll. 1833-1837) - Nesting of conditionals exceeds limit of 3
+      [1.9] DrHookRule: cloudsc.F90 (ll. 10-2867) in routine "CLOUDSC" - First executable statement must be call to DR_HOOK
+      [1.9] DrHookRule: cloudsc.F90 (ll. 10-2867) in routine "CLOUDSC" - Last executable statement must be call to DR_HOOK
+      [4.7] ExplicitKindRule: cloudsc.F90 (ll. 2046-2050) - 0.8 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (l. 2380) - 1.0 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (l. 2380) - 0.5 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (l. 2381) - 273.0 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (l. 2381) - 1.5 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (l. 2381) - 393.0 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (l. 2381) - 120.0 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (ll. 2387-2388) - 0.65 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (ll. 2387-2388) - 0.5 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (ll. 2387-2388) - 0.5 used without explicit KIND
+      [4.7] ExplicitKindRule: cloudsc.F90 (ll. 2387-2388) - 0.5 used without explicit KIND
+      [2.2] LimitSubroutineStatementsRule: cloudsc.F90 (ll. 10-2867) in routine "CLOUDSC" - Subroutine has 604 executable statements (should not have more than 300)
+      [3.6] MaxDummyArgsRule: cloudsc.F90 (ll. 10-2867) in routine "CLOUDSC" - Subroutine has 54 dummy arguments (should not have more than 50)
 
       1 files parsed successfully
 
@@ -460,9 +396,8 @@ An example output of this rule looks as follows:
 Known issues
 ============
 
-In general, bugs and open questions are collected in Loki's
-`JIRA space <https://jira.ecmwf.int/projects/LOKI/issues>`_ and this is also
-the best place to report any problems.
+In general, bugs and open questions are collected in Loki's issue tracker
+and this is also the best place to report any problems.
 
 One important limitation is that loki-lint currently does not invoke a
 C-preprocessor. Although Loki has now a built-in
@@ -474,6 +409,4 @@ file will fail (e.g., because each branch of an ``#ifdef ... #else ... #endif``
 construct provides a different ``IF`` statement for a common ``ENDIF``).
 
 For other limitations of Frontends or the IR, Loki has a built-in sanitizer for
-input files to maneuver around some of the deficiencies. A relatively short
-list of known files that cause problems is maintained in
-`Confluence <https://confluence.ecmwf.int/display/~nabr/IFS+source+files+causing+problems>`_.
+input files to maneuver around some of the deficiencies.

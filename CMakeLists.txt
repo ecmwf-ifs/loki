@@ -56,12 +56,12 @@ ecbuild_add_option(
 )
 ecbuild_add_option(
     FEATURE EDITABLE
-    DEFAULT ON
+    DEFAULT OFF
     DESCRIPTION "Install Loki as an editable Python package"
 )
 ecbuild_add_option(
     FEATURE CLAW
-    DEFAULT ON
+    DEFAULT OFF
     DESCRIPTION "Build OMNI Compiler and CLAW Compiler"
 )
 
@@ -71,9 +71,9 @@ install( DIRECTORY cmake DESTINATION ${INSTALL_DATA_DIR} PATTERN "CMakeLists.txt
 
 # The list of Loki frontend scripts
 file( GLOB _LOKI_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/loki_*.py" )
-string( REPLACE "scripts/loki_" "scripts/loki-" _LOKI_EXECUTABLES ${_LOKI_SCRIPTS} )
+list( TRANSFORM _LOKI_SCRIPTS REPLACE "scripts/loki_" "scripts/loki-" )
 set( LOKI_EXECUTABLES "" )
-foreach( _exe IN LISTS _LOKI_EXECUTABLES )
+foreach( _exe IN LISTS _LOKI_SCRIPTS )
     get_filename_component( _exe_name ${_exe} NAME )
     list( APPEND LOKI_EXECUTABLES ${_exe_name} )
 endforeach()
@@ -97,10 +97,10 @@ if( NOT HAVE_NO_INSTALL )
 
         if( HAVE_CLAW )
             set( _TEST_SELECTOR "not ofp" )
-            set( _TEST_PATH "${CLAW_DIR}/bin:${ENV_PATH}" )
+            set( _TEST_PATH "${CLAW_DIR}/bin:$ENV{PATH}" )
         else()
             set( _TEST_SELECTOR "not ofp and not omni" )
-            set( _TEST_PATH "${ENV_PATH}" )
+            set( _TEST_PATH "$ENV{PATH}" )
         endif()
 
         # ecbuild_add_test relies on the variables set by the _very_ outdated
@@ -112,16 +112,24 @@ if( NOT HAVE_NO_INSTALL )
         ecbuild_add_test(
             TYPE PYTHON
             TARGET loki_tests
-            ARGS -m pytest -k ${_TEST_SELECTOR} -v tests
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            ARGS -m pytest -k ${_TEST_SELECTOR} -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
         ecbuild_add_test(
             TYPE PYTHON
-            TARGET loki_scripts
-            ARGS -m pytest -k ${_TEST_SELECTOR} -v scripts
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            TARGET loki_transformations
+            ARGS -m pytest -k ${_TEST_SELECTOR} -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/transformations/transformations/tests
+            ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
+        )
+
+        ecbuild_add_test(
+            TYPE PYTHON
+            TARGET loki_lint_rules
+            ARGS -m pytest -k ${_TEST_SELECTOR} -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint_rules/tests
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 

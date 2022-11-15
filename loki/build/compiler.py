@@ -10,9 +10,6 @@ __all__ = ['clean', 'compile', 'compile_and_load',
            '_default_compiler', 'Compiler', 'GNUCompiler', 'EscapeGNUCompiler']
 
 
-_test_base_dir = Path(__file__).parent.parent.parent/'tests'
-
-
 def compile(filename, include_dirs=None, compiler=None, cwd=None):
     # Stop complaints about `compile` in this function
     # pylint: disable=redefined-builtin
@@ -37,7 +34,7 @@ def clean(filename, pattern=None):
             delete(f)
 
 
-def compile_and_load(filename, cwd=None, use_f90wrap=True):  # pylint: disable=unused-argument
+def compile_and_load(filename, cwd=None, use_f90wrap=True, f90wrap_kind_map=None):  # pylint: disable=unused-argument
     """
     Just-in-time compile Fortran source code and load the respective
     module or class.
@@ -54,6 +51,9 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True):  # pylint: disable=u
     use_f90wrap : bool, optional
         Flag to trigger the ``f90wrap`` compiler required
         if the source code includes module or derived types.
+    f90wrap_kind_map : str, optional
+        Path to ``f90wrap`` KIND_MAP file, containing a Python dictionary
+        in f2py_f2cmap format.
     """
     info('Compiling: %s' % filename)
     filepath = Path(filename)
@@ -70,7 +70,8 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True):  # pylint: disable=u
     # Generate the Python interfaces
     f90wrap = ['f90wrap']
     f90wrap += ['-m', '%s' % filepath.stem]
-    f90wrap += ['-k', str(_test_base_dir/'kind_map')]  # TODO: Generalize as option
+    if f90wrap_kind_map is not None:
+        f90wrap += ['-k', str(f90wrap_kind_map)]
     f90wrap += ['%s' % filepath.absolute()]
     execute(f90wrap, cwd=cwd)
 
@@ -170,21 +171,22 @@ class Compiler:
         execute(args, cwd=cwd)
 
     @staticmethod
-    def f90wrap_args(modname, source):
+    def f90wrap_args(modname, source, kind_map=None):
         """
         Generate arguments for the ``f90wrap`` utility invocation line.
         """
         args = ['f90wrap']
         args += ['-m', '%s' % modname]
-        args += ['-k', str(_test_base_dir/'kind_map')]  # TODO: Generalize as option
+        if kind_map is not None:
+            args += ['-k', str(kind_map)]
         args += ['%s' % s for s in source]
         return args
 
-    def f90wrap(self, modname, source, cwd=None):
+    def f90wrap(self, modname, source, cwd=None, kind_map=None):
         """
         Invoke f90wrap command to create wrappers for a given module.
         """
-        args = self.f90wrap_args(modname=modname, source=source)
+        args = self.f90wrap_args(modname=modname, source=source, kind_map=kind_map)
         execute(args, cwd=cwd)
 
     @staticmethod

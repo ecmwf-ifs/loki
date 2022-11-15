@@ -120,7 +120,8 @@ def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):
 
     return lib.wrap(modname=f'mod_{routine.name}_{frontend}', builder=builder,
                     sources=(wrap or []) + [f2max.wrapperpath.name],
-                    libs=get_max_libs(), lib_dirs=get_max_libdirs())
+                    libs=get_max_libs(), lib_dirs=get_max_libdirs(),
+                    kind_map=Path(__file__).parent.parent/'kind_map')
 
 
 @pytest.mark.skipif(not is_maxeler_available(), reason='Maxeler runtime environment not available')
