@@ -6,7 +6,7 @@ Getting started
    :hidden:
 
    INSTALL
-   contributing
+   notebooks
 
 
 Core concepts (the philosophical bit)
@@ -87,6 +87,17 @@ First steps
 ===========
 
 To start using Loki, follow the :doc:`installation instructions <INSTALL>`.
-We recommend to study the Jupyter notebooks in the `example` directory
-to get familiar with the basic API of Loki. The :doc:`Using Loki <using_loki>`
-section provides more details on the inner workings and underpinning concepts.
+We recommend to study the :doc:`Jupyter notebooks <notebooks>` in the `example`
+directory to get familiar with the basic API of Loki. The
+:doc:`Using Loki <using_loki>` section provides more details on the inner
+workings and underpinning concepts.
+
+Contributions
+=============
+
+Contributions to Loki are welcome. In order to do so, please open an
+issue in the `Github repository <https://github.com/ecmwf-ifs/loki/issues>`__
+where a feature request or bug can be discussed.
+Then create a pull request with your contribution. We require you to read and sign the
+`contributors license agreement (CLA) <http://claassistant.ecmwf.int/ecmwf-ifs/loki>`__
+before your contribution can be reviewed and merged.

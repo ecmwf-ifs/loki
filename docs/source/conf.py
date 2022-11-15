@@ -41,6 +41,7 @@ extensions = [
 #    'recommonmark',  # read markdown
     'sphinx_rtd_theme',  # read the docs theme
     'myst_parser',  # parse markdown files
+    'nbsphinx',  # parse Jupyter notebooks
     'sphinx_design',  # cards, panels and dropdown content
 ]
 
@@ -68,7 +69,7 @@ templates_path = ['_templates']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['**/tests/**/*.py']
+exclude_patterns = ['**/tests/']
 
 # Prefix each section label with the document it is in, followed by a colon
 autosectionlabel_prefix_document = True
