@@ -367,7 +367,7 @@ class Scheduler:
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
     @timeit(log_level=PERF, getter=lambda x: str(x.get('transformation', '')))
-    def process(self, transformation):
+    def process(self, transformation, reverse=False):
         """
         Process all enqueued source modules and routines with the
         stored kernel. The traversal is performed in topological
@@ -377,9 +377,14 @@ class Scheduler:
         # Enrich routines in graph with type info
         self.enrich()
 
-        for item in nx.topological_sort(self.item_graph):
+        traversal = nx.topological_sort(self.item_graph)
+        if reverse:
+            traversal = reversed(list(traversal))
+
+        for item in traversal:
             if not isinstance(item, SubroutineItem):
                 continue
+
             # Process work item with appropriate kernel
             transformation.apply(item.source, role=item.role, mode=item.mode,
                                  item=item, targets=item.targets)
