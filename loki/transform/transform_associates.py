@@ -1,7 +1,6 @@
 from loki.expression import FindVariables, SubstituteExpressions
-from loki.ir import Associate
 from loki.tools import CaseInsensitiveDict
-from loki.visitors import Transformer, FindNodes
+from loki.visitors import Transformer
 
 
 __all__ = ['resolve_associates', 'ResolveAssociatesTransformer']
@@ -9,7 +8,7 @@ __all__ = ['resolve_associates', 'ResolveAssociatesTransformer']
 
 def resolve_associates(routine):
     """
-    Resolve :any`Associate` mappings in the body of a given routine.
+    Resolve :any:`Associate` mappings in the body of a given routine.
 
     Parameters
     ----------
@@ -26,8 +25,11 @@ def resolve_associates(routine):
 
 class ResolveAssociatesTransformer(Transformer):
     """
-    :any:`Transformer` class that replaces :any:`Associate` node with its body,
-    with  have been replaced by their ass
+    :any:`Transformer` class to resolve :any:`Associate` nodes in IR trees
+
+    This will replace each :any:`Associate` node with its own body,
+    where all `identifier` symbols have been replaced with the
+    corresponding `selector` expression defined in ``associations``.
     """
 
     def visit_Associate(self, o):
