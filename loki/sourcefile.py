@@ -324,7 +324,7 @@ class Sourcefile:
             frontend_argnames = ['definitions', 'type_map', 'symbol_map', 'scope']
             xmods = frontend_args.get('xmods')
         elif frontend in (OFP, FP):
-            frontend_argnames = ['pp_info', 'definitions', 'scope']
+            frontend_argnames = ['definitions', 'scope']
         else:
             raise NotImplementedError(f'Unknown frontend: {frontend}')
         sanitized_frontend_args = {k: frontend_args.get(k) for k in frontend_argnames}
@@ -349,7 +349,8 @@ class Sourcefile:
                     ir_ = parse_omni_ast(ast=ast, raw_source=raw_source, **sanitized_frontend_args)
                 elif frontend == OFP:
                     ast = parse_ofp_source(source=source)
-                    ir_ = parse_ofp_ast(ast, raw_source=raw_source, **sanitized_frontend_args)
+                    ir_ = parse_ofp_ast(ast, raw_source=raw_source, pp_info=pp_info,
+                                        **sanitized_frontend_args)
                 elif frontend == FP:
                     # Fparser is unable to parse comment-only source files/strings,
                     # so we see if this is only comments and convert them ourselves
@@ -364,7 +365,8 @@ class Sourcefile:
                         ]
                     else:
                         ast = parse_fparser_source(source)
-                        ir_ = parse_fparser_ast(ast, raw_source=raw_source, **sanitized_frontend_args)
+                        ir_ = parse_fparser_ast(ast, raw_source=raw_source, pp_info=pp_info,
+                                                **sanitized_frontend_args)
                 else:
                     raise NotImplementedError(f'Unknown frontend: {frontend}')
                 if isinstance(ir_, Section):
