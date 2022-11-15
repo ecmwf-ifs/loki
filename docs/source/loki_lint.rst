@@ -16,10 +16,11 @@ but the tool itself is generic enough to be used for other use cases, too.
 Installation
 ============
 
-A generic Loki installation as described in :doc:`INSTALL.md` also installs the
-linting script. However, it requires linter rules to do anything useful. A basic
-set of rules for IFS is provided via the ``lint_rules`` module that can be
-optionally included in the installation as described in :doc:`INSTALL.md`.
+A generic Loki installation as described in the :doc:`installation instructions
+<INSTALL>` also installs the linting script. However, it requires linter rules
+to do anything useful. A basic set of rules for IFS is provided via the
+``lint_rules`` module that can be optionally included in the installation as
+described in `INSTALL.md`.
 
 Basic usage
 ===========

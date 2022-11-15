@@ -6,7 +6,7 @@ Loki's internal representation (IR)
     Loki is still under active development and has not yet seen a stable
     release. Interfaces can change at any time, objects may be renamed, or
     concepts may be re-thought. Make sure to sync your work to the current
-    `master` frequently by rebasing feature branches and upstreaming
+    release frequently by rebasing feature branches and upstreaming
     more general applicable work in the form of pull requests.
 
 .. contents:: Contents
@@ -68,7 +68,7 @@ components of container data structures. Each of them is represented by a tree
 of control flow nodes, with a :any:`Section` as root node. This tree resembles
 to some extend a hierarchical control flow graph where each node can have
 control flow and expression nodes as children. Consequently, this separation on
-node level is reflected in the internal representation, splitting the tree into
+node level is reflected in the internal representation, /TypeDefsplitting the tree into
 two levels:
 
 1. :ref:`Control flow <internal_representation:Control flow tree>`
@@ -261,7 +261,7 @@ Expression modules
 
 .. autosummary::
 
-   loki.expression.expression
+   loki.expression.expr_visitors
    loki.expression.mappers
    loki.expression.operations
    loki.expression.symbolic

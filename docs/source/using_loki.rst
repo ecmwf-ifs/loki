@@ -2,8 +2,11 @@
 Using Loki
 ==========
 
+The following pages describe in more detail the fundamental concepts and API
+design choices underpinning Loki:
+
 .. toctree::
-   :hidden:
+   :maxdepth: 1
 
    Internal representation <internal_representation>
    visitors
