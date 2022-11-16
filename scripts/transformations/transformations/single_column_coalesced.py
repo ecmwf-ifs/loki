@@ -502,9 +502,6 @@ class SingleColumnCoalescedTransformation(Transformation):
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
-        targets : list of strings
-            Names of all kernel routines that are to be considered "active"
-            in this call tree and should thus be processed accordingly.
         """
 
         pragmas = FindNodes(ir.Pragma).visit(routine.body)
