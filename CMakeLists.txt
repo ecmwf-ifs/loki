@@ -123,7 +123,7 @@ if( NOT HAVE_NO_INSTALL )
             TYPE PYTHON
             TARGET loki_transformations
             ARGS -m pytest -k ${_TEST_SELECTOR} -v
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/transformations/transformations/tests
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/transformations/tests
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
@@ -131,7 +131,7 @@ if( NOT HAVE_NO_INSTALL )
             TYPE PYTHON
             TARGET loki_lint_rules
             ARGS -m pytest -k ${_TEST_SELECTOR} -v
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint_rules/tests
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules/tests
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
@@ -162,11 +162,11 @@ if( NOT HAVE_NO_INSTALL )
     message( STATUS "Install Loki in virtual environment - done" )
 
     message( STATUS "Install Loki transformations in virtual environment" )
-    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/transformations )
+    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/transformations )
     message( STATUS "Install Loki transformations in virtual environment - done" )
 
     message( STATUS "Install Loki lint_rules in virtual environment" )
-    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint_rules )
+    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules )
     message( STATUS "Install Loki lint_rules in virtual environment - done" )
 
     # Make the shebang in Python scripts use relative paths
