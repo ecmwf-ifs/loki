@@ -1,8 +1,8 @@
 import pytest
 
+from loki import OMNI, Module, FindNodes, CallStatement
 from conftest import available_frontends
 from transformations import DerivedTypeArgumentsTransformation
-from loki import OMNI, Module, FindNodes, CallStatement
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

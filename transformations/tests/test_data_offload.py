@@ -1,11 +1,11 @@
 import pytest
 
-from conftest import available_frontends
-from transformations import DataOffloadTransformation
 from loki import (
     Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
     CallStatement, pragma_regions_attached
 )
+from conftest import available_frontends
+from transformations import DataOffloadTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

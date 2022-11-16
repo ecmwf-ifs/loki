@@ -1,11 +1,11 @@
 import pytest
 
-from conftest import available_frontends
-from transformations import SingleColumnCoalescedTransformation
 from loki import (
     OMNI, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Scalar, Array, Pragma, pragmas_attached, fgen
 )
+from conftest import available_frontends
+from transformations import SingleColumnCoalescedTransformation
 
 
 @pytest.fixture(scope='module', name='horizontal')
