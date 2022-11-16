@@ -5,6 +5,8 @@ from collections import defaultdict, OrderedDict
 from pathlib import Path
 import io
 import re
+from pathlib import Path
+from collections import defaultdict, OrderedDict
 import pcpp
 
 from codetiming import Timer

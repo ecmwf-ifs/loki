@@ -47,7 +47,7 @@ def get_max_output_dir(build_dir, max_filename):
     """
     Generates the (absolute) directory name in which output from maxJavaRun is stored.
     """
-    return (Path(build_dir) / ('%s_MAX5C_DFE_SIM' % max_filename) / 'results').resolve()
+    return (Path(build_dir)/f'{max_filename}_MAX5C_DFE_SIM'/'results').resolve()
 
 
 def clean_max(build_dir, package=None):
@@ -68,7 +68,7 @@ def compile_maxj(src, build_dir):
     :param src: Path to maxj source files.
     :param target: Root build directory for class files.
     """
-    info('Compiling .maxj: %s' % src)
+    info(f'Compiling .maxj: {src}')
     src = Path(src).resolve()
 
     build_dir = Path(build_dir)
@@ -87,17 +87,17 @@ def generate_max(manager, maxj_src, max_filename, build_dir, package=None):
     :param max_filename: Target filename.
     :param build_dir: Root build directory for max file.
     """
-    output_file = get_max_output_dir(build_dir, max_filename) / ('%s.max' % max_filename)
-    info('Generating: %s' % output_file)
+    output_file = get_max_output_dir(build_dir, max_filename)/f'{max_filename}.max'
+    info(f'Generating: {output_file}')
 
     maxj_src = Path(maxj_src).resolve()
     build_dir = Path(build_dir)
     build_dir.mkdir(exist_ok=True)
 
     build = ['maxJavaRun', '-m', '8192']  # TODO: Make memsize configurable
-    build += [str(manager) if package is None else '%s.%s' % (package, manager)]
+    build += [str(manager) if package is None else f'{package}.{manager}']
     build += ['DFEModel=GALAVA', 'target=DFE_SIM']
-    build += ['maxFileName=%s' % max_filename]
+    build += [f'maxFileName={max_filename}']
 
     env = environ.copy()
     env.update({'MAXSOURCEDIRS': str(maxj_src), 'MAXAPPJCP': '.', 'CLASSPATH': get_classpath()})
@@ -114,7 +114,7 @@ def compile_max(max_filename, obj_filename, build_dir):
     :param target: Output filename for object file.
     :param build_dir: Build dir where target is stored.
     """
-    info('Compiling: %s' % max_filename)
+    info(f'Compiling: {max_filename}')
     max_filename = Path(max_filename).resolve()
     build_dir = Path(build_dir)
     build_dir.mkdir(exist_ok=True)
@@ -137,11 +137,11 @@ def compile_c(src, build_dir, include_dirs=None):
     include_dirs : list, optional
         Optional list of header include paths.
     """
-    info('Compiling .c: %s' % src)
+    info(f'Compiling .c: {src}')
     build_dir = Path(build_dir)
     build_dir.mkdir(exist_ok=True)
     src = Path(src).resolve()
-    obj_filename = '%s.o' % '*' if src.is_dir() else src.stem
+    obj_filename = '*.o' if src.is_dir() else f'{src.stem}.o'
     src = src.glob('*.c') if src.is_dir() else [src]
 
     build = ['gcc', '-c', '-fPIC', '-std=c99', '-O0', '-Wall', '-Wextra']
@@ -160,7 +160,7 @@ def link_obj(objs, target, build_dir):
     :param objs: List of object files.
     :param target: Output filename of executable or shared library.
     """
-    info('Linking: %s' % target)
+    info(f'Linking: {target}')
     objs = set(str(o) for o in objs)  # Convert to set of str to eliminate doubles
     build = ['gcc']
     if Path(target).suffix == '.so':
@@ -182,7 +182,7 @@ def compile_all(maxj_src, c_src, build_dir, target, manager, package=None):
     compile_maxj(maxj_src, build_dir=build_dir)
     max_filename = generate_max(manager, maxj_src, package or Path(target).stem,
                                 build_dir=build_dir, package=package)
-    mobj_filename = compile_max(max_filename, '%s_max.o' % max_filename.stem, build_dir=build_dir)
+    mobj_filename = compile_max(max_filename, f'{max_filename.stem}_max.o', build_dir=build_dir)
 
     obj_filename = compile_c(c_src, build_dir, include_dirs=[Path(max_filename).parent])
     link_obj(obj_filename + [mobj_filename], target, build_dir)

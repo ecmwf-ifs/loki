@@ -66,7 +66,7 @@ class Obj:
                 self.source_path = None
 
     def __repr__(self):
-        return 'Obj<%s>' % self.name  # pylint: disable=no-member
+        return f'Obj<{self.name}>'  # pylint: disable=no-member
 
     @cached_property
     def source(self):
@@ -135,7 +135,7 @@ class Obj:
         include_dirs = include_dirs if len(include_dirs) > 0 else None
 
         if self.source_path is None:
-            raise RuntimeError('No source file found for %s' % self)
+            raise RuntimeError(f'No source file found for {self}')
 
         mode = self.MODEMAP[self.source_path.suffix.lower()]
         source = self.source_path.absolute()
@@ -145,7 +145,7 @@ class Obj:
 
         if not force and t_time is not None and s_time is not None \
            and t_time > s_time:
-            logger.debug('%s up-to-date, skipping...' % self)
+            logger.debug(f'{self} up-to-date, skipping...')
             return
 
         args = compiler.compile_args(source=source, include_dirs=include_dirs,
@@ -168,10 +168,10 @@ class Obj:
         compiler.f90wrap(modname=module, source=source, cwd=build_dir, kind_map=kind_map)
 
         # Execute the second-level wrapper (f2py-f90wrap)
-        wrapper = 'f90wrap_%s.f90' % self.source_path.stem
+        wrapper = f'f90wrap_{self.source_path.stem}.f90'
         if self.modules is None or len(self.modules) == 0:
             wrapper = 'f90wrap_toplevel.f90'
-        compiler.f2py(modname=module, source=[wrapper, '%s.o' % self.source_path.stem],
+        compiler.f2py(modname=module, source=[wrapper, f'{self.source_path.stem}.o'],
                       cwd=build_dir)
 
         return builder.load_module(module)

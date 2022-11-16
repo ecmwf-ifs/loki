@@ -40,7 +40,7 @@ class Header:
         # TODO: We could make the path relative to a "cache path" here...
         return Header.__xnew_cached_(cls, name)
 
-    def __new_stage2_(self, name):  # pylint: disable=unused-private-member
+    def __new_stage2_(self, name):
         obj = super().__new__(self)
         obj.name = name
         return obj
@@ -57,7 +57,7 @@ class Header:
                 self.source_path = None
 
     def __repr__(self):
-        return 'Header<%s>' % self.name  # pylint: disable=no-member
+        return f'Header<{self.name}>'  # pylint: disable=no-member
 
     @cached_property
     def source(self):

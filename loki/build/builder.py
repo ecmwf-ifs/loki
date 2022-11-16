@@ -42,11 +42,11 @@ class Builder:
         # Populate _object_cache for everything in source_dirs
         for source_dir in self.source_dirs:
             for ext in Obj._ext:
-                _ = [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
+                _ = [Obj(source_path=f) for f in source_dir.glob(f'**/*{ext}')]
 
         for include_dir in self.include_dirs:
             for ext in Header._ext:
-                _ = [Header(source_path=f) for f in include_dir.glob('**/*%s' % ext)]
+                _ = [Header(source_path=f) for f in include_dir.glob(f'**/*{ext}')]
 
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)
@@ -133,7 +133,7 @@ class Builder:
         for dep in reversed(list(nx.topological_sort(dependencies))):
             dep.build(compiler=self.compiler, build_dir=build_dir,
                       include_dirs=self.include_dirs)
-            objs += ['%s.o' % dep.path.stem]
+            objs += [f'{dep.path.stem}.o']
 
         if target is not None:
             self.logger.info('Linking target: %s', target)
@@ -187,7 +187,7 @@ class Builder:
         # TODO: Could automate this via timestamps/hashes, etc.
         if build:
             for item in items:
-                target = 'lib%s.a' % item.path.stem
+                target = f'lib{item.path.stem}.a'
                 self.build(item.path.name, target=target, shared=False)
 
         # Execute the first-level wrapper (f90wrap)
@@ -196,13 +196,13 @@ class Builder:
         self.compiler.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir, kind_map=kind_map)
 
         # Execute the second-level wrapper (f2py-f90wrap)
-        wrappers = ['f90wrap_%s.f90' % item.path.stem for item in items]
+        wrappers = [f'f90wrap_{item.path.stem}.f90' for item in items]
         wrappers += ['f90wrap_toplevel.f90']  # Include the generic wrapper
         wrappers = [w for w in wrappers if (self.build_dir/w).exists()]
 
         # Resolve final compilation libraries and include dirs
         libs = libs or [modname]
-        lib_dirs = lib_dirs or ['%s' % self.build_dir.absolute()]
+        lib_dirs = lib_dirs or [str(self.build_dir.absolute())]
         incl_dirs = incl_dirs or []
 
         self.compiler.f2py(modname=modname, source=wrappers,

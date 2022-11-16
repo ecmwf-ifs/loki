@@ -15,7 +15,7 @@ class NotRequiredIf(click.Option):
         self.not_required_if = kwargs.pop('not_required_if')
         assert self.not_required_if, "'not_required_if' parameter required"
         kwargs['help'] = (kwargs.get('help', '') +
-            ' NOTE: This argument is mutually exclusive with %s' % self.not_required_if
+            f' NOTE: This argument is mutually exclusive with {self.not_required_if}'
         ).strip()
         super().__init__(*args, **kwargs)
 
