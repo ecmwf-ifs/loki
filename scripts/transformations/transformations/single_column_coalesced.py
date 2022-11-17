@@ -136,31 +136,32 @@ def extract_vector_sections(section, horizontal):
 
 def kernel_get_locals_to_demote(routine, sections, horizontal, vertical):
 
-    # Get all variable instances in the routine
-    variables = FindVariables(unique=False).visit(routine.body)
-    to_demote = set()
+    argument_names = [v.name for v in routine.arguments]
 
-    # Filter for cross-section buffering of vector values
-    for section in sections:
-        # Find all (exact) symbol uses outside of this section!
-        # Exact in this context means bypassing the variable equivalence
-        # and checking against actual symbol instances outside of the section.
-        s_vars = FindVariables(unique=False).visit(section)
-        s_vids = tuple(id(v) for v in s_vars)
-        s_diff = tuple(v for v in variables if id(v) not in s_vids)
+    def _get_local_arrays(section):
+        """
+        Filters out local argument arrays that solely buffer the
+        horizontal vector dimension
+        """
+        arrays = FindVariables(unique=False).visit(section)
+        arrays = [v for v in arrays if isinstance(v, sym.Array)]
+        arrays = [v for v in arrays if v.name not in argument_names]
+        arrays = [v for v in arrays if v.shape == (horizontal.size, )]
+        return arrays
 
-        # Add all array instances that have no other use outside of this vector section
-        to_demote |= set(v for v in s_vars if isinstance(v, sym.Array) and v not in s_diff)
+    # Create a list of all local horizontal temporary arrays
+    candidates = _get_local_arrays(routine.body)
 
-    # Further filter selection to vector arrays that have no vertical dimension
-    to_demote = [v for v in to_demote if v.shape is not None]
-    to_demote = [v for v in to_demote if not any(vertical.size in d for d in v.shape)]
+    # Create an index into all variable uses per vector-level section
+    vars_per_section = {s: set(v.name for v in _get_local_arrays(s)) for s in sections}
 
-    to_demote = [v for v in to_demote if v.dimensions and len(v.dimensions) == 1]
+    # Count in how many sections each temporary is used
+    counts = {}
+    for arr in candidates:
+        counts[arr] = sum(1 if arr.name in v else 0 for v in vars_per_section.values())
 
-    # Filter out non-local argument variables
-    arg_names = [v.name for v in routine.arguments]
-    to_demote = [v for v in to_demote if v.name not in arg_names]
+    # Mark temporaries that are only used in one section for demotion
+    to_demote = [k for k, v in counts.items() if v == 1]
 
     # Filter out variables that we will pass down the call tree
     calls = FindNodes(ir.CallStatement).visit(routine.body)
