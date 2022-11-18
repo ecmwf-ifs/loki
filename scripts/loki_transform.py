@@ -211,7 +211,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, suffix=mode))
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode))
 
 
 @cli.command()
@@ -400,7 +400,7 @@ def ecphys(mode, config, header, source, build, frontend):
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=build, suffix=mode))
+    scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode))
 
 
 if __name__ == "__main__":

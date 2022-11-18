@@ -4,10 +4,13 @@ import pytest
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     OMNI, REGEX, Sourcefile, Subroutine, CallStatement, Import,
-    FindNodes, FindInlineCalls, fgen,
-    Assignment, IntLiteral, Module
+    FindNodes, FindInlineCalls, fgen, Assignment, IntLiteral, Module,
+    SubroutineItem
 )
-from loki.transform import Transformation, DependencyTransformation, replace_selected_kind
+from loki.transform import (
+    Transformation, DependencyTransformation, replace_selected_kind,
+    FileWriteTransformation
+)
 
 
 @pytest.fixture(scope='module', name='here')
@@ -543,3 +546,32 @@ end module transformation_module_post_apply
 
     clean_test(filepath)
     clean_test(new_filepath)
+
+
+def test_transformation_file_write(here):
+    """Verify that files get written with correct filenames"""
+
+    fcode = """
+subroutine rick()
+  print *, "PRINT ME!"
+end subroutine rick
+"""
+    source = Sourcefile.from_source(fcode)
+    source.path = Path('rick.F90')
+    item = SubroutineItem(name='#rick', source=source)
+
+    # Test default file writes
+    ricks_path = here/'rick.loki.F90'
+    if ricks_path.exists():
+        ricks_path.unlink()
+    FileWriteTransformation(builddir=here).apply(source=source, item=item)
+    assert ricks_path.exists()
+    ricks_path.unlink()
+
+    # Test mode and suffix overrides
+    ricks_path = here/'rick.roll.java'
+    if ricks_path.exists():
+        ricks_path.unlink()
+    FileWriteTransformation(builddir=here, mode='roll', suffix='.java').apply(source=source, item=item)
+    assert ricks_path.exists()
+    ricks_path.unlink()

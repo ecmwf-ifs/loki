@@ -119,17 +119,23 @@ class FileWriteTransformation(Transformation):
     ----------
     builddir : str or path
         Directory for the output to be written to
-    suffix : str
-        Suffix string to add in front of the ``.F90`` file ending.
+    mode : str, optional
+        "Mode" identifier string to add in front of the file suffix
+    suffix : str, optional
+        File suffix to determine file type for all written file. If
+        omitted, it will preserve the original file type.
     """
-    def __init__(self, builddir=None, suffix='loki'):
+    def __init__(self, builddir=None, mode='loki', suffix=None):
         self.builddir = Path(builddir)
+        self.mode = mode
         self.suffix = suffix
 
     def transform_file(self, sourcefile, **kwargs):
         item = kwargs.get('item', None)
 
-        sourcepath = Path(item.path).with_suffix(f'.{self.suffix}.F90')
+        path = Path(item.path)
+        suffix = self.suffix if self.suffix else path.suffix
+        sourcepath = Path(item.path).with_suffix(f'.{self.mode}{suffix}')
         if self.builddir is not None:
             sourcepath = self.builddir/sourcepath.name
         sourcefile.write(path=sourcepath)
