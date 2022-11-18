@@ -159,7 +159,7 @@ class Scheduler:
             # Attach interprocedural call-tree information
             self._enrich()
 
-    @Timer(logger=info, text=lambda s: f'[Loki::Scheduler] Performed initial source scan in {s:.2f}s')
+    @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
         # Scan all source paths and create light-weight `Sourcefile` objects for each file.
         frontend_args = {
@@ -306,7 +306,7 @@ class Scheduler:
                 raise RuntimeError(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
         return candidates[0]
 
-    @Timer(logger=perf, text=lambda s: f'[Loki::Scheduler] Populated initial call tree in {s:.2f}s')
+    @Timer(logger=perf, text='[Loki::Scheduler] Populated initial call tree in {:.2f}s')
     def _populate(self, routines):
         """
         Populate the callgraph of this scheduler through automatic expansion of
@@ -356,7 +356,7 @@ class Scheduler:
 
                     self.item_graph.add_edge(item, child)
 
-    @Timer(logger=info, text=lambda s: f'[Loki::Scheduler] Performed full source parse in {s:.2f}s')
+    @Timer(logger=info, text='[Loki::Scheduler] Performed full source parse in {:.2f}s')
     def _parse_items(self):
         """
         Prepare processing by triggering a full parse of the items in
@@ -366,7 +366,7 @@ class Scheduler:
         for item in nx.topological_sort(self.item_graph):
             item.source.make_complete(**self.build_args)
 
-    @Timer(logger=perf, text=lambda s: f'[Loki::Scheduler] Enriched call tree in {s:.2f}s')
+    @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
         """
         Enrich subroutine calls for inter-procedural transformations
@@ -399,8 +399,8 @@ class Scheduler:
         """
 
         trafo_name = transformation.__class__.__name__
-        logtext = lambda s: f'[Loki::Scheduler] Applied transformation <{trafo_name}> in {s:.2f}s'
-        with Timer(logger=info, text=logtext) as t:
+        log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
+        with Timer(logger=info, text=log):
 
             traversal = nx.topological_sort(self.item_graph)
             if reverse:
@@ -474,7 +474,7 @@ class Scheduler:
         except gviz.ExecutableNotFound as e:
             warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')
 
-    @Timer(logger=perf, text=lambda s: f'[Loki::Scheduler] Wrote CMake plan file in {s:.2f}s')
+    @Timer(logger=perf, text='[Loki::Scheduler] Wrote CMake plan file in {:.2f}s')
     def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
         """
         Generate the "plan file", a CMake file defining three lists

@@ -97,8 +97,8 @@ class Sourcefile:
         """
 
         # Log full parses at INFO and regex scans at PERF level
-        logtext = lambda s: f'[Loki::Sourcefile] Constructed from {filename} in {s:.2f}s'
-        with Timer(logger=perf if frontend is REGEX else info, text=logtext) as f:
+        log = f'[Loki::Sourcefile] Constructed from {filename}' + ' in {:.2f}s'
+        with Timer(logger=perf if frontend is REGEX else info, text=log):
 
             filepath = Path(filename)
             raw_source = read_file(filepath)
@@ -321,8 +321,8 @@ class Sourcefile:
         if not self._incomplete:
             return
 
-        logtext = lambda s: f'[Loki::Sourcefile] Finished constructing from {self.path} in {s:.2f}s'
-        with Timer(logger=info, text=logtext) as f:
+        log = f'[Loki::Sourcefile] Finished constructing from {self.path}' + ' in {:.2f}s'
+        with Timer(logger=info, text=log):
 
             # Sanitize frontend_args
             frontend = frontend_args.pop('frontend', FP)
