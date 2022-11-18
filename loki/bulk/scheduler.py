@@ -1,12 +1,13 @@
 from pathlib import Path
 from collections import deque, OrderedDict
 import networkx as nx
+from codetiming import Timer
 
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
-from loki.tools import as_tuple, CaseInsensitiveDict, timeit
-from loki.logging import info, warning, debug, PERF
+from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.logging import info, perf, warning, debug
 from loki.bulk.item import ProcedureBindingItem, SubroutineItem
 
 
@@ -87,6 +88,9 @@ class Scheduler:
         List of paths to search for automated source file detection.
     config : dict or str, optional
         Configuration dict or path to scheduler configuration file
+    seed_routines : list of str, optional
+        Names of routines from which to populate the callgraph initially.
+        If not provided, these will be inferred from the given config.
     preprocess : bool, optional
         Flag to trigger CPP preprocessing (by default `False`).
     includes : list of str, optional
@@ -104,6 +108,9 @@ class Scheduler:
         the OMNI frontend parse. If set, this **replaces** (!)
         :data:`includes`, otherwise :data:`omni_includes` defaults to the
         value of :data:`includes`.
+    full_parse: bool, optional
+        Flag indicating whether a full parse of all sourcefiles is required.
+        By default a full parse is executed, use this flag to suppress.
     frontend : :any:`Frontend`, optional
         Frontend to use when parsing source files (default :any:`FP`).
     """
@@ -111,9 +118,9 @@ class Scheduler:
     # TODO: Should be user-definable!
     source_suffixes = ['.f90', '.F90', '.f', '.F']
 
-    def __init__(self, paths, config=None, preprocess=False, includes=None,
-                 defines=None, definitions=None, xmods=None, omni_includes=None,
-                 frontend=FP):
+    def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
+                 includes=None, defines=None, definitions=None, xmods=None,
+                 omni_includes=None, full_parse=True, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -142,7 +149,17 @@ class Scheduler:
 
         self._discover()
 
-    @timeit(log_level=PERF)
+        if not seed_routines:
+            seed_routines = self.config.routines.keys()
+        self._populate(routines=seed_routines)
+
+        if full_parse:
+            self._parse_items()
+
+            # Attach interprocedural call-tree information
+            self._enrich()
+
+    @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
         # Scan all source paths and create light-weight `Sourcefile` objects for each file.
         frontend_args = {
@@ -289,8 +306,8 @@ class Scheduler:
                 raise RuntimeError(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
         return candidates[0]
 
-    @timeit(log_level=PERF)
-    def populate(self, routines):
+    @Timer(logger=perf, text='[Loki::Scheduler] Populated initial call tree in {:.2f}s')
+    def _populate(self, routines):
         """
         Populate the callgraph of this scheduler through automatic expansion of
         subroutine-call induced dependencies from a set of starting routines.
@@ -339,15 +356,22 @@ class Scheduler:
 
                     self.item_graph.add_edge(item, child)
 
-    @timeit(log_level=PERF)
-    def enrich(self):
+    @Timer(logger=info, text='[Loki::Scheduler] Performed full source parse in {:.2f}s')
+    def _parse_items(self):
+        """
+        Prepare processing by triggering a full parse of the items in
+        the execution plan and enriching subroutine calls.
+        """
+        # Force the parsing of the routines
+        for item in nx.topological_sort(self.item_graph):
+            item.source.make_complete(**self.build_args)
+
+    @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
+    def _enrich(self):
         """
         Enrich subroutine calls for inter-procedural transformations
         """
         # Force the parsing of the routines in the call tree
-        for item in self.item_graph:
-            item.source.make_complete(**self.build_args)
-
         for item in self.item_graph:
             if not isinstance(item, SubroutineItem):
                 continue
@@ -366,7 +390,6 @@ class Scheduler:
                 self.obj_map[lookup_name].make_complete(**self.build_args)
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
-    @timeit(log_level=PERF, getter=lambda x: str(x.get('transformation', '')))
     def process(self, transformation, reverse=False):
         """
         Process all enqueued source modules and routines with the
@@ -374,20 +397,24 @@ class Scheduler:
         order, which ensures that :any:`CallStatement` objects are
         always processed before their target :any:`Subroutine`.
         """
-        # Enrich routines in graph with type info
-        self.enrich()
 
-        traversal = nx.topological_sort(self.item_graph)
-        if reverse:
-            traversal = reversed(list(traversal))
+        trafo_name = transformation.__class__.__name__
+        log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
+        with Timer(logger=info, text=log):
 
-        for item in traversal:
-            if not isinstance(item, SubroutineItem):
-                continue
+            traversal = nx.topological_sort(self.item_graph)
+            if reverse:
+                traversal = reversed(list(traversal))
 
-            # Process work item with appropriate kernel
-            transformation.apply(item.source, role=item.role, mode=item.mode,
-                                 item=item, targets=item.targets)
+            for item in traversal:
+                if not isinstance(item, SubroutineItem):
+                    continue
+
+                # Process work item with appropriate kernel
+                transformation.apply(
+                    item.source, role=item.role, mode=item.mode,
+                    item=item, targets=item.targets
+                )
 
     def callgraph(self, path):
         """
@@ -447,7 +474,7 @@ class Scheduler:
         except gviz.ExecutableNotFound as e:
             warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')
 
-    @timeit(log_level=PERF)
+    @Timer(logger=perf, text='[Loki::Scheduler] Wrote CMake plan file in {:.2f}s')
     def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
         """
         Generate the "plan file", a CMake file defining three lists

@@ -7,7 +7,7 @@ from pathlib import Path
 from loki.logging import info
 from loki.transform.transformation import Transformation
 
-__all__ = ['CMakePlanner']
+__all__ = ['CMakePlanner', 'FileWriteTransformation']
 
 
 class CMakePlanner(Transformation):
@@ -109,3 +109,33 @@ class CMakePlanner(Transformation):
 
             s_remove = '\n'.join(f'    {s}' for s in self.sources_to_remove)
             f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
+
+
+class FileWriteTransformation(Transformation):
+    """
+    Write out modified source files to a select build directory
+
+    Parameters
+    ----------
+    builddir : str or path
+        Directory for the output to be written to
+    mode : str, optional
+        "Mode" identifier string to add in front of the file suffix
+    suffix : str, optional
+        File suffix to determine file type for all written file. If
+        omitted, it will preserve the original file type.
+    """
+    def __init__(self, builddir=None, mode='loki', suffix=None):
+        self.builddir = Path(builddir)
+        self.mode = mode
+        self.suffix = suffix
+
+    def transform_file(self, sourcefile, **kwargs):
+        item = kwargs.get('item', None)
+
+        path = Path(item.path)
+        suffix = self.suffix if self.suffix else path.suffix
+        sourcepath = Path(item.path).with_suffix(f'.{self.mode}{suffix}')
+        if self.builddir is not None:
+            sourcepath = self.builddir/sourcepath.name
+        sourcefile.write(path=sourcepath)

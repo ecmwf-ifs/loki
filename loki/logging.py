@@ -120,6 +120,8 @@ def debug(msg, *args, **kwargs):
 def info(msg, *args, **kwargs):
     log(msg, INFO, *args, **kwargs)
 
+def perf(msg, *args, **kwargs):
+    log(msg, PERF, *args, **kwargs)
 
 def warning(msg, *args, **kwargs):
     log(msg, WARNING, *args, **kwargs)

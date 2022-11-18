@@ -1,4 +1,5 @@
 # pylint: disable=too-many-lines
+from codetiming import Timer
 from collections import deque
 from collections.abc import Iterable
 from pathlib import Path
@@ -24,10 +25,10 @@ from loki.expression.operations import (
 )
 from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
 from loki.tools import (
-    as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
+    as_tuple, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
 )
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
-from loki.logging import info, debug, DEBUG, error, warning
+from loki.logging import debug, info, warning, error
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.config import config
 
@@ -35,7 +36,7 @@ from loki.config import config
 __all__ = ['HAVE_OFP', 'parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
 
 
-@timeit(log_level=DEBUG)
+@Timer(logger=debug, text=lambda s: f'[Loki::OFP] Executed parse_ofp_file in {s:.2f}s')
 @disk_cached(argname='filename', suffix='ofpast')
 def parse_ofp_file(filename):
     """
@@ -51,7 +52,7 @@ def parse_ofp_file(filename):
     return open_fortran_parser.parse(filepath, raise_on_error=True)
 
 
-@timeit(log_level=DEBUG)
+@Timer(logger=debug, text=lambda s: f'[Loki::OFP] Executed parse_ofp_source in {s:.2f}s')
 def parse_ofp_source(source, filepath=None):
     """
     Read and parse a source string using the Open Fortran Parser (OFP).
@@ -72,7 +73,7 @@ def parse_ofp_source(source, filepath=None):
     return parse_ofp_file(filename=filepath)
 
 
-@timeit(log_level=DEBUG)
+@Timer(logger=debug, text=lambda s: f'[Loki::OFP] Executed parse_ofp_ast in {s:.2f}s')
 def parse_ofp_ast(ast, pp_info=None, raw_source=None, definitions=None, scope=None):
     """
     Generate an internal IR from the raw OFP parser AST.

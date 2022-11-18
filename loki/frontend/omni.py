@@ -1,3 +1,4 @@
+from codetiming import Timer
 from pathlib import Path
 from shutil import which
 import xml.etree.ElementTree as ET
@@ -10,10 +11,10 @@ from loki.expression import (
     symbols as sym, operations as op,
     ExpressionDimensionsMapper, StringConcat, AttachScopesMapper
 )
-from loki.logging import info, debug, DEBUG, warning, error
+from loki.logging import debug, info, warning, error
 from loki.config import config
 from loki.tools import (
-    as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
+    as_tuple, execute, gettempdir, filehash, CaseInsensitiveDict
 )
 from loki.pragma_utils import (
     process_dimension_pragmas, pragmas_attached
@@ -28,7 +29,7 @@ HAVE_OMNI = which('F_Front') is not None
 """Indicate whether OMNI frontend is available."""
 
 
-@timeit(log_level=DEBUG)
+@Timer(logger=debug, text=lambda s: f'[Loki::OMNI] Executed parse_omni_file in {s:.2f}s')
 def parse_omni_file(filename, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to generate the OMNI AST.
@@ -62,7 +63,7 @@ def parse_omni_file(filename, xmods=None):
     return ET.fromstring(result.stdout)
 
 
-@timeit(log_level=DEBUG)
+@Timer(logger=debug, text=lambda s: f'[Loki::OMNI] Executed parse_omni_source in {s:.2f}s')
 def parse_omni_source(source, filepath=None, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to AST for a source string.
@@ -83,7 +84,7 @@ def parse_omni_source(source, filepath=None, xmods=None):
     return parse_omni_file(filename=filepath, xmods=xmods)
 
 
-@timeit(log_level=DEBUG)
+@Timer(logger=debug, text=lambda s: f'[Loki::OMNI] Executed parse_omni_ast in {s:.2f}s')
 def parse_omni_ast(ast, definitions=None, type_map=None, symbol_map=None,
                    raw_source=None, scope=None):
     """

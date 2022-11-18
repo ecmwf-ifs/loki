@@ -1,5 +1,4 @@
 import sys
-import time
 import operator as op
 import weakref
 from functools import wraps, lru_cache
@@ -19,7 +18,7 @@ except ImportError:
 from loki.logging import log, debug, error, PERF
 
 
-__all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks', 'timeit',
+__all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
            'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
            'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
            'yaml_include_constructor', 'auto_post_mortem_debugger']
@@ -167,34 +166,6 @@ def chunks(l, n):
     """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
         yield l[i:i + n]
-
-
-def timeit(log_level=PERF, getter=None):
-    """
-    Timing decorator that logs the time taken in a specific function call.
-
-    Parameters
-    ==========
-    * ``log_level``: The lvel at which to log the resulting time
-    * ``getter``: (List of) lambda function to extract additinal strings for
-                  the log message. Each getter will be invoked on ``**kwargs``.
-    """
-    getter = as_tuple(getter)
-
-    def decorator(fn):
-
-        @wraps(fn)
-        def timed(*args, **kwargs):
-            ts = time.time()
-            result = fn(*args, **kwargs)
-            te = time.time()
-
-            argvals = ', '.join(g(kwargs) for g in getter)
-            log(f'[Loki::{fn.__name__}: {argvals}] Executed in {te - ts:.2f}s', level=log_level)
-            return result
-
-        return timed
-    return decorator
 
 
 def execute(command, silent=True, **kwargs):

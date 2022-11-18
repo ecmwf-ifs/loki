@@ -16,7 +16,7 @@ from loki import (
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, FortranCTransformation
+    DependencyTransformation, FortranCTransformation, FileWriteTransformation
 )
 
 # pylint: disable=wrong-import-order
@@ -156,7 +156,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     # be used to create a coherent stack of type definitions.
     definitions = []
     for h in header:
-        sfile = Sourcefile.from_file(h, frontend=frontend_type, **build_args)
+        sfile = Sourcefile.from_file(filename=h, frontend=frontend_type, **build_args)
         definitions = definitions + list(sfile.modules)
 
     # Create a scheduler to bulk-apply source transformations
@@ -164,7 +164,6 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend,
                           definitions=definitions, **build_args)
-    scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
@@ -212,10 +211,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    for item in scheduler.items:
-        suffix = f'.{mode}.F90'
-        sourcefile = item.source
-        sourcefile.write(path=Path(out_path)/sourcefile.path.with_suffix(suffix).name)
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode))
 
 
 @cli.command()
@@ -318,8 +314,7 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
 
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, frontend=frontend)
-    scheduler.populate(routines=config.routines.keys())
+    scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False)
 
     # Construct the transformation plan as a set of CMake lists of source files
     scheduler.write_cmake_plan(filepath=plan_file, mode=mode, buildpath=build, rootpath=root)
@@ -356,14 +351,13 @@ def ecphys(mode, config, header, source, build, frontend):
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
 
-    headers = [Sourcefile.from_file(h, frontend=frontend_type) for h in header]
+    headers = [Sourcefile.from_file(filename=h, frontend=frontend_type) for h in header]
     definitions = flatten(h.modules for h in headers)
 
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
-    scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
@@ -405,22 +399,8 @@ def ecphys(mode, config, header, source, build, frontend):
                                           suffix=f'_{mode.upper()}')
     scheduler.process(transformation=dependency)
 
-    class FileWriteTransformation(Transformation):
-        """
-        Write out modified source files to a select build directory
-        """
-        def __init__(self, builddir=None):
-            self.builddir = Path(builddir)
-
-        def transform_file(self, sourcefile, **kwargs):
-            item = kwargs.get('item', None)
-
-            sourcepath = Path(item.path).with_suffix(f'.{mode.lower()}.F90')
-            if self.builddir is not None:
-                sourcepath = self.builddir/sourcepath.name
-            sourcefile.write(path=sourcepath)
-
-    scheduler.process(transformation=FileWriteTransformation(builddir=build))
+    # Write out all modified source files into the build directory
+    scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode))
 
 
 if __name__ == "__main__":

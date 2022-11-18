@@ -84,7 +84,6 @@ def test_dr_hook_transformation(frontend, config, source):
     """Test DrHook transformation for a renamed Subroutine"""
     scheduler_config = SchedulerConfig.from_dict(config)
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
-    scheduler.populate(routines=scheduler_config.routines.keys())
     scheduler.process(transformation=DrHookTransformation(mode='you_up'))
 
     for item in scheduler.items:
@@ -112,7 +111,6 @@ def test_dr_hook_transformation_remove(frontend, config, source):
     """Test DrHook transformation in remove mode"""
     scheduler_config = SchedulerConfig.from_dict(config)
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
-    scheduler.populate(routines=scheduler_config.routines.keys())
     scheduler.process(transformation=DrHookTransformation(mode='you_up', remove=True))
 
     for item in scheduler.items:
