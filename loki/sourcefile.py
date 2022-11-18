@@ -367,7 +367,8 @@ class Sourcefile:
                         lines = [l.lstrip() for l in source.splitlines()]
                         if all(not l or l[0] in '!#' for l in lines):
                             ir_ = [
-                                PreprocessorDirective(text=line.string, source=line) if line.string.lstrip().startswith('#')
+                                PreprocessorDirective(text=line.string, source=line)
+                                if line.string.lstrip().startswith('#')
                                 else Comment(text=line.string, source=line)
                                 for line in node.source.clone_lines()
                             ]

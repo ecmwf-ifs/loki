@@ -1,6 +1,7 @@
 # pylint: disable=too-many-lines
-from codetiming import Timer
 import re
+
+from codetiming import Timer
 
 try:
     from fparser.two.parser import ParserFactory

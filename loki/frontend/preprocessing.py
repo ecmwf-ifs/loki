@@ -1,13 +1,13 @@
 """
 Preprocessing utilities for frontends.
 """
-from codetiming import Timer
 from collections import defaultdict, OrderedDict
 from pathlib import Path
 import io
 import re
 import pcpp
-import pickle
+
+from codetiming import Timer
 
 from loki.logging import debug, perf
 from loki.config import config
