@@ -93,6 +93,8 @@ def extract_vector_sections(section, horizontal):
         The dimension specifying the horizontal vector dimension
     """
 
+    _scope_note_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
+
     # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
     separator_nodes = []
     calls = FindNodes(ir.CallStatement).visit(section)
@@ -104,7 +106,7 @@ def extract_vector_sections(section, horizontal):
         else:
             # If the call is deeper in the IR tree, it's highest ancestor is used
             ancestors = flatten(FindScopes(call).visit(section))
-            ancestor_scopes = [a for a in ancestors if isinstance(a, (ir.Loop, ir.Conditional))]
+            ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_note_types)]
             if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
                 separator_nodes.append(ancestor_scopes[0])
 
