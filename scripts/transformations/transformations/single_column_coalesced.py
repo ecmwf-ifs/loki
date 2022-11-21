@@ -140,15 +140,34 @@ def kernel_get_locals_to_demote(routine, sections, horizontal, vertical):
 
     argument_names = [v.name for v in routine.arguments]
 
+    def _is_constant(d):
+        """Establish if a given dimensions symbol is a compile-time constant"""
+        if isinstance(d, sym.IntLiteral):
+            return True
+
+        if isinstance(d, sym.RangeIndex):
+            if d.lower:
+                return _is_constant(d.lower) and _is_constant(d.upper)
+            return _is_constant(d.upper)
+
+        if isinstance(d, sym.Scalar) and isinstance(d.initial , sym.IntLiteral):
+            return True
+
+        return False
+
     def _get_local_arrays(section):
         """
         Filters out local argument arrays that solely buffer the
         horizontal vector dimension
         """
         arrays = FindVariables(unique=False).visit(section)
+        # Only demote local arrays with the horizontal as fast dimension
         arrays = [v for v in arrays if isinstance(v, sym.Array)]
         arrays = [v for v in arrays if v.name not in argument_names]
-        arrays = [v for v in arrays if v.shape == (horizontal.size, )]
+        arrays = [v for v in arrays if v.shape and v.shape[0] == horizontal.size]
+
+        # Also demote arrays whose remaning dimensions are known constants
+        arrays = [v for v in arrays if all(_is_constant(d) for d in v.shape[1:])]
         return arrays
 
     # Create a list of all local horizontal temporary arrays
