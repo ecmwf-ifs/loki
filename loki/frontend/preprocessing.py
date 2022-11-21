@@ -176,7 +176,7 @@ def reinsert_open_newunit(ir, pp_info):
 class PPRule:
     """
     A preprocessing rule that defines and applies a source replacement
-    and collects according meta-data.
+    and collects associated meta-data.
     """
 
     _empty_pattern = re.compile('')
@@ -219,12 +219,6 @@ class PPRule:
         return ir
 
 
-"""
-The frontend sanitization registry dict holds workaround rules for
-Fortran features that cause bugs and failures in frontends. It's
-mostly a regex expression that removes certains strings and stores
-them, so that they can be re-inserted into the IR by a callback.
-"""
 sanitize_registry = {
     REGEX: {},
     OMNI: {},
@@ -275,3 +269,9 @@ sanitize_registry = {
         'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
     }
 }
+"""
+The frontend sanitization registry dict holds workaround rules for
+Fortran features that cause bugs and failures in frontends. It's
+mostly a regex expression that removes certains strings and stores
+them, so that they can be re-inserted into the IR by a callback.
+"""

@@ -1,7 +1,6 @@
 from enum import IntEnum
 from pathlib import Path
 import codecs
-from loki.expression.expression import SubstituteExpressions
 
 from loki.visitors import (
     Transformer, NestedTransformer, FindNodes, PatternFinder, SequenceFinder
@@ -10,7 +9,7 @@ from loki.ir import (
     Assignment, Comment, CommentBlock, VariableDeclaration, ProcedureDeclaration,
     Loop, Intrinsic, Pragma, StatementFunction
 )
-from loki.expression import Scalar, Array, InlineCall, FindVariables, ProcedureSymbol
+from loki.expression import SubstituteExpressions, Scalar, Array, InlineCall, FindVariables, ProcedureSymbol
 from loki.types import ProcedureType, SymbolAttributes
 from loki.tools import LazyNodeLookup
 from loki.frontend.source import Source

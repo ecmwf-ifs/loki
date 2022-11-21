@@ -612,14 +612,14 @@ def test_regex_sourcefile_from_file_parser_classes(here):
     module_routine_names = {'foo_sub', 'foo_func'}
 
     # Empty parse (since we don't match typedef without having the enclosing module first)
-    sourcefile = Sourcefile.from_file(filepath, frontend=REGEX, parser_classes=RegexParserClass.TypeDef)
+    sourcefile = Sourcefile.from_file(filepath, frontend=REGEX, parser_classes=RegexParserClass.TypeDefClass)
     assert not sourcefile.subroutines
     assert not sourcefile.modules
     assert FindNodes(RawSource).visit(sourcefile.ir)
     assert sourcefile._incomplete
 
     # Incremental addition of program unit objects
-    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnit)
+    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
     assert {routine.name.lower() for routine in sourcefile.routines} == routine_names
@@ -637,7 +637,10 @@ def test_regex_sourcefile_from_file_parser_classes(here):
     assert not sourcefile['bar'].typedefs
 
     # Incremental addition of imports
-    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnit | RegexParserClass.Import)
+    sourcefile.make_complete(
+        frontend=REGEX,
+        parser_classes=RegexParserClass.ProgramUnitClass | RegexParserClass.ImportClass
+    )
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
     assert {routine.name.lower() for routine in sourcefile.routines} == routine_names
@@ -661,7 +664,7 @@ def test_regex_sourcefile_from_file_parser_classes(here):
     assert not sourcefile['bar'].typedefs
 
     # Parse the rest
-    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.All)
+    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.AllClasses)
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
     assert {routine.name.lower() for routine in sourcefile.routines} == routine_names

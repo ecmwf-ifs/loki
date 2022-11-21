@@ -8,7 +8,7 @@ Transformation pipelines
     Loki is still under active development and has not yet seen a stable
     release. Interfaces can change at any time, objects may be renamed, or
     concepts may be re-thought. Make sure to sync your work to the current
-    `master` frequently by rebasing feature branches and upstreaming
+    release frequently by rebasing feature branches and upstreaming
     more general applicable work in the form of pull requests.
 
 .. contents:: Contents
@@ -85,15 +85,15 @@ to grow in the future:
    loki.transform.fortran_python_transform.FortranPythonTransformation
 
 Further transformations are defined for specific use-cases but may prove
-useful in a wider context. These are defined in :mod:`scripts.transformations`:
+useful in a wider context. These are defined in :mod:`transformations`:
 
 .. autosummary::
 
-   scripts.transformations.argument_shape.InferArgShapeTransformation
-   scripts.transformations.data_offload.DataOffloadTransformation
-   scripts.transformations.derived_types.DerivedTypeArgumentsTransformation
-   scripts.transformations.single_column_claw.ExtractSCATransformation
-   scripts.transformations.single_column_claw.CLAWTransformation
+   transformations.argument_shape.InferArgShapeTransformation
+   transformations.data_offload.DataOffloadTransformation
+   transformations.derived_types.DerivedTypeArgumentsTransformation
+   transformations.single_column_claw.ExtractSCATransformation
+   transformations.single_column_claw.CLAWTransformation
 
 Additionally, a number of tools for common transformation tasks are provided as
 functions that can be readily used in a step of the transformation pipeline:
@@ -133,6 +133,8 @@ provides certain information about the item to the transformation:
 
 .. autosummary::
 
-   loki.scheduler.Scheduler
-   loki.scheduler.SchedulerConfig
-   loki.scheduler.Item
+   loki.bulk.scheduler.Scheduler
+   loki.bulk.scheduler.SchedulerConfig
+   loki.bulk.item.Item
+   loki.bulk.item.SubroutineItem
+   loki.bulk.item.ProcedureBindingItem

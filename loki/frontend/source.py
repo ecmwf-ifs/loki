@@ -135,7 +135,7 @@ class FortranReader:
     ----------
     source_lines : list
         The lines of the original source code
-    sanitized_lines : list of :any:`fparser.common.Line`
+    sanitized_lines : list of :class:`fparser.common.Line`
         Lines in the sanitized source code
     sanitized_string : str
         The sanitized source code

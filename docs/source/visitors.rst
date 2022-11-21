@@ -6,7 +6,7 @@ Working with the IR
     Loki is still under active development and has not yet seen a stable
     release. Interfaces can change at any time, objects may be renamed, or
     concepts may be re-thought. Make sure to sync your work to the current
-    `master` frequently by rebasing feature branches and upstreaming
+    release frequently by rebasing feature branches and upstreaming
     more general applicable work in the form of pull requests.
 
 .. contents:: Contents
@@ -101,13 +101,13 @@ Converting the tree to string
 
 The last step in a transformation pipeline is usually to write the transformed
 IR to a file. This is a task for :doc:`Loki's backends <backends>` which
-themselves are subclasses of :any:`Stringifier`, yet another visitor.
-:any:`Stringifier` doubles as a pretty-printer for the IR that is useful for
-debugging.
+themselves are subclasses of :class:`loki.visitors.pprint.Stringifier`, yet
+another visitor. :class:`loki.visitors.pprint.Stringifier` doubles as a
+pretty-printer for the IR that is useful for debugging.
 
 .. autosummary::
 
-   loki.visitors.Stringifier
+   loki.visitors.pprint.Stringifier
    loki.visitors.pprint
 
 Implementing new visitors
@@ -157,7 +157,7 @@ attribute :attr:`mapper_method` with the name of the relevant method.
 Loki provides, similarly to control flow tree visitors, ready-to-use mappers
 for searching or transforming expression trees, all of which are implemented
 in :mod:`loki.expression.mappers`. In addition,
-:mod:`loki.expression.expression` provides visitors that apply the same mapper
+:mod:`loki.expression.expr_visitors` provides visitors that apply the same mapper
 to all expression trees in the IR.
 
 
@@ -181,13 +181,13 @@ visitors exist that apply :any:`ExpressionRetriever` to all expression trees.
 
 .. autosummary::
 
-   loki.expression.expression.ExpressionFinder
-   loki.expression.expression.FindExpressions
-   loki.expression.expression.FindTypedSymbols
-   loki.expression.expression.FindVariables
-   loki.expression.expression.FindInlineCalls
-   loki.expression.expression.FindLiterals
-   loki.expression.expression.FindExpressionRoot
+   loki.expression.expr_visitors.ExpressionFinder
+   loki.expression.expr_visitors.FindExpressions
+   loki.expression.expr_visitors.FindTypedSymbols
+   loki.expression.expr_visitors.FindVariables
+   loki.expression.expr_visitors.FindInlineCalls
+   loki.expression.expr_visitors.FindLiterals
+   loki.expression.expr_visitors.FindExpressionRoot
 
 For example, the following finds all function calls embedded in expressions
 (:any:`InlineCall`, as opposed to subroutine calls in :any:`CallStatement`):
@@ -216,7 +216,7 @@ transformations can be applied to all expression trees at the same time using
 
 .. autosummary::
 
-   loki.expression.expression.SubstituteExpressions
+   loki.expression.expr_visitors.SubstituteExpressions
 
 The following example shows how expression node discovery and substitution can
 be combined to replace all occurences of intrinsic function calls.

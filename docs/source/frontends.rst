@@ -6,7 +6,7 @@ Reading Fortran source code
     Loki is still under active development and has not yet seen a stable
     release. Interfaces can change at any time, objects may be renamed, or
     concepts may be re-thought. Make sure to sync your work to the current
-    `master` frequently by rebasing feature branches and upstreaming
+    release frequently by rebasing feature branches and upstreaming
     more general applicable work in the form of pull requests.
 
 .. contents:: Contents
@@ -77,10 +77,7 @@ of them with individual advantages and shortcomings:
   rewrite of the original fparser that is included in
   `f2py <https://numpy.org/doc/stable/f2py/>`_, (now a part of numpy).
   It is written in pure Python, supports Fortran 2003 and some Fortran 2008,
-  and is actively maintained. Most notable drawback is the lack of an
-  internal symbol table which prevents it to differentiate between array
-  subscripts, statement function declarations, and function calls in some
-  cases (cf. `issue #201 <https://github.com/stfc/fparser/issues/201>`_).
+  and is actively maintained. The default frontend in Loki.
 * `Omni Compiler Frontend <https://omni-compiler.org/>`_, developed in the
   Omni Compiler Project. It is written in Java, supports Fortran 2008 and
   is also used in the `CLAW compiler <https://claw-project.github.io/>`_.
@@ -122,6 +119,9 @@ When reading a source file, a C99-preprocessor can be applied to the file
 before passing it to the frontend. This can be enabled by specifying
 :data:`preprocess` when calling `Sourcefile.from_file`. The corresponding
 routine carrying out the preprocessing is :any:`preprocess_cpp`.
+
+Source sanitization
+===================
 
 Internally, Loki performs also another kind of preprocessing to work around
 known shortcomings in frontends. This is done via a regex-based replacement

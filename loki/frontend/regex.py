@@ -34,12 +34,12 @@ class RegexParserClass(Flag):
     pattern matching can be switched on and off for some pattern classes, and thus the overall
     parse time reduced.
     """
-    ProgramUnit = auto()
-    Import = auto()
-    TypeDef = auto()
-    Declaration = auto()
-    Call = auto()
-    All = ProgramUnit | Import | TypeDef | Declaration | Call  # pylint: disable=unsupported-binary-operation
+    ProgramUnitClass = auto()
+    ImportClass = auto()
+    TypeDefClass = auto()
+    DeclarationClass = auto()
+    CallClass = auto()
+    AllClasses = ProgramUnitClass | ImportClass | TypeDefClass | DeclarationClass | CallClass  # pylint: disable=unsupported-binary-operation
 
 
 class Pattern:
@@ -113,7 +113,7 @@ class Pattern:
             The parent scope for the current source fragment
         """
         if parser_classes is None:
-            parser_classes = RegexParserClass.All
+            parser_classes = RegexParserClass.AllClasses
         ir_ = []
 
         # Extract source bits that would be swept under the rag when sanitizing
@@ -166,7 +166,7 @@ class Pattern:
             The parent scope for the current source fragment
         """
         if parser_classes is None:
-            parser_classes = RegexParserClass.All
+            parser_classes = RegexParserClass.AllClasses
         # Extract source bits that would be swept under the rag when sanitizing
         head = reader.source_from_head()
 
@@ -229,7 +229,7 @@ class Pattern:
             The parent scope for the current source fragment
         """
         if parser_classes is None:
-            parser_classes = RegexParserClass.All
+            parser_classes = RegexParserClass.AllClasses
         # Extract source bits that would be swept under the rag when sanitizing
         head = reader.source_from_head()
 
@@ -330,7 +330,7 @@ def parse_regex_source(source, parser_classes=None, scope=None):
         The enclosing parent scope
     """
     if parser_classes is None:
-        parser_classes = RegexParserClass.All
+        parser_classes = RegexParserClass.AllClasses
     candidates = ('ModulePattern', 'SubroutineFunctionPattern')
     if isinstance(source, Source):
         reader = FortranReader(source.string)
@@ -345,7 +345,7 @@ class ModulePattern(Pattern):
     Pattern to match :any:`Module` objects
     """
 
-    parser_class = RegexParserClass.ProgramUnit
+    parser_class = RegexParserClass.ProgramUnitClass
 
     def __init__(self):
         super().__init__(
@@ -429,7 +429,7 @@ class SubroutineFunctionPattern(Pattern):
     Pattern to match :any:`Subroutine` objects
     """
 
-    parser_class = RegexParserClass.ProgramUnit
+    parser_class = RegexParserClass.ProgramUnitClass
 
     def __init__(self):
         super().__init__(
@@ -515,7 +515,7 @@ class TypedefPattern(Pattern):
     Pattern to match :any:`TypeDef` objects
     """
 
-    parser_class = RegexParserClass.TypeDef
+    parser_class = RegexParserClass.TypeDefClass
 
     def __init__(self):
         super().__init__(
@@ -583,7 +583,7 @@ class ProcedureBindingPattern(Pattern):
     Pattern to match procedure bindings
     """
 
-    parser_class = RegexParserClass.TypeDef
+    parser_class = RegexParserClass.TypeDefClass
 
     def __init__(self):
         super().__init__(
@@ -639,7 +639,7 @@ class GenericBindingPattern(Pattern):
     Pattern to match generic bindings
     """
 
-    parser_class = RegexParserClass.TypeDef
+    parser_class = RegexParserClass.TypeDefClass
 
     def __init__(self):
         super().__init__(
@@ -683,7 +683,7 @@ class ImportPattern(Pattern):
     Pattern to match :any:`Import` nodes
     """
 
-    parser_class = RegexParserClass.Import
+    parser_class = RegexParserClass.ImportClass
 
     def __init__(self):
         super().__init__(
@@ -750,7 +750,7 @@ class VariableDeclarationPattern(Pattern):
     (via ``TYPE`` or ``CLASS`` keywords).
     """
 
-    parser_class = RegexParserClass.Declaration
+    parser_class = RegexParserClass.DeclarationClass
 
     def __init__(self):
         super().__init__(
@@ -792,7 +792,7 @@ class CallPattern(Pattern):
     Pattern to match :any:`CallStatement` nodes
     """
 
-    parser_class = RegexParserClass.Call
+    parser_class = RegexParserClass.CallClass
 
     def __init__(self):
         super().__init__(

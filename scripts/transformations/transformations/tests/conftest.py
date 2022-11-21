@@ -17,7 +17,8 @@ def available_frontends(xfail=None, skip=None):
 
     Use as
 
-    ..code-block::
+    .. code-block::
+
         @pytest.mark.parametrize('frontend', available_frontends(xfail=[OMNI, (OFP, 'Because...')]))
         def my_test(frontend):
             source = Sourcefile.from_file('some.F90', frontend=frontend)

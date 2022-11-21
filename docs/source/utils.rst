@@ -6,7 +6,7 @@ Utilities
     Loki is still under active development and has not yet seen a stable
     release. Interfaces can change at any time, objects may be renamed, or
     concepts may be re-thought. Make sure to sync your work to the current
-    `master` frequently by rebasing feature branches and upstreaming
+    release frequently by rebasing feature branches and upstreaming
     more general applicable work in the form of pull requests.
 
 .. contents:: Contents
@@ -122,7 +122,7 @@ Linting functionality
 
 The source analysis capabilities of Loki can be used to build a static source
 code analysis tool for Fortran. This is being developed as a standalone script
-:doc:`loki-lint <loki-lint>` and includes a few data structures for the linter
+:doc:`loki-lint <loki_lint>` and includes a few data structures for the linter
 mechanics in :mod:`loki.lint`:
 
 .. autosummary::
