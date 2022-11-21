@@ -68,7 +68,7 @@ components of container data structures. Each of them is represented by a tree
 of control flow nodes, with a :any:`Section` as root node. This tree resembles
 to some extend a hierarchical control flow graph where each node can have
 control flow and expression nodes as children. Consequently, this separation on
-node level is reflected in the internal representation, /TypeDefsplitting the tree into
+node level is reflected in the internal representation, splitting the tree into
 two levels:
 
 1. :ref:`Control flow <internal_representation:Control flow tree>`
