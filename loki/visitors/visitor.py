@@ -9,8 +9,7 @@ __all__ = ['GenericVisitor', 'Visitor']
 
 class GenericVisitor:
     """
-    A generic visitor class, shamelessly copied from:
-    https://github.com/opesci/devito/
+    A generic visitor class to traverse the IR tree.
 
     To define handlers, subclasses should define :data:`visit_Foo`
     methods for each class :data:`Foo` they want to handle.

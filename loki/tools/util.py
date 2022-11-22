@@ -26,9 +26,7 @@ __all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
 
 def as_tuple(item, type=None, length=None):
     """
-    Force item to a tuple.
-
-    Partly extracted from: https://github.com/OP2/PyOP2/.
+    Force item to a tuple, even if `None` is provided.
     """
     # Stop complaints about `type` in this function
     # pylint: disable=redefined-builtin
@@ -151,8 +149,6 @@ def flatten(l, is_leaf=None):
 def filter_ordered(elements, key=None):
     """
     Filter elements in a list while preserving order.
-
-    Partly extracted from: https://github.com/opesci/devito.
 
     :param key: Optional conversion key used during equality comparison.
     """
