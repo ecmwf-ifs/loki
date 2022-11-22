@@ -18,104 +18,159 @@ from collections import defaultdict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable, SymbolAttributes,
-    RangeIndex, as_tuple, BasicType
+    RangeIndex, as_tuple, BasicType, DerivedType, CaseInsensitiveDict
 )
 
 
-__all__ = ['DerivedTypeArgumentsTransformation']
+__all__ = ['DerivedTypeArgumentsAnalysis', 'DerivedTypeArgumentsTransformation']
+
+
+class DerivedTypeArgumentsAnalysis(Transformation):
+    """
+    Analysis step for :any:`DerivedTypeArgumentsTransformation`
+
+    This has to be applied over the call tree in reverse order before calling
+    :any:`DerivedtypeArgumentsTransformation`, i.e. callees have to be visited
+    before their callerss, to ensure derived type arguments can be expanded
+    across nested call trees.
+
+    This analysis step collects for all derived type arguments the member
+    variables used in routine, and annotates the argument's ``type`` with an
+    ``expansion_names`` property.
+    """
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs.get('role')
+
+        if role == 'kernel':
+            candidates = DerivedTypeArgumentsTransformation.used_derived_type_arguments(routine)
+
+            for arg in routine.arguments:
+                if arg in candidates:
+                    expansion_names = [v.basename.lower() for v in candidates[arg]]
+                    arg.type = arg.type.clone(expansion_names=as_tuple(expansion_names))
 
 
 class DerivedTypeArgumentsTransformation(Transformation):
     """
     Transformation to remove derived types from subroutine signatures
-    by replacing the relevant derived arguments with the sub-variables
-    used in the called routine. The equivalent change is also applied
-    to all callers of the transformed subroutines.
+    by replacing the relevant arguments with all used members of the type.
 
-    Note, due to the dependency between caller and callee, this
-    transformation should be applied atomically to sets of subroutine,
-    if further transformations depend on the accurate signatures and
-    call arguments.
+    The convention used is: ``derived%var => derived_var``.
+
+    This requires a previous analysis step using
+    :any;`DerivedTypeArgumentsAnalysis`.
+
+    The transformation has to be applied in forward order, i.e. caller
+    has to be processed before callee.
     """
 
     def transform_subroutine(self, routine, **kwargs):
         # Determine role in bulk-processing use case
-        task = kwargs.get('task', None)
-        role = kwargs.get('role') if task is None else task.config['role']
+        role = kwargs.get('role')
 
-        # Apply argument transformation, caller first!
+        # Apply caller transformation first to update call
+        # signatures...
         self.flatten_derived_args_caller(routine)
+
+        # ...before updating all other uses in the routine
+        # and the routine's signature
         if role == 'kernel':
             self.flatten_derived_args_routine(routine)
 
     @staticmethod
-    def _derived_type_arguments(routine):
+    def expand_call_arguments(call):
+        """
+        Create the call's argument list with derived type arguments expanded
+
+        This requires previous callee-side annotation via
+        :any:`DerivedTypeArgumentsAnalysis`. All derived type arguments on
+        callee-side that have an ``expand_names`` attribute on their type
+        are replaced by the corresponding derived type members.
+
+        Returns
+        -------
+        tuple :
+            The argument list with derived type arguments expanded
+        """
+        arguments = []
+        for kernel_arg, caller_arg in call.arg_iter():
+            arg_type = kernel_arg.type
+            if isinstance(arg_type.dtype, DerivedType) and arg_type.expansion_names:
+                # Map of derived type members
+                var_map = CaseInsensitiveDict(
+                    (var.name, var) for var in arg_type.dtype.typedef.variables
+                )
+
+                # Found derived-type argument, unroll according to candidate map
+                for var_name in arg_type.expansion_names:
+                    type_var = var_map[var_name]
+                    # Insert `:` range dimensions into newly generated args
+                    new_dims = tuple(RangeIndex((None, None)) for _ in type_var.type.shape or [])
+                    arguments += [Variable(
+                        name=f'{caller_arg.name}%{var_name}', parent=caller_arg, dimensions=new_dims,
+                        scope=caller_arg.scope
+                    )]
+            else:
+                arguments += [caller_arg]
+
+        return as_tuple(arguments)
+
+    @classmethod
+    def used_derived_type_arguments(cls, routine):
         """
         Find all derived-type arguments used in a given routine.
 
-        :return: A map of ``arg => [type_vars]``, where ``type_var``
-                 is a :class:`Variable` for each derived sub-variable
-                 defined in the original compound type.
+        Returns
+        -------
+        dict
+            A map of ``arg => [type_vars]``, where ``type_var``
+            is a :any:`Variable` for each derived sub-variable
+            defined in the original compound type.
         """
         # Get all variables used in the kernel that have parents
         variables = FindVariables(unique=True).visit(routine.ir)
         variables = [v for v in variables if hasattr(v, 'parent') and v.parent is not None]
-        candidates = defaultdict(list)
 
+        # Get all expansion names from derived type unrolling in calls
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if not call.not_active and call.routine is not BasicType.DEFERRED:
+                variables += cls.expand_call_arguments(call)
+
+        candidates = defaultdict(list)
         for arg in routine.arguments:
             # Get the list of variables declared inside the derived type
             # (This property is None for non-derived type variables and empty
             # if we don't have the derived type definition available)
             arg_variables = as_tuple(arg.variables)
-            if not arg_variables or all(not v.type.pointer and not v.type.allocatable for v in arg.variables):
+            if not arg_variables or all(not v.type.pointer and not v.type.allocatable for v in arg_variables):
                 # Skip non-derived types or with no array members
                 continue
 
             # Add candidate type variables, preserving order from the typedef
-            arg_member_vars = set(v.basename.lower() for v in variables
-                                  if v.parent.name.lower() == arg.name.lower())
-            candidates[arg] += [v for v in arg.variables if v.basename.lower() in arg_member_vars]
+            arg_member_vars = set(v.basename.lower() for v in variables if v.parent == arg.name)
+            candidates[arg] += [v for v in arg_variables if v.basename.lower() in arg_member_vars]
         return candidates
 
     def flatten_derived_args_caller(self, caller):
         """
         Flatten all derived-type call arguments used in the target
-        :class:`Subroutine` for all active :class:`CallStatement` nodes.
+        :any:`Subroutine` for all active :any:`CallStatement` nodes.
 
         The convention used is: ``derived%var => derived_var``.
 
-        :param caller: The calling :class:`Subroutine`.
+        This requires the callee to have been transformed first.
+
+        Parameters
+        ----------
+        caller : :any:`Subroutine`
+            The routine in which to transform call statements
         """
         call_mapper = {}
         for call in FindNodes(CallStatement).visit(caller.body):
             if not call.not_active and call.routine is not BasicType.DEFERRED:
-                candidates = self._derived_type_arguments(call.routine)
-
-                # Simultaneously walk caller and subroutine arguments
-                new_arguments = list(call.arguments)
-                for k_arg, d_arg in call.arg_iter():
-                    if k_arg in candidates:
-                        # Found derived-type argument, unroll according to candidate map
-                        new_args = []
-                        for type_var in candidates[k_arg]:
-                            # Insert `:` range dimensions into newly generated args
-                            new_dims = tuple(RangeIndex((None, None)) for _ in type_var.type.shape or [])
-                            new_type = type_var.type.clone(parent=d_arg)
-                            new_arg = type_var.clone(dimensions=new_dims, type=new_type,
-                                                     parent=d_arg, scope=d_arg.scope)
-                            new_args += [new_arg]
-
-                        # Replace variable in dummy signature
-                        # TODO: There's no cache anymore, maybe this can be changed?
-                        # TODO: This is hacky, but necessary, as the variables
-                        # from caller and callee don't cache, so we
-                        # need to compare their string representation.
-                        new_arg_strs = [str(a) for a in new_arguments]
-                        i = new_arg_strs.index(str(d_arg))
-                        new_arguments[i:i+1] = new_args
-
-                # Set the new call signature on the IR ndoe
-                call_mapper[call] = call.clone(arguments=as_tuple(new_arguments))
+                # Set the new call signature on the IR node
+                call_mapper[call] = call.clone(arguments=self.expand_call_arguments(call))
 
         # Rebuild the caller's IR tree
         caller.body = Transformer(call_mapper).visit(caller.body)
@@ -127,7 +182,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
         The convention used is: ``derived%var => derived_var``
         """
-        candidates = self._derived_type_arguments(routine)
+        candidates = self.used_derived_type_arguments(routine)
 
         # Callee: Establish replacements for declarations and dummy arguments
         new_arguments = list(routine.arguments)
