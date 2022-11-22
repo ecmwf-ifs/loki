@@ -9,166 +9,462 @@
 Transformations dealing with derived types in subroutines and
 derived-type arguments in complex calling structures.
 
- * DerivedTypeArgumentsTransformation:
+ * DerivedTypeArgumentsExpansionTransformation:
         Transformation to resolve array-of-structure (AOS) uses of derived-type
         variables to explicitly expose arrays from which to hoist dimensions.
 """
 
 from collections import defaultdict
+try:
+    from fparser.two.Fortran2003 import Intrinsic_Name
+    _intrinsic_fortran_names = Intrinsic_Name.function_names
+except ImportError:
+    _intrinsic_fortran_names = ()
 from loki import (
-    Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
-    ExpressionRetriever, SubstituteExpressionsMapper, recursive_expression_map_update,
-    Module, Import, CallStatement, InlineCall, Variable, SymbolAttributes,  RangeIndex,
-    as_tuple, BasicType, warning
+    Transformation, FindVariables, FindNodes, Transformer,
+    SubstituteExpressions, SubstituteExpressionsMapper, recursive_expression_map_update,
+    Module, Import, CallStatement, ProcedureDeclaration, InlineCall, Variable, RangeIndex,
+    SymbolAttributes, BasicType, as_tuple, warning
 )
+from transformations.scc_cuf import is_elemental
 
 
 __all__ = ['DerivedTypeArgumentsTransformation', 'TypeboundProcedureCallTransformation']
 
 
 class DerivedTypeArgumentsTransformation(Transformation):
-    """
-    Transformation to remove derived types from subroutine signatures
-    by replacing the relevant derived arguments with the sub-variables
-    used in the called routine. The equivalent change is also applied
-    to all callers of the transformed subroutines.
 
-    Note, due to the dependency between caller and callee, this
-    transformation should be applied atomically to sets of subroutine,
-    if further transformations depend on the accurate signatures and
-    call arguments.
-    """
+    _key = 'DerivedTypeArgumentsTransformation'
+
+    class _VariableCache:
+
+        def __init__(self):
+            self._var_cache = {}
+            self._var_counter = defaultdict(int)
+
+        def __getitem__(self, var):
+            return self._var_cache[var]
+
+        def __setitem__(self, var, value):
+            self._var_cache[var] = value
+
+        def __contains__(self, var):
+            return var in self._var_cache
+
+        def incr(self, var):
+            self._var_counter[var.name.lower()] += 1
+
+        def count(self, var):
+            return self._var_counter[var.name.lower()]
+
+
+    def __init__(self, key=None, **kwargs):
+        if key is not None:
+            self._key = key
+        super().__init__(**kwargs)
 
     def transform_subroutine(self, routine, **kwargs):
-        # Determine role in bulk-processing use case
-        task = kwargs.get('task', None)
-        role = kwargs.get('role') if task is None else task.config['role']
+        role = kwargs.get('role')
+        item = kwargs.get('item')
 
-        # Apply argument transformation, caller first!
-        self.flatten_derived_args_caller(routine)
+        # Bail out if the current subroutine is not part of the call tree
+        if item and item.local_name != routine.name.lower():
+            return
+
+        # Initialize the transformation data dictionary
+        if item:
+            item.trafo_data[self._key] = {}
+
+        # Extract expansion maps and argument re-mapping for successors
+        successors = [child for child in kwargs.get('successors', []) if self._key in child.trafo_data]
+        successors_data = CaseInsensitiveDict(
+            (child.local_name, child.trafo_data[self._key])
+            for child in successors
+        )
+
+        # Apply caller transformation first to update calls to successors...
+        dependencies_updated = self.expand_derived_args_caller(routine, successors_data)
+
+        # ...and invalidate cached properties if dependencies have changed...
+        if dependencies_updated and item:
+            item.clear_cached_property('imports')
+
+        # ...before updating the routine's signature and replacing
+        # use of members in the body
         if role == 'kernel':
-            self.flatten_derived_args_routine(routine)
+            # Expand derived type arguments in kernel
+            orig_argnames = tuple(arg.lower() for arg in routine.argnames)
+            expansion_map = self.expand_derived_args_kernel(routine)
+            if item:
+                item.trafo_data[self._key] = {
+                    'orig_argnames': orig_argnames,
+                    'expansion_map': expansion_map,
+                }
 
-    @staticmethod
-    def _derived_type_arguments(routine):
+    def expand_derived_args_caller(self, routine, successors_data):
         """
-        Find all derived-type arguments used in a given routine.
-
-        :return: A map of ``arg => [type_vars]``, where ``type_var``
-                 is a :class:`Variable` for each derived sub-variable
-                 defined in the original compound type.
-        """
-        # Get all variables used in the kernel that have parents
-        variables = FindVariables(unique=True).visit(routine.ir)
-        variables = [v for v in variables if hasattr(v, 'parent') and v.parent is not None]
-        candidates = defaultdict(list)
-
-        for arg in routine.arguments:
-            # Get the list of variables declared inside the derived type
-            # (This property is None for non-derived type variables and empty
-            # if we don't have the derived type definition available)
-            arg_variables = as_tuple(arg.variables)
-            if not arg_variables or all(not v.type.pointer and not v.type.allocatable for v in arg.variables):
-                # Skip non-derived types or with no array members
-                continue
-
-            # Add candidate type variables, preserving order from the typedef
-            arg_member_vars = set(v.basename.lower() for v in variables
-                                  if v.parent.name.lower() == arg.name.lower())
-            candidates[arg] += [v for v in arg.variables if v.basename.lower() in arg_member_vars]
-        return candidates
-
-    def flatten_derived_args_caller(self, caller):
-        """
-        Flatten all derived-type call arguments used in the target
-        :class:`Subroutine` for all active :class:`CallStatement` nodes.
+        For all active :any:`CallStatement` nodes, apply the derived type argument
+        expansion on the caller side.
 
         The convention used is: ``derived%var => derived_var``.
 
-        :param caller: The calling :class:`Subroutine`.
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The routine in which to transform call statements
+        successors_data : :any:`CaseInsensitiveDict` of (str, dict)
+            Dictionary containing the expansion maps (key ``'expansion_map'``) and
+            original argnames (key ``'orig_argnames'``) of every child routine
+
+        Returns
+        -------
+        bool
+            Flag to indicate that dependencies have been changed (e.g. via new imports)
         """
+        other_symbols = set()
         call_mapper = {}
-        for call in FindNodes(CallStatement).visit(caller.body):
-            if not call.not_active and call.routine is not BasicType.DEFERRED:
-                candidates = self._derived_type_arguments(call.routine)
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if not call.not_active:
+                # Determine correct call name, in case it has been renamed via import
+                call_name = call.name.type.use_name or str(call.name)
+                if call_name in successors_data:
+                    # Set the new call signature on the IR node
+                    arguments, kwarguments, others = self.expand_call_arguments(call, successors_data[call_name])
+                    call_mapper[call] = call.clone(arguments=arguments, kwarguments=kwarguments)
+                    other_symbols.update(others)
 
-                # Simultaneously walk caller and subroutine arguments
-                new_arguments = list(call.arguments)
-                for k_arg, d_arg in call.arg_iter():
-                    if k_arg in candidates:
-                        # Found derived-type argument, unroll according to candidate map
-                        new_args = []
-                        for type_var in candidates[k_arg]:
-                            # Insert `:` range dimensions into newly generated args
-                            new_dims = tuple(RangeIndex((None, None)) for _ in type_var.type.shape or [])
-                            new_type = type_var.type.clone(parent=d_arg)
-                            new_arg = type_var.clone(dimensions=new_dims, type=new_type,
-                                                     parent=d_arg, scope=d_arg.scope)
-                            new_args += [new_arg]
+        # Rebuild the routine's IR tree
+        if call_mapper:
+            routine.body = Transformer(call_mapper).visit(routine.body)
 
-                        # Replace variable in dummy signature
-                        # TODO: There's no cache anymore, maybe this can be changed?
-                        # TODO: This is hacky, but necessary, as the variables
-                        # from caller and callee don't cache, so we
-                        # need to compare their string representation.
-                        new_arg_strs = [str(a) for a in new_arguments]
-                        i = new_arg_strs.index(str(d_arg))
-                        new_arguments[i:i+1] = new_args
+        # Add parameter declarations or imports
+        if other_symbols:
+            new_symbols = []
+            new_imports = []
+            for s in other_symbols:
+                if s.type.imported:
+                    if not s.type.module:
+                        raise RuntimeError(
+                            f'Incomplete type information available for {s!s}'
+                        )
+                    new_imports += [Import(module=s.type.module.name, symbols=(s.rescope(routine),))]
+                else:
+                    new_symbols += [s.rescope(routine)]
+            if new_symbols:
+                routine.variables += as_tuple(new_symbols)
+            if new_imports:
+                routine.spec.prepend(as_tuple(new_imports))
+                return True
+            return False
 
-                # Set the new call signature on the IR ndoe
-                call_mapper[call] = call.clone(arguments=as_tuple(new_arguments))
+    @staticmethod
+    def _expand_relative_to_local_var(local_var, expansion_components):
+        # We build the name bit-by-bit to obtain nested derived type arguments
+        # relative to the local derived type variable
+        for child in expansion_components:
+            local_var = child.clone(
+                name=f'{local_var.name}%{child.name}',
+                parent=local_var,
+                scope=local_var.scope
+            )
+        return local_var
 
-        # Rebuild the caller's IR tree
-        caller.body = Transformer(call_mapper).visit(caller.body)
+    @classmethod
+    def _expand_call_argument_dimensions(cls, call, expanded_arg, orig_argnames):
+        if not getattr(expanded_arg, 'dimensions', None):
+            return None, set()
 
-    def flatten_derived_args_routine(self, routine):
+        # Extract all variables used in the index expression, and try
+        # to match them to arguments in the call signature
+        vmap = {}
+        other_symbols = set()
+        for var in FindVariables().visit(expanded_arg.dimensions):
+            components = [*var.parents, var]
+
+            try:
+                arg_index = orig_argnames.index(components[0])
+            except ValueError as exc:
+                if var.type.imported or var.type.parameter:
+                    other_symbols.add(var)
+                elif var not in _intrinsic_fortran_names:
+                    raise NotImplementedError(
+                        f'Unsupported variable {var} in index expression of {expanded_arg}'
+                    ) from exc
+                continue
+
+            vmap[var] = cls._expand_relative_to_local_var(call.arguments[arg_index], components[1:])
+
+        vmap = recursive_expression_map_update(vmap)
+        return SubstituteExpressions(vmap).visit(expanded_arg.dimensions), other_symbols
+
+    @classmethod
+    def _expand_call_argument(cls, call, caller_arg, expansion_list, orig_argnames):
+        other_symbols = set()
+
+        # Found derived-type argument, unroll according to candidate map
+        arguments = []
+        for member in expansion_list:
+            arg_member = cls._expand_relative_to_local_var(caller_arg, [*member.parents[1:], member])
+            dimensions, others = cls._expand_call_argument_dimensions(call, member, orig_argnames)
+            other_symbols.update(others)
+
+            arguments += [arg_member.clone(dimensions=dimensions)]
+
+        return arguments, other_symbols
+
+    @classmethod
+    def expand_call_arguments(cls, call, successor_data):
         """
-        Unroll all derived-type arguments used in the subroutine
-        signature, declarations and body.
+        Create the call's argument list with derived type arguments expanded
 
-        The convention used is: ``derived%var => derived_var``
+        Parameters
+        ----------
+        call : :any:`CallStatement`
+            The call statement to process
+        successor_data : dict
+            Dictionary containing the expansion map (key ``'expansion_map'``) and
+            original argnames (key ``'orig_argnames'``) of the called routine
+
+        Returns
+        -------
+        (tuple, tuple, set) :
+            The argument and keyword argument list with derived type arguments expanded,
+            and a set of additional symbols to cater for (either import them or replicate
+            the parameter definition)
         """
-        candidates = self._derived_type_arguments(routine)
+        expansion_map = successor_data['expansion_map']
+        orig_argnames = successor_data['orig_argnames']
 
-        # Callee: Establish replacements for declarations and dummy arguments
-        new_arguments = list(routine.arguments)
-        new_variables = list(routine.variables)
-        for arg, type_vars in candidates.items():
-            new_vars = []
-            for type_var in type_vars:
-                # Create a new variable with a new type mimicking the old one
-                new_type = SymbolAttributes(type_var.type.dtype, kind=type_var.type.kind,
-                                            intent=arg.type.intent or 'inout', shape=type_var.type.shape)
-                new_name = f'{arg.name}_{type_var.basename}'
-                new_dimensions = new_type.shape if new_type.shape else None
-                new_var = Variable(name=new_name, type=new_type, dimensions=new_dimensions, scope=routine)
-                new_vars += [new_var]
+        other_symbols = set()
 
-            # Replace variable in subroutine argument list
-            i = new_arguments.index(arg)
-            new_arguments[i:i+1] = new_vars
+        arguments = []
+        for kernel_argname, caller_arg in zip(orig_argnames, call.arguments):
+            if kernel_argname in expansion_map:
+                new_arguments, others = cls._expand_call_argument(
+                    call, caller_arg,
+                    expansion_map[kernel_argname], orig_argnames
+                )
+                arguments += new_arguments
+                other_symbols.update(others)
+            else:
+                arguments += [caller_arg]
 
-            # Also replace the variable in the variable list to
-            # trigger the re-generation of the according declaration.
-            i = new_variables.index(arg)
-            new_variables[i:i+1] = new_vars
+        kwarguments = []
+        for kernel_argname, caller_arg in call.kwarguments:
+            if kernel_argname in expansion_map:
+                new_arguments, others = cls._expand_call_argument(
+                    call, caller_arg,
+                    expansion_map[kernel_argname], orig_argnames
+                )
+                kwarguments += [
+                    (new_argname, expanded_arg)
+                    for new_argname, expanded_arg in zip(expansion_map[kernel_argname], new_arguments)
+                ]
+                other_symbols.update(others)
+            else:
+                kwarguments += [(kernel_argname, caller_arg)]
 
-        # Apply replacements to routine by setting the properties
-        routine.arguments = new_arguments
-        routine.variables = new_variables
+        return as_tuple(arguments), as_tuple(kwarguments), other_symbols
 
-        # Create a variable substitution mapper and apply to body
-        argnames = [arg.name.lower() for arg in candidates.keys()]
-        variables = FindVariables(unique=False).visit(routine.body)
-        variables = [v for v in variables
-                     if hasattr(v, 'parent') and str(v.parent).lower() in argnames]
-        # Note: The ``type=None`` prevents this clone from overwriting the type
-        # we just derived above, as it would otherwise use whaterever type we
-        # had derived previously (ie. the pointer type from the struct definition.)
-        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None, type=None)
-                for v in variables}
+    @staticmethod
+    def _expand_kernel_variable(var, var_cache=None, **kwargs):
+        if var_cache is not None and var in var_cache:
+            # If we have a variable cache with var already in there,
+            # we can directly return that
+            if kwargs:
+                return var_cache[var].clone(**kwargs)
+            return var_cache[var]
 
+        new_name = var.name.replace('%', '_')
+
+        if var_cache is not None and getattr(var, 'dimensions', None):
+            # For elemental routines we use a variable cache, since we
+            # have to expand every use of array values as separate
+            # arguments
+            var_cache.incr(var)
+            new_name += f'_{var_cache.count(var)!s}'
+            new_var = var.clone(name=new_name, parent=None, **kwargs)
+            var_cache[var] = new_var
+            return new_var
+
+        return var.clone(name=new_name, parent=None, **kwargs)
+
+    def expand_derived_args_kernel(self, routine):
+        is_elemental_routine = is_elemental(routine)
+        if is_elemental_routine:
+            var_cache = self._VariableCache()
+        else:
+            var_cache = None
+
+        # All derived type arguments are candidates for expansion
+        candidates = [arg for arg in routine.arguments if isinstance(arg.type.dtype, DerivedType)]
+
+        # Inspect all derived type member use and determine their expansion
+        expansion_map = defaultdict(set)
+        non_expansion_map = defaultdict(set)
+        vmap = {}
+        for var in FindVariables(recurse_to_parent=False).visit(routine.ir):
+            if var.parent:
+                declared_var, expansion, local_use = self.expand_derived_type_member(
+                    var, is_elemental_routine, var_cache
+                )
+                if expansion and declared_var in candidates:
+                    # Mark this derived type member for expansion
+                    expansion_map[declared_var].add(expansion)
+                    vmap[var] = local_use
+                elif declared_var in candidates:
+                    non_expansion_map[declared_var].add(var)
+
+        # Update the expansion map by re-adding the derived type argument when
+        # there are non-expanded members left
+        # Here, we determine the ordering in the updated call signature
+        #   Note: the _local_ name for expanded arguments in elemental routines is not
+        #   always the same, because the order in which variable names are created in the
+        #   var cache is random (hash sorting of set), however, the order in which they
+        #   appear in the updated routine signature is always the same
+        expansion_map = dict(expansion_map)
+        for arg in candidates:
+            if arg in expansion_map:
+                sorted_expansion = sorted(expansion_map[arg], key=lambda v: str(v).lower())
+                if arg in non_expansion_map:
+                    expansion_map[arg] = (arg, *sorted_expansion)
+                else:
+                    expansion_map[arg] = tuple(sorted_expansion)
+
+        def shape_to_assumed_dim(shape):
+            if is_elemental_routine or not shape:
+                return None
+            return tuple(RangeIndex((None, None)) for _ in shape)
+
+        def update_var_type(arg, var):
+            if is_elemental_routine:
+                return var.type.clone(
+                    intent=arg.type.intent, initial=None,
+                    allocatable=None, target=None, pointer=None, shape=None
+                )
+            return var.type.clone(intent=arg.type.intent, initial=None)
+
+        # Build the arguments map to update the call signature
+        arguments_map = {}
+        for arg in routine.arguments:
+            if arg in expansion_map:
+                arguments_map[arg] = [
+                    self._expand_kernel_variable(
+                        var, type=update_var_type(arg, var), dimensions=shape_to_assumed_dim(var.type.shape),
+                        scope=routine, var_cache=var_cache
+                    )
+                    for var in expansion_map[arg]
+                ]
+
+        # Update arguments list
+        routine.arguments = [a for arg in routine.arguments for a in arguments_map.get(arg, [arg])]
+
+        # Update variable list, too, as this triggers declaration generation
+        routine.variables = [v for var in routine.variables for v in arguments_map.get(var, [var])]
+
+        # Substitue derived type member use in the spec and body
+        vmap = recursive_expression_map_update(vmap)
+        routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+        # Update procedure bindings by specifying NOPASS attribute
+        for arg in arguments_map:
+            for decl in arg.type.dtype.typedef.declarations:
+                if isinstance(decl, ProcedureDeclaration) and not decl.generic:
+                    for proc in decl.symbols:
+                        if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
+                            proc.type = proc.type.clone(pass_attr=False)
+
+        return expansion_map
+
+    @classmethod
+    def expand_derived_type_member(cls, var, is_elemental_routine, var_cache=None):
+        """
+        Determine the member expansion for a derived type member variable
+
+        For a derived type member variable, provided as :data:`var`, this determines
+        the name of the root parent and the member expansion.
+
+        A few examples to illustrate the behaviour, with the Fortran variable use
+        that :data:`var` represents in the left column and corresponding return value
+        of this routine on the right:
+
+        .. code-block::
+            var name            | return value (parent_name, expansion, new use)   | remarks
+           ---------------------+--------------------------------------------------+------------------------------------
+            SOME_VAR            | ('some_var', None, None)                         | No expansion
+            SOME%VAR            | ('some', 'some%var', 'some_var')                 |
+            ARRAY(5)%VAR        | ('array', None, None)                            | Can't expand array of derived types
+            SOME%NESTED%VAR     | ('some', 'some%nested%var', 'some_nested_var)    |
+            NESTED%ARRAY(I)%VAR | ('nested', 'nested%array', 'nested_array(i)%var')| Partial expansion
+
+        For elemental routines, we may need to hoist subscript expressions to the caller side,
+        in which case the corresponding index expression is included in the expansion field,
+        for example:
+
+        .. code-block::
+            var name            | return value (parent_name, expansion, new_use)
+           ---------------------+-----------------------------------------------
+            SOME%VAR(IDX)       | ('some', 'some%var(idx)', 'some_var')
+
+        Note, that this currently supports only index expressions where another argument,
+        a constant (i.e. parameter), or global module variables that can be imported from
+        elsewhere, are used.
+
+        Parameters
+        ----------
+        var : :any:`MetaSymbol`
+            The use of a derived type member
+        is_elemental_routine : bool
+            Flag to indicate that the current routine is an ``ELEMENTAL`` routine
+
+        Returns
+        -------
+        (:any:`Variable`, :any:`Variable` or None, :any:`Variable` or None)
+        """
+        parents = var.parents
+        if not parents:
+            return var, None, None
+
+        # if not (getattr(var, 'shape', None) or isinstance(var.type.dtype, DerivedType)):
+        #     return var.name.lower(), None
+
+        if is_elemental_routine:
+            # In elemental routines, we can have scalar derived type arguments with
+            # array members, where the subscript operation is performed inside the elemental
+            # routine. Because Fortran mandates (for good reasons!) scalar arguments in
+            # elemental routines, we have to include the dimensions in the
+            # argument expansion and hoist them to the caller side.
+            expansion = var.clone(scope=None)
+            local_use = cls._expand_kernel_variable(
+                var, dimensions=None, type=var.type.clone(shape=None), var_cache=var_cache
+            )
+        else:
+            # We unroll the derived type member as far as possible, stopping at
+            # the occurence of an intermediate derived type array.
+            # Note that we set scope=None, which detaches the symbol from the current
+            # scope and stores the type information locally on the symbol. This makes
+            # them available later on without risking losing this information due to
+            # intermediate rescoping operations
+            for idx, parent in enumerate(parents):
+                if hasattr(parent, 'dimensions'):
+                    expansion = parent.clone(scope=None, dimensions=None)
+                    if parent is parents[0]:
+                        debug(f'Array of derived types {var!s}. Cannot expand argument.')
+                        local_use = var
+                    else:
+                        debug(f'Array of derived types {var!s}. '
+                            f'Can only partially expand argument as {expansion!s}.')
+                        local_use = cls._expand_kernel_variable(parent)
+                        local_use = cls._expand_relative_to_local_var(local_use, [*parents[idx+1:], var])
+                    break
+            else:
+                # None of the parents had a dimensions attribute, which means we can
+                # completely expand
+                expansion = var.clone(scope=None, dimensions=None)
+                local_use = cls._expand_kernel_variable(var)
+
+        return parents[0], expansion, local_use
 
 
 def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_name):
