@@ -274,7 +274,10 @@ class ProgramUnit(Scope):
         if self.spec and 'spec' not in kwargs:
             kwargs['spec'] = self.spec
         if self.contains and 'contains' not in kwargs:
+            contains_needs_clone = True
             kwargs['contains'] = self.contains
+        else:
+            contains_needs_clone = False
         if self._ast is not None and 'ast' not in kwargs:
             kwargs['ast'] = self._ast
         if self._source is not None and 'source' not in kwargs:
@@ -299,12 +302,20 @@ class ProgramUnit(Scope):
         # TODO: Convert ProgramUnit to an IR node(-like) object and make this
         #       work via `Transformer`
         if obj.contains:
-            contains = [
-                node.clone(parent=obj, rescope_symbols=kwargs['rescope_symbols'])
-                if isinstance(node, ProgramUnit) else node
-                for node in obj.contains.body
-            ]
-            obj.contains = obj.contains.clone(body=as_tuple(contains))
+            if contains_needs_clone:
+                contains = [
+                    node.clone(parent=obj, rescope_symbols=kwargs['rescope_symbols'])
+                    if isinstance(node, ProgramUnit) else node
+                    for node in obj.contains.body
+                ]
+                obj.contains = obj.contains.clone(body=as_tuple(contains))
+            else:
+                for node in obj.contains.body:
+                    if isinstance(node, ProgramUnit):
+                        node.parent = obj
+                        node.register_in_parent_scope()
+
+        obj.register_in_parent_scope()
 
         return obj
 
