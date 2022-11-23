@@ -1649,7 +1649,6 @@ end subroutine my_routine
     assert not r1 == r2
 
 
-
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_lazy_arguments_incomplete1(frontend):
     """
@@ -1819,3 +1818,86 @@ end function f_elem
     assert routine.arguments == ('a',)
     assert routine.is_function is True
     assert routine.return_type.dtype is BasicType.REAL
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_clone_contained(frontend):
+    fcode = """
+subroutine driver(n, a)
+    implicit none
+    integer, intent(in) :: n
+    integer, intent(out), allocatable :: a(:)
+    integer, allocatable :: b(:)
+    integer :: index
+
+    allocate(a(n))
+    allocate(b(n))
+    a(:) = 1
+    call kernel1(a, b, index)
+    call kernel2(index, b)
+    a(:) = b(:)
+    deallocate(b)
+contains
+    subroutine kernel1(a, b, index)
+        integer, intent(in) :: a(:)
+        integer, intent(inout) :: b(:)
+        integer, intent(in) :: index
+        b(:) = a(:)
+    end subroutine kernel1
+
+    subroutine kernel2(index, a)
+        integer, intent(in) :: index
+        integer, intent(inout) :: a(:)
+        a(:) = a(:) + 1
+    end subroutine kernel2
+end subroutine driver
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    driver = source['driver']
+    kernels = driver.subroutines
+
+    def _verify_call_enrichment(driver_, kernels_):
+        calls = FindNodes(CallStatement).visit(driver_.body)
+        assert len(calls) == 2
+
+        for call in calls:
+            assert call.name in ('kernel1', 'kernel2')
+            assert isinstance(call.routine, Subroutine)
+            assert call.routine in kernels_
+            assert call.routine in driver_.subroutines
+
+        for kernel in kernels_:
+            kernel_type = [r.procedure_type for r in driver_.subroutines if r.name == kernel.name][0]
+            assert kernel_type.procedure is kernel
+
+    _verify_call_enrichment(driver, kernels)
+
+    # !!! Note: it is not necessary to use all these clone() calls below, but it exposes a certain edge case !!!
+
+    # We create new contained kernels, e.g. as a result of some transformation or hoisting or similar...
+    cloned_kernels = tuple(k.clone() for k in kernels)
+    # ... and create a new, separate driver object
+    cloned_driver = driver.clone(contains=cloned_kernels)
+    assert cloned_driver is not driver
+
+    # Make sure we didn't call clone() on the provided override of the contained subroutines
+    assert all(k1 is k2 for k1, k2 in zip(cloned_kernels, cloned_driver.subroutines))
+
+    # And make sure the cloned kernels are different from the original kernels but point
+    # to the right parent
+    for cloned_kernel, kernel in zip(cloned_kernels, kernels):
+        assert cloned_kernel.name == kernel.name
+        assert cloned_kernel.parent is cloned_driver
+        assert kernel.parent is driver
+        assert cloned_kernel is not kernel
+
+    _verify_call_enrichment(driver, kernels)
+    _verify_call_enrichment(cloned_driver, cloned_kernels)
+
+    # Get a list of the names of driver arguments
+    driver_args = [a.name.lower() for a in cloned_driver.arguments]
+    assert driver_args == ['n', 'a']
+
+    _verify_call_enrichment(driver, kernels)
+    _verify_call_enrichment(cloned_driver, cloned_kernels)
