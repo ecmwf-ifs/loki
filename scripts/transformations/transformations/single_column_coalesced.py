@@ -174,12 +174,12 @@ def kernel_get_locals_to_demote(routine, sections, horizontal, vertical):
     candidates = _get_local_arrays(routine.body)
 
     # Create an index into all variable uses per vector-level section
-    vars_per_section = {s: set(v.name for v in _get_local_arrays(s)) for s in sections}
+    vars_per_section = {s: set(v.name.lower() for v in _get_local_arrays(s)) for s in sections}
 
     # Count in how many sections each temporary is used
     counts = {}
     for arr in candidates:
-        counts[arr] = sum(1 if arr.name in v else 0 for v in vars_per_section.values())
+        counts[arr] = sum(1 if arr.name.lower() in v else 0 for v in vars_per_section.values())
 
     # Mark temporaries that are only used in one section for demotion
     to_demote = [k for k, v in counts.items() if v == 1]
