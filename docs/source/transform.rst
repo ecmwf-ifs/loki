@@ -79,6 +79,8 @@ to grow in the future:
 .. autosummary::
 
    loki.transform.transformation.Transformation
+   loki.transform.build_system_transform.CMakePlanner
+   loki.transform.build_system_transform.FileWriteTransformation
    loki.transform.dependency_transform.DependencyTransformation
    loki.transform.fortran_c_transform.FortranCTransformation
    loki.transform.fortran_max_transform.FortranMaxTransformation
@@ -89,17 +91,28 @@ useful in a wider context. These are defined in :mod:`transformations`:
 
 .. autosummary::
 
-   transformations.argument_shape.InferArgShapeTransformation
+   transformations.argument_shape.ArgumentArrayShapeAnalysis
+   transformations.argument_shape.ExplicitArgumentArrayShapeTransformation
    transformations.data_offload.DataOffloadTransformation
    transformations.derived_types.DerivedTypeArgumentsTransformation
+   transformations.dr_hook.DrHookTransformation
    transformations.single_column_claw.ExtractSCATransformation
    transformations.single_column_claw.CLAWTransformation
+   transformations.single_column_coalesced.SingleColumnCoalescedTransformation
 
 Additionally, a number of tools for common transformation tasks are provided as
 functions that can be readily used in a step of the transformation pipeline:
 
 .. autosummary::
 
+   loki.transform.transform_array_indexing.shift_to_zero_indexing
+   loki.transform.transform_array_indexing.invert_array_indices
+   loki.transform.transform_array_indexing.resolve_vector_notation
+   loki.transform.transform_array_indexing.normalize_range_indexing
+   loki.transform.transform_array_indexing.promote_variables
+   loki.transform.transform_array_indexing.promote_nonmatching_variables
+   loki.transform.transform_array_indexing.promotion_dimensions_from_loop_nest
+   loki.transform.transform_associates.resolve_associates
    loki.transform.transform_inline.inline_constant_parameters
    loki.transform.transform_inline.inline_elemental_functions
    loki.transform.transform_loop.loop_interchange
@@ -107,6 +120,10 @@ functions that can be readily used in a step of the transformation pipeline:
    loki.transform.transform_loop.loop_fission
    loki.transform.transform_region.region_hoist
    loki.transform.transform_region.region_to_call
+   loki.transform.transform_utilities.convert_to_lower_case
+   loki.transform.transform_utilities.replace_intrinsics
+   loki.transform.transform_utilities.sanitise_imports
+   loki.transform.transform_utilities.replace_selected_kind
 
 
 Bulk processing large source trees

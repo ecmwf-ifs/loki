@@ -36,10 +36,10 @@ source loki_env/bin/activate  # Activate the virtual environment
 pip install "loki @ git+https://github.com/ecmwf-ifs/loki.git"
 
 # Optional: Installation of additional transformations
-pip install "transformations @ git+https://github.com/ecmwf-ifs/loki.git#subdirectory=scripts/transformations"
+pip install "transformations @ git+https://github.com/ecmwf-ifs/loki.git#subdirectory=transformations"
 
 # Optional: Installation of rules for the use as a linter
-pip install "lint_rules @ git+https://github.com/ecmwf-ifs/loki.git#subdirectory=scripts/lint_rules"
+pip install "lint_rules @ git+https://github.com/ecmwf-ifs/loki.git#subdirectory=lint_rules"
 ```
 
 This makes the Python package available and installs the scripts `loki-transform.py` and `loki-lint.py` on the PATH.
@@ -213,8 +213,8 @@ source loki_env/bin/activate
 ```bash
 pushd loki
 pip install -e .[tests,examples]
-pip install -e scripts/transformations
-pip install -e scripts/lint_rules
+pip install -e ./transformations
+pip install -e ./lint_rules
 popd
 ```
 
