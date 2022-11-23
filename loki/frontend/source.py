@@ -2,9 +2,9 @@
 Implementation of :any:`Source` and adjacent utilities
 """
 from bisect import bisect_left
-from codetiming import Timer
 from itertools import accumulate
 import re
+from codetiming import Timer
 
 try:
     from fparser.common.readfortran import FortranStringReader
