@@ -57,7 +57,7 @@ Loki is primarily an API and toolbox, requiring developers to create their
 own head scripts to create and invoke source-to-source translation toolchains.
 A small set of transformations considered generic enough are provided by the
 package itself in :mod:`loki.transform`. The majority of more complex transformations
-are collected in a separate Python package that lives under ``scripts/transformations``.
+are collected in a separate Python package that lives under ``transformations``.
 
 The ``loki_transform.py`` script is provided by the Loki install. The primary
 transformation passes provided by these example transformations are:

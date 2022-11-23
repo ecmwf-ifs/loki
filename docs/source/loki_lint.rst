@@ -195,8 +195,8 @@ configuration file are chosen to be default values.
 Implementing own rules
 ======================
 
-All rules are implemented in :mod:`scripts.lint_rules`. Currently, this includes
-only one module (:mod:`scripts.lint_rules.ifs_coding_standards_2011`) that
+All rules are implemented in :mod:`lint_rules`. Currently, this includes
+only one module (:mod:`lint_rules.ifs_coding_standards_2011`) that
 contains (a small subset of) the rules defined in the IFS coding standards
 document. To be able to write own rules a rudimentary understanding of
 :doc:`internal_representation` is helpful.
