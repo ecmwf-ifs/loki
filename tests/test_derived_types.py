@@ -1,3 +1,10 @@
+# (C) Copyright 2018- ECMWF.
+# This software is licensed under the terms of the Apache Licence Version 2.0
+# which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
+# In applying this licence, ECMWF does not waive the privileges and immunities
+# granted to it by virtue of its status as an intergovernmental organisation
+# nor does it submit to any jurisdiction.
+
 from pathlib import Path
 import re
 import pytest
@@ -1060,7 +1067,7 @@ module radiation_random_numbers
 
   public :: rng_type, IRngNative
 
-  enum, bind(c) 
+  enum, bind(c)
     enumerator IRngNative      ! Built-in Fortran-90 RNG
   end enum
 
@@ -1071,11 +1078,11 @@ module radiation_random_numbers
   type rng_type
 
     integer(kind=jpim) :: itype = IRngNative
-    real(kind=jprb)    :: istate(NMaxStreams) 
+    real(kind=jprb)    :: istate(NMaxStreams)
     integer(kind=jpim) :: nmaxstreams = NMaxStreams
     integer(kind=jpim) :: iseed = 0
 
-  end type rng_type 
+  end type rng_type
 
 contains
 
