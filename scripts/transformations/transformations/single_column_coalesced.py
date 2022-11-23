@@ -564,7 +564,6 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Demote all private local variables that do not buffer values between sections
         if demote_locals:
-            # kernel_demote_private_locals(routine, self.horizontal, self.vertical)
             kernel_demote_private_locals(routine, to_demote, self.horizontal)
 
         if self.hoist_column_arrays:
