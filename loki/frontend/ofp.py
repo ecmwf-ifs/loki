@@ -1,9 +1,9 @@
 # pylint: disable=too-many-lines
-from codetiming import Timer
 from collections import deque
 from collections.abc import Iterable
 from pathlib import Path
 import re
+from codetiming import Timer
 
 try:
     import open_fortran_parser

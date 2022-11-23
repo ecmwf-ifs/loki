@@ -55,31 +55,31 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True, f90wrap_kind_map=None
         Path to ``f90wrap`` KIND_MAP file, containing a Python dictionary
         in f2py_f2cmap format.
     """
-    info('Compiling: %s' % filename)
+    info(f'Compiling: {filename}')
     filepath = Path(filename)
     clean(filename)
 
     pattern = ['*.f90.cache', '*.o', '*.mod', 'f90wrap_*.f90',
-               '%s.cpython*.so' % filepath.stem, '%s.py' % filepath.stem]
+               f'{filepath.stem}.cpython*.so', f'{filepath.stem}.py']
     clean(filename, pattern=pattern)
 
     # First, compile the module and object files
-    build = ['gfortran', '-c', '-fpic', '%s' % filepath.absolute()]
+    build = ['gfortran', '-c', '-fpic', str(filepath.absolute())]
     execute(build, cwd=cwd)
 
     # Generate the Python interfaces
     f90wrap = ['f90wrap']
-    f90wrap += ['-m', '%s' % filepath.stem]
+    f90wrap += ['-m', str(filepath.stem)]
     if f90wrap_kind_map is not None:
         f90wrap += ['-k', str(f90wrap_kind_map)]
-    f90wrap += ['%s' % filepath.absolute()]
+    f90wrap += [str(filepath.absolute())]
     execute(f90wrap, cwd=cwd)
 
     # Compile the dynamic library
     f2py = ['f2py-f90wrap', '-c']
-    f2py += ['-m', '_%s' % filepath.stem]
-    f2py += ['%s.o' % filepath.stem]
-    for sourcefile in ['f90wrap_%s.f90' % filepath.stem, 'f90wrap_toplevel.f90']:
+    f2py += ['-m', f'_{filepath.stem}']
+    f2py += [f'{filepath.stem}.o']
+    for sourcefile in [f'f90wrap_{filepath.stem}.f90', 'f90wrap_toplevel.f90']:
         if (filepath.parent/sourcefile).exists():
             f2py += [sourcefile]
     execute(f2py, cwd=cwd)
@@ -137,9 +137,9 @@ class Compiler:
         cc = {'f90': self.f90, 'f': self.fc, 'c': self.cc}[mode]
         args = [cc, '-c']
         args += {'f90': self.f90flags, 'f': self.fcflags, 'c': self.cflags}[mode]
-        args += flatten([('-I', '%s' % incl) for incl in include_dirs])
-        args += [] if mod_dir is None else ['-J', '%s' % mod_dir]
-        args += [] if target is None else ['-o', '%s' % target]
+        args += flatten([('-I', str(incl)) for incl in include_dirs])
+        args += [] if mod_dir is None else ['-J', str(mod_dir)]
+        args += [] if target is None else ['-o', str(target)]
         args += [str(source)]
         return args
 
@@ -159,7 +159,7 @@ class Compiler:
         """
         args = [self.ld if shared else self.ld_static]
         args += self.ldflags if shared else self.ldflags_static
-        args += ['-o', '%s' % target]
+        args += ['-o', str(target)]
         args += [str(o) for o in objs]
         return args
 
@@ -176,10 +176,10 @@ class Compiler:
         Generate arguments for the ``f90wrap`` utility invocation line.
         """
         args = ['f90wrap']
-        args += ['-m', '%s' % modname]
+        args += ['-m', str(modname)]
         if kind_map is not None:
             args += ['-k', str(kind_map)]
-        args += ['%s' % s for s in source]
+        args += [str(s) for s in source]
         return args
 
     def f90wrap(self, modname, source, cwd=None, kind_map=None):
@@ -199,14 +199,14 @@ class Compiler:
         incl_dirs = incl_dirs or []
 
         args = ['f2py-f90wrap', '-c']
-        args += ['-m', '_%s' % modname]
+        args += ['-m', f'_{modname}']
         for incl_dir in incl_dirs:
-            args += ['-I%s' % incl_dir]
+            args += [f'-I{incl_dir}']
         for lib in libs:
-            args += ['-l%s' % lib]
+            args += [f'-l{lib}']
         for lib_dir in lib_dirs:
-            args += ['-L%s' % lib_dir]
-        args += ['%s' % s for s in source]
+            args += [f'-L{lib_dir}']
+        args += [str(s) for s in source]
         return args
 
     def f2py(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None, cwd=None):

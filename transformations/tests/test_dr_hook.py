@@ -1,12 +1,12 @@
 import shutil
 import pytest
 
-from conftest import available_frontends
-from transformations import DrHookTransformation
-
 from loki import (
     Scheduler, SchedulerConfig, FindNodes, CallStatement, gettempdir, OMNI
 )
+
+from conftest import available_frontends
+from transformations import DrHookTransformation
 
 
 @pytest.fixture(scope='module', name='config')

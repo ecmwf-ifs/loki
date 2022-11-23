@@ -1,10 +1,11 @@
+from operator import gt
 from pymbolic.mapper.stringifier import (
     PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
 
 from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import
-from loki.expression import LokiStringifyMapper, Array
+from loki.expression import LokiStringifyMapper, Array, symbolic_op, Literal
 from loki.types import BasicType, SymbolAttributes, DerivedType
 
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
@@ -268,7 +269,7 @@ class CCodegen(Stringifier):
         control = 'for ({var} = {start}; {var} {crit} {end}; {var} += {incr})'.format(
             var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
             end=self.visit(o.bounds.stop, **kwargs),
-            crit='<=' if not o.bounds.step or eval(str(o.bounds.step)) > 0 else '>=',
+            crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
             incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
         header = self.format_line(control, ' {')
         footer = self.format_line('}')

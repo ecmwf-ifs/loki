@@ -6,7 +6,6 @@ from pathlib import Path
 import io
 import re
 import pcpp
-
 from codetiming import Timer
 
 from loki.logging import debug, perf

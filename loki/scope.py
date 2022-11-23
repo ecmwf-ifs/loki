@@ -41,7 +41,7 @@ class SymbolTable(dict):
             obj.format_lookup_name = SymbolTable._not_case_sensitive_format_lookup_name
         return obj
 
-    def __init__(self, parent=None, case_sensitive=False, **kwargs):
+    def __init__(self, parent=None, **kwargs):
         super().__init__(**kwargs)
         self._parent = weakref.ref(parent) if parent is not None else None
 
@@ -70,7 +70,7 @@ class SymbolTable(dict):
         -------
         `bool`
         """
-        return self._case_sensitive
+        return self._case_sensitive  # pylint: disable=no-member
 
     def format_lookup_name(self, name):  # pylint: disable=method-hidden
         """
@@ -133,7 +133,7 @@ class SymbolTable(dict):
         -------
         :any:`SymbolAttributes` or `None`
         """
-        formatted_name = self.format_lookup_name(name)
+        formatted_name = self.format_lookup_name(name)  # pylint: disable=assignment-from-no-return
         value = self._lookup_formatted_name(formatted_name, recursive)
         return value
 
@@ -162,7 +162,7 @@ class SymbolTable(dict):
 
     def __setitem__(self, key, value):
         assert isinstance(value, SymbolAttributes)
-        name_parts = self.format_lookup_name(key)
+        name_parts = self.format_lookup_name(key)  # pylint: disable=assignment-from-no-return
         super().__setitem__(name_parts, value.clone())
 
     def __hash__(self):

@@ -6,9 +6,9 @@ from Fortran source files without the need to generate a complete
 parse tree.
 """
 from abc import abstractmethod
-from codetiming import Timer
 from enum import Flag, auto
 import re
+from codetiming import Timer
 
 from loki import ir
 from loki.expression import symbols as sym

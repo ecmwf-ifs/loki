@@ -1,7 +1,7 @@
 import sys
 import operator as op
 import weakref
-from functools import wraps, lru_cache
+from functools import lru_cache
 from collections import OrderedDict
 from collections.abc import Sequence
 from shlex import split
@@ -15,7 +15,7 @@ try:
 except ImportError:
     HAVE_YAML = False
 
-from loki.logging import log, debug, error, PERF
+from loki.logging import debug, error
 
 
 __all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',

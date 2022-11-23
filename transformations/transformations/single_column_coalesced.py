@@ -1,4 +1,4 @@
-from more_itertools import pairwise, split_at
+from more_itertools import split_at
 
 from loki.expression import symbols as sym
 from loki.transform import resolve_associates
@@ -136,7 +136,7 @@ def extract_vector_sections(section, horizontal):
     return subsections
 
 
-def kernel_get_locals_to_demote(routine, sections, horizontal, vertical):
+def kernel_get_locals_to_demote(routine, sections, horizontal):
 
     argument_names = [v.name for v in routine.arguments]
 
@@ -484,9 +484,9 @@ class SingleColumnCoalescedTransformation(Transformation):
             demote_locals = self.demote_local_arrays
             if item:
                 demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
-            self.process_kernel(routine, targets=targets, demote_locals=demote_locals)
+            self.process_kernel(routine, demote_locals=demote_locals)
 
-    def process_kernel(self, routine, targets=None, demote_locals=True):
+    def process_kernel(self, routine, demote_locals=True):
         """
         Applies the SCC loop layout transformation to a "kernel"
         subroutine. This will primarily strip the innermost vector
@@ -502,9 +502,6 @@ class SingleColumnCoalescedTransformation(Transformation):
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
-        targets : list of strings
-            Names of all kernel routines that are to be considered "active"
-            in this call tree and should thus be processed accordingly.
         """
 
         pragmas = FindNodes(ir.Pragma).visit(routine.body)
@@ -555,7 +552,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         # Extract the local variables to dome after we wrap the sections in vector loops.
         # We do this, because need the section blocks to determine which local arrays
         # may carry buffered values between them, so that we may not demote those!
-        to_demote = kernel_get_locals_to_demote(routine, sections, self.horizontal, self.vertical)
+        to_demote = kernel_get_locals_to_demote(routine, sections, self.horizontal)
 
         if not self.hoist_column_arrays:
             # Promote vector loops to be the outermost loop dimension in the kernel
@@ -649,10 +646,10 @@ class SingleColumnCoalescedTransformation(Transformation):
                     sizes = self.block_dim.size_expressions
                     arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
                     private_arrays = ', '.join(set(v.name for v in arrays))
-                    private_clause = '' if not private_arrays else ' private({})'.format(private_arrays)
+                    private_clause = '' if not private_arrays else f' private({private_arrays})'
 
                     if loop.pragma is None:
-                        p_content = 'parallel loop gang{}'.format(private_clause)
+                        p_content = f'parallel loop gang{private_clause}'
                         loop._update(pragma=ir.Pragma(keyword='acc', content=p_content))
                         loop._update(pragma_post=ir.Pragma(keyword='acc', content='end parallel loop'))
 

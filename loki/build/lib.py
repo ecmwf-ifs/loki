@@ -44,16 +44,16 @@ class Lib:
         else:
             # Generate object list by globbing the source_dir according to pattern
             if source_dir is None:
-                raise RuntimeError('No source directory found for pattern expansion in %s' % self)
+                raise RuntimeError(f'No source directory found for pattern expansion in {self}')
 
             obj_paths = find_paths(directory=source_dir, pattern=pattern, ignore=ignore)
             self.objs = [Obj(source_path=p) for p in obj_paths]
 
         if len(self.objs) == 0:
-            warning('%s:: Empty dependency list: %s', self, self.objs)
+            warning(f'{self}:: Empty dependency list: {self.objs}')
 
     def __repr__(self):
-        return 'Lib<%s>' % self.name
+        return f'Lib<{self.name}>'
 
     def build(self, builder=None, logger=None, compiler=None, shared=None,
               force=False, include_dirs=None, external_objs=None):
@@ -67,7 +67,7 @@ class Lib:
         workers = builder.workers
 
         suffix = '.so' if shared else '.a'
-        target = (build_dir/('lib%s' % self.name)).with_suffix(suffix)
+        target = (build_dir/(f'lib{self.name}')).with_suffix(suffix)
 
         # Establish file-modified times
         t_time = target.stat().st_mtime if target.exists() else None
@@ -80,10 +80,10 @@ class Lib:
         # Skip the build if up-to-date...
         if not force and t_time is not None and o_time is not None \
            and t_time > o_time:
-            logger.info('%s up-to-date, skipping...' % self)
+            logger.info(f'{self} up-to-date, skipping...')
             return
 
-        logger.info('Building %s (workers=%s)' % (self, workers))
+        logger.info(f'Building {self} (workers={workers})')
 
         # Generate the dependncy graph implied by .mod files
         dep_graph = builder.get_dependency_graph(self.objs, depgen=attrgetter('dependencies'))
@@ -112,7 +112,7 @@ class Lib:
         # Link the final library
         objs = [Path(o).resolve() for o in external_objs or []]
         objs += [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
-        logger.debug('Linking %s (%s objects)' % (self, len(objs)))
+        logger.debug(f'Linking {self} ({len(objs)} objects)')
         compiler.link(target=target, objs=objs, shared=shared)
 
     def wrap(self, modname, builder, sources=None, libs=None, lib_dirs=None, kind_map=None):
@@ -129,7 +129,7 @@ class Lib:
         compiler.f90wrap(modname=modname, source=sourcepaths, cwd=str(build_dir), kind_map=kind_map)
 
         # Execute the second-level wrapper (f2py-f90wrap)
-        wrappers = ['f90wrap_%s.f90' % item.source_path.stem for item in items]
+        wrappers = [f'f90wrap_{item.source_path.stem}.f90' for item in items]
         wrappers += ['f90wrap_toplevel.f90']  # Include the generic wrapper
         wrappers = [w for w in wrappers if (build_dir/w).exists()]
 

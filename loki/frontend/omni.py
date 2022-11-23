@@ -1,7 +1,7 @@
-from codetiming import Timer
 from pathlib import Path
 from shutil import which
 import xml.etree.ElementTree as ET
+from codetiming import Timer
 
 from loki.frontend.source import Source
 from loki.frontend.util import OMNI, sanitize_ir
