@@ -81,6 +81,12 @@ two levels:
    encapsulating classes declared in :py:mod:`loki.expression.symbols` and
    described below.
 
+The split in IR levels is meant to control the complexity of
+individual tree traversals, and separate the symbolic expression layer
+from the more Fortran-specific elements of the IR tree. This loosely
+follows the principles outlined in
+`Luporini et al. <https://dl.acm.org/doi/10.1145/3374916>`__.
+
 All control flow nodes implement the common base class :any:`Node` and
 can have an arbitrary number of children that are either control flow nodes
 or expression nodes. Thus, any control flow node looks in principle like the
