@@ -29,7 +29,7 @@ def fixture_here():
 @pytest.fixture(scope='module', name='local_loki_bundle')
 def fixture_local_loki_bundle(here):
     """Inject ourselves into the CLOUDSC bundle"""
-    lokidir = Path(__file__).parent.parent.parent.parent.parent
+    lokidir = Path(__file__).parent.parent.parent
     target = here/'source/loki'
     backup = here/'source/loki.bak'
     bundlefile = here/'bundle.yml'

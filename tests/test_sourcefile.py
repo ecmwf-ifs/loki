@@ -11,7 +11,7 @@ import numpy as np
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    Sourcefile, OFP, OMNI, REGEX, FindNodes, PreprocessorDirective,
+    Sourcefile, OFP, OMNI, FP, REGEX, FindNodes, PreprocessorDirective,
     Intrinsic, Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
     StatementFunction, Comment, CommentBlock, RawSource, Scalar
 )
@@ -235,7 +235,7 @@ def test_sourcefile_lazy_construction(frontend):
     """
     Test delayed ("lazy") parsing of sourcefile content
     """
-    fcode = """
+    fcode = f"""
 ! A comment to test
 subroutine routine_a
 integer a
@@ -254,7 +254,7 @@ n = 3
 end function module_function
 end module some_module
 
-#ifndef SOME_PREPROC_VAR
+{'!' if frontend == OMNI else ''}#ifndef SOME_PREPROC_VAR
 subroutine routine_b
 integer b
 b = 4
@@ -264,7 +264,7 @@ integer c
 c = 5
 end subroutine contained_c
 end subroutine routine_b
-#endif
+{'!' if frontend == OMNI else ''}#endif
 
 function function_d(d)
 integer d
@@ -283,7 +283,11 @@ end function function_d
 
     # Make sure we have an incomplete parse tree until now
     assert source._incomplete
-    assert len(FindNodes(RawSource).visit(source.ir)) == 5
+    if frontend == OMNI:
+        # OMNI strips the comments with PP directives, including adjacent newlines
+        assert len(FindNodes(RawSource).visit(source.ir)) == 2
+    else:
+        assert len(FindNodes(RawSource).visit(source.ir)) == 5
     assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
 
     # Trigger the full parse
@@ -292,7 +296,11 @@ end function function_d
 
     # Make sure no RawSource nodes are left
     assert not FindNodes(RawSource).visit(source.ir)
-    assert len(FindNodes(Comment).visit(source.ir)) in (1, 2) # Some newlines are also treated as comments
+    if frontend == FP:
+        # Some newlines are also treated as comments
+        assert len(FindNodes(Comment).visit(source.ir)) == 2
+    else:
+        assert len(FindNodes(Comment).visit(source.ir)) == 1
     if frontend == OMNI:
         assert not FindNodes(PreprocessorDirective).visit(source.ir)
     else:

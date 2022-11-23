@@ -1,0 +1,105 @@
+name: Code checks and pytest
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push events
+  push:
+    branches: [ 'main' ]
+    tags-ignore: [ '**' ]
+
+  # Triggers the workflow on pull request events
+  pull_request:
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  code_checks:
+    name: Code checks on ${{ matrix.python-version }}
+
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # false: try to complete all jobs
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install .[tests,examples] ./transformations ./lint_rules
+        pip list
+    - name: Analysing the code with pylint
+      run: |
+        pylint --rcfile=.pylintrc loki tests
+        pushd transformations && pylint --rcfile=../.pylintrc transformations tests; popd
+        pushd lint_rules && pylint --rcfile=../.pylintrc lint_rules tests; popd
+        jupyter nbconvert --to=script --output-dir=example_converted example/*.ipynb
+        pylint --rcfile=.pylintrc_ipynb example_converted/*.py
+
+  pytest:
+    name: Pytest on ${{ matrix.python-version }}
+
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false  # false: try to complete all jobs
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Clone CLOUDSC
+        uses: actions/checkout@v3
+        with:
+          repository: ecmwf-ifs/dwarf-p-cloudsc
+          path: cloudsc
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Refresh package lists
+        run: |
+          sudo apt-get update || true
+
+      - name: Install Loki dependencies
+        run: |
+          sudo apt-get install -y graphviz gfortran cmake
+
+      - name: Install OMNI + CLAW dependencies
+        run: |
+          sudo apt-get install -y byacc flex openjdk-11-jdk
+
+      - name: Install CLOUDSC dependencies
+        run:
+          sudo apt-get install -y libhdf5-dev
+
+      - name: Install Loki
+        run: |
+          ./install --with-claw --with-ofp --with-examples --with-tests --with-ant --with-dace
+
+      - name: Run Loki tests
+        run: |
+          source loki-activate
+          pytest --cov=./loki tests
+
+      - name: Run transformations tests
+        env:
+          CLOUDSC_DIR: ${{ github.workspace }}/cloudsc
+          CLOUDSC_ARCH: ${{ github.workspace }}/cloudsc/arch/github/ubuntu/gnu/9.3.0
+          OMP_STACKSIZE: 4G
+        run: |
+          source loki-activate
+          pytest --cov=transformations/transformations transformations/tests
+
+      - name: Run lint_rules tests
+        run: |
+          source loki-activate
+          pytest --cov=lint_rules/lint_rules lint_rules/tests
