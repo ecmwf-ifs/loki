@@ -683,6 +683,10 @@ class Array(MetaSymbol):
         super().__init__(symbol=symbol)
 
     @property
+    def name_parts(self):
+        return self.symbol.name_parts
+
+    @property
     def symbol(self):
         if isinstance(self._symbol, ArraySubscript):
             return self._symbol.aggregate
@@ -896,7 +900,7 @@ class _Literal(pmbl.Leaf):
         return ()
 
 
-class FloatLiteral(ExprMetadataMixin, _Literal):
+class FloatLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     """
     A floating point constant in an expression.
 
@@ -974,7 +978,7 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
     mapper_method = intern('map_float_literal')
 
 
-class IntLiteral(ExprMetadataMixin, _Literal):
+class IntLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     """
     An integer constant in an expression.
 
@@ -1054,7 +1058,7 @@ class IntLiteral(ExprMetadataMixin, _Literal):
 pmbl.register_constant_class(IntLiteral)
 
 
-class LogicLiteral(ExprMetadataMixin, _Literal):
+class LogicLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     """
     A boolean constant in an expression.
 
@@ -1076,7 +1080,7 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
     mapper_method = intern('map_logic_literal')
 
 
-class StringLiteral(ExprMetadataMixin, _Literal):
+class StringLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     """
     A string constant in an expression.
 
@@ -1113,7 +1117,7 @@ class StringLiteral(ExprMetadataMixin, _Literal):
     mapper_method = intern('map_string_literal')
 
 
-class IntrinsicLiteral(ExprMetadataMixin, _Literal):
+class IntrinsicLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     """
     Any literal not represented by a dedicated class.
 

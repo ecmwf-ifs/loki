@@ -312,7 +312,7 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
     info(f'[Loki] Creating CMake plan file from config: {config}')
     config = SchedulerConfig.from_file(config)
 
-    paths = [Path(s).resolve().parent for s in source]
+    paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False)
 
@@ -355,12 +355,9 @@ def ecphys(mode, config, header, source, build, frontend):
     definitions = flatten(h.modules for h in headers)
 
     # Create and setup the scheduler for bulk-processing
-    paths = [Path(s).resolve().parent for s in source]
+    paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
-
-    # First, remove all derived-type arguments; caller first!
-    scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
     # Backward insert argument shapes (for surface routines)
     scheduler.process(transformation=ArgumentArrayShapeAnalysis())

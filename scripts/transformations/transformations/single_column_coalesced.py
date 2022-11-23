@@ -1,11 +1,11 @@
-from more_itertools import pairwise
+from more_itertools import pairwise, split_at
 
 from loki.expression import symbols as sym
 from loki.transform import resolve_associates
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
-    FindExpressions, Transformer, NestedTransformer, NestedMaskedTransformer,
+    FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten
 )
@@ -51,22 +51,6 @@ def kernel_remove_vector_loops(routine, horizontal):
     routine.body = Transformer(loop_map).visit(routine.body)
 
 
-def kernel_sections_from_nodes(nodes, section):
-    """
-    Extract a list of code sub-sections from a section tuple and separator nodes.
-    """
-    nodes = [None, *nodes, None]
-    sections = []
-    for start, stop in pairwise(nodes):
-        t = NestedMaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
-        sec = as_tuple(t.visit(section))
-        if start is not None:
-            sec = sec[1:]  # Strip `start` node
-        sections.append(sec)
-
-    return sections
-
-
 def wrap_vector_section(section, routine, horizontal):
     """
     Wrap a section of nodes in a vector-level loop across the horizontal.
@@ -109,6 +93,8 @@ def extract_vector_sections(section, horizontal):
         The dimension specifying the horizontal vector dimension
     """
 
+    _scope_note_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
+
     # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
     separator_nodes = []
     calls = FindNodes(ir.CallStatement).visit(section)
@@ -120,11 +106,13 @@ def extract_vector_sections(section, horizontal):
         else:
             # If the call is deeper in the IR tree, it's highest ancestor is used
             ancestors = flatten(FindScopes(call).visit(section))
-            ancestor_scopes = [a for a in ancestors if isinstance(a, (ir.Loop, ir.Conditional))]
-            if len(ancestor_scopes) > 0:
+            ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_note_types)]
+            if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
                 separator_nodes.append(ancestor_scopes[0])
 
-    subsections = kernel_sections_from_nodes(separator_nodes, section)
+    # Extract contiguous node sections between separator nodes
+    assert all(n in section for n in separator_nodes)
+    subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
 
     # Filter sub-sections that do not use the horizontal loop index variable
     subsections = [s for s in subsections if horizontal.index in list(FindVariables().visit(s))]
@@ -148,7 +136,64 @@ def extract_vector_sections(section, horizontal):
     return subsections
 
 
-def kernel_demote_private_locals(routine, horizontal, vertical):
+def kernel_get_locals_to_demote(routine, sections, horizontal, vertical):
+
+    argument_names = [v.name for v in routine.arguments]
+
+    def _is_constant(d):
+        """Establish if a given dimensions symbol is a compile-time constant"""
+        if isinstance(d, sym.IntLiteral):
+            return True
+
+        if isinstance(d, sym.RangeIndex):
+            if d.lower:
+                return _is_constant(d.lower) and _is_constant(d.upper)
+            return _is_constant(d.upper)
+
+        if isinstance(d, sym.Scalar) and isinstance(d.initial , sym.IntLiteral):
+            return True
+
+        return False
+
+    def _get_local_arrays(section):
+        """
+        Filters out local argument arrays that solely buffer the
+        horizontal vector dimension
+        """
+        arrays = FindVariables(unique=False).visit(section)
+        # Only demote local arrays with the horizontal as fast dimension
+        arrays = [v for v in arrays if isinstance(v, sym.Array)]
+        arrays = [v for v in arrays if v.name not in argument_names]
+        arrays = [v for v in arrays if v.shape and v.shape[0] == horizontal.size]
+
+        # Also demote arrays whose remaning dimensions are known constants
+        arrays = [v for v in arrays if all(_is_constant(d) for d in v.shape[1:])]
+        return arrays
+
+    # Create a list of all local horizontal temporary arrays
+    candidates = _get_local_arrays(routine.body)
+
+    # Create an index into all variable uses per vector-level section
+    vars_per_section = {s: set(v.name.lower() for v in _get_local_arrays(s)) for s in sections}
+
+    # Count in how many sections each temporary is used
+    counts = {}
+    for arr in candidates:
+        counts[arr] = sum(1 if arr.name.lower() in v else 0 for v in vars_per_section.values())
+
+    # Mark temporaries that are only used in one section for demotion
+    to_demote = [k for k, v in counts.items() if v == 1]
+
+    # Filter out variables that we will pass down the call tree
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    call_args = flatten(call.arguments for call in calls)
+    call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
+    to_demote = [v for v in to_demote if v.name not in call_args]
+
+    return set(to_demote)
+
+
+def kernel_demote_private_locals(routine, to_demote, horizontal):
     """
     Demotes all local variables that can be privatized at the `acc loop vector`
     level.
@@ -170,35 +215,14 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
         The dimension object specifying the vertical loop dimension
     """
 
-    # Establish the new dimensions and shapes first, before cloning the variables
-    # The reason for this is that shapes of all variable instances are linked
-    # via caching, meaning we can easily void the shape of an unprocessed variable.
-    variables = list(routine.variables)
-    variables += list(FindVariables(unique=False).visit(routine.body))
-
-    # Filter out purely local array variables
-    argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-    variables = [v for v in variables if not v.name in argument_map]
-    variables = [v for v in variables if isinstance(v, sym.Array)]
-
-    # Find all arrays with shapes that do not include the vertical
-    # dimension and can thus be privatized.
-    variables = [v for v in variables if v.shape is not None]
-    variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
-
-    # Filter out variables that we will pass down the call tree
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    call_args = flatten(call.arguments for call in calls)
-    call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
-    variables = [v for v in variables if v.name not in call_args]
+    # Find variable objects anew to ensure they are all up-to-date!
+    v_names = list(v.name.upper() for v in to_demote)
+    variables = list(FindVariables(unique=False).visit(routine.body))
+    variables += list(routine.variables)
+    variables = [v for v in variables if v.name.upper() in v_names]
 
     # Record original array shapes
     shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
-
-    # TODO: We need to ensure that we only demote things that we do not use
-    # to buffer things across two sections. With the extended loop promotion,
-    # we now need to check that we only demote in distinct vector loops, rather
-    # than across entire routines....
 
     # Demote private local variables
     vmap = {}
@@ -235,6 +259,7 @@ def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
     private_arrays = [v for v in routine.variables if not v.name in argument_map]
     private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
     private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
+    private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
 
     with pragmas_attached(routine, ir.Loop):
         mapper = {}
@@ -307,12 +332,14 @@ def resolve_masked_stmts(routine, loop_variable):
     """
     mapper = {}
     for masked in FindNodes(ir.MaskedStatement).visit(routine.body):
-        ranges = [e for e in FindExpressions().visit(masked.condition) if isinstance(e, sym.RangeIndex)]
+        # TODO: Currently limited to simple, single-clause WHERE stmts
+        assert len(masked.conditions) == 1 and len(masked.bodies) == 1
+        ranges = [e for e in FindExpressions().visit(masked.conditions[0]) if isinstance(e, sym.RangeIndex)]
         exprmap = {r: loop_variable for r in ranges}
         assert len(ranges) > 0
         assert all(r == ranges[0] for r in ranges)
         bounds = sym.LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
-        cond = ir.Conditional(condition=masked.condition, body=masked.body, else_body=masked.default)
+        cond = ir.Conditional(condition=masked.conditions[0], body=masked.bodies[0], else_body=masked.default)
         loop = ir.Loop(variable=loop_variable, bounds=bounds, body=cond)
         # Substitute the loop ranges with the loop index and add to mapper
         mapper[masked] = SubstituteExpressions(exprmap).visit(loop)
@@ -339,13 +366,15 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
     """
     bounds_str = f'{bounds[0]}:{bounds[1]}'
 
+    bounds_v = (sym.Variable(name=bounds[0]), sym.Variable(name=bounds[1]))
+
     mapper = {}
     for stmt in FindNodes(ir.Assignment).visit(routine.body):
         ranges = [e for e in FindExpressions().visit(stmt)
                   if isinstance(e, sym.RangeIndex) and e == bounds_str]
         if ranges:
             exprmap = {r: loop_variable for r in ranges}
-            loop = ir.Loop(variable=loop_variable, bounds=sym.LoopRange(bounds),
+            loop = ir.Loop(variable=loop_variable, bounds=sym.LoopRange(bounds_v),
                            body=SubstituteExpressions(exprmap).visit(stmt))
             mapper[stmt] = loop
 
@@ -444,16 +473,20 @@ class SingleColumnCoalescedTransformation(Transformation):
             in this call tree and should thus be processed accordingly.
         """
 
-        role = kwargs.get('role')
+        role = kwargs['role']
+        item = kwargs.get('item', None)
         targets = kwargs.get('targets', None)
 
         if role == 'driver':
             self.process_driver(routine, targets=targets)
 
         if role == 'kernel':
-            self.process_kernel(routine, targets=targets)
+            demote_locals = self.demote_local_arrays
+            if item:
+                demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
+            self.process_kernel(routine, targets=targets, demote_locals=demote_locals)
 
-    def process_kernel(self, routine, targets=None):
+    def process_kernel(self, routine, targets=None, demote_locals=True):
         """
         Applies the SCC loop layout transformation to a "kernel"
         subroutine. This will primarily strip the innermost vector
@@ -473,6 +506,27 @@ class SingleColumnCoalescedTransformation(Transformation):
             Names of all kernel routines that are to be considered "active"
             in this call tree and should thus be processed accordingly.
         """
+
+        pragmas = FindNodes(ir.Pragma).visit(routine.body)
+        routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
+        routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
+
+        seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
+        if seq_pragmas:
+            if self.directive == 'openacc':
+                # Mark routine as acc seq
+                mapper = {seq_pragmas[0]: ir.Pragma(keyword='acc', content='routine seq')}
+                routine.body = Transformer(mapper).visit(routine.body)
+
+            # Bail and leave sequential routines unchanged
+            return
+
+        vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
+        if vec_pragmas:
+            if self.directive == 'openacc':
+                # Bail routines that have already been marked and this processed
+                # TODO: This is a hack until we can avoid redundant re-application
+                return
 
         if self.horizontal.bounds[0] not in routine.variable_map:
             raise RuntimeError(f'No horizontal start variable found in {routine.name}')
@@ -498,14 +552,19 @@ class SingleColumnCoalescedTransformation(Transformation):
         # Extract vector-level compute sections from the kernel
         sections = extract_vector_sections(routine.body.body, self.horizontal)
 
+        # Extract the local variables to dome after we wrap the sections in vector loops.
+        # We do this, because need the section blocks to determine which local arrays
+        # may carry buffered values between them, so that we may not demote those!
+        to_demote = kernel_get_locals_to_demote(routine, sections, self.horizontal, self.vertical)
+
         if not self.hoist_column_arrays:
             # Promote vector loops to be the outermost loop dimension in the kernel
             mapper = dict((s, wrap_vector_section(s, routine, self.horizontal)) for s in sections)
             routine.body = NestedTransformer(mapper).visit(routine.body)
 
-        # Demote all private local variables
-        if self.demote_local_arrays:
-            kernel_demote_private_locals(routine, self.horizontal, self.vertical)
+        # Demote all private local variables that do not buffer values between sections
+        if demote_locals:
+            kernel_demote_private_locals(routine, to_demote, self.horizontal)
 
         if self.hoist_column_arrays:
             # Promote all local arrays with column dimension to arguments
@@ -560,6 +619,12 @@ class SingleColumnCoalescedTransformation(Transformation):
             List of subroutines that are to be considered as part of
             the transformation call tree.
         """
+
+        # Resolve associates, since the PGI compiler cannot deal with
+        # implicit derived type component offload by calling device
+        # routines.
+        resolve_associates(routine)
+
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
 
             for call in FindNodes(ir.CallStatement).visit(routine.body):
@@ -576,8 +641,19 @@ class SingleColumnCoalescedTransformation(Transformation):
 
                 # Mark driver loop as "gang parallel".
                 if self.directive == 'openacc':
+                    arrays = FindVariables(unique=True).visit(loop)
+                    arrays = [v for v in arrays if isinstance(v, sym.Array)]
+                    arrays = [v for v in arrays if not v.type.intent]
+                    arrays = [v for v in arrays if not v.type.pointer]
+                    # Filter out arrays that are explicitly allocated with block dimension
+                    sizes = self.block_dim.size_expressions
+                    arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
+                    private_arrays = ', '.join(set(v.name for v in arrays))
+                    private_clause = '' if not private_arrays else ' private({})'.format(private_arrays)
+
                     if loop.pragma is None:
-                        loop._update(pragma=ir.Pragma(keyword='acc', content='parallel loop gang'))
+                        p_content = 'parallel loop gang{}'.format(private_clause)
+                        loop._update(pragma=ir.Pragma(keyword='acc', content=p_content))
                         loop._update(pragma_post=ir.Pragma(keyword='acc', content='end parallel loop'))
 
                 # Apply hoisting of temporary "column arrays"

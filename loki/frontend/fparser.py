@@ -348,6 +348,9 @@ class FParser2IR(GenericVisitor):
         """
         return DerivedType(o.tostr())
 
+    def visit_Type_Param_Value(self, o, **kwargs):
+        return sym.IntrinsicLiteral(o.string)
+
     def visit_Part_Ref(self, o, **kwargs):
         """
         A part of a data ref (e.g., flat variable or array name, or name of a
@@ -2634,9 +2637,8 @@ class FParser2IR(GenericVisitor):
         """
         Universal default for ``Base`` FParser-AST nodes
         """
-        name = getattr(o.__class__, 'name', o.__class__.__name__)
-        self.warn_or_fail(f'No specific handler for node type {name}')
-        children = tuple(self.visit(a, **kwargs) for c in o.items for a in as_tuple(c))
+        self.warn_or_fail(f'No specific handler for node type {o.__class__}')
+        children = tuple(self.visit(c, **kwargs) for c in o.items if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None
@@ -2645,7 +2647,7 @@ class FParser2IR(GenericVisitor):
         """
         Universal default for ``BlockBase`` FParser-AST nodes
         """
-        self.warn_or_fail(f'No specific handler for node type {o.__class__.name}')
+        self.warn_or_fail(f'No specific handler for node type {o.__class__}')
         children = tuple(self.visit(c, **kwargs) for c in o.content)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:

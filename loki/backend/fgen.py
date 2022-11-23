@@ -1,6 +1,7 @@
 from pymbolic.mapper.stringifier import (
     PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR, PREC_COMPARISON, PREC_NONE
 )
+from pymbolic.primitives import FloorDiv, Remainder
 
 from loki.visitors import Stringifier
 from loki.tools import as_tuple, JoinableStringList, flatten
@@ -80,6 +81,15 @@ class FCodeMapper(LokiStringifyMapper):
         if expr.step is None or str(expr.step) == '1':
             children = children[:-1]
         return self.parenthesize_if_needed(self.join(',', children), enclosing_prec, PREC_NONE)
+
+    # Suppress Pymbolics's conservative default bracketing by override
+    # the multiplicative primitives to exclude `Product` and
+    # `Quotient` nodes.
+    # This is done to suppress the default bracketing, which can cause
+    # round-off deviations for agressively optimising compilers. Since
+    # we explicitly handle bracketing in our expression nodes, we can
+    # drop this here... famous last words!
+    multiplicative_primitives = (FloorDiv, Remainder)
 
 
 class FortranCodegen(Stringifier):

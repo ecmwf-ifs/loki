@@ -229,7 +229,7 @@ class DependencyTransformation(Transformation):
         for routine in sourcefile.subroutines:
             if routine not in module_routines:
                 # Skip member functions
-                if item and routine.name.lower() != item.name.lower():
+                if item and f'#{routine.name.lower()}' != item.name.lower():
                     continue
 
                 # Skip internal utility routines too
