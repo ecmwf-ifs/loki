@@ -81,6 +81,9 @@ def test_cloudsc(here, frontend):
         '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
     ]
 
+    if HAVE_OMNI:
+        build_cmd += ['--with-claw']
+
     if 'CLOUDSC_ARCH' in os.environ:
         build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
     else:

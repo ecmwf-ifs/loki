@@ -284,11 +284,7 @@ end function function_d
 
     # Make sure we have an incomplete parse tree until now
     assert source._incomplete
-    if frontend == OMNI:
-        # OMNI strips the comments with PP directives, including adjacent newlines
-        assert len(FindNodes(RawSource).visit(source.ir)) == 2
-    else:
-        assert len(FindNodes(RawSource).visit(source.ir)) == 5
+    assert len(FindNodes(RawSource).visit(source.ir)) == 5
     assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
 
     # Trigger the full parse

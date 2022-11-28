@@ -59,6 +59,7 @@ jobs:
         with:
           repository: ecmwf-ifs/dwarf-p-cloudsc
           path: cloudsc
+          ref: loki-updates
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
@@ -71,11 +72,11 @@ jobs:
 
       - name: Install Loki dependencies
         run: |
-          sudo apt-get install -y graphviz gfortran cmake
+          sudo apt-get install -y graphviz gfortran
 
       - name: Install OMNI + CLAW dependencies
         run: |
-          sudo apt-get install -y byacc flex openjdk-11-jdk
+          sudo apt-get install -y byacc flex openjdk-11-jdk cmake
 
       - name: Install CLOUDSC dependencies
         run:
@@ -85,6 +86,11 @@ jobs:
         run: |
           ./install --with-claw --with-ofp --with-examples --with-tests --with-ant --with-dace
 
+      - name: Install up-to-date CMake
+        run: |
+          source loki-activate
+          pip install cmake
+
       - name: Run Loki tests
         run: |
           source loki-activate
@@ -93,7 +99,7 @@ jobs:
       - name: Run transformations tests
         env:
           CLOUDSC_DIR: ${{ github.workspace }}/cloudsc
-          CLOUDSC_ARCH: ${{ github.workspace }}/cloudsc/arch/github/ubuntu/gnu/9.3.0
+          CLOUDSC_ARCH: ${{ github.workspace }}/cloudsc/arch/github/ubuntu/gnu/9.4.0
           OMP_STACKSIZE: 4G
         run: |
           source loki-activate
