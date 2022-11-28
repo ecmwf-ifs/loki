@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
+from subprocess import CalledProcessError
 import pytest
 import numpy as np
 
@@ -235,7 +236,7 @@ def test_sourcefile_lazy_construction(frontend):
     """
     Test delayed ("lazy") parsing of sourcefile content
     """
-    fcode = f"""
+    fcode = """
 ! A comment to test
 subroutine routine_a
 integer a
@@ -254,7 +255,7 @@ n = 3
 end function module_function
 end module some_module
 
-{'!' if frontend == OMNI else ''}#ifndef SOME_PREPROC_VAR
+#ifndef SOME_PREPROC_VAR
 subroutine routine_b
 integer b
 b = 4
@@ -264,7 +265,7 @@ integer c
 c = 5
 end subroutine contained_c
 end subroutine routine_b
-{'!' if frontend == OMNI else ''}#endif
+#endif
 
 function function_d(d)
 integer d
@@ -291,7 +292,12 @@ end function function_d
     assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
 
     # Trigger the full parse
-    source.make_complete(frontend=frontend)
+    try:
+        source.make_complete(frontend=frontend)
+    except CalledProcessError as ex:
+        if frontend == OMNI and ex.returncode == -11:
+            pytest.xfail('F_Front segfault is a known issue on some platforms')
+        raise
     assert not source._incomplete
 
     # Make sure no RawSource nodes are left
