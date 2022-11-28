@@ -16,8 +16,10 @@
 # Features
 # --------
 #
-# :EDITABLE:    Install Loki as an editable package (Default: ``ON``)
-# :CLAW:        Install CLAW and OMNI Compiler (Default: ``ON``)
+# :NO_INSTALL:  Do not install Loki itself but make the CMake configuration
+#               available (Default: ``OFF``)
+# :EDITABLE:    Install Loki as an editable package (Default: ``OFF``)
+# :CLAW:        Install CLAW and OMNI Compiler (Default: ``OFF``)
 #
 # Installation procedure
 # ----------------------
