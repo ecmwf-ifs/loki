@@ -15,7 +15,7 @@ on:
 
 jobs:
   code_checks:
-    name: Code checks on ${{ matrix.python-version }}
+    name: Code checks on Python ${{ matrix.python-version }}
 
     runs-on: ubuntu-latest
     strategy:
@@ -45,7 +45,7 @@ jobs:
         pylint --rcfile=.pylintrc_ipynb example_converted/*.py
 
   pytest:
-    name: Pytest on ${{ matrix.python-version }}
+    name: Pytest on Python ${{ matrix.python-version }}
 
     runs-on: ubuntu-20.04
     strategy:
@@ -96,7 +96,12 @@ jobs:
       - name: Run Loki tests
         run: |
           source loki-activate
-          pytest --cov=./loki --cov-report=xml tests
+          pytest --cov=./loki tests
+
+      - name: Upload loki coverage report to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          flags: loki
 
       - name: Run transformations tests
         env:
@@ -107,25 +112,17 @@ jobs:
           source loki-activate
           pytest --cov=transformations/transformations --cov-report=xml transformations/tests
 
+      - name: Upload transformations coverage report to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          flags: transformations
+
       - name: Run lint_rules tests
         run: |
           source loki-activate
           pytest --cov=lint_rules/lint_rules --cov-report=xml lint_rules/tests
 
-      - name: Upload loki coverage report to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          flags: loki
-          files: ./coverage.xml
-
-      - name: Upload transformations coverage report to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          flags: transformations
-          files: transformations/coverage.xml
-
       - name: Upload lint_rules coverage report to Codecov
         uses: codecov/codecov-action@v3
         with:
           flags: lint_rules
-          files: lint_rules/coverage.xml
