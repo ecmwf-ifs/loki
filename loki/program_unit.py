@@ -565,10 +565,13 @@ class ProgramUnit(Scope):
         """
         return self._source
 
-    def to_fortran(self, conservative=False):
+    def to_fortran(self, conservative=False, cuf=False):
         """
         Convert this unit to Fortran source representation
         """
+        if cuf:
+            from loki.backend.cufgen import cufgen # pylint: disable=import-outside-toplevel
+            return cufgen(self, conservative=conservative)
         from loki.backend.fgen import fgen  # pylint: disable=import-outside-toplevel
         return fgen(self, conservative=conservative)
 

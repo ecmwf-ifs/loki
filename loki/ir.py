@@ -770,13 +770,16 @@ class CallStatement(LeafNode):
     not_active : bool, optional
         Flag to indicate that this call has explicitly been marked as inactive for
         the purpose of processing call trees (Default: `None`)
+    chevron : tuple of :any:`pymbolic.primitives.Expression`
+        Launch configuration for CUDA Fortran Kernels.
+        See [CUDA Fortran programming guide](https://docs.nvidia.com/hpc-sdk/compilers/cuda-fortran-prog-guide/).
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['name', 'arguments', 'kwarguments']
 
-    def __init__(self, name, arguments, kwarguments=None, pragma=None, not_active=None, **kwargs):
+    def __init__(self, name, arguments, kwarguments=None, pragma=None, not_active=None, chevron=None, **kwargs):
         super().__init__(**kwargs)
 
         assert isinstance(name, Expression)
@@ -785,6 +788,8 @@ class CallStatement(LeafNode):
             is_iterable(kwarguments) and all(isinstance(a, tuple) and len(a) == 2 and
                                              isinstance(a[1], Expression) for a in kwarguments)
         )
+        assert chevron is None or (
+                is_iterable(chevron) and all(isinstance(a, Expression) for a in chevron) and 2 <= len(chevron) <= 4)
 
         self.name = name
         self.arguments = as_tuple(arguments)
@@ -792,6 +797,7 @@ class CallStatement(LeafNode):
         self.kwarguments = as_tuple(kwarguments) if kwarguments else ()
         self.not_active = not_active
         self.pragma = pragma
+        self.chevron = chevron
 
     def __repr__(self):
         return f'Call:: {self.name}'
