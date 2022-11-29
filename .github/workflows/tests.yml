@@ -112,7 +112,20 @@ jobs:
           source loki-activate
           pytest --cov=lint_rules/lint_rules --cov-report=xml lint_rules/tests
 
-      - name: Upload coverage reports to Codecov
+      - name: Upload loki coverage report to Codecov
         uses: codecov/codecov-action@v3
         with:
-          files: ./coverage.xml,transformations/coverage.xml,lint_rules/coverage.xml
+          flags: loki
+          files: ./coverage.xml
+
+      - name: Upload transformations coverage report to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          flags: transformations
+          files: transformations/coverage.xml
+
+      - name: Upload lint_rules coverage report to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          flags: lint_rules
+          files: lint_rules/coverage.xml
