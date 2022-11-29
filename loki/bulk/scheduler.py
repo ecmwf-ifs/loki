@@ -407,6 +407,7 @@ class Scheduler:
         always processed before their target :any:`Subroutine`.
         """
 
+        root = list(nx.topological_sort(self.item_graph))[0]
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
         with Timer(logger=info, text=log):
@@ -419,10 +420,17 @@ class Scheduler:
                 if not isinstance(item, SubroutineItem):
                     continue
 
+                simple_paths = list(nx.all_simple_paths(self.item_graph, source=root, target=item))
+                if item is not root:
+                    depths = as_tuple([len(path) for path in simple_paths])
+                else:
+                    depths = as_tuple(0)
+
                 # Process work item with appropriate kernel
                 transformation.apply(
                     item.source, role=item.role, mode=item.mode,
-                    item=item, targets=item.targets
+                    item=item, targets=item.targets, depths=depths,
+                    successors=list(self.item_graph.successors(item))
                 )
 
     def callgraph(self, path):

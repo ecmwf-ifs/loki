@@ -17,3 +17,4 @@ from loki.transform.fortran_c_transform import * # noqa
 from loki.transform.fortran_max_transform import * # noqa
 from loki.transform.fortran_python_transform import * # noqa
 from loki.transform.build_system_transform import * # noqa
+from loki.transform.hoist import * # noqa
