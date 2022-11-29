@@ -1,4 +1,4 @@
-name: Code checks and pytest
+name: tests
 
 # Controls when the workflow will run
 on:
@@ -96,12 +96,13 @@ jobs:
       - name: Run Loki tests
         run: |
           source loki-activate
-          pytest --cov=./loki tests
+          pytest --cov=./loki --cov-report=xml tests
 
       - name: Upload loki coverage report to Codecov
         uses: codecov/codecov-action@v3
         with:
           flags: loki
+          files: ./coverage.xml
 
       - name: Run transformations tests
         env:
@@ -116,6 +117,7 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           flags: transformations
+          files: ./coverage.xml
 
       - name: Run lint_rules tests
         run: |
@@ -126,3 +128,4 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           flags: lint_rules
+          files: ./coverage.xml
