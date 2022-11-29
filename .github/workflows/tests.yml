@@ -96,7 +96,7 @@ jobs:
       - name: Run Loki tests
         run: |
           source loki-activate
-          pytest --cov=./loki tests
+          pytest --cov=./loki --cov-report=xml tests
 
       - name: Run transformations tests
         env:
@@ -105,9 +105,14 @@ jobs:
           OMP_STACKSIZE: 4G
         run: |
           source loki-activate
-          pytest --cov=transformations/transformations transformations/tests
+          pytest --cov=transformations/transformations --cov-report=xml transformations/tests
 
       - name: Run lint_rules tests
         run: |
           source loki-activate
-          pytest --cov=lint_rules/lint_rules lint_rules/tests
+          pytest --cov=lint_rules/lint_rules --cov-report=xml lint_rules/tests
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml,transformations/coverage.xml,lint_rules/coverage.xml
