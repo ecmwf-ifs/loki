@@ -13,6 +13,7 @@ from pathlib import Path
 from codetiming import Timer
 
 from loki.backend.fgen import fgen
+from loki.backend.cufgen import cufgen
 from loki.frontend import (
     OMNI, OFP, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
@@ -398,7 +399,9 @@ class Sourcefile:
     def source(self):
         return self._source
 
-    def to_fortran(self, conservative=False):
+    def to_fortran(self, conservative=False, cuf=False):
+        if cuf:
+            return cufgen(self, conservative=conservative)
         return fgen(self, conservative=conservative)
 
     @property
@@ -498,7 +501,7 @@ class Sourcefile:
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)
 
-    def write(self, path=None, source=None, conservative=False):
+    def write(self, path=None, source=None, conservative=False, cuf=False):
         """
         Write content as Fortran source code to file
 
@@ -511,9 +514,11 @@ class Sourcefile:
         conservative : bool, optional
             Enable conservative output in the backend, aiming to be as much string-identical
             as possible (default: False)
+        cuf: bool, optional
+            To use either Cuda Fortran or Fortran backend
         """
         path = self.path if path is None else Path(path)
-        source = self.to_fortran(conservative) if source is None else source
+        source = self.to_fortran(conservative, cuf) if source is None else source
         self.to_file(source=source, path=path)
 
     @classmethod
