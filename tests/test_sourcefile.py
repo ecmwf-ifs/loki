@@ -6,12 +6,13 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
+from subprocess import CalledProcessError
 import pytest
 import numpy as np
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    Sourcefile, OFP, OMNI, REGEX, FindNodes, PreprocessorDirective,
+    Sourcefile, OFP, OMNI, FP, REGEX, FindNodes, PreprocessorDirective,
     Intrinsic, Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
     StatementFunction, Comment, CommentBlock, RawSource, Scalar
 )
@@ -287,12 +288,21 @@ end function function_d
     assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
 
     # Trigger the full parse
-    source.make_complete(frontend=frontend)
+    try:
+        source.make_complete(frontend=frontend)
+    except CalledProcessError as ex:
+        if frontend == OMNI and ex.returncode == -11:
+            pytest.xfail('F_Front segfault is a known issue on some platforms')
+        raise
     assert not source._incomplete
 
     # Make sure no RawSource nodes are left
     assert not FindNodes(RawSource).visit(source.ir)
-    assert len(FindNodes(Comment).visit(source.ir)) in (1, 2) # Some newlines are also treated as comments
+    if frontend == FP:
+        # Some newlines are also treated as comments
+        assert len(FindNodes(Comment).visit(source.ir)) == 2
+    else:
+        assert len(FindNodes(Comment).visit(source.ir)) == 1
     if frontend == OMNI:
         assert not FindNodes(PreprocessorDirective).visit(source.ir)
     else:

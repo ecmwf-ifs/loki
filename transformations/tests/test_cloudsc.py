@@ -29,7 +29,7 @@ def fixture_here():
 @pytest.fixture(scope='module', name='local_loki_bundle')
 def fixture_local_loki_bundle(here):
     """Inject ourselves into the CLOUDSC bundle"""
-    lokidir = Path(__file__).parent.parent.parent.parent.parent
+    lokidir = Path(__file__).parent.parent.parent
     target = here/'source/loki'
     backup = here/'source/loki.bak'
     bundlefile = here/'bundle.yml'
@@ -80,6 +80,9 @@ def test_cloudsc(here, frontend):
         '--with-loki', '--loki-frontend=' + str(frontend), '--without-loki-install',
         '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
     ]
+
+    if HAVE_OMNI:
+        build_cmd += ['--with-claw']
 
     if 'CLOUDSC_ARCH' in os.environ:
         build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
