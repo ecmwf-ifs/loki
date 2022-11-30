@@ -61,7 +61,7 @@ jobs:
         with:
           repository: ecmwf-ifs/dwarf-p-cloudsc
           path: cloudsc
-          ref: loki-updates
+          ref: develop
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
