@@ -1129,7 +1129,8 @@ class IntrinsicLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     Any literal not represented by a dedicated class.
 
     Its value is stored as string and returned unaltered.
-    This is currently used for complex and BOZ constants.
+    This is currently used for complex and BOZ constants and to retain
+    array constructor expressions with type spec or implied-do.
 
     Parameters
     ----------

@@ -988,7 +988,11 @@ class FParser2IR(GenericVisitor):
         """
         if o.children[0] is not None:
             # TODO: implement Type_Spec support
-            return self.visit_Base(o, **kwargs)
+            source = kwargs.get('source')
+            if source:
+                source = source.clone_with_string(o.string)
+            values = as_tuple(sym.IntrinsicLiteral(o.string))
+            return sym.LiteralList(values=values, source=source)
         return self.visit(o.children[1], **kwargs)
 
     def visit_Ac_Value_List(self, o, **kwargs):
@@ -1005,10 +1009,15 @@ class FParser2IR(GenericVisitor):
         """
         An implied-do for array constructors
         """
-        # TODO: implement implied-do
-        return self.visit_Base(o, **kwargs)
+        values = as_tuple(sym.IntrinsicLiteral(o.string))
+        return sym.LiteralList(values=values)
 
-    visit_Ac_Implied_Do_Control = visit_Ac_Implied_Do
+    def visit_Ac_Spec(self, o, **kwargs):
+        """
+        An ac-spec in an array constructor (i.e. with type definition)
+        """
+        values = as_tuple(sym.IntrinsicLiteral(o.string))
+        return sym.LiteralList(values=values)
 
     #
     # DATA statements
