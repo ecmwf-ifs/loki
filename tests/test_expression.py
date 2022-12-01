@@ -304,7 +304,7 @@ end subroutine logical_array
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OFP, 'Not implemented'), (OMNI, 'Not implemented')]
+    xfail=[(OFP, 'Not implemented')]
 ))
 def test_array_constructor(here, frontend):
     """
