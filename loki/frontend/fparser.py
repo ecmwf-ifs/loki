@@ -975,49 +975,59 @@ class FParser2IR(GenericVisitor):
         * the spec: :class:`fparser.two.Fortran2003.Ac_Spec`
         * right bracket (`str`): ``/)`` or ``]``
         """
-        return self.visit(o.children[1], **kwargs)
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
+        if isinstance(o.children[1], Fortran2003.Ac_Spec):
+            values, dtype = self.visit(o.children[1], **kwargs)
+        else:
+            values, dtype = self.visit(o.children[1], **kwargs), None
+        return sym.LiteralList(values=values, dtype=dtype, source=source)
 
     def visit_Ac_Spec(self, o, **kwargs):
         """
         The spec in an array constructor
 
         :class:`fparser.two.Fortran2003.Ac_Spec` has two children:
-
-        * :class:`fparser.two.Fortran2003.Type_Spec`
+        * :class:`fparser.two.Fortran2003.Type_Spec` or None
         * :class:`fparser.two.Fortran2003.Ac_Value_List`
         """
         if o.children[0] is not None:
-            # TODO: implement Type_Spec support
-            source = kwargs.get('source')
-            if source:
-                source = source.clone_with_string(o.string)
-            values = as_tuple(sym.IntrinsicLiteral(o.string))
-            return sym.LiteralList(values=values, source=source)
-        return self.visit(o.children[1], **kwargs)
+            return self.visit(o.children[1], **kwargs), self.visit(o.children[0], **kwargs)
+        return self.visit(o.children[1], **kwargs), None
 
     def visit_Ac_Value_List(self, o, **kwargs):
         """
         The list of values in an array constructor
         """
-        values = as_tuple(self.visit(c, **kwargs) for c in o.children)
-        source = kwargs.get('source')
-        if source:
-            source = source.clone_with_string(o.string)
-        return sym.LiteralList(values=values, source=source)
+        return as_tuple(self.visit(c, **kwargs) for c in o.children)
 
     def visit_Ac_Implied_Do(self, o, **kwargs):
         """
         An implied-do for array constructors
-        """
-        values = as_tuple(sym.IntrinsicLiteral(o.string))
-        return sym.LiteralList(values=values)
 
-    def visit_Ac_Spec(self, o, **kwargs):
+        :class:`fparser.two.Fortran2003.Ac_Implied_Do` has two children:
+        * the expression as :class:`fparser.two.Fortran2003.Ac_Value_List`
+        * the loop control as :class:`fparser.two.Fortran2003.Ac_Implied_Do_Control`
         """
-        An ac-spec in an array constructor (i.e. with type definition)
+        values = self.visit(o.children[0], **kwargs)
+        variable, bounds = self.visit(o.children[1], **kwargs)
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
+        return sym.InlineDo(values, variable, bounds, source=source)
+
+    def visit_Ac_Implied_Do_Control(self, o, **kwargs):
         """
-        values = as_tuple(sym.IntrinsicLiteral(o.string))
-        return sym.LiteralList(values=values)
+        The "loop control" for an implied-do
+
+        :class:`fparser.two.Fortran2003.Ac_Implied_Do_Control` has two children:
+        * the variable name
+        * the loop bounds
+        """
+        variable = self.visit(o.children[0], **kwargs)
+        bounds = tuple(self.visit(i, **kwargs) for i in o.children[1])
+        return (variable, sym.LoopRange(bounds))
 
     #
     # DATA statements

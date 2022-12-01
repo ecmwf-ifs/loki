@@ -191,7 +191,17 @@ class LokiStringifyMapper(StringifyMapper):
         return ' // '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)
 
     def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
-        return '[' + ','.join(str(c) for c in expr.elements) + ']'
+        values = ','.join(self.rec(c, PREC_NONE, *args, **kwargs) for c in expr.elements)
+        if expr.dtype is not None:
+            return f'[ {str(expr.dtype)} :: {values} ]'
+        return f'[ {values} ]'
+
+    def map_inline_do(self, expr, enclosing_prec, *args, **kwargs):
+        assert len(expr.values) == 1
+        values = self.rec(expr.values[0], PREC_NONE, *args, **kwargs)
+        variable = self.rec(expr.variable, PREC_NONE, *args, **kwargs)
+        bounds = self.rec(expr.bounds, PREC_NONE, *args, **kwargs)
+        return f'( {values}, {variable} = {bounds} )'
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
         name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
@@ -286,9 +296,17 @@ class LokiWalkMapper(WalkMapper):
         for elem in expr.elements:
             if not isinstance(elem, str):
                 # TODO: We are not representing all cases properly
-                # (e.g., implicit loops) and instead retain them as plain
+                # (e.g., implied loops) and instead retain them as plain
                 # strings. Do not recurse on those for the moment...
                 self.rec(elem, *args, **kwargs)
+        self.post_visit(expr, *args, **kwargs)
+
+    def map_inline_do(self, expr, *args, **kwargs):
+        if not self.visit(expr):
+            return
+        self.rec(expr.values, *args, **kwargs)
+        self.rec(expr.variable, *args, **kwargs)
+        self.rec(expr.bounds, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
 
@@ -392,6 +410,9 @@ class ExpressionDimensionsMapper(Mapper):
 
     map_product = map_sum
 
+    def map_inline_do(self, expr, *args, **kwargs):
+        return self.rec(expr.bounds, *args, **kwargs)
+
 
 class ExpressionCallbackMapper(CombineMapper):
     """
@@ -459,6 +480,13 @@ class ExpressionCallbackMapper(CombineMapper):
 
     def map_literal_list(self, expr, *args, **kwargs):
         return self.combine(tuple(self.rec(c, *args, **kwargs) for c in expr.elements))
+
+    def map_inline_do(self, expr, *args, **kwargs):
+        return self.combine(tuple(
+            self.rec(expr.values, *args, **kwargs),
+            self.rec(expr.variable, *args, **kwargs),
+            self.rec(expr.bounds, *args, **kwargs)
+        ))
 
     map_procedure_symbol = map_constant
 
@@ -610,7 +638,13 @@ class LokiIdentityMapper(IdentityMapper):
                        for v in expr.elements)
         if all(v is orig_v for v, orig_v in zip_longest(values, expr.elements)):
             return expr
-        return expr.__class__(values)
+        return expr.__class__(values, dtype=expr.dtype)
+
+    def map_inline_do(self, expr, *args, **kwargs):
+        values = self.rec(expr.values, *args, **kwargs)
+        variable = self.rec(expr.variable, *args, **kwargs)
+        bounds = self.rec(expr.bounds, *args, **kwargs)
+        return expr.__class__(values, variable, bounds)
 
 
 class SubstituteExpressionsMapper(LokiIdentityMapper):

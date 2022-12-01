@@ -311,7 +311,7 @@ def test_array_constructor(here, frontend):
     Test various array constructor formats
     """
     fcode = """
-subroutine array_constructor(dim, zarr1, zarr2, narr1, narr2, narr3, narr4)
+subroutine array_constructor(dim, zarr1, zarr2, narr1, narr2, narr3, narr4, narr5)
     implicit none
     integer, intent(in) :: dim
     real(8), intent(inout) :: zarr1(dim+1)
@@ -320,6 +320,7 @@ subroutine array_constructor(dim, zarr1, zarr2, narr1, narr2, narr3, narr4)
     integer, intent(inout) :: narr2(10)
     integer, intent(inout) :: narr3(3)
     integer, intent(inout) :: narr4(2,2)
+    integer, intent(inout) :: narr5(10)
     integer :: i
 
     zarr1 = [ 3.6, (3.6 / I, I = 1, dim) ]
@@ -328,6 +329,7 @@ subroutine array_constructor(dim, zarr1, zarr2, narr1, narr2, narr3, narr4)
     narr3 = [integer :: 1, 2., 3d0]    ! A default integer array
     zarr2 = [real(8) :: 1, 2, 3._8]  ! A real(8) array
     narr4 = RESHAPE([1,2,3,4], shape=[2,2])
+    narr5 = (/(I, I=30, 48, 2)/)
 end subroutine array_constructor
     """.strip()
 
@@ -342,7 +344,8 @@ end subroutine array_constructor
     narr2 = np.zeros(10, dtype=np.int32)
     narr3 = np.zeros(3, dtype=np.int32)
     narr4 = np.zeros((2, 2), dtype=np.int32, order='F')
-    function(dim, zarr1, zarr2, narr1, narr2, narr3, narr4)
+    narr5 = np.zeros(10, dtype=np.int32)
+    function(dim, zarr1, zarr2, narr1, narr2, narr3, narr4, narr5)
 
     assert np.isclose(zarr1, ([3.6] + [3.6/(i+1) for i in range(dim)])).all()
     assert np.isclose(zarr2, [1., 2., 3.]).all()
@@ -350,6 +353,7 @@ end subroutine array_constructor
     assert (narr2 == range(1, -9, -1)).all()
     assert (narr3 == [1, 2, 3]).all()
     assert (narr4 == np.array([[1, 3], [2, 4]], order='F')).all()
+    assert (narr5 == range(30, 49, 2)).all()
 
     clean_test(filepath)
 
