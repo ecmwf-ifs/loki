@@ -1213,8 +1213,6 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
 
     def __getinitargs__(self):
         return (self.elements, self.dtype)
-        elements = ','.join(repr(c) for c in self.elements)
-        return (f'[{elements}]',)
 
 
 class InlineDo(ExprMetadataMixin, pmbl.AlgebraicLeaf):
