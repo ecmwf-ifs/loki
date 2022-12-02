@@ -1620,6 +1620,15 @@ class FParser2IR(GenericVisitor):
     # Subroutine and Function definitions
     #
 
+    def visit_Main_Program(self, o, **kwargs):
+        """
+        The entire block that comprises a ``PROGRAM`` definition
+
+        Loki does currently not have support for ``PROGRAM`` blocks, and this
+        will raise a :any:`NotImplementedError`
+        """
+        self.warn_or_fail('No support for PROGRAM')
+
     def visit_Subroutine_Subprogram(self, o, **kwargs):
         """
         The entire block that comprises a ``SUBROUTINE`` definition, i.e.

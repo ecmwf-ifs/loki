@@ -316,6 +316,9 @@ class OMNI2IR(GenericVisitor):
 
         # Return type and dummy args
         ftype = self.type_map[o.find('name').attrib['type']]
+        if ftype.attrib.get('is_program') == 'true':
+            self.warn_or_fail('No support for PROGRAM')
+            return None
         proc_type = self.visit(ftype, scope=scope, symbol_map=symbol_map)
         is_function = ftype.attrib['return_type'] != 'Fvoid'
         args = tuple(a.text for a in ftype.findall('params/name'))
@@ -350,6 +353,8 @@ class OMNI2IR(GenericVisitor):
 
         # Instantiate the object
         routine = self._create_Subroutine_object(o, kwargs['scope'], kwargs['symbol_map'])
+        if routine is None:
+            return None
         kwargs['scope'] = routine
 
         # Parse the spec

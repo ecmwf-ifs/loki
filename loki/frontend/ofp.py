@@ -1283,6 +1283,9 @@ class OFP2IR(GenericVisitor):
         )
         return module
 
+    def visit_program(self, o, **kwargs):
+        self.warn_or_fail('No support for PROGRAM')
+
     def visit_association(self, o, **kwargs):
         return sym.Variable(name=o.attrib['associate-name'])
 
