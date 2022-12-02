@@ -10,3 +10,4 @@ from loki.backend.cgen import * # noqa
 from loki.backend.maxgen import * # noqa
 from loki.backend.pygen import * # noqa
 from loki.backend.dacegen import * # noqa
+from loki.backend.cufgen import * # noqa
