@@ -191,7 +191,7 @@ class LokiStringifyMapper(StringifyMapper):
         return ' // '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)
 
     def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
-        values = ','.join(self.rec(c, PREC_NONE, *args, **kwargs) for c in expr.elements)
+        values = ', '.join(self.rec(c, PREC_NONE, *args, **kwargs) for c in expr.elements)
         if expr.dtype is not None:
             return f'[ {str(expr.dtype)} :: {values} ]'
         return f'[ {values} ]'

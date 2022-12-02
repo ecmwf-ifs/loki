@@ -21,7 +21,7 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
-    DeferredTypeSymbol, Module, HAVE_FP
+    DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -336,6 +336,19 @@ end subroutine array_constructor
     filepath = here/f'array_constructor_{frontend}.f90'
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='array_constructor')
+
+    literal_lists = [e for e in FindExpressions().visit(routine.body) if isinstance(e, LiteralList)]
+    assert len(literal_lists) == 8
+    assert {str(l).lower() for l in literal_lists} == {
+        '[ 3.6, ( 3.6 / i, i = 1:dim ) ]',
+        '[ ( i, i = 1:dim ) ]',
+        '[ 1, 0, ( i, i = -1:-6:-1 ), -7, -8 ]',
+        '[ <symbolattributes basictype.integer> :: 1, 2., 3d0 ]',
+        '[ <symbolattributes basictype.real, kind=8> :: 1, 2, 3._8 ]',
+        '[ 1, 2, 3, 4 ]',
+        '[ 2, 2 ]',
+        '[ ( i, i = 30:48:2 ) ]'
+    }
 
     dim = 13
     zarr1 = np.zeros(dim+1, dtype=np.float64)
