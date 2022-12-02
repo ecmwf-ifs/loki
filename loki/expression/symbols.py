@@ -573,6 +573,13 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         """
         return self.symbol.type
 
+    @type.setter
+    def type(self, _type):
+        """
+        Update the :any:`SymbolAttributes` declared for this symbol
+        """
+        self.symbol.type = _type
+
     @property
     def variables(self):
         """

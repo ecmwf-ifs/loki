@@ -1,3 +1,10 @@
+# (C) Copyright 2018- ECMWF.
+# This software is licensed under the terms of the Apache Licence Version 2.0
+# which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
+# In applying this licence, ECMWF does not waive the privileges and immunities
+# granted to it by virtue of its status as an intergovernmental organisation
+# nor does it submit to any jurisdiction.
+
 from loki.backend.fgen import FortranCodegen
 
 __all__ = ['cufgen', 'CudaFortranCodegen']
@@ -5,11 +12,8 @@ __all__ = ['cufgen', 'CudaFortranCodegen']
 
 class CudaFortranCodegen(FortranCodegen):
     """
-    Tree visitor that extends `FortranCodegen` with Cuda Fortran (CUF) language variations.
+    Tree visitor that extends :any:`FortranCodegen` with Cuda Fortran (CUF) language variations.
     """
-
-    def __init__(self, depth=0, indent='  ', linewidth=90, conservative=True):
-        super().__init__(depth=depth, indent=indent, linewidth=linewidth, conservative=conservative)
 
     def visit_CallStatement(self, o, **kwargs):
         """
@@ -26,6 +30,8 @@ class CudaFortranCodegen(FortranCodegen):
             chevron = f"<<<{','.join([str(elem) for elem in o.chevron])}>>>"
         else:
             chevron = ""
+        if o.kwarguments:
+            args += tuple(f'{self.visit(arg[0], **kwargs)}={self.visit(arg[1], **kwargs)}' for arg in o.kwarguments)
         call = self.format_line('CALL ', name, chevron, '(', self.join_items(args), ')')
         return self.join_lines(pragma, call)
 
@@ -55,6 +61,21 @@ class CudaFortranCodegen(FortranCodegen):
 
 def cufgen(ir, depth=0, conservative=False, linewidth=132):
     """
-    Generate standardized Fortran code from one or many IR objects/trees.
+    Generate CUDA Fortran code from one or many IR objects/trees.
+
+    Implemented by extending the :class:`FortranCodegen` to support
+    CUDA Fortran specific syntax. Refer to the CUDA_FORTRAN_PROGRAMMING_GUIDE_ for more information.
+
+    Supported subset of the CUDA Fortran specifications:
+
+    * variable qualifiers e.g. ``attributes(device)``
+    * chevron syntax for to launch kernels e.g. ``call kernel<<<grid,block[,bytes][,streamid]>>>(arg1,arg2,...)``
+
+    Natively supported (via :class:`FortranCodegen`):
+
+    * subroutine/function qualifiers e.g. ``attributes(global)`` via :py:attr:`loki.Subroutine.prefix`
+    * kernel loop directives via :class:`loki.ir.Pragma`
+
+    .. _CUDA_FORTRAN_PROGRAMMING_GUIDE: https://docs.nvidia.com/hpc-sdk/compilers/cuda-fortran-prog-guide/index.html
     """
     return CudaFortranCodegen(depth=depth, linewidth=linewidth, conservative=conservative).visit(ir)

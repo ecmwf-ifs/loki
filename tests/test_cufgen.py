@@ -1,3 +1,10 @@
+# (C) Copyright 2018- ECMWF.
+# This software is licensed under the terms of the Apache Licence Version 2.0
+# which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
+# In applying this licence, ECMWF does not waive the privileges and immunities
+# granted to it by virtue of its status as an intergovernmental organisation
+# nor does it submit to any jurisdiction.
+
 import pytest
 
 from conftest import available_frontends
@@ -49,46 +56,36 @@ end module transformation_module_cufgen
 
     module = Module.from_source(fcode, frontend=frontend)
 
-    driver = None
-    kernels = []
-    device_subroutines = []
-    for routine in module.routines:
-        if "driver" in routine.name:
-            driver = routine
-        elif "kernel" in routine.name:
-            kernels.append(routine)
-        elif "device" in routine.name:
-            device_subroutines.append(routine)
+    driver = module['driver']
+    kernel = module['kernel']
+    device_subroutine = module['device']
 
     assert driver
     assert module.to_fortran(cuf=True) == module.to_fortran()
 
-    decl_map = {}
-    for decl in FindNodes(ir.VariableDeclaration).visit(driver.spec):
-        if "device" in decl.symbols[0].name:
-            decl_map[decl] = decl.clone(symbols=(decl.symbols[0].clone(type=decl.symbols[0].type.clone(device=True)),))
-        if "managed" in decl.symbols[0].name:
-            decl_map[decl] = decl.clone(symbols=(decl.symbols[0].clone(type=decl.symbols[0].type.clone(managed=True)),))
-        if "constant" in decl.symbols[0].name:
-            decl_map[decl] = decl.clone(
-                symbols=(decl.symbols[0].clone(type=decl.symbols[0].type.clone(constant=True)),))
-        if "shared" in decl.symbols[0].name:
-            decl_map[decl] = decl.clone(symbols=(decl.symbols[0].clone(type=decl.symbols[0].type.clone(shared=True)),))
-        if "pinned" in decl.symbols[0].name:
-            decl_map[decl] = decl.clone(symbols=(decl.symbols[0].clone(type=decl.symbols[0].type.clone(pinned=True)),))
-        if "texture" in decl.symbols[0].name:
-            decl_map[decl] = decl.clone(symbols=(decl.symbols[0].clone(type=decl.symbols[0].type.clone(texture=True)),))
-    driver.spec = Transformer(decl_map).visit(driver.spec)
+    for var in driver.variables:
+        if "device" in var.name:
+            var.type = var.type.clone(device=True)
+        if "managed" in var.name:
+            var.type = var.type.clone(managed=True)
+        if "constant" in var.name:
+            var.type = var.type.clone(constant=True)
+        if "shared" in var.name:
+            var.type = var.type.clone(shared=True)
+        if "pinned" in var.name:
+            var.type = var.type.clone(pinned=True)
+        if "texture" in var.name:
+            var.type = var.type.clone(texture=True)
 
     call_map = {}
     for call in FindNodes(ir.CallStatement).visit(driver.body):
         if "kernel" in str(call.name):
-            with pytest.raises(Exception):
+            with pytest.raises(AssertionError):
                 _ = call.clone(chevron=(sym.IntLiteral(1), sym.IntLiteral(1), sym.IntLiteral(1), sym.IntLiteral(1),
                                         sym.IntLiteral(1)))
-            with pytest.raises(Exception):
+            with pytest.raises(AssertionError):
                 _ = call.clone(chevron=(1, 1))
-            with pytest.raises(Exception):
+            with pytest.raises(AssertionError):
                 _ = call.clone(chevron=2)
 
             call_map[call] = call.clone(chevron=(sym.IntLiteral(1), sym.IntLiteral(1),
@@ -96,22 +93,21 @@ end module transformation_module_cufgen
 
     driver.body = Transformer(call_map).visit(driver.body)
 
-    for kernel in kernels:
-        kernel.prefix = ("ATTRIBUTES(GLOBAL)",)
+    kernel.prefix = ("ATTRIBUTES(GLOBAL)",)
+    device_subroutine.prefix = ("ATTRIBUTES(DEVICE)",)
 
-    for device_subroutine in device_subroutines:
-        device_subroutine.prefix = ("ATTRIBUTES(DEVICE)",)
+    cuf_driver_str = driver.to_fortran(cuf=True)
+    cuf_kernel_str = kernel.to_fortran(cuf=True)
+    cuf_device_str = device_subroutine.to_fortran(cuf=True)
 
-    cuf_str = module.to_fortran(cuf=True)
+    assert "INTEGER, DEVICE" in cuf_driver_str
+    assert "INTEGER, MANAGED" in cuf_driver_str
+    assert "INTEGER, CONSTANT" in cuf_driver_str
+    assert "INTEGER, SHARED" in cuf_driver_str
+    assert "INTEGER, PINNED" in cuf_driver_str
+    assert "INTEGER, TEXTURE" in cuf_driver_str
 
-    assert "INTEGER, DEVICE" in cuf_str
-    assert "INTEGER, MANAGED" in cuf_str
-    assert "INTEGER, CONSTANT" in cuf_str
-    assert "INTEGER, SHARED" in cuf_str
-    assert "INTEGER, PINNED" in cuf_str
-    assert "INTEGER, TEXTURE" in cuf_str
+    assert "<<<" in cuf_driver_str and ">>>" in cuf_driver_str
 
-    assert "<<<" in cuf_str and ">>>" in cuf_str
-
-    assert "ATTRIBUTES(GLOBAL) SUBROUTINE kernel" in cuf_str
-    assert "ATTRIBUTES(DEVICE) SUBROUTINE device" in cuf_str
+    assert "ATTRIBUTES(GLOBAL) SUBROUTINE kernel" in cuf_kernel_str
+    assert "ATTRIBUTES(DEVICE) SUBROUTINE device" in cuf_device_str

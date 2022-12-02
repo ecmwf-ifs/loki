@@ -39,6 +39,7 @@ Currently, Loki has backends to generate Fortran, C, Python, and Maxeler MaxJ
 .. autosummary::
 
    loki.backend.fgen.fgen
+   loki.backend.cufgen.cufgen
    loki.backend.cgen.cgen
    loki.backend.pygen.pygen
    loki.backend.dacegen.dacegen
