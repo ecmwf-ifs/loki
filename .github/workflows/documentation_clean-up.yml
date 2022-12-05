@@ -1,0 +1,42 @@
+name: documentation clean-up
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow when pull requests are closed
+  pull_request:
+    types: [closed]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  clean:
+    name: Clean-up branch documentation
+
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # false: try to complete all jobs
+      matrix:
+        python-version: ["3.10"]
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: main
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install sites-toolkit -i https://get.ecmwf.int/repository/pypi-all/simple
+
+    - name: Clean-up documentation on sites
+      env:
+        SITES_TOKEN: ${{ secrets.SITES_TOKEN }}
+      working-directory: ./docs
+      run: |
+        ./sites-manager.py --space=docs --name=loki --token "$SITES_TOKEN" delete ${{ github.ref_name }} || true
