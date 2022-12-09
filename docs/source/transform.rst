@@ -85,6 +85,10 @@ to grow in the future:
    loki.transform.fortran_c_transform.FortranCTransformation
    loki.transform.fortran_max_transform.FortranMaxTransformation
    loki.transform.fortran_python_transform.FortranPythonTransformation
+   loki.transform.transform_hoist_variables.HoistVariablesAnalysis
+   loki.transform.transform_hoist_variables.HoistVariablesTransformation
+   loki.transform.transform_hoist_variables.HoistTemporaryArraysAnalysis
+   loki.transform.transform_hoist_variables.HoistTemporaryArraysTransformationAllocatable
 
 Further transformations are defined for specific use-cases but may prove
 useful in a wider context. These are defined in :mod:`transformations`:
