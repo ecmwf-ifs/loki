@@ -15,6 +15,7 @@ from loki.expression import (
     SubstituteExpressions, LokiIdentityMapper
 )
 from loki.ir import Import, Comment, Assignment
+from loki.expression import symbols as sym
 from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 
@@ -138,6 +139,13 @@ def inline_constant_parameters(routine, external_only=True):
     routine.spec = Transformer(imprtmap).visit(routine.spec)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+    # Clean up declarations that are about to become defunct
+    decl_map = {
+        decl: None for decl in routine.declarations
+        if all(isinstance(s, sym.IntLiteral) for s in decl.symbols)
+    }
+    routine.spec = Transformer(decl_map).visit(routine.spec)
 
 
 def inline_elemental_functions(routine):
