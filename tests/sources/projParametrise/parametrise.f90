@@ -10,9 +10,7 @@ contains
 
     subroutine driver(a, b, c, d)
         integer, intent(inout) :: a, b, d(b)
-        ! integer, intent(in) :: b
         integer, intent(inout) :: c(a, b)
-        ! integer, intent(inout) :: d(b)
         real :: x, y
         call kernel1(a, b, c)
         call kernel2(a, b, d)
@@ -26,20 +24,6 @@ contains
         real :: x(a)
         call kernel1(a, b, c)
     end subroutine another_driver
-
-!    subroutine kernel1(a, b, c)
-!        integer, intent(in) :: a
-!        integer, intent(in) :: b
-!        integer, intent(inout) :: c(a, b)
-!        integer :: d(b)
-!        integer :: local_a
-!        real :: x(a)
-!        integer :: y(a, b)
-!        real :: k1_tmp(a, b)
-!        y = 11
-!        c = y
-!        call device2(a, b, d, x)
-!    end subroutine kernel1
 
     subroutine kernel1(a, b, c)
         integer, intent(in) :: a
@@ -62,16 +46,6 @@ contains
         real :: k2_tmp(a_new, a_new)
         call device1(a_new, b, d, x, k2_tmp)
     end subroutine kernel2
-
-!    subroutine kernel2(a, b, d)
-!        integer, intent(in) :: a
-!        integer, intent(in) :: b
-!        integer, intent(inout) :: d(b)
-!        real :: x(a)
-!        real :: y, z
-!        real :: k2_tmp(a, a)
-!        call device1(a, b, d, x, k2_tmp)
-!    end subroutine kernel2
 
     subroutine device1(a, b, d, x, y)
         integer, intent(in) :: a
