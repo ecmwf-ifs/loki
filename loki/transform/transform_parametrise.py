@@ -53,9 +53,38 @@ to
         real :: array(a)
         ...
     end subroutine kernel
+
+or
+
+.. code-block:: fortran
+
+    subroutine driver(parametrised_a, b)
+        integer, intent(in) :: parametrised_a
+        integer, intent(in) :: b
+        IF (parametrised_a /= 10) THEN
+            PRINT *, "Variable a parametrised to value 10, but subroutine driver received another value."
+            STOP 1
+        END IF
+        call kernel(b)
+    end subroutine driver
+
+    subroutine kernel(b)
+        integer, intent(in) :: b
+        real :: array(10)
+        ...
+    end subroutine kernel
+
+using the transformation
+
+.. code-block:: python
+
+    dic2p = {'a': 10}
+    scheduler.process(transformation=ParametriseTransformation(dic2p=dic2p, replace_by_value=True))
 """
 from loki.expression import symbols as sym
-from loki import ir, FindNodes, FindVariables, as_tuple, Transformer, SubstituteExpressions, FindLiterals, is_iterable
+from loki import ir
+from loki.visitors import Transformer, FindNodes
+from loki.tools.util import is_iterable, as_tuple
 from loki.transform.transformation import Transformation
 from loki.transform.transform_inline import inline_constant_parameters
 
@@ -65,6 +94,37 @@ __all__ = ['ParametriseTransformation']
 
 class ParametriseTransformation(Transformation):
     """
+    Parametrise variables with provided values.
+
+    This transformation checks for each subroutine (defined as driver or entry point) the arguments to be parametrised
+    according to :attr:`dic2p` and passes this information down the calltree.
+
+    .. note::
+
+        A sanity run-time check will be inserted at each entry point to check consistency of the provided value
+        and argument value at this point!
+
+    .. warning::
+
+        The subroutine/call signature(s) may be altered as arguments are converted to local parameters or int literals.
+        Therefore, consistency must be ensured, meaning all parts of the code calling subroutines that are transformed
+        and all possibly differing names of variables at the entry points must be included, otherwise the resulting
+        code will not compile correctly!
+
+    E.g., use this class like this:
+
+    .. code-block:: python
+
+        def error_stop(**kwargs):
+            msg = kwargs.get("msg")
+            return ir.Intrinsic(text=f'error stop "{msg}"'),
+
+        dic2p = {'a': 12, 'b': 11}
+
+        transformation = ParametriseTransformation(dic2p=dic2p, disable=("ignore_this_func", "ignore_another_func"),
+                                                   abort_callback=error_stop, entry_points=("driver1", "driver2"))
+
+        scheduler.process(transformation=transformation)
 
     Parameters
     ----------
@@ -86,7 +146,7 @@ class ParametriseTransformation(Transformation):
         * ``var`` - the variable getting checked
         * ``value`` - the value the variable should have (according to :attr:`dic2p`)
     key : str
-        Access identifier/key for the ``item.user_data`` dictionary. Only necessary to provide if several of
+        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
         these transformations are carried out in succession.
     """
 
@@ -134,8 +194,8 @@ class ParametriseTransformation(Transformation):
                 dic2p = self.dic2p
                 process_entry_point = True
             else:
-                if self._key in item.user_data:
-                    dic2p = item.user_data[self._key]
+                if self._key in item.trafo_data:
+                    dic2p = item.trafo_data[self._key]
                 else:
                     dic2p = {}
         else:
@@ -143,12 +203,12 @@ class ParametriseTransformation(Transformation):
                 dic2p = self.dic2p
                 process_entry_point = True
             else:
-                if self._key in item.user_data:
-                    dic2p = item.user_data[self._key]
+                if self._key in item.trafo_data:
+                    dic2p = item.trafo_data[self._key]
                 else:
                     dic2p = {}
 
-        vars2p = [key for key in dic2p]
+        vars2p = list(dic2p)
 
         # proceed if dictionary with mapping of variables to parametrised is not empty
         if dic2p:
@@ -170,9 +230,11 @@ class ParametriseTransformation(Transformation):
                                                    sym.IntLiteral(value))
                         comment = ir.Comment(f"! Stop execution: {error_msg}")
                         parametrised_var = routine.variable_map[f'parametrised_{key}']
+                        # use default abort mechanism
                         if self.abort_callback is None:
                             abort = (ir.Intrinsic(text=f'PRINT *, "{error_msg}: ", {parametrised_var.name}'),
                                      ir.Intrinsic(text="STOP 1"))
+                        # use user define abort/warn mechanism
                         else:
                             kwargs = {"msg": error_msg, "routine": routine.name, "var": parametrised_var,
                                       "value": value}
@@ -189,12 +251,12 @@ class ParametriseTransformation(Transformation):
             call_map = {}
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if call.name not in self.disable:
-                    successor_map[call.name].user_data[self._key] = {}
+                    successor_map[call.name].trafo_data[self._key] = {}
                     arg_map = dict(call.arg_iter())
                     arg_map_reversed = {v: k for k, v in arg_map.items()}
                     indices = [call.arguments.index(var2p) for var2p in vars2p if var2p in call.arguments]
                     for index in indices:
-                        successor_map[call.name].user_data[self._key][arg_map_reversed[call.arguments[index]]] = \
+                        successor_map[call.name].trafo_data[self._key][arg_map_reversed[call.arguments[index]]] = \
                             dic2p[call.arguments[index].name]
                     arguments = [arg for i, arg in enumerate(call.arguments) if arg not in vars2p]
                     call_map[call] = call.clone(arguments=arguments)
@@ -221,9 +283,11 @@ class ParametriseTransformation(Transformation):
                         decl_map[decl] = None
             routine.spec = Transformer(decl_map).visit(routine.spec)
 
+            # introduce parameter declarations
             declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
             for parameter_declaration in parameter_declarations:
                 routine.spec.insert(routine.spec.body.index(declarations[0]), parameter_declaration)
 
+            # replace all parameter variables with their corresponding value (inline constant parameters)
             if self.replace_by_value:
                 inline_constant_parameters(routine=routine, external_only=False)

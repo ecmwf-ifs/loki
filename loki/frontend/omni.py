@@ -189,6 +189,7 @@ class OMNI2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
+        # from IPython import embed; embed()
         warning('No specific handler for node type %s', o.__class__.name)
         children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
@@ -1362,6 +1363,10 @@ class OMNI2IR(GenericVisitor):
     def visit_gotoStatement(self, o, **kwargs):
         label = int(o.attrib['label_name'])
         return ir.Intrinsic(text=f'go to {label: d}', source=kwargs['source'])
+
+    def visit_FstopStatement(self, o, **kwargs):
+        code = o.attrib['code']
+        return ir.Intrinsic(text=f'stop {code!s}', source=kwargs['source'])
 
     def visit_statementLabel(self, o, **kwargs):
         return ir.Comment('__STATEMENT_LABEL__', label=o.attrib['label_name'], source=kwargs['source'])

@@ -89,6 +89,7 @@ to grow in the future:
    loki.transform.transform_hoist_variables.HoistVariablesTransformation
    loki.transform.transform_hoist_variables.HoistTemporaryArraysAnalysis
    loki.transform.transform_hoist_variables.HoistTemporaryArraysTransformationAllocatable
+   loki.transform.transform_parametrise.ParametriseTransformation
 
 Further transformations are defined for specific use-cases but may prove
 useful in a wider context. These are defined in :mod:`transformations`:
