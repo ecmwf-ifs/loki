@@ -316,6 +316,9 @@ class OMNI2IR(GenericVisitor):
 
         # Return type and dummy args
         ftype = self.type_map[o.find('name').attrib['type']]
+        if ftype.attrib.get('is_program') == 'true':
+            self.warn_or_fail('No support for PROGRAM')
+            return None
         proc_type = self.visit(ftype, scope=scope, symbol_map=symbol_map)
         is_function = ftype.attrib['return_type'] != 'Fvoid'
         args = tuple(a.text for a in ftype.findall('params/name'))
@@ -350,6 +353,8 @@ class OMNI2IR(GenericVisitor):
 
         # Instantiate the object
         routine = self._create_Subroutine_object(o, kwargs['scope'], kwargs['symbol_map'])
+        if routine is None:
+            return None
         kwargs['scope'] = routine
 
         # Parse the spec
@@ -1005,7 +1010,15 @@ class OMNI2IR(GenericVisitor):
         return ir.Loop(variable=variable, body=body, bounds=bounds, source=kwargs['source'])
 
     def visit_FdoLoop(self, o, **kwargs):
-        self.warn_or_fail('implicit do loops not implemented')
+        variable = self.visit(o.find('Var'), **kwargs)
+        lower = self.visit(o.find('indexRange/lowerBound'), **kwargs)
+        upper = self.visit(o.find('indexRange/upperBound'), **kwargs)
+        step = self.visit(o.find('indexRange/step'), **kwargs)
+        # Drop OMNI's `:1` step counting for ranges in the name of consistency
+        step = None if step == '1' else step
+        bounds = sym.LoopRange((lower, upper, step), source=kwargs['source'])
+        values = as_tuple(self.visit(o.find('value'), **kwargs))
+        return sym.InlineDo(values, variable, bounds, source=kwargs['source'])
 
     def visit_FifStatement(self, o, **kwargs):
         condition = self.visit(o.find('condition'), **kwargs)
@@ -1133,7 +1146,11 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FarrayConstructor(self, o, **kwargs):
         values = as_tuple(self.visit(v, **kwargs) for v in o)
-        return sym.LiteralList(values=values)
+        if 'element_type' in o.attrib:
+            dtype = self.type_from_type_attrib(o.attrib['element_type'])
+        else:
+            dtype = None
+        return sym.LiteralList(values=values, dtype=dtype)
 
     def visit_functionCall(self, o, **kwargs):
         if o.find('name') is not None:

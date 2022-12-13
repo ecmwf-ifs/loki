@@ -12,7 +12,7 @@ from loki import (
     Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
     config, REGEX, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective
+    PreprocessorDirective, config_override
 )
 from loki.expression import symbols as sym
 
@@ -1244,3 +1244,22 @@ end module frontend_pragma_vs_comment
     assert all(pragma.keyword == 'some' for pragma in pragmas)
     assert all(pragma.content == 'pragma' for pragma in pragmas)
     assert all('some comment' in comment.text for comment in comments)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_frontend_main_program(frontend):
+    """
+    Loki can't handle PROGRAM blocks and the frontends should throw an exception
+    """
+    fcode = """
+program hello
+    print *, "Hello World!"
+end program
+    """.strip()
+
+    with config_override({'frontend-strict-mode': True}):
+        with pytest.raises(NotImplementedError):
+            Sourcefile.from_source(fcode, frontend=frontend)
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    assert source.ir.body == ()

@@ -73,7 +73,10 @@ class FCodeMapper(LokiStringifyMapper):
             enclosing_prec, PREC_COMPARISON)
 
     def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
-        return '(/' + ','.join(str(c) for c in expr.elements) + '/)'
+        values = ','.join(self.rec(c, PREC_NONE, *args, **kwargs) for c in expr.elements)
+        if expr.dtype is not None:
+            return f'(/ {fgen(expr.dtype)} :: {values} /)'
+        return f'(/ {values} /)'
 
     def map_foreign(self, expr, *args, **kwargs):
         try:

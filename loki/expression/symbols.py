@@ -30,7 +30,7 @@ __all__ = [
     'MetaSymbol', 'Scalar', 'Array', 'Variable',
     # Non-typed leaf nodes
     'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral',
-    'IntrinsicLiteral', 'Literal', 'LiteralList',
+    'IntrinsicLiteral', 'Literal', 'LiteralList', 'InlineDo',
     # Internal nodes
     'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
     'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
@@ -1136,7 +1136,8 @@ class IntrinsicLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     Any literal not represented by a dedicated class.
 
     Its value is stored as string and returned unaltered.
-    This is currently used for complex and BOZ constants.
+    This is currently used for complex and BOZ constants and to retain
+    array constructor expressions with type spec or implied-do.
 
     Parameters
     ----------
@@ -1210,15 +1211,32 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
     A list of constant literals, e.g., as used in Array Initialization Lists.
     """
 
-    def __init__(self, values, **kwargs):
+    def __init__(self, values, dtype=None, **kwargs):
         self.elements = values
+        self.dtype = dtype
         super().__init__(**kwargs)
 
     mapper_method = intern('map_literal_list')
 
     def __getinitargs__(self):
-        elements = ','.join(repr(c) for c in self.elements)
-        return (f'[{elements}]',)
+        return (self.elements, self.dtype)
+
+
+class InlineDo(ExprMetadataMixin, pmbl.AlgebraicLeaf):
+    """
+    An inlined do, e.g., implied-do as used in array constructors
+    """
+
+    def __init__(self, values, variable, bounds, **kwargs):
+        self.values = values
+        self.variable = variable
+        self.bounds = bounds
+        super().__init__(**kwargs)
+
+    mapper_method = intern('map_inline_do')
+
+    def __getinitargs__(self):
+        return (self.values, self.variable, self.bounds)
 
 
 class Sum(ExprMetadataMixin, StrCompareMixin, pmbl.Sum):

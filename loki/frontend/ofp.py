@@ -1283,6 +1283,9 @@ class OFP2IR(GenericVisitor):
         )
         return module
 
+    def visit_program(self, o, **kwargs):
+        self.warn_or_fail('No support for PROGRAM')
+
     def visit_association(self, o, **kwargs):
         return sym.Variable(name=o.attrib['associate-name'])
 
@@ -1635,7 +1638,7 @@ class OFP2IR(GenericVisitor):
     def visit_array_constructor_values(self, o, **kwargs):
         values = [self.visit(v, **kwargs) for v in o.findall('value')]
         values = [v for v in values if v is not None]  # Filter empy values
-        return sym.LiteralList(values=values, source=kwargs['source'])
+        return sym.LiteralList(values=as_tuple(values), source=kwargs['source'])
 
     def visit_operation(self, o, **kwargs):
         """
