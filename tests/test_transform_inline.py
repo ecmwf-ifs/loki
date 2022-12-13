@@ -10,6 +10,7 @@ import pytest
 
 from conftest import jit_compile_lib, available_frontends
 from loki import Builder, Module, Subroutine, FindNodes, Import, FindVariables
+from loki.ir import Assignment
 from loki.transform import inline_elemental_functions, inline_constant_parameters, replace_selected_kind
 
 
@@ -256,3 +257,27 @@ end module transform_inline_constant_parameters_replace_kind_mod
     assert v1 == 6.
 
     (here/f'{module.name}.f90').unlink()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_constant_replacement_internal(frontend):
+    """
+    Test constant replacement for internally defined constants.
+    """
+    fcode = """
+subroutine kernel(a, b)
+  integer, parameter :: par = 10
+  integer, intent(inout) :: a, b
+
+  a = b + par
+end subroutine kernel
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    inline_constant_parameters(routine=routine, external_only=False)
+
+    assert len(routine.variables) == 2
+    assert 'a' in routine.variables and 'b' in routine.variables
+
+    stmts = FindNodes(Assignment).visit(routine.body)
+    assert len(stmts) == 1
+    assert stmts[0].rhs == 'b + 10'
