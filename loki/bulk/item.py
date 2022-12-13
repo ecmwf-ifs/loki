@@ -92,6 +92,7 @@ class Item:
         self.name = name
         self.source = source
         self.config = config or {}
+        self.trafo_data = {}
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'

@@ -422,7 +422,7 @@ class Scheduler:
                 # Process work item with appropriate kernel
                 transformation.apply(
                     item.source, role=item.role, mode=item.mode,
-                    item=item, targets=item.targets
+                    item=item, targets=item.targets, successors=list(self.item_graph.successors(item))
                 )
 
     def callgraph(self, path):
