@@ -76,35 +76,40 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments):
     """
     Check the subroutine and call arguments of each subroutine.
     """
-    for item in scheduler.items:
-        if "driver" in item.name and "another" not in item.name:
-            assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["driver"]
-            for call in FindNodes(ir.CallStatement).visit(item.routine.body):
-                if "kernel1" in call.name:
-                    assert call.arguments == call_arguments["kernel1"]
-                elif "kernel2" in call.name:
-                    assert call.arguments == call_arguments["kernel2"]
-        elif "another_driver" in item.name:
-            assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["another_driver"]
-            for call in FindNodes(ir.CallStatement).visit(item.routine.body):
-                if "kernel1" in call.name:
-                    assert call.arguments == call_arguments["kernel1"]
-        elif "kernel1" in item.name:
-            assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel1"]
-        elif "kernel2" in item.name:
-            assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel2"]
-            for call in FindNodes(ir.CallStatement).visit(item.routine.body):
-                if "device1" in call.name:
-                    assert call.arguments == call_arguments["device1"]
-                elif "device2" in call.name:
-                    assert call.arguments == call_arguments["device2"]
-        elif "device1" in item.name:
-            assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device1"]
-            for call in FindNodes(ir.CallStatement).visit(item.routine.body):
-                if "device2" in call.name:
-                    assert call.arguments == call_arguments["device2"]
-        elif "device2" in item.name:
-            assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device2"]
+    # driver
+    item = scheduler.item_map['transformation_module_hoist#driver']
+    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["driver"]
+    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+        if "kernel1" in call.name:
+            assert call.arguments == call_arguments["kernel1"]
+        elif "kernel2" in call.name:
+            assert call.arguments == call_arguments["kernel2"]
+    # another driver
+    item = scheduler.item_map['transformation_module_hoist#another_driver']
+    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["another_driver"]
+    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+        if "kernel1" in call.name:
+            assert call.arguments == call_arguments["kernel1"]
+    # kernel 1
+    item = scheduler.item_map['transformation_module_hoist#kernel1']
+    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel1"]
+    # kernel 2
+    item = scheduler.item_map['transformation_module_hoist#kernel2']
+    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel2"]
+    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+        if "device1" in call.name:
+            assert call.arguments == call_arguments["device1"]
+        elif "device2" in call.name:
+            assert call.arguments == call_arguments["device2"]
+    # device 1
+    item = scheduler.item_map['transformation_module_hoist#device1']
+    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device1"]
+    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+        if "device2" in call.name:
+            assert call.arguments == call_arguments["device2"]
+    # device 2
+    item = scheduler.item_map['transformation_module_hoist#device2']
+    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device2"]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -225,7 +230,7 @@ def check_variable_declaration(item, key):
     de_allocations = [_.variables[0].name for _ in FindNodes(ir.Deallocation).visit(item.routine.body)]
     assert allocations
     assert de_allocations
-    to_hoist_vars = [var.name for var in item.user_data[key]["to_hoist"]]
+    to_hoist_vars = [var.name for var in item.trafo_data[key]["to_hoist"]]
     assert all(_ in declarations for _ in to_hoist_vars)
     assert all(_ in to_hoist_vars for _ in allocations)
     assert all(_ in to_hoist_vars for _ in de_allocations)

@@ -105,7 +105,7 @@ class HoistVariablesAnalysis(Transformation):
     Parameters
     ----------
     key : str
-        Access identifier/key for the ``item.user_data`` dictionary. Only necessary to provide if several of
+        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
         these transformations are carried out in succession.
     """
 
@@ -136,23 +136,23 @@ class HoistVariablesAnalysis(Transformation):
         if item and not item.local_name == routine.name.lower():
             return
 
-        item.user_data[self._key] = {}
+        item.trafo_data[self._key] = {}
 
         if role != 'driver':
             variables = self.find_variables(routine)
-            item.user_data[self._key]["to_hoist"] = variables
-            item.user_data[self._key]["hoist_variables"] = [var.clone(name=f'{routine.name}_{var.name}')
+            item.trafo_data[self._key]["to_hoist"] = variables
+            item.trafo_data[self._key]["hoist_variables"] = [var.clone(name=f'{routine.name}_{var.name}')
                                                             for var in variables]
         else:
-            item.user_data[self._key]["to_hoist"] = []
-            item.user_data[self._key]["hoist_variables"] = []
+            item.trafo_data[self._key]["to_hoist"] = []
+            item.trafo_data[self._key]["hoist_variables"] = []
 
         for child in successors:
-            item.user_data[self._key]["to_hoist"].extend(child.user_data[self._key]["hoist_variables"])
-            item.user_data[self._key]["to_hoist"] = list(dict.fromkeys(item.user_data[self._key]["to_hoist"]))
-            item.user_data[self._key]["hoist_variables"].extend(child.user_data[self._key]["hoist_variables"])
-            item.user_data[self._key]["hoist_variables"] = list(dict.fromkeys(
-                item.user_data[self._key]["hoist_variables"]))
+            item.trafo_data[self._key]["to_hoist"].extend(child.trafo_data[self._key]["hoist_variables"])
+            item.trafo_data[self._key]["to_hoist"] = list(dict.fromkeys(item.trafo_data[self._key]["to_hoist"]))
+            item.trafo_data[self._key]["hoist_variables"].extend(child.trafo_data[self._key]["hoist_variables"])
+            item.trafo_data[self._key]["hoist_variables"] = list(dict.fromkeys(
+                item.trafo_data[self._key]["hoist_variables"]))
 
     def find_variables(self, routine):
         """
@@ -182,7 +182,7 @@ class HoistVariablesTransformation(Transformation):
     Parameters
     ----------
     key : str
-        Access identifier/key for the ``item.user_data`` dictionary. Only necessary to provide if several of
+        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
         these transformations are carried out in succession.
     """
 
@@ -218,22 +218,22 @@ class HoistVariablesTransformation(Transformation):
         if item and not item.local_name == routine.name.lower():
             return
 
-        if self._key not in item.user_data:
-            raise RuntimeError(f'{self.__class__.__name__} requires key "{self._key}" in item.user_data!\n'
+        if self._key not in item.trafo_data:
+            raise RuntimeError(f'{self.__class__.__name__} requires key "{self._key}" in item.trafo_data!\n'
                                f'Make sure to call HoistVariablesAnalysis (or any derived class) before and to provide '
                                f'the correct key.')
 
         if role == 'driver':
-            for var in item.user_data[self._key]["to_hoist"]:
+            for var in item.trafo_data[self._key]["to_hoist"]:
                 self.driver_variable_declaration(routine, var)
         else:
-            routine.arguments += as_tuple([var.clone(type=var.type.clone(intent='inout', allocatable=None),
-                                                     scope=routine) for var in item.user_data[self._key]["to_hoist"]])
+            routine.arguments += as_tuple([var.clone(type=var.type.clone(intent='inout'),
+                                                     scope=routine) for var in item.trafo_data[self._key]["to_hoist"]])
 
         call_map = {}
         for call in FindNodes(CallStatement).visit(routine.body):
             new_args = [arg.clone(dimensions=None) for arg
-                        in successor_map[call.name].user_data[self._key]["hoist_variables"]]
+                        in successor_map[call.name].trafo_data[self._key]["hoist_variables"]]
             arguments = list(call.arguments) + new_args
             call_map[call] = call.clone(arguments=as_tuple(arguments))
 
@@ -270,15 +270,15 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
     Parameters
     ----------
     key : str, optional
-        Access identifier/key for the ``item.user_data`` dictionary. Only necessary to provide if several of
+        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
         these transformations are carried out in succession.
     dim_vars: tuple of str, optional
         Variables to be within the dimensions of the arrays to be hoisted. If not provided, no checks will be done
         for the array dimensions.
     """
 
-    def __init__(self, key=None, dim_vars=None):
-        super().__init__(key=key)
+    def __init__(self, key=None, dim_vars=None, **kwargs):
+        super().__init__(key=key, **kwargs)
         self.dim_vars = dim_vars
         if self.dim_vars is not None:
             assert is_iterable(self.dim_vars)
@@ -311,12 +311,12 @@ class HoistTemporaryArraysTransformationAllocatable(HoistVariablesTransformation
     Parameters
     ----------
     key : str, optional
-        Access identifier/key for the ``item.user_data`` dictionary. Only necessary to provide if several of
+        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
         these transformations are carried out in succession.
     """
 
-    def __init__(self, key=None):
-        super().__init__(key=key)
+    def __init__(self, key=None, **kwargs):
+        super().__init__(key=key, **kwargs)
 
     def driver_variable_declaration(self, routine, var):
         """
