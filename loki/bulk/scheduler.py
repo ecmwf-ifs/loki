@@ -166,6 +166,12 @@ class Scheduler:
             # Attach interprocedural call-tree information
             self._enrich()
 
+        topological_generations = list(nx.topological_generations(self.item_graph))
+        self.depths = {}
+        for i_gen, gen in enumerate(topological_generations):
+            for item in gen:
+                self.depths[item] = i_gen
+
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
         # Scan all source paths and create light-weight `Sourcefile` objects for each file.
@@ -434,7 +440,8 @@ class Scheduler:
                 # Process work item with appropriate kernel
                 transformation.apply(
                     item.source, role=item.role, mode=item.mode,
-                    item=item, targets=item.targets, successors=list(self.item_graph.successors(item))
+                    item=item, targets=item.targets, successors=list(self.item_graph.successors(item)),
+                    depths=self.depths
                 )
 
     def callgraph(self, path):
