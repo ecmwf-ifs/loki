@@ -194,7 +194,7 @@ def block_size_argument(routine, horizontal, vertical, block_dim, disable, trans
         kernel_demote_private_locals(callee.routine, horizontal, vertical)
 
         # TODO: subroutines called within kernels (global) should be device
-        callee.routine.prefix = ("ATTRIBUTES(GLOBAL)",)  # ("attributes(global)",)
+        # callee.routine.prefix = ("ATTRIBUTES(GLOBAL)",)  # ("attributes(global)",)
 
         single_variable_declarations(callee.routine, strict=False)
 
@@ -486,8 +486,9 @@ def driver_cuf(routine):
 
 
 def kernel_cuf(routine, device_imports):
-    routine.spec.prepend(ir.Import('cudafor'))
+    # routine.spec.prepend(ir.Import('cudafor'))
 
+    # TODO: this is still CLOUDSC specific
     imp_map = {}
     for imp in FindNodes(ir.Import).visit(routine.spec):
         if imp.module in device_imports:
@@ -699,6 +700,19 @@ class SccCuf(Transformation):
 
         role = kwargs.get('role')
         targets = kwargs.get('targets', None)
+
+        item = kwargs.get('item', None)
+        depths = kwargs.get('depths', None)
+        if item and not item.local_name == routine.name.lower():
+            pass
+        else:
+            print(f"{routine.name}: depth: {depths[item]}")
+            if depths[item] > 0:
+                routine.spec.prepend(ir.Import(module="cudafor"))
+            if depths[item] == 1:
+                routine.prefix = ("ATTRIBUTES(GLOBAL)",)
+            elif depths[item] > 1:
+                routine.prefix = ("ATTRIBUTES(DEVICE)",)
 
         if role == 'driver':
             self.process_routine_driver(routine, targets=targets)
