@@ -11,8 +11,14 @@ MODULE KERNEL_MOD
         INTEGER :: jl, jk
         REAL :: c
 
+        c = 5.345
+        DO jk = 2, nz
+          DO jl = start, end
+            call ELEMENTAL_DEVICE(z(jl, jk))
+          END DO
+        END DO
 
-        call DEVICE2(nlon, nz, 2, start, end, z)
+        call DEVICE(nlon, nz, 2, start, end, z)
 
         c = 5.345
         DO jk = 2, nz
@@ -29,23 +35,14 @@ MODULE KERNEL_MOD
           END DO
         END DO
 
-        ! DO JL = START, END
-        !   Q(JL, NZ) = Q(JL, NZ) * C
-        ! END DO
     END SUBROUTINE kernel
 
-    SUBROUTINE DEVICE1(x) ! elemental
-        REAL, INTENT(INOUT) :: x
-        x = 0.0
-    END SUBROUTINE DEVICE1
+    ELEMENTAL SUBROUTINE ELEMENTAL_DEVICE(x) ! elemental
+      REAL, INTENT(INOUT) :: x
+      x = 0.0
+    END SUBROUTINE ELEMENTAL_DEVICE
 
-    !SUBROUTINE DEVICE2(jk, jl, x)
-    !    INTEGER, INTENT(IN) :: jk, jl
-    !    REAL, INTENT(INOUT) :: x(:, :)
-    !    x(jk, jl) = 0.0
-    !END SUBROUTINE DEVICE2
-
-    SUBROUTINE DEVICE2(nlon, nz, jk_start, jl_start, jl_end, x)
+    SUBROUTINE DEVICE(nlon, nz, jk_start, jl_start, jl_end, x)
         INTEGER, INTENT(IN) :: jk_start, jl_start, jl_end
         INTEGER, INTENT(IN) :: nlon, nz
         REAL, INTENT(INOUT) :: x(nlon, nz)
@@ -53,10 +50,10 @@ MODULE KERNEL_MOD
         INTEGER :: jk, jl
         DO jk = jk_start, nz
             DO jl = jl_start, jl_end
-                local_x(jk, jl) = 0.0
-                x(jk, jl) = local_x(jk, jl)
+                local_x(jl, jk) = 0.0
+                x(jl, jk) = local_x(jl, jk)
             END DO
         END DO
-    END SUBROUTINE DEVICE2
+    END SUBROUTINE DEVICE
 
 END MODULE KERNEL_MOD

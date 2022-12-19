@@ -8,7 +8,8 @@
 from more_itertools import pairwise
 
 from loki.expression import symbols as sym
-from loki.transform import resolve_associates, single_variable_declarations
+from loki.transform import (resolve_associates, single_variable_declarations, single_variable_declaration,
+                            HoistVariablesTransformation)
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
@@ -17,7 +18,39 @@ from loki import (
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten, types, fgen
 )
 
-__all__ = ['SccCuf']
+__all__ = ['SccCuf', 'HoistTemporaryArraysTransformationDeviceAllocatable']
+
+########################################################################################################################
+# For host side hoisted (memory allocation of) local arrays
+########################################################################################################################
+class HoistTemporaryArraysTransformationDeviceAllocatable(HoistVariablesTransformation):
+
+    def __init__(self, key=None, **kwargs):
+        super().__init__(key=key, **kwargs)
+
+    def driver_variable_declaration(self, routine, var):
+        type = var.type.clone(device=True, allocatable=True)
+        routine.variables += tuple([var.clone(scope=routine, dimensions=as_tuple(
+            [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=type)])
+
+        # EITHER
+        # routine.body.prepend(Allocation((var.clone(),)))
+        # routine.body.append(Deallocation((var.clone(dimensions=None),)))
+
+        # OR: just for better formatting ...
+        allocations = FindNodes(ir.Allocation).visit(routine.body)
+        if allocations:
+            insert_index = routine.body.body.index(allocations[-1])
+            routine.body.insert(insert_index + 1, ir.Allocation((var.clone(),)))
+        else:
+            routine.body.prepend(ir.Allocation((var.clone(),)))
+        de_allocations = FindNodes(ir.Deallocation).visit(routine.body)
+        if allocations:
+            insert_index = routine.body.body.index(de_allocations[-1])
+            routine.body.insert(insert_index + 1, ir.Deallocation((var.clone(dimensions=None),)))
+        else:
+            routine.body.append(ir.Deallocation((var.clone(dimensions=None),)))
+########################################################################################################################
 
 
 ########################################################################################################################
@@ -60,14 +93,9 @@ def increase_heap_size(routine):
     # TODO: heap size, to be calculated?
     routine.body.prepend(
         ir.Assignment(lhs=routine.variable_map["cudaHeapSize"], rhs=sym.Product((10, 1024, 1024, 1024))))
-
-
 ########################################################################################################################
 
 
-########################################################################################################################
-# Helper
-########################################################################################################################
 def remove_pragmas(routine):
     """
 
@@ -101,15 +129,6 @@ def get_integer_variable(routine, name):
     return v_index
 
 
-# TODO: recursive, distinguish device and global functions
-def kernel_add_kernel_attribute(module):
-    for routine in module.subroutines:
-        routine.prefix = ("ATTRIBUTES(GLOBAL)",)  # ("attributes(global)",)
-
-
-########################################################################################################################
-
-
 def kernel_remove_vector_loops(routine, horizontal):
     """
     Remove all vector loops over the specified dimension.
@@ -128,158 +147,130 @@ def kernel_remove_vector_loops(routine, horizontal):
     routine.body = Transformer(loop_map).visit(routine.body)
 
 
-# TODO: promote variables as utility function
-# def promote_variables(routine, variables, expression, index=None):
-#     shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
-#     vmap = {}
-#     for v in variables:
-#         old_shape = shape_map[v.name]
-#         new_shape = list(old_shape).insert(index or len(old_shape), expression)
-#         new_type = v.type.clone(shape=as_tuple(new_shape))
-#         new_dims = list(v.dimensions).insert(index or len(v.dimensions), expression)
-#         vmap[v] = v.clone(dimensions=as_tuple(new_dims), type=new_type)
-#
-#     routine.body = SubstituteExpressions(vmap).visit(routine.body)
-#     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+def is_elemental(routine):
+    if "ELEMENTAL" in routine.prefix:
+        return True
+    return False
 
 
-# TODO: recursive
-# TODO: standalone transformation/utility
-#  distinguish whether variable was a local variable or argument
-#  parametrise in all subroutines (and possibly remove from argument list)
-#  remove from call statements
-def parametrise_variables(routine, dic2p, disable):
-    calls = [kernel for kernel in FindNodes(ir.CallStatement).visit(routine.body) if kernel.name not in disable]
-    callees = list(set(calls))
+def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable, transformation_type, depth):
 
-    vars2p = [key for key in dic2p]
+    if is_elemental(routine):
+        routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]])
+        return
 
-    for callee in callees:
-        indices = [callee.routine.arguments.index(var2p) for var2p in vars2p if var2p in callee.routine.arguments]
-        callee.routine.arguments = [arg for arg in callee.routine.arguments if arg.name not in vars2p]
+    kernel_demote_private_locals(routine, horizontal, vertical)
 
-        declarations = FindNodes(ir.VariableDeclaration).visit(callee.routine.spec)
-        parameter_declarations = []
-        decl_map = {}
-        for decl in declarations:
-            if decl.symbols[0] in vars2p:
-                parameter_declarations.append(decl.clone(symbols=(decl.symbols[0].clone(
-                    type=decl.symbols[0].type.clone(parameter=True, intent=None,
-                                                    initial=sym.IntLiteral(dic2p[decl.symbols[0].name]))),)))
-                decl_map[decl] = None
+    if depth > 1:
+        single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
 
-        callee.routine.spec = Transformer(decl_map).visit(callee.routine.spec)
+    # This adds argument and variable declaration !
+    type = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
+    new_argument = routine.variable_map[horizontal.size].clone(name=block_dim.size, type=type)
+    routine.arguments = list(routine.arguments) + [new_argument]
 
-        for parameter_declaration in parameter_declarations:
-            callee.routine.spec.insert(callee.routine.spec.body.index(declarations[0]), parameter_declaration)
+    type = routine.variable_map[horizontal.index].type.clone()
+    jblk_var = routine.variable_map[horizontal.index].clone(name=block_dim.index, type=type)
+    routine.spec.append(ir.VariableDeclaration((jblk_var,)))
 
-        for call in calls:
-            if call.name == callee.name:
-                call.arguments = [arg for i, arg in enumerate(call.arguments) if i not in indices]
-
-
-# TODO: recursive
-def block_size_argument(routine, horizontal, vertical, block_dim, disable, transformation_type):
-    calls = [kernel for kernel in FindNodes(ir.CallStatement).visit(routine.body) if kernel.name not in disable]
-    callees = list(set(calls))
-
-    call_map = {}
-    for call in calls:
-        arguments = list(call.arguments) + [routine.variable_map[block_dim.size]]
-        call_map[call] = call.clone(arguments=as_tuple(arguments))
-    routine.body = Transformer(call_map).visit(routine.body)
-
-    for callee in callees:
-
-        kernel_demote_private_locals(callee.routine, horizontal, vertical)
-
-        # TODO: subroutines called within kernels (global) should be device
-        # callee.routine.prefix = ("ATTRIBUTES(GLOBAL)",)  # ("attributes(global)",)
-
-        single_variable_declarations(callee.routine, strict=False)
-
-        # This adds argument and variable declaration !
-        type = callee.routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
-        new_argument = callee.routine.variable_map[horizontal.size].clone(name=block_dim.size, type=type)
-        callee.routine.arguments = list(callee.routine.arguments) + [new_argument]
-
+    if depth == 1:
+        print(f"routine {routine.name}: thread assignment, depth: {depth}")
         # CUDA thread mapping
         var_thread_idx = sym.Variable(name="THREADIDX")
         var_x = sym.Variable(name="X", parent=var_thread_idx)
-        jl_assignment = ir.Assignment(lhs=callee.routine.variable_map[horizontal.index], rhs=var_x)
-        callee.routine.body.prepend(jl_assignment)
-
-        type = callee.routine.variable_map[horizontal.index].type.clone()
-        jblk_var = callee.routine.variable_map[horizontal.index].clone(name=block_dim.index, type=type)
-        callee.routine.spec.append(ir.VariableDeclaration((jblk_var,)))
+        jl_assignment = ir.Assignment(lhs=routine.variable_map[horizontal.index], rhs=var_x)
 
         var_thread_idx = sym.Variable(name="BLOCKIDX")
         var_x = sym.Variable(name="Z", parent=var_thread_idx)
-        jblk_assignment = ir.Assignment(lhs=callee.routine.variable_map[block_dim.index], rhs=var_x)
-        callee.routine.body.prepend(jblk_assignment)
+        jblk_assignment = ir.Assignment(lhs=routine.variable_map[block_dim.index], rhs=var_x)
 
-        variables = callee.routine.variables
-        arguments = callee.routine.arguments
+        condition = sym.LogicalAnd((sym.Comparison(routine.variable_map[block_dim.index], '<=',
+                                                   routine.variable_map[block_dim.size]),
+                                    sym.Comparison(routine.variable_map[horizontal.index], '<=',
+                                                   routine.variable_map[horizontal.size])))
 
-        relevant_local_arrays = []
+        routine.body = ir.Section((jl_assignment, jblk_assignment, ir.Comment(''),
+                        ir.Conditional(condition=condition, body=routine.body, else_body=None)))
 
-        var_map = {}
-        for var in variables:
-            if var in arguments:
-                if isinstance(var, sym.Scalar) and var.name != block_dim.size and var.name != "YRECLDP":
-                    var_map[var] = var.clone(type=var.type.clone(value=True))
-                elif isinstance(var, sym.Array):
-                    dimensions = list(var.dimensions) + [callee.routine.variable_map[block_dim.size]]
-                    shape = list(var.shape) + [callee.routine.variable_map[block_dim.size]]
-                    type = var.type.clone(shape=as_tuple(shape))
-                    var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=type)
+    elif depth > 1:
+        # routine.arguments += jblk_var.clone(type=jblk_var.type.clone(intent="in"))
+        type = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
+        new_arguments = [routine.variable_map[horizontal.index].clone(type=type), jblk_var.clone(type=type)]
+        routine.arguments = list(routine.arguments) + new_arguments
+        # new_arguments = [routine.variable_map[horizontal.index].clone(type=type)] #.clone(type=type)]
+        # routine.arguments = list(routine.arguments) + new_arguments
+
+    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
+    for call in calls:  # FindNodes(ir.CallStatement).visit(routine.body):
+        if not is_elemental(call.routine):
+            call.arguments += (routine.variable_map[block_dim.size], routine.variable_map[horizontal.index], jblk_var)
+
+    variables = routine.variables
+    arguments = routine.arguments
+
+    relevant_local_arrays = []
+
+    var_map = {}
+    for var in variables:
+        if var in arguments:
+            if isinstance(var, sym.Scalar) and var.name != block_dim.size and var.name != "YRECLDP":
+                var_map[var] = var.clone(type=var.type.clone(value=True))
+            elif isinstance(var, sym.Array):
+                dimensions = list(var.dimensions) + [routine.variable_map[block_dim.size]]
+                shape = list(var.shape) + [routine.variable_map[block_dim.size]]
+                type = var.type.clone(shape=as_tuple(shape))
+                var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=type)
+        else:
+            if isinstance(var, sym.Array):
+                dimensions = list(var.dimensions)
+                if horizontal.size in dimensions:
+                    if transformation_type == 1:
+                        dimensions += [routine.variable_map[block_dim.size]]
+                        shape = list(var.shape) + [routine.variable_map[block_dim.size]]
+                        type = var.type.clone(shape=as_tuple(shape))
+                    else:
+                        dimensions.remove(horizontal.size)
+                        relevant_local_arrays.append(var.name)
+                        type = var.type.clone(device=True)
+                var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=type)
+
+    routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+
+    var_map = {}
+    arguments_name = [var.name for var in arguments]
+    for var in FindVariables().visit(routine.body):
+        if var.name in arguments_name:
+            if isinstance(var, sym.Array):
+                dimensions = list(var.dimensions)
+                dimensions.append(routine.variable_map[block_dim.index])
+                var_map[var] = var.clone(dimensions=as_tuple(dimensions),
+                                         type=var.type.clone(shape=as_tuple(dimensions)))
+        else:
+            if transformation_type == 1:
+                if isinstance(var, sym.Array):
+                    dimensions = list(var.dimensions)
+                    dimensions.append(routine.variable_map[block_dim.index])
+                    var_map[var] = var.clone(type=var.type.clone(shape=as_tuple(dimensions)))
             else:
-                if isinstance(var, sym.Array):
+                if var.name in relevant_local_arrays:
                     dimensions = list(var.dimensions)
-                    if horizontal.size in dimensions:
-                        if transformation_type == 1:
-                            dimensions += [callee.routine.variable_map[block_dim.size]]
-                            shape = list(var.shape) + [callee.routine.variable_map[block_dim.size]]
-                            type = var.type.clone(shape=as_tuple(shape))
-                        else:
-                            dimensions.remove(horizontal.size)
-                            relevant_local_arrays.append(var.name)
-                            type = var.type.clone(device=True)
-                    var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=type)
-                    # if isinstance(var, sym.Array):
-                    #     dimensions = list(var.dimensions)
-                    #     if horizontal.size in dimensions:
-                    #         dimensions.remove(horizontal.size)
-                    #         relevant_local_arrays.append(var.name)
-                    #     var_map[var] = var.clone(type=var.type.clone(device=True), dimensions=as_tuple(dimensions))
-
-        # callee.routine.body = SubstituteExpressions(var_map).visit(callee.routine.body)
-        callee.routine.spec = SubstituteExpressions(var_map).visit(callee.routine.spec)
-
-        var_map = {}
-        arguments_name = [var.name for var in arguments]
-        for var in FindVariables().visit(callee.routine.body):
-            if var.name in arguments_name:
-                if isinstance(var, sym.Array):
-                    dimensions = list(var.dimensions)
-                    dimensions.append(callee.routine.variable_map[block_dim.index])
+                    dimensions.pop(0)
                     var_map[var] = var.clone(dimensions=as_tuple(dimensions))
-            else:
-                if transformation_type == 1:
-                    if isinstance(var, sym.Array):
-                        dimensions = list(var.dimensions)
-                        dimensions.append(callee.routine.variable_map[block_dim.index])
-                        var_map[var] = var.clone(dimensions=as_tuple(dimensions))
+
+    routine.body = SubstituteExpressions(var_map).visit(routine.body)
+
+    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
+    for call in calls:
+        if not is_elemental(call.routine):
+            arguments = []
+            for arg in call.arguments:
+                if isinstance(arg, sym.Array):
+                    arguments.append(arg.clone(dimensions=None))  # , type=arg.type.clone(shape=None)))
                 else:
-                    if var.name in relevant_local_arrays:
-                        dimensions = list(var.dimensions)
-                        dimensions.pop(0)
-                        var_map[var] = var.clone(dimensions=as_tuple(dimensions))
-
-        callee.routine.body = SubstituteExpressions(var_map).visit(callee.routine.body)
+                    arguments.append(arg)
+            call.arguments = arguments
 
 
-# TODO: demote variables as utility function
 def demote_variables(routine, variables, expressions):
     shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
     vmap = {}
@@ -345,55 +336,16 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
     demote_variables(routine, variables, horizontal.size_expressions)
 
 
-def driver_hoist(routine, horizontal, vertical, block_dim, disable):
-    for call in FindNodes(ir.CallStatement).visit(routine.body):
-        if call.name not in disable:
-            print("call.name: {}".format(call.name))
+def driver_device_variables(routine, disable):
 
-            kernel = call.routine
+    # istat: status of CUDA runtime function (e.g. for cudaDeviceSynchronize(), cudaMalloc(), cudaFree(), ...)
+    i_type = SymbolAttributes(types.BasicType.INTEGER)
+    routine.spec.append(ir.VariableDeclaration(symbols=(sym.Scalar(name="istat", type=i_type),)))
 
-            arguments = [var for var in kernel.arguments]
-            variables = [var for var in kernel.variables]
-            relevant_local_arrays = []
-            additional_arguments = []
-            for v in variables:
-                if v not in arguments:
-                    # "vertical.size in FindVariables().visit(v.shape)" should be sufficient, however, there is
-                    #  apparently a problem with the returned set
-                    if isinstance(v, sym.Array) and vertical.size in list(FindVariables().visit(v.shape)):
-                        dimensions = list(v.dimensions) + [routine.variable_map[block_dim.size]]
-                        vdimensions = [sym.RangeIndex((None, None))] * len(dimensions)
-                        vtype = v.type.clone(intent=None, device=True, allocatable=True)
-                        routine.spec.append(ir.VariableDeclaration((v.clone(name="{}".format(v.name),
-                                                                            dimensions=as_tuple(vdimensions),
-                                                                            type=vtype),)))
-                        routine.body.insert(routine.body.body.index(call),
-                                            ir.Allocation((v.clone(name="{}".format(v.name),
-                                                                   dimensions=as_tuple(dimensions)),)))
-                        routine.body.insert(routine.body.body.index(call) + 1,
-                                            ir.Deallocation((v.clone(name="{}".format(v.name), dimensions=None),)))
-                        vtype = v.type.clone(intent='out', device=None, allocatable=None)
-                        additional_arguments.append(v.clone(dimensions=as_tuple(dimensions), type=vtype))
-
-            decl_map = {}
-            additional_argument_names = [arg.name for arg in additional_arguments]
-            for decl in FindNodes(ir.VariableDeclaration).visit(kernel.spec):
-                if decl.symbols[0].name in additional_argument_names:
-                    decl_map[decl] = None
-            kernel.spec = Transformer(decl_map).visit(kernel.spec)
-
-            call.arguments = as_tuple(
-                list(call.arguments) + [arg.clone(dimensions=None) for arg in additional_arguments])
-            kernel.arguments = as_tuple(list(kernel.arguments) + additional_arguments)
-
-
-def driver_device_arrays(routine, block_dim, disable, loop):
     relevant_arrays = []
-
-    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if call.name not in disable]
+    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
     for call in calls:
-        if call.name not in disable:
-            relevant_arrays.extend([arg for arg in call.arguments if isinstance(arg, sym.Array)])
+        relevant_arrays.extend([arg for arg in call.arguments if isinstance(arg, sym.Array)])
 
     relevant_arrays = list(dict.fromkeys(relevant_arrays))  # list(set(relevant_arrays))
 
@@ -466,139 +418,85 @@ def driver_device_arrays(routine, block_dim, disable, loop):
         call_map[call] = call.clone(arguments=arguments)
     routine.body = Transformer(call_map).visit(routine.body)
 
-    upper = routine.variable_map[loop.bounds.children[1].name]
-    if loop.bounds.children[2]:
-        step = routine.variable_map[loop.bounds.children[2].name]
-    else:
-        step = sym.IntLiteral(1)
-    rhs = (upper / step) + \
-          sym.InlineCall(function=sym.ProcedureSymbol(name="MIN", scope=routine),
-                         parameters=(sym.InlineCall(function=sym.ProcedureSymbol(name="MOD", scope=routine),
-                                                    parameters=(upper,
-                                                                step)), sym.IntLiteral(1)))
-    routine.body.prepend(ir.Assignment(lhs=routine.variable_map[block_dim.size], rhs=rhs))
+    # TODO: is this necessary? add global "if"
+    #  jl <= end
+    #  ...
+    # upper = routine.variable_map[loop.bounds.children[1].name]
+    # if loop.bounds.children[2]:
+    #     step = routine.variable_map[loop.bounds.children[2].name]
+    # else:
+    #     step = sym.IntLiteral(1)
+    # rhs = (upper / step) + \
+    #       sym.InlineCall(function=sym.ProcedureSymbol(name="MIN", scope=routine),
+    #                      parameters=(sym.InlineCall(function=sym.ProcedureSymbol(name="MOD", scope=routine),
+    #                                                 parameters=(upper,
+    #                                                             step)), sym.IntLiteral(1)))
+    # routine.body.prepend(ir.Assignment(lhs=routine.variable_map[block_dim.size], rhs=rhs))
 
 
-def driver_cuf(routine):
-    # istat: status of CUDA runtime function (e.g. for cudaDeviceSynchronize(), cudaMalloc(), cudaFree(), ...)
-    i_type = SymbolAttributes(types.BasicType.INTEGER)
-    routine.spec.append(ir.VariableDeclaration(symbols=(sym.Scalar(name="istat", type=i_type),)))
+def driver_launch_configuration(routine, block_dim, disable):
 
-
-def kernel_cuf(routine, device_imports):
-    # routine.spec.prepend(ir.Import('cudafor'))
-
-    # TODO: this is still CLOUDSC specific
-    imp_map = {}
-    for imp in FindNodes(ir.Import).visit(routine.spec):
-        if imp.module in device_imports:
-            if "MOD" not in imp.module:
-                rename_list = as_tuple([(symbol.clone(name="{}_D".format(symbol.name)), symbol) for symbol in
-                                        imp.symbols])
-                imp_map[imp] = imp.clone(module="{}_CUF".format(imp.module), rename_list=rename_list, symbols=None)
-            else:
-                imp_map[imp] = imp.clone(module="{}_CUF_MOD".format(imp.module.replace("_MOD", "")))
-    routine.spec = Transformer(imp_map).visit(routine.spec)
-
-
-def driver_kernel_launch(routine, disable, loop):
-    # griddim, blockdim
     d_type = SymbolAttributes(types.DerivedType("DIM3"))
     routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="GRIDDIM", type=d_type),
                                                         sym.Variable(name="BLOCKDIM", type=d_type))))
 
+    loop_map = {}
     call_map = {}
+    for loop in FindNodes(ir.Loop).visit(routine.body):
+        if loop.variable == block_dim.index or loop.variable in block_dim.aliases:
+            loop_map[loop] = loop.body
+            kernel_within = False
+            for call in FindNodes(ir.CallStatement).visit(loop.body):
+                nodes = []
+                if str(call.name).upper() not in disable:
+                    kernel_within = True
+                    nodes.append(call.clone(chevron=(routine.variable_map["GRIDDIM"],
+                                                     routine.variable_map["BLOCKDIM"])))
 
-    for call in FindNodes(ir.CallStatement).visit(routine.body):
-        if call.name not in disable:
+                    assignment_lhs = routine.variable_map["istat"]
+                    assignment_rhs = sym.InlineCall(
+                        function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
+                        parameters=())
 
-            call_map[call] = call.clone(chevron=(routine.variable_map["GRIDDIM"], routine.variable_map["BLOCKDIM"]))
+                    nodes.append(ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
 
-            insert_index = routine.body.body.index(call)
+                    call_map[call] = as_tuple(nodes)
 
-            assignment_lhs = routine.variable_map["istat"]
-            assignment_rhs = sym.InlineCall(function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
-                                            parameters=())
+            if kernel_within:
+                upper = routine.variable_map[loop.bounds.children[1].name]
+                if loop.bounds.children[2]:
+                    step = routine.variable_map[loop.bounds.children[2].name]
+                else:
+                    step = sym.IntLiteral(1)
 
-            routine.body.insert(insert_index + 1, ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
-            routine.body.insert(routine.body.body.index(call) + 1, ir.Comment(''))
+                func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
+                func_ceiling = sym.ProcedureSymbol(name="CEILING", scope=routine)
 
-            upper = routine.variable_map[loop.bounds.children[1].name]
-            if loop.bounds.children[2]:
-                step = routine.variable_map[loop.bounds.children[2].name]
+                # BLOCKDIM
+                lhs = routine.variable_map["blockdim"]
+                rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
+                blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+
+                # GRIDDIM
+                lhs = routine.variable_map["griddim"]
+                rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
+                                                                     sym.InlineCall(function=func_ceiling,
+                                                                                    parameters=as_tuple(
+                                                                                        sym.Cast(name="REAL",
+                                                                                                 expression=upper) /
+                                                                                        sym.Cast(name="REAL",
+                                                                                                 expression=step)))))
+                griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+                loop_map[loop] = (blockdim_assignment, griddim_assignment, loop.body)
             else:
-                step = sym.IntLiteral(1)
+                loop_map[loop] = loop.body
 
-            routine.body.insert(insert_index, ir.Comment(''))
-
-            func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
-            func_ceiling = sym.ProcedureSymbol(name="CEILING", scope=routine)
-
-            # BLOCKDIM
-            lhs = routine.variable_map["blockdim"]
-            rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
-            routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
-
-            # GRIDDIM
-            lhs = routine.variable_map["griddim"]
-            rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
-                                                                 sym.InlineCall(function=func_ceiling,
-                                                                                parameters=as_tuple(
-                                                                                    sym.Cast(name="REAL",
-                                                                                             expression=upper) /
-                                                                                    sym.Cast(name="REAL",
-                                                                                             expression=step)))))
-            routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
-
-            routine.body.insert(insert_index, ir.Comment(''))
-
+    routine.body = Transformer(loop_map).visit(routine.body)
     routine.body = Transformer(call_map).visit(routine.body)
 
-
-def driver_remove_kernel_loop(routine, blocking):
-    loop_map = {}
-    relevant_loop = None
-    for loop in FindNodes(ir.Loop).visit(routine.body):
-        if loop.variable == blocking.index or loop.variable in blocking.aliases:
-            loop_map[loop] = loop.body
-            relevant_loop = loop
-    routine.body = Transformer(loop_map).visit(routine.body)
-    return relevant_loop
-
-
-def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
-    """
-    Insert ``!$acc loop vector`` annotations around horizontal vector
-    loops, including the necessary private variable declarations.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
-    horizontal: :any:`Dimension`
-        The dimension object specifying the horizontal vector dimension
-    vertical: :any:`Dimension`
-        The dimension object specifying the vertical loop dimension
-    """
-
-    # Find any local arrays that need explicitly privatization
-    argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-    private_arrays = [v for v in routine.variables if not v.name in argument_map]
-    private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
-    private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
-
-    with pragmas_attached(routine, ir.Loop):
-        mapper = {}
-        for loop in FindNodes(ir.Loop).visit(routine.body):
-            if loop.variable == horizontal.index:
-                # Construct pragma and wrap entire body in vector loop
-                private_arrs = ', '.join(v.name for v in private_arrays)
-                pragma = None
-                private_clause = '' if not private_arrays else f' private({private_arrs})'
-                pragma = ir.Pragma(keyword='acc', content=f'loop vector{private_clause}')
-                mapper[loop] = loop.clone(pragma=pragma)
-
-        routine.body = Transformer(mapper).visit(routine.body)
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
+        if str(call.name).upper() not in disable:
+            call.arguments += (routine.variable_map[block_dim.size],)
 
 
 def resolve_masked_stmts(routine, loop_variable):
@@ -660,21 +558,21 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
     routine.body = Transformer(mapper).visit(routine.body)
 
 
+def device_subroutine_prefix(routine, depth):
+    if depth == 1:
+        routine.prefix += ("ATTRIBUTES(GLOBAL)",)
+    elif depth > 1:
+        routine.prefix += ("ATTRIBUTES(DEVICE)",)
+
+
 class SccCuf(Transformation):
 
-    def __init__(self, horizontal, vertical=None, block_dim=None, directive=None,
-                 demote_local_arrays=True, hoist_column_arrays=True, disable=None,
+    def __init__(self, horizontal, vertical=None, block_dim=None, disable=None,
                  transformation_type=0):
 
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
-
-        assert directive in [None, 'openacc', 'cuf']
-        self.directive = directive
-
-        self.demote_local_arrays = demote_local_arrays
-        self.hoist_column_arrays = hoist_column_arrays
 
         self.transformation_type = transformation_type
         assert self.transformation_type in [0, 1, 2]
@@ -682,54 +580,41 @@ class SccCuf(Transformation):
         if disable is None:
             self.disable = ()
         else:
-            self.disable = disable
-
-        self.dic2p = {"KLEV": 137}
+            self.disable = [_.upper() for _ in disable]
 
     def transform_module(self, module, **kwargs):
         role = kwargs.get('role')
         targets = kwargs.get('targets', None)
 
         if role == 'driver':
-            self.process_driver_module(module, targets=targets)
-
-        if role == 'kernel':
-            self.process_kernel_module(module, targets=targets)
+            module.spec.prepend(ir.Import(module="cudafor"))
 
     def transform_subroutine(self, routine, **kwargs):
 
+        item = kwargs.get('item', None)
+
+        if item and not item.local_name == routine.name.lower():
+            return
+
         role = kwargs.get('role')
         targets = kwargs.get('targets', None)
-
-        item = kwargs.get('item', None)
         depths = kwargs.get('depths', None)
-        if item and not item.local_name == routine.name.lower():
-            pass
-        else:
-            print(f"{routine.name}: depth: {depths[item]}")
-            if depths[item] > 0:
-                routine.spec.prepend(ir.Import(module="cudafor"))
-            if depths[item] == 1:
-                routine.prefix = ("ATTRIBUTES(GLOBAL)",)
-            elif depths[item] > 1:
-                routine.prefix = ("ATTRIBUTES(DEVICE)",)
-
-        if role == 'driver':
-            self.process_routine_driver(routine, targets=targets)
-
-        if role == 'kernel':
-            self.process_routine_kernel(routine, targets=targets)
-
-    def process_driver_module(self, module, **kwargs):
-        module.spec.prepend(ir.Import(module="cudafor"))
-
-    def process_kernel_module(self, module, **kwargs):
-        ...
-
-    def process_routine_kernel(self, routine, targets=None):
 
         remove_pragmas(routine)
-        single_variable_declarations(routine, strict=False)
+        single_variable_declarations(routine=routine, strict=False)
+        device_subroutine_prefix(routine, depths[item])
+
+        # TODO: needed for every subroutine or only those with THREADIDX...
+        if depths[item] > 0:
+            routine.spec.prepend(ir.Import(module="cudafor"))
+
+        if role == 'driver':
+            self.process_routine_driver(routine, depth=depths[item], targets=targets)
+
+        if role == 'kernel':
+            self.process_routine_kernel(routine, depth=depths[item], targets=targets)
+
+    def process_routine_kernel(self, routine, depth=1, targets=None):
 
         v_index = get_integer_variable(routine, name=self.horizontal.index)
         resolve_associates(routine)
@@ -737,30 +622,20 @@ class SccCuf(Transformation):
         resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
         kernel_remove_vector_loops(routine, self.horizontal)
 
-        # kernel_demote_private_locals(routine, self.horizontal, self.vertical)
+        kernel_block_size_argument(routine, self.horizontal, self.vertical, self.block_dim, self.disable,
+                                   self.transformation_type, depth=depth)
 
-        device_imports = ["YOMCST", "YOETHF", "FCTTRE_MOD", "FCCLD_MOD"]
-        kernel_cuf(routine, device_imports=device_imports)
-
+        # dynamic memory allocation of local arrays (only for version with dynamic memory allocation on device)
         if self.transformation_type == 2:
-            # only for version with dynamic memory allocation on device
             dynamic_local_arrays(routine, self.vertical)
 
-    def process_routine_driver(self, routine, targets=None):
+    def process_routine_driver(self, routine, depth=0, targets=None):
 
-        remove_pragmas(routine)
-        single_variable_declarations(routine, strict=False)
-        driver_cuf(routine)
-        loop = driver_remove_kernel_loop(routine, self.block_dim)
-        driver_kernel_launch(routine, self.disable, loop)
-        driver_device_arrays(routine, self.block_dim, self.disable, loop)
+        # create variables needed for the device execution, especially generate device versions of arrays
+        driver_device_variables(routine=routine, disable=self.disable)
+        # remove block loop and generate launch configuration for CUF kernels
+        driver_launch_configuration(routine=routine, block_dim=self.block_dim, disable=self.disable)
 
-        block_size_argument(routine, self.horizontal, self.vertical, self.block_dim, self.disable,
-                            self.transformation_type)
-
-        if self.transformation_type == 0:
-            parametrise_variables(routine, self.dic2p, self.disable)
-        elif self.transformation_type == 1:
-            ...
-        elif self.transformation_type == 2:
+        # increase heap size (only for version with dynamic memory allocation on device)
+        if self.transformation_type == 2:
             increase_heap_size(routine)
