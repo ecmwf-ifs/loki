@@ -18,5 +18,13 @@ CONTAINS
           icend = MIN(nlon,tot-b+1)
           call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
         end do
+
+        do b=1,end,nlon
+          ibl = (b-1)/nlon+1
+          icend = MIN(nlon,tot-b+1)
+          call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
+          call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
+        end do
+
     END SUBROUTINE driver
 END MODULE driver_mod

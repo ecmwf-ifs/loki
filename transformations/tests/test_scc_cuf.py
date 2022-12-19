@@ -8,14 +8,14 @@
 import pytest
 from pathlib import Path
 from conftest import available_frontends
-from transformations import SccCuf
+from transformations import SccCuf, HoistTemporaryArraysTransformationDeviceAllocatable
 from loki import (
     Scheduler, OMNI, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Scalar, Array, Pragma, pragmas_attached, fgen, frontend, cufgen,
     as_tuple, Allocation, Deallocation
 )
 from loki.expression import symbols as sym
-from loki.transform import HoistTemporaryArraysAnalysis, HoistVariablesTransformation, ParametriseTransformation
+from loki.transform import HoistTemporaryArraysAnalysis, ParametriseTransformation
 
 
 @pytest.fixture(scope='module', name='horizontal')
@@ -156,35 +156,6 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
-
-    class HoistTemporaryArraysTransformationDeviceAllocatable(HoistVariablesTransformation):
-
-        def __init__(self, key=None, **kwargs):
-            super().__init__(key=key, **kwargs)
-
-        def driver_variable_declaration(self, routine, var):
-            type = var.type.clone(device=True, allocatable=True)
-            routine.variables += tuple([var.clone(scope=routine, dimensions=as_tuple(
-                [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=type)])
-
-            # EITHER
-            # routine.body.prepend(Allocation((var.clone(),)))
-            # routine.body.append(Deallocation((var.clone(dimensions=None),)))
-
-            # OR: just for better formatting ...
-            allocations = FindNodes(Allocation).visit(routine.body)
-            if allocations:
-                insert_index = routine.body.body.index(allocations[-1])
-                routine.body.insert(insert_index + 1, Allocation((var.clone(),)))
-            else:
-                routine.body.prepend(Allocation((var.clone(),)))
-            de_allocations = FindNodes(Deallocation).visit(routine.body)
-            if allocations:
-                insert_index = routine.body.body.index(de_allocations[-1])
-                routine.body.insert(insert_index + 1, Deallocation((var.clone(dimensions=None),)))
-            else:
-                routine.body.append(Deallocation((var.clone(dimensions=None),)))
-
 
     proj = here / 'sources/projSccCuf/module'
 
