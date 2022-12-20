@@ -1,8 +1,8 @@
 MODULE KERNEL_MOD
     IMPLICIT NONE
     CONTAINS
-    SUBROUTINE kernel(start, end, nlon, nz, q, t, z)
-        INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    SUBROUTINE kernel(start, iend, nlon, nz, q, t, z)
+        INTEGER, INTENT(IN) :: start, iend  ! Iteration indices
         INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
         REAL, INTENT(INOUT) :: t(nlon,nz)
         REAL, INTENT(INOUT) :: q(nlon,nz)
@@ -13,23 +13,23 @@ MODULE KERNEL_MOD
 
         c = 5.345
         DO jk = 2, nz
-          DO jl = start, end
+          DO jl = start, iend
             call ELEMENTAL_DEVICE(z(jl, jk))
           END DO
         END DO
 
-        call DEVICE(nlon, nz, 2, start, end, z)
+        call DEVICE(nlon, nz, 2, start, iend, z)
 
         c = 5.345
         DO jk = 2, nz
-          DO jl = start, end
+          DO jl = start, iend
             t(jl, jk) = c * k
             q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
           END DO
         END DO
 
         DO jk = 2, nz
-          DO jl = start, end
+          DO jl = start, iend
             local_z(jl, jk) = 0.0
             z(jl, jk) = local_z(jl, jk)
           END DO

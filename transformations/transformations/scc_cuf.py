@@ -25,8 +25,8 @@ __all__ = ['SccCuf', 'HoistTemporaryArraysTransformationDeviceAllocatable']
 ########################################################################################################################
 class HoistTemporaryArraysTransformationDeviceAllocatable(HoistVariablesTransformation):
 
-    def __init__(self, key=None, **kwargs):
-        super().__init__(key=key, **kwargs)
+    def __init__(self, key=None, disable=(), **kwargs):
+        super().__init__(key=key, disable=disable, **kwargs)
 
     def driver_variable_declaration(self, routine, var):
         type = var.type.clone(device=True, allocatable=True)
@@ -213,7 +213,7 @@ def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable
     var_map = {}
     for var in variables:
         if var in arguments:
-            if isinstance(var, sym.Scalar) and var.name != block_dim.size and var.name != "YRECLDP":
+            if isinstance(var, sym.Scalar) and var.name != block_dim.size:  # and var.name not in types:
                 var_map[var] = var.clone(type=var.type.clone(value=True))
             elif isinstance(var, sym.Array):
                 dimensions = list(var.dimensions) + [routine.variable_map[block_dim.size]]
@@ -443,7 +443,7 @@ def driver_launch_configuration(routine, block_dim, disable):
     loop_map = {}
     call_map = {}
     for loop in FindNodes(ir.Loop).visit(routine.body):
-        if loop.variable == block_dim.index or loop.variable in block_dim.aliases:
+        if loop.variable == block_dim.index or loop.variable in block_dim._aliases:
             loop_map[loop] = loop.body
             kernel_within = False
             for call in FindNodes(ir.CallStatement).visit(loop.body):
@@ -558,6 +558,35 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
     routine.body = Transformer(mapper).visit(routine.body)
 
 
+def module_typedefs(routine, disable, typedefs):
+    _variables = [var for var in FindVariables().visit(routine.ir)]
+    variables = []
+    for var in _variables:
+        for typedef in typedefs:
+            if typedef in str(var.type):
+                variables.append(var)
+
+    var_map = {}
+    for var in variables:
+        new_var = var.clone(name=f"{var.name}_d", type=var.type.clone(intent=None, imported=None,
+                                                                      allocatable=None, device=True,
+                                                                      module=None))
+        var_map[var] = new_var
+        print(f"new var: {new_var}, type: {new_var.type}")
+        routine.spec.append(ir.VariableDeclaration((new_var,)))
+        routine.body.prepend(ir.Assignment(lhs=new_var, rhs=var))
+
+    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if
+             str(call.name).upper() not in disable]
+    for call in calls:
+        arguments = []
+        for arg in call.arguments:
+            if arg in variables:
+                arguments.append(var_map[arg])
+            else:
+                arguments.append(arg)
+        call.arguments = arguments
+
 def device_subroutine_prefix(routine, depth):
     if depth == 1:
         routine.prefix += ("ATTRIBUTES(GLOBAL)",)
@@ -581,8 +610,12 @@ class SccCuf(Transformation):
             self.disable = ()
         else:
             self.disable = [_.upper() for _ in disable]
+        self.typedefs = ['TECLDP']
 
     def transform_module(self, module, **kwargs):
+
+        print(f"transforming module: {module}")
+
         role = kwargs.get('role')
         targets = kwargs.get('targets', None)
 
@@ -630,6 +663,8 @@ class SccCuf(Transformation):
             dynamic_local_arrays(routine, self.vertical)
 
     def process_routine_driver(self, routine, depth=0, targets=None):
+
+        module_typedefs(routine=routine, disable=self.disable, typedefs=self.typedefs)
 
         # create variables needed for the device execution, especially generate device versions of arrays
         driver_device_variables(routine=routine, disable=self.disable)

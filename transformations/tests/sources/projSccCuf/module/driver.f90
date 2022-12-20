@@ -9,17 +9,17 @@ CONTAINS
         REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
         REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
         REAL, INTENT(INOUT)   :: z(nlon,nz+1,nb)
-        INTEGER :: b, start, end, ibl, icend
+        INTEGER :: b, start, iend, ibl, icend
 
         start = 1
-        end = tot
-        do b=1,end,nlon
+        iend = tot
+        do b=1,iend,nlon
           ibl = (b-1)/nlon+1
           icend = MIN(nlon,tot-b+1)
           call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
         end do
 
-        do b=1,end,nlon
+        do b=1,iend,nlon
           ibl = (b-1)/nlon+1
           icend = MIN(nlon,tot-b+1)
           call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
