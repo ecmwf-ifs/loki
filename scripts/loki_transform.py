@@ -23,7 +23,8 @@ from loki import (
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, FortranCTransformation, FileWriteTransformation
+    DependencyTransformation, FortranCTransformation, FileWriteTransformation,
+    ParametriseTransformation, HoistTemporaryArraysAnalysis
 )
 
 # pylint: disable=wrong-import-order
@@ -35,6 +36,7 @@ from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.dr_hook import DrHookTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
+from transformations.scc_cuf import SccCuf, HoistTemporaryArraysTransformationDeviceAllocatable
 
 
 """
@@ -126,7 +128,7 @@ def cli(debug):
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']),
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist', 'cuf']),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
@@ -206,10 +208,35 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
             directive='openacc', hoist_column_arrays='hoist' in mode
         )
 
+    if mode == 'cuf':
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
+        block_dim = scheduler.config.dimensions['block_dim']
+        disable = scheduler.config.disable
+        transformation = SccCuf(horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+                                disable=disable, transformation_type=1)
+
     if transformation:
         scheduler.process(transformation=transformation)
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+
+    if mode == 'cuf':
+        # Parametrise #
+        ###############
+        # dic2p = {'NPROMA': 137}
+        # disable = scheduler.config.disable
+        # transformation = ParametriseTransformation(dic2p=dic2p, disable=disable)
+        # scheduler.process(transformation=transformation)
+        # Hoist #
+        #########
+        disable = scheduler.config.disable
+        vertical = scheduler.config.dimensions['vertical']
+        # Transformation: Analysis
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(disable=disable, dim_vars=(vertical.size,)),
+                          reverse=True)
+        # Transformation: Synthesis
+        scheduler.process(transformation=HoistTemporaryArraysTransformationDeviceAllocatable(disable=disable))
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     mode = mode.replace('-', '_')  # Sanitize mode string
@@ -218,7 +245,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode))
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf=(mode=='cuf')))
 
 
 @cli.command()
