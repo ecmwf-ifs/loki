@@ -64,19 +64,10 @@ class Node:
         corresponding to the Node.
 
     """
-    # pylint: disable=no-member  # Stop reports about _args
+
+    _argnames = ('label', 'source')
 
     _traversable = []
-
-    def __new__(cls, *args, **kwargs):
-        obj = super(Node, cls).__new__(cls)
-        argnames = inspect.getfullargspec(cls.__init__).args
-        obj._args = dict(zip(argnames[1:], args))
-        obj._args.update(kwargs.items())
-        # Convert stored lists to tuples to make self._args hashable!
-        obj._args.update({k: tuple(v) for k, v in obj._args.items() if isinstance(v, list)})
-        obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
-        return obj
 
     def __init__(self, source=None, label=None):
         super().__init__()
@@ -101,6 +92,13 @@ class Node:
 
     def __hash__(self):
         return hash(self._canonical)
+
+    @property
+    def _args(self):
+        """
+        The argument from which to re-create the :any:`Node`.
+        """
+        return {k: v for k, v in self.__dict__.items() if k in self._argnames}
 
     @property
     def children(self):
@@ -150,11 +148,8 @@ class Node:
 
         """
         argnames = [i for i in self._traversable if i not in kwargs]
-        self._args.update(OrderedDict(zip(argnames, args)))
-        self._args.update(kwargs)
-        # Convert stored lists to tuples to make self._args hashable!
-        self._args.update({k: tuple(v) for k, v in self._args.items() if isinstance(v, list)})
-        self.__init__(**self._args)  # pylint: disable=unnecessary-dunder-call
+        kwargs.update(zip(argnames, args))
+        self.__dict__.update(kwargs)
 
     @property
     def args(self):
@@ -241,6 +236,8 @@ class InternalNode(Node):
         The nodes that make up the body.
     """
 
+    _argnames = Node._argnames + ('body',)
+
     _traversable = ['body']
 
     def __init__(self, body=None, **kwargs):
@@ -256,6 +253,8 @@ class LeafNode(Node):
     Internal representation of a control flow node without a `body`.
     """
 
+    _argnames = Node._argnames
+
     def __repr__(self):
         raise NotImplementedError
 
@@ -270,6 +269,8 @@ class ScopedNode(Scope):
     :meth:`_rebuild` methods to make sure that an existing symbol table
     is carried over correctly.
     """
+
+    _argnames = Node._argnames
 
     def _update(self, *args, **kwargs):
         if 'symbol_attrs' not in kwargs:
@@ -292,6 +293,8 @@ class Section(InternalNode):
     """
     Internal representation of a single code region.
     """
+
+    _argnames = InternalNode._argnames
 
     def append(self, node):
         """
@@ -353,6 +356,10 @@ class Associate(ScopedNode, Section):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = ScopedNode._argnames + (
+        'body', 'associations', 'parent', 'symbol_attrs'
+    )
 
     _traversable = ['body', 'associations']
 
@@ -423,6 +430,11 @@ class Loop(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = InternalNode._argnames + (
+        'variable', 'bounds', 'body', 'pragma', 'pragma_post',
+        'loop_label', 'name', 'has_end_do'
+    )
+
     _traversable = ['variable', 'bounds', 'body']
 
     def __init__(self, variable, bounds=None, body=None, pragma=None, pragma_post=None,
@@ -485,6 +497,11 @@ class WhileLoop(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = InternalNode._argnames + (
+        'condition', 'body', 'pragma', 'pragma_post', 'loop_label',
+        'name', 'has_end_do'
+    )
+
     _traversable = ['condition', 'body']
 
     def __init__(self, condition, body=None, pragma=None, pragma_post=None,
@@ -537,6 +554,10 @@ class Conditional(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = InternalNode._argnames + (
+        'condition', 'body', 'else_body', 'inline', 'has_elseif', 'name'
+    )
+
     _traversable = ['condition', 'body', 'else_body']
 
     def __init__(self, condition, body, else_body, inline=False,
@@ -583,6 +604,8 @@ class PragmaRegion(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = InternalNode._argnames + ('body', 'pragma', 'pragma_post')
+
     _traversable = ['body']
 
     def __init__(self, body=None, pragma=None, pragma_post=None, **kwargs):
@@ -621,6 +644,8 @@ class Interface(InternalNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = InternalNode._argnames + ('body', 'abstract', 'spec')
 
     _traversable = ['body']
 
@@ -672,6 +697,8 @@ class Assignment(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = LeafNode._argnames + ('lhs', 'rhs', 'ptr', 'comment')
+
     _traversable = ['lhs', 'rhs']
 
     def __init__(self, lhs, rhs, ptr=False, comment=None, **kwargs):
@@ -715,6 +742,8 @@ class ConditionalAssignment(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + ('condition', 'lhs', 'rhs', 'else_rhs')
 
     _traversable = ['condition', 'lhs', 'rhs', 'else_rhs']
 
@@ -761,6 +790,10 @@ class CallStatement(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + (
+        'name', 'arguments', 'kwarguments', 'pragma', 'not_active', 'chevron'
+    )
 
     _traversable = ['name', 'arguments', 'kwarguments']
 
@@ -859,6 +892,8 @@ class Allocation(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = LeafNode._argnames + ('variables', 'data_source', 'status_var')
+
     _traversable = ['variables', 'data_source', 'status_var']
 
     def __init__(self, variables, data_source=None, status_var=None, **kwargs):
@@ -889,6 +924,8 @@ class Deallocation(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + ('variables', 'status_var')
 
     _traversable = ['variables', 'status_var']
 
@@ -941,6 +978,9 @@ class Comment(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + ('text', )
+    
     def __init__(self, text=None, **kwargs):
         super().__init__(**kwargs)
 
@@ -962,6 +1002,8 @@ class CommentBlock(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + ('comments', )
 
     def __init__(self, comments, **kwargs):
         super().__init__(**kwargs)
@@ -994,6 +1036,8 @@ class Pragma(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = LeafNode._argnames + ('keyword', 'content')
+
     def __init__(self, keyword, content=None, **kwargs):
         super().__init__(**kwargs)
 
@@ -1018,6 +1062,8 @@ class PreprocessorDirective(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + ('text', )
 
     def __init__(self, text, **kwargs):
         super().__init__(**kwargs)
@@ -1052,6 +1098,11 @@ class Import(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + (
+        'module', 'symbols', 'nature', 'c_import', 'f_include',
+        'f_import', 'rename_list'
+    )
 
     _traversable = ['symbols', 'rename_list']
 
@@ -1108,6 +1159,10 @@ class VariableDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = LeafNode._argnames + (
+        'symbols', 'dimensions', 'comment', 'pragma'
+    )
+
     _traversable = ['symbols', 'dimensions']
 
     def __init__(self, symbols, dimensions=None, comment=None, pragma=None, **kwargs):
@@ -1160,6 +1215,11 @@ class ProcedureDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = LeafNode._argnames + (
+        'symbols', 'interface', 'external', 'module', 'generic',
+        'final', 'comment', 'pragma'
+    )
+
     _traversable = ['symbols', 'interface']
 
     def __init__(self, symbols, interface=None, external=False, module=False,
@@ -1200,6 +1260,8 @@ class DataDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = LeafNode._argnames + ('variable', 'values')
+
     _traversable = ['variable', 'values']
 
     def __init__(self, variable, values, **kwargs):
@@ -1232,6 +1294,10 @@ class StatementFunction(LeafNode):
     return_type : :any:`SymbolAttributes`
         The return type of the statement function
     """
+
+    _argnames = LeafNode._argnames + (
+        'variable', 'arguments', 'rhs', 'return_type'
+    )
 
     _traversable = ['variable', 'arguments', 'rhs']
 
@@ -1292,6 +1358,11 @@ class TypeDef(ScopedNode, LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + (
+        'name', 'body', 'abstract', 'extends', 'bind_c', 'private',
+        'public', 'parent', 'symbol_attrs'
+    )
 
     _traversable = ['body']
 
@@ -1418,6 +1489,10 @@ class MultiConditional(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = LeafNode._argnames + (
+        'expr', 'values', 'bodies', 'else_body', 'name'
+    )
+
     _traversable = ['expr', 'values', 'bodies', 'else_body']
 
     def __init__(self, expr, values, bodies, else_body, name=None, **kwargs):
@@ -1459,6 +1534,10 @@ class MaskedStatement(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = LeafNode._argnames + (
+        'conditions', 'bodies', 'default', 'inline'
+    )
+
     _traversable = ['conditions', 'bodies', 'default']
 
     def __init__(self, conditions, bodies, default, inline=False, **kwargs):
@@ -1498,6 +1577,9 @@ class Intrinsic(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + ('text', )
+        
     def __init__(self, text=None, **kwargs):
         super().__init__(**kwargs)
 
@@ -1522,6 +1604,9 @@ class Enumeration(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + ('symbols', )
+    
     def __init__(self, symbols, **kwargs):
         super().__init__(**kwargs)
 
@@ -1548,6 +1633,9 @@ class RawSource(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + ('text', )
+    
     def __init__(self, text=None, **kwargs):
         super().__init__(**kwargs)
 
