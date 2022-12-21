@@ -586,9 +586,9 @@ class NestedMaskedTransformer(MaskedTransformer):
 
         # need to make (value, body) pairs to track vanishing bodies
         expr = self.visit(o.expr, **kwargs)
-        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
-                    for c, b in zip(o.values, o.bodies)]
-        branches = [(c, b) for c, b in branches if flatten(as_tuple(b))]
+        branches = tuple((self.visit(c, **kwargs), self.visit(b, **kwargs))
+                         for c, b in zip(o.values, o.bodies))
+        branches = tuple((c, b) for c, b in branches if flatten(as_tuple(b)))
         else_body = self.visit(o.else_body, **kwargs)
 
         # retain whatever is in the else body if all other branches are gone

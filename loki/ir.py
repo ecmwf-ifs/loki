@@ -1424,10 +1424,10 @@ class MultiConditional(LeafNode):
         super().__init__(**kwargs)
 
         assert isinstance(expr, Expression)
-        assert is_iterable(values) and all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
+        assert isinstance(values, tuple) and all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
                                            for v in values)
-        assert is_iterable(bodies) and all(isinstance(b, tuple) for b in bodies)
-        assert is_iterable(else_body)
+        assert isinstance(bodies, tuple) and all(isinstance(b, tuple) for b in bodies)
+        assert isinstance(else_body, tuple)
 
         self.expr = expr
         self.values = as_tuple(values)
