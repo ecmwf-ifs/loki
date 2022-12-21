@@ -86,12 +86,12 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_Node(self, o, **kwargs):
         # Live symbols are determined on InternalNode handler levels and
         # get passed down to all child nodes
-        setattr(o, '_live_symbols', kwargs.get('live_symbols', set()))
+        o._update(_live_symbols=kwargs.get('live_symbols', set()))
 
         # Symbols defined or used by this node are determined by their individual
         # handler routines and passed on to visitNode from there
-        setattr(o, '_defines_symbols', kwargs.get('defines_symbols', set()))
-        setattr(o, '_uses_symbols', kwargs.get('uses_symbols', set()))
+        o._update(_defines_symbols=kwargs.get('defines_symbols', set()))
+        o._update(_uses_symbols=kwargs.get('uses_symbols', set()))
         return o
 
     # Internal nodes
@@ -251,9 +251,7 @@ class DataflowAnalysisDetacher(Transformer):
         super().__init__(inplace=True, **kwargs)
 
     def visit_Node(self, o, **kwargs):
-        for attr in ('_live_symbols', '_defines_symbols', '_uses_symbols'):
-            if hasattr(o, attr):
-                delattr(o, attr)
+        o._update(_live_symbols=None, _defines_symbols=None, _uses_symbols=None)
         return super().visit_Node(o, **kwargs)
 
 

@@ -12,7 +12,7 @@ Control flow node classes for
 """
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import Any, Tuple, Union
 
@@ -74,6 +74,14 @@ class Node:
     _argnames = ('label', 'source')
 
     _traversable = []
+
+    def __post_init__(self):
+        # Create private placeholders for dataflow analysis fields that
+        # do not show up in the dataclass field definitions, as these
+        # are entirely transient.
+        self._update(_live_symbols=None)
+        self._update(_defines_symbols=None)
+        self._update(_uses_symbols=None)
 
     @property
     def _canonical(self):
@@ -190,9 +198,9 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if not hasattr(self, '_live_symbols'):
+        if self.__dict__['_live_symbols'] is None:
             raise RuntimeError('Need to run dataflow analysis on the IR first.')
-        return self._live_symbols
+        return self.__dict__['_live_symbols']
 
     @property
     def defines_symbols(self):
@@ -205,9 +213,9 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if not hasattr(self, '_defines_symbols'):
+        if self.__dict__['_defines_symbols'] is None:
             raise RuntimeError('Need to run dataflow analysis on the IR first.')
-        return self._defines_symbols
+        return self.__dict__['_defines_symbols']
 
     @property
     def uses_symbols(self):
@@ -221,9 +229,9 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if not hasattr(self, '_uses_symbols'):
+        if self.__dict__['_uses_symbols'] is None:
             raise RuntimeError('Need to run dataflow analysis on the IR first.')
-        return self._uses_symbols
+        return self.__dict__['_uses_symbols']
 
 
 @dataclass(frozen=True)
@@ -245,6 +253,7 @@ class InternalNode(Node):
     _traversable = ['body']
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.body is None or isinstance(self.body, tuple)
 
     def __repr__(self):
@@ -466,6 +475,7 @@ class Loop(InternalNode, _LoopBase):
     _traversable = ['variable', 'bounds', 'body']
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.variable is not None
 
     def __repr__(self):
@@ -589,6 +599,7 @@ class Conditional(InternalNode, _ConditionalBase):
     _traversable = ['condition', 'body', 'else_body']
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.condition is not None
 
         if self.body is not None:
@@ -686,6 +697,7 @@ class Interface(InternalNode, _InterfaceBase):
     _traversable = ['body']
 
     def __post_init__(self):
+        super().__post_init__()
         assert not (self.abstract and self.spec)
 
     @property
@@ -746,6 +758,7 @@ class Assignment(LeafNode, _AssignmentBase):
     _traversable = ['lhs', 'rhs']
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.lhs is not None
         assert self.rhs is not None
 
@@ -846,6 +859,7 @@ class CallStatement(LeafNode, _CallStatementBase):
     _traversable = ['name', 'arguments', 'kwarguments']
 
     def __post_init__(self):
+        super().__post_init__()
         assert is_iterable(self.arguments)
         assert all(isinstance(arg, Expression) for arg in self.arguments)
         assert self.kwarguments is None or (
@@ -947,6 +961,7 @@ class Allocation(LeafNode, _AllocationBase):
     _traversable = ['variables', 'data_source', 'status_var']
 
     def __post_init__(self):
+        super().__post_init__()
         assert is_iterable(self.variables)
         assert all(isinstance(var, Expression) for var in self.variables)
         assert self.data_source is None or isinstance(self.data_source, Expression)
@@ -983,6 +998,7 @@ class Deallocation(LeafNode, _DeallocationBase):
     _traversable = ['variables', 'status_var']
 
     def __post_init__(self):
+        super().__post_init__()
         assert is_iterable(self.variables)
         assert all(isinstance(var, Expression) for var in self.variables)
         assert self.status_var is None or isinstance(self.status_var, Expression)
@@ -1014,6 +1030,7 @@ class Nullify(LeafNode, _NullifyBase):
     _traversable = ['variables']
 
     def __post_init__(self):
+        super().__post_init__()
         assert is_iterable(self.variables)
         assert all(isinstance(var, Expression) for var in self.variables)
 
@@ -1075,6 +1092,7 @@ class CommentBlock(LeafNode, _CommentBlockBase):
     _argnames = LeafNode._argnames + ('comments', )
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.comments is not None
         assert is_iterable(self.comments)
 
@@ -1116,6 +1134,7 @@ class Pragma(LeafNode, _PragmaBase):
     _argnames = LeafNode._argnames + ('keyword', 'content')
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.keyword and isinstance(self.keyword, str)
 
     def __repr__(self):
@@ -1198,6 +1217,7 @@ class Import(LeafNode, _ImportBase):
     _traversable = ['symbols', 'rename_list']
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.module is None or isinstance(self.module, str)
         assert isinstance(self.symbols, tuple)
         assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
@@ -1259,6 +1279,7 @@ class VariableDeclaration(LeafNode, _VariableDeclarationBase):
     _traversable = ['symbols', 'dimensions']
 
     def __post_init__(self):
+        super().__post_init__()
         assert self.symbols is not None
         assert is_iterable(self.symbols)
         assert all(isinstance(s, Expression) for s in self.symbols)
@@ -1327,6 +1348,7 @@ class ProcedureDeclaration(LeafNode, _ProcedureDeclarationBase):
     _traversable = ['symbols', 'interface']
 
     def __post_init__(self):
+        super().__post_init__()
         assert is_iterable(self.symbols)
         assert all(isinstance(var, Expression) for var in self.symbols)
         assert self.interface is None or isinstance(self.interface, (Expression, DataType))
@@ -1369,6 +1391,7 @@ class DataDeclaration(LeafNode, _DataDeclarationBase):
     _traversable = ['variable', 'values']
 
     def __post_init__(self):
+        super().__post_init__()
         assert isinstance(self.variable, (Expression, str, tuple))
         assert is_iterable(self.values)
         assert all(isinstance(val, Expression) for val in self.values)
@@ -1411,6 +1434,7 @@ class StatementFunction(LeafNode, _StatementFunctionBase):
     _traversable = ['variable', 'arguments', 'rhs']
 
     def __post_init__(self):
+        super().__post_init__()
         assert isinstance(self.variable, Expression)
         assert is_iterable(self.arguments) and all(isinstance(a, Expression) for a in self.arguments)
         assert isinstance(self.return_type, SymbolAttributes)
@@ -1610,6 +1634,7 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
     _traversable = ['expr', 'values', 'bodies', 'else_body']
 
     def __post_init__(self):
+        super().__post_init__()
         assert isinstance(self.expr, Expression)
         assert isinstance(self.values, tuple)
         assert all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
@@ -1659,6 +1684,7 @@ class MaskedStatement(LeafNode, _MaskedStatementBase):
     _traversable = ['conditions', 'bodies', 'default']
 
     def __post_init__(self):
+        super().__post_init__()
         assert is_iterable(self.conditions) and all(isinstance(c, Expression) for c in self.conditions)
         assert is_iterable(self.bodies) and all(isinstance(c, tuple) for c in self.bodies)
         assert len(self.conditions) == len(self.bodies)
@@ -1700,6 +1726,7 @@ class Intrinsic(LeafNode, _IntrinsicBase):
     _argnames = LeafNode._argnames + ('text', )
 
     def __post_init__(self):
+        super().__post_init__()
         assert isinstance(self.text, str)
 
     def __repr__(self):
@@ -1733,6 +1760,7 @@ class Enumeration(LeafNode, _EnumerationBase):
     _argnames = LeafNode._argnames + ('symbols', )
 
     def __post_init__(self):
+        super().__post_init__()
         if self.symbols is not None:
             assert all(isinstance(s, Expression) for s in self.symbols)
 
