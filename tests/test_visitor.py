@@ -380,7 +380,7 @@ end subroutine routine_simple
     retriever = ExpressionRetriever(lambda e: isinstance(e, FloatLiteral))
     literals = ExpressionFinder(retrieve=retriever.retrieve, with_ir_node=True).visit(routine.body)
     assert len(literals) == 1
-    assert isinstance(literals[0][0], Assignment) and literals[0][0]._source.lines == (13, 13)
+    assert isinstance(literals[0][0], Assignment) and literals[0][0].source.lines == (13, 13)
 
     literal_root = FindExpressionRoot(literals[0][1].pop()).visit(literals[0][0])
     assert literal_root[0] is cast_root[0]
