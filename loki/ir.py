@@ -80,8 +80,8 @@ class Node:
 
     def __init__(self, source=None, label=None):
         super().__init__()
-        self._source = source
-        self._label = label
+        self.source = source
+        self.label = label
 
     @property
     def _canonical(self):
@@ -169,21 +169,6 @@ class Node:
         Arguments used to construct the Node that cannot be traversed.
         """
         return {k: v for k, v in self.args.items() if k not in self._traversable}
-
-    @property
-    def source(self):
-        """
-        The :py:class:`loki.frontend.source.Source` object with information
-        about the original source for that Node.
-        """
-        return self._source
-
-    @property
-    def label(self):
-        """
-        Return the statement label of this node.
-        """
-        return self._label
 
     def __repr__(self):
         raise NotImplementedError
