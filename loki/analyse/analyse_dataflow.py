@@ -152,7 +152,7 @@ class DataflowAnalysisAttacher(Transformer):
         uses = self._symbols_from_expr(as_tuple(eset)) | self._symbols_from_expr(as_tuple(vset))
         body, defines, uses = self._visit_body(o.bodies, live=live, uses=uses, **kwargs)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
-        body = [as_tuple(b,) for b in body]
+        body = tuple(as_tuple(b,) for b in body)
         o._update(bodies=body, else_body=else_body)
         defines = defines | else_defines
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
@@ -161,7 +161,7 @@ class DataflowAnalysisAttacher(Transformer):
         live = kwargs.pop('live_symbols', set())
         conditions = self._symbols_from_expr(o.conditions)
         body, defines, uses = self._visit_body(o.bodies, live=live, uses=conditions, **kwargs)
-        body = [as_tuple(b,) for b in body]
+        body = tuple(as_tuple(b,) for b in body)
         default, default_defs, uses = self._visit_body(o.default, live=live, uses=uses, **kwargs)
         o._update(bodies=body, default=default)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines|default_defs, uses_symbols=uses, **kwargs)
