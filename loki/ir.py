@@ -410,7 +410,12 @@ class Associate(ScopedNode, Section):
         else:
             self.associations = associations
 
+        rescope_symbols = kwargs.pop('rescope_symbols', False)
+
         super().__init__(body=body, parent=parent, symbol_attrs=symbol_attrs, **kwargs)
+
+        if rescope_symbols:
+            self.rescope_symbols()
 
     @property
     def _canonical(self):
@@ -1531,6 +1536,8 @@ class TypeDef(ScopedNode, LeafNode):
         self.private = private
         self.public = public
 
+        rescope_symbols = kwargs.pop('rescope_symbols', False)
+
         # Then, call the parent constructors to take care of any generic
         # properties and handle the scope information
         super().__init__(parent=parent, symbol_attrs=symbol_attrs, **kwargs)
@@ -1538,6 +1545,9 @@ class TypeDef(ScopedNode, LeafNode):
         # Finally, register this typedef in the parent scope
         if self.parent:
             self.parent.symbol_attrs[self.name] = SymbolAttributes(self.dtype)
+
+        if rescope_symbols:
+            self.rescope_symbols()
 
     @property
     def _canonical(self):

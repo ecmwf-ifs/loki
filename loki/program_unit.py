@@ -84,10 +84,13 @@ class ProgramUnit(Scope):
         self.contains = contains
 
         # Call the parent constructor to take care of symbol table and rescoping
-        super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
+        super().__init__(parent=parent, symbol_attrs=symbol_attrs)
 
         # Finally, register this object in the parent scope
         self.register_in_parent_scope()
+
+        if rescope_symbols:
+            self.rescope_symbols()
 
     @classmethod
     def from_source(cls, source, definitions=None, xmods=None, parser_classes=None, frontend=Frontend.FP, parent=None):
