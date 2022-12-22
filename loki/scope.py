@@ -254,27 +254,19 @@ class Scope:
         The enclosing scope, thus allowing recursive look-ups
     symbol_attrs : :any:`SymbolTable`, optional
         Use the given symbol table instead of instantiating a new
-    rescope_symbols : bool, optional
-        Call :meth:`rescope_symbols` for this scope.
     """
 
-    def __init__(self, parent=None, symbol_attrs=None, rescope_symbols=False, **kwargs):
-        assert symbol_attrs is None or isinstance(symbol_attrs, SymbolTable)
+    def __init__(self, parent=None, symbol_attrs=None, **kwargs):
+        self.symbol_attrs = SymbolTable() if symbol_attrs is None else symbol_attrs
         self.parent = parent
 
-        parent_symbol_attrs = self.parent.symbol_attrs if self.parent is not None else None
-        if symbol_attrs is None:
-            self.symbol_attrs = SymbolTable(parent=parent_symbol_attrs)
-        else:
-            assert isinstance(symbol_attrs, SymbolTable)
-            symbol_attrs._parent = weakref.ref(parent_symbol_attrs) if parent_symbol_attrs is not None else None
-            self.symbol_attrs = symbol_attrs
+        assert self.symbol_attrs is None or isinstance(self.symbol_attrs, SymbolTable)
 
         # Instantiate object after we've set up the symbol table
         super().__init__(**kwargs)
 
-        if rescope_symbols:
-            self.rescope_symbols()
+        if self.symbol_attrs.parent is None and self.parent:
+            self.symbol_attrs.parent = self.parent.symbol_attrs
 
     def __repr__(self):
         """
