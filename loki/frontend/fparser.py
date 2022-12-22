@@ -2112,7 +2112,8 @@ class FParser2IR(GenericVisitor):
             labels += [self.get_label(conditional)]
 
         # Build IR nodes backwards using else-if branch as else body
-        node = ir.Conditional(condition=conditions[-1], body=bodies[-1], else_body=as_tuple(else_body),
+        body = as_tuple(flatten(bodies[-1]))
+        node = ir.Conditional(condition=conditions[-1], body=body, else_body=as_tuple(else_body),
                               inline=False, has_elseif=False, label=labels[-1], source=sources[-1])
         for idx in reversed(range(len(conditions)-1)):
             node = ir.Conditional(condition=conditions[idx], body=bodies[idx], else_body=as_tuple(node),
