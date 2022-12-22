@@ -337,11 +337,10 @@ class OMNI2IR(GenericVisitor):
                 ast=o, source=self.get_source(o)
             )
         else:
-            routine.__init__(  # pylint: disable=unnecessary-dunder-call
+            routine.__initialize__(
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
                 contains=routine.contains, prefix=prefix, bind=None, is_function=is_function,
-                ast=o, source=self.get_source(o), parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-                incomplete=routine._incomplete
+                ast=o, source=self.get_source(o), incomplete=routine._incomplete
             )
 
         return routine
@@ -410,12 +409,11 @@ class OMNI2IR(GenericVisitor):
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
-        routine.__init__(
+        routine.__initialize__(
             name=routine.name, args=routine._dummies,
             docstring=docstring, spec=spec, body=body, contains=contains,
             ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
-            rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-            source=routine.source, incomplete=False
+            rescope_symbols=True, source=routine.source, incomplete=False
         )
 
         # Big, but necessary hack:
@@ -506,11 +504,9 @@ class OMNI2IR(GenericVisitor):
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
-        module.__init__(
+        module.__initialize__(
             name=module.name, docstring=docstring, spec=spec, contains=contains,
-            ast=o, rescope_symbols=True, source=kwargs['source'],
-            parent=module.parent, symbol_attrs=module.symbol_attrs,
-            incomplete=False
+            ast=o, rescope_symbols=True, source=kwargs['source'], incomplete=False
         )
 
         return module

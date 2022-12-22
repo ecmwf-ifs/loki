@@ -419,9 +419,8 @@ class ModulePattern(Pattern):
         else:
             contains = None
 
-        module.__init__(  # pylint: disable=unnecessary-dunder-call
-            name=module.name, spec=spec, contains=contains, parent=module.parent,
-            source=module.source, symbol_attrs=module.symbol_attrs, incomplete=True
+        module.__initialize__(  # pylint: disable=unnecessary-dunder-call
+            name=module.name, spec=spec, contains=contains, source=module.source, incomplete=True
         )
 
         if match.span()[0] > 0:
@@ -504,10 +503,9 @@ class SubroutineFunctionPattern(Pattern):
         else:
             contains = None
 
-        routine.__init__(  # pylint: disable=unnecessary-dunder-call
+        routine.__initialize__(  # pylint: disable=unnecessary-dunder-call
             name=routine.name, args=routine._dummies, is_function=routine.is_function,
-            spec=spec, contains=contains, parent=routine.parent, source=routine.source,
-            symbol_attrs=routine.symbol_attrs, incomplete=True
+            spec=spec, contains=contains, source=routine.source, incomplete=True
         )
 
         if match.span()[0] > 0:
