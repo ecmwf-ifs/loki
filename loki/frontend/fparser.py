@@ -491,8 +491,10 @@ class FParser2IR(GenericVisitor):
         else:
             raise ValueError(f'Unexpected only/rename-list value in USE statement: {o.children[3]}')
 
-        return ir.Import(module=name, symbols=symbols, nature=nature, rename_list=rename_list,
-                         source=kwargs.get('source'), label=kwargs.get('label'))
+        return ir.Import(
+            module=name, symbols=as_tuple(symbols), nature=nature, rename_list=rename_list,
+            source=kwargs.get('source'), label=kwargs.get('label')
+        )
 
     visit_Only_List = visit_List
     visit_Rename_List = visit_List
@@ -1537,8 +1539,11 @@ class FParser2IR(GenericVisitor):
             spec = spec.rescope(scope=scope)
 
         # Traverse the body and build the object
-        body = as_tuple(self.visit(c, **kwargs) for c in o.children[interface_stmt_index+1:end_interface_stmt_index])
-        interface = ir.Interface(body=body, abstract=abstract, spec=spec, label=kwargs.get('label'), source=source)
+        body = tuple(self.visit(c, **kwargs) for c in o.children[interface_stmt_index+1:end_interface_stmt_index])
+        interface = ir.Interface(
+            body=as_tuple(flatten(body)), abstract=abstract,
+            spec=spec, label=kwargs.get('label'), source=source
+        )
 
         # Everything past the END INTERFACE (should be empty)
         assert not o.children[end_interface_stmt_index+1:]
@@ -2059,7 +2064,8 @@ class FParser2IR(GenericVisitor):
         node = ir.Conditional(condition=conditions[-1], body=body, else_body=as_tuple(else_body),
                               inline=False, has_elseif=False, label=labels[-1], source=sources[-1])
         for idx in reversed(range(len(conditions)-1)):
-            node = ir.Conditional(condition=conditions[idx], body=bodies[idx], else_body=as_tuple(node),
+            body = as_tuple(flatten(bodies[idx]))
+            node = ir.Conditional(condition=conditions[idx], body=body, else_body=as_tuple(node),
                                   inline=False, has_elseif=True, label=labels[idx], source=sources[idx])
 
         # Update with construct name
@@ -2159,9 +2165,11 @@ class FParser2IR(GenericVisitor):
 
         # Everything past the END ASSOCIATE (should be empty)
         assert not o.children[end_select_stmt_index+1:]
-
-        case_construct = ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
-                                             label=label, name=name, source=source)
+        bodies = tuple(as_tuple(flatten(b)) for b in bodies)
+        case_construct = ir.MultiConditional(
+            expr=expr, values=values, bodies=bodies,
+            else_body=else_body, label=label, name=name, source=source
+        )
         return (*pre, case_construct)
 
     def visit_Select_Case_Stmt(self, o, **kwargs):
@@ -2589,11 +2597,11 @@ class FParser2IR(GenericVisitor):
         where_stmts_index = where_stmts_index + (end_where_stmt_index,)
 
         # Handle all cases
-        conditions = [self.visit(c, **kwargs) for c in where_stmts]
-        bodies = [
-            as_tuple([self.visit(c, **kwargs) for c in o.children[start+1:stop]])
+        conditions = tuple(self.visit(c, **kwargs) for c in where_stmts)
+        bodies = tuple(
+            as_tuple(flatten(self.visit(c, **kwargs) for c in o.children[start+1:stop]))
             for start, stop in zip(where_stmts_index[:-1], where_stmts_index[1:])
-        ]
+        )
 
         # Extract the default case if any
         if conditions[-1] == 'DEFAULT':
@@ -2606,8 +2614,8 @@ class FParser2IR(GenericVisitor):
         assert not o.children[end_where_stmt_index+1:]
 
         masked_statement = ir.MaskedStatement(
-            conditions=as_tuple(conditions), bodies=as_tuple(bodies),
-            default=default, label=kwargs.get('label'), source=source
+            conditions=conditions, bodies=bodies, default=default,
+            label=kwargs.get('label'), source=source
         )
         return (*pre, masked_statement)
 

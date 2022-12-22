@@ -1357,7 +1357,7 @@ end subroutine test_subroutine_rescope
     assert all(var.scope is not None for var in other_routine.variables)
 
     # Replace member routine by copied routine
-    contains = [nested_routine if isinstance(c, Subroutine) else c for c in routine.contains.body]
+    contains = tuple(nested_routine if isinstance(c, Subroutine) else c for c in routine.contains.body)
     routine.contains = routine.contains.clone(body=contains)
 
     # Now, all variables should still be well-defined and fgen should produce the same string
@@ -1453,7 +1453,7 @@ end subroutine test_subroutine_rescope_clone
     assert all(var.scope is not None for var in other_routine.variables)
 
     # Replace member routine by copied routine
-    contains = [nested_routine if isinstance(c, Subroutine) else c for c in routine.contains.body]
+    contains = tuple(nested_routine if isinstance(c, Subroutine) else c for c in routine.contains.body)
     routine.contains = routine.contains.clone(body=contains)
 
     # Now, all variables should still be well-defined and fgen should produce the same string

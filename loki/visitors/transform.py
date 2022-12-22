@@ -558,7 +558,7 @@ class NestedMaskedTransformer(MaskedTransformer):
             return else_body
 
         has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
-        return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
+        return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=bool(has_elseif))
 
     def visit_MultiConditional(self, o, **kwargs):
         """

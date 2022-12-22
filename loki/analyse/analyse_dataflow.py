@@ -47,7 +47,7 @@ class DataflowAnalysisAttacher(Transformer):
         if uses is None:
             uses = set()
         visited = []
-        for i in flatten(body):
+        for i in flatten(as_tuple(body)):
             visited += [self.visit(i, live_symbols=live|defines, **kwargs)]
             uses |= visited[-1].uses_symbols.copy() - defines
             defines |= visited[-1].defines_symbols.copy()
