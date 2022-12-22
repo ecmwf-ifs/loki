@@ -79,7 +79,7 @@ are provided to create derived classes for specialisation of the actual hoisting
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',), key=key), reverse=True)
         scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
 """
-from loki.expression import FindVariables
+from loki.expression import FindVariables, SubstituteExpressions
 from loki.ir import CallStatement, Allocation, Deallocation
 from loki.tools.util import is_iterable, as_tuple
 from loki.visitors import Transformer, FindNodes
@@ -111,9 +111,10 @@ class HoistVariablesAnalysis(Transformation):
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, key=None):
+    def __init__(self, key=None, disable=()):
         if key is not None:
             self._key = key
+        self.disable = [_.upper() for _ in disable]
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -131,7 +132,16 @@ class HoistVariablesAnalysis(Transformation):
 
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        successors = kwargs.get('successors', None)
+        _successors = kwargs.get('successors', None)
+        successors = []
+        for successor in _successors:
+            append = True
+            for _disable in self.disable:
+                if _disable.upper() in successor.name.upper():
+                    append = False
+                    break
+            if append:
+                successors.append(successor)
 
         if item and not item.local_name == routine.name.lower():
             return
@@ -142,15 +152,27 @@ class HoistVariablesAnalysis(Transformation):
             variables = self.find_variables(routine)
             item.trafo_data[self._key]["to_hoist"] = variables
             item.trafo_data[self._key]["hoist_variables"] = [var.clone(name=f'{routine.name}_{var.name}')
-                                                            for var in variables]
+                                                             for var in variables]
         else:
             item.trafo_data[self._key]["to_hoist"] = []
             item.trafo_data[self._key]["hoist_variables"] = []
 
+        calls = [call for call in FindNodes(CallStatement).visit(routine.body) if str(call.name).upper()
+                 not in self.disable]
+        call_map = {str(call.name): call for call in calls}
+
         for child in successors:
-            item.trafo_data[self._key]["to_hoist"].extend(child.trafo_data[self._key]["hoist_variables"])
+            arg_map = dict(call_map[child.routine.name].arg_iter())
+            hoist_variables = []
+            for var in child.trafo_data[self._key]["hoist_variables"]:
+                if isinstance(var, sym.Array):
+                    dimensions = SubstituteExpressions(arg_map).visit(var.dimensions)
+                    hoist_variables.append(var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions)))
+                else:
+                    hoist_variables.append(var)
+            item.trafo_data[self._key]["to_hoist"].extend(hoist_variables)
             item.trafo_data[self._key]["to_hoist"] = list(dict.fromkeys(item.trafo_data[self._key]["to_hoist"]))
-            item.trafo_data[self._key]["hoist_variables"].extend(child.trafo_data[self._key]["hoist_variables"])
+            item.trafo_data[self._key]["hoist_variables"].extend(hoist_variables)
             item.trafo_data[self._key]["hoist_variables"] = list(dict.fromkeys(
                 item.trafo_data[self._key]["hoist_variables"]))
 
@@ -188,9 +210,10 @@ class HoistVariablesTransformation(Transformation):
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, key=None):
+    def __init__(self, key=None, disable=()):
         if key is not None:
             self._key = key
+        self.disable = disable
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -212,7 +235,16 @@ class HoistVariablesTransformation(Transformation):
         """
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        successors = kwargs.get('successors', ())
+        _successors = kwargs.get('successors', None)
+        successors = []
+        for successor in _successors:
+            append = True
+            for _disable in self.disable:
+                if _disable.upper() in successor.name.upper():
+                    append = False
+                    break
+            if append:
+                successors.append(successor)
         successor_map = {successor.routine.name: successor for successor in successors}
 
         if item and not item.local_name == routine.name.lower():
@@ -231,9 +263,19 @@ class HoistVariablesTransformation(Transformation):
                                                      scope=routine) for var in item.trafo_data[self._key]["to_hoist"]])
 
         call_map = {}
-        for call in FindNodes(CallStatement).visit(routine.body):
+        _calls = FindNodes(CallStatement).visit(routine.body)
+        calls = []
+        for call in _calls:
+            append = True
+            for _disable in self.disable:
+                if _disable.upper() in str(call.name).upper():
+                    append = False
+                    break
+            if append:
+                calls.append(call)
+        for call in calls:
             new_args = [arg.clone(dimensions=None) for arg
-                        in successor_map[call.name].trafo_data[self._key]["hoist_variables"]]
+                        in successor_map[str(call.routine.name)].trafo_data[self._key]["hoist_variables"]]
             arguments = list(call.arguments) + new_args
             call_map[call] = call.clone(arguments=as_tuple(arguments))
 
@@ -277,8 +319,8 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
         for the array dimensions.
     """
 
-    def __init__(self, key=None, dim_vars=None, **kwargs):
-        super().__init__(key=key, **kwargs)
+    def __init__(self, key=None, disable=(), dim_vars=None, **kwargs):
+        super().__init__(key=key, disable=disable, **kwargs)
         self.dim_vars = dim_vars
         if self.dim_vars is not None:
             assert is_iterable(self.dim_vars)
@@ -315,8 +357,8 @@ class HoistTemporaryArraysTransformationAllocatable(HoistVariablesTransformation
         these transformations are carried out in succession.
     """
 
-    def __init__(self, key=None, **kwargs):
-        super().__init__(key=key, **kwargs)
+    def __init__(self, key=None, disable=(), **kwargs):
+        super().__init__(key=key, disable=disable, **kwargs)
 
     def driver_variable_declaration(self, routine, var):
         """

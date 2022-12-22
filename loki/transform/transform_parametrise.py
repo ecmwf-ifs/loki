@@ -154,9 +154,12 @@ class ParametriseTransformation(Transformation):
 
     def __init__(self, dic2p, disable=(), replace_by_value=False, entry_points=None, abort_callback=None, key=None):
         self.dic2p = dic2p
-        self.disable = disable
+        self.disable = [_.upper() for _ in disable]
         self.replace_by_value = replace_by_value
-        self.entry_points = entry_points
+        if entry_points is not None:
+            self.entry_points = [_.upper() for _ in entry_points]
+        else:
+            self.entry_points = entry_points
         if self.entry_points is not None:
             assert is_iterable(entry_points)
         self.abort_callback = abort_callback
@@ -184,8 +187,18 @@ class ParametriseTransformation(Transformation):
         if item and not item.local_name == routine.name.lower():
             return
 
-        successors = kwargs.get('successors', None)
-        successor_map = {successor.routine.name: successor for successor in successors}
+        _successors = kwargs.get('successors', None)
+        successors = []
+        for successor in _successors:
+            append = True
+            for _disable in self.disable:
+                if _disable.upper() in successor.name.upper():
+                    append = False
+                    break
+            if append:
+                successors.append(successor)
+        successor_map = {successor.routine.name: successor for successor in successors if successor.name.upper()
+                         not in self.disable}
 
         # decide whether subroutine is an entry point or not
         process_entry_point = False
@@ -199,7 +212,7 @@ class ParametriseTransformation(Transformation):
                 else:
                     dic2p = {}
         else:
-            if routine.name in self.entry_points:
+            if routine.name.upper() in self.entry_points:
                 dic2p = self.dic2p
                 process_entry_point = True
             else:
@@ -250,13 +263,14 @@ class ParametriseTransformation(Transformation):
             # remove variables to be parametrised from all call statements
             call_map = {}
             for call in FindNodes(ir.CallStatement).visit(routine.body):
-                if call.name not in self.disable:
-                    successor_map[call.name].trafo_data[self._key] = {}
+                if str(call.name).upper() not in self.disable:
+                    successor_map[str(call.name)].trafo_data[self._key] = {}
                     arg_map = dict(call.arg_iter())
                     arg_map_reversed = {v: k for k, v in arg_map.items()}
                     indices = [call.arguments.index(var2p) for var2p in vars2p if var2p in call.arguments]
                     for index in indices:
-                        successor_map[call.name].trafo_data[self._key][arg_map_reversed[call.arguments[index]]] = \
+                        name = str(call.name)
+                        successor_map[name].trafo_data[self._key][str(arg_map_reversed[call.arguments[index]])] = \
                             dic2p[call.arguments[index].name]
                     arguments = [arg for i, arg in enumerate(call.arguments) if arg not in vars2p]
                     call_map[call] = call.clone(arguments=arguments)
@@ -273,7 +287,7 @@ class ParametriseTransformation(Transformation):
                         parameter_declarations.append(decl.clone(symbols=(smbl.clone(
                             type=decl.symbols[0].type.clone(parameter=True, intent=None,
                                                             initial=sym.IntLiteral(
-                                                                dic2p[smbl.name]))),)))
+                                                                dic2p[smbl.name]))),))) # or smbl.name?
                     else:
                         symbols.append(smbl.clone())
 

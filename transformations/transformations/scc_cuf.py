@@ -153,7 +153,8 @@ def is_elemental(routine):
     return False
 
 
-def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable, transformation_type, depth):
+def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable, transformation_type, depth,
+                               typedef_variables):
 
     if is_elemental(routine):
         routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]])
@@ -174,7 +175,6 @@ def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable
     routine.spec.append(ir.VariableDeclaration((jblk_var,)))
 
     if depth == 1:
-        print(f"routine {routine.name}: thread assignment, depth: {depth}")
         # CUDA thread mapping
         var_thread_idx = sym.Variable(name="THREADIDX")
         var_x = sym.Variable(name="X", parent=var_thread_idx)
@@ -213,7 +213,7 @@ def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable
     var_map = {}
     for var in variables:
         if var in arguments:
-            if isinstance(var, sym.Scalar) and var.name != block_dim.size:  # and var.name not in types:
+            if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in typedef_variables:
                 var_map[var] = var.clone(type=var.type.clone(value=True))
             elif isinstance(var, sym.Array):
                 dimensions = list(var.dimensions) + [routine.variable_map[block_dim.size]]
@@ -223,16 +223,17 @@ def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable
         else:
             if isinstance(var, sym.Array):
                 dimensions = list(var.dimensions)
-                if horizontal.size in dimensions:
+                if horizontal.size in list(FindVariables().visit(var.dimensions)):
                     if transformation_type == 1:
                         dimensions += [routine.variable_map[block_dim.size]]
                         shape = list(var.shape) + [routine.variable_map[block_dim.size]]
                         type = var.type.clone(shape=as_tuple(shape))
+                        relevant_local_arrays.append(var.name)
                     else:
                         dimensions.remove(horizontal.size)
                         relevant_local_arrays.append(var.name)
                         type = var.type.clone(device=True)
-                var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=type)
+                    var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=type)
 
     routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
@@ -247,10 +248,11 @@ def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable
                                          type=var.type.clone(shape=as_tuple(dimensions)))
         else:
             if transformation_type == 1:
-                if isinstance(var, sym.Array):
+                if var.name in relevant_local_arrays:
                     dimensions = list(var.dimensions)
                     dimensions.append(routine.variable_map[block_dim.index])
-                    var_map[var] = var.clone(type=var.type.clone(shape=as_tuple(dimensions)))
+                    new_var = var.clone(dimensions=as_tuple(dimensions))
+                    var_map[var] = new_var
             else:
                 if var.name in relevant_local_arrays:
                     dimensions = list(var.dimensions)
@@ -313,7 +315,6 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
     # Establish the new dimensions and shapes first, before cloning the variables
     # The reason for this is that shapes of all variable instances are linked
     # via caching, meaning we can easily void the shape of an unprocessed variable.
-    print(f"routine: {routine.name}")
     variables = list(routine.variables)
     variables += list(FindVariables(unique=False).visit(routine.body))
 
@@ -572,7 +573,6 @@ def module_typedefs(routine, disable, typedefs):
                                                                       allocatable=None, device=True,
                                                                       module=None))
         var_map[var] = new_var
-        print(f"new var: {new_var}, type: {new_var.type}")
         routine.spec.append(ir.VariableDeclaration((new_var,)))
         routine.body.prepend(ir.Assignment(lhs=new_var, rhs=var))
 
@@ -586,6 +586,7 @@ def module_typedefs(routine, disable, typedefs):
             else:
                 arguments.append(arg)
         call.arguments = arguments
+    return variables
 
 def device_subroutine_prefix(routine, depth):
     if depth == 1:
@@ -611,10 +612,9 @@ class SccCuf(Transformation):
         else:
             self.disable = [_.upper() for _ in disable]
         self.typedefs = ['TECLDP']
+        self.typedef_variables = ()
 
     def transform_module(self, module, **kwargs):
-
-        print(f"transforming module: {module}")
 
         role = kwargs.get('role')
         targets = kwargs.get('targets', None)
@@ -656,7 +656,7 @@ class SccCuf(Transformation):
         kernel_remove_vector_loops(routine, self.horizontal)
 
         kernel_block_size_argument(routine, self.horizontal, self.vertical, self.block_dim, self.disable,
-                                   self.transformation_type, depth=depth)
+                                   self.transformation_type, depth=depth, typedef_variables=self.typedef_variables)
 
         # dynamic memory allocation of local arrays (only for version with dynamic memory allocation on device)
         if self.transformation_type == 2:
@@ -664,7 +664,7 @@ class SccCuf(Transformation):
 
     def process_routine_driver(self, routine, depth=0, targets=None):
 
-        module_typedefs(routine=routine, disable=self.disable, typedefs=self.typedefs)
+        self.typedef_variables = module_typedefs(routine=routine, disable=self.disable, typedefs=self.typedefs)
 
         # create variables needed for the device execution, especially generate device versions of arrays
         driver_device_variables(routine=routine, disable=self.disable)
