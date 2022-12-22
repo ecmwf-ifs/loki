@@ -55,9 +55,8 @@ class ProgramUnit(Scope):
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, name, docstring=None, spec=None, contains=None,
-                 ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None, incomplete=False):
+    def __initialize__(self, name, docstring=None, spec=None, contains=None,
+                       ast=None, source=None, rescope_symbols=False, incomplete=False):
         # Common properties
         assert name and isinstance(name, str)
         self.name = name
@@ -82,9 +81,6 @@ class ProgramUnit(Scope):
         self.docstring = as_tuple(docstring)
         self.spec = spec
         self.contains = contains
-
-        # Call the parent constructor to take care of symbol table and rescoping
-        super().__init__(parent=parent, symbol_attrs=symbol_attrs)
 
         # Finally, register this object in the parent scope
         self.register_in_parent_scope()

@@ -71,9 +71,25 @@ class Subroutine(ProgramUnit):
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, name, args=None, docstring=None, spec=None, body=None, contains=None,
-                 prefix=None, bind=None, result_name=None, is_function=False, ast=None, source=None, parent=None,
+    def __init__(self, name, args=None, docstring=None, spec=None, body=None,
+                 contains=None, prefix=None, bind=None, result_name=None,
+                 is_function=False, ast=None, source=None, parent=None,
                  rescope_symbols=False, symbol_attrs=None, incomplete=False):
+
+        super().__init__(parent=parent, symbol_attrs=symbol_attrs)
+
+        self.__initialize__(
+            name=name, args=args, docstring=docstring, spec=spec, body=body,
+            contains=contains,  prefix=prefix, bind=bind, result_name=result_name,
+            is_function=is_function, ast=ast, source=source,
+            rescope_symbols=rescope_symbols, incomplete=incomplete
+        )
+
+    def __initialize__(
+            self, name, args=None, docstring=None, spec=None, contains=None, body=None,
+            prefix=None, bind=None, result_name=None, is_function=False, ast=None,
+            source=None, rescope_symbols=False, incomplete=False
+    ):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self.prefix = as_tuple(prefix)
@@ -86,11 +102,9 @@ class Subroutine(ProgramUnit):
             body = ir.Section(body=body)
         self.body = body
 
-        # Then call the parent constructor to store common properties
-        super().__init__(
+        super().__initialize__(
             name=name, docstring=docstring, spec=spec, contains=contains,
-            ast=ast, source=source, parent=parent, rescope_symbols=rescope_symbols,
-            symbol_attrs=symbol_attrs, incomplete=incomplete
+            ast=ast, source=source, rescope_symbols=rescope_symbols, incomplete=incomplete
         )
 
     def __getstate__(self):
