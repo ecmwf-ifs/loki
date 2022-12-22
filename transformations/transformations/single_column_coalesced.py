@@ -79,7 +79,8 @@ def wrap_vector_section(section, routine, horizontal):
     bounds = sym.LoopRange((v_start, v_end))
 
     # Ensure we clone all body nodes, to avoid recursion issues
-    vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
+    body = as_tuple(flatten(Transformer().visit(section)))
+    vector_loop = ir.Loop(variable=index, bounds=bounds, body=body)
 
     # Add a comment before the pragma-annotated loop to ensure
     # we do not overlap with neighbouring pragmas
@@ -277,7 +278,7 @@ def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
                 pragma = None
                 private_clause = '' if not private_arrays else f' private({private_arrs})'
                 pragma = ir.Pragma(keyword='acc', content=f'loop vector{private_clause}')
-                mapper[loop] = loop.clone(pragma=pragma)
+                mapper[loop] = loop.clone(pragma=(pragma,))
 
         routine.body = Transformer(mapper).visit(routine.body)
 

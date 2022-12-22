@@ -32,7 +32,7 @@ from loki.expression.operations import (
 )
 from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
 from loki.tools import (
-    as_tuple, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
+    as_tuple, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict, flatten
 )
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
 from loki.logging import debug, info, warning, error
@@ -300,6 +300,7 @@ class OFP2IR(GenericVisitor):
         bodies = as_tuple(bodies)
         construct_name = o.find('select-case-stmt').attrib['id'] or None
         label = self.get_label(o.find('select-case-stmt'))
+        bodies = tuple(as_tuple(flatten(b)) for b in bodies)
         return (
             *pre,
             ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
@@ -1399,7 +1400,7 @@ class OFP2IR(GenericVisitor):
                     v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()
                 })
             rename_list = tuple(rename_list.items()) if rename_list else None
-        return ir.Import(module=name, symbols=symbols, rename_list=rename_list,
+        return ir.Import(module=name, symbols=as_tuple(symbols), rename_list=rename_list,
                          label=kwargs['label'], source=kwargs['source'])
 
     def visit_only(self, o, **kwargs):
