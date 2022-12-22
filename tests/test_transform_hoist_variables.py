@@ -152,7 +152,6 @@ def test_hoist(here, frontend, config):
         "device2": ('a1', 'b', 'x', 'device2_z', 'device2_d2_tmp')
     }
 
-    # assert False
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
     compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="all_hoisted")
 
