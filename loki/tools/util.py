@@ -26,11 +26,13 @@ except ImportError:
 from loki.logging import debug, error
 
 
-__all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
-           'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
-           'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
-           'yaml_include_constructor', 'auto_post_mortem_debugger', 'set_excepthook',
-           'timeout']
+__all__ = [
+    'as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
+    'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
+    'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
+    'yaml_include_constructor', 'auto_post_mortem_debugger', 'set_excepthook',
+    'timeout', 'WeakrefProperty'
+]
 
 
 def as_tuple(item, type=None, length=None):
@@ -599,3 +601,26 @@ def timeout(time_in_s, message=None):
         if time_in_s > 0:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, handler)
+
+
+class WeakrefProperty:
+    """
+    Descriptor object that stores a weakref to the encapsulated object.
+    """
+
+    def __init__(self, *, default):
+        self._default = default
+
+    def __set_name__(self, owner, name):
+        self._name = "_" + name
+
+    def __get__(self, obj, type):
+        if obj is None:
+            return self._default
+
+        ref = getattr(obj, self._name, None)
+        return ref() if ref is not None else self._default
+
+    def __set__(self, obj, value):
+        value = weakref.ref(value) if value is not None else None
+        setattr(obj, self._name, value)
