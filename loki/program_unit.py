@@ -243,8 +243,8 @@ class ProgramUnit(Scope):
         # object is re-used while converting the parse tree to Loki-IR.
         has_parent = self.parent is not None
         if not has_parent:
-            parent_scope = Scope()
-            self._parent = weakref.ref(parent_scope)
+            parent_scope = Scope(parent=None)
+            self._reset_parent(parent_scope)
         if self.name not in self.parent.symbol_attrs:
             self.register_in_parent_scope()
 
@@ -255,7 +255,7 @@ class ProgramUnit(Scope):
         assert ir_ is self
 
         if not has_parent:
-            self._parent = None
+            self._reset_parent(None)
 
     def clone(self, **kwargs):
         """

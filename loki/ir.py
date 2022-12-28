@@ -412,7 +412,8 @@ class Associate(ScopedNode, Section):
 
         rescope_symbols = kwargs.pop('rescope_symbols', False)
 
-        super().__init__(body=body, parent=parent, symbol_attrs=symbol_attrs, **kwargs)
+        super(ScopedNode, self).__init__(parent=parent, symbol_attrs=symbol_attrs)
+        super(Section, self).__init__(body=body, **kwargs)
 
         if rescope_symbols:
             self.rescope_symbols()
@@ -420,6 +421,9 @@ class Associate(ScopedNode, Section):
     @property
     def _canonical(self):
         return (self.associations, self.body, self.symbol_attrs, self.source)
+
+    def __hash__(self):
+        return hash(self._canonical)
 
     @property
     def association_map(self):
@@ -1540,7 +1544,8 @@ class TypeDef(ScopedNode, LeafNode):
 
         # Then, call the parent constructors to take care of any generic
         # properties and handle the scope information
-        super().__init__(parent=parent, symbol_attrs=symbol_attrs, **kwargs)
+        super(ScopedNode, self).__init__(parent=parent, symbol_attrs=symbol_attrs)
+        super(LeafNode, self).__init__(**kwargs)
 
         # Finally, register this typedef in the parent scope
         if self.parent:
@@ -1559,6 +1564,9 @@ class TypeDef(ScopedNode, LeafNode):
         """
         _ignore = ('parent', )
         return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
+
+    def __hash__(self):
+        return hash(self._canonical)
 
     @property
     def ir(self):
