@@ -10,8 +10,11 @@ Representation of symbol tables and scopes in
 :doc:`internal_representation`
 """
 
+from dataclasses import dataclass, field
 import weakref
+
 from loki.types import SymbolAttributes, BasicType
+from loki.tools import WeakrefProperty
 
 
 __all__ = ['SymbolTable', 'Scope']
@@ -238,6 +241,7 @@ class SymbolTable(dict):
         return obj
 
 
+@dataclass
 class Scope:
     """
     Scoping object that manages type caching and derivation for typed symbols.
@@ -256,35 +260,23 @@ class Scope:
         Use the given symbol table instead of instantiating a new
     """
 
-    def __init__(self, parent=None, symbol_attrs=None, **kwargs):
-        self.symbol_attrs = SymbolTable() if symbol_attrs is None else symbol_attrs
-        self.parent = parent
+    symbol_attrs: SymbolTable = field(default_factory=SymbolTable)
+    parent: WeakrefProperty = field(default=WeakrefProperty(default=None),
+                                    compare=False, hash=False)
 
+    def __post_init__(self):
         assert self.symbol_attrs is None or isinstance(self.symbol_attrs, SymbolTable)
 
-        # Instantiate object after we've set up the symbol table
-        super().__init__(**kwargs)
+        if self.symbol_attrs is None:
+            self.symbol_attrs = SymbolTable()
 
-        if self.symbol_attrs.parent is None and self.parent:
-            self.symbol_attrs.parent = self.parent.symbol_attrs
+        self.symbol_attrs.parent = None if self.parent is None else self.parent.symbol_attrs
 
     def __repr__(self):
         """
         String representation.
         """
         return f'Scope<{id(self)}>'
-
-    @property
-    def parent(self):
-        """
-        Access the enclosing scope.
-        """
-        return self._parent() if self._parent is not None else None
-
-    @parent.setter
-    def parent(self, parent):
-        assert parent is None or isinstance(parent, Scope)
-        self._parent = weakref.ref(parent) if parent is not None else None
 
     def rescope_symbols(self):
         """
@@ -351,3 +343,18 @@ class Scope:
                 return scope
             scope = scope.parent
         return None
+
+    def _reset_parent(self, parent):
+        """
+        Private method to reset the parent of a :any:`Scope` and
+        update the symbol table accordingly.
+
+        Parameters
+        ----------
+        parent : :any:`Scope`, optional
+            The enclosing scope, thus allowing recursive look-ups
+        """
+        self.parent = parent
+
+        if self.parent is not None:
+            self.symbol_attrs.parent = self.parent.symbol_attrs
