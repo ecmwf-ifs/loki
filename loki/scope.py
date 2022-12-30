@@ -241,7 +241,7 @@ class SymbolTable(dict):
         return obj
 
 
-@dataclass
+@dataclass(frozen=True)
 class Scope:
     """
     Scoping object that manages type caching and derivation for typed symbols.
@@ -261,7 +261,7 @@ class Scope:
     """
 
     symbol_attrs: SymbolTable = field(default_factory=SymbolTable, init=False)
-    parent: WeakrefProperty = field(default=WeakrefProperty(default=None),
+    parent: WeakrefProperty = field(default=WeakrefProperty(default=None, frozen=True),
                                     compare=False, hash=False)
 
     def __post_init__(self):
@@ -350,7 +350,7 @@ class Scope:
         parent : :any:`Scope`, optional
             The enclosing scope, thus allowing recursive look-ups
         """
-        self.parent = parent
+        self.__dict__['_parent'] = weakref.ref(parent) if parent is not None else None
 
         if self.parent is not None:
             self.symbol_attrs.parent = self.parent.symbol_attrs
