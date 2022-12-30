@@ -321,6 +321,9 @@ class ProgramUnit(Scope):
                         node.parent = obj
                         node.register_in_parent_scope()
 
+            # Rescope to ensure that symbol references are up to date
+            obj.rescope_symbols()
+
         obj.register_in_parent_scope()
 
         return obj

@@ -260,16 +260,12 @@ class Scope:
         Use the given symbol table instead of instantiating a new
     """
 
-    symbol_attrs: SymbolTable = field(default_factory=SymbolTable)
+    symbol_attrs: SymbolTable = field(default_factory=SymbolTable, init=False)
     parent: WeakrefProperty = field(default=WeakrefProperty(default=None),
                                     compare=False, hash=False)
 
     def __post_init__(self):
-        assert self.symbol_attrs is None or isinstance(self.symbol_attrs, SymbolTable)
-
-        if self.symbol_attrs is None:
-            self.symbol_attrs = SymbolTable()
-
+        assert isinstance(self.symbol_attrs, SymbolTable)
         self.symbol_attrs.parent = None if self.parent is None else self.parent.symbol_attrs
 
     def __repr__(self):

@@ -74,7 +74,7 @@ class Module(ProgramUnit):
                  ast=None, source=None, parent=None, rescope_symbols=False, symbol_attrs=None,
                  incomplete=False):
 
-        super().__init__(parent=parent, symbol_attrs=symbol_attrs)
+        super().__init__(parent=parent)
 
         self.__initialize__(
             name=name, docstring=docstring, spec=spec, contains=contains,

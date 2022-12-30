@@ -412,7 +412,7 @@ class Associate(ScopedNode, Section):
 
         rescope_symbols = kwargs.pop('rescope_symbols', False)
 
-        super(ScopedNode, self).__init__(parent=parent, symbol_attrs=symbol_attrs)
+        super(ScopedNode, self).__init__(parent=parent)
         super(Section, self).__init__(body=body, **kwargs)
 
         if rescope_symbols:
@@ -1544,7 +1544,7 @@ class TypeDef(ScopedNode, LeafNode):
 
         # Then, call the parent constructors to take care of any generic
         # properties and handle the scope information
-        super(ScopedNode, self).__init__(parent=parent, symbol_attrs=symbol_attrs)
+        super(ScopedNode, self).__init__(parent=parent)
         super(LeafNode, self).__init__(**kwargs)
 
         # Finally, register this typedef in the parent scope
