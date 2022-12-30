@@ -608,8 +608,9 @@ class WeakrefProperty:
     Descriptor object that stores a weakref to the encapsulated object.
     """
 
-    def __init__(self, *, default):
+    def __init__(self, *, default=None, frozen=False):
         self._default = default
+        self._frozen = frozen
 
     def __set_name__(self, owner, name):
         self._name = "_" + name
@@ -623,4 +624,7 @@ class WeakrefProperty:
 
     def __set__(self, obj, value):
         value = weakref.ref(value) if value is not None else None
-        setattr(obj, self._name, value)
+        if self._frozen:
+            obj.__dict__[self._name] = value
+        else:
+            setattr(obj, self._name, value)

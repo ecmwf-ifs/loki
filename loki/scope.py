@@ -10,7 +10,7 @@ Representation of symbol tables and scopes in
 :doc:`internal_representation`
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, InitVar
 import weakref
 
 from loki.types import SymbolAttributes, BasicType
@@ -241,7 +241,7 @@ class SymbolTable(dict):
         return obj
 
 
-@dataclass
+@dataclass(frozen=True)
 class Scope:
     """
     Scoping object that manages type caching and derivation for typed symbols.
@@ -261,10 +261,11 @@ class Scope:
     """
 
     symbol_attrs: SymbolTable = field(default_factory=SymbolTable, init=False)
-    parent: WeakrefProperty = field(default=WeakrefProperty(default=None),
-                                    compare=False, hash=False)
+    parent: InitVar[object] = WeakrefProperty(default=None, frozen=True)
 
-    def __post_init__(self):
+    def __post_init__(self, parent=None):
+        self._reset_parent(parent)
+
         assert isinstance(self.symbol_attrs, SymbolTable)
         self.symbol_attrs.parent = None if self.parent is None else self.parent.symbol_attrs
 
@@ -350,7 +351,7 @@ class Scope:
         parent : :any:`Scope`, optional
             The enclosing scope, thus allowing recursive look-ups
         """
-        self.parent = parent
+        self.__dict__['_parent'] = weakref.ref(parent) if parent is not None else None
 
         if self.parent is not None:
             self.symbol_attrs.parent = self.parent.symbol_attrs

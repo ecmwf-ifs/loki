@@ -318,7 +318,7 @@ class ProgramUnit(Scope):
             else:
                 for node in obj.contains.body:
                     if isinstance(node, ProgramUnit):
-                        node.parent = obj
+                        node._reset_parent(obj)
                         node.register_in_parent_scope()
 
             # Rescope to ensure that symbol references are up to date
