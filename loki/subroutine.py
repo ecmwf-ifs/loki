@@ -108,7 +108,6 @@ class Subroutine(ProgramUnit):
         self.__dict__.update(s)
 
         self._ast = None
-        self._parent = None
 
         # Re-register all encapulated member procedures
         for member in self.members:

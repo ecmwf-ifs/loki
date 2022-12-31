@@ -42,7 +42,7 @@ def test_pickle_expression():
     assert v1 == loads(dumps(v1))
 
     # Now we add a scope to the expression and replicate both
-    scope = Scope()
+    scope = Scope(parent=None)
     v2 = symbols.Variable(name='v2', scope=scope, type=t)
     scope_new = loads(dumps(scope))
     v2_new = loads(dumps(v2))
@@ -56,7 +56,7 @@ def test_pickle_expression():
     assert v2_new == v2
 
     # And now, one more time but with arrays!
-    scope = Scope()
+    scope = Scope(parent=None)
     i = symbols.Variable(name='i', scope=scope, type=t)
     v3 = symbols.Variable(name='v3', dimensions=(i,), scope=scope, type=t)
     scope_new = loads(dumps(scope))
@@ -95,8 +95,8 @@ end subroutine my_routine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # First, replicate the scope individually, ...
-    scope_new = Scope()
-    scope_new.symbol_attrs = loads(dumps(routine.symbol_attrs))
+    scope_new = Scope(parent=None)
+    scope_new.symbol_attrs.update(loads(dumps(routine.symbol_attrs)))
 
     # Replicate spec and body independently...
     spec_new = loads(dumps(routine.spec))
@@ -160,8 +160,8 @@ end module my_type_mod
     assert typedef_new == typedef
 
     # Replicate the scope individually
-    scope_new = Scope()
-    scope_new.symbol_attrs = loads(dumps(module.symbol_attrs))
+    scope_new = Scope(parent=None)
+    scope_new.symbol_attrs.update(loads(dumps(module.symbol_attrs)))
 
     # Replicate the spec independently...
     spec_new = loads(dumps(module.spec))
@@ -209,8 +209,8 @@ end subroutine my_routine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # First, replicate the scope individually, ...
-    scope_new = Scope()
-    scope_new.symbol_attrs = loads(dumps(routine.symbol_attrs))
+    scope_new = Scope(parent=None)
+    scope_new.symbol_attrs.update(loads(dumps(routine.symbol_attrs)))
 
     # Replicate spec and body independently...
     spec_new = loads(dumps(routine.spec))
@@ -266,8 +266,8 @@ end module my_module
     module = Module.from_source(fcode, frontend=frontend)
 
     # First, replicate the scope individually, ...
-    scope_new = Scope()
-    scope_new.symbol_attrs = loads(dumps(module.symbol_attrs))
+    scope_new = Scope(parent=None)
+    scope_new.symbol_attrs.update(loads(dumps(module.symbol_attrs)))
 
     # Replicate spec and body independently...
     spec_new = loads(dumps(module.spec))
@@ -277,8 +277,8 @@ end module my_module
     contains_new = loads(dumps(module.contains))
     # We need to attach the parent here first, so that the deferred
     # procedure type symbol in the call can be resolved
-    contains_new.body[1].parent = scope_new
-    contains_new.body[-1].parent = scope_new
+    contains_new.body[1]._reset_parent(scope_new)
+    contains_new.body[-1]._reset_parent(scope_new)
     contains_new = AttachScopes().visit(contains_new, scope=scope_new)
     assert contains_new == module.contains
 

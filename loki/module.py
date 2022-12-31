@@ -277,11 +277,11 @@ class Module(ProgramUnit):
         if self.contains:
             for node in self.contains.body:
                 if isinstance(node, Subroutine):
-                    node.parent = self
+                    node._reset_parent(self)
                     node.register_in_parent_scope()
 
                 if isinstance(node, Scope):
-                    node.parent = self
+                    node._reset_parent(self)
 
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
