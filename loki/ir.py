@@ -1613,8 +1613,6 @@ class TypeDef(ScopedNode, LeafNode):
         # Update internal _args dict for immutability
         self._args.update(s)
 
-        self._parent = None
-
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
 
