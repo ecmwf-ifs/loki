@@ -377,6 +377,7 @@ class Section(InternalNode, _SectionBase):
         return 'Section::'
 
 
+@dataclass_strict(frozen=True)
 class Associate(ScopedNode, Section):
     """
     Internal representation of a code region in which names are associated
@@ -397,26 +398,19 @@ class Associate(ScopedNode, Section):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    associations: Tuple[Tuple[Expression, Expression], ...] = None
+
     _argnames = ScopedNode._argnames + (
         'body', 'associations', 'parent', 'symbol_attrs'
     )
 
     _traversable = ['body', 'associations']
 
-    def __init__(self, body=None, associations=None, parent=None, symbol_attrs=None, **kwargs):
-        if not isinstance(associations, tuple):
-            assert isinstance(associations, (dict, OrderedDict)) or associations is None
-            self.associations = as_tuple(associations.items())
-        else:
-            self.associations = associations
+    def __post_init__(self, parent=None):
+        super(ScopedNode, self).__post_init__(parent=parent)
+        super(Section, self).__post_init__()
 
-        rescope_symbols = kwargs.pop('rescope_symbols', False)
-
-        super(ScopedNode, self).__init__(parent=parent)
-        super(Section, self).__init__(body=body, **kwargs)
-
-        if rescope_symbols:
-            self.rescope_symbols()
+        assert self.associations is None or isinstance(self.associations, tuple)
 
     @property
     def _canonical(self):
@@ -1484,6 +1478,7 @@ class StatementFunction(LeafNode, _StatementFunctionBase):
         return f'StatementFunction:: {self.variable}({" ,".join(str(a) for a in self.arguments)})'
 
 
+@dataclass_strict(frozen=True)
 class TypeDef(ScopedNode, LeafNode):
     """
     Internal representation of a derived type definition.
@@ -1518,6 +1513,14 @@ class TypeDef(ScopedNode, LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    name: str = None
+    body: Tuple[Node, ...] = None
+    abstract: bool = False
+    extends: str = None
+    bind_c: bool = False
+    private: bool = False
+    public: bool = False
+
     _argnames = LeafNode._argnames + (
         'name', 'body', 'abstract', 'extends', 'bind_c', 'private',
         'public', 'parent', 'symbol_attrs'
@@ -1525,34 +1528,13 @@ class TypeDef(ScopedNode, LeafNode):
 
     _traversable = ['body']
 
-    def __init__(self, name, body, abstract=False, extends=None, bind_c=False,
-                 private=False, public=False, parent=None, symbol_attrs=None, **kwargs):
-        assert is_iterable(body)
-        assert extends is None or isinstance(extends, str)
-        assert not (private and public)
+    def __post_init__(self, parent=None):
+        super(ScopedNode, self).__post_init__(parent=parent)
+        super(LeafNode, self).__post_init__()
 
-        # First, store the local properties
-        self.name = name
-        self.body = as_tuple(body)
-        self.abstract = abstract
-        self.extends = extends
-        self.bind_c = bind_c
-        self.private = private
-        self.public = public
-
-        rescope_symbols = kwargs.pop('rescope_symbols', False)
-
-        # Then, call the parent constructors to take care of any generic
-        # properties and handle the scope information
-        super(ScopedNode, self).__init__(parent=parent)
-        super(LeafNode, self).__init__(**kwargs)
-
-        # Finally, register this typedef in the parent scope
+        # Register this typedef in the parent scope
         if self.parent:
             self.parent.symbol_attrs[self.name] = SymbolAttributes(self.dtype)
-
-        if rescope_symbols:
-            self.rescope_symbols()
 
     @property
     def _canonical(self):
