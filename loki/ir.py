@@ -93,25 +93,6 @@ class Node:
         self._update(_live_symbols=None, _defines_symbols=None, _uses_symbols=None)
 
     @property
-    def _canonical(self):
-        """
-        Base definition for comparing :any:`Node` objects.
-
-        We use all constructor args for this, including `source`.
-        The ``source`` attributes makes IR nodes near-unqiue due to
-        strict adherence to line numbering.
-        """
-        return tuple(sorted(self._args.items()))
-
-    def __eq__(self, other):
-        if isinstance(other, Node):
-            return self._canonical == other._canonical
-        return super().__eq__(other)
-
-    def __hash__(self):
-        return hash(self._canonical)
-
-    @property
     def _args(self):
         """
         The argument from which to re-create the :any:`Node`.
@@ -411,13 +392,6 @@ class Associate(ScopedNode, Section):
         super(Section, self).__post_init__()
 
         assert self.associations is None or isinstance(self.associations, tuple)
-
-    @property
-    def _canonical(self):
-        return (self.associations, self.body, self.symbol_attrs, self.source)
-
-    def __hash__(self):
-        return hash(self._canonical)
 
     @property
     def association_map(self):
@@ -1535,20 +1509,6 @@ class TypeDef(ScopedNode, LeafNode):
         # Register this typedef in the parent scope
         if self.parent:
             self.parent.symbol_attrs[self.name] = SymbolAttributes(self.dtype)
-
-    @property
-    def _canonical(self):
-        """
-        Base definition for comparing :any:`Node` objects.
-
-        We include all natural constructor args, but exclude parents,
-        since these are only stored as weakrefs.
-        """
-        _ignore = ('parent', )
-        return tuple(v for k, v in sorted(self._args.items()) if k not in _ignore)
-
-    def __hash__(self):
-        return hash(self._canonical)
 
     @property
     def ir(self):
