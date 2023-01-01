@@ -283,11 +283,16 @@ class ScopedNode(Scope):
         super()._update(*args, **kwargs)  # pylint: disable=no-member
 
     def _rebuild(self, *args, **kwargs):
-        if 'symbol_attrs' not in kwargs:
-            # Retain the symbol table (unless given explicitly)
-            kwargs['symbol_attrs'] = self.symbol_attrs
-        kwargs['rescope_symbols'] = True
-        return super()._rebuild(*args, **kwargs)  # pylint: disable=no-member
+        # Retain the symbol table (unless given explicitly)
+        symbol_attrs = kwargs.pop('symbol_attrs', self.symbol_attrs)
+
+        # Ensure 'parent' is always explicitly set
+        kwargs['parent'] = kwargs.get('parent', None)
+
+        new_obj = super()._rebuild(*args, **kwargs)  # pylint: disable=no-member
+        new_obj.symbol_attrs.update(symbol_attrs)
+        new_obj.rescope_symbols()
+        return new_obj
 
 
 # Intermediate node types
