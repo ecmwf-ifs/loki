@@ -81,8 +81,6 @@ class Node:
     source: Union[Source, str] = None
     label: str = None
 
-    _argnames = ('label', 'source')
-
     _traversable = []
 
     def __post_init__(self):
@@ -92,13 +90,6 @@ class Node:
         self._update(_live_symbols=None)
         self._update(_defines_symbols=None)
         self._update(_uses_symbols=None)
-
-    @property
-    def _args(self):
-        """
-        The argument from which to re-create the :any:`Node`.
-        """
-        return {k: v for k, v in self.__dict__.items() if k in self._argnames}
 
     @property
     def children(self):
@@ -124,7 +115,7 @@ class Node:
             The non-traversable arguments used to create the node, By
             default, ``args_frozen`` are used.
         """
-        handle = self._args.copy()  # Original constructor arguments
+        handle = self.args
         argnames = [i for i in self._traversable if i not in kwargs]
         handle.update(OrderedDict(zip(argnames, args)))
         handle.update(kwargs)
@@ -156,7 +147,7 @@ class Node:
         """
         Arguments used to construct the Node.
         """
-        return self._args.copy()
+        return {k: v for k, v in self.__dict__.items() if k in self.__dataclass_fields__.keys()}
 
     @property
     def args_frozen(self):
@@ -239,8 +230,6 @@ class InternalNode(Node):
 
     body: Tuple[Any, ...] = None
 
-    _argnames = Node._argnames + ('body',)
-
     _traversable = ['body']
 
     def __post_init__(self):
@@ -257,8 +246,6 @@ class LeafNode(Node):
     Internal representation of a control flow node without a `body`.
     """
 
-    _argnames = Node._argnames
-
     def __repr__(self):
         raise NotImplementedError
 
@@ -273,8 +260,6 @@ class ScopedNode(Scope):
     :meth:`_rebuild` methods to make sure that an existing symbol table
     is carried over correctly.
     """
-
-    _argnames = Node._argnames
 
     def _update(self, *args, **kwargs):
         if 'symbol_attrs' not in kwargs:
@@ -306,8 +291,6 @@ class Section(InternalNode):
 
     # Sections may contain Module / Subroutine objects
     body: Tuple[Any, ...] = ()
-
-    _argnames = InternalNode._argnames
 
     def append(self, node):
         """
@@ -372,10 +355,6 @@ class Associate(ScopedNode, Section):
     """
 
     associations: Tuple[Tuple[Expression, Expression], ...] = None
-
-    _argnames = ScopedNode._argnames + (
-        'body', 'associations', 'parent', 'symbol_attrs'
-    )
 
     _traversable = ['body', 'associations']
 
@@ -447,11 +426,6 @@ class Loop(InternalNode):
     name: str = None
     has_end_do: bool = True
 
-    _argnames = InternalNode._argnames + (
-        'variable', 'bounds', 'body', 'pragma', 'pragma_post',
-        'loop_label', 'name', 'has_end_do'
-    )
-
     _traversable = ['variable', 'bounds', 'body']
 
     def __post_init__(self):
@@ -512,11 +486,6 @@ class WhileLoop(InternalNode):
     name: str = None
     has_end_do: bool = True
 
-    _argnames = InternalNode._argnames + (
-        'condition', 'body', 'pragma', 'pragma_post', 'loop_label',
-        'name', 'has_end_do'
-    )
-
     _traversable = ['condition', 'body']
 
     def __repr__(self):
@@ -561,10 +530,6 @@ class Conditional(InternalNode):
     inline: bool = False
     has_elseif: bool = False
     name: str = None
-
-    _argnames = InternalNode._argnames + (
-        'condition', 'body', 'else_body', 'inline', 'has_elseif', 'name'
-    )
 
     _traversable = ['condition', 'body', 'else_body']
 
@@ -613,8 +578,6 @@ class PragmaRegion(InternalNode):
     pragma: Node = None
     pragma_post: Node = None
 
-    _argnames = InternalNode._argnames + ('body', 'pragma', 'pragma_post')
-
     _traversable = ['body']
 
     def append(self, node):
@@ -652,8 +615,6 @@ class Interface(InternalNode):
     body: Tuple[Any, ...] = None
     abstract: bool = False
     spec: Union[Expression, str] = None
-
-    _argnames = InternalNode._argnames + ('body', 'abstract', 'spec')
 
     _traversable = ['body']
 
@@ -709,8 +670,6 @@ class Assignment(LeafNode):
     ptr: bool = False
     comment: Node = None
 
-    _argnames = LeafNode._argnames + ('lhs', 'rhs', 'ptr', 'comment')
-
     _traversable = ['lhs', 'rhs']
 
     def __post_init__(self):
@@ -755,8 +714,6 @@ class ConditionalAssignment(LeafNode):
     rhs: Expression = None
     else_rhs: Expression = None
 
-    _argnames = LeafNode._argnames + ('condition', 'lhs', 'rhs', 'else_rhs')
-
     _traversable = ['condition', 'lhs', 'rhs', 'else_rhs']
 
     def __repr__(self):
@@ -797,10 +754,6 @@ class CallStatement(LeafNode):
     pragma: Tuple[Node, ...] = None
     not_active: bool = None
     chevron: Tuple[Expression, ...] = None
-
-    _argnames = LeafNode._argnames + (
-        'name', 'arguments', 'kwarguments', 'pragma', 'not_active', 'chevron'
-    )
 
     _traversable = ['name', 'arguments', 'kwarguments']
 
@@ -901,8 +854,6 @@ class Allocation(LeafNode):
     data_source: Expression = None
     status_var: Expression = None
 
-    _argnames = LeafNode._argnames + ('variables', 'data_source', 'status_var')
-
     _traversable = ['variables', 'data_source', 'status_var']
 
     def __post_init__(self):
@@ -933,8 +884,6 @@ class Deallocation(LeafNode):
 
     variables: Tuple[Expression, ...] = ()
     status_var: Expression = None
-
-    _argnames = LeafNode._argnames + ('variables', 'status_var')
 
     _traversable = ['variables', 'status_var']
 
@@ -989,8 +938,6 @@ class Comment(LeafNode):
 
     text: str = None
 
-    _argnames = LeafNode._argnames + ('text', )
-
     def __post_init__(self):
         assert isinstance(self.text, str)
 
@@ -1013,8 +960,6 @@ class CommentBlock(LeafNode):
     """
 
     comments: Tuple[Node, ...] = ()
-
-    _argnames = LeafNode._argnames + ('comments', )
 
     def __post_init__(self):
         super().__post_init__()
@@ -1051,8 +996,6 @@ class Pragma(LeafNode):
     keyword: str = None
     content: str = None
 
-    _argnames = LeafNode._argnames + ('keyword', 'content')
-
     def __post_init__(self):
         super().__post_init__()
         assert self.keyword and isinstance(self.keyword, str)
@@ -1078,8 +1021,6 @@ class PreprocessorDirective(LeafNode):
     """
 
     text: str = None
-
-    _argnames = LeafNode._argnames + ('text', )
 
     def __repr__(self):
         return f'PreprocessorDirective:: {truncate_string(self.text)}'
@@ -1118,11 +1059,6 @@ class Import(LeafNode):
     f_include: bool = False
     f_import: bool = False
     rename_list: Tuple[Any, ...] = None
-
-    _argnames = LeafNode._argnames + (
-        'module', 'symbols', 'nature', 'c_import', 'f_include',
-        'f_import', 'rename_list'
-    )
 
     _traversable = ['symbols', 'rename_list']
 
@@ -1176,10 +1112,6 @@ class VariableDeclaration(LeafNode):
     dimensions: Tuple[Expression, ...] = None
     comment: Node = None
     pragma: Node = None
-
-    _argnames = LeafNode._argnames + (
-        'symbols', 'dimensions', 'comment', 'pragma'
-    )
 
     _traversable = ['symbols', 'dimensions']
 
@@ -1240,11 +1172,6 @@ class ProcedureDeclaration(LeafNode):
     comment: Node = None
     pragma: Tuple[Node, ...] = None
 
-    _argnames = LeafNode._argnames + (
-        'symbols', 'interface', 'external', 'module', 'generic',
-        'final', 'comment', 'pragma'
-    )
-
     _traversable = ['symbols', 'interface']
 
     def __post_init__(self):
@@ -1281,8 +1208,6 @@ class DataDeclaration(LeafNode):
     variable: Any = None
     values: Tuple[Expression, ...] = ()
 
-    _argnames = LeafNode._argnames + ('variable', 'values')
-
     _traversable = ['variable', 'values']
 
     def __post_init__(self):
@@ -1316,10 +1241,6 @@ class StatementFunction(LeafNode):
     arguments: Tuple[Expression, ...] = ()
     rhs: Expression = None
     return_type: SymbolAttributes = None
-
-    _argnames = LeafNode._argnames + (
-        'variable', 'arguments', 'rhs', 'return_type'
-    )
 
     _traversable = ['variable', 'arguments', 'rhs']
 
@@ -1383,11 +1304,6 @@ class TypeDef(ScopedNode, LeafNode):
     bind_c: bool = False
     private: bool = False
     public: bool = False
-
-    _argnames = LeafNode._argnames + (
-        'name', 'body', 'abstract', 'extends', 'bind_c', 'private',
-        'public', 'parent', 'symbol_attrs'
-    )
 
     _traversable = ['body']
 
@@ -1492,10 +1408,6 @@ class MultiConditional(LeafNode):
     else_body: Tuple[Node, ...] = ()
     name: str = None
 
-    _argnames = LeafNode._argnames + (
-        'expr', 'values', 'bodies', 'else_body', 'name'
-    )
-
     _traversable = ['expr', 'values', 'bodies', 'else_body']
 
     def __post_init__(self):
@@ -1537,10 +1449,6 @@ class MaskedStatement(LeafNode):
     default: Tuple[Node, ...] = ()
     inline: bool = False
 
-    _argnames = LeafNode._argnames + (
-        'conditions', 'bodies', 'default', 'inline'
-    )
-
     _traversable = ['conditions', 'bodies', 'default']
 
     def __post_init__(self):
@@ -1578,8 +1486,6 @@ class Intrinsic(LeafNode):
 
     text: str = None
 
-    _argnames = LeafNode._argnames + ('text', )
-
     def __post_init__(self):
         super().__post_init__()
         assert isinstance(self.text, str)
@@ -1606,8 +1512,6 @@ class Enumeration(LeafNode):
     """
 
     symbols: Tuple[Expression, ...] = None
-
-    _argnames = LeafNode._argnames + ('symbols', )
 
     def __post_init__(self):
         super().__post_init__()
@@ -1637,8 +1541,6 @@ class RawSource(LeafNode):
     """
 
     text: str = None
-
-    _argnames = LeafNode._argnames + ('text', )
 
     def __repr__(self):
         return f'RawSource:: {truncate_string(self.text.strip())}'
