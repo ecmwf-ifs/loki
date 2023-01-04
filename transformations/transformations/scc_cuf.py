@@ -20,9 +20,8 @@ from loki import (
 
 __all__ = ['SccCuf', 'HoistTemporaryArraysTransformationDeviceAllocatable']
 
-########################################################################################################################
-# For host side hoisted (memory allocation of) local arrays
-########################################################################################################################
+
+
 class HoistTemporaryArraysTransformationDeviceAllocatable(HoistVariablesTransformation):
 
     def __init__(self, key=None, disable=(), **kwargs):
@@ -33,11 +32,6 @@ class HoistTemporaryArraysTransformationDeviceAllocatable(HoistVariablesTransfor
         routine.variables += tuple([var.clone(scope=routine, dimensions=as_tuple(
             [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=type)])
 
-        # EITHER
-        # routine.body.prepend(Allocation((var.clone(),)))
-        # routine.body.append(Deallocation((var.clone(dimensions=None),)))
-
-        # OR: just for better formatting ...
         allocations = FindNodes(ir.Allocation).visit(routine.body)
         if allocations:
             insert_index = routine.body.body.index(allocations[-1])
@@ -50,12 +44,8 @@ class HoistTemporaryArraysTransformationDeviceAllocatable(HoistVariablesTransfor
             routine.body.insert(insert_index + 1, ir.Deallocation((var.clone(dimensions=None),)))
         else:
             routine.body.append(ir.Deallocation((var.clone(dimensions=None),)))
-########################################################################################################################
 
 
-########################################################################################################################
-# For dynamic memory on device (transformation_type = 2)
-########################################################################################################################
 def dynamic_local_arrays(routine, vertical):
     local_arrays = []
     arguments = [arg.name for arg in routine.arguments]
@@ -93,7 +83,6 @@ def increase_heap_size(routine):
     # TODO: heap size, to be calculated?
     routine.body.prepend(
         ir.Assignment(lhs=routine.variable_map["cudaHeapSize"], rhs=sym.Product((10, 1024, 1024, 1024))))
-########################################################################################################################
 
 
 def remove_pragmas(routine):
@@ -153,8 +142,8 @@ def is_elemental(routine):
     return False
 
 
-def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable, transformation_type, depth,
-                               typedef_variables):
+def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation_type, depth,
+               derived_type_variables):
 
     if is_elemental(routine):
         routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]])
@@ -213,7 +202,7 @@ def kernel_block_size_argument(routine, horizontal, vertical, block_dim, disable
     var_map = {}
     for var in variables:
         if var in arguments:
-            if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in typedef_variables:
+            if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
                 var_map[var] = var.clone(type=var.type.clone(value=True))
             elif isinstance(var, sym.Array):
                 dimensions = list(var.dimensions) + [routine.variable_map[block_dim.size]]
@@ -368,22 +357,22 @@ def driver_device_variables(routine, disable):
     routine.body.prepend(ir.Comment(''))
 
     allocations = FindNodes(ir.Allocation).visit(routine.body)
-    insert_index = routine.body.body.index(allocations[-1]) + 1
+    if allocations:
+        insert_index = routine.body.body.index(allocations[-1]) + 1
+    else:
+        insert_index = None
     # or: insert_index = routine.body.body.index(calls[0])
     # Copy host to device
     for array in reversed(relevant_arrays):
         vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
         lhs = array.clone(name="{}_d".format(array.name), type=vtype, dimensions=None)
         rhs = array.clone(dimensions=None)
-        routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
+        if insert_index is not None:
+            routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
+        else:
+            routine.body.prepend(ir.Assignment(lhs=lhs, rhs=rhs))
     routine.body.insert(insert_index, ir.Comment('! Copy host to device'))
     routine.body.insert(insert_index, ir.Comment(''))
-
-    # De-allocation
-    routine.body.append(ir.Comment(''))
-    routine.body.append(ir.Comment('! De-allocation'))
-    for array in relevant_arrays:
-        routine.body.append(ir.Deallocation((array.clone(name="{}_d".format(array.name), dimensions=None),)))
 
     # TODO: this just assumes that host-device-synchronisation is only needed at the beginning and end
     # Copy device to host
@@ -407,6 +396,12 @@ def driver_device_variables(routine, disable):
     if insert_index is not None:
         routine.body.insert(insert_index, ir.Comment('! Copy device to host'))
 
+    # De-allocation
+    routine.body.append(ir.Comment(''))
+    routine.body.append(ir.Comment('! De-allocation'))
+    for array in relevant_arrays:
+        routine.body.append(ir.Deallocation((array.clone(name="{}_d".format(array.name), dimensions=None),)))
+
     call_map = {}
     for call in calls:
         arguments = []
@@ -418,21 +413,6 @@ def driver_device_variables(routine, disable):
                 arguments.append(arg)
         call_map[call] = call.clone(arguments=arguments)
     routine.body = Transformer(call_map).visit(routine.body)
-
-    # TODO: is this necessary? add global "if"
-    #  jl <= end
-    #  ...
-    # upper = routine.variable_map[loop.bounds.children[1].name]
-    # if loop.bounds.children[2]:
-    #     step = routine.variable_map[loop.bounds.children[2].name]
-    # else:
-    #     step = sym.IntLiteral(1)
-    # rhs = (upper / step) + \
-    #       sym.InlineCall(function=sym.ProcedureSymbol(name="MIN", scope=routine),
-    #                      parameters=(sym.InlineCall(function=sym.ProcedureSymbol(name="MOD", scope=routine),
-    #                                                 parameters=(upper,
-    #                                                             step)), sym.IntLiteral(1)))
-    # routine.body.prepend(ir.Assignment(lhs=routine.variable_map[block_dim.size], rhs=rhs))
 
 
 def driver_launch_configuration(routine, block_dim, disable):
@@ -559,12 +539,12 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
     routine.body = Transformer(mapper).visit(routine.body)
 
 
-def module_typedefs(routine, disable, typedefs):
+def module_derived_types(routine, disable, derived_types):
     _variables = [var for var in FindVariables().visit(routine.ir)]
     variables = []
     for var in _variables:
-        for typedef in typedefs:
-            if typedef in str(var.type):
+        for derived_type in derived_types:
+            if derived_type in str(var.type):
                 variables.append(var)
 
     var_map = {}
@@ -587,6 +567,7 @@ def module_typedefs(routine, disable, typedefs):
                 arguments.append(arg)
         call.arguments = arguments
     return variables
+
 
 def device_subroutine_prefix(routine, depth):
     if depth == 1:
@@ -611,13 +592,13 @@ class SccCuf(Transformation):
             self.disable = ()
         else:
             self.disable = [_.upper() for _ in disable]
-        self.typedefs = ['TECLDP']
-        self.typedef_variables = ()
+        self.derived_types = ['TECLDP']
+        self.derived_type_variables = ()
 
     def transform_module(self, module, **kwargs):
 
         role = kwargs.get('role')
-        targets = kwargs.get('targets', None)
+        # targets = kwargs.get('targets', None)
 
         if role == 'driver':
             module.spec.prepend(ir.Import(module="cudafor"))
@@ -625,27 +606,33 @@ class SccCuf(Transformation):
     def transform_subroutine(self, routine, **kwargs):
 
         item = kwargs.get('item', None)
-
         if item and not item.local_name == routine.name.lower():
             return
 
         role = kwargs.get('role')
         targets = kwargs.get('targets', None)
         depths = kwargs.get('depths', None)
+        if depths is None:
+            if role == 'driver':
+                depth = 0
+            elif role == 'kernel':
+                depth = 1
+        else:
+            depth = depths[item]
 
         remove_pragmas(routine)
         single_variable_declarations(routine=routine, strict=False)
-        device_subroutine_prefix(routine, depths[item])
+        device_subroutine_prefix(routine, depth)
 
         # TODO: needed for every subroutine or only those with THREADIDX...
-        if depths[item] > 0:
+        if depth > 0:
             routine.spec.prepend(ir.Import(module="cudafor"))
 
         if role == 'driver':
-            self.process_routine_driver(routine, depth=depths[item], targets=targets)
+            self.process_routine_driver(routine, depth=depth, targets=targets)
 
         if role == 'kernel':
-            self.process_routine_kernel(routine, depth=depths[item], targets=targets)
+            self.process_routine_kernel(routine, depth=depth, targets=targets)
 
     def process_routine_kernel(self, routine, depth=1, targets=None):
 
@@ -655,8 +642,8 @@ class SccCuf(Transformation):
         resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
         kernel_remove_vector_loops(routine, self.horizontal)
 
-        kernel_block_size_argument(routine, self.horizontal, self.vertical, self.block_dim, self.disable,
-                                   self.transformation_type, depth=depth, typedef_variables=self.typedef_variables)
+        kernel_cuf(routine, self.horizontal, self.vertical, self.block_dim, self.disable,
+                   self.transformation_type, depth=depth, derived_type_variables=self.derived_type_variables)
 
         # dynamic memory allocation of local arrays (only for version with dynamic memory allocation on device)
         if self.transformation_type == 2:
@@ -664,7 +651,8 @@ class SccCuf(Transformation):
 
     def process_routine_driver(self, routine, depth=0, targets=None):
 
-        self.typedef_variables = module_typedefs(routine=routine, disable=self.disable, typedefs=self.typedefs)
+        self.derived_type_variables = module_derived_types(routine=routine, disable=self.disable,
+                                                           derived_types=self.derived_types)
 
         # create variables needed for the device execution, especially generate device versions of arrays
         driver_device_variables(routine=routine, disable=self.disable)
