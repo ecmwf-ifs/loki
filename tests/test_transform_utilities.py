@@ -68,7 +68,7 @@ subroutine foo(a, x, y)
     y = a
 end subroutine foo
 """
-    # strict = True
+    # strict = True, meaning all variable declarations to be unique
     routine = Subroutine.from_source(fcode, frontend=frontend)
     single_variable_declarations(routine=routine, strict=True)
 
@@ -77,7 +77,7 @@ end subroutine foo
     for decl in declarations:
         assert(len(decl.symbols) == 1)
 
-    # strict = False
+    # strict = False, meaning only non-similar variable declarations unique
     routine = Subroutine.from_source(fcode, frontend=frontend)
     single_variable_declarations(routine=routine, strict=False)
     declarations = FindNodes(VariableDeclaration).visit(routine.spec)
