@@ -1136,16 +1136,18 @@ class OFP2IR(GenericVisitor):
             if header_ast.find('subroutine-stmt').attrib['hasBindingSpec'] == 'true':
                 self.warn_or_fail('binding-spec not implemented')
 
+        prefix = [a.attrib['spec'].upper() for a in header_ast.findall('t-prefix-spec')] or None
+
         if routine is None:
             routine = Subroutine(
-                name=name, args=args, prefix=None, bind=None,
+                name=name, args=args, prefix=prefix, bind=None,
                 is_function=is_function, parent=scope,
                 ast=o, source=self.get_source(o)
             )
         else:
             routine.__init__(  # pylint: disable=unnecessary-dunder-call
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=None, bind=None, is_function=is_function,
+                contains=routine.contains, prefix=prefix, bind=None, is_function=is_function,
                 ast=o, source=self.get_source(o), parent=routine.parent, symbol_attrs=routine.symbol_attrs,
                 incomplete=routine._incomplete
             )
