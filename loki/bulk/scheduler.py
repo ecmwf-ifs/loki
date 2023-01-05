@@ -43,7 +43,7 @@ class SchedulerConfig:
         control flow, like ``flush`` or ``abort``.
     """
 
-    def __init__(self, default, routines, disable=None, dimensions=None, dic2p={}):
+    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
@@ -51,7 +51,10 @@ class SchedulerConfig:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
-        self.dic2p = dic2p
+        if dic2p is not None:
+            self.dic2p = dic2p
+        else:
+            self.dic2p = {}
 
     @classmethod
     def from_dict(cls, config):
