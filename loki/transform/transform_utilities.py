@@ -101,7 +101,7 @@ def single_variable_declarations(routine, strict=True):
                         declarations.append(decl.clone(symbols=(as_tuple(smbls_by_type[key]))))
                     else:
                         arrays_by_shape = {array_shape: [] for array_shape in
-                                           set([array.shape for array in smbls_by_type[key]])}
+                                           {array.shape for array in smbls_by_type[key]}}
                         for array in smbls_by_type[key]:
                             arrays_by_shape[array.shape].append(array)
                         for array_key in arrays_by_shape:
