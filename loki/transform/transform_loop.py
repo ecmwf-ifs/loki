@@ -691,14 +691,14 @@ class FissionTransformer(NestedMaskedTransformer):
                 self.mapper[start_node] = None
             # we stop when encountering this or any previously defined stop nodes
             self.stop = _stop.copy() | set(as_tuple(stop_node))
-            body = flatten(self.visit(o.body, **kwargs))
+            body = as_tuple(flatten(self.visit(o.body, **kwargs)))
             if start_node is not None:
                 self.mapper.pop(start_node)
             if not body:
-                return [()]
+                return ((),)
             # inject a comment to mark where the loop was split
-            comment = [] if start_node is None else [Comment(text=f'! Loki - {start_node.content}')]
-            return comment + [self._rebuild(o, visited[:body_index] + (body,) + visited[body_index:])]
+            comment = () if start_node is None else (Comment(text=f'! Loki - {start_node.content}'), )
+            return comment + (self._rebuild(o, visited[:body_index] + (body,) + visited[body_index:]), )
 
         # Use masked transformer to build subtrees from/to pragma
         rebuilt = rebuild_fission_branch(None, self.loop_pragmas[o][0], **kwargs)

@@ -742,7 +742,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         v_start = arg_map[kernel.variable_map[self.horizontal.bounds[0]]]
         v_end = arg_map[kernel.variable_map[self.horizontal.bounds[1]]]
         bounds = sym.LoopRange((v_start, v_end))
-        vector_loop = ir.Loop(variable=v_index, bounds=bounds, body=[new_call], pragma=pragma)
+        vector_loop = ir.Loop(variable=v_index, bounds=bounds, body=(new_call, ), pragma=pragma)
         call_map[call] = vector_loop
 
         routine.body = Transformer(call_map).visit(routine.body)
