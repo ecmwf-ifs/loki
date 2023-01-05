@@ -36,7 +36,7 @@ from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.dr_hook import DrHookTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
-from transformations.scc_cuf import SccCuf, HoistTemporaryArraysTransformationDeviceAllocatable
+from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysTransformationDeviceAllocatable
 
 
 """
@@ -222,7 +222,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
         disable = scheduler.config.disable
-        transformation = SccCuf(horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+        transformation = SccCufTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim,
                                 disable=disable, transformation_type=trafo_type)
 
     if transformation:
