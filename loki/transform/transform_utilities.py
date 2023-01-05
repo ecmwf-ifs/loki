@@ -17,7 +17,7 @@ from loki.expression import (
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
-from loki.ir import Import, TypeDef
+from loki.ir import Import, TypeDef, VariableDeclaration
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
@@ -27,8 +27,94 @@ from loki.visitors import Transformer, FindNodes
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'sanitise_imports',
-    'replace_selected_kind'
+    'replace_selected_kind', 'single_variable_declarations', 'single_variable_declaration'
 ]
+
+
+def single_variable_declaration(routine, variables=()):
+    """
+    Modify/extend variable declarations to declare variables specified in ``variables`` in single declarations.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine in which to modify the variable declarations
+    variables: tuple
+        Variables to grant unique/single declaration for
+    """
+    if variables:
+        decl_map = {}
+        for decl in FindNodes(VariableDeclaration).visit(routine.spec):
+            if len(decl.symbols) > 1:
+                convert = False
+                symbols = []
+                unique_symbols = []
+                for smbl in decl.symbols:
+                    if smbl.name in variables:
+                        convert = True
+                        unique_symbols.append(smbl)
+                    else:
+                        symbols.append(smbl)
+                if convert:
+                    counter = 1
+                    if symbols:
+                        decl_map[decl] = decl.clone(symbols=as_tuple(symbols))
+                    else:
+                        decl_map[decl] = None
+                    for smbl in unique_symbols:
+                        routine.spec.insert(routine.spec.body.index(decl) + counter, (decl.clone(symbols=(smbl,)),))
+                        counter += 1
+        routine.spec = Transformer(decl_map).visit(routine.spec)
+
+
+def single_variable_declarations(routine, strict=True):
+    """
+    Modify/extend variable declarations to only declare one variable each time while preserving the order.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine in which to modify the variable declarations
+    strict: bool
+        Whether to strictly make unique variable declarations or to only disassemble non-arrays and arrays and among
+        arrays, arrays with differing shapes.
+    """
+    decl_map = {}
+    for decl in FindNodes(VariableDeclaration).visit(routine.spec):
+        if len(decl.symbols) > 1:
+            if strict:
+                counter = 1
+                for i_sdecl, sdecl in enumerate(decl.symbols):
+                    if i_sdecl == 0:
+                        decl_map[decl] = decl.clone(symbols=(sdecl,))
+                    else:
+                        routine.spec.insert(routine.spec.body.index(decl) + counter, (decl.clone(symbols=(sdecl,)),))
+                        counter += 1
+            else:
+                types = [type(smbl) for smbl in decl.symbols]
+                smbls_by_type = {smbl_type: [] for smbl_type in set(types)}
+                for smbl in decl.symbols:
+                    smbls_by_type[type(smbl)].append(smbl)
+                declarations = []
+                for key in smbls_by_type:
+                    if key != sym.Array:
+                        declarations.append(decl.clone(symbols=(as_tuple(smbls_by_type[key]))))
+                    else:
+                        arrays_by_shape = {array_shape: [] for array_shape in
+                                           {array.shape for array in smbls_by_type[key]}}
+                        for array in smbls_by_type[key]:
+                            arrays_by_shape[array.shape].append(array)
+                        for array_key in arrays_by_shape:
+                            declarations.append(decl.clone(symbols=(as_tuple(arrays_by_shape[array_key]))))
+                counter = 0
+                for i_sdecl, sdecl in enumerate(declarations):
+                    if i_sdecl == 0:
+                        decl_map[decl] = sdecl
+                    else:
+                        routine.spec.insert(routine.spec.body.index(decl) + counter, sdecl)
+                        counter += 1
+
+    routine.spec = Transformer(decl_map).visit(routine.spec)
 
 
 def convert_to_lower_case(routine):
