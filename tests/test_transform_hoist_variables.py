@@ -134,17 +134,17 @@ def test_hoist(here, frontend, config):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a', 'b', 'x', 'y', 'z', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'],
-        "device1": ['a', 'b', 'x', 'y', 'z', 'd1_tmp', 'device2_z', 'device2_d2_tmp'],
-        "device2": ['a', 'b', 'x', 'z', 'd2_tmp'],
+        "kernel2": ['a1', 'b', 'x', 'y', 'z', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'],
+        "device1": ['a1', 'b', 'x', 'y', 'z', 'd1_tmp', 'device2_z', 'device2_d2_tmp'],
+        "device2": ['a2', 'b', 'x', 'z', 'd2_tmp'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
         "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_y', 'kernel2_z', 'kernel2_k2_tmp', 'device1_z', 'device1_d1_tmp',
                     'device2_z', 'device2_d2_tmp'),
-        "device1": ('a', 'b', 'x', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device2": ('a', 'b', 'x', 'device2_z', 'device2_d2_tmp')
+        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'),
+        "device2": ('a1', 'b', 'x', 'device2_z', 'device2_d2_tmp')
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
@@ -171,16 +171,16 @@ def test_hoist_arrays(here, frontend, config):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'],
-        "device1": ['a', 'b', 'x', 'y', 'device2_z', 'device2_d2_tmp'],
-        "device2": ['a', 'b', 'x', 'z', 'd2_tmp'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z', 'device2_d2_tmp'],
+        "device2": ['a2', 'b', 'x', 'z', 'd2_tmp'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
         "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device1": ('a', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device2": ('a', 'b', 'x', 'device2_z', 'device2_d2_tmp')
+        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'),
+        "device2": ('a1', 'b', 'x', 'device2_z', 'device2_d2_tmp')
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
@@ -198,7 +198,7 @@ def test_hoist_specific_variables(here, frontend, config):
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
     # Transformation: Analysis
-    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',)), reverse=True)
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2')), reverse=True)
     # Transformation: Synthesis
     scheduler.process(transformation=HoistVariablesTransformation())
 
@@ -207,16 +207,16 @@ def test_hoist_specific_variables(here, frontend, config):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a', 'b', 'x', 'k2_tmp', 'device2_z'],
-        "device1": ['a', 'b', 'x', 'y', 'device2_z'],
-        "device2": ['a', 'b', 'x', 'z'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z'],
+        "device2": ['a2', 'b', 'x', 'z'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
         "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_k2_tmp', 'device2_z'),
-        "device1": ('a', 'b', 'x', 'k2_tmp', 'device2_z'),
-        "device2": ('a', 'b', 'x', 'device2_z')
+        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device2_z'),
+        "device2": ('a1', 'b', 'x', 'device2_z')
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
@@ -250,7 +250,7 @@ def test_hoist_allocatable(here, frontend, config):
 
     key = "HoistVariablesAllocatable"
     # Transformation: Analysis
-    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',), key=key), reverse=True)
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2'), key=key), reverse=True)
     # Transformation: Synthesis
     scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
 
@@ -265,16 +265,16 @@ def test_hoist_allocatable(here, frontend, config):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a', 'b', 'x', 'k2_tmp', 'device2_z'],
-        "device1": ['a', 'b', 'x', 'y', 'device2_z'],
-        "device2": ['a', 'b', 'x', 'z'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z'],
+        "device2": ['a2', 'b', 'x', 'z'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
         "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_k2_tmp', 'device2_z'),
-        "device1": ('a', 'b', 'x', 'k2_tmp', 'device2_z'),
-        "device2": ('a', 'b', 'x', 'device2_z')
+        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device2_z'),
+        "device2": ('a1', 'b', 'x', 'device2_z')
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
