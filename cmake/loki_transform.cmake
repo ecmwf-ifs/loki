@@ -11,6 +11,11 @@ macro( _loki_transform_parse_args _func_name )
         ecbuild_critical( "Unknown keywords given to ${_func_name}(): \"${_PAR_UNPARSED_ARGUMENTS}\"" )
     endif()
 
+    if ( NOT _PAR_TRAFOTYPE )
+        ecbuild_warn( "No TRAFOTYPE specified for ${_func_name}()" )
+    endif()
+    list( APPEND _ARGS --trafo-type ${_PAR_TRAFOTYPE} )
+
     if( NOT _PAR_FRONTEND )
         ecbuild_critical( "No FRONTEND specified for ${_func_name}()" )
     endif()
@@ -130,6 +135,10 @@ macro( _loki_transform_parse_convert_args _func_name )
         list( APPEND _ARGS --out-path ${_PAR_OUTPATH} )
     endif()
 
+    if ( _PAR_TRAFOTYPE )
+        list ( APPEND _ARGS --trafo-type ${_PAR_TRAFOTYPE} )
+    endif()
+
     if( _PAR_DEFINE )
         if ( _PAR_DEFINITIONS )
             ecbuild_critical( "Both DEFINITIONS and DEFINE given to ${_func_name}(): Please use DEFINITIONS only" )
@@ -167,6 +176,7 @@ endmacro()
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       MODE <mode>
 #       FRONTEND <frontend>
+#       TRAFOTYPE <trafotype>
 #       [CPP]
 #       [CONFIG <config-file>]
 #       [PATH <path>]
@@ -194,7 +204,7 @@ endmacro()
 function( loki_transform_convert )
 
     set( options CPP DATA_OFFLOAD REMOVE_OPENMP )
-    set( oneValueArgs MODE FRONTEND CONFIG PATH OUTPATH )
+    set( oneValueArgs MODE FRONTEND CONFIG PATH OUTPATH TRAFOTYPE )
     set( multiValueArgs OUTPUT DEPENDS INCLUDES INCLUDE HEADERS HEADER DEFINITIONS DEFINE OMNI_INCLUDE XMOD )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
