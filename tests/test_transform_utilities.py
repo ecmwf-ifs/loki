@@ -5,23 +5,16 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 import pytest
 
-from conftest import jit_compile_lib, available_frontends
-from loki.transform import (single_variable_declaration,
-                            single_variable_declarations)
+from conftest import available_frontends
+from loki.transform import single_variable_declaration, single_variable_declarations
 from loki import Subroutine, OMNI, FindNodes, VariableDeclaration
 from loki.expression import symbols as sym
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Makes variable declaration already unique')]))
-def test_transform_utilities_single_variable_declaration(here, frontend):
+def test_transform_utilities_single_variable_declaration(frontend):
     """
     Test correct inlining of elemental functions.
     """
@@ -53,7 +46,7 @@ end subroutine foo
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Makes variable declaration already unique')]))
-def test_transform_utilities_single_variable_declarations(here, frontend):
+def test_transform_utilities_single_variable_declarations(frontend):
     """
     Test correct inlining of elemental functions.
     """
@@ -75,7 +68,7 @@ end subroutine foo
     declarations = FindNodes(VariableDeclaration).visit(routine.spec)
     assert len(declarations) == 15
     for decl in declarations:
-        assert(len(decl.symbols) == 1)
+        assert len(decl.symbols) == 1
 
     # strict = False, meaning only non-similar variable declarations unique
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -85,8 +78,8 @@ end subroutine foo
     for decl in declarations:
         types = [smbl.type for smbl in decl.symbols]
         _ = [type == types[0] for type in types]
-        assert (all(_))
+        assert all(_)
         if isinstance(decl.symbols[0], sym.Array):
             shapes = [smbl.shape for smbl in decl.symbols]
             _ = [shape == shapes[0] for shape in shapes]
-            assert(all(_))
+            assert all(_)
