@@ -5,32 +5,58 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from more_itertools import pairwise
+"""
+Single-Column-Coalesced CUDA Fortran (SCC-CUF) transformation.
+"""
 
 from loki.expression import symbols as sym
 from loki.transform import (resolve_associates, single_variable_declarations, single_variable_declaration,
                             HoistVariablesTransformation)
 from loki import ir
 from loki import (
-    Transformation, FindNodes, FindScopes, FindVariables,
-    FindExpressions, Transformer, NestedTransformer, NestedMaskedTransformer,
-    SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
-    pragmas_attached, CaseInsensitiveDict, as_tuple, flatten, types, fgen
+    Transformation, FindNodes, FindVariables,
+    FindExpressions, Transformer,
+    SubstituteExpressions, SymbolAttributes, BasicType,
+    CaseInsensitiveDict, as_tuple, flatten, types
 )
 
-__all__ = ['SccCuf', 'HoistTemporaryArraysTransformationDeviceAllocatable']
-
+__all__ = ['SccCufTransformation', 'HoistTemporaryArraysTransformationDeviceAllocatable']
 
 
 class HoistTemporaryArraysTransformationDeviceAllocatable(HoistVariablesTransformation):
+    """
+    Synthesis part for variable/array hoisting for CUDA Fortran (CUF) (transformation).
+
+    Parameters
+    ----------
+    key: str
+        Access identifier/key for the ``item.trafo_data`` dictionary.
+        Only necessary to provide if several of
+        these transformations are carried out in succession.
+    disable: tuple
+        Optional, tuple of subroutines not to be processed.
+    **kwargs : optional
+        Keyword arguments for the transformation.
+    """
 
     def __init__(self, key=None, disable=(), **kwargs):
         super().__init__(key=key, disable=disable, **kwargs)
 
     def driver_variable_declaration(self, routine, var):
-        type = var.type.clone(device=True, allocatable=True)
+        """
+        CUDA Fortran (CUF) Variable/Array device declaration including
+        allocation and de-allocation.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to add the variable declaration
+        var: :any:`Variable`
+            The variable to be declared
+        """
+        vtype = var.type.clone(device=True, allocatable=True)
         routine.variables += tuple([var.clone(scope=routine, dimensions=as_tuple(
-            [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=type)])
+            [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=vtype)])
 
         allocations = FindNodes(ir.Allocation).visit(routine.body)
         if allocations:
@@ -47,6 +73,17 @@ class HoistTemporaryArraysTransformationDeviceAllocatable(HoistVariablesTransfor
 
 
 def dynamic_local_arrays(routine, vertical):
+    """
+    Declaring local arrays with the ``vertical`` :any:`Dimension` to be
+    dynamically allocated.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine to dynamically allocate the local arrays
+    vertical: :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    """
     local_arrays = []
     arguments = [arg.name for arg in routine.arguments]
     decl_map = {}
@@ -69,6 +106,17 @@ def dynamic_local_arrays(routine, vertical):
 
 
 def increase_heap_size(routine):
+    """
+    Increase the heap size via call to `cudaDeviceSetLimit` needed for version with dynamic
+    memory allocation on the device.
+
+    .. note :: `cudaDeviceSetLimit` need to be called before the first kernel call!
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine (e.g. the driver) to increase the heap size
+    """
     vtype = SymbolAttributes(types.BasicType.INTEGER, kind=sym.IntrinsicLiteral("cuda_count_kind"))
     routine.spec.append(ir.VariableDeclaration((sym.Scalar("cudaHeapSize", type=vtype),)))
 
@@ -87,6 +135,7 @@ def increase_heap_size(routine):
 
 def remove_pragmas(routine):
     """
+    Remove all pragmas.
 
     Parameters
     ----------
@@ -124,7 +173,7 @@ def kernel_remove_vector_loops(routine, horizontal):
 
     Parameters
     ----------
-    routine : :any:`Subroutine`
+    routine: :any:`Subroutine`
         The subroutine in the vector loops should be removed.
     horizontal : :any:`Dimension`
         The dimension specifying the horizontal vector dimension
@@ -136,7 +185,19 @@ def kernel_remove_vector_loops(routine, horizontal):
     routine.body = Transformer(loop_map).visit(routine.body)
 
 
+# TODO: correct "definition" of elemental/pure routines ...
 def is_elemental(routine):
+    """
+    Check whether :any:`Subroutine` ``routine`` is an elemental routine.
+
+    Need for distinguishing elemental and non-elemental function to transform
+    those in a different way.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine to check whether elemental
+    """
     if "ELEMENTAL" in routine.prefix:
         return True
     return False
@@ -144,8 +205,34 @@ def is_elemental(routine):
 
 def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation_type, depth,
                derived_type_variables):
+    """
+    For CUDA Fortran (CUF) kernels and device functions: thread mapping, array dimension transformation,
+    transforming (call) arguments, ...
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine (kernel/device subroutine)
+    horizontal: :any:`Dimension`
+        The dimension object specifying the horizontal vector dimension
+    vertical: :any:`Dimension`
+        The dimension object specifying the vertical loop dimension
+    block_dim: :any:`Dimension`
+        The dimension object specifying the block loop dimension
+    disable: tuple
+        Tuple of routines not to be processed
+    transformation_type: int
+        Type of SCC-CUF transformation
+    depth: int
+        Depth of routine (within the call graph) to distinguish between kernels (`global` subroutines)
+        and device functions (`device` subroutines)
+    derived_type_variables: tuple
+        Tuple of derived types within the routine
+    """
 
     if is_elemental(routine):
+        # TODO: correct "definition" of elemental/pure routines and corresponding removing
+        #  of subroutine prefix(es)/specifier(s)
         routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]])
         return
 
@@ -155,12 +242,12 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
         single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
 
     # This adds argument and variable declaration !
-    type = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
-    new_argument = routine.variable_map[horizontal.size].clone(name=block_dim.size, type=type)
+    vtype = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
+    new_argument = routine.variable_map[horizontal.size].clone(name=block_dim.size, type=vtype)
     routine.arguments = list(routine.arguments) + [new_argument]
 
-    type = routine.variable_map[horizontal.index].type.clone()
-    jblk_var = routine.variable_map[horizontal.index].clone(name=block_dim.index, type=type)
+    vtype = routine.variable_map[horizontal.index].type.clone()
+    jblk_var = routine.variable_map[horizontal.index].clone(name=block_dim.index, type=vtype)
     routine.spec.append(ir.VariableDeclaration((jblk_var,)))
 
     if depth == 1:
@@ -182,12 +269,9 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
                         ir.Conditional(condition=condition, body=routine.body, else_body=None)))
 
     elif depth > 1:
-        # routine.arguments += jblk_var.clone(type=jblk_var.type.clone(intent="in"))
-        type = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
-        new_arguments = [routine.variable_map[horizontal.index].clone(type=type), jblk_var.clone(type=type)]
+        vtype = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
+        new_arguments = [routine.variable_map[horizontal.index].clone(type=vtype), jblk_var.clone(type=vtype)]
         routine.arguments = list(routine.arguments) + new_arguments
-        # new_arguments = [routine.variable_map[horizontal.index].clone(type=type)] #.clone(type=type)]
-        # routine.arguments = list(routine.arguments) + new_arguments
 
     calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
     for call in calls:  # FindNodes(ir.CallStatement).visit(routine.body):
@@ -207,8 +291,8 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
             elif isinstance(var, sym.Array):
                 dimensions = list(var.dimensions) + [routine.variable_map[block_dim.size]]
                 shape = list(var.shape) + [routine.variable_map[block_dim.size]]
-                type = var.type.clone(shape=as_tuple(shape))
-                var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=type)
+                vtype = var.type.clone(shape=as_tuple(shape))
+                var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=vtype)
         else:
             if isinstance(var, sym.Array):
                 dimensions = list(var.dimensions)
@@ -216,13 +300,13 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
                     if transformation_type == 1:
                         dimensions += [routine.variable_map[block_dim.size]]
                         shape = list(var.shape) + [routine.variable_map[block_dim.size]]
-                        type = var.type.clone(shape=as_tuple(shape))
+                        vtype = var.type.clone(shape=as_tuple(shape))
                         relevant_local_arrays.append(var.name)
                     else:
                         dimensions.remove(horizontal.size)
                         relevant_local_arrays.append(var.name)
-                        type = var.type.clone(device=True)
-                    var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=type)
+                        vtype = var.type.clone(device=True)
+                    var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=vtype)
 
     routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
@@ -256,27 +340,10 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
             arguments = []
             for arg in call.arguments:
                 if isinstance(arg, sym.Array):
-                    arguments.append(arg.clone(dimensions=None))  # , type=arg.type.clone(shape=None)))
+                    arguments.append(arg.clone(dimensions=None))
                 else:
                     arguments.append(arg)
             call.arguments = arguments
-
-
-def demote_variables(routine, variables, expressions):
-    shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
-    vmap = {}
-    for v in variables:
-        old_shape = shape_map[v.name]
-        # TODO: "s for s in old_shape if s not in expressions" sufficient?
-        new_shape = as_tuple(s for s in old_shape if s not in expressions)
-
-        if old_shape and old_shape[0] in expressions:
-            new_type = v.type.clone(shape=new_shape or None)
-            new_dims = v.dimensions[1:] or None
-            vmap[v] = v.clone(dimensions=new_dims, type=new_type)
-
-    routine.body = SubstituteExpressions(vmap).visit(routine.body)
-    routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
 
 def kernel_demote_private_locals(routine, horizontal, vertical):
@@ -293,8 +360,8 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
 
     Parameters
     ----------
-    routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
+    routine: :any:`Subroutine`
+        The subroutine to demote the private locals
     horizontal: :any:`Dimension`
         The dimension object specifying the horizontal vector dimension
     vertical: :any:`Dimension`
@@ -323,10 +390,38 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
     call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
     variables = [v for v in variables if v.name not in call_args]
 
-    demote_variables(routine, variables, horizontal.size_expressions)
+    shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
+    vmap = {}
+    for v in variables:
+        old_shape = shape_map[v.name]
+        # TODO: "s for s in old_shape if s not in expressions" sufficient?
+        new_shape = as_tuple(s for s in old_shape if s not in horizontal.size_expressions)
+
+        if old_shape and old_shape[0] in horizontal.size_expressions:
+            new_type = v.type.clone(shape=new_shape or None)
+            new_dims = v.dimensions[1:] or None
+            vmap[v] = v.clone(dimensions=new_dims, type=new_type)
+
+    routine.body = SubstituteExpressions(vmap).visit(routine.body)
+    routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
 
 def driver_device_variables(routine, disable):
+    """
+    Driver device variable versions including
+
+    * variable declaration
+    * allocation
+    * host-device synchronisation
+    * de-allocation
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine (driver) to handle the device variables
+    disable: tuple
+        Tuple of routines not to be processed
+    """
 
     # istat: status of CUDA runtime function (e.g. for cudaDeviceSynchronize(), cudaMalloc(), cudaFree(), ...)
     i_type = SymbolAttributes(types.BasicType.INTEGER)
@@ -345,13 +440,13 @@ def driver_device_variables(routine, disable):
     for array in relevant_arrays:
         vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
         vdimensions = [sym.RangeIndex((None, None))] * len(array.dimensions)
-        var = array.clone(name="{}_d".format(array.name), type=vtype, dimensions=as_tuple(vdimensions))
+        var = array.clone(name=f"{array.name}_d", type=vtype, dimensions=as_tuple(vdimensions))
         routine.spec.append(ir.VariableDeclaration(symbols=as_tuple(var)))
 
     # Allocation
     for array in reversed(relevant_arrays):
         vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-        routine.body.prepend(ir.Allocation((array.clone(name="{}_d".format(array.name), type=vtype,
+        routine.body.prepend(ir.Allocation((array.clone(name=f"{array.name}_d", type=vtype,
                                                         dimensions=routine.variable_map[array.name].dimensions),)))
     routine.body.prepend(ir.Comment('! Device array allocation'))
     routine.body.prepend(ir.Comment(''))
@@ -365,7 +460,7 @@ def driver_device_variables(routine, disable):
     # Copy host to device
     for array in reversed(relevant_arrays):
         vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-        lhs = array.clone(name="{}_d".format(array.name), type=vtype, dimensions=None)
+        lhs = array.clone(name=f"{array.name}_d", type=vtype, dimensions=None)
         rhs = array.clone(dimensions=None)
         if insert_index is not None:
             routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
@@ -388,7 +483,7 @@ def driver_device_variables(routine, disable):
         if v.type.intent != "in":
             lhs = v.clone(dimensions=None)
             vtype = v.type.clone(device=True, allocatable=True, intent=None, shape=None)
-            rhs = v.clone(name="{}_d".format(v.name), type=vtype, dimensions=None)
+            rhs = v.clone(name=f"{v.name}_d", type=vtype, dimensions=None)
             if insert_index is None:
                 routine.body.append(ir.Assignment(lhs=lhs, rhs=rhs))
             else:
@@ -400,7 +495,7 @@ def driver_device_variables(routine, disable):
     routine.body.append(ir.Comment(''))
     routine.body.append(ir.Comment('! De-allocation'))
     for array in relevant_arrays:
-        routine.body.append(ir.Deallocation((array.clone(name="{}_d".format(array.name), dimensions=None),)))
+        routine.body.append(ir.Deallocation((array.clone(name=f"{array.name}_d", dimensions=None),)))
 
     call_map = {}
     for call in calls:
@@ -408,7 +503,7 @@ def driver_device_variables(routine, disable):
         for arg in call.arguments:
             if arg in relevant_arrays:  # if isinstance(arg, sym.Array):
                 vtype = arg.type.clone(device=True, allocatable=True, shape=None, intent=None)
-                arguments.append(arg.clone(name="{}_d".format(arg.name), type=vtype, dimensions=None))
+                arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
             else:
                 arguments.append(arg)
         call_map[call] = call.clone(arguments=arguments)
@@ -416,6 +511,19 @@ def driver_device_variables(routine, disable):
 
 
 def driver_launch_configuration(routine, block_dim, disable):
+    """
+    Launch configuration for kernel calls within the driver with the
+    CUDA Fortran (CUF) specific chevron syntax `<<<griddim, blockdim>>>`.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine to specify the launch configurations for kernel calls.
+    block_dim: :any:`Dimension`
+        The dimension object specifying the block loop dimension
+    disable: tuple
+        Tuple of routines not to be processed
+    """
 
     d_type = SymbolAttributes(types.DerivedType("DIM3"))
     routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="GRIDDIM", type=d_type),
@@ -540,7 +648,20 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
 
 
 def module_derived_types(routine, disable, derived_types):
-    _variables = [var for var in FindVariables().visit(routine.ir)]
+    """
+    Create device versions of variables of specific derived types including
+    host-device-synchronisation.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine to create device versions of the specified derived type variables.
+    disable: tuple
+        Tuple of routines not to be processed
+    derived_types: tuple
+        Tuple of derived types within the routine
+    """
+    _variables = list(FindVariables().visit(routine.ir))
     variables = []
     for var in _variables:
         for derived_type in derived_types:
@@ -570,22 +691,80 @@ def module_derived_types(routine, disable, derived_types):
 
 
 def device_subroutine_prefix(routine, depth):
+    """
+    Add prefix/specifier `ATTRIBUTES(GLOBAL)` for kernel subroutines and
+    `ATTRIBUTES(DEVICE)` for device subroutines.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine (kernel/device subroutine) to add a prefix/specifier
+    depth: int
+        The subroutines depth
+    """
     if depth == 1:
         routine.prefix += ("ATTRIBUTES(GLOBAL)",)
     elif depth > 1:
         routine.prefix += ("ATTRIBUTES(DEVICE)",)
 
 
-class SccCuf(Transformation):
+class SccCufTransformation(Transformation):
+    """
+    Single Column Coalesced CUDA Fortran - SCC-CUF: Direct CPU-to-GPU
+    transformation for block-indexed gridpoint routines.
 
-    def __init__(self, horizontal, vertical=None, block_dim=None, disable=None,
-                 transformation_type=0):
+    This transformation will remove individiual CPU-style
+    vectorization loops from "kernel" routines and distributes the
+    work for GPU threads according to the CUDA programming model using
+    CUDA Fortran (CUF) syntax.
 
+    .. note:: this requires preprocessing with the :class:`DerivedTypeArgumentsTransformation`.
+
+    .. note:: in dependence of the transformation type ``transformation_type`` further
+     transformation are necessary:
+
+     * `transformation_type = 0` which corresponds to parametrising the array arguments, this
+      requires a subsequent :class:`ParametriseTransformation` transformation with the
+      necessary information to parametrise (at least) the ``vertical`` `size`
+     * `transformation_type = 1` which corresponds to host side hoisting of the relevant arrays,
+      this requires subsequent :class:`HoistVariablesAnalysis` and :class:`HoistVariablesTransformation`
+      transformations (e.g. :class:`HoistTemporaryArraysAnalysis` for analysis and
+      :class:`HoistTemporaryArraysTransformationDeviceAllocatable` for synthesis)
+     * `transformation_type = 2` which corresponds to dynamic memory allocation on the device,
+      this does not require a subsequent transformation
+
+    Parameters
+    ----------
+    horizontal : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the horizontal data dimension and iteration space.
+    vertical : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the vertical dimension, as needed to decide array privatization.
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object to define the blocking dimension
+        to use for hoisted column arrays if hoisting is enabled.
+    disable: tuple
+        Optional, tuple of subroutines not to be processed.
+    transformation_type : int
+        Kind of SCC-CUF transformation, as automatic arrays currently not supported. Thus
+        automatic arrays need to transformed by either
+
+        - `0`: parametrising the array dimensions
+        - `1`: host side hoisting of (relevant) arrays
+        - `2`: dynamic memory allocation on the device (not recommended for performance reasons)
+
+    """
+
+    def __init__(self, horizontal, vertical, block_dim, disable=None, transformation_type=0):
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
 
         self.transformation_type = transformation_type
+        # 0 : parametrising the array dimensions
+        # 1: host side hoisting
+        # 2: dynamic memory allocation on the device
         assert self.transformation_type in [0, 1, 2]
 
         if disable is None:
@@ -598,7 +777,6 @@ class SccCuf(Transformation):
     def transform_module(self, module, **kwargs):
 
         role = kwargs.get('role')
-        # targets = kwargs.get('targets', None)
 
         if role == 'driver':
             module.spec.prepend(ir.Import(module="cudafor"))
@@ -610,7 +788,6 @@ class SccCuf(Transformation):
             return
 
         role = kwargs.get('role')
-        targets = kwargs.get('targets', None)
         depths = kwargs.get('depths', None)
         if depths is None:
             if role == 'driver':
@@ -624,17 +801,26 @@ class SccCuf(Transformation):
         single_variable_declarations(routine=routine, strict=False)
         device_subroutine_prefix(routine, depth)
 
-        # TODO: needed for every subroutine or only those with THREADIDX...
         if depth > 0:
             routine.spec.prepend(ir.Import(module="cudafor"))
 
         if role == 'driver':
-            self.process_routine_driver(routine, depth=depth, targets=targets)
+            self.process_routine_driver(routine)
 
         if role == 'kernel':
-            self.process_routine_kernel(routine, depth=depth, targets=targets)
+            self.process_routine_kernel(routine, depth=depth)
 
-    def process_routine_kernel(self, routine, depth=1, targets=None):
+    def process_routine_kernel(self, routine, depth=1):
+        """
+        Kernel/Device subroutine specific changes/transformations.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine (kernel/device subroutine) to process
+        depth: int
+            The subroutines depth
+        """
 
         v_index = get_integer_variable(routine, name=self.horizontal.index)
         resolve_associates(routine)
@@ -649,7 +835,15 @@ class SccCuf(Transformation):
         if self.transformation_type == 2:
             dynamic_local_arrays(routine, self.vertical)
 
-    def process_routine_driver(self, routine, depth=0, targets=None):
+    def process_routine_driver(self, routine):
+        """
+        Driver subroutine specific changes/transformations.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine (driver) to process
+        """
 
         self.derived_type_variables = module_derived_types(routine=routine, disable=self.disable,
                                                            derived_types=self.derived_types)
