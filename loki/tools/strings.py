@@ -94,8 +94,11 @@ class JoinableStringList:
         if (isinstance(item, type(self)) and (item.separable or not item_fits_in_line) and
                 len(item.items) > 1):
             line, new_item = item._to_str(line=line, stop_on_continuation=True)
-            new_line, lines = self._add_item_to_line(self.cont[1], new_item)
-            return new_line, [line + self.cont[0], *lines]
+            if len(new_item.items) < len(item.items):
+                # If we have been able to put at least one entry from item on the line, we
+                # continue recursively:
+                new_line, lines = self._add_item_to_line(self.cont[1], new_item)
+                return new_line, [line + self.cont[0], *lines]
 
         # Otherwise, let's put it on a new line if the item as a whole fits on the next line
         if item_fits_in_line:
