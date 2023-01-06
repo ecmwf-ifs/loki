@@ -43,7 +43,7 @@ class SchedulerConfig:
         control flow, like ``flush`` or ``abort``.
     """
 
-    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None):
+    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
@@ -55,6 +55,10 @@ class SchedulerConfig:
             self.dic2p = dic2p
         else:
             self.dic2p = {}
+        if derived_types is not None:
+            self.derived_types = derived_types
+        else:
+            self.derived_types = ()
 
     @classmethod
     def from_dict(cls, config):
@@ -76,7 +80,12 @@ class SchedulerConfig:
         if 'dic2p' in config:
             dic2p = config['dic2p']
 
-        return cls(default=default, routines=routines, disable=disable, dimensions=dimensions, dic2p=dic2p)
+        derived_types = ()
+        if 'derived_types' in config:
+            derived_types = config['derived_types']
+
+        return cls(default=default, routines=routines, disable=disable, dimensions=dimensions, dic2p=dic2p,
+                   derived_types=derived_types)
 
     @classmethod
     def from_file(cls, path):

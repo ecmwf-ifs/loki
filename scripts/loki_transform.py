@@ -222,8 +222,10 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
         disable = scheduler.config.disable
+        derived_types = scheduler.config.derived_types
         transformation = SccCufTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-                                disable=disable, transformation_type=trafo_type)
+                                              disable=disable, transformation_type=trafo_type,
+                                              derived_types=derived_types)
 
     if transformation:
         scheduler.process(transformation=transformation)
