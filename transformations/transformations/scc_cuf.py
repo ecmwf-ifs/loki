@@ -766,6 +766,9 @@ class SccCufTransformation(Transformation):
         # 1: host side hoisting
         # 2: dynamic memory allocation on the device
         assert self.transformation_type in [0, 1, 2]
+        self.transformation_description = {0: 'parametrised array dimensions of local arrays',
+                                           1: 'host side hoisted local arrays',
+                                           2: 'dynamic memory allocation on the device'}
 
         if disable is None:
             self.disable = ()
@@ -856,3 +859,7 @@ class SccCufTransformation(Transformation):
         # increase heap size (only for version with dynamic memory allocation on device)
         if self.transformation_type == 2:
             increase_heap_size(routine)
+
+        routine.body.prepend(ir.Comment(f"!@cuf print *, 'executing SCC-CUF type: {self.transformation_type} - "
+                                        f"{self.transformation_description[self.transformation_type]}'"))
+        routine.body.prepend(ir.Comment(""))
