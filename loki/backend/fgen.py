@@ -451,10 +451,10 @@ class FortranCodegen(Stringifier):
     def visit_DataDeclaration(self, o, **kwargs):
         """
         Format as
-          DATA <var> /<values>/
+          DATA <var> / <values> /
         """
         values = self.visit_all(o.values, **kwargs)
-        return self.format_line('DATA ', o.variable, '/', values, '/')
+        return self.format_line('DATA ', self.visit(o.variable, **kwargs), ' / ', self.join_items(values), ' /')
 
     def visit_StatementFunction(self, o, **kwargs):
         """

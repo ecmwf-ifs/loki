@@ -9,7 +9,7 @@ import pytest
 
 from conftest import available_frontends
 
-from loki import Subroutine, fgen
+from loki import Subroutine, fgen, OMNI, OFP, Intrinsic, DataDeclaration
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_fgen_literal_list_linebreak(frontend):
@@ -35,3 +35,33 @@ end subroutine literal_list_linebreak
     assert body_code.count('/)') == 2
     body_lines = body_code.splitlines()
     assert all(len(line) < 132 for line in body_lines)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_fgen_data_stmt(frontend):
+    """
+    Test correct formatting of data declaration statements
+    """
+    fcode = """
+subroutine data_stmt
+    implicit none
+    INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
+    REAL(KIND=JPRB) :: ZAMD
+    INTEGER :: KXINDX(35)
+    data ZAMD   /  28.970_JPRB    /
+    DATA KXINDX /0,2,3,0,31*0/
+end subroutine data_stmt
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    if frontend == OFP:
+        assert isinstance(routine.spec.body[-1], Intrinsic)
+    else:
+        assert isinstance(routine.spec.body[-1], DataDeclaration)
+    spec_code = fgen(routine.spec)
+    assert spec_code.lower().count('data ') == 2
+    assert spec_code.count('/') == 4
+    if frontend != OMNI:
+        # OMNI seems to evaluate constant expressions, replacing 31*0 by 0,
+        # although it's not a product here but a repeat specifier (great job, Fortran!)
+        assert '31*0' in spec_code
