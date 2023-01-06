@@ -756,7 +756,7 @@ class SccCufTransformation(Transformation):
 
     """
 
-    def __init__(self, horizontal, vertical, block_dim, disable=None, transformation_type=0):
+    def __init__(self, horizontal, vertical, block_dim, disable=None, transformation_type=0, derived_types=None):
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
@@ -774,7 +774,10 @@ class SccCufTransformation(Transformation):
             self.disable = ()
         else:
             self.disable = [_.upper() for _ in disable]
-        self.derived_types = ['TECLDP']
+        if derived_types is None:
+            self.derived_types = ()
+        else:
+            self.derived_types = derived_types
         self.derived_type_variables = ()
 
     def transform_module(self, module, **kwargs):

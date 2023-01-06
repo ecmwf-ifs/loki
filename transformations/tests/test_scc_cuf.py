@@ -9,13 +9,13 @@ from pathlib import Path
 import pytest
 
 from conftest import available_frontends
-from transformations import SccCufTransformation, HoistTemporaryArraysTransformationDeviceAllocatable
 from loki import (
     Scheduler, OMNI, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Allocation, Deallocation, VariableDeclaration, Import, FindVariables
 )
-from loki.expression import symbols as sym
 from loki.transform import HoistTemporaryArraysAnalysis, ParametriseTransformation
+from loki.expression import symbols as sym
+from transformations import SccCufTransformation, HoistTemporaryArraysTransformationDeviceAllocatable
 
 
 @pytest.fixture(scope='module', name='horizontal')
