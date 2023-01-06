@@ -250,7 +250,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf=(mode=='cuf')))
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf=(mode == 'cuf')))
 
 
 @cli.command()
