@@ -261,6 +261,15 @@ class ScopedNode(Scope):
     is carried over correctly.
     """
 
+    @property
+    def args(self):
+        """
+        Arguments used to construct the :any:`ScopedNode`, excluding
+        the symbol table.
+        """
+        keys = tuple(k for k in self.__dataclass_fields__.keys() if k not in ('symbol_attrs', ))
+        return {k: v for k, v in self.__dict__.items() if k in keys}
+
     def _update(self, *args, **kwargs):
         if 'symbol_attrs' not in kwargs:
             # Retain the symbol table (unless given explicitly)
@@ -270,13 +279,16 @@ class ScopedNode(Scope):
     def _rebuild(self, *args, **kwargs):
         # Retain the symbol table (unless given explicitly)
         symbol_attrs = kwargs.pop('symbol_attrs', self.symbol_attrs)
+        rescope_symbols = kwargs.pop('rescope_symbols', False)
 
         # Ensure 'parent' is always explicitly set
         kwargs['parent'] = kwargs.get('parent', None)
 
         new_obj = super()._rebuild(*args, **kwargs)  # pylint: disable=no-member
         new_obj.symbol_attrs.update(symbol_attrs)
-        new_obj.rescope_symbols()
+
+        if rescope_symbols:
+            new_obj.rescope_symbols()
         return new_obj
 
 
