@@ -8,6 +8,7 @@
 import pytest
 
 from conftest import available_frontends
+from pydantic import ValidationError
 from loki import Module, FindNodes, Transformer
 from loki import ir
 from loki.expression import symbols as sym
@@ -83,9 +84,9 @@ end module transformation_module_cufgen
             with pytest.raises(AssertionError):
                 _ = call.clone(chevron=(sym.IntLiteral(1), sym.IntLiteral(1), sym.IntLiteral(1), sym.IntLiteral(1),
                                         sym.IntLiteral(1)))
-            with pytest.raises(AssertionError):
+            with pytest.raises(ValidationError):
                 _ = call.clone(chevron=(1, 1))
-            with pytest.raises(AssertionError):
+            with pytest.raises(ValidationError):
                 _ = call.clone(chevron=2)
 
             call_map[call] = call.clone(chevron=(sym.IntLiteral(1), sym.IntLiteral(1),
