@@ -174,8 +174,8 @@ class TypedSymbol:
 
     @property
     def name(self):
-        if self._parent:
-            return f'{self._parent.name}%{self._name}'
+        if self.parent:
+            return f'{self.parent.name}%{self._name}'
         return self._name
 
     @name.setter
