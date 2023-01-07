@@ -12,7 +12,7 @@ Control flow node classes for
 """
 
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import partial
 from itertools import chain
 from typing import Any, Tuple, Union
@@ -53,7 +53,7 @@ dataclass_strict = partial(dataclass_validated, config=config)
 
 # Abstract base classes
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Node:
     """
     Base class for all node types in Loki's internal representation.
@@ -245,7 +245,7 @@ class Node:
         return self.__dict__['_uses_symbols']
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class InternalNode(Node):
     """
     Internal representation of a control flow node that has a traversable
@@ -271,7 +271,7 @@ class InternalNode(Node):
         raise NotImplementedError
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class LeafNode(Node):
     """
     Internal representation of a control flow node without a `body`.
@@ -313,7 +313,7 @@ class ScopedNode(Scope):
 # Intermediate node types
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _SectionBase():
     """ Type definitions for :any:`Section` node type. """
 
@@ -321,7 +321,7 @@ class _SectionBase():
     body: Tuple[Any, ...] = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Section(InternalNode, _SectionBase):
     """
     Internal representation of a single code region.
@@ -428,7 +428,7 @@ class Associate(ScopedNode, Section):
         return 'Associate::'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _LoopBase():
     """ Type definitions for :any:`Loop` node type. """
 
@@ -442,7 +442,7 @@ class _LoopBase():
     has_end_do: bool = True
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Loop(InternalNode, _LoopBase):
     """
     Internal representation of a loop with induction variable and range.
@@ -497,7 +497,7 @@ class Loop(InternalNode, _LoopBase):
         return f'Loop::{label} {control}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _WhileLoopBase():
     """ Type definitions for :any:`WhileLoop` node type. """
 
@@ -510,7 +510,7 @@ class _WhileLoopBase():
     has_end_do: bool = True
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class WhileLoop(InternalNode, _WhileLoopBase):
     """
     Internal representation of a while loop in source code.
@@ -563,7 +563,7 @@ class WhileLoop(InternalNode, _WhileLoopBase):
         return f'WhileLoop::{label} {control}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _ConditionalBase():
     """ Type definitions for :any:`Conditional` node type. """
 
@@ -575,7 +575,7 @@ class _ConditionalBase():
     name: str = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Conditional(InternalNode, _ConditionalBase):
     """
     Internal representation of a conditional branching construct.
@@ -626,7 +626,7 @@ class Conditional(InternalNode, _ConditionalBase):
         return 'Conditional::'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _PragmaRegionBase():
     """ Type definitions for :any:`PragmaRegion` node type. """
 
@@ -635,7 +635,7 @@ class _PragmaRegionBase():
     pragma_post: Node = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class PragmaRegion(InternalNode, _PragmaRegionBase):
     """
     Internal representation of a block of code defined by two matching pragmas.
@@ -676,7 +676,7 @@ class PragmaRegion(InternalNode, _PragmaRegionBase):
         return 'PragmaRegion::'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _InterfaceBase():
     """ Type definitions for :any:`Interface` node type. """
 
@@ -685,7 +685,7 @@ class _InterfaceBase():
     spec: Union[Expression, str] = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Interface(InternalNode, _InterfaceBase):
     """
     Internal representation of a Fortran interface block.
@@ -734,7 +734,7 @@ class Interface(InternalNode, _InterfaceBase):
 
 # Leaf node types
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _AssignmentBase():
     """ Type definitions for :any:`Assignment` node type. """
 
@@ -744,7 +744,7 @@ class _AssignmentBase():
     comment: Node = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Assignment(LeafNode, _AssignmentBase):
     """
     Internal representation of a variable assignment.
@@ -777,7 +777,7 @@ class Assignment(LeafNode, _AssignmentBase):
         return f'Assignment:: {str(self.lhs)} = {str(self.rhs)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _ConditionalAssignmentBase():
     """ Type definitions for :any:`ConditionalAssignment` node type. """
 
@@ -787,7 +787,7 @@ class _ConditionalAssignmentBase():
     else_rhs: Expression = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class ConditionalAssignment(LeafNode, _ConditionalAssignmentBase):
     """
     Internal representation of an inline conditional assignment using a
@@ -823,7 +823,7 @@ class ConditionalAssignment(LeafNode, _ConditionalAssignmentBase):
         return f'CondAssign:: {self.lhs} = {self.condition} ? {self.rhs} : {self.else_rhs}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _CallStatementBase():
     """ Type definitions for :any:`CallStatement` node type. """
 
@@ -835,7 +835,7 @@ class _CallStatementBase():
     chevron: Tuple[Expression, ...] = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class CallStatement(LeafNode, _CallStatementBase):
     """
     Internal representation of a subroutine call.
@@ -941,7 +941,7 @@ class CallStatement(LeafNode, _CallStatementBase):
         return chain(args, kwargs)
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _AllocationBase():
     """ Type definitions for :any:`Allocation` node type. """
 
@@ -950,7 +950,7 @@ class _AllocationBase():
     status_var: Expression = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Allocation(LeafNode, _AllocationBase):
     """
     Internal representation of a variable allocation.
@@ -982,7 +982,7 @@ class Allocation(LeafNode, _AllocationBase):
         return f'Allocation:: {", ".join(str(var) for var in self.variables)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _DeallocationBase():
     """ Type definitions for :any:`Deallocation` node type. """
 
@@ -990,7 +990,7 @@ class _DeallocationBase():
     status_var: Expression = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Deallocation(LeafNode, _DeallocationBase):
     """
     Internal representation of a variable deallocation.
@@ -1018,14 +1018,14 @@ class Deallocation(LeafNode, _DeallocationBase):
         return f'Deallocation:: {", ".join(str(var) for var in self.variables)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _NullifyBase():
     """ Type definitions for :any:`Nullify` node type. """
 
     variables: Tuple[Expression, ...]
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Nullify(LeafNode, _NullifyBase):
     """
     Internal representation of a pointer nullification.
@@ -1049,14 +1049,14 @@ class Nullify(LeafNode, _NullifyBase):
         return f'Nullify:: {", ".join(str(var) for var in self.variables)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _CommentBase():
     """ Type definitions for :any:`Comment` node type. """
 
     text: str
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Comment(LeafNode, _CommentBase):
     """
     Internal representation of a single comment.
@@ -1079,14 +1079,14 @@ class Comment(LeafNode, _CommentBase):
         return f'Comment:: {truncate_string(self.text)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _CommentBlockBase():
     """ Type definitions for :any:`CommentBlock` node type. """
 
     comments: Tuple[Node, ...]
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class CommentBlock(LeafNode, _CommentBlockBase):
     """
     Internal representation of a block comment that is formed from
@@ -1116,7 +1116,7 @@ class CommentBlock(LeafNode, _CommentBlockBase):
         return f'CommentBlock:: {truncate_string(self.text)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _PragmaBase():
     """ Type definitions for :any:`Pragma` node type. """
 
@@ -1124,7 +1124,7 @@ class _PragmaBase():
     content: str = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Pragma(LeafNode, _PragmaBase):
     """
     Internal representation of a pragma.
@@ -1152,14 +1152,14 @@ class Pragma(LeafNode, _PragmaBase):
         return f'Pragma:: {self.keyword} {truncate_string(self.content)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _PreprocessorDirectiveBase():
     """ Type definitions for :any:`PreprocessorDirective` node type. """
 
     text: str = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class PreprocessorDirective(LeafNode, _PreprocessorDirectiveBase):
     """
     Internal representation of a preprocessor directive.
@@ -1181,7 +1181,7 @@ class PreprocessorDirective(LeafNode, _PreprocessorDirectiveBase):
         return f'PreprocessorDirective:: {truncate_string(self.text)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _ImportBase():
     """ Type definitions for :any:`Import` node type. """
 
@@ -1194,7 +1194,7 @@ class _ImportBase():
     rename_list: Tuple[Any, ...] = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Import(LeafNode, _ImportBase):
     """
     Internal representation of an import.
@@ -1249,7 +1249,7 @@ class Import(LeafNode, _ImportBase):
         return f'{_c}Import:: {self.module} => {self.symbols}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _VariableDeclarationBase():
     """ Type definitions for :any:`VariableDeclaration` node type. """
 
@@ -1259,7 +1259,7 @@ class _VariableDeclarationBase():
     pragma: Node = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class VariableDeclaration(LeafNode, _VariableDeclarationBase):
     """
     Internal representation of a variable declaration.
@@ -1304,7 +1304,7 @@ class VariableDeclaration(LeafNode, _VariableDeclarationBase):
         return f'VariableDeclaration:: {symbols}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _ProcedureDeclarationBase():
     """ Type definitions for :any:`ProcedureDeclaration` node type. """
 
@@ -1318,7 +1318,7 @@ class _ProcedureDeclarationBase():
     pragma: Tuple[Node, ...] = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class ProcedureDeclaration(LeafNode, _ProcedureDeclarationBase):
     """
     Internal representation of a procedure declaration.
@@ -1371,7 +1371,7 @@ class ProcedureDeclaration(LeafNode, _ProcedureDeclarationBase):
         return f'ProcedureDeclaration:: {symbols}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _DataDeclarationBase():
     """ Type definitions for :any:`DataDeclaration` node type. """
 
@@ -1381,7 +1381,7 @@ class _DataDeclarationBase():
     values: Tuple[Expression, ...]
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class DataDeclaration(LeafNode, _DataDeclarationBase):
     """
     Internal representation of a ``DATA`` declaration for explicit array
@@ -1411,7 +1411,7 @@ class DataDeclaration(LeafNode, _DataDeclarationBase):
         return f'DataDeclaration:: {str(self.variable)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _StatementFunctionBase():
     """ Type definitions for :any:`StatementFunction` node type. """
 
@@ -1421,7 +1421,7 @@ class _StatementFunctionBase():
     return_type: SymbolAttributes
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class StatementFunction(LeafNode, _StatementFunctionBase):
     """
     Internal representation of Fortran statement function statements
@@ -1606,7 +1606,7 @@ class TypeDef(ScopedNode, LeafNode):
         self.rescope_symbols()
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _MultiConditionalBase():
     """ Type definitions for :any:`MultiConditional` node type. """
 
@@ -1617,7 +1617,7 @@ class _MultiConditionalBase():
     name: str = None
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class MultiConditional(LeafNode, _MultiConditionalBase):
     """
     Internal representation of a multi-value conditional (eg. ``SELECT``).
@@ -1658,7 +1658,7 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
         return f'MultiConditional::{label} {str(self.expr)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _MaskedStatementBase():
     """ Type definitions for :any:`MaskedStatement` node type. """
 
@@ -1668,7 +1668,7 @@ class _MaskedStatementBase():
     inline: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class MaskedStatement(LeafNode, _MaskedStatementBase):
     """
     Internal representation of a masked array assignment (``WHERE`` clause).
@@ -1715,7 +1715,7 @@ class _IntrinsicBase():
     text: str
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Intrinsic(LeafNode, _IntrinsicBase):
     """
     Catch-all generic node for corner-cases.
@@ -1744,14 +1744,14 @@ class Intrinsic(LeafNode, _IntrinsicBase):
         return f'Intrinsic:: {truncate_string(self.text)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _EnumerationBase():
     """ Type definitions for :any:`Enumeration` node type. """
 
     symbols: Tuple[Expression, ...]
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Enumeration(LeafNode, _EnumerationBase):
     """
     Internal representation of an ``ENUM``
@@ -1780,14 +1780,14 @@ class Enumeration(LeafNode, _EnumerationBase):
         return f'Enumeration:: {symbols}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _RawSourceBase():
     """ Type definitions for :any:`RawSource` node type. """
 
     text: str
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class RawSource(LeafNode, _RawSourceBase):
     """
     Generic node for unparsed source code sections
