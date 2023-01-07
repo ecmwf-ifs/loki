@@ -291,6 +291,14 @@ class ScopedNode(Scope):
             new_obj.rescope_symbols()
         return new_obj
 
+    def __getstate__(self):
+        s = self.args
+        s['symbol_attrs'] = self.symbol_attrs
+        return s
+
+    def __setstate__(self, s):
+        symbol_attrs = s.pop('symbol_attrs', None)
+        self._update(**s, symbol_attrs=symbol_attrs, rescope_symbols=True)
 
 # Intermediate node types
 
@@ -1492,22 +1500,6 @@ class TypeDef(ScopedNode, LeafNode):
         if 'body' not in kwargs:
             kwargs['body'] = Transformer().visit(self.body)
         return super().clone(**kwargs)
-
-    def __getstate__(self):
-        # Exclude `rescope_symbols` which is a constructor arg, as
-        # well as an object method!
-        _ignore = ('parent', 'rescope_symbols')
-        return dict((k, v) for k, v in self._args.items() if k not in _ignore)
-
-    def __setstate__(self, s):
-        # Set internal attributes
-        self.__dict__.update(s)
-
-        # Update internal _args dict for immutability
-        self._args.update(s)
-
-        # Ensure that we are attaching all symbols to the newly create ``self``.
-        self.rescope_symbols()
 
 
 @dataclass_strict(frozen=True)
