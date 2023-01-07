@@ -13,10 +13,13 @@ Control flow node classes for
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from functools import partial
 from itertools import chain
 from typing import Any, Tuple, Union
 
 from pymbolic.primitives import Expression
+
+from pydantic.dataclasses import dataclass as dataclass_validated
 
 from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
@@ -39,6 +42,14 @@ __all__ = [
     'Intrinsic', 'Enumeration', 'RawSource'
 ]
 
+# Configuration for validation mechanism via pydantic
+config = {
+    'validate_assignment': True,
+    'arbitrary_types_allowed': True,
+}
+
+# Using this decorator, we can force strict validation
+dataclass_strict = partial(dataclass_validated, config=config)
 
 # Abstract base classes
 
