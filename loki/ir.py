@@ -12,7 +12,6 @@ Control flow node classes for
 """
 
 from collections import OrderedDict
-from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
 from typing import Any, Tuple, Union
@@ -53,7 +52,7 @@ dataclass_strict = partial(dataclass_validated, config=config)
 
 # Abstract base classes
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Node:
     """
     Base class for all node types in Loki's internal representation.
@@ -245,7 +244,7 @@ class Node:
         return self.__dict__['_uses_symbols']
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class InternalNode(Node):
     """
     Internal representation of a control flow node that has a traversable
@@ -271,7 +270,7 @@ class InternalNode(Node):
         raise NotImplementedError
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class LeafNode(Node):
     """
     Internal representation of a control flow node without a `body`.
@@ -313,7 +312,7 @@ class ScopedNode(Scope):
 # Intermediate node types
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Section(InternalNode):
     """
     Internal representation of a single code region.
@@ -423,7 +422,7 @@ class Associate(ScopedNode, Section):
         return 'Associate::'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Loop(InternalNode):
     """
     Internal representation of a loop with induction variable and range.
@@ -487,7 +486,7 @@ class Loop(InternalNode):
         return f'Loop::{label} {control}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class WhileLoop(InternalNode):
     """
     Internal representation of a while loop in source code.
@@ -548,7 +547,7 @@ class WhileLoop(InternalNode):
         return f'WhileLoop::{label} {control}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Conditional(InternalNode):
     """
     Internal representation of a conditional branching construct.
@@ -606,7 +605,7 @@ class Conditional(InternalNode):
         return 'Conditional::'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class PragmaRegion(InternalNode):
     """
     Internal representation of a block of code defined by two matching pragmas.
@@ -651,7 +650,7 @@ class PragmaRegion(InternalNode):
         return 'PragmaRegion::'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Interface(InternalNode):
     """
     Internal representation of a Fortran interface block.
@@ -704,7 +703,7 @@ class Interface(InternalNode):
 
 # Leaf node types
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Assignment(LeafNode):
     """
     Internal representation of a variable assignment.
@@ -742,7 +741,7 @@ class Assignment(LeafNode):
         return f'Assignment:: {str(self.lhs)} = {str(self.rhs)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class ConditionalAssignment(LeafNode):
     """
     Internal representation of an inline conditional assignment using a
@@ -783,7 +782,7 @@ class ConditionalAssignment(LeafNode):
         return f'CondAssign:: {self.lhs} = {self.condition} ? {self.rhs} : {self.else_rhs}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class CallStatement(LeafNode):
     """
     Internal representation of a subroutine call.
@@ -896,7 +895,7 @@ class CallStatement(LeafNode):
         return chain(args, kwargs)
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Allocation(LeafNode):
     """
     Internal representation of a variable allocation.
@@ -932,7 +931,7 @@ class Allocation(LeafNode):
         return f'Allocation:: {", ".join(str(var) for var in self.variables)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Deallocation(LeafNode):
     """
     Internal representation of a variable deallocation.
@@ -963,7 +962,7 @@ class Deallocation(LeafNode):
     def __repr__(self):
         return f'Deallocation:: {", ".join(str(var) for var in self.variables)}'
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Nullify(LeafNode):
     """
     Internal representation of a pointer nullification.
@@ -989,7 +988,7 @@ class Nullify(LeafNode):
         return f'Nullify:: {", ".join(str(var) for var in self.variables)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Comment(LeafNode):
     """
     Internal representation of a single comment.
@@ -1014,7 +1013,7 @@ class Comment(LeafNode):
         return f'Comment:: {truncate_string(self.text)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class CommentBlock(LeafNode):
     """
     Internal representation of a block comment that is formed from
@@ -1046,7 +1045,7 @@ class CommentBlock(LeafNode):
         return f'CommentBlock:: {truncate_string(self.text)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Pragma(LeafNode):
     """
     Internal representation of a pragma.
@@ -1077,7 +1076,7 @@ class Pragma(LeafNode):
         return f'Pragma:: {self.keyword} {truncate_string(self.content)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class PreprocessorDirective(LeafNode):
     """
     Internal representation of a preprocessor directive.
@@ -1101,7 +1100,7 @@ class PreprocessorDirective(LeafNode):
         return f'PreprocessorDirective:: {truncate_string(self.text)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Import(LeafNode):
     """
     Internal representation of an import.
@@ -1164,7 +1163,7 @@ class Import(LeafNode):
         return f'{_c}Import:: {self.module} => {self.symbols}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class VariableDeclaration(LeafNode):
     """
     Internal representation of a variable declaration.
@@ -1214,7 +1213,7 @@ class VariableDeclaration(LeafNode):
         return f'VariableDeclaration:: {symbols}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class ProcedureDeclaration(LeafNode):
     """
     Internal representation of a procedure declaration.
@@ -1276,7 +1275,7 @@ class ProcedureDeclaration(LeafNode):
         return f'ProcedureDeclaration:: {symbols}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class DataDeclaration(LeafNode):
     """
     Internal representation of a ``DATA`` declaration for explicit array
@@ -1311,7 +1310,7 @@ class DataDeclaration(LeafNode):
         return f'DataDeclaration:: {str(self.variable)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class StatementFunction(LeafNode):
     """
     Internal representation of Fortran statement function statements
@@ -1501,7 +1500,7 @@ class TypeDef(ScopedNode, LeafNode):
         self.rescope_symbols()
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class MultiConditional(LeafNode):
     """
     Internal representation of a multi-value conditional (eg. ``SELECT``).
@@ -1548,7 +1547,7 @@ class MultiConditional(LeafNode):
         return f'MultiConditional::{label} {str(self.expr)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class MaskedStatement(LeafNode):
     """
     Internal representation of a masked array assignment (``WHERE`` clause).
@@ -1593,7 +1592,7 @@ class MaskedStatement(LeafNode):
         return f'MaskedStatement:: {str(self.conditions[0])}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Intrinsic(LeafNode):
     """
     Catch-all generic node for corner-cases.
@@ -1624,7 +1623,7 @@ class Intrinsic(LeafNode):
         return f'Intrinsic:: {truncate_string(self.text)}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class Enumeration(LeafNode):
     """
     Internal representation of an ``ENUM``
@@ -1655,7 +1654,7 @@ class Enumeration(LeafNode):
         return f'Enumeration:: {symbols}'
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class RawSource(LeafNode):
     """
     Generic node for unparsed source code sections
