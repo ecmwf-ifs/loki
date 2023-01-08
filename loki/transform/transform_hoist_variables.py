@@ -331,5 +331,5 @@ class HoistTemporaryArraysTransformationAllocatable(HoistVariablesTransformation
         """
         routine.variables += tuple([var.clone(scope=routine, dimensions=as_tuple(
             [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=var.type.clone(allocatable=True))])
-        routine.body.prepend(Allocation((var.clone(),)))
-        routine.body.append(Deallocation((var.clone(dimensions=None),)))
+        routine.body.prepend(Allocation(variables=(var.clone(),)))
+        routine.body.append(Deallocation(variables=(var.clone(dimensions=None),)))

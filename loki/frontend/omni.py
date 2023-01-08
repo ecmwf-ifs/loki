@@ -434,7 +434,7 @@ class OMNI2IR(GenericVisitor):
     def visit_FcontainsStatement(self, o, **kwargs):
         body = [self.visit(c, **kwargs) for c in o]
         body = [c for c in body if c is not None]
-        body = [ir.Intrinsic('CONTAINS', source=kwargs['source'])] + body
+        body = [ir.Intrinsic(text='CONTAINS', source=kwargs['source'])] + body
         return ir.Section(body=as_tuple(body))
 
     def visit_FmoduleProcedureDecl(self, o, **kwargs):
@@ -626,7 +626,7 @@ class OMNI2IR(GenericVisitor):
 
         # Check if the type is marked as sequence
         if struct_type.get('is_sequence') == 'true':
-            body += [ir.Intrinsic('SEQUENCE')]
+            body += [ir.Intrinsic(text='SEQUENCE')]
 
         # Build the list of derived type members and individual body for each
         if struct_type.find('symbols'):
@@ -644,9 +644,9 @@ class OMNI2IR(GenericVisitor):
 
         if struct_type.find('typeBoundProcedures'):
             # See if components are marked private
-            body += [ir.Intrinsic('CONTAINS')]
+            body += [ir.Intrinsic(text='CONTAINS')]
             if struct_type.attrib.get('is_internal_private') == 'true':
-                body += [ir.Intrinsic('PRIVATE')]
+                body += [ir.Intrinsic(text='PRIVATE')]
             body += self.visit(struct_type.find('typeBoundProcedures'), **kwargs)
 
         # Finally: update the typedef with its body
@@ -1364,7 +1364,7 @@ class OMNI2IR(GenericVisitor):
         return ir.Intrinsic(text=f'go to {label: d}', source=kwargs['source'])
 
     def visit_statementLabel(self, o, **kwargs):
-        return ir.Comment('__STATEMENT_LABEL__', label=o.attrib['label_name'], source=kwargs['source'])
+        return ir.Comment(text='__STATEMENT_LABEL__', label=o.attrib['label_name'], source=kwargs['source'])
 
     def visit_FreturnStatement(self, o, **kwargs):
         return ir.Intrinsic(text='return', source=kwargs['source'])

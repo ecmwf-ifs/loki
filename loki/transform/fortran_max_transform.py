@@ -73,12 +73,12 @@ class FortranMaxTransformation(Transformation):
         wrapper = FortranCTransformation.generate_iso_c_wrapper_routine(
             host_interface, self.c_structs, bind_name=host_interface.name)
         self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
-        contains = ir.Section(body=(ir.Intrinsic('CONTAINS'), wrapper))
+        contains = ir.Section(body=(ir.Intrinsic(text='CONTAINS'), wrapper))
         module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
         Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
         # Generate C host code
-        host_interface.spec.prepend(ir.Import(f'{routine.name}.h', c_import=True))
+        host_interface.spec.prepend(ir.Import(module=f'{routine.name}.h', c_import=True))
         host_interface = self._convert_arguments_to_pointer(host_interface)
         self.c_path = (self.maxj_src / host_interface.name).with_suffix('.c')
         Sourcefile.to_file(source=cgen(host_interface), path=self.c_path)
@@ -417,7 +417,7 @@ class FortranMaxTransformation(Transformation):
                     name = sym.Variable(name='io.scalarOutput')
                 parameters = (sym.StringLiteral(f'"{var.name}"'),
                               var.clone(dimensions=None), init_type(var.type))
-                stmt = ir.CallStatement(name, arguments=parameters)
+                stmt = ir.CallStatement(name=name, arguments=parameters)
                 max_kernel.body.append(stmt)
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
@@ -436,7 +436,7 @@ class FortranMaxTransformation(Transformation):
         standard_imports = ['Kernel', 'KernelParameters', 'stdlib.KernelMath', 'types.base.DFEVar',
                             'types.composite.DFEVector', 'types.composite.DFEVectorType']
         standard_imports_basepath = 'com.maxeler.maxcompiler.v2.kernelcompiler.'
-        spec = [ir.Import(standard_imports_basepath + imprt) for imprt in standard_imports]
+        spec = [ir.Import(module=standard_imports_basepath + imprt) for imprt in standard_imports]
 
         max_module = Module(name=kernel.name, spec=ir.Section(body=as_tuple(spec)))
         max_kernel = kernel.clone(parent=max_module)
@@ -445,7 +445,7 @@ class FortranMaxTransformation(Transformation):
         arg_type = SymbolAttributes(DerivedType('KernelParameters'), intent='in')
         arg = sym.Variable(name='params', type=arg_type, scope=max_kernel)
         max_kernel.arguments = as_tuple(arg)
-        max_kernel.spec.prepend(ir.CallStatement(sym.Variable(name='super'), arguments=(arg,)))
+        max_kernel.spec.prepend(ir.CallStatement(name=sym.Variable(name='super'), arguments=(arg,)))
 
         # Add kernel to wrapper module
         max_module.contains = ir.Section(body=as_tuple(max_kernel))
@@ -460,17 +460,17 @@ class FortranMaxTransformation(Transformation):
 
         # Create the manager class
         # TODO: Use a TypeDef once we have typebound procedures etc.
-        spec = [ir.Import('com.maxeler.maxcompiler.v2.kernelcompiler.Kernel')]
-        spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock')]
-        spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.api.ManagerPCIe')]
-        spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.api.ManagerKernel')]
-        spec += [ir.Intrinsic(f'static final String kernelName = "{kernel.name}";')]
+        spec = [ir.Import(module='com.maxeler.maxcompiler.v2.kernelcompiler.Kernel')]
+        spec += [ir.Import(module='com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock')]
+        spec += [ir.Import(module='com.maxeler.maxcompiler.v2.managers.custom.api.ManagerPCIe')]
+        spec += [ir.Import(module='com.maxeler.maxcompiler.v2.managers.custom.api.ManagerKernel')]
+        spec += [ir.Intrinsic(text=f'static final String kernelName = "{kernel.name}";')]
         manager = Module(name=f'{name}Manager', spec=ir.Section(body=as_tuple(spec)))
 
         # Create the setup
         setup = Subroutine(name='default void setup', parent=manager, spec=ir.Section(body=()))
 
-        body = [ir.Intrinsic(f'Kernel kernel = new {kernel.name}(makeKernelParameters(kernelName));')]
+        body = [ir.Intrinsic(text=f'Kernel kernel = new {kernel.name}(makeKernelParameters(kernelName));')]
 
         # Insert in/out streams
         streams = defaultdict(list)
@@ -479,16 +479,16 @@ class FortranMaxTransformation(Transformation):
                 streams[arg.type.intent.lower()] += [arg]
 
         if streams:
-            body += [ir.Intrinsic('KernelBlock kernelBlock = addKernel(kernel);')]
+            body += [ir.Intrinsic(text='KernelBlock kernelBlock = addKernel(kernel);')]
         else:
-            body += [ir.Intrinsic('addKernel(kernel);')]
+            body += [ir.Intrinsic(text='addKernel(kernel);')]
 
         for stream in streams['in']:
             body += [ir.Intrinsic(
-                f'kernelBlock.getInput("{stream.name}") <== addStreamFromCPU("{stream.name}");')]
+                text=f'kernelBlock.getInput("{stream.name}") <== addStreamFromCPU("{stream.name}");')]
         for stream in streams['inout'] + streams['out']:
             body += [ir.Intrinsic(
-                f'addStreamToCPU("{stream.name}") <== kernelBlock.getOutput("{stream.name}");')]
+                text=f'addStreamToCPU("{stream.name}") <== kernelBlock.getOutput("{stream.name}");')]
         setup.body = ir.Section(body=as_tuple(body))
 
         # Insert functions into manager class
@@ -507,15 +507,15 @@ class FortranMaxTransformation(Transformation):
         standard_imports = ['maxcompiler.v2.build.EngineParameters',
                             'platform.max5.manager.MAX5CManager']
         standard_imports_basepath = 'com.maxeler.'
-        spec = [ir.Import(standard_imports_basepath + imprt) for imprt in standard_imports]
+        spec = [ir.Import(module=standard_imports_basepath + imprt) for imprt in standard_imports]
         manager = Module(name=f'{name}ManagerMAX5C', spec=ir.Section(body=as_tuple(spec)))
 
         # Create the constructor
         constructor = Subroutine(name=manager.name, parent=manager, spec=ir.Section(body=()))
         params_type = SymbolAttributes(DerivedType('EngineParameters'), intent='in')
         params = sym.Variable(name='params', type=params_type, scope=constructor)
-        body = [ir.CallStatement(sym.Variable(name='super'), arguments=(params,)),
-                ir.CallStatement(sym.Variable(name='setup'), arguments=())]
+        body = [ir.CallStatement(name=sym.Variable(name='super'), arguments=(params,)),
+                ir.CallStatement(name=sym.Variable(name='setup'), arguments=())]
         constructor.arguments = as_tuple(params)
         constructor.body = ir.Section(body=as_tuple(body))
 
@@ -535,7 +535,7 @@ class FortranMaxTransformation(Transformation):
                 sym.ProcedureSymbol(f'new {manager.name}', scope=main), parameters=(params,)))
         mgr = sym.Variable(name='manager', type=mgr_type, scope=main)
         main.variables += as_tuple([params, mgr])
-        body = (ir.CallStatement(sym.Variable(name='manager.build'), arguments=()), )
+        body = (ir.CallStatement(name=sym.Variable(name='manager.build'), arguments=()), )
         main.body = ir.Section(body=body)
 
         # Insert functions into manager class
@@ -585,7 +585,7 @@ class FortranMaxTransformation(Transformation):
                 call_arguments += [arg.name]
             if isinstance(arg, sym.Array) or arg.type.dfestream:
                 call_arguments += [f'{call_arguments[-1]}_size']
-        call = ir.Intrinsic(f'{routine.name}({", ".join(call_arguments)});')
+        call = ir.Intrinsic(text=f'{routine.name}({", ".join(call_arguments)});')
 
         # Assign the body of the SLiC interface routine
         slic_routine.body = ir.Section(body=as_tuple(call))

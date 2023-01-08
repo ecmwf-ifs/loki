@@ -631,7 +631,7 @@ end subroutine routine_simple
 
     stmt = get_innermost_statement(routine.ir)
     new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
-    new_stmt = Assignment(stmt.lhs, new_expr)
+    new_stmt = Assignment(lhs=stmt.lhs, rhs=new_expr)
     mapper = {stmt: new_stmt}
 
     body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
@@ -777,7 +777,7 @@ end subroutine routine_simple
 
     stmt = get_innermost_statement(routine.ir)
     new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
-    new_stmt = Assignment(stmt.lhs, new_expr)
+    new_stmt = Assignment(lhs=stmt.lhs, rhs=new_expr)
     mapper = {stmt: new_stmt}
 
     loops = FindNodes(Loop).visit(routine.body)

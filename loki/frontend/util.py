@@ -89,7 +89,7 @@ def cluster_comments(ir):
             source = Source(lines=lines, string=string, file=comments[0].source.file)
         else:
             source = None
-        block = CommentBlock(comments, label=comments[0].label, source=source)
+        block = CommentBlock(comments=comments, label=comments[0].label, source=source)
         comment_mapper[comments] = block
     return NestedTransformer(comment_mapper, invalidate_source=False).visit(ir)
 
@@ -205,7 +205,10 @@ def inject_statement_functions(routine):
     def create_stmt_func(assignment):
         arguments = assignment.lhs.dimensions
         variable = assignment.lhs.clone(dimensions=None)
-        return StatementFunction(variable, arguments, assignment.rhs, variable.type)
+        return StatementFunction(
+            variable=variable, arguments=arguments,
+            rhs=assignment.rhs, return_type=variable.type
+        )
 
     def create_type(stmt_func):
         name = str(stmt_func.variable)

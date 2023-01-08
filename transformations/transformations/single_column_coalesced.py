@@ -83,7 +83,7 @@ def wrap_vector_section(section, routine, horizontal):
 
     # Add a comment before the pragma-annotated loop to ensure
     # we do not overlap with neighbouring pragmas
-    return (ir.Comment(''), vector_loop)
+    return (ir.Comment(text=''), vector_loop)
 
 
 def extract_vector_sections(section, horizontal):
@@ -715,8 +715,8 @@ class SingleColumnCoalescedTransformation(Transformation):
             pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
             pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
             # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+            routine.body.prepend((ir.Comment(text=''), pragma, ir.Comment(text='')))
+            routine.body.append((ir.Comment(text=''), pragma_post, ir.Comment(text='')))
 
         # Add a block-indexed slice of each column variable to the call
         idx = get_integer_variable(routine, self.block_dim.index)

@@ -28,7 +28,7 @@ def test_is_loki_pragma(keyword, content, starts_with, ref):
     """
     Test correct identification of Loki pragmas.
     """
-    pragma = Pragma(keyword, content)
+    pragma = Pragma(keyword=keyword, content=content)
     pragma_list = (pragma,)
     if starts_with is not None:
         assert is_loki_pragma(pragma, starts_with=starts_with) == ref
@@ -56,7 +56,7 @@ def test_get_pragma_parameters(content, starts_with, ref):
     """
     Test correct extraction of Loki pragma parameters.
     """
-    pragma = Pragma('loki', content)
+    pragma = Pragma(keyword='loki', content=content)
     pragma_list = (pragma,)
     if starts_with is None:
         assert get_pragma_parameters(pragma) == ref

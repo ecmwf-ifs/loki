@@ -452,7 +452,7 @@ def loop_interchange(routine, project_bounds=False):
             # Annotate loop-interchange in a comment
             old_vars = ', '.join(loop_variable_names)
             new_vars = ', '.join(var_order)
-            comment = Comment(f'! Loki loop-interchange ({old_vars} <--> {new_vars})')
+            comment = Comment(text=f'! Loki loop-interchange ({old_vars} <--> {new_vars})')
 
             # Strip loop-interchange pragma and register new loop nest in map
             pragmas = tuple(p for p in as_tuple(loops[0].pragma)
@@ -586,9 +586,9 @@ def loop_fusion(routine):
         for idx, (variables, ranges, bodies, p) in enumerate(
                 zip(loop_variables, loop_ranges, loop_bodies, iteration_spaces)):
             # TODO: This throws away anything that is not in the inner-most loop body.
-            body = flatten([Comment(f'! Loki loop-fusion - body {idx} begin'),
+            body = flatten([Comment(text=f'! Loki loop-fusion - body {idx} begin'),
                             bodies[-1],
-                            Comment(f'! Loki loop-fusion - body {idx} end')])
+                            Comment(text=f'! Loki loop-fusion - body {idx} end')])
 
             # Replace loop variables if necessary
             var_map = {}
@@ -620,9 +620,9 @@ def loop_fusion(routine):
         for fusion_variable, fusion_range in zip(reversed(fusion_variables), reversed(fusion_ranges)):
             fusion_loop = Loop(variable=fusion_variable, body=as_tuple(fusion_loop), bounds=fusion_range)
 
-        comment = Comment(f'! Loki loop-fusion group({group})')
+        comment = Comment(text=f'! Loki loop-fusion group({group})')
         loop_map[loop_list[0]] = (comment, fusion_loop)
-        comment = Comment(f'! Loki loop-fusion group({group}) - loop hoisted')
+        comment = Comment(text=f'! Loki loop-fusion group({group}) - loop hoisted')
         loop_map.update({loop: comment for loop in loop_list[1:]})
 
     # Apply transformation
@@ -697,7 +697,7 @@ class FissionTransformer(NestedMaskedTransformer):
             if not body:
                 return [()]
             # inject a comment to mark where the loop was split
-            comment = [] if start_node is None else [Comment(f'! Loki - {start_node.content}')]
+            comment = [] if start_node is None else [Comment(text=f'! Loki - {start_node.content}')]
             return comment + [self._rebuild(o, visited[:body_index] + (body,) + visited[body_index:])]
 
         # Use masked transformer to build subtrees from/to pragma

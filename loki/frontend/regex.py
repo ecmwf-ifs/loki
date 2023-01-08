@@ -193,7 +193,7 @@ class Pattern:
                     if last_match - idx > 1:
                         span = (reader.sanitized_spans[last_match + 1], reader.sanitized_spans[idx])
                         source = reader.source_from_sanitized_span(span)
-                        ir_ += [ir.RawSource(source.string, source=source)]
+                        ir_ += [ir.RawSource(text=source.string, source=source)]
                     last_match = idx
                     ir_ += [match]
                     break
@@ -204,7 +204,7 @@ class Pattern:
         tail_span = (reader.sanitized_spans[last_match + 1], None)
         source = reader.source_from_sanitized_span(tail_span, include_padding=True)
         if source:
-            ir_ += [ir.RawSource(source.string, source=source)]
+            ir_ += [ir.RawSource(text=source.string, source=source)]
         return ir_
 
     @classmethod
@@ -744,7 +744,7 @@ class ImportPattern(Pattern):
             symbols = None
 
         return ir.Import(
-            module, symbols=as_tuple(symbols), rename_list=rename_list,
+            module=module, symbols=as_tuple(symbols), rename_list=rename_list,
             source=reader.source_from_current_line()
         )
 
@@ -791,7 +791,7 @@ class VariableDeclarationPattern(Pattern):
         variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
         variables = variables.replace(' ', '').split(',')  # Variable names without white space
         variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
-        return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
+        return ir.VariableDeclaration(symbols=variables, source=reader.source_from_current_line())
 
 
 class CallPattern(Pattern):

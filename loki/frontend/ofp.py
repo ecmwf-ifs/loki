@@ -669,10 +669,10 @@ class OFP2IR(GenericVisitor):
         )
 
     def visit_private_components_stmt(self, o, **kwargs):
-        return ir.Intrinsic(o.attrib['privateKeyword'], source=kwargs['source'], label=kwargs['label'])
+        return ir.Intrinsic(text=o.attrib['privateKeyword'], source=kwargs['source'], label=kwargs['label'])
 
     def visit_sequence_stmt(self, o, **kwargs):
-        return ir.Intrinsic(o.attrib['sequenceKeyword'], source=kwargs['source'], label=kwargs['label'])
+        return ir.Intrinsic(text=o.attrib['sequenceKeyword'], source=kwargs['source'], label=kwargs['label'])
 
     visit_binding_private_stmt = visit_private_components_stmt
 
@@ -1048,7 +1048,7 @@ class OFP2IR(GenericVisitor):
             symbols = self.visit(o.find('names'), **kwargs)
             symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
             return ir.Import(
-                module = None, symbols=symbols, f_import=True, source=kwargs['source']
+                module=None, symbols=symbols, f_import=True, source=kwargs['source']
             )
 
         if o.find('prefix-spec') is not None:
@@ -1493,7 +1493,7 @@ class OFP2IR(GenericVisitor):
 
     def visit_label(self, o, **kwargs):
         assert kwargs['label'] is not None
-        return ir.Comment('__STATEMENT_LABEL__', label=kwargs['label'], source=kwargs['source'])
+        return ir.Comment(text='__STATEMENT_LABEL__', label=kwargs['label'], source=kwargs['source'])
 
     # Expression parsing below; maye move to its own parser..?
 
