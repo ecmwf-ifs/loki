@@ -318,7 +318,7 @@ class _SectionBase():
     """ Type definitions for :any:`Section` node type. """
 
     # Sections may contain Module / Subroutine objects
-    body: Tuple[Any, ...] = None
+    body: Tuple[Any, ...] = ()
 
 
 @dataclass_strict(frozen=True)
@@ -353,7 +353,7 @@ class Section(InternalNode, _SectionBase):
         node : :any:`Node` or tuple of :any:`Node`
             The node(s) to append to the section.
         """
-        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])
+        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])  # pylint: disable=unsubscriptable-object
 
     def prepend(self, node):
         """
@@ -614,11 +614,12 @@ class Conditional(InternalNode, _ConditionalBase):
         assert self.condition is not None
 
         if self.body is not None:
-            assert all(isinstance(c, Node) for c in self.body)
+            assert is_iterable(self.body)
+            assert all(isinstance(c, Node) for c in self.body)  # pylint: disable=not-an-iterable
 
         if self.has_elseif:
             assert len(self.else_body) == 1
-            assert isinstance(self.else_body[0], Conditional)
+            assert isinstance(self.else_body[0], Conditional)  # pylint: disable=unsubscriptable-object
 
     def __repr__(self):
         if self.name:
@@ -667,7 +668,7 @@ class PragmaRegion(InternalNode, _PragmaRegionBase):
 
     def insert(self, pos, node):
         '''Insert at given position'''
-        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])
+        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])  # pylint: disable=unsubscriptable-object
 
     def prepend(self, node):
         self._update(body=as_tuple(node) + self.body)
@@ -718,7 +719,7 @@ class Interface(InternalNode, _InterfaceBase):
         """
         symbols = as_tuple(flatten(
             getattr(node, 'procedure_symbol', getattr(node, 'symbols', ()))
-            for node in self.body
+            for node in self.body  # pylint: disable=not-an-iterable
         ))
         if self.spec:
             return (self.spec,) + symbols
@@ -872,14 +873,18 @@ class CallStatement(LeafNode, _CallStatementBase):
     def __post_init__(self):
         super().__post_init__()
         assert is_iterable(self.arguments)
-        assert all(isinstance(arg, Expression) for arg in self.arguments)
-        assert self.kwarguments is None or (
-            is_iterable(self.kwarguments) and all(isinstance(a, tuple) and len(a) == 2 and
-                                             isinstance(a[1], Expression) for a in self.kwarguments)
-        )
+        assert all(isinstance(arg, Expression) for arg in as_tuple(self.arguments))
+
+        if self.kwarguments is not None:
+            assert is_iterable(self.kwarguments)
+            assert all(
+                isinstance(a, tuple) and len(a) == 2 and isinstance(a[1], Expression)
+                for a in self.kwarguments  # pylint: disable=not-an-iterable
+            )
+
         if self.chevron is not None:
             assert is_iterable(self.chevron)
-            assert all(isinstance(a, Expression) for a in self.chevron)
+            assert all(isinstance(a, Expression) for a in self.chevron)  # pylint: disable=not-an-iterable
             assert 2 <= len(self.chevron) <= 4
 
     def __repr__(self):
@@ -937,7 +942,7 @@ class CallStatement(LeafNode, _CallStatementBase):
         assert routine is not BasicType.DEFERRED
         r_args = {arg.name: arg for arg in routine.arguments}
         args = zip(routine.arguments, self.arguments)
-        kwargs = ((r_args[kw], arg) for kw, arg in self.kwarguments)
+        kwargs = ((r_args[kw], arg) for kw, arg in as_tuple(self.kwarguments))
         return chain(args, kwargs)
 
 
@@ -1004,6 +1009,7 @@ class Deallocation(LeafNode, _DeallocationBase):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
     _argnames = LeafNode._argnames + ('variables', 'status_var')
 
     _traversable = ['variables', 'status_var']
@@ -1297,7 +1303,7 @@ class VariableDeclaration(LeafNode, _VariableDeclarationBase):
 
         if self.dimensions is not None:
             assert is_iterable(self.dimensions)
-            assert all(isinstance(d, Expression) for d in self.dimensions)
+            assert all(isinstance(d, Expression) for d in self.dimensions)  # pylint: disable=not-an-iterable
 
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
@@ -1647,11 +1653,11 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
     def __post_init__(self):
         super().__post_init__()
         assert isinstance(self.expr, Expression)
-        assert isinstance(self.values, tuple)
+        assert is_iterable(self.values)
         assert all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
                                            for v in self.values)
-        assert isinstance(self.bodies, tuple) and all(isinstance(b, tuple) for b in self.bodies)
-        assert isinstance(self.else_body, tuple)
+        assert is_iterable(self.bodies) and all(is_iterable(b) for b in self.bodies)
+        assert is_iterable(self.else_body)
 
     def __repr__(self):
         label = f' {self.name}' if self.name else ''
@@ -1773,10 +1779,10 @@ class Enumeration(LeafNode, _EnumerationBase):
     def __post_init__(self):
         super().__post_init__()
         if self.symbols is not None:
-            assert all(isinstance(s, Expression) for s in self.symbols)
+            assert all(isinstance(s, Expression) for s in self.symbols)  # pylint: disable=not-an-iterable
 
     def __repr__(self):
-        symbols = ', '.join(str(var) for var in self.symbols)
+        symbols = ', '.join(str(var) for var in as_tuple(self.symbols))
         return f'Enumeration:: {symbols}'
 
 
