@@ -319,7 +319,7 @@ class Section(InternalNode):
     """
 
     # Sections may contain Module / Subroutine objects
-    body: Tuple[Any, ...] = None
+    body: Tuple[Any, ...] = ()
 
     _argnames = InternalNode._argnames
 
@@ -593,11 +593,12 @@ class Conditional(InternalNode):
         assert self.condition is not None
 
         if self.body is not None:
-            assert all(isinstance(c, Node) for c in self.body)
+            assert is_iterable(self.body)
+            assert all(isinstance(c, Node) for c in self.body)  # pylint: disable=not-an-iterable
 
         if self.has_elseif:
             assert len(self.else_body) == 1
-            assert isinstance(self.else_body[0], Conditional)
+            assert isinstance(self.else_body[0], Conditional)  # pylint: disable=unsubscriptable-object
 
     def __repr__(self):
         if self.name:
@@ -628,7 +629,7 @@ class PragmaRegion(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    body: Tuple[Node, ...] = None
+    body: Tuple[Node, ...] = ()
     pragma: Node = None
     pragma_post: Node = None
 
@@ -687,7 +688,7 @@ class Interface(InternalNode):
         """
         symbols = as_tuple(flatten(
             getattr(node, 'procedure_symbol', getattr(node, 'symbols', ()))
-            for node in self.body
+            for node in self.body  # pylint: disable=not-an-iterable
         ))
         if self.spec:
             return (self.spec,) + symbols
@@ -811,7 +812,7 @@ class CallStatement(LeafNode):
     """
 
     name: Expression = None
-    arguments: Tuple[Expression, ...] = None
+    arguments: Tuple[Expression, ...] = ()
     kwarguments: Tuple[Any, ...] = None
     pragma: Tuple[Node, ...] = None
     not_active: bool = None
@@ -827,13 +828,17 @@ class CallStatement(LeafNode):
         super().__post_init__()
         assert is_iterable(self.arguments)
         assert all(isinstance(arg, Expression) for arg in self.arguments)
-        assert self.kwarguments is None or (
-            is_iterable(self.kwarguments) and all(isinstance(a, tuple) and len(a) == 2 and
-                                             isinstance(a[1], Expression) for a in self.kwarguments)
-        )
+
+        if self.kwarguments is not None:
+            assert is_iterable(self.kwarguments)
+            assert all(
+                isinstance(a, tuple) and len(a) == 2 and isinstance(a[1], Expression)
+                for a in self.kwarguments  # pylint: disable=not-an-iterable
+            )
+
         if self.chevron is not None:
             assert is_iterable(self.chevron)
-            assert all(isinstance(a, Expression) for a in self.chevron)
+            assert all(isinstance(a, Expression) for a in self.chevron)  # pylint: disable=not-an-iterable
             assert 2 <= len(self.chevron) <= 4
 
     def __repr__(self):
@@ -891,7 +896,7 @@ class CallStatement(LeafNode):
         assert routine is not BasicType.DEFERRED
         r_args = {arg.name: arg for arg in routine.arguments}
         args = zip(routine.arguments, self.arguments)
-        kwargs = ((r_args[kw], arg) for kw, arg in self.kwarguments)
+        kwargs = ((r_args[kw], arg) for kw, arg in as_tuple(self.kwarguments))
         return chain(args, kwargs)
 
 
@@ -912,7 +917,7 @@ class Allocation(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    variables: Tuple[Expression, ...] = None
+    variables: Tuple[Expression, ...] = ()
     data_source: Expression = None
     status_var: Expression = None
 
@@ -946,7 +951,7 @@ class Deallocation(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    variables: Tuple[Expression, ...] = None
+    variables: Tuple[Expression, ...] = ()
     status_var: Expression = None
 
     _argnames = LeafNode._argnames + ('variables', 'status_var')
@@ -975,7 +980,7 @@ class Nullify(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    variables: Tuple[Expression, ...] = None
+    variables: Tuple[Expression, ...] = ()
 
     _traversable = ['variables']
 
@@ -1027,7 +1032,7 @@ class CommentBlock(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    comments: Tuple[Node, ...] = None
+    comments: Tuple[Node, ...] = ()
 
     _argnames = LeafNode._argnames + ('comments', )
 
@@ -1187,7 +1192,7 @@ class VariableDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    symbols: Tuple[Expression, ...] = None
+    symbols: Tuple[Expression, ...] = ()
     dimensions: Tuple[Expression, ...] = None
     comment: Node = None
     pragma: Node = None
@@ -1206,7 +1211,7 @@ class VariableDeclaration(LeafNode):
 
         if self.dimensions is not None:
             assert is_iterable(self.dimensions)
-            assert all(isinstance(d, Expression) for d in self.dimensions)
+            assert all(isinstance(d, Expression) for d in self.dimensions)  # pylint: disable=not-an-iterable
 
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
@@ -1246,7 +1251,7 @@ class ProcedureDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    symbols: Tuple[Expression, ...] = None
+    symbols: Tuple[Expression, ...] = ()
     interface: Union[Expression, DataType] = None
     external: bool = False
     module: bool = False
@@ -1294,7 +1299,7 @@ class DataDeclaration(LeafNode):
     # TODO: This should only allow Expression instances but needs frontend changes
     # TODO: Support complex statements (LOKI-23)
     variable: Any = None
-    values: Tuple[Expression, ...] = None
+    values: Tuple[Expression, ...] = ()
 
     _argnames = LeafNode._argnames + ('variable', 'values')
 
@@ -1328,7 +1333,7 @@ class StatementFunction(LeafNode):
     """
 
     variable: Expression = None
-    arguments: Tuple[Expression, ...] = None
+    arguments: Tuple[Expression, ...] = ()
     rhs: Expression = None
     return_type: SymbolAttributes = None
 
@@ -1522,9 +1527,9 @@ class MultiConditional(LeafNode):
     """
 
     expr: Expression = None
-    values: Tuple[Any, ...] = None
-    bodies: Tuple[Any, ...] = None
-    else_body: Tuple[Node, ...] = None
+    values: Tuple[Any, ...] = ()
+    bodies: Tuple[Tuple[Node, ...], ...] = ((),)
+    else_body: Tuple[Node, ...] = ()
     name: str = None
 
     _argnames = LeafNode._argnames + (
@@ -1536,11 +1541,11 @@ class MultiConditional(LeafNode):
     def __post_init__(self):
         super().__post_init__()
         assert isinstance(self.expr, Expression)
-        assert isinstance(self.values, tuple)
+        assert is_iterable(self.values)
         assert all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
                                            for v in self.values)
-        assert isinstance(self.bodies, tuple) and all(isinstance(b, tuple) for b in self.bodies)
-        assert isinstance(self.else_body, tuple)
+        assert is_iterable(self.bodies) and all(is_iterable(b) for b in self.bodies)
+        assert is_iterable(self.else_body)
 
     def __repr__(self):
         label = f' {self.name}' if self.name else ''
@@ -1567,9 +1572,9 @@ class MaskedStatement(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    conditions: Tuple[Expression, ...] = None
-    bodies: Tuple[Tuple[Node, ...], ...] = None
-    default: Tuple[Node, ...] = None
+    conditions: Tuple[Expression, ...] = ()
+    bodies: Tuple[Tuple[Node, ...], ...] = ()
+    default: Tuple[Node, ...] = ()
     inline: bool = False
 
     _argnames = LeafNode._argnames + (
@@ -1647,10 +1652,10 @@ class Enumeration(LeafNode):
     def __post_init__(self):
         super().__post_init__()
         if self.symbols is not None:
-            assert all(isinstance(s, Expression) for s in self.symbols)
+            assert all(isinstance(s, Expression) for s in self.symbols)  # pylint: disable=not-an-iterable
 
     def __repr__(self):
-        symbols = ', '.join(str(var) for var in self.symbols)
+        symbols = ', '.join(str(var) for var in as_tuple(self.symbols))
         return f'Enumeration:: {symbols}'
 
 
