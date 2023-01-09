@@ -89,6 +89,7 @@ to grow in the future:
    loki.transform.transform_hoist_variables.HoistVariablesTransformation
    loki.transform.transform_hoist_variables.HoistTemporaryArraysAnalysis
    loki.transform.transform_hoist_variables.HoistTemporaryArraysTransformationAllocatable
+   loki.transform.transform_parametrise.ParametriseTransformation
 
 Further transformations are defined for specific use-cases but may prove
 useful in a wider context. These are defined in :mod:`transformations`:
@@ -103,6 +104,7 @@ useful in a wider context. These are defined in :mod:`transformations`:
    transformations.single_column_claw.ExtractSCATransformation
    transformations.single_column_claw.CLAWTransformation
    transformations.single_column_coalesced.SingleColumnCoalescedTransformation
+   transformations.scc_cuf.SccCufTransformation
 
 Additionally, a number of tools for common transformation tasks are provided as
 functions that can be readily used in a step of the transformation pipeline:
