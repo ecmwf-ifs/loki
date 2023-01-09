@@ -88,13 +88,16 @@ class Transformer(Visitor):
         if 'source' in o.args_frozen:
             args_frozen['source'] = None
 
+        # Match argument names with actual arguments
+        args_frozen.update(zip(o._traversable, children))
+
         if self.inplace:
             # Updated nodes in place, if requested
-            o._update(*children, **args_frozen)
+            o._update(**args_frozen)
             return o
 
         # Rebuild updated nodes by default
-        return o._rebuild(*children, **args_frozen)
+        return o._rebuild(**args_frozen)
 
     def _rebuild(self, o, children, **args):
         """
@@ -110,13 +113,16 @@ class Transformer(Visitor):
             if any(child_has_no_source) or len(child_has_no_source) != len(flatten(o.children)):
                 return self._rebuild_without_source(o, children, **args_frozen)
 
+        # Match argument names with actual arguments
+        args_frozen.update(zip(o._traversable, children))
+
         if self.inplace:
             # Updated nodes in place, if requested
-            o._update(*children, **args_frozen)
+            o._update(**args_frozen)
             return o
 
         # Rebuild updated nodes by default
-        return o._rebuild(*children, **args_frozen)
+        return o._rebuild(**args_frozen)
 
     def visit_object(self, o, **kwargs):
         """Return the object unchanged."""
