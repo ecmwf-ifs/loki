@@ -1765,8 +1765,8 @@ class FParser2IR(GenericVisitor):
         # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
-            docstring=docs, spec=spec, body=body, contains=contains,
-            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            docstring=docs, spec=spec, body=body, contains=contains, ast=o,
+            prefix=routine.prefix, bind=routine.bind, result_name=routine.result_name, is_function=routine.is_function,
             rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
             incomplete=False
         )
@@ -1802,7 +1802,8 @@ class FParser2IR(GenericVisitor):
         * prefix :class:`fparser.two.Fortran2003.Prefix`
         * name :class:`fparser.two.Fortran2003.Subroutine_Name`
         * dummy argument list :class:`fparser.two.Fortran2003.Dummy_Arg_List`
-        * language binding specs :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
+        * suffix :class:`fparser.two.Fortran2003.Suffix` or language binding
+          spec :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
         """
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
 
@@ -1838,20 +1839,25 @@ class FParser2IR(GenericVisitor):
             dummy_arg_list = self.visit(o.children[2], **kwargs)
             args = tuple(str(arg) for arg in dummy_arg_list)
 
-        # Parse language binding specs
-        bind = None if o.children[3] is None else o.children[3].tostr()
+        # Parse suffix, such as result name or language binding specs
+        if isinstance(o.children[3], Fortran2003.Suffix):
+            result, bind = self.visit(o.children[3], **kwargs)
+        else:
+            # Fparser inlines the language-binding spec directly if there is not other suffix
+            result = None
+            bind = None if o.children[3] is None else self.visit(o.children[3], **kwargs)
 
         # Instantiate the object
         is_function = isinstance(o, Fortran2003.Function_Stmt)
         if routine is None:
             routine = Subroutine(
-                name=name, args=args, prefix=prefix, bind=bind,
+                name=name, args=args, prefix=prefix, bind=bind, result_name=result,
                 is_function=is_function, parent=kwargs['scope']
             )
         else:
             routine.__init__(  # pylint: disable=unnecessary-dunder-call
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=prefix, bind=bind, is_function=is_function,
+                contains=routine.contains, prefix=prefix, bind=bind, result_name=result, is_function=is_function,
                 ast=routine._ast, source=routine._source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
                 incomplete=routine._incomplete
             )
@@ -1884,6 +1890,30 @@ class FParser2IR(GenericVisitor):
         :class:`fparser.two.Fortran2003.Prefix_Spec` has no children
         """
         return o.string
+
+    def visit_Suffix(self, o, **kwargs):
+        """
+        The suffix of a subprogram statement
+
+        :class:`fparser.two.Fortran2003.Suffix` has two children:
+
+        * A :class:`fparser.two.Fortran2003.Result_Name` if specified, or None
+        * a :class:`fparser.two.Fortran2003.Language_Binding_Spec` if specified, or None
+        """
+        result = o.children[0].tostr() if o.children[0] is not None else None
+        bind = self.visit(o.children[1], **kwargs) if o.children[1] is not None else None
+        return result, bind
+
+    def visit_Language_Binding_Spec(self, o, **kwargs):
+        """
+        A language binding spec suffix
+
+        :class:`fparser.two.Fortran2003.Language_Binding_Spec` has a single child:
+
+        * :class:`fparser.two.Fortran2003.Char_Literal_Constant` with the name of the
+          C routine it binds to
+        """
+        return self.visit(o.children[0], **kwargs)
 
     #
     # Module definition

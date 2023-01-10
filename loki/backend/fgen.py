@@ -197,7 +197,7 @@ class FortranCodegen(Stringifier):
     def visit_Subroutine(self, o, **kwargs):
         """
         Format as
-          <ftype> [<prefix>] <name> ([<args>]) [BIND(c, name=<name>)]
+          <ftype> [<prefix>] <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
             ...docstring...
             ...spec...
             ...body...
@@ -210,8 +210,9 @@ class FortranCodegen(Stringifier):
         if o.prefix:
             prefix += ' '
         arguments = self.join_items(o.argnames)
-        bind_c = f' BIND(c, name=\'{o.bind}\')' if o.bind else ''
-        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
+        result = f' RESULT({o.result_name})' if o.result_name else ''
+        bind_c = f' BIND(c, name={o.bind})' if o.bind else ''
+        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', result, bind_c)
         footer = self.format_line('END ', ftype, ' ', o.name)
 
         self.depth += 1
