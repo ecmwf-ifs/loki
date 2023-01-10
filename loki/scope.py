@@ -259,7 +259,6 @@ class Scope:
     """
 
     def __init__(self, parent=None, symbol_attrs=None, rescope_symbols=False, **kwargs):
-        super().__init__(**kwargs)
         assert symbol_attrs is None or isinstance(symbol_attrs, SymbolTable)
         self.parent = parent
 
@@ -270,6 +269,9 @@ class Scope:
             assert isinstance(symbol_attrs, SymbolTable)
             symbol_attrs._parent = weakref.ref(parent_symbol_attrs) if parent_symbol_attrs is not None else None
             self.symbol_attrs = symbol_attrs
+
+        # Instantiate object after we've set up the symbol table
+        super().__init__(**kwargs)
 
         if rescope_symbols:
             self.rescope_symbols()

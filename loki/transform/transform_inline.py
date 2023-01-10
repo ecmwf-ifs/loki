@@ -131,7 +131,7 @@ def inline_constant_parameters(routine, external_only=True):
         if imprt.symbols:
             symbols = tuple(s for s in imprt.symbols if s.name.lower() not in substituted_names)
             if not symbols:
-                imprtmap[imprt] = Comment(f'! Loki: parameters from {imprt.module} inlined')
+                imprtmap[imprt] = Comment(text=f'! Loki: parameters from {imprt.module} inlined')
             elif len(symbols) < len(imprt.symbols):
                 imprtmap[imprt] = imprt.clone(symbols=symbols)
 

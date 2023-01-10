@@ -100,8 +100,8 @@ def region_hoist(routine):
                 region = MaskedTransformer(start=start, stop=stop, mapper={start: None}).visit(routine.body)
 
             # Append it to the group's body, wrapped in comments
-            begin_comment = Comment(f'! Loki {start.content}')
-            end_comment = Comment(f'! Loki {stop.content}')
+            begin_comment = Comment(text=f'! Loki {start.content}')
+            end_comment = Comment(text=f'! Loki {stop.content}')
             hoist_body += as_tuple(flatten([begin_comment, region, end_comment]))
 
             # Register start and end nodes for transformer mask
@@ -109,7 +109,7 @@ def region_hoist(routine):
             stops += [start]
 
             # Replace end pragma by comment
-            comment = Comment(f'! Loki {start.content} - region hoisted')
+            comment = Comment(text=f'! Loki {start.content} - region hoisted')
             hoist_map[stop] = comment
 
         # Insert target <-> hoisted regions into map

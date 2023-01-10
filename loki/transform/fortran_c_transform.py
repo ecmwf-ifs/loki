@@ -85,7 +85,7 @@ class FortranCTransformation(Transformation):
         if role == 'kernel':
             # Generate Fortran wrapper module
             wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
-            contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
+            contains = Section(body=(Intrinsic(text='CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
@@ -181,7 +181,9 @@ class FortranCTransformation(Transformation):
         arguments = tuple(local_arg_map[a] if a in local_arg_map else Variable(name=a)
                           for a in routine.argnames)
         wrapper_body = casts_in
-        wrapper_body += [CallStatement(name=Variable(name=interface.body[0].name), arguments=arguments)]
+        wrapper_body += [
+            CallStatement(name=Variable(name=interface.body[0].name), arguments=arguments)  # pylint: disable=unsubscriptable-object
+        ]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
 
@@ -227,7 +229,7 @@ class FortranCTransformation(Transformation):
                 getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
                 getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
                 wrappers += [getter]
-        wrapper_module.contains = Section(body=(Intrinsic('CONTAINS'), *wrappers))
+        wrapper_module.contains = Section(body=(Intrinsic(text='CONTAINS'), *wrappers))
 
         # Create function interface definitions for module functions
         intfs = []
@@ -394,7 +396,7 @@ class FortranCTransformation(Transformation):
 
             elif not im.c_import and im.symbols:
                 # Create a C-header import for any converted modules
-                import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=None)
+                import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True)
 
             else:
                 # Remove other imports, as they might include untreated Fortran code

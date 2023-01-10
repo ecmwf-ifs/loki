@@ -63,8 +63,8 @@ def inline_comments(ir):
         # Comment is in-line and can be merged
         # Note, we need to re-create the statement node
         # so that Transformers don't throw away the changes.
-        if pair[0]._source and pair[1]._source:
-            if pair[1]._source.lines[0] == pair[0]._source.lines[1]:
+        if pair[0].source and pair[1].source:
+            if pair[1].source.lines[0] == pair[0].source.lines[1]:
                 mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
                 mapper[pair[1]] = None  # Mark for deletion
     return NestedTransformer(mapper, invalidate_source=False).visit(ir)
@@ -79,7 +79,7 @@ def cluster_comments(ir):
     for comments in comment_groups:
         # Build a CommentBlock and map it to first comment
         # and map remaining comments to None for removal
-        if all(c._source is not None for c in comments):
+        if all(c.source is not None for c in comments):
             if all(c.source.string is not None for c in comments):
                 string = '\n'.join(c.source.string for c in comments)
             else:
@@ -89,7 +89,7 @@ def cluster_comments(ir):
             source = Source(lines=lines, string=string, file=comments[0].source.file)
         else:
             source = None
-        block = CommentBlock(comments, label=comments[0].label, source=source)
+        block = CommentBlock(comments=comments, label=comments[0].label, source=source)
         comment_mapper[comments] = block
     return NestedTransformer(comment_mapper, invalidate_source=False).visit(ir)
 
@@ -205,7 +205,10 @@ def inject_statement_functions(routine):
     def create_stmt_func(assignment):
         arguments = assignment.lhs.dimensions
         variable = assignment.lhs.clone(dimensions=None)
-        return StatementFunction(variable, arguments, assignment.rhs, variable.type)
+        return StatementFunction(
+            variable=variable, arguments=arguments,
+            rhs=assignment.rhs, return_type=variable.type
+        )
 
     def create_type(stmt_func):
         name = str(stmt_func.variable)

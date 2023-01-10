@@ -12,6 +12,7 @@ from loki import ir
 from loki.pragma_utils import pragmas_attached
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
+from loki.tools import as_tuple
 from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
@@ -47,7 +48,7 @@ class FortranPythonTransformation(Transformation):
     def generate_kernel(cls, routine, **kwargs):
         # Replicate the kernel to strip the Fortran-specific boilerplate
         spec = ir.Section(body=())
-        body = ir.Section(body=Transformer({}).visit(routine.body))
+        body = ir.Section(body=as_tuple(Transformer({}).visit(routine.body)))
         kernel = Subroutine(name=f'{routine.name}_py', spec=spec, body=body)
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables

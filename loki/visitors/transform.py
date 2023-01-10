@@ -88,13 +88,16 @@ class Transformer(Visitor):
         if 'source' in o.args_frozen:
             args_frozen['source'] = None
 
+        # Match argument names with actual arguments
+        args_frozen.update(zip(o._traversable, children))
+
         if self.inplace:
             # Updated nodes in place, if requested
-            o._update(*children, **args_frozen)
+            o._update(**args_frozen)
             return o
 
         # Rebuild updated nodes by default
-        return o._rebuild(*children, **args_frozen)
+        return o._rebuild(**args_frozen)
 
     def _rebuild(self, o, children, **args):
         """
@@ -110,13 +113,16 @@ class Transformer(Visitor):
             if any(child_has_no_source) or len(child_has_no_source) != len(flatten(o.children)):
                 return self._rebuild_without_source(o, children, **args_frozen)
 
+        # Match argument names with actual arguments
+        args_frozen.update(zip(o._traversable, children))
+
         if self.inplace:
             # Updated nodes in place, if requested
-            o._update(*children, **args_frozen)
+            o._update(**args_frozen)
             return o
 
         # Rebuild updated nodes by default
-        return o._rebuild(*children, **args_frozen)
+        return o._rebuild(**args_frozen)
 
     def visit_object(self, o, **kwargs):
         """Return the object unchanged."""
@@ -558,7 +564,7 @@ class NestedMaskedTransformer(MaskedTransformer):
             return else_body
 
         has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
-        return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
+        return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=bool(has_elseif))
 
     def visit_MultiConditional(self, o, **kwargs):
         """
@@ -574,9 +580,9 @@ class NestedMaskedTransformer(MaskedTransformer):
 
         # need to make (value, body) pairs to track vanishing bodies
         expr = self.visit(o.expr, **kwargs)
-        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
-                    for c, b in zip(o.values, o.bodies)]
-        branches = [(c, b) for c, b in branches if flatten(as_tuple(b))]
+        branches = tuple((self.visit(c, **kwargs), self.visit(b, **kwargs))
+                         for c, b in zip(o.values, o.bodies))
+        branches = tuple((c, b) for c, b in branches if flatten(as_tuple(b)))
         else_body = self.visit(o.else_body, **kwargs)
 
         # retain whatever is in the else body if all other branches are gone

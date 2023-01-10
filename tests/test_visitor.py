@@ -380,7 +380,7 @@ end subroutine routine_simple
     retriever = ExpressionRetriever(lambda e: isinstance(e, FloatLiteral))
     literals = ExpressionFinder(retrieve=retriever.retrieve, with_ir_node=True).visit(routine.body)
     assert len(literals) == 1
-    assert isinstance(literals[0][0], Assignment) and literals[0][0]._source.lines == (13, 13)
+    assert isinstance(literals[0][0], Assignment) and literals[0][0].source.lines == (13, 13)
 
     literal_root = FindExpressionRoot(literals[0][1].pop()).visit(literals[0][0])
     assert literal_root[0] is cast_root[0]
@@ -631,7 +631,7 @@ end subroutine routine_simple
 
     stmt = get_innermost_statement(routine.ir)
     new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
-    new_stmt = Assignment(stmt.lhs, new_expr)
+    new_stmt = Assignment(lhs=stmt.lhs, rhs=new_expr)
     mapper = {stmt: new_stmt}
 
     body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
@@ -777,7 +777,7 @@ end subroutine routine_simple
 
     stmt = get_innermost_statement(routine.ir)
     new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
-    new_stmt = Assignment(stmt.lhs, new_expr)
+    new_stmt = Assignment(lhs=stmt.lhs, rhs=new_expr)
     mapper = {stmt: new_stmt}
 
     loops = FindNodes(Loop).visit(routine.body)

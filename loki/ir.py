@@ -12,14 +12,18 @@ Control flow node classes for
 """
 
 from collections import OrderedDict
+from functools import partial
 from itertools import chain
-import inspect
+from typing import Any, Tuple, Union
 
 from pymbolic.primitives import Expression
+
+from pydantic.dataclasses import dataclass as dataclass_validated
 
 from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
 from loki.types import DataType, BasicType, DerivedType, SymbolAttributes
+from loki.frontend.source import Source
 
 
 __all__ = [
@@ -37,9 +41,18 @@ __all__ = [
     'Intrinsic', 'Enumeration', 'RawSource'
 ]
 
+# Configuration for validation mechanism via pydantic
+config = dict(
+    validate_assignment=True,
+    arbitrary_types_allowed=True,
+)
+
+# Using this decorator, we can force strict validation
+dataclass_strict = partial(dataclass_validated, config=config)
 
 # Abstract base classes
 
+@dataclass_strict(frozen=True)
 class Node:
     """
     Base class for all node types in Loki's internal representation.
@@ -64,24 +77,21 @@ class Node:
         corresponding to the Node.
 
     """
-    # pylint: disable=no-member  # Stop reports about _args
+
+    source: Union[Source, str] = None
+    label: str = None
+
+    _argnames = ('label', 'source')
 
     _traversable = []
 
-    def __new__(cls, *args, **kwargs):
-        obj = super(Node, cls).__new__(cls)
-        argnames = inspect.getfullargspec(cls.__init__).args
-        obj._args = dict(zip(argnames[1:], args))
-        obj._args.update(kwargs.items())
-        # Convert stored lists to tuples to make self._args hashable!
-        obj._args.update({k: tuple(v) for k, v in obj._args.items() if isinstance(v, list)})
-        obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
-        return obj
-
-    def __init__(self, source=None, label=None):
-        super().__init__()
-        self._source = source
-        self._label = label
+    def __post_init__(self):
+        # Create private placeholders for dataflow analysis fields that
+        # do not show up in the dataclass field definitions, as these
+        # are entirely transient.
+        self._update(_live_symbols=None)
+        self._update(_defines_symbols=None)
+        self._update(_uses_symbols=None)
 
     @property
     def _canonical(self):
@@ -101,6 +111,13 @@ class Node:
 
     def __hash__(self):
         return hash(self._canonical)
+
+    @property
+    def _args(self):
+        """
+        The argument from which to re-create the :any:`Node`.
+        """
+        return {k: v for k, v in self.__dict__.items() if k in self._argnames}
 
     @property
     def children(self):
@@ -150,11 +167,8 @@ class Node:
 
         """
         argnames = [i for i in self._traversable if i not in kwargs]
-        self._args.update(OrderedDict(zip(argnames, args)))
-        self._args.update(kwargs)
-        # Convert stored lists to tuples to make self._args hashable!
-        self._args.update({k: tuple(v) for k, v in self._args.items() if isinstance(v, list)})
-        self.__init__(**self._args)  # pylint: disable=unnecessary-dunder-call
+        kwargs.update(zip(argnames, args))
+        self.__dict__.update(kwargs)
 
     @property
     def args(self):
@@ -169,21 +183,6 @@ class Node:
         Arguments used to construct the Node that cannot be traversed.
         """
         return {k: v for k, v in self.args.items() if k not in self._traversable}
-
-    @property
-    def source(self):
-        """
-        The :py:class:`loki.frontend.source.Source` object with information
-        about the original source for that Node.
-        """
-        return self._source
-
-    @property
-    def label(self):
-        """
-        Return the statement label of this node.
-        """
-        return self._label
 
     def __repr__(self):
         raise NotImplementedError
@@ -209,9 +208,9 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if not hasattr(self, '_live_symbols'):
+        if self.__dict__['_live_symbols'] is None:
             raise RuntimeError('Need to run dataflow analysis on the IR first.')
-        return self._live_symbols
+        return self.__dict__['_live_symbols']
 
     @property
     def defines_symbols(self):
@@ -224,9 +223,9 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if not hasattr(self, '_defines_symbols'):
+        if self.__dict__['_defines_symbols'] is None:
             raise RuntimeError('Need to run dataflow analysis on the IR first.')
-        return self._defines_symbols
+        return self.__dict__['_defines_symbols']
 
     @property
     def uses_symbols(self):
@@ -240,11 +239,12 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if not hasattr(self, '_uses_symbols'):
+        if self.__dict__['_uses_symbols'] is None:
             raise RuntimeError('Need to run dataflow analysis on the IR first.')
-        return self._uses_symbols
+        return self.__dict__['_uses_symbols']
 
 
+@dataclass_strict(frozen=True)
 class InternalNode(Node):
     """
     Internal representation of a control flow node that has a traversable
@@ -256,20 +256,27 @@ class InternalNode(Node):
         The nodes that make up the body.
     """
 
+    body: Tuple[Any, ...] = None
+
+    _argnames = Node._argnames + ('body',)
+
     _traversable = ['body']
 
-    def __init__(self, body=None, **kwargs):
-        super().__init__(**kwargs)
-        self.body = as_tuple(flatten(as_tuple(body)))
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.body is None or isinstance(self.body, tuple)
 
     def __repr__(self):
         raise NotImplementedError
 
 
+@dataclass_strict(frozen=True)
 class LeafNode(Node):
     """
     Internal representation of a control flow node without a `body`.
     """
+
+    _argnames = Node._argnames
 
     def __repr__(self):
         raise NotImplementedError
@@ -285,6 +292,8 @@ class ScopedNode(Scope):
     :meth:`_rebuild` methods to make sure that an existing symbol table
     is carried over correctly.
     """
+
+    _argnames = Node._argnames
 
     def _update(self, *args, **kwargs):
         if 'symbol_attrs' not in kwargs:
@@ -303,10 +312,16 @@ class ScopedNode(Scope):
 # Intermediate node types
 
 
+@dataclass_strict(frozen=True)
 class Section(InternalNode):
     """
     Internal representation of a single code region.
     """
+
+    # Sections may contain Module / Subroutine objects
+    body: Tuple[Any, ...] = ()
+
+    _argnames = InternalNode._argnames
 
     def append(self, node):
         """
@@ -369,6 +384,10 @@ class Associate(ScopedNode, Section):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    _argnames = ScopedNode._argnames + (
+        'body', 'associations', 'parent', 'symbol_attrs'
+    )
+
     _traversable = ['body', 'associations']
 
     def __init__(self, body=None, associations=None, parent=None, symbol_attrs=None, **kwargs):
@@ -403,6 +422,7 @@ class Associate(ScopedNode, Section):
         return 'Associate::'
 
 
+@dataclass_strict(frozen=True)
 class Loop(InternalNode):
     """
     Internal representation of a loop with induction variable and range.
@@ -438,22 +458,25 @@ class Loop(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    variable: Expression = None
+    bounds: Expression = None
+    body: Tuple[Any, ...] = None
+    pragma: Tuple[Node, ...] = None
+    pragma_post: Tuple[Node, ...] = None
+    loop_label: Any = None
+    name: str = None
+    has_end_do: bool = True
+
+    _argnames = InternalNode._argnames + (
+        'variable', 'bounds', 'body', 'pragma', 'pragma_post',
+        'loop_label', 'name', 'has_end_do'
+    )
+
     _traversable = ['variable', 'bounds', 'body']
 
-    def __init__(self, variable, bounds=None, body=None, pragma=None, pragma_post=None,
-                 loop_label=None, name=None, has_end_do=None, **kwargs):
-        super().__init__(body, **kwargs)
-
-        assert isinstance(variable, Expression)
-        assert isinstance(bounds, Expression)
-
-        self.variable = variable
-        self.bounds = bounds
-        self.pragma = pragma
-        self.pragma_post = pragma_post
-        self.loop_label = loop_label
-        self.name = name
-        self.has_end_do = has_end_do if has_end_do is not None else True
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.variable is not None
 
     def __repr__(self):
         label = ', '.join(l for l in [self.name, self.loop_label] if l is not None)
@@ -463,6 +486,7 @@ class Loop(InternalNode):
         return f'Loop::{label} {control}'
 
 
+@dataclass_strict(frozen=True)
 class WhileLoop(InternalNode):
     """
     Internal representation of a while loop in source code.
@@ -500,22 +524,20 @@ class WhileLoop(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    condition: Expression = None
+    body: Tuple[Node, ...] = None
+    pragma: Node = None
+    pragma_post: Node = None
+    loop_label: Any = None
+    name: str = None
+    has_end_do: bool = True
+
+    _argnames = InternalNode._argnames + (
+        'condition', 'body', 'pragma', 'pragma_post', 'loop_label',
+        'name', 'has_end_do'
+    )
+
     _traversable = ['condition', 'body']
-
-    def __init__(self, condition, body=None, pragma=None, pragma_post=None,
-                 loop_label=None, name=None, has_end_do=None, **kwargs):
-        super().__init__(body=body, **kwargs)
-
-        # Unfortunately, unbounded DO ... END DO loops exist and we capture
-        # those in this class
-        assert isinstance(condition, Expression) or condition is None
-
-        self.condition = condition
-        self.pragma = pragma
-        self.pragma_post = pragma_post
-        self.loop_label = loop_label
-        self.name = name
-        self.has_end_do = has_end_do if has_end_do is not None else True
 
     def __repr__(self):
         label = ', '.join(l for l in [self.name, self.loop_label] if l is not None)
@@ -525,6 +547,7 @@ class WhileLoop(InternalNode):
         return f'WhileLoop::{label} {control}'
 
 
+@dataclass_strict(frozen=True)
 class Conditional(InternalNode):
     """
     Internal representation of a conditional branching construct.
@@ -552,23 +575,30 @@ class Conditional(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    condition: Expression = None
+    body: Tuple[Node, ...] = None
+    else_body: Tuple[Node, ...] = None
+    inline: bool = False
+    has_elseif: bool = False
+    name: str = None
+
+    _argnames = InternalNode._argnames + (
+        'condition', 'body', 'else_body', 'inline', 'has_elseif', 'name'
+    )
+
     _traversable = ['condition', 'body', 'else_body']
 
-    def __init__(self, condition, body, else_body, inline=False,
-                 has_elseif=False, name=None, **kwargs):
-        super().__init__(body=body, **kwargs)
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.condition is not None
 
-        assert isinstance(condition, Expression)
+        if self.body is not None:
+            assert is_iterable(self.body)
+            assert all(isinstance(c, Node) for c in self.body)  # pylint: disable=not-an-iterable
 
-        else_body = as_tuple(else_body)
-        if has_elseif:
-            assert len(else_body) == 1 and isinstance(else_body[0], Conditional)
-
-        self.condition = condition
-        self.else_body = else_body
-        self.inline = inline
-        self.has_elseif = has_elseif
-        self.name = name
+        if self.has_elseif:
+            assert len(self.else_body) == 1
+            assert isinstance(self.else_body[0], Conditional)  # pylint: disable=unsubscriptable-object
 
     def __repr__(self):
         if self.name:
@@ -576,6 +606,7 @@ class Conditional(InternalNode):
         return 'Conditional::'
 
 
+@dataclass_strict(frozen=True)
 class PragmaRegion(InternalNode):
     """
     Internal representation of a block of code defined by two matching pragmas.
@@ -598,13 +629,13 @@ class PragmaRegion(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    body: Tuple[Node, ...] = ()
+    pragma: Node = None
+    pragma_post: Node = None
+
+    _argnames = InternalNode._argnames + ('body', 'pragma', 'pragma_post')
+
     _traversable = ['body']
-
-    def __init__(self, body=None, pragma=None, pragma_post=None, **kwargs):
-        super().__init__(body=body, **kwargs)
-
-        self.pragma = pragma
-        self.pragma_post = pragma_post
 
     def append(self, node):
         self._update(body=self.body + as_tuple(node))
@@ -620,6 +651,7 @@ class PragmaRegion(InternalNode):
         return 'PragmaRegion::'
 
 
+@dataclass_strict(frozen=True)
 class Interface(InternalNode):
     """
     Internal representation of a Fortran interface block.
@@ -637,12 +669,16 @@ class Interface(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    body: Tuple[Any, ...] = None
+    abstract: bool = False
+    spec: Union[Expression, str] = None
+
+    _argnames = InternalNode._argnames + ('body', 'abstract', 'spec')
+
     _traversable = ['body']
 
-    def __init__(self, body=None, abstract=False, spec=None, **kwargs):
-        super().__init__(body=body, **kwargs)
-        self.abstract = abstract
-        self.spec = spec
+    def __post_init__(self):
+        super().__post_init__()
         assert not (self.abstract and self.spec)
 
     @property
@@ -652,7 +688,7 @@ class Interface(InternalNode):
         """
         symbols = as_tuple(flatten(
             getattr(node, 'procedure_symbol', getattr(node, 'symbols', ()))
-            for node in self.body
+            for node in self.body  # pylint: disable=not-an-iterable
         ))
         if self.spec:
             return (self.spec,) + symbols
@@ -668,6 +704,7 @@ class Interface(InternalNode):
 
 # Leaf node types
 
+@dataclass_strict(frozen=True)
 class Assignment(LeafNode):
     """
     Internal representation of a variable assignment.
@@ -687,23 +724,25 @@ class Assignment(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    lhs: Expression = None
+    rhs: Expression = None
+    ptr: bool = False
+    comment: Node = None
+
+    _argnames = LeafNode._argnames + ('lhs', 'rhs', 'ptr', 'comment')
+
     _traversable = ['lhs', 'rhs']
 
-    def __init__(self, lhs, rhs, ptr=False, comment=None, **kwargs):
-        super().__init__(**kwargs)
-
-        assert isinstance(lhs, Expression)
-        assert isinstance(rhs, Expression)
-
-        self.lhs = lhs
-        self.rhs = rhs
-        self.ptr = ptr  # Marks pointer assignment '=>'
-        self.comment = comment
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.lhs is not None
+        assert self.rhs is not None
 
     def __repr__(self):
         return f'Assignment:: {str(self.lhs)} = {str(self.rhs)}'
 
 
+@dataclass_strict(frozen=True)
 class ConditionalAssignment(LeafNode):
     """
     Internal representation of an inline conditional assignment using a
@@ -731,25 +770,20 @@ class ConditionalAssignment(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    lhs: Expression = None
+    condition: Expression = None
+    rhs: Expression = None
+    else_rhs: Expression = None
+
+    _argnames = LeafNode._argnames + ('condition', 'lhs', 'rhs', 'else_rhs')
+
     _traversable = ['condition', 'lhs', 'rhs', 'else_rhs']
-
-    def __init__(self, lhs, condition, rhs, else_rhs, **kwargs):
-        super().__init__(**kwargs)
-
-        assert isinstance(lhs, Expression)
-        assert isinstance(condition, Expression)
-        assert isinstance(rhs, Expression)
-        assert isinstance(else_rhs, Expression)
-
-        self.lhs = lhs
-        self.condition = condition
-        self.rhs = rhs
-        self.else_rhs = else_rhs
 
     def __repr__(self):
         return f'CondAssign:: {self.lhs} = {self.condition} ? {self.rhs} : {self.else_rhs}'
 
 
+@dataclass_strict(frozen=True)
 class CallStatement(LeafNode):
     """
     Internal representation of a subroutine call.
@@ -777,27 +811,35 @@ class CallStatement(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    name: Expression = None
+    arguments: Tuple[Expression, ...] = ()
+    kwarguments: Tuple[Any, ...] = None
+    pragma: Tuple[Node, ...] = None
+    not_active: bool = None
+    chevron: Tuple[Expression, ...] = None
+
+    _argnames = LeafNode._argnames + (
+        'name', 'arguments', 'kwarguments', 'pragma', 'not_active', 'chevron'
+    )
+
     _traversable = ['name', 'arguments', 'kwarguments']
 
-    def __init__(self, name, arguments, kwarguments=None, pragma=None, not_active=None, chevron=None, **kwargs):
-        super().__init__(**kwargs)
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_iterable(self.arguments)
+        assert all(isinstance(arg, Expression) for arg in self.arguments)
 
-        assert isinstance(name, Expression)
-        assert is_iterable(arguments) and all(isinstance(arg, Expression) for arg in arguments)
-        assert kwarguments is None or (
-            is_iterable(kwarguments) and all(isinstance(a, tuple) and len(a) == 2 and
-                                             isinstance(a[1], Expression) for a in kwarguments)
-        )
-        assert chevron is None or (
-                is_iterable(chevron) and all(isinstance(a, Expression) for a in chevron) and 2 <= len(chevron) <= 4)
+        if self.kwarguments is not None:
+            assert is_iterable(self.kwarguments)
+            assert all(
+                isinstance(a, tuple) and len(a) == 2 and isinstance(a[1], Expression)
+                for a in self.kwarguments  # pylint: disable=not-an-iterable
+            )
 
-        self.name = name
-        self.arguments = as_tuple(arguments)
-        # kwarguments is kept as a list of tuples!
-        self.kwarguments = as_tuple(kwarguments) if kwarguments else ()
-        self.not_active = not_active
-        self.pragma = pragma
-        self.chevron = chevron
+        if self.chevron is not None:
+            assert is_iterable(self.chevron)
+            assert all(isinstance(a, Expression) for a in self.chevron)  # pylint: disable=not-an-iterable
+            assert 2 <= len(self.chevron) <= 4
 
     def __repr__(self):
         return f'Call:: {self.name}'
@@ -854,10 +896,11 @@ class CallStatement(LeafNode):
         assert routine is not BasicType.DEFERRED
         r_args = {arg.name: arg for arg in routine.arguments}
         args = zip(routine.arguments, self.arguments)
-        kwargs = ((r_args[kw], arg) for kw, arg in self.kwarguments)
+        kwargs = ((r_args[kw], arg) for kw, arg in as_tuple(self.kwarguments))
         return chain(args, kwargs)
 
 
+@dataclass_strict(frozen=True)
 class Allocation(LeafNode):
     """
     Internal representation of a variable allocation.
@@ -874,23 +917,26 @@ class Allocation(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    variables: Tuple[Expression, ...] = ()
+    data_source: Expression = None
+    status_var: Expression = None
+
+    _argnames = LeafNode._argnames + ('variables', 'data_source', 'status_var')
+
     _traversable = ['variables', 'data_source', 'status_var']
 
-    def __init__(self, variables, data_source=None, status_var=None, **kwargs):
-        super().__init__(**kwargs)
-
-        assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
-        assert data_source is None or isinstance(data_source, Expression)
-        assert status_var is None or isinstance(status_var, Expression)
-
-        self.variables = as_tuple(variables)
-        self.data_source = data_source  # Argh, Fortran...!
-        self.status_var = status_var
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_iterable(self.variables)
+        assert all(isinstance(var, Expression) for var in self.variables)
+        assert self.data_source is None or isinstance(self.data_source, Expression)
+        assert self.status_var is None or isinstance(self.status_var, Expression)
 
     def __repr__(self):
         return f'Allocation:: {", ".join(str(var) for var in self.variables)}'
 
 
+@dataclass_strict(frozen=True)
 class Deallocation(LeafNode):
     """
     Internal representation of a variable deallocation.
@@ -905,21 +951,23 @@ class Deallocation(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    variables: Tuple[Expression, ...] = ()
+    status_var: Expression = None
+
+    _argnames = LeafNode._argnames + ('variables', 'status_var')
+
     _traversable = ['variables', 'status_var']
 
-    def __init__(self, variables, status_var=None, **kwargs):
-        super().__init__(**kwargs)
-
-        assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
-        assert status_var is None or isinstance(status_var, Expression)
-
-        self.variables = as_tuple(variables)
-        self.status_var = status_var
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_iterable(self.variables)
+        assert all(isinstance(var, Expression) for var in self.variables)
+        assert self.status_var is None or isinstance(self.status_var, Expression)
 
     def __repr__(self):
         return f'Deallocation:: {", ".join(str(var) for var in self.variables)}'
 
-
+@dataclass_strict(frozen=True)
 class Nullify(LeafNode):
     """
     Internal representation of a pointer nullification.
@@ -932,18 +980,20 @@ class Nullify(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    variables: Tuple[Expression, ...] = ()
+
     _traversable = ['variables']
 
-    def __init__(self, variables, **kwargs):
-        super().__init__(**kwargs)
-
-        assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
-        self.variables = as_tuple(variables)
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_iterable(self.variables)
+        assert all(isinstance(var, Expression) for var in self.variables)
 
     def __repr__(self):
         return f'Nullify:: {", ".join(str(var) for var in self.variables)}'
 
 
+@dataclass_strict(frozen=True)
 class Comment(LeafNode):
     """
     Internal representation of a single comment.
@@ -956,15 +1006,19 @@ class Comment(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-    def __init__(self, text=None, **kwargs):
-        super().__init__(**kwargs)
 
-        self.text = text
+    text: str = None
+
+    _argnames = LeafNode._argnames + ('text', )
+
+    def __post_init__(self):
+        assert isinstance(self.text, str)
 
     def __repr__(self):
         return f'Comment:: {truncate_string(self.text)}'
 
 
+@dataclass_strict(frozen=True)
 class CommentBlock(LeafNode):
     """
     Internal representation of a block comment that is formed from
@@ -978,10 +1032,14 @@ class CommentBlock(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    def __init__(self, comments, **kwargs):
-        super().__init__(**kwargs)
+    comments: Tuple[Node, ...] = ()
 
-        self.comments = comments
+    _argnames = LeafNode._argnames + ('comments', )
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.comments is not None
+        assert is_iterable(self.comments)
 
     @property
     def text(self):
@@ -992,6 +1050,7 @@ class CommentBlock(LeafNode):
         return f'CommentBlock:: {truncate_string(self.text)}'
 
 
+@dataclass_strict(frozen=True)
 class Pragma(LeafNode):
     """
     Internal representation of a pragma.
@@ -1009,16 +1068,20 @@ class Pragma(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    def __init__(self, keyword, content=None, **kwargs):
-        super().__init__(**kwargs)
+    keyword: str = None
+    content: str = None
 
-        self.keyword = keyword
-        self.content = content
+    _argnames = LeafNode._argnames + ('keyword', 'content')
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.keyword and isinstance(self.keyword, str)
 
     def __repr__(self):
         return f'Pragma:: {self.keyword} {truncate_string(self.content)}'
 
 
+@dataclass_strict(frozen=True)
 class PreprocessorDirective(LeafNode):
     """
     Internal representation of a preprocessor directive.
@@ -1034,15 +1097,15 @@ class PreprocessorDirective(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    def __init__(self, text, **kwargs):
-        super().__init__(**kwargs)
+    text: str = None
 
-        self.text = text
+    _argnames = LeafNode._argnames + ('text', )
 
     def __repr__(self):
         return f'PreprocessorDirective:: {truncate_string(self.text)}'
 
 
+@dataclass_strict(frozen=True)
 class Import(LeafNode):
     """
     Internal representation of an import.
@@ -1068,20 +1131,25 @@ class Import(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    module: str = None
+    symbols: Tuple[Expression, ...] = ()
+    nature: str = None
+    c_import: bool = False
+    f_include: bool = False
+    f_import: bool = False
+    rename_list: Tuple[Any, ...] = None
+
+    _argnames = LeafNode._argnames + (
+        'module', 'symbols', 'nature', 'c_import', 'f_include',
+        'f_import', 'rename_list'
+    )
+
     _traversable = ['symbols', 'rename_list']
 
-    def __init__(self, module, symbols=None, nature=None, c_import=False, f_include=False, f_import=False,
-                 rename_list=None, **kwargs):
-        super().__init__(**kwargs)
-
-        self.module = module
-        self.symbols = symbols or ()
-        self.nature = nature
-        self.c_import = c_import or False
-        self.f_include = f_include or False
-        self.f_import = f_import or False
-        self.rename_list = rename_list
-
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.module is None or isinstance(self.module, str)
+        assert isinstance(self.symbols, tuple)
         assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
         assert self.nature is None or (
             isinstance(self.nature, str) and
@@ -1100,6 +1168,7 @@ class Import(LeafNode):
         return f'{_c}Import:: {self.module} => {self.symbols}'
 
 
+@dataclass_strict(frozen=True)
 class VariableDeclaration(LeafNode):
     """
     Internal representation of a variable declaration.
@@ -1123,26 +1192,33 @@ class VariableDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    symbols: Tuple[Expression, ...] = ()
+    dimensions: Tuple[Expression, ...] = None
+    comment: Node = None
+    pragma: Node = None
+
+    _argnames = LeafNode._argnames + (
+        'symbols', 'dimensions', 'comment', 'pragma'
+    )
+
     _traversable = ['symbols', 'dimensions']
 
-    def __init__(self, symbols, dimensions=None, comment=None, pragma=None, **kwargs):
-        super().__init__(**kwargs)
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.symbols is not None
+        assert is_iterable(self.symbols)
+        assert all(isinstance(s, Expression) for s in self.symbols)
 
-        assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
-        assert dimensions is None or (is_iterable(dimensions) and
-                                      all(isinstance(d, Expression) for d in dimensions))
-
-        self.symbols = as_tuple(symbols)
-        self.dimensions = as_tuple(dimensions) if dimensions else None
-
-        self.comment = comment
-        self.pragma = pragma
+        if self.dimensions is not None:
+            assert is_iterable(self.dimensions)
+            assert all(isinstance(d, Expression) for d in self.dimensions)  # pylint: disable=not-an-iterable
 
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
         return f'VariableDeclaration:: {symbols}'
 
 
+@dataclass_strict(frozen=True)
 class ProcedureDeclaration(LeafNode):
     """
     Internal representation of a procedure declaration.
@@ -1175,23 +1251,27 @@ class ProcedureDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    symbols: Tuple[Expression, ...] = ()
+    interface: Union[Expression, DataType] = None
+    external: bool = False
+    module: bool = False
+    generic: bool = False
+    final: bool = False
+    comment: Node = None
+    pragma: Tuple[Node, ...] = None
+
+    _argnames = LeafNode._argnames + (
+        'symbols', 'interface', 'external', 'module', 'generic',
+        'final', 'comment', 'pragma'
+    )
+
     _traversable = ['symbols', 'interface']
 
-    def __init__(self, symbols, interface=None, external=False, module=False,
-                 generic=False, final=False, comment=None, pragma=None, **kwargs):
-        super().__init__(**kwargs)
-
-        assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
-        assert interface is None or isinstance(interface, (Expression, DataType))
-
-        self.symbols = as_tuple(symbols)
-        self.interface = interface
-        self.external = external or False
-        self.module = module or False
-        self.generic = generic or False
-        self.final = final or False
-        self.comment = comment
-        self.pragma = pragma
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_iterable(self.symbols)
+        assert all(isinstance(var, Expression) for var in self.symbols)
+        assert self.interface is None or isinstance(self.interface, (Expression, DataType))
 
         assert self.external + self.module + self.generic + self.final in (0, 1)
 
@@ -1200,6 +1280,7 @@ class ProcedureDeclaration(LeafNode):
         return f'ProcedureDeclaration:: {symbols}'
 
 
+@dataclass_strict(frozen=True)
 class DataDeclaration(LeafNode):
     """
     Internal representation of a ``DATA`` declaration for explicit array
@@ -1215,23 +1296,26 @@ class DataDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    # TODO: This should only allow Expression instances but needs frontend changes
+    # TODO: Support complex statements (LOKI-23)
+    variable: Any = None
+    values: Tuple[Expression, ...] = ()
+
+    _argnames = LeafNode._argnames + ('variable', 'values')
+
     _traversable = ['variable', 'values']
 
-    def __init__(self, variable, values, **kwargs):
-        super().__init__(**kwargs)
-
-        # TODO: This should only allow Expression instances but needs frontend changes
-        # TODO: Support complex statements (LOKI-23)
-        assert isinstance(variable, (Expression, str, tuple))
-        assert is_iterable(values) and all(isinstance(val, Expression) for val in values)
-
-        self.variable = variable
-        self.values = as_tuple(values)
+    def __post_init__(self):
+        super().__post_init__()
+        assert isinstance(self.variable, (Expression, str, tuple))
+        assert is_iterable(self.values)
+        assert all(isinstance(val, Expression) for val in self.values)
 
     def __repr__(self):
         return f'DataDeclaration:: {str(self.variable)}'
 
 
+@dataclass_strict(frozen=True)
 class StatementFunction(LeafNode):
     """
     Internal representation of Fortran statement function statements
@@ -1248,19 +1332,22 @@ class StatementFunction(LeafNode):
         The return type of the statement function
     """
 
+    variable: Expression = None
+    arguments: Tuple[Expression, ...] = ()
+    rhs: Expression = None
+    return_type: SymbolAttributes = None
+
+    _argnames = LeafNode._argnames + (
+        'variable', 'arguments', 'rhs', 'return_type'
+    )
+
     _traversable = ['variable', 'arguments', 'rhs']
 
-    def __init__(self, variable, arguments, rhs, return_type, **kwargs):
-        super().__init__(**kwargs)
-
-        assert isinstance(variable, Expression)
-        assert is_iterable(arguments) and all(isinstance(a, Expression) for a in arguments)
-        assert isinstance(return_type, SymbolAttributes)
-
-        self.variable = variable
-        self.arguments = as_tuple(arguments)
-        self.rhs = rhs
-        self.return_type = return_type
+    def __post_init__(self):
+        super().__post_init__()
+        assert isinstance(self.variable, Expression)
+        assert is_iterable(self.arguments) and all(isinstance(a, Expression) for a in self.arguments)
+        assert isinstance(self.return_type, SymbolAttributes)
 
     @property
     def name(self):
@@ -1307,6 +1394,11 @@ class TypeDef(ScopedNode, LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
+
+    _argnames = LeafNode._argnames + (
+        'name', 'body', 'abstract', 'extends', 'bind_c', 'private',
+        'public', 'parent', 'symbol_attrs'
+    )
 
     _traversable = ['body']
 
@@ -1413,6 +1505,7 @@ class TypeDef(ScopedNode, LeafNode):
         self.rescope_symbols()
 
 
+@dataclass_strict(frozen=True)
 class MultiConditional(LeafNode):
     """
     Internal representation of a multi-value conditional (eg. ``SELECT``).
@@ -1433,28 +1526,33 @@ class MultiConditional(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    expr: Expression = None
+    values: Tuple[Any, ...] = ()
+    bodies: Tuple[Tuple[Node, ...], ...] = ((),)
+    else_body: Tuple[Node, ...] = ()
+    name: str = None
+
+    _argnames = LeafNode._argnames + (
+        'expr', 'values', 'bodies', 'else_body', 'name'
+    )
+
     _traversable = ['expr', 'values', 'bodies', 'else_body']
 
-    def __init__(self, expr, values, bodies, else_body, name=None, **kwargs):
-        super().__init__(**kwargs)
-
-        assert isinstance(expr, Expression)
-        assert is_iterable(values) and all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
-                                           for v in values)
-        assert is_iterable(bodies) and all(isinstance(b, tuple) for b in bodies)
-        assert is_iterable(else_body)
-
-        self.expr = expr
-        self.values = as_tuple(values)
-        self.bodies = as_tuple(bodies)
-        self.else_body = as_tuple(else_body)
-        self.name = name
+    def __post_init__(self):
+        super().__post_init__()
+        assert isinstance(self.expr, Expression)
+        assert is_iterable(self.values)
+        assert all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
+                                           for v in self.values)
+        assert is_iterable(self.bodies) and all(is_iterable(b) for b in self.bodies)
+        assert is_iterable(self.else_body)
 
     def __repr__(self):
         label = f' {self.name}' if self.name else ''
         return f'MultiConditional::{label} {str(self.expr)}'
 
 
+@dataclass_strict(frozen=True)
 class MaskedStatement(LeafNode):
     """
     Internal representation of a masked array assignment (``WHERE`` clause).
@@ -1474,28 +1572,32 @@ class MaskedStatement(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
+    conditions: Tuple[Expression, ...] = ()
+    bodies: Tuple[Tuple[Node, ...], ...] = ()
+    default: Tuple[Node, ...] = ()
+    inline: bool = False
+
+    _argnames = LeafNode._argnames + (
+        'conditions', 'bodies', 'default', 'inline'
+    )
+
     _traversable = ['conditions', 'bodies', 'default']
 
-    def __init__(self, conditions, bodies, default, inline=False, **kwargs):
-        super().__init__(**kwargs)
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_iterable(self.conditions) and all(isinstance(c, Expression) for c in self.conditions)
+        assert is_iterable(self.bodies) and all(isinstance(c, tuple) for c in self.bodies)
+        assert len(self.conditions) == len(self.bodies)
+        assert is_iterable(self.default)
 
-        assert is_iterable(conditions) and all(isinstance(c, Expression) for c in conditions)
-        assert is_iterable(bodies) and all(isinstance(c, tuple) for c in bodies)
-        assert len(conditions) == len(bodies)
-        assert is_iterable(default)
-
-        if inline:
-            assert len(bodies) == 1 and len(bodies[0]) == 1 and not default
-
-        self.conditions = as_tuple(conditions)
-        self.bodies = as_tuple(bodies)
-        self.default = as_tuple(default)
-        self.inline = inline or False
+        if self.inline:
+            assert len(self.bodies) == 1 and len(self.bodies[0]) == 1 and not self.default
 
     def __repr__(self):
         return f'MaskedStatement:: {str(self.conditions[0])}'
 
 
+@dataclass_strict(frozen=True)
 class Intrinsic(LeafNode):
     """
     Catch-all generic node for corner-cases.
@@ -1513,15 +1615,20 @@ class Intrinsic(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-    def __init__(self, text=None, **kwargs):
-        super().__init__(**kwargs)
 
-        self.text = text
+    text: str = None
+
+    _argnames = LeafNode._argnames + ('text', )
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert isinstance(self.text, str)
 
     def __repr__(self):
         return f'Intrinsic:: {truncate_string(self.text)}'
 
 
+@dataclass_strict(frozen=True)
 class Enumeration(LeafNode):
     """
     Internal representation of an ``ENUM``
@@ -1537,17 +1644,22 @@ class Enumeration(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-    def __init__(self, symbols, **kwargs):
-        super().__init__(**kwargs)
 
-        self.symbols = as_tuple(symbols)
-        assert all(isinstance(s, Expression) for s in self.symbols)
+    symbols: Tuple[Expression, ...] = None
+
+    _argnames = LeafNode._argnames + ('symbols', )
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.symbols is not None:
+            assert all(isinstance(s, Expression) for s in self.symbols)  # pylint: disable=not-an-iterable
 
     def __repr__(self):
-        symbols = ', '.join(str(var) for var in self.symbols)
+        symbols = ', '.join(str(var) for var in as_tuple(self.symbols))
         return f'Enumeration:: {symbols}'
 
 
+@dataclass_strict(frozen=True)
 class RawSource(LeafNode):
     """
     Generic node for unparsed source code sections
@@ -1563,10 +1675,10 @@ class RawSource(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-    def __init__(self, text=None, **kwargs):
-        super().__init__(**kwargs)
 
-        self.text = text
+    text: str = None
+
+    _argnames = LeafNode._argnames + ('text', )
 
     def __repr__(self):
         return f'RawSource:: {truncate_string(self.text.strip())}'

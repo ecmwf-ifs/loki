@@ -357,9 +357,11 @@ def replace_selected_kind(routine):
                 symbols = as_tuple(imprt.symbols) + tuple(mapper.used_names[s] for s in missing_symbols)
 
                 # Flush the change through the spec
-                routine.spec = Transformer({imprt: Import(imprt.module, symbols=symbols)}).visit(routine.spec)
+                routine.spec = Transformer(
+                    {imprt: Import(module=imprt.module, symbols=symbols)}
+                ).visit(routine.spec)
                 break
         else:
             # No iso_fortran_env import present, need to insert a new one
-            imprt = Import('iso_fortran_env', symbols=as_tuple(mapper.used_names.values()))
+            imprt = Import(module='iso_fortran_env', symbols=as_tuple(mapper.used_names.values()))
             routine.spec.prepend(imprt)

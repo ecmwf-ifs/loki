@@ -79,11 +79,12 @@ def wrap_vector_section(section, routine, horizontal):
     bounds = sym.LoopRange((v_start, v_end))
 
     # Ensure we clone all body nodes, to avoid recursion issues
-    vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
+    body = as_tuple(flatten(Transformer().visit(section)))
+    vector_loop = ir.Loop(variable=index, bounds=bounds, body=body)
 
     # Add a comment before the pragma-annotated loop to ensure
     # we do not overlap with neighbouring pragmas
-    return (ir.Comment(''), vector_loop)
+    return (ir.Comment(text=''), vector_loop)
 
 
 def extract_vector_sections(section, horizontal):
@@ -277,7 +278,7 @@ def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
                 pragma = None
                 private_clause = '' if not private_arrays else f' private({private_arrs})'
                 pragma = ir.Pragma(keyword='acc', content=f'loop vector{private_clause}')
-                mapper[loop] = loop.clone(pragma=pragma)
+                mapper[loop] = loop.clone(pragma=(pragma,))
 
         routine.body = Transformer(mapper).visit(routine.body)
 
@@ -657,8 +658,8 @@ class SingleColumnCoalescedTransformation(Transformation):
 
                     if loop.pragma is None:
                         p_content = f'parallel loop gang{private_clause}'
-                        loop._update(pragma=ir.Pragma(keyword='acc', content=p_content))
-                        loop._update(pragma_post=ir.Pragma(keyword='acc', content='end parallel loop'))
+                        loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
+                        loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
 
                 # Apply hoisting of temporary "column arrays"
                 if self.hoist_column_arrays:
@@ -715,8 +716,8 @@ class SingleColumnCoalescedTransformation(Transformation):
             pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
             pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
             # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+            routine.body.prepend((ir.Comment(text=''), pragma, ir.Comment(text='')))
+            routine.body.append((ir.Comment(text=''), pragma_post, ir.Comment(text='')))
 
         # Add a block-indexed slice of each column variable to the call
         idx = get_integer_variable(routine, self.block_dim.index)
@@ -735,13 +736,13 @@ class SingleColumnCoalescedTransformation(Transformation):
         new_call._update(kwarguments=new_call.kwarguments + ((self.horizontal.index, v_index),))
 
         # Now create a vector loop around the kerne invocation
-        pragma = None
+        pragma = ()
         if self.directive == 'openacc':
             pragma = ir.Pragma(keyword='acc', content='loop vector')
         v_start = arg_map[kernel.variable_map[self.horizontal.bounds[0]]]
         v_end = arg_map[kernel.variable_map[self.horizontal.bounds[1]]]
         bounds = sym.LoopRange((v_start, v_end))
-        vector_loop = ir.Loop(variable=v_index, bounds=bounds, body=[new_call], pragma=pragma)
+        vector_loop = ir.Loop(variable=v_index, bounds=bounds, body=(new_call,), pragma=(pragma,))
         call_map[call] = vector_loop
 
         routine.body = Transformer(call_map).visit(routine.body)
