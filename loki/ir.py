@@ -460,7 +460,7 @@ class Loop(InternalNode):
 
     variable: Expression = None
     bounds: Expression = None
-    body: Tuple[Node, ...] = None
+    body: Tuple[Any, ...] = None
     pragma: Tuple[Node, ...] = None
     pragma_post: Tuple[Node, ...] = None
     loop_label: Any = None
