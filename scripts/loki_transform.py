@@ -328,7 +328,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
               help='Path to source files to transform.')
 @click.option('--build', '-b', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
-@click.option('--root', type=click.Path(),
+@click.option('--root', type=click.Path(), default=None,
               help='Root path to which all paths are relative to.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
