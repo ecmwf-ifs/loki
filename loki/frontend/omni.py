@@ -189,7 +189,6 @@ class OMNI2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
-        # from IPython import embed; embed()
         warning('No specific handler for node type %s', o.__class__.name)
         children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
