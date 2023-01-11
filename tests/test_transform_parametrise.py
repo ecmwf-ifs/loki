@@ -108,7 +108,7 @@ def check_arguments_and_parameter(scheduler, subroutine_arguments, call_argument
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_source(here, frontend, config):
+def test_parametrise_source(here, frontend, config):
     """
     Test the actual source code without any transformations applied.
     """
@@ -154,7 +154,7 @@ def test_source(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise(here, frontend, config):
+def test_parametrise_simple(here, frontend, config):
     """
     Basic testing of parametrisation functionality.
     """
@@ -202,7 +202,7 @@ def test_parametrise(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_replace(here, frontend, config):
+def test_parametrise_simple_replace_by_value(here, frontend, config):
     """
     Basic testing of parametrisation functionality including replacing of the variables with the actual values.
     """
@@ -301,7 +301,7 @@ def test_parametrise_replace(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_callback(here, frontend, config):
+def test_parametrise_modified_callback(here, frontend, config):
     """
     Testing of the parametrisation functionality with modified callbacks for failed sanity checks.
     """
@@ -362,8 +362,8 @@ def test_parametrise_callback(here, frontend, config):
         compile_and_test(scheduler=scheduler, here=here, a=a, b=b, test_name=f"callback_{i+1}")
 
 
-@pytest.mark.parametrize('frontend', available_frontends())  # xfail=[(OMNI, OMNI_fail)]
-def test_parametrise_callback_wrong_input(here, frontend, config):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_parametrise_modified_callback_wrong_input(here, frontend, config):
     """
     Testing of the parametrisation functionality with modified callback for failed sanity checks including test of
     a failed sanity check.
@@ -430,7 +430,7 @@ def test_parametrise_callback_wrong_input(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_entry_points(here, frontend, config):
+def test_parametrise_non_driver_entry_points(here, frontend, config):
     """
     Testing of parametrisation functionality with defined entry points/functions, thus not being the default (driver).
     """
