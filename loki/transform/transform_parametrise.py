@@ -152,9 +152,12 @@ class ParametriseTransformation(Transformation):
 
     _key = "ParametriseTransformation"
 
-    def __init__(self, dic2p, disable=(), replace_by_value=False, entry_points=None, abort_callback=None, key=None):
+    def __init__(self, dic2p, disable=None, replace_by_value=False, entry_points=None, abort_callback=None, key=None):
         self.dic2p = dic2p
-        self.disable = [_.upper() for _ in disable]
+        if disable is None:
+            self.disable = ()
+        else:
+            self.disable = [_.upper() for _ in disable]
         self.replace_by_value = replace_by_value
         if entry_points is not None:
             self.entry_points = [_.upper() for _ in entry_points]
