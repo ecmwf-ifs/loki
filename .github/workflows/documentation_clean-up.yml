@@ -40,4 +40,4 @@ jobs:
         SITES_TOKEN: ${{ secrets.SITES_TOKEN }}
       working-directory: ./docs
       run: |
-        ./sites-manager.py --space=docs --name=loki --token "$SITES_TOKEN" delete ${{ github.ref_name }} || true
+        ./sites-manager.py --space=docs --name=loki --token "$SITES_TOKEN" delete ${{ github.event.pull_request.number }} || true
