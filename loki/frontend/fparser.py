@@ -345,7 +345,7 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Name` has no children.
         """
-        return sym.Variable(name=o.tostr(), source=kwargs.get('source'))
+        return sym.Variable(name=o.tostr(), parent=kwargs.get('parent'), source=kwargs.get('source'))
 
     def visit_Type_Name(self, o, **kwargs):
         """
