@@ -1119,6 +1119,11 @@ class OMNI2IR(GenericVisitor):
         step = None if step == '1' else step
         return sym.RangeIndex((lower, upper, step), source=kwargs['source'])
 
+    def visit_FcharacterRef(self, o, **kwargs):
+        var = self.visit(o.find('varRef'), **kwargs)
+        dimensions = self.visit(o.find('indexRange'), **kwargs)
+        return sym.StringSubscript(var, dimensions)
+
     def visit_lowerBound(self, o, **kwargs):
         return self.visit(o[0], **kwargs)
 

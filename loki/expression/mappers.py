@@ -208,6 +208,8 @@ class LokiStringifyMapper(StringifyMapper):
         index_str = self.join_rec(', ', expr.index_tuple, PREC_NONE, *args, **kwargs)
         return f'{name_str}({index_str})'
 
+    map_string_subscript = map_array_subscript
+
     def map_procedure_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return expr.name
 
@@ -254,6 +256,8 @@ class LokiWalkMapper(WalkMapper):
         self.rec(expr.aggregate, *args, **kwargs)
         self.rec(expr.index, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
+
+    map_string_subscript = map_array_subscript
 
     map_logic_literal = WalkMapper.map_constant
     map_string_literal = WalkMapper.map_constant
@@ -389,6 +393,8 @@ class ExpressionDimensionsMapper(Mapper):
     def map_array_subscript(self, expr, *args, **kwargs):
         return flatten(tuple(self.rec(d, *args, **kwargs) for d in expr.index_tuple))
 
+    map_string_subscript = map_algebraic_leaf
+
     def map_range_index(self, expr, *args, **kwargs):  # pylint: disable=unused-argument
         if expr.lower is None and expr.upper is None:
             # We have the full range
@@ -455,6 +461,8 @@ class ExpressionCallbackMapper(CombineMapper):
         rec_results = (self.rec(expr.aggregate, *args, **kwargs), )
         rec_results += (self.rec(expr.index, *args, **kwargs), )
         return self.combine(rec_results)
+
+    map_string_subscript = map_array_subscript
 
     map_inline_call = CombineMapper.map_call_with_kwargs
 
@@ -599,6 +607,11 @@ class LokiIdentityMapper(IdentityMapper):
 
     def map_array_subscript(self, expr, *args, **kwargs):
         raise RuntimeError('Recursion should have ended at map_array')
+
+    def map_string_subscript(self, expr, *args, **kwargs):
+        symbol = self.rec(expr.symbol, *args, **kwargs)
+        index_tuple = self.rec(expr.index_tuple, *args, **kwargs)
+        return expr.__class__(symbol, index_tuple)
 
     map_inline_call = IdentityMapper.map_call_with_kwargs
 

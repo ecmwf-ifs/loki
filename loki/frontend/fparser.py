@@ -1108,12 +1108,37 @@ class FParser2IR(GenericVisitor):
         return sym.RangeIndex((start, stop, stride), source=source)
 
     def visit_Array_Section(self, o, **kwargs):
-        # TODO: Implement Array_Section
-        return self.visit_Base(o, **kwargs)
+        """
+        A subscript operation on a data-ref
+
+        This includes dereferences such as ``a%b%c`` or extracting a substring.
+        In practice, the first are typically flattened in the Fparser AST and
+        directly returned as `Part_Ref`, so we should see only the substring
+        operation here.
+
+        :class:`fparser.two.Fortran2003.Array_Subscript` has two children:
+
+        * the subscript data-ref :class:`fparser.two.Fortran2003.Data_Ref`
+        * an optional substring range :class:`fparser.two.Fortran2003.Substring_Range`
+        """
+        name = self.visit(o.children[0], **kwargs)
+        if o.children[1] is None:
+            return name
+        substring = self.visit(o.children[1], **kwargs)
+        return sym.StringSubscript(name, substring, source=kwargs.get('source'))
 
     def visit_Substring_Range(self, o, **kwargs):
-        # TODO: Implement Substring_Range
-        return self.visit_Base(o, **kwargs)
+        """
+        The range of a substring operation
+
+        :class:`fparser.two.Fortran2003.Substring_Range` has two children:
+
+        * start :class:`fparser.two.Fortran2003.Scalar_Int_Expr` or None
+        * stop :class:`fparser.two.Fortran2003.Scalar_Int_Expr` or None
+        """
+        start = self.visit(o.children[0], **kwargs) if o.children[0] is not None else None
+        stop = self.visit(o.children[1], **kwargs) if o.children[1] is not None else None
+        return sym.RangeIndex((start, stop), source=kwargs.get('source'))
 
     def visit_Stride(self, o, **kwargs):
         # TODO: Implement Stride

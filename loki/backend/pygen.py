@@ -70,6 +70,8 @@ class PyCodeMapper(LokiStringifyMapper):
             index_str = f'[{", ".join(dims)}]'
         return self.format('%s%s', name_str, index_str)
 
+    map_string_subscript = map_array_subscript
+
     def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
         return ' + '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)
 
