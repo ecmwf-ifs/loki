@@ -92,6 +92,7 @@ class LokiStringifyMapper(StringifyMapper):
         return expr.name
 
     map_deferred_type_symbol = map_variable_symbol
+    map_procedure_symbol = map_variable_symbol
 
     def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
@@ -209,9 +210,6 @@ class LokiStringifyMapper(StringifyMapper):
         return f'{name_str}({index_str})'
 
     map_string_subscript = map_array_subscript
-
-    def map_procedure_symbol(self, expr, enclosing_prec, *args, **kwargs):
-        return expr.name
 
 
 class LokiWalkMapper(WalkMapper):

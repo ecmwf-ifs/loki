@@ -15,7 +15,7 @@ from loki import (
     OMNI, OFP, Module, Subroutine, BasicType, DerivedType, TypeDef,
     fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
     VariableDeclaration, Assignment, InlineCall, Builder, StringSubscript,
-    Conditional
+    Conditional, CallStatement
 )
 
 
@@ -1218,3 +1218,48 @@ end module derived_type_char_arr_mod
     assert [fgen(c.condition.left) for c in conditionals] == [
       'config%some_name(i)(1:1)', 'config%some_name(i)(strlen - 2:strlen)'
     ]
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_types_nested_subscript(frontend):
+    fcode = """
+module derived_types_nested_subscript
+    implicit none
+
+    type inner_type
+        integer :: val
+    contains
+        procedure :: some_routine
+    end type inner_type
+
+    type outer_type
+        type(inner_type) :: inner(3)
+    end type outer_type
+
+contains
+
+    subroutine some_routine(this, val)
+        class(inner_type), intent(inout) :: this
+        integer, intent(in) :: val
+        this%val = val
+    end subroutine some_routine
+
+    subroutine driver(outers)
+        type(outer_type), intent(inout) :: outers(5)
+        integer :: i, j
+
+        do i=1,5
+            do j=1,3
+                call outers(i)%inner(j)%some_routine(i*10 + j)
+            end do
+        end do
+    end subroutine driver
+
+end module derived_types_nested_subscript
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    calls = FindNodes(CallStatement).visit(module['driver'].body)
+    assert len(calls) == 1
+    assert str(calls[0].name) == 'outers(i)%inner(j)%some_routine'
+    assert fgen(calls[0].name) == 'outers(i)%inner(j)%some_routine'
