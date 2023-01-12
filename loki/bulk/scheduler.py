@@ -372,7 +372,7 @@ class Scheduler:
         the execution plan and enriching subroutine calls.
         """
         # Force the parsing of the routines
-        for item in nx.topological_sort(self.item_graph):
+        for item in reversed(list(nx.topological_sort(self.item_graph))):
             item.source.make_complete(**self.build_args)
 
     @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
