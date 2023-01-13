@@ -136,10 +136,7 @@ class HoistVariablesAnalysis(Transformation):
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
         _successors = kwargs.get('successors', ())
-        successors = []
-        for successor in _successors:
-            if successor.local_name.upper() not in self.disable:
-                successors.append(successor)
+        successors = [_ for _ in _successors if _.local_name.upper() not in self.disable]
 
         if item and not item.local_name == routine.name.lower() or item.local_name.upper() in self.disable:
             return
@@ -237,10 +234,7 @@ class HoistVariablesTransformation(Transformation):
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
         _successors = kwargs.get('successors', ())
-        successors = []
-        for successor in _successors:
-            if successor.local_name.upper() not in self.disable:
-                successors.append(successor)
+        successors = [_ for _ in _successors if _.local_name.upper() not in self.disable]
         successor_map = {successor.routine.name: successor for successor in successors}
 
         if item and not item.local_name == routine.name.lower() or item.local_name.upper() in self.disable:
@@ -259,11 +253,7 @@ class HoistVariablesTransformation(Transformation):
                                                      scope=routine) for var in item.trafo_data[self._key]["to_hoist"]])
 
         call_map = {}
-        _calls = FindNodes(CallStatement).visit(routine.body)
-        calls = []
-        for call in _calls:
-            if not any(_disable == call.name for _disable in self.disable):
-                calls.append(call)
+        calls = [_ for _ in FindNodes(CallStatement).visit(routine.body) if _.name not in self.disable]
         for call in calls:
             new_args = [arg.clone(dimensions=None) for arg
                         in successor_map[str(call.routine.name)].trafo_data[self._key]["hoist_variables"]]
