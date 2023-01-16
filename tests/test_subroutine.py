@@ -1632,8 +1632,8 @@ end module subroutine_suffix_mod
     assert check_value.return_type.dtype is BasicType.INTEGER
     assert check_value.return_type.kind == 'c_int'
     if frontend != OMNI:
-      assert check_value.bind == 'check_value'
-      assert "bind(c, name='check_value')" in fgen(check_value).lower()
+        assert check_value.bind == 'check_value'
+        assert "bind(c, name='check_value')" in fgen(check_value).lower()
 
     fix_value = module.interface_map['fix_value'].body[0]
     assert fix_value.is_function
