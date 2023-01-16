@@ -46,6 +46,9 @@ config.register('print-config', False, env_variable='LOKI_PRINT_CONFIG',
 config.register('log-level', 'INFO', env_variable='LOKI_LOGGING',
                 callback=set_log_level, preprocess=lambda i: log_levels[i])
 
+config.register('debug', None, env_variable='LOKI_DEBUG',
+                callback=set_excepthook, preprocess=lambda i: auto_post_mortem_debugger if i else None)
+
 # Define Loki's temporary directory for generating intermediate files
 config.register('tmp-dir', None, env_variable='LOKI_TMP_DIR')
 

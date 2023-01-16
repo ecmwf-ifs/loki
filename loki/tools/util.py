@@ -28,7 +28,7 @@ from loki.logging import debug, error
 __all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
            'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
            'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
-           'yaml_include_constructor', 'auto_post_mortem_debugger']
+           'yaml_include_constructor', 'auto_post_mortem_debugger', 'set_excepthook']
 
 
 def as_tuple(item, type=None, length=None):
@@ -521,7 +521,7 @@ def auto_post_mortem_debugger(type, value, tb):  # pylint: disable=redefined-bui
     """
     Exception hook that automatically attaches a debugger
 
-    Activate by setting ``sys.excepthook = auto_post_mortem_debugger``
+    Activate by calling ``set_excepthook(hook=auto_post_mortem_debugger)``.
 
     Adapted from https://code.activestate.com/recipes/65287/
     """
@@ -538,3 +538,19 @@ def auto_post_mortem_debugger(type, value, tb):  # pylint: disable=redefined-bui
         traceback.print_exception(type, value, tb)
         # ...then start the debugger in post-mortem mode.
         pdb.post_mortem(tb)   # pylint: disable=no-member
+
+
+def set_excepthook(hook=None):
+    """
+    Set an exception hook that is called for uncaught exceptions
+
+    This can be called with :meth:`auto_post_mortem_debugger` to automatically
+    attach a debugger (Pdb or, if installed, Pdb++) when exceptions occur.
+
+    With :data:`hook` set to `None`, this will restore the default exception
+    hook ``sys.__excepthook``.
+    """
+    if hook is None:
+        sys.excepthook = sys.__excepthook__
+    else:
+        sys.excepthook = hook
