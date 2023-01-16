@@ -164,9 +164,13 @@ class Compiler:
         """
         Generate arguments for the linker line.
         """
-        args = [self.ld if shared else self.ld_static]
+        linker = self.ld if shared else self.ld_static
+        args = [linker]
         args += self.ldflags if shared else self.ldflags_static
-        args += ['-o', str(target)]
+        if linker != "ar":
+            args += ['-o', str(target)]
+        else:
+            args += [str(target)]
         args += [str(o) for o in objs]
         return args
 

@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import available_frontends, jit_compile, clean_test
-from loki import FindNodes, Scheduler
+from conftest import available_frontends, jit_compile_lib, clean_test
+from loki import FindNodes, Scheduler, Builder
 from loki import ir, is_iterable
 from loki.transform import (HoistVariablesAnalysis, HoistVariablesTransformation,
                             HoistTemporaryArraysAnalysis, HoistTemporaryArraysTransformationAllocatable)
@@ -51,25 +51,30 @@ def fixture_config():
     }
 
 
-def compile_and_test(scheduler, here, a=(5,), test_name=""):
+def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name=""):
     """
     Compile the source code and call the driver function in order to test the results for correctness.
     """
     assert is_iterable(a) and all(isinstance(_a, int) for _a in a)
-    for item in scheduler.items:
-        if "driver" in item.name:
-            suffix = '.F90'
-            if test_name != "":
-                item.source.path = Path(f"{item.source.path.stem}_{test_name}")
-            module = jit_compile(item.source, filepath=item.source.path.with_suffix(suffix).name, objname=None)
-            for _a in a:
-                parameter_length = 3
-                b = np.zeros((_a,), dtype=np.int32, order='F')
-                c = np.zeros((_a, parameter_length), dtype=np.int32, order='F')
-                module.Transformation_Module_Hoist.driver(_a, b, c)
-                assert (b == 42).all()
-                assert (c == 11).all()
-            clean_test(filepath=here.parent / item.source.path.with_suffix(suffix).name)
+    items = [scheduler.item_map["transformation_module_hoist#driver"], scheduler.item_map["subroutines_mod#kernel1"]]
+    for item in items:
+        suffix = '.F90'
+        item.source.path = here / 'build' / Path(f"{item.source.path.stem}").with_suffix(suffix=suffix)
+    libname = f'lib_{test_name}_{frontend}'
+    builder = Builder(source_dirs=here/'build', build_dir=here/'build')
+    lib = jit_compile_lib([item.source for item in items], path=here/'build', name=libname, builder=builder)
+    item = scheduler.item_map["transformation_module_hoist#driver"]
+    for _a in a:
+        parameter_length = 3
+        b = np.zeros((_a,), dtype=np.int32, order='F')
+        c = np.zeros((_a, parameter_length), dtype=np.int32, order='F')
+        lib.Transformation_Module_Hoist.driver(_a, b, c)
+        assert (b == 42).all()
+        assert (c == 11).all()
+    builder.clean()
+    for item in items:
+        item.source.path.unlink()
+    clean_test(filepath=here.parent / item.source.path.with_suffix(suffix).name)
 
 
 def check_arguments(scheduler, subroutine_arguments, call_arguments):
@@ -91,10 +96,10 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments):
         if "kernel1" in call.name:
             assert call.arguments == call_arguments["kernel1"]
     # kernel 1
-    item = scheduler.item_map['transformation_module_hoist#kernel1']
+    item = scheduler.item_map['subroutines_mod#kernel1']
     assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel1"]
     # kernel 2
-    item = scheduler.item_map['transformation_module_hoist#kernel2']
+    item = scheduler.item_map['subroutines_mod#kernel2']
     assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel2"]
     for call in FindNodes(ir.CallStatement).visit(item.routine.body):
         if "device1" in call.name:
@@ -102,13 +107,13 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments):
         elif "device2" in call.name:
             assert call.arguments == call_arguments["device2"]
     # device 1
-    item = scheduler.item_map['transformation_module_hoist#device1']
+    item = scheduler.item_map['subroutines_mod#device1']
     assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device1"]
     for call in FindNodes(ir.CallStatement).visit(item.routine.body):
         if "device2" in call.name:
             assert call.arguments == call_arguments["device2"]
     # device 2
-    item = scheduler.item_map['transformation_module_hoist#device2']
+    item = scheduler.item_map['subroutines_mod#device2']
     assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device2"]
 
 
@@ -122,7 +127,7 @@ def test_hoist(here, frontend, config):
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
     # check correctness of original source code
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100))
+    compile_and_test(scheduler=scheduler, here=here, frontend=frontend, a=(5, 10, 100), test_name="source")
 
     # Transformation: Analysis
     scheduler.process(transformation=HoistVariablesAnalysis(), reverse=True)
@@ -134,21 +139,60 @@ def test_hoist(here, frontend, config):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a', 'b', 'x', 'y', 'z', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'],
-        "device1": ['a', 'b', 'x', 'y', 'z', 'd1_tmp', 'device2_z', 'device2_d2_tmp'],
-        "device2": ['a', 'b', 'x', 'z', 'd2_tmp'],
+        "kernel2": ['a1', 'b', 'x', 'y', 'z', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'],
+        "device1": ['a1', 'b', 'x', 'y', 'z', 'd1_tmp', 'device2_z', 'device2_d2_tmp'],
+        "device2": ['a2', 'b', 'x', 'z', 'd2_tmp'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
         "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_y', 'kernel2_z', 'kernel2_k2_tmp', 'device1_z', 'device1_d1_tmp',
                     'device2_z', 'device2_d2_tmp'),
-        "device1": ('a', 'b', 'x', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device2": ('a', 'b', 'x', 'device2_z', 'device2_d2_tmp')
+        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'),
+        "device2": ('a1', 'b', 'x', 'device2_z', 'device2_d2_tmp')
+    }
+
+    # assert False
+    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
+    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="all_hoisted")
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_hoist_disable(here, frontend, config):
+    """
+    Basic testing of the non-modified Hoist functionality excluding/disabling some subroutines,
+    thus hoisting all (non-parameter) local variables for the non-disabled subroutines.
+    """
+
+    proj = here/'sources/projHoist'
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+
+    disable = ("device1", "device2")
+
+    # Transformation: Analysis
+    scheduler.process(transformation=HoistVariablesAnalysis(disable=disable), reverse=True)
+    # Transformation: Synthesis
+    scheduler.process(transformation=HoistVariablesTransformation(disable=disable))
+
+    # check generated source code
+    subroutine_arguments = {
+        "driver": ['a', 'b', 'c'],
+        "another_driver": ['a', 'b', 'c'],
+        "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
+        "kernel2": ['a1', 'b', 'x', 'y', 'z', 'k2_tmp'],
+        "device1": ['a1', 'b', 'x', 'y'],
+        "device2": ['a2', 'b', 'x'],
+    }
+
+    call_arguments = {
+        "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
+        "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_y', 'kernel2_z', 'kernel2_k2_tmp'),
+        "device1": ('a1', 'b', 'x', 'k2_tmp'),
+        "device2": ('a1', 'b', 'x')
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), test_name="all_hoisted")
+    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="all_hoisted_disable")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -171,20 +215,20 @@ def test_hoist_arrays(here, frontend, config):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'],
-        "device1": ['a', 'b', 'x', 'y', 'device2_z', 'device2_d2_tmp'],
-        "device2": ['a', 'b', 'x', 'z', 'd2_tmp'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z', 'device2_d2_tmp'],
+        "device2": ['a2', 'b', 'x', 'z', 'd2_tmp'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
         "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device1": ('a', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device2": ('a', 'b', 'x', 'device2_z', 'device2_d2_tmp')
+        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'),
+        "device2": ('a1', 'b', 'x', 'device2_z', 'device2_d2_tmp')
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), test_name="hoisted_arrays")
+    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="hoisted_arrays")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -198,7 +242,7 @@ def test_hoist_specific_variables(here, frontend, config):
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
     # Transformation: Analysis
-    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',)), reverse=True)
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2')), reverse=True)
     # Transformation: Synthesis
     scheduler.process(transformation=HoistVariablesTransformation())
 
@@ -207,21 +251,22 @@ def test_hoist_specific_variables(here, frontend, config):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a', 'b', 'x', 'k2_tmp', 'device2_z'],
-        "device1": ['a', 'b', 'x', 'y', 'device2_z'],
-        "device2": ['a', 'b', 'x', 'z'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z'],
+        "device2": ['a2', 'b', 'x', 'z'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
         "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_k2_tmp', 'device2_z'),
-        "device1": ('a', 'b', 'x', 'k2_tmp', 'device2_z'),
-        "device2": ('a', 'b', 'x', 'device2_z')
+        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device2_z'),
+        "device2": ('a1', 'b', 'x', 'device2_z')
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
 
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), test_name="hoisted_specific_arrays")
+    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend,
+                     test_name="hoisted_specific_arrays")
 
 
 def check_variable_declaration(item, key):
@@ -250,7 +295,7 @@ def test_hoist_allocatable(here, frontend, config):
 
     key = "HoistVariablesAllocatable"
     # Transformation: Analysis
-    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',), key=key), reverse=True)
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2'), key=key), reverse=True)
     # Transformation: Synthesis
     scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
 
@@ -265,17 +310,17 @@ def test_hoist_allocatable(here, frontend, config):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a', 'b', 'x', 'k2_tmp', 'device2_z'],
-        "device1": ['a', 'b', 'x', 'y', 'device2_z'],
-        "device2": ['a', 'b', 'x', 'z'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z'],
+        "device2": ['a2', 'b', 'x', 'z'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
         "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_k2_tmp', 'device2_z'),
-        "device1": ('a', 'b', 'x', 'k2_tmp', 'device2_z'),
-        "device2": ('a', 'b', 'x', 'device2_z')
+        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device2_z'),
+        "device2": ('a1', 'b', 'x', 'device2_z')
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), test_name="allocatable")
+    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="allocatable")
