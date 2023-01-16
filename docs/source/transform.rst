@@ -128,6 +128,7 @@ functions that can be readily used in a step of the transformation pipeline:
    loki.transform.transform_utilities.replace_intrinsics
    loki.transform.transform_utilities.sanitise_imports
    loki.transform.transform_utilities.replace_selected_kind
+   loki.transform.transform_utilities.single_variable_declaration
 
 
 Bulk processing large source trees

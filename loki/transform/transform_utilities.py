@@ -11,7 +11,7 @@ Collection of utility routines to deal with general language conversion.
 
 """
 import platform
-
+from collections import defaultdict
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
@@ -27,13 +27,19 @@ from loki.visitors import Transformer, FindNodes
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'sanitise_imports',
-    'replace_selected_kind', 'single_variable_declarations', 'single_variable_declaration'
+    'replace_selected_kind', 'single_variable_declaration'
 ]
 
 
-def single_variable_declaration(routine, variables=()):
+def single_variable_declaration(routine, variables=None, group_by_shape=False):
     """
-    Modify/extend variable declarations to declare variables specified in ``variables`` in single declarations.
+    Modify/extend variable declarations to
+
+    * default: only declare one variable each time while preserving the order if ``variables=None`` and
+     ``group_by_shape=False``
+    * declare variables specified in ``variables``in single/unique declarations if ``variables`` is a tuple
+     of variables
+    * variable declarations to be grouped according to their shapes if ``group_by_shape=True``
 
     Parameters
     ----------
@@ -41,80 +47,31 @@ def single_variable_declaration(routine, variables=()):
         The subroutine in which to modify the variable declarations
     variables: tuple
         Variables to grant unique/single declaration for
-    """
-    if variables:
-        decl_map = {}
-        for decl in FindNodes(VariableDeclaration).visit(routine.spec):
-            if len(decl.symbols) > 1:
-                convert = False
-                symbols = []
-                unique_symbols = []
-                for smbl in decl.symbols:
-                    if smbl.name in variables:
-                        convert = True
-                        unique_symbols.append(smbl)
-                    else:
-                        symbols.append(smbl)
-                if convert:
-                    counter = 1
-                    if symbols:
-                        decl_map[decl] = decl.clone(symbols=as_tuple(symbols))
-                    else:
-                        decl_map[decl] = None
-                    for smbl in unique_symbols:
-                        routine.spec.insert(routine.spec.body.index(decl) + counter, (decl.clone(symbols=(smbl,)),))
-                        counter += 1
-        routine.spec = Transformer(decl_map).visit(routine.spec)
-
-
-def single_variable_declarations(routine, strict=True):
-    """
-    Modify/extend variable declarations to only declare one variable each time while preserving the order.
-
-    Parameters
-    ----------
-    routine: :any:`Subroutine`
-        The subroutine in which to modify the variable declarations
-    strict: bool
+    group_by_shape: bool
         Whether to strictly make unique variable declarations or to only disassemble non-arrays and arrays and among
         arrays, arrays with differing shapes.
     """
     decl_map = {}
     for decl in FindNodes(VariableDeclaration).visit(routine.spec):
         if len(decl.symbols) > 1:
-            if strict:
-                counter = 1
-                for i_sdecl, sdecl in enumerate(decl.symbols):
-                    if i_sdecl == 0:
-                        decl_map[decl] = decl.clone(symbols=(sdecl,))
+            if not group_by_shape:
+                unique_symbols = [s for s in decl.symbols if variables is None or s.name in variables]
+                if unique_symbols:
+                    new_decls = tuple(decl.clone(symbols=(s,)) for s in unique_symbols)
+                    retain_symbols = tuple(s for s in decl.symbols if variables is not None and s.name not in variables)
+                    if retain_symbols:
+                        decl_map[decl] = (decl.clone(symbols=retain_symbols),) + new_decls
                     else:
-                        routine.spec.insert(routine.spec.body.index(decl) + counter, (decl.clone(symbols=(sdecl,)),))
-                        counter += 1
+                        decl_map[decl] = new_decls
             else:
-                types = [type(smbl) for smbl in decl.symbols]
-                smbls_by_type = {smbl_type: [] for smbl_type in set(types)}
+                smbls_by_shape = defaultdict(list)
                 for smbl in decl.symbols:
-                    smbls_by_type[type(smbl)].append(smbl)
-                declarations = []
-                for key in smbls_by_type:
-                    if key != sym.Array:
-                        declarations.append(decl.clone(symbols=(as_tuple(smbls_by_type[key]))))
-                    else:
-                        arrays_by_shape = {array_shape: [] for array_shape in
-                                           {array.shape for array in smbls_by_type[key]}}
-                        for array in smbls_by_type[key]:
-                            arrays_by_shape[array.shape].append(array)
-                        for array_key in arrays_by_shape:
-                            declarations.append(decl.clone(symbols=(as_tuple(arrays_by_shape[array_key]))))
-                counter = 0
-                for i_sdecl, sdecl in enumerate(declarations):
-                    if i_sdecl == 0:
-                        decl_map[decl] = sdecl
-                    else:
-                        routine.spec.insert(routine.spec.body.index(decl) + counter, sdecl)
-                        counter += 1
-
+                    smbls_by_shape[getattr(smbl, 'shape', None)] += [smbl]
+                decl_map[decl] = tuple(decl.clone(symbols=as_tuple(smbls)) for smbls in smbls_by_shape.values())
     routine.spec = Transformer(decl_map).visit(routine.spec)
+    # if variables defined and group_by_shape, first call ignores the variables, thus second call
+    if variables and group_by_shape:
+        single_variable_declaration(routine=routine, variables=variables, group_by_shape=False)
 
 
 def convert_to_lower_case(routine):

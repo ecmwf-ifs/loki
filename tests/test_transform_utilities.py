@@ -8,7 +8,7 @@
 import pytest
 
 from conftest import available_frontends
-from loki.transform import single_variable_declaration, single_variable_declarations
+from loki.transform import single_variable_declaration
 from loki import Subroutine, OMNI, FindNodes, VariableDeclaration
 from loki.expression import symbols as sym
 
@@ -61,20 +61,38 @@ subroutine foo(a, x, y)
     y = a
 end subroutine foo
 """
-    # strict = True, meaning all variable declarations to be unique
+    # variables=None and group_by_shape=False, meaning all variable declarations to be unique
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    single_variable_declarations(routine=routine, strict=True)
+    single_variable_declaration(routine=routine)
 
     declarations = FindNodes(VariableDeclaration).visit(routine.spec)
     assert len(declarations) == 15
     for decl in declarations:
         assert len(decl.symbols) == 1
 
-    # strict = False, meaning only non-similar variable declarations unique
+    # group_by_shape = False and variables=None, meaning only non-similar variable declarations unique
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    single_variable_declarations(routine=routine, strict=False)
+    single_variable_declaration(routine=routine, group_by_shape=True)
+
     declarations = FindNodes(VariableDeclaration).visit(routine.spec)
     assert len(declarations) == 8
+    for decl in declarations:
+        types = [smbl.type for smbl in decl.symbols]
+        _ = [type == types[0] for type in types]
+        assert all(_)
+        if isinstance(decl.symbols[0], sym.Array):
+            shapes = [smbl.shape for smbl in decl.symbols]
+            _ = [shape == shapes[0] for shape in shapes]
+            assert all(_)
+
+    # group_by_shape = False and variables=('x2', 'r3'), meaning only non-similar variable declarations unique
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    single_variable_declaration(routine=routine, variables=('x2', 'r3'), group_by_shape=True)
+
+    declarations = FindNodes(VariableDeclaration).visit(routine.spec)
+    assert len(declarations) == 10
+    assert declarations[5].symbols == ('r3',)
+    assert [smbl.name for smbl in declarations[8].symbols] == ['x2']
     for decl in declarations:
         types = [smbl.type for smbl in decl.symbols]
         _ = [type == types[0] for type in types]
