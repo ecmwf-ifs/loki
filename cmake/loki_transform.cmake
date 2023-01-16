@@ -512,11 +512,11 @@ function( loki_transform_plan )
     _loki_transform_parse_target_args( loki_transform_plan )
 
     if( NOT _PAR_NO_SOURCEDIR )
-    if( _PAR_SOURCEDIR )
-        list( APPEND _ARGS --root ${_PAR_SOURCEDIR} )
-    else()
-        ecbuild_critical( "No SOURCEDIR specified for loki_transform_plan()" )
-    endif()
+        if( _PAR_SOURCEDIR )
+            list( APPEND _ARGS --root ${_PAR_SOURCEDIR} )
+        else()
+            ecbuild_critical( "No SOURCEDIR specified for loki_transform_plan()" )
+        endif()
     endif()
 
     if( _PAR_CALLGRAPH )
@@ -547,12 +547,13 @@ endfunction()
 ##############################################################################
 # .rst:
 #
-# loki_transform_ecphys
-# =====================
+# loki_transform_command
+# ======================
 #
-# Apply Loki transformation in "ecphys" mode.::
+# Apply Loki transformation using the chosen ``<command>`` mode.::
 #
 #   loki_transform_ecphys(
+#       [COMMAND <ecphys|...>]
 #       OUTPUT <outfile1> [<outfile2> ...]
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       MODE <mode>
@@ -563,7 +564,7 @@ endfunction()
 #       [HEADERS <header1> [<header2> ...]]
 #   )
 #
-# Call ``loki-transform.py ecphys ...`` with the provided arguments.
+# Call ``loki-transform.py <ecphys|...> ...`` with the provided arguments.
 # See ``loki-transform.py`` for a description of all options.
 #
 # Options
@@ -575,26 +576,30 @@ endfunction()
 #
 ##############################################################################
 
-function( loki_transform_ecphys )
+function( loki_transform_command )
 
     set( options "" )
-    set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR )
+    set( oneValueArgs COMMAND MODE FRONTEND CONFIG BUILDDIR )
     set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
 
+    if( NOT _PAR_COMMAND )
+        ecbuild_critical( "No COMMAND specified for loki_transform_command" )
+    endif()
+
     set( _ARGS )
 
-    _loki_transform_parse_target_args( loki_transform_ecphys )
+    _loki_transform_parse_target_args( loki_transform_command )
     _loki_transform_env_setup()
 
-    ecbuild_debug( "COMMAND ${_LOKI_TRANSFORM} ecphys ${_ARGS}" )
+    ecbuild_debug( "COMMAND ${_LOKI_TRANSFORM} ${_PAR_COMMAND} ${_ARGS}" )
 
     add_custom_command(
         OUTPUT ${_PAR_OUTPUT}
-        COMMAND ${_LOKI_TRANSFORM} ecphys ${_ARGS}
+        COMMAND ${_LOKI_TRANSFORM} ${_PAR_COMMAND} ${_ARGS}
         DEPENDS ${_PAR_DEPENDS} ${_LOKI_TRANSFORM_DEPENDENCY}
-        COMMENT "[Loki] Pre-processing: mode=${_PAR_MODE} frontend=${_PAR_FRONTEND}"
+        COMMENT "[Loki] Pre-processing: command=${_PAR_COMMAND} mode=${_PAR_MODE} frontend=${_PAR_FRONTEND}"
     )
 
 endfunction()
@@ -659,6 +664,7 @@ endfunction()
 #
 #   loki_transform_target(
 #       TARGET <target>
+#       [COMMAND <ecphys|...>]
 #       MODE <mode>
 #       CONFIG <config-file>
 #       PLAN <plan-file>
@@ -675,6 +681,10 @@ endfunction()
 # from which the specific additions and deletions of source objects within the
 # target are derived. See ``loki_transform_plan`` for more details.
 #
+# Subsequently, the actual bulk transformation of source
+# files (in EC-Physics mode) is scheduled via ``loki-transform.py <command>``,
+# where ``<command>`` is provided via ``COMMAND``. If none is given, this defaults
+# to ``ecphys``.
 #
 # ``NO_PLAN_SOURCEDIR`` can optionally be specified to call the plan stage without
 # an explicit root directory. That means, Loki will generate absolute paths in the
@@ -700,8 +710,8 @@ function( loki_transform_target )
         ecbuild_critical( "The call to loki_transform_target() doesn't specify the TARGET." )
     endif()
 
-    if( NOT _PAR_PLAN )
-        ecbuild_critical( "No PLAN specified for loki_transform_plan()" )
+    if( NOT _PAR_COMMAND )
+        set( _PAR_COMMAND "ecphys" )
     endif()
 
     if( NOT _PAR_PLAN )
@@ -715,14 +725,14 @@ function( loki_transform_target )
 
     # Create the bulk-transformation plan
     if( _PAR_NO_PLAN_SOURCEDIR )
-    loki_transform_plan(
-        MODE      ${_PAR_MODE}
-        CONFIG    ${_PAR_CONFIG}
-        FRONTEND  ${_PAR_FRONTEND}
-        SOURCES   ${_PAR_SOURCES}
-        PLAN      ${_PAR_PLAN}
+        loki_transform_plan(
+            MODE      ${_PAR_MODE}
+            CONFIG    ${_PAR_CONFIG}
+            FRONTEND  ${_PAR_FRONTEND}
+            SOURCES   ${_PAR_SOURCES}
+            PLAN      ${_PAR_PLAN}
             CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_TARGET}
-        BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
+            BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
             NO_SOURCEDIR
         )
     else()
@@ -732,10 +742,10 @@ function( loki_transform_target )
             FRONTEND  ${_PAR_FRONTEND}
             SOURCES   ${_PAR_SOURCES}
             PLAN      ${_PAR_PLAN}
-        CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_TARGET}
+            CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_TARGET}
             BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
             SOURCEDIR ${CMAKE_CURRENT_SOURCE_DIR}
-    )
+        )
     endif()
 
     # Import the generated plan
@@ -750,7 +760,8 @@ function( loki_transform_target )
     if ( LOKI_APPEND_LENGTH GREATER 0 )
 
         # Apply the bulk-transformation according to the plan
-        loki_transform_ecphys(
+        loki_transform_command(
+            COMMAND   ${_PAR_COMMAND}
             OUTPUT    ${LOKI_SOURCES_TO_APPEND}
             MODE      ${_PAR_MODE}
             CONFIG    ${_PAR_CONFIG}
@@ -773,7 +784,7 @@ function( loki_transform_target )
 
     if( NOT _PAR_COPY_UNMODIFIED )
         # Update the target source list
-    set_property( TARGET ${_PAR_TARGET} PROPERTY SOURCES ${_target_sources} )
+        set_property( TARGET ${_PAR_TARGET} PROPERTY SOURCES ${_target_sources} )
     else()
         # Copy the unmodified source files to the build dir
         set( _target_sources_copy "" )
