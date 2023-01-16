@@ -12,7 +12,7 @@ from pymbolic.primitives import FloorDiv, Remainder
 
 from loki.visitors import Stringifier
 from loki.tools import as_tuple, JoinableStringList, flatten
-from loki.expression import LokiStringifyMapper
+from loki.expression import LokiStringifyMapper, StringLiteral
 from loki.types import DataType, BasicType, DerivedType, ProcedureType
 from loki.pragma_utils import get_pragma_parameters
 
@@ -211,7 +211,12 @@ class FortranCodegen(Stringifier):
             prefix += ' '
         arguments = self.join_items(o.argnames)
         result = f' RESULT({o.result_name})' if o.result_name else ''
-        bind_c = f' BIND(c, name={o.bind})' if o.bind else ''
+        if isinstance(o.bind, str):
+            bind_c = f' BIND(c, name="{o.bind}")'
+        elif isinstance(o.bind, StringLiteral):
+            bind_c = f' BIND(c, name={o.bind})'
+        else:
+            bind_c = ''
         header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', result, bind_c)
         footer = self.format_line('END ', ftype, ' ', o.name)
 
