@@ -10,8 +10,7 @@ Single-Column-Coalesced CUDA Fortran (SCC-CUF) transformation.
 """
 
 from loki.expression import symbols as sym
-from loki.transform import (resolve_associates, single_variable_declarations, single_variable_declaration,
-                            HoistVariablesTransformation)
+from loki.transform import resolve_associates, single_variable_declaration, HoistVariablesTransformation
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindVariables,
@@ -804,7 +803,7 @@ class SccCufTransformation(Transformation):
             depth = depths[item]
 
         remove_pragmas(routine)
-        single_variable_declarations(routine=routine, strict=False)
+        single_variable_declaration(routine=routine, group_by_shape=True)
         device_subroutine_prefix(routine, depth)
 
         if depth > 0:
