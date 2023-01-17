@@ -37,6 +37,7 @@ from transformations.utility_routines import DrHookTransformation, RemoveCallsTr
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
+from transformations.typebound_procedures import TypeboundProcedureCallTransformation
 
 
 """
@@ -443,6 +444,85 @@ def ecphys(mode, config, header, source, build, cpp, frontend):
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode))
+
+
+@cli.command('ecrad')
+@click.option('--mode', '-m', default='sca',
+              type=click.Choice(['idem']))
+@click.option('--config', '-c', type=click.Path(),
+              help='Path to configuration file.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--source', '-s', type=click.Path(), multiple=True,
+              help='Path to source files to transform.')
+@click.option('--build', '-b', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+@click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
+              help='Frontend parser to use (default FP)')
+def ecrad(mode, config, header, source, build, frontend):
+    """
+    Bulk-processing option that employs a :class:`Scheduler`
+    to apply ecRad-specific source-to-source transformations
+    """
+
+    info('[Loki] Bulk-processing ecRad using config: %s ', config)
+    config = SchedulerConfig.from_file(config)
+
+    frontend = Frontend[frontend.upper()]
+    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+
+    headers = [Sourcefile.from_file(filename=h, frontend=frontend_type) for h in header]
+    definitions = flatten(h.modules for h in headers)
+
+    # Create and setup the scheduler for bulk-processing
+    paths = [Path(s).resolve() for s in source]
+    paths += [Path(h).resolve().parent for h in header]
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=True)
+
+    # First, remove all derived-type arguments; caller first!
+    scheduler.process(transformation=TypeboundProcedureCallTransformation())
+    # scheduler.process(transformation=DerivedTypeArgumentsAnalysis(), reverse=True)
+    # scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+
+    # # Backward insert argument shapes (for surface routines)
+    # scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+
+    # scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
+
+    # # Remove DR_HOOK calls first, so they don't interfere with SCC loop hoisting
+    scheduler.process(transformation=DrHookTransformation(mode=mode, remove='scc' in mode))
+
+    # Now we instantiate our transformation pipeline and apply the main changes
+    transformation = None
+    if mode == 'idem':
+        transformation = IdemTransformation()
+
+    if mode == 'sca':
+        # Define the target dimension to strip from kernel and caller
+        horizontal = scheduler.config.dimensions['horizontal']
+        transformation = ExtractSCATransformation(horizontal=horizontal)
+
+    if mode in ['scc', 'scc-hoist']:
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
+        block_dim = scheduler.config.dimensions['block_dim']
+        transformation = SingleColumnCoalescedTransformation(
+            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+            directive='openacc', hoist_column_arrays='hoist' in mode
+        )
+
+    if transformation:
+        scheduler.process(transformation=transformation)
+    else:
+        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+
+    # Apply the dependency-injection transformation
+    # dependency = DependencyTransformation(mode='module', module_suffix='_MOD',
+    #                                       suffix=f'_{mode.upper()}')
+    # scheduler.process(transformation=dependency)
+
+    # Write out all modified source files into the build directory
+    scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode), item_filter=None)
 
 
 if __name__ == "__main__":
