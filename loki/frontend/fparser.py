@@ -464,25 +464,27 @@ class FParser2IR(GenericVisitor):
             symbols = () if o.children[4] is None else self.visit(o.children[4], **kwargs)
             # No rename-list
             rename_list = None
+            deferred_type = SymbolAttributes(BasicType.DEFERRED, imported=True)
             if module is None:
                 # Initialize symbol attributes as DEFERRED
                 for s in symbols:
-                    _type = SymbolAttributes(BasicType.DEFERRED, imported=True)
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = _type.clone(use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = deferred_type.clone(use_name=s[0])
                     else:
-                        scope.symbol_attrs[s.name] = _type
+                        scope.symbol_attrs[s.name] = deferred_type
             else:
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                        _type = module.symbol_attrs.get(s[0], deferred_type)
+                        scope.symbol_attrs[s[1].name] = _type.clone(
                             imported=True, module=module, use_name=s[0]
                         )
                     else:
                         # Need to explicitly reset use_name in case we are importing a symbol
                         # that stems from an import with a rename-list
-                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                        _type = module.symbol_attrs.get(s.name, deferred_type)
+                        scope.symbol_attrs[s.name] = _type.clone(
                             imported=True, module=module, use_name=None
                         )
             symbols = tuple(
