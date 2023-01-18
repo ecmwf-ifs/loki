@@ -90,15 +90,19 @@ function( create_python_venv VENV_PATH )
     find_package( Python3 COMPONENTS Interpreter REQUIRED )
 
     # Create a loki virtualenv
-    message( STATUS "Create Python virtual environment ${VENV_PATH}" )
-    execute_process( COMMAND ${Python3_EXECUTABLE} -m venv --copies "${VENV_PATH}" )
+    if( EXISTS "${VENV_PATH}/bin/activate" )
+        ecbuild_info( "Use existing virtual environment ${VENV_PATH}" )
+    else()
+        message( STATUS "Create Python virtual environment ${VENV_PATH}" )
+        execute_process( COMMAND ${Python3_EXECUTABLE} -m venv --copies "${VENV_PATH}" )
 
-    # Make the virtualenv portable by automatically deducing the VIRTUAL_ENV path from
-    # the 'activate' script's location in the filesystem
-    execute_process(
-        COMMAND
-            sed -i "s/^VIRTUAL_ENV=\".*\"$/VIRTUAL_ENV=\"$(cd \"$(dirname \"$(dirname \"\${BASH_SOURCE[0]}\" )\")\" \\&\\& pwd)\"/" "${VENV_PATH}/bin/activate"
-    )
+        # Make the virtualenv portable by automatically deducing the VIRTUAL_ENV path from
+        # the 'activate' script's location in the filesystem
+        execute_process(
+            COMMAND
+                sed -i "s/^VIRTUAL_ENV=\".*\"$/VIRTUAL_ENV=\"$(cd \"$(dirname \"$(dirname \"\${BASH_SOURCE[0]}\" )\")\" \\&\\& pwd)\"/" "${VENV_PATH}/bin/activate"
+        )
+    endif()
 
 endfunction()
 
