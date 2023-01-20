@@ -554,6 +554,9 @@ class LokiIdentityMapper(IdentityMapper):
             _kwargs = kwargs.copy()
             _kwargs['scope'] = expr.scope.parent
             initial = self.rec(expr.type.initial, *args, **_kwargs)
+        # TODO: this is not a fix rather a hack!
+        elif str(expr.name) in str(expr.type.initial):
+            initial = f'{expr.type.initial}'
         else:
             initial = self.rec(expr.type.initial, *args, **kwargs)
         if initial is not expr.type.initial and expr.scope:
@@ -577,6 +580,7 @@ class LokiIdentityMapper(IdentityMapper):
 
     def map_meta_symbol(self, expr, *args, **kwargs):
         symbol = self.rec(expr._symbol, *args, **kwargs)
+        print(f"symbol: {symbol}")
         # This is tricky as a rebuilt of the symbol will yield Scalar, Array, ProcedureSymbol etc
         # but with no rebuilt it may return VariableSymbol. Therefore we need to return the
         # original expression if the underlying symbol is unchanged
