@@ -132,17 +132,24 @@ class FileWriteTransformation(Transformation):
         File suffix to determine file type for all written file. If
         omitted, it will preserve the original file type.
     """
-    def __init__(self, builddir=None, mode='loki', suffix=None):
-        self.builddir = Path(builddir)
+    def __init__(self, builddir=None, mode='loki', suffix=None, dep_trafo=True):
+        if builddir is not None:
+            self.builddir = Path(builddir)
+        else:
+            self.builddir = builddir
         self.mode = mode
         self.suffix = suffix
+        self.dep_trafo = dep_trafo
 
     def transform_file(self, sourcefile, **kwargs):
         item = kwargs.get('item', None)
 
         path = Path(item.path)
         suffix = self.suffix if self.suffix else path.suffix
-        sourcepath = Path(item.path).with_suffix(f'.{self.mode}{suffix}')
+        if self.dep_trafo:
+            sourcepath = Path(item.path).with_suffix(f'.{self.mode}{suffix}')
+        else:
+            sourcepath = Path(item.path).with_suffix(f'{suffix}')
         if self.builddir is not None:
             sourcepath = self.builddir/sourcepath.name
         sourcefile.write(path=sourcepath)

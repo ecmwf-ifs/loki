@@ -125,6 +125,8 @@ def cli(debug):
               help='Run transformation to insert custom data offload regions.')
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
+@click.option('--dep-trafo', is_flag=True, default=False,
+              help='Apply dependency transform.')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']),
               help='Transformation mode, selecting which code transformations to apply.')
@@ -133,7 +135,7 @@ def cli(debug):
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
 def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
-            data_offload, remove_openmp, mode, frontend, config):
+            data_offload, remove_openmp, dep_trafo, mode, frontend, config):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -141,6 +143,8 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
+
+    print(f"dep_trafo: {dep_trafo}")
     if config is None:
         config = SchedulerConfig.from_dict(cloudsc_config)
     else:
@@ -211,14 +215,15 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
-    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
-    mode = mode.replace('-', '_')  # Sanitize mode string
-    dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
-                                          mode='module', module_suffix='_MOD')
-    scheduler.process(transformation=dependency)
+    if dep_trafo:
+        # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+        mode = mode.replace('-', '_')  # Sanitize mode string
+        dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
+                                              mode='module', module_suffix='_MOD')
+        scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode))
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, dep_trafo=dep_trafo))
 
 
 @cli.command()
