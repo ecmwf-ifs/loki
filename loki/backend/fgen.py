@@ -209,9 +209,10 @@ class FortranCodegen(Stringifier):
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
+        return_type = f'{self.visit_BasicType(o.return_type.dtype)} ' if o.return_type else ''
         arguments = self.join_items(o.argnames)
         bind_c = f' BIND(c, name=\'{o.bind}\')' if o.bind else ''
-        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
+        header = self.format_line(return_type, prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
         footer = self.format_line('END ', ftype, ' ', o.name)
 
         self.depth += 1
