@@ -362,8 +362,14 @@ class FortranCodegen(Stringifier):
             initial = ''
             if v.type.initial is not None:
                 op = '=>' if v.type.pointer else '='
-                initial = f' {op} {self.visit(v.type.initial, **kwargs)}'
-            variables += [f'{var}{initial}']
+                # initial = f' {op} {self.visit(v.type.initial, **kwargs)}'
+                initial = f'{self.visit(v.type.initial, **kwargs)}'
+                var = f'{var} {op} '
+            # variables += [f'{var}{initial}']
+            initial = initial.split(",")
+            variables += [f'{var}{initial[0]}']
+            if len(initial) > 1:
+                variables.extend(initial[1::])
 
         # In-line comment
         comment = None
