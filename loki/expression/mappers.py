@@ -580,7 +580,6 @@ class LokiIdentityMapper(IdentityMapper):
 
     def map_meta_symbol(self, expr, *args, **kwargs):
         symbol = self.rec(expr._symbol, *args, **kwargs)
-        print(f"symbol: {symbol}")
         # This is tricky as a rebuilt of the symbol will yield Scalar, Array, ProcedureSymbol etc
         # but with no rebuilt it may return VariableSymbol. Therefore we need to return the
         # original expression if the underlying symbol is unchanged

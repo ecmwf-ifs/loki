@@ -395,18 +395,19 @@ class FortranCodegen(Stringifier):
         assert len(o.symbols) > 0
         types = [v.type for v in o.symbols]
 
-        # Ensure all symbol types are equal, except for shape and dimension
-        # TODO: We can't fully compare procedure types, yet, but we can make at least sure
-        # names match and other declared attributes are compatible
-        ignore = ['dtype', 'shape', 'dimensions', 'symbols', 'source', 'initial']
-        assert all(isinstance(t.dtype, ProcedureType) for t in types)
-        assert all(t.compare(types[0], ignore=ignore) for t in types)
-        if isinstance(o.interface, DataType):
-            assert all(t.dtype.return_type.dtype == o.interface for t in types)
-        elif o.interface is not None:
-            assert all(t.dtype.name == o.interface for t in types)
+        if not o.external:
+            # Ensure all symbol types are equal, except for shape and dimension
+            # TODO: We can't fully compare procedure types, yet, but we can make at least sure
+            # names match and other declared attributes are compatible
+            ignore = ['dtype', 'shape', 'dimensions', 'symbols', 'source', 'initial']
+            assert all(isinstance(t.dtype, ProcedureType) for t in types)
+            assert all(t.compare(types[0], ignore=ignore) for t in types)
+            if isinstance(o.interface, DataType):
+                assert all(t.dtype.return_type.dtype == o.interface for t in types)
+            elif o.interface is not None:
+                assert all(t.dtype.name == o.interface for t in types)
 
-        if o.external:
+        if o.external and not isinstance(types[0].dtype, BasicType):
             # This is an EXTERNAL statement (i.e., a kind of forward declaration)
             assert o.interface is None
             assert all(t.dtype.is_function for t in types) or all(not t.dtype.is_function for t in types)
@@ -461,7 +462,8 @@ class FortranCodegen(Stringifier):
           DATA <var> /<values>/
         """
         values = self.visit_all(o.values, **kwargs)
-        return self.format_line('DATA ', o.variable, '/', values, '/')
+        values = ', '.join(values)
+        return self.format_line('DATA ', str(o.variable[0]), ' /', values, '/')
 
     def visit_StatementFunction(self, o, **kwargs):
         """
