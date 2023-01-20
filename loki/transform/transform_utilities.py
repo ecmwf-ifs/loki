@@ -11,13 +11,13 @@ Collection of utility routines to deal with general language conversion.
 
 """
 import platform
-
+from collections import defaultdict
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
-from loki.ir import Import, TypeDef
+from loki.ir import Import, TypeDef, VariableDeclaration
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
@@ -27,8 +27,51 @@ from loki.visitors import Transformer, FindNodes
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'sanitise_imports',
-    'replace_selected_kind'
+    'replace_selected_kind', 'single_variable_declaration'
 ]
+
+
+def single_variable_declaration(routine, variables=None, group_by_shape=False):
+    """
+    Modify/extend variable declarations to
+
+    * default: only declare one variable each time while preserving the order if ``variables=None`` and
+     ``group_by_shape=False``
+    * declare variables specified in ``variables``in single/unique declarations if ``variables`` is a tuple
+     of variables
+    * variable declarations to be grouped according to their shapes if ``group_by_shape=True``
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine in which to modify the variable declarations
+    variables: tuple
+        Variables to grant unique/single declaration for
+    group_by_shape: bool
+        Whether to strictly make unique variable declarations or to only disassemble non-arrays and arrays and among
+        arrays, arrays with differing shapes.
+    """
+    decl_map = {}
+    for decl in FindNodes(VariableDeclaration).visit(routine.spec):
+        if len(decl.symbols) > 1:
+            if not group_by_shape:
+                unique_symbols = [s for s in decl.symbols if variables is None or s.name in variables]
+                if unique_symbols:
+                    new_decls = tuple(decl.clone(symbols=(s,)) for s in unique_symbols)
+                    retain_symbols = tuple(s for s in decl.symbols if variables is not None and s.name not in variables)
+                    if retain_symbols:
+                        decl_map[decl] = (decl.clone(symbols=retain_symbols),) + new_decls
+                    else:
+                        decl_map[decl] = new_decls
+            else:
+                smbls_by_shape = defaultdict(list)
+                for smbl in decl.symbols:
+                    smbls_by_shape[getattr(smbl, 'shape', None)] += [smbl]
+                decl_map[decl] = tuple(decl.clone(symbols=as_tuple(smbls)) for smbls in smbls_by_shape.values())
+    routine.spec = Transformer(decl_map).visit(routine.spec)
+    # if variables defined and group_by_shape, first call ignores the variables, thus second call
+    if variables and group_by_shape:
+        single_variable_declaration(routine=routine, variables=variables, group_by_shape=False)
 
 
 def convert_to_lower_case(routine):
