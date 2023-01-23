@@ -1815,10 +1815,8 @@ class FParser2IR(GenericVisitor):
             prefix = [i for i in prefix if isinstance(i, str)]
             assert len(return_type) in (0, 1)
             return_type = return_type[0] if return_type else None
-
         name = self.visit(o.children[1], **kwargs)
         name = name.name
-
         # Check if the Subroutine node has been created before by looking it up in the scope
         routine = None
         if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
@@ -1829,7 +1827,8 @@ class FParser2IR(GenericVisitor):
                     # We return the existing object right away, unless it exists from a
                     # previous incomplete parse for which we have to make sure we get a
                     # full parse first
-                    return (routine, proc_type.dtype.return_type)
+                    # return (routine, proc_type.dtype.return_type)
+                    return routine, return_type if return_type else proc_type.dtype.return_type
 
         # Build the dummy argument list
         if o.children[2] is None:
