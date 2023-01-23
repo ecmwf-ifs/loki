@@ -14,7 +14,8 @@ from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
-    pragmas_attached, CaseInsensitiveDict, as_tuple, flatten
+    pragmas_attached, CaseInsensitiveDict, as_tuple, flatten,
+    demote_variables
 )
 
 
@@ -198,52 +199,6 @@ def kernel_get_locals_to_demote(routine, sections, horizontal):
     to_demote = [v for v in to_demote if v.name not in call_args]
 
     return set(to_demote)
-
-
-def kernel_demote_private_locals(routine, to_demote, horizontal):
-    """
-    Demotes all local variables that can be privatized at the `acc loop vector`
-    level.
-
-    Array variables whose dimensions include only the vector dimension
-    or known (short) constant dimensions (eg. local vector or matrix arrays)
-    can be privatized without requiring shared GPU memory. Array variables
-    with unknown (at compile time) dimensions (eg. the vertical dimension)
-    cannot be privatized at the vector loop level and should therefore not
-    be demoted here.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
-    horizontal: :any:`Dimension`
-        The dimension object specifying the horizontal vector dimension
-    vertical: :any:`Dimension`
-        The dimension object specifying the vertical loop dimension
-    """
-
-    # Find variable objects anew to ensure they are all up-to-date!
-    v_names = list(v.name.upper() for v in to_demote)
-    variables = list(FindVariables(unique=False).visit(routine.body))
-    variables += list(routine.variables)
-    variables = [v for v in variables if v.name.upper() in v_names]
-
-    # Record original array shapes
-    shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
-
-    # Demote private local variables
-    vmap = {}
-    for v in variables:
-        old_shape = shape_map[v.name]
-        new_shape = as_tuple(s for s in old_shape if s not in horizontal.size_expressions)
-
-        if old_shape and old_shape[0] in horizontal.size_expressions:
-            new_type = v.type.clone(shape=new_shape or None)
-            new_dims = v.dimensions[1:] or None
-            vmap[v] = v.clone(dimensions=new_dims, type=new_type)
-
-    routine.body = SubstituteExpressions(vmap).visit(routine.body)
-    routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
 
 def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
@@ -568,7 +523,8 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Demote all private local variables that do not buffer values between sections
         if demote_locals:
-            kernel_demote_private_locals(routine, to_demote, self.horizontal)
+            variable_names = tuple(v.name for v in to_demote)
+            demote_variables(routine, variable_names=variable_names, dimensions=self.horizontal.size)
 
         if self.hoist_column_arrays:
             # Promote all local arrays with column dimension to arguments
