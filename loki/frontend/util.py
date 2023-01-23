@@ -21,6 +21,8 @@ from loki.types import ProcedureType, SymbolAttributes
 from loki.tools import LazyNodeLookup
 from loki.frontend.source import Source
 from loki.logging import warning
+from loki.backend import fgen
+from loki.tools.util import as_tuple
 
 __all__ = [
     'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX',
@@ -325,5 +327,33 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
 
     if frontend in (FP, OFP):
         _ir = combine_multiline_pragmas(_ir)
+
+    # print("-------")
+    # fgen(_ir)
+    variable_declarations = FindNodes(VariableDeclaration).visit(_ir)
+    variables = []
+    for var_decl in variable_declarations:
+        variables.extend(var_decl.symbols)
+    procedure_declarations = FindNodes(ProcedureDeclaration).visit(_ir)
+    remove = []
+    for procedure in procedure_declarations:
+        for sym in procedure.symbols:
+            if sym in variables:
+                remove.append(sym)
+    if remove:
+        vmap = {}
+        for var_decl in variable_declarations:
+            _symbols = []
+            for sym in var_decl.symbols:
+                if sym not in remove:
+                    _symbols.append(sym)
+                    # vmap[var_decl] = None
+            if _symbols:
+                vmap[var_decl] = var_decl.clone(_symbols=as_tuple(_symbols))
+            else:
+                vmap[var_decl] = None
+        _ir = Transformer(vmap).visit(_ir)
+    # print(f"remove: {remove}")
+    # print("-------")
 
     return _ir
