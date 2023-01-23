@@ -523,8 +523,9 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Demote all private local variables that do not buffer values between sections
         if demote_locals:
-            variable_names = tuple(v.name for v in to_demote)
-            demote_variables(routine, variable_names=variable_names, dimensions=self.horizontal.size)
+            variables = tuple(v.name for v in to_demote)
+            if variables:
+                demote_variables(routine, variable_names=variables, dimensions=self.horizontal.size)
 
         if self.hoist_column_arrays:
             # Promote all local arrays with column dimension to arguments
