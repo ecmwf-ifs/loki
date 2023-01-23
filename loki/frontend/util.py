@@ -328,8 +328,7 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
     if frontend in (FP, OFP):
         _ir = combine_multiline_pragmas(_ir)
 
-    # print("-------")
-    # fgen(_ir)
+    # remove redundant procedure/variable declarations
     variable_declarations = FindNodes(VariableDeclaration).visit(_ir)
     variables = []
     for var_decl in variable_declarations:
@@ -349,11 +348,10 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
                     _symbols.append(sym)
                     # vmap[var_decl] = None
             if _symbols:
-                vmap[var_decl] = var_decl.clone(_symbols=as_tuple(_symbols))
+                vmap[var_decl] = var_decl.clone(symbols=as_tuple(_symbols))
             else:
                 vmap[var_decl] = None
         _ir = Transformer(vmap).visit(_ir)
-    # print(f"remove: {remove}")
-    # print("-------")
+    # end: remove redundant procedure/variable declarations
 
     return _ir
