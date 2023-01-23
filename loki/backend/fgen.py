@@ -209,10 +209,11 @@ class FortranCodegen(Stringifier):
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
-        return_type = f'{self.visit_BasicType(o.return_type.dtype)} ' if o.return_type else ''
+        # return_type = f'{self.visit_BasicType(o.return_type.dtype)} ' if o.return_type else ''
         arguments = self.join_items(o.argnames)
         bind_c = f' BIND(c, name=\'{o.bind}\')' if o.bind else ''
-        header = self.format_line(return_type, prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
+        # header = self.format_line(return_type, prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
+        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
         footer = self.format_line('END ', ftype, ' ', o.name)
 
         self.depth += 1
@@ -407,14 +408,19 @@ class FortranCodegen(Stringifier):
             elif o.interface is not None:
                 assert all(t.dtype.name == o.interface for t in types)
 
-        if o.external and not isinstance(types[0].dtype, BasicType):
+        if o.external: # and not isinstance(types[0].dtype, BasicType):
             # This is an EXTERNAL statement (i.e., a kind of forward declaration)
             assert o.interface is None
-            assert all(t.dtype.is_function for t in types) or all(not t.dtype.is_function for t in types)
-            if types[0].dtype.is_function:
-                # EXTERNAL statement for functions must include return_type
-                assert all(t.dtype.return_type.compare(types[0].dtype.return_type) for t in types)
-                attributes = [self.visit(types[0].dtype.return_type, **kwargs)]
+            for type in types:
+                print(f"type: {type}")
+            if hasattr(types[0].dtype, 'is_function'):
+                assert all(t.dtype.is_function for t in types) or all(not t.dtype.is_function for t in types)
+                if types[0].dtype.is_function:
+                    # EXTERNAL statement for functions must include return_type
+                    assert all(t.dtype.return_type.compare(types[0].dtype.return_type) for t in types)
+                    attributes = [self.visit(types[0].dtype.return_type, **kwargs)]
+                else:
+                    attributes = []
             else:
                 attributes = []
             # NB: no need to provide EXTERNAL here, as EXTERNAL is specified by visit_SymbolAttributes
