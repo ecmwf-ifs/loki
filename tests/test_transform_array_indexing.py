@@ -251,11 +251,13 @@ subroutine transform_demote_dimension_arguments(vec1, vec2, matrix, n, m)
   integer, intent(in) :: n, m
   integer, dimension(n), intent(inout) :: vec1, vec2
   integer, dimension(n, m), intent(inout) :: matrix
+  integer, dimension(n) :: vec_tmp
   integer :: i, j
 
   do i=1,n
     do j=1,m
-      matrix(i, j) = matrix(i, j) + vec1(i) + vec2(i)
+      vec_tmp(i) = vec1(i) + vec2(i)
+      matrix(i, j) = matrix(i, j) + vec_tmp(i)
     end do
   end do
 end subroutine transform_demote_dimension_arguments
@@ -285,7 +287,7 @@ end subroutine transform_demote_dimension_arguments
     assert np.all(vec2 == 2) and np.sum(vec2) == 6
     assert np.all(matrix == 6) and np.sum(matrix) == 36
 
-    demote_variables(routine, ['vec1', 'matrix'], ['n'])
+    demote_variables(routine, ['vec1', 'vec_tmp', 'matrix'], ['n'])
 
     assert isinstance(routine.variable_map['vec1'], sym.Scalar)
     assert isinstance(routine.variable_map['vec2'], sym.Array)

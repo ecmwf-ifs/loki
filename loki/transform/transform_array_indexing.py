@@ -481,7 +481,8 @@ def demote_variables(routine, variable_names, dimensions):
         # If all symbols have the same shape (after demotion)
         sym_shape = tuple(s.shape if isinstance(s, sym.Array) else None for s in decl.symbols)
         if all(d == sym_shape[0] for d in sym_shape):
-            decl_map[decl] = decl.clone(dimensions=decl.symbols[0].shape)
+            dimensions = decl.symbols[0].shape if isinstance(decl.symbols[0], sym.Array) else None
+            decl_map[decl] = decl.clone(dimensions=dimensions)
         else:
             # If not, split into multiple declarations
             sdims = tuple(s.shape if isinstance(s, sym.Array) else None for s in decl.symbols)
