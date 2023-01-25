@@ -297,7 +297,9 @@ class Item:
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in self.members]
         children = [c for c in children if c not in disabled]
-        return as_tuple(children)
+
+        # Remove duplicates
+        return as_tuple(dict.fromkeys(children))
 
     def qualify_names(self, names, available_names=None):
         """
