@@ -830,6 +830,38 @@ def test_scheduler_item(here):
     assert item_b.targets == ('contained_c',)
 
 
+def test_scheduler_item_children(here):
+    """
+    Make sure children are correct and unique for items
+    """
+    config = SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': True},
+        'routine': [
+            {'name': 'driver', 'role': 'driver'},
+            {'name': 'another_driver', 'role': 'driver'}
+        ]
+    })
+
+    proj_hoist = here/'sources/projHoist'
+
+    scheduler = Scheduler(paths=proj_hoist, config=config)
+
+    assert scheduler.item_map['transformation_module_hoist#driver'].children == (
+        'kernel1', 'kernel2'
+    )
+    assert scheduler.item_map['transformation_module_hoist#another_driver'].children == (
+        'kernel1',
+    )
+    assert not scheduler.item_map['subroutines_mod#kernel1'].children
+    assert scheduler.item_map['subroutines_mod#kernel2'].children == (
+        'device1', 'device2'
+    )
+    assert scheduler.item_map['subroutines_mod#device1'].children == (
+        'device2',
+    )
+    assert not scheduler.item_map['subroutines_mod#device2'].children
+
+
 @pytest.fixture(name='loki_69_dir')
 def fixture_loki_69_dir(here):
     """
