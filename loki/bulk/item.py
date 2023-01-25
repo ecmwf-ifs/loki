@@ -376,8 +376,8 @@ class Item:
             # scope (i.e. defined directly in a source file). We add all
             # possibilities, of which only one should match (otherwise we would
             # have duplicate symbols in this compilation unit)
-            candidates = [f'#{name}']
-            candidates += [f'{import_}#{name}' for import_ in self.unqualified_imports]
+            candidates = [f'#{name}'.lower()]
+            candidates += [f'{import_}#{name}'.lower() for import_ in self.unqualified_imports]
             qualified_names += [as_tuple(candidates)]
 
         if available_names is None:
