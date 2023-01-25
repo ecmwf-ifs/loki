@@ -1460,3 +1460,27 @@ end subroutine driver
         assert isinstance(call.function.parent.parent.type.dtype.typedef, TypeDef)
 
     rmtree(workdir)
+
+
+def test_scheduler_qualify_names():
+    """
+    Make sure qualified names are all lower case
+    """
+    fcode = """
+module some_mod
+    use other_mod
+    use MORE_MOD
+    implicit none
+contains
+    subroutine DRIVER
+        use YET_another_mod
+        call routine
+    end subroutine DRIVER
+end module some_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    item = SubroutineItem(name='some_mod#driver', source=source)
+    assert item.qualify_names(item.children) == (
+        ('#routine', 'yet_another_mod#routine', 'other_mod#routine', 'more_mod#routine'),
+    )
