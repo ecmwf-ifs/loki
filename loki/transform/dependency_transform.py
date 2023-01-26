@@ -198,11 +198,11 @@ class DependencyTransformation(Transformation):
 
         # First step through known suffix variants to determine canonical basename
         if modname.lower().endswith(self.suffix.lower()+self.module_suffix.lower()):
-            idx = modname.lower().index(self.suffix.lower()+self.module_suffix.lower())
+            idx = modname.lower().rindex(self.suffix.lower()+self.module_suffix.lower())
         elif modname.lower().endswith(self.suffix.lower()):
-            idx = modname.lower().index(self.suffix.lower())
+            idx = modname.lower().rindex(self.suffix.lower())
         elif modname.lower().endswith(self.module_suffix.lower()):
-            idx = modname.lower().index(self.module_suffix.lower())
+            idx = modname.lower().rindex(self.module_suffix.lower())
         else:
             idx = len(modname)
         base = modname[:idx]
