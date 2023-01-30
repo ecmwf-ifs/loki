@@ -1263,3 +1263,24 @@ end program
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     assert source.ir.body == ()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_frontend_source_lineno(frontend):
+    """
+    ...
+    """
+    fcode = """
+    subroutine driver
+        call kernel()
+        call kernel()
+        call kernel()
+    end subroutine driver
+    """
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['driver']
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert calls[0] != calls[1]
+    assert calls[1] != calls[2]
+    assert calls[0].source.lines[0] < calls[1].source.lines[0] < calls[2].source.lines[0]
