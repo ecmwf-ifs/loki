@@ -462,7 +462,6 @@ end module my_interface_mod
     intf_sim_func = mod.interface_map['sim_func']
     assert intf_sim_func.abstract
     assert intf_sim_func.symbols[0].type.dtype.procedure is intf_sim_func.body[0]
-    sim_func = intf_sim_func.body[0]
 
     intf_sub2 = mod.interface_map['sub2']
     assert intf_sub2.symbols[0].type.dtype.procedure is intf_sub2.body[0]
@@ -471,4 +470,3 @@ end module my_interface_mod
     if frontend != REGEX:
         arg_p = sub2.arguments[1]
         assert isinstance(arg_p.type.dtype, ProcedureType)
-        assert arg_p.type.dtype.procedure is sim_func

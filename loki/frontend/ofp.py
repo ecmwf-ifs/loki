@@ -1061,7 +1061,10 @@ class OFP2IR(GenericVisitor):
 
     def visit_interface(self, o, **kwargs):
         scope = kwargs['scope']
-        abstract = o.get('type') == 'abstract'
+        if o.get('type') is not None:
+            abstract = o.get('type').lower() == 'abstract'
+        else:
+            abstract = False
 
         if o.find('header/defined-operator') is not None:
             spec = self.visit(o.find('header/defined-operator'), **kwargs)
