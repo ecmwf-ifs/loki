@@ -14,13 +14,18 @@ from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, LokiIdentityMapper
 )
-from loki.ir import Import, Comment, Assignment
+from loki.ir import Import, Comment, Assignment, VariableDeclaration, CallStatement
 from loki.expression import symbols as sym
 from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
+from loki.subroutine import Subroutine
+from loki.tools import as_tuple
 
 
-__all__ = ['inline_constant_parameters', 'inline_elemental_functions']
+__all__ = [
+    'inline_constant_parameters', 'inline_elemental_functions',
+    'inline_member_procedures'
+]
 
 
 class InlineSubstitutionMapper(LokiIdentityMapper):
@@ -183,3 +188,62 @@ def inline_elemental_functions(routine):
         if all(hasattr(s, 'type') and s.type.dtype in removed_functions for s in im.symbols):
             import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)
+
+
+def inline_member_routine(routine, member):
+    """
+    Inline an individual member :any:`Subroutine` at source level.
+
+    This will replace all :any:`Call` objects to the specified
+    subroutine with an adjusted equivalent of the member routines'
+    body. For this, argument matching, including partial dimension
+    matching for array references is performed, and all
+    member-specific declarations are hoisted to the containing
+    :any:`Subroutine`.
+
+    routine : :any:`Subroutine`
+        The subroutine in which to inline all calls to the member routine
+    member : :any:`Subroutine`
+        The contained member subroutine to be inlined in the parent
+    """
+
+    # Get local variable declarations and hoist them
+    decls = FindNodes(VariableDeclaration).visit(member.spec)
+    decls = tuple(d for d in decls if all(not s.type.intent for s in d.symbols))
+    decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
+    routine.spec.append(decls)
+
+    call_map = {}
+    for call in FindNodes(CallStatement).visit(routine.body):
+        if call.routine == member:
+            # Substitute argument calls into a copy of the body
+            member_body = SubstituteExpressions(call.argument_map).visit(member.body.body)
+
+            # Inline substituted body within a pair of marker comments
+            comment = Comment(f'! [Loki] inlined member subroutine: {member.name}')
+            c_line = Comment('! =========================================')
+            call_map[call] = (comment, c_line) + as_tuple(member_body) + (c_line, )
+
+    # Replace calls to member with the member's body
+    routine.body = Transformer(call_map).visit(routine.body)
+    # Can't use transformer to replace subroutine, so strip it manually
+    contains_body = tuple(n for n in routine.contains.body if not n == member)
+    routine.contains._update(body=contains_body)
+
+
+def inline_member_procedures(routine):
+    """
+    Inline all member subroutines contained in an individual :any:`Subroutine`.
+
+    Please note that member functions are not yet supported!
+
+    routine : :any:`Subroutine`
+        The subroutine in which to inline all member routines
+    """
+
+    # Run through all members and invoke individual inlining transforms
+    for member in routine.members:
+        if isinstance(member, Subroutine):
+            inline_member_routine(routine, member)
+
+    # TODO: Implement for functions!!!
