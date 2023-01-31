@@ -131,6 +131,8 @@ class FileWriteTransformation(Transformation):
     suffix : str, optional
         File suffix to determine file type for all written file. If
         omitted, it will preserve the original file type.
+    cuf : bool, optional
+        Use CUF (CUDA Fortran) backend instead of Fortran backend.
     """
     def __init__(self, builddir=None, mode='loki', suffix=None, cuf=False):
         self.builddir = Path(builddir)

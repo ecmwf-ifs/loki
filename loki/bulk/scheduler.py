@@ -137,6 +137,11 @@ class Scheduler:
         By default a full parse is executed, use this flag to suppress.
     frontend : :any:`Frontend`, optional
         Frontend to use when parsing source files (default :any:`FP`).
+
+    Attributes
+    ----------
+    depths : dict
+        depth of each item according to the topological generations (stratified item graph)
     """
 
     # TODO: Should be user-definable!

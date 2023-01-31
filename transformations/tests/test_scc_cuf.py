@@ -15,7 +15,7 @@ from loki import (
 )
 from loki.transform import HoistTemporaryArraysAnalysis, ParametriseTransformation
 from loki.expression import symbols as sym
-from transformations import SccCufTransformation, HoistTemporaryArraysTransformationDeviceAllocatable
+from transformations import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
 
 
 @pytest.fixture(scope='module', name='horizontal')
@@ -212,8 +212,7 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
   END SUBROUTINE kernel
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[kernel])
 
     cuf_transform = SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking
@@ -238,7 +237,7 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
 
     cuf_transform = SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        transformation_type=0
+        transformation_type='parametrise'
     )
     scheduler.process(transformation=cuf_transform)
 
@@ -290,14 +289,14 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
 
     cuf_transform = SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        transformation_type=1
+        transformation_type='hoist'
     )
     scheduler.process(transformation=cuf_transform)
 
     # Transformation: Analysis
     scheduler.process(transformation=HoistTemporaryArraysAnalysis(), reverse=True)
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistTemporaryArraysTransformationDeviceAllocatable())
+    scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
 
     check_subroutine_driver(routine=scheduler.item_map["driver_mod#driver"].routine, blocking=blocking)
     check_subroutine_kernel(routine=scheduler.item_map["kernel_mod#kernel"].routine, horizontal=horizontal,
@@ -351,7 +350,7 @@ def test_scc_cuf_dynamic_memory(here, frontend, config, horizontal, vertical, bl
 
     cuf_transform = SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        transformation_type=2
+        transformation_type='dynamic'
     )
     scheduler.process(transformation=cuf_transform)
 

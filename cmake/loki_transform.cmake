@@ -208,10 +208,6 @@ function( loki_transform_convert )
 
     _loki_transform_parse_convert_args( loki_transform_convert )
 
-    if ( _PAR_TRAFOTYPE )
-        list ( APPEND _ARGS --trafo-type ${_PAR_TRAFOTYPE} )
-    endif()
-
     if( _PAR_CONFIG )
         list( APPEND _ARGS --config ${_PAR_CONFIG} )
     endif()
