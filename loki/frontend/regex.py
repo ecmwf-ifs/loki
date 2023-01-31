@@ -800,7 +800,7 @@ class ImportPattern(Pattern):
     def __init__(self):
         super().__init__(
             r'^use +(?P<module>\w+)(?: *, *(?P<only>only *:)?'  # The use statement including an optional ``only``
-            r'(?P<imports>(?: *\w+\b *(?:=> *\w+|\(.*?\))? *,?)+))?',  # The optional list of names (with optional renames)
+            r'(?P<imports>(?: *\w+\b *(?:=> *\w+|\(.*?\))? *,?)+))?',  # The optional list of names (w/ renames, ops)
             re.IGNORECASE
         )
 
