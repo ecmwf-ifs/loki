@@ -7,12 +7,18 @@
 
 from pathlib import Path
 import pytest
+import numpy as np
 
-from conftest import jit_compile_lib, available_frontends
-from loki import Builder, Module, Subroutine, FindNodes, Import, FindVariables
+from conftest import jit_compile, jit_compile_lib, available_frontends
+from loki import (
+    Builder, Module, Subroutine, FindNodes, Import, FindVariables,
+    CallStatement, Loop
+)
 from loki.ir import Assignment
-from loki.transform import inline_elemental_functions, inline_constant_parameters, replace_selected_kind
-
+from loki.transform import (
+    inline_elemental_functions, inline_constant_parameters,
+    replace_selected_kind, inline_member_procedures
+)
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
@@ -281,3 +287,73 @@ end subroutine kernel
     stmts = FindNodes(Assignment).visit(routine.body)
     assert len(stmts) == 1
     assert stmts[0].rhs == 'b + 10'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines(here, frontend):
+    """
+    Test inlining of member subroutines.
+    """
+    fcode = """
+subroutine member_routines(a, b)
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer :: i
+
+  do i=1, size(a)
+    call add_one(a(i))
+  end do
+
+  call add_to_a(b)
+
+  do i=1, size(a)
+    call add_one(a(i))
+  end do
+
+  contains
+
+    subroutine add_one(a)
+      real(kind=8), intent(inout) :: a
+      a = a + 1
+    end subroutine
+
+    subroutine add_to_a(b)
+      real(kind=8), intent(inout) :: b(:)
+      integer :: n
+
+      n = size(a)
+      do i = 1, n
+        a(i) = a(i) + b(i)
+      end do
+    end subroutine
+end subroutine member_routines
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    filepath = here/(f'ref_transform_inline_member_routines_{frontend}.f90')
+    reference = jit_compile(routine, filepath=filepath, objname='member_routines')
+
+    a = np.array([1., 2., 3.], order='F')
+    b = np.array([3., 3., 3.], order='F')
+    reference(a, b)
+
+    assert (a == [6., 7., 8.]).all()
+    assert (b == [3., 3., 3.]).all()
+
+    # Now inline the member routines and check again
+    inline_member_procedures(routine=routine)
+
+    assert not routine.members
+    assert not FindNodes(CallStatement).visit(routine.body)
+    assert len(FindNodes(Loop).visit(routine.body)) == 3
+    assert 'n' in routine.variables
+
+    # An verify compiled behaviour
+    filepath = here/(f'transform_inline_member_routines_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='member_routines')
+
+    a = np.array([1., 2., 3.], order='F')
+    b = np.array([3., 3., 3.], order='F')
+    function(a, b)
+
+    assert (a == [6., 7., 8.]).all()
+    assert (b == [3., 3., 3.]).all()
