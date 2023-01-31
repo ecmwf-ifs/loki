@@ -441,7 +441,7 @@ class SubroutineFunctionPattern(Pattern):
     def __init__(self):
         super().__init__(
             r'^[ \t\w()]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
-            r'(?P<spec>.*(^[ \t\w()]*interface.+^[ \t\w()]*end interface\b.*?$)*.*?)'
+            r'(?P<spec>(?:.*?(?:^(?:abstract[ \t]+)?interface\b.*?^end[ \t]+interface)?)+)'
             r'(?P<contains>^contains\n(?:'
             r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
             r'(?:[ \t\w()]*?function.*?^end[ \t]*function\b(?:[ \t]\w+)?\n)|'
