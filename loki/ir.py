@@ -857,6 +857,14 @@ class CallStatement(LeafNode):
         kwargs = ((r_args[kw], arg) for kw, arg in self.kwarguments)
         return chain(args, kwargs)
 
+    @property
+    def argument_map(self):
+        """
+        A full map of all qualified argument matches from arguments
+        and keyword arguments.
+        """
+        return dict(self.arg_iter())
+
 
 class Allocation(LeafNode):
     """
