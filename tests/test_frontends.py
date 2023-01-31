@@ -1327,7 +1327,23 @@ call other_kernel(c)
 
 end subroutine test
     """.strip()
+
+    # Make sure only the host subroutine is captured
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     assert len(source.subroutines) == 1
     assert source.subroutines[0].name == 'test'
     assert source.subroutines[0].source.lines == (1, 38)
+
+    # Make sure this also works for module procedures
+    fcode = f"""
+module my_mod
+    implicit none
+contains
+{fcode}
+end module my_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert not source.subroutines
+    assert len(source.all_subroutines) == 1
+    assert source.all_subroutines[0].name == 'test'
+    assert source.all_subroutines[0].source.lines == (4, 41)
