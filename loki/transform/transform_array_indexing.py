@@ -453,6 +453,10 @@ def demote_variables(routine, variable_names, dimensions):
 
     variables = FindVariables(unique=False).visit(routine.ir)
     variables = tuple(v for v in variables if v.name.lower() in vnames)
+    variables = tuple(v for v in variables if hasattr(v, 'shape'))
+
+    if not variables:
+        return
 
     # Record original array shapes
     shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})

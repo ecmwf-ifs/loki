@@ -238,6 +238,12 @@ end subroutine transform_demote_variables
     assert np.all(vector == np.arange(1, n + 1)*2)
     assert np.all(matrix == np.sum(np.mgrid[1:4,2:8:2], axis=0))
 
+    # Test that the transformation doesn't fail for scalar arguments and leaves the
+    # IR unchanged
+    demoted_fcode = routine.to_fortran()
+    demote_variables(routine, ['jl'], ['m'])
+    assert routine.to_fortran() == demoted_fcode
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_demote_dimension_arguments(here, frontend):
