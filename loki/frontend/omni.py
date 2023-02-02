@@ -129,6 +129,7 @@ class OMNI2IR(GenericVisitor):
         self.symbol_map = symbol_map or {}
         self.raw_source = raw_source.splitlines(keepends=True)
         self.default_scope = scope
+        self.lineno = None  # use to save lineno of last element with attribute lineno
 
     @staticmethod
     def warn_or_fail(msg):
@@ -166,11 +167,11 @@ class OMNI2IR(GenericVisitor):
     def get_source(self, o):
         """Helper method that builds the source object for a node"""
         file = o.attrib.get('file', None)
-        lineno = o.attrib.get('lineno', None)
+        lineno = o.attrib.get('lineno', self.lineno)
         if lineno:
-            lineno = int(lineno)
-            lines = (lineno, lineno)
-            string = self.raw_source[lineno-1]
+            self.lineno = int(lineno)
+            lines = (self.lineno, self.lineno)
+            string = self.raw_source[self.lineno-1]
         else:
             lines = (None, None)
             string = None
