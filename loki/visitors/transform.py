@@ -134,8 +134,9 @@ class Transformer(Visitor):
                     i = list(w).index(k)
                     o = o[:i] + as_tuple(handle) + o[i+len(k):]
             if k in o and is_iterable(handle):
-                i = o.index(k)
-                o = o[:i] + tuple(handle) + o[i+1:]
+                while k in o:
+                    i = o.index(k)
+                    o = o[:i] + tuple(handle) + o[i+1:]
         return o
 
     def visit_tuple(self, o, **kwargs):
