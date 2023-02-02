@@ -164,9 +164,9 @@ class Transformation:
         # Apply the actual transformation for subroutines
         self.transform_subroutine(subroutine, **kwargs)
 
-        # Recurse on subroutine members
-        for member in subroutine.members:
-            self.apply(member, **kwargs)
+        # # Recurse on subroutine members
+        # for member in subroutine.members:
+        #     self.apply(member, **kwargs)
 
     def apply_module(self, module, **kwargs):
         """

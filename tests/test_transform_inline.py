@@ -316,13 +316,13 @@ subroutine member_routines(a, b)
       a = a + 1
     end subroutine
 
-    subroutine add_to_a(b)
-      real(kind=8), intent(inout) :: b(:)
+    subroutine add_to_a(x)
+      real(kind=8), intent(inout) :: x(:)
       integer :: n
 
       n = size(a)
       do i = 1, n
-        a(i) = a(i) + b(i)
+        a(i) = a(i) + x(i)
       end do
     end subroutine
 end subroutine member_routines
@@ -357,3 +357,38 @@ end subroutine member_routines
 
     assert (a == [6., 7., 8.]).all()
     assert (b == [3., 3., 3.]).all()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines_arg_dimensions(here, frontend):
+    """
+    Test inlining of member subroutines when sub-arrays of rank less
+    than the formal argument are passed.
+    """
+    fcode = """
+subroutine member_routines_arg_dimensions(a, b)
+  real(kind=8), intent(inout) :: matrix(3, 3)
+  integer :: i
+
+  do i=1, 3
+    call add_one(matrix(:,i))
+  end do
+
+  contains
+
+    subroutine add_one(a)
+      real(kind=8), intent(inout) :: a(3)
+      integer :: j
+
+      do j=1, 3
+        a(j) = a(j) + 1
+      end do
+    end subroutine
+end subroutine member_routines_arg_dimensions
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Now inline the member routines and check again
+    inline_member_procedures(routine=routine)
+
+    from IPython import embed; embed()

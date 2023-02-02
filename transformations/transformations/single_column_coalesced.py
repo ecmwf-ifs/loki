@@ -14,7 +14,7 @@ from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
-    pragmas_attached, CaseInsensitiveDict, as_tuple, flatten
+    pragmas_attached, CaseInsensitiveDict, as_tuple, flatten, Subroutine
 )
 
 
@@ -55,6 +55,7 @@ def kernel_remove_vector_loops(routine, horizontal):
     for loop in FindNodes(ir.Loop).visit(routine.body):
         if loop.variable == horizontal.index:
             loop_map[loop] = loop.body
+
     routine.body = Transformer(loop_map).visit(routine.body)
 
 
@@ -177,6 +178,7 @@ def kernel_get_locals_to_demote(routine, sections, horizontal):
         arrays = [v for v in arrays if all(_is_constant(d) for d in v.shape[1:])]
         return arrays
 
+
     # Create a list of all local horizontal temporary arrays
     candidates = _get_local_arrays(routine.body)
 
@@ -265,8 +267,10 @@ def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
     argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
     private_arrays = [v for v in routine.variables if not v.name in argument_map]
     private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
-    private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
-    private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
+    # private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
+    # TODO: The as_tuple calls are workaround; something is still not rigth!
+    private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in as_tuple(v.shape))]
+    private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in as_tuple(v.shape))]
 
     with pragmas_attached(routine, ir.Loop):
         mapper = {}
@@ -511,6 +515,15 @@ class SingleColumnCoalescedTransformation(Transformation):
             Subroutine to apply this transformation to.
         """
 
+        # TODO: Should probably make this a configurable option
+        from loki import inline_member_procedures
+        inline_member_procedures(routine)
+
+        argument_map = {a.name: a for a in routine.arguments}
+        private_arrays = [v for v in routine.variables if not v.name in argument_map]
+        private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
+        arr_no_shape = [a for a in private_arrays if not a.shape]
+
         pragmas = FindNodes(ir.Pragma).visit(routine.body)
         routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
         routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
@@ -571,6 +584,14 @@ class SingleColumnCoalescedTransformation(Transformation):
             kernel_demote_private_locals(routine, to_demote, self.horizontal)
 
         if self.hoist_column_arrays:
+            if self.horizontal.bounds[0] not in routine.variable_map:
+                raise RuntimeError(f'No horizontal start variable found in {routine.name}')
+            if self.horizontal.bounds[1] not in routine.variable_map:
+                raise RuntimeError(f'No horizontal end variable found in {routine.name}')
+
+            # Find the iteration index variable for the specified horizontal
+            v_index = get_integer_variable(routine, name=self.horizontal.index)
+
             # Promote all local arrays with column dimension to arguments
             # TODO: Should really delete and re-insert in spec, to prevent
             # issues with shared declarations.
@@ -601,8 +622,12 @@ class SingleColumnCoalescedTransformation(Transformation):
                 routine.body.prepend(ir.Pragma(keyword='acc', content='routine seq'))
 
             else:
-                # Mark routine as `!$acc routine vector` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine vector'))
+                # Need to exclude member routines
+                is_member = routine.parent and isinstance(routine.parent, Subroutine)
+
+                if not is_member:
+                    # Mark routine as `!$acc routine vector` to make it device-callable
+                    routine.body.prepend(ir.Pragma(keyword='acc', content='routine vector'))
 
     def process_driver(self, routine, targets=None):
         """

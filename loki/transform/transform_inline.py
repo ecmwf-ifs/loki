@@ -10,6 +10,8 @@ Collection of utility routines to perform code-level force-inlining.
 
 
 """
+from itertools import zip_longest
+
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, LokiIdentityMapper
@@ -194,17 +196,61 @@ def inline_member_routine(routine, member):
 
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(member.spec)
-    decls = tuple(d for d in decls if all(not s.type.intent for s in d.symbols))
+    decls = tuple(d for d in decls if all(s not in member.arguments for s in d.symbols))
+    # decls = tuple(d for d in decls if all(not s.type.intent for s in d.symbols))
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
     # TODO: Take care of aliasing declarations and
     # mutli-declarations, where individual ones need hoisting!
+
+    ############# TODO ####################
+    # One of the hoisted declarations loses the type.shape attribute!!!
+    expr_map = {}
+    for v in FindVariables().visit(member.body):
+        expr_map[v] = v.clone(scope=routine, type=v.type.clone())
+    decl = SubstituteExpressions(expr_map).visit(decls)
+
+    # TODO: Make sure that if opposing declaration exists, we preface the variable name
+    # in fact, we should always to that, maybe?
+
     routine.spec.append(decls)
 
     call_map = {}
     for call in FindNodes(CallStatement).visit(routine.body):
         if call.routine == member:
+            # Get all array references in the member's body
+            member_arrays = FindVariables(unique=True).visit(member.body)
+
+            arg_subs = {}
+            arg_subs = dict((k, v) for k, v in call.arg_iter() if isinstance(k, sym.Scalar))
+            for k, v in call.arg_iter():
+                if isinstance(k, sym.Scalar):
+                    arg_subs[k] = v
+
+                if isinstance(k, sym.Array):
+                    candidates = tuple(a for a in member_arrays if a.name.lower() == k.name.lower())
+                    for c in candidates:
+
+                        # We currently do not support scalar-to-array argument passing here!
+                        # TODO: This might need to go!
+                        # assert c.shape == v.shape
+                        # if not c.shape == v.shape:
+                        #     print(f'ml805 shape not matching:: {c.shape} =!= {v.shape}')
+
+                        ### TODO: This still needs work to cover all the corner cases
+                        if not v.dimensions:
+                            new_dims = c.dimensions
+                        else:
+                            new_dims = tuple(
+                                val if arg == ':' else arg
+                                for arg, val in zip_longest(v.dimensions, c.dimensions)
+                            )
+
+                        new_type = v.type.clone(shape=c.type.shape)
+                        # arg_subs[c] = v.clone(dimensions=c.dimensions, type=new_type)
+                        arg_subs[c] = v.clone(dimensions=new_dims, type=new_type)
+
             # Substitute argument calls into a copy of the body
-            member_body = SubstituteExpressions(call.argument_map).visit(member.body.body)
+            member_body = SubstituteExpressions(arg_subs).visit(member.body.body)
 
             # Inline substituted body within a pair of marker comments
             comment = Comment(f'! [Loki] inlined member subroutine: {member.name}')
@@ -213,6 +259,20 @@ def inline_member_routine(routine, member):
 
     # Replace calls to member with the member's body
     routine.body = Transformer(call_map).visit(routine.body)
+
+    argument_map = {a.name: a for a in routine.arguments}
+    private_arrays = [v for v in routine.variables if not v.name in argument_map]
+    private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
+    arr_no_shape = [a for a in private_arrays if not a.shape]
+
+    # Ensure that inserted symbols are scoped to the new parent
+    routine.rescope_symbols()
+
+    argument_map = {a.name: a for a in routine.arguments}
+    private_arrays = [v for v in routine.variables if not v.name in argument_map]
+    private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
+    arr_no_shape = [a for a in private_arrays if not a.shape]
+
     # Can't use transformer to replace subroutine, so strip it manually
     contains_body = tuple(n for n in routine.contains.body if not n == member)
     routine.contains._update(body=contains_body)
