@@ -242,7 +242,7 @@ end subroutine test_type_module_imports
 
     # Ensure local variable info is correct, as far as known
     arg_a, arg_b = routine.variables
-    assert arg_a.type.kind.type.compare(routine.symbol_attrs['a_kind'], ignore=('imported'))
+    assert arg_a.type.kind.type.compare(routine.symbol_attrs['a_kind'], ignore=('imported',))
     assert arg_a.dimensions[0].type.compare(routine.symbol_attrs['a_dim'])
     assert isinstance(arg_b.type.dtype, DerivedType)
     assert arg_b.type.dtype.typedef == BasicType.DEFERRED
@@ -482,7 +482,7 @@ END MODULE some_mod
     # Check symbols are declared and have the right type
     procedure_names = ('sub', 'bessel', 'gfun', 'print_real', 'p', 'r', 'ptr_to_gfun', 'psi')  # 'real_func'
     pointer_names = ('p', 'r', 'ptr_to_gfun')
-    null_init_names = ('r')
+    null_init_names = ('r',)
     for name in procedure_names:
         assert name in module.symbols
         symbol = module.symbol_map[name]

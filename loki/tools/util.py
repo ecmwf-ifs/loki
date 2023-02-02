@@ -70,8 +70,7 @@ def is_iterable(o):
         iter(o)
     except TypeError:
         return False
-    else:
-        return True
+    return True
 
 
 def is_subset(a, b, ordered=True, subsequent=False):

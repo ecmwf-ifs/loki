@@ -56,13 +56,13 @@ def test_symbolic_literal_comparison(a, b, lt, eq):
     """
     if lt is None:
         with pytest.raises(TypeError):
-            _ = (a < b)
+            _ = a < b
         with pytest.raises(TypeError):
-            _ = (a <= b)
+            _ = a <= b
         with pytest.raises(TypeError):
-            _ = (a > b)
+            _ = a > b
         with pytest.raises(TypeError):
-            _ = (a >= b)
+            _ = a >= b
     else:
         assert (a < b) is lt
         assert (a <= b) is (lt or eq)
