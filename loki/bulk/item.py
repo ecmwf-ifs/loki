@@ -582,7 +582,7 @@ class ProcedureBindingItem(Item):
         if type_.dtype.is_generic:
             # This is a generic binding, so we need to refer to other type-bound procedures
             # in this type
-            return tuple(name_parts[0] + '%' + name for name in type_.bind_names)
+            return tuple(f'{name_parts[0]}%{name!s}' for name in type_.bind_names)
         if type_.initial is not None:
             # This has a bind name explicitly specified:
             return (type_.initial.name.lower(), )

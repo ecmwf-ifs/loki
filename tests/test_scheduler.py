@@ -49,13 +49,16 @@ Test directory structure
 import importlib
 import re
 from pathlib import Path
+from shutil import rmtree
 import pytest
 
+from conftest import available_frontends
 from loki import (
     Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP,
     HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
-    SubroutineItem, ProcedureBindingItem
+    SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
+    ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls
 )
 
 
@@ -1263,3 +1266,165 @@ def test_scheduler_typebound_ignore(here, config, frontend):
 
     cg_path.unlink()
     cg_path.with_suffix('.pdf').unlink()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scheduler_nested_type_enrichment(frontend, config):
+    """
+    Make sure that enrichment works correctly for nested types across
+    multiple source files
+    """
+    fcode1 = """
+module typebound_procedure_calls_mod
+    implicit none
+
+    type my_type
+        integer :: val
+    contains
+        procedure :: reset
+        procedure :: add => add_my_type
+    end type my_type
+
+    type other_type
+        type(my_type) :: arr(3)
+    contains
+        procedure :: add => add_other_type
+        procedure :: total_sum
+    end type other_type
+
+contains
+
+    subroutine reset(this)
+        class(my_type), intent(inout) :: this
+        this%val = 0
+    end subroutine reset
+
+    subroutine add_my_type(this, val)
+        class(my_type), intent(inout) :: this
+        integer, intent(in) :: val
+        this%val = this%val + val
+    end subroutine add_my_type
+
+    subroutine add_other_type(this, other)
+        class(other_type) :: this
+        type(other_type) :: other
+        integer :: i
+        do i=1,3
+            call this%arr(i)%add(other%arr(i)%val)
+        end do
+    end subroutine add_other_type
+
+    function total_sum(this) result(result)
+        class(other_type), intent(in) :: this
+        integer :: result
+        integer :: i
+        result = 0
+        do i=1,3
+            result = result + this%arr(i)%val
+        end do
+    end function total_sum
+
+end module typebound_procedure_calls_mod
+    """.strip()
+
+    fcode2 = """
+module other_typebound_procedure_calls_mod
+    use typebound_procedure_calls_mod, only: other_type
+    implicit none
+
+    type third_type
+        type(other_type) :: stuff(2)
+    contains
+        procedure :: init
+        procedure :: print => print_content
+    end type third_type
+
+contains
+
+    subroutine init(this)
+        class(third_type), intent(inout) :: this
+        integer :: i, j
+        do i=1,2
+            do j=1,3
+                call this%stuff(i)%arr(j)%reset()
+                call this%stuff(i)%arr(j)%add(i+j)
+            end do
+        end do
+    end subroutine init
+
+    subroutine print_content(this)
+        class(third_type), intent(inout) :: this
+        call this%stuff(1)%add(this%stuff(2))
+        print *, this%stuff(1)%total_sum()
+    end subroutine print_content
+end module other_typebound_procedure_calls_mod
+    """.strip()
+
+    fcode3 = """
+subroutine driver
+    use other_typebound_procedure_calls_mod, only: third_type
+    implicit none
+    type(third_type) :: data
+    integer :: mysum
+
+    call data%init()
+    call data%stuff(1)%arr(1)%add(1)
+    mysum = data%stuff(1)%total_sum() + data%stuff(2)%total_sum()
+    call data%print
+end subroutine driver
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_nested_type_enrichment'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'typebound_procedure_calls_mod.F90').write_text(fcode1)
+    (workdir/'other_typebound_procedure_calls_mod.F90').write_text(fcode2)
+    (workdir/'driver.F90').write_text(fcode3)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['driver'], frontend=frontend)
+
+    driver = scheduler['#driver'].source['driver']
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 3
+    for call in calls:
+        assert isinstance(call.name, ProcedureSymbol)
+        assert isinstance(call.name.type.dtype, ProcedureType)
+        assert call.name.parent
+        assert isinstance(call.name.parent.type.dtype, DerivedType)
+
+    assert isinstance(calls[0].name.parent, Scalar)
+    assert calls[0].name.parent.type.dtype.name == 'third_type'
+    assert isinstance(calls[0].name.parent.type.dtype.typedef, TypeDef)
+
+    assert isinstance(calls[1].name.parent, Array)
+    assert calls[1].name.parent.type.dtype.name == 'my_type'
+    assert isinstance(calls[1].name.parent.type.dtype.typedef, TypeDef)
+
+    assert isinstance(calls[1].name.parent.parent, Array)
+    assert isinstance(calls[1].name.parent.parent.type.dtype, DerivedType)
+    assert calls[1].name.parent.parent.type.dtype.name == 'other_type'
+    assert isinstance(calls[1].name.parent.parent.type.dtype.typedef, TypeDef)
+
+    assert isinstance(calls[1].name.parent.parent.parent, Scalar)
+    assert isinstance(calls[1].name.parent.parent.parent.type.dtype, DerivedType)
+    assert calls[1].name.parent.parent.parent.type.dtype.name == 'third_type'
+    assert isinstance(calls[1].name.parent.parent.parent.type.dtype.typedef, TypeDef)
+
+    inline_calls = FindInlineCalls().visit(driver.body)
+    assert len(inline_calls) == 2
+    for call in inline_calls:
+        assert isinstance(call.function, ProcedureSymbol)
+        assert isinstance(call.function.type.dtype, ProcedureType)
+
+        assert call.function.parent
+        assert isinstance(call.function.parent, Array)
+        assert isinstance(call.function.parent.type.dtype, DerivedType)
+        assert call.function.parent.type.dtype.name == 'other_type'
+        assert isinstance(call.function.parent.type.dtype.typedef, TypeDef)
+
+        assert call.function.parent.parent
+        assert isinstance(call.function.parent.parent, Scalar)
+        assert isinstance(call.function.parent.parent.type.dtype, DerivedType)
+        assert call.function.parent.parent.type.dtype.name == 'third_type'
+        assert isinstance(call.function.parent.parent.type.dtype.typedef, TypeDef)
+
+    rmtree(workdir)

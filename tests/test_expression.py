@@ -21,7 +21,8 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
-    DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList, FindInlineCalls
+    DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList, FindInlineCalls,
+    AttachScopesMapper
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -1229,3 +1230,28 @@ def test_standalone_expr_parenthesis(expr):
     ir = parse_fparser_expression(expr, scope)
     assert isinstance(ir, pmbl.Expression)
     assert fgen(ir) == expr
+
+
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
+def test_array_to_inline_call_rescope():
+    """
+    Test a mechanism that can convert arrays to procedure calls, to mop up
+    broken frontend behaviour wrongly classifying inline calls as array subscripts
+    """
+    # Parse the expression, which fparser will interpret as an array
+    scope = Scope()
+    expr = parse_fparser_expression('FLUX%OUT_OF_PHYSICAL_BOUNDS(KIDIA, KFDIA)', scope=scope)
+    assert isinstance(expr, symbols.Array)
+
+    # Detach the expression from the scope and update the type information in the scope
+    expr = expr.clone(scope=None)
+    return_type = SymbolAttributes(BasicType.INTEGER)
+    proc_type = ProcedureType('out_of_physical_bounds', is_function=True, return_type=return_type)
+    scope.symbol_attrs['flux%out_of_physical_bounds'] = SymbolAttributes(proc_type)
+
+    # Re-attach the scope to trigger the rescoping (and symbol rebuild)
+    expr = AttachScopesMapper()(expr, scope=scope)
+    assert isinstance(expr, symbols.InlineCall)
+    assert expr.function.type.dtype is proc_type
+    assert expr.function == 'flux%out_of_physical_bounds'
+    assert expr.parameters == ('kidia', 'kfdia')

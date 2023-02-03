@@ -593,10 +593,19 @@ class LokiIdentityMapper(IdentityMapper):
     map_scalar = map_meta_symbol
 
     def map_array(self, expr, *args, **kwargs):
+        from loki.expression.symbols import ProcedureSymbol, InlineCall  # pylint: disable=import-outside-toplevel
         symbol = self.rec(expr.symbol, *args, **kwargs)
-        dimensions = self.rec(expr.dimensions, *args, **kwargs)
-        shape = self.rec(symbol.type.shape, *args, **kwargs)
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent else None
+        dimensions = self.rec(expr.dimensions, *args, **kwargs)
+        if isinstance(symbol, ProcedureSymbol):
+            # Workaround for frontend deficiencies: Fparser may wrongfully
+            # classify an inline call as an array, which may later on be
+            # corrected thanks to type information in the symbol table.
+            # When this happens, we need to convert this to an inline call here
+            # and make sure we don't loose the call parameters (aka dimensions)
+            return InlineCall(function=symbol.clone(parent=parent), parameters=dimensions)
+
+        shape = self.rec(symbol.type.shape, *args, **kwargs)
         if (getattr(symbol, 'symbol', symbol) is expr.symbol and
                 all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ())) and
                 all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))):

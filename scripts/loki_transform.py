@@ -294,19 +294,19 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 @cli.command('plan')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
-@click.option('--config', '-cfg', type=click.Path(),
+@click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
 @click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Path to source files to transform.')
-@click.option('--build', '-s', type=click.Path(), default=None,
+@click.option('--build', '-b', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
 @click.option('--root', type=click.Path(),
               help='Root path to which all paths are relative to.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-@click.option('--callgraph', '-cg', type=click.Path(), default=None,
+@click.option('--callgraph', '-g', type=click.Path(), default=None,
               help='Generate and display the subroutine callgraph.')
 @click.option('--plan-file', type=click.Path(),
               help='CMake "plan" file to generate.')
@@ -334,16 +334,16 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
 @cli.command('ecphys')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
-@click.option('--config', '-cfg', type=click.Path(),
+@click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
 @click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Path to source files to transform.')
-@click.option('--build', '-s', type=click.Path(), default=None,
+@click.option('--build', '-b', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
 @click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
-              help='Frontend parser to use (default OFP)')
+              help='Frontend parser to use (default FP)')
 def ecphys(mode, config, header, source, build, frontend):
     """
     Physics bulk-processing option that employs a :class:`Scheduler`

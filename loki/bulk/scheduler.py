@@ -215,6 +215,15 @@ class Scheduler:
         """
         return as_tuple(self.item_graph.edges)
 
+    def __getitem__(self, name):
+        """
+        Find and return an item in the Scheduler's call graph
+        """
+        for item in self.items:
+            if item == name:
+                return item
+        return None
+
     def create_item(self, name):
         """
         Create an `Item` by looking up the path and setting all inferred properties.
@@ -372,8 +381,11 @@ class Scheduler:
         the execution plan and enriching subroutine calls.
         """
         # Force the parsing of the routines
+        build_args = self.build_args.copy()
+        build_args['definitions'] = as_tuple(build_args['definitions'])
         for item in reversed(list(nx.topological_sort(self.item_graph))):
-            item.source.make_complete(**self.build_args)
+            item.source.make_complete(**build_args)
+            build_args['definitions'] += item.source.definitions
 
     @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
