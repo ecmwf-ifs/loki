@@ -330,17 +330,20 @@ class OMNI2IR(GenericVisitor):
             # We store the prefix on the Subroutine object, so let's remove it from the symbol attrs
             proc_type = proc_type.clone(prefix=None)
 
+        # Function suffix (result name and language binding, but no support for the latter in OMNI)
+        result = ftype.attrib.get('result_name')
+
         # Instantiate the object
         if routine is None:
             routine = Subroutine(
                 name=name, args=args, prefix=prefix, bind=None,
-                is_function=is_function, parent=scope,
+                result_name=result, is_function=is_function, parent=scope,
                 ast=o, source=self.get_source(o)
             )
         else:
             routine.__init__(  # pylint: disable=unnecessary-dunder-call
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=prefix, bind=None, is_function=is_function,
+                contains=routine.contains, prefix=prefix, bind=None, result_name=result, is_function=is_function,
                 ast=o, source=self.get_source(o), parent=routine.parent, symbol_attrs=routine.symbol_attrs,
                 incomplete=routine._incomplete
             )
@@ -413,8 +416,8 @@ class OMNI2IR(GenericVisitor):
         # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
-            docstring=docstring, spec=spec, body=body, contains=contains,
-            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            docstring=docstring, spec=spec, body=body, contains=contains, ast=o,
+            prefix=routine.prefix, bind=routine.bind, result_name=routine.result_name, is_function=routine.is_function,
             rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
             source=routine.source, incomplete=False
         )
@@ -1116,6 +1119,11 @@ class OMNI2IR(GenericVisitor):
         # Drop OMNI's `:1` step counting for ranges in the name of consistency
         step = None if step == '1' else step
         return sym.RangeIndex((lower, upper, step), source=kwargs['source'])
+
+    def visit_FcharacterRef(self, o, **kwargs):
+        var = self.visit(o.find('varRef'), **kwargs)
+        dimensions = self.visit(o.find('indexRange'), **kwargs)
+        return sym.StringSubscript(var, dimensions)
 
     def visit_lowerBound(self, o, **kwargs):
         return self.visit(o[0], **kwargs)

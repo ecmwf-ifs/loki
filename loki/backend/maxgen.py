@@ -73,6 +73,8 @@ class MaxjCodeMapper(LokiStringifyMapper):
                 index_str += self.format('[%s]', d)
         return self.format('%s%s', name_str, index_str)
 
+    map_string_subscript = map_array_subscript
+
     def map_range_index(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr.upper, enclosing_prec, *args, **kwargs) if expr.upper else ''
 

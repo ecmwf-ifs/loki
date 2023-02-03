@@ -18,7 +18,7 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple, auto_post_mortem_debugger, flatten, info
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info
 )
 
 # Get generalized transformations provided by Loki
@@ -101,7 +101,7 @@ class IdemTransformation(Transformation):
                     'a debugger when exceptions occur'))
 def cli(debug):
     if debug:
-        sys.excepthook = auto_post_mortem_debugger
+        set_excepthook(hook=auto_post_mortem_debugger)
 
 
 @cli.command()

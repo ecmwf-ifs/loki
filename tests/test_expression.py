@@ -21,7 +21,7 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
-    DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList
+    DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList, FindInlineCalls
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -658,6 +658,60 @@ end subroutine my_routine
     assignment = FindNodes(Assignment).visit(routine.body)[0]
     assert assignment.lhs == 'var'
     assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, ProcedureSymbol)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_call_derived_type_arguments(frontend):
+    """
+    Check that derived type arguments are correctly represented in
+    function calls that include keyword parameters.
+
+    This is due to fparser's habit of sometimes representing function calls
+    wrongly as structure constructors, which are handled differently in
+    Loki's frontend
+    """
+    fcode = """
+module inline_call_mod
+    implicit none
+
+    type mytype
+        integer :: val
+        integer :: arr(3)
+    contains
+        procedure :: some_func
+    end type mytype
+
+contains
+
+    function check(val, thr) result(is_bad)
+        integer, intent(in) :: val
+        integer, intent(in), optional :: thr
+        integer :: eff_thr
+        logical :: is_bad
+        if (present(thr)) then
+            eff_thr = thr
+        else
+            eff_thr = 10
+        end if
+        is_bad = val > thr
+    end function check
+
+    function some_func(this) result(is_bad)
+        class(mytype), intent(in) :: this
+        logical :: is_bad
+
+        is_bad = check(this%val, thr=10) &
+            &   .or. check(this%arr(1)) .or. check(val=this%arr(2)) .or. check(this%arr(3))
+    end function some_func
+end module inline_call_mod
+    """.strip()
+    module = Module.from_source(fcode, frontend=frontend)
+    some_func = module['some_func']
+    inline_calls = FindInlineCalls().visit(some_func.body)
+    assert len(inline_calls) == 4
+    assert {fgen(c) for c in inline_calls} == {
+        'check(this%val, thr=10)', 'check(this%arr(1))', 'check(val=this%arr(2))', 'check(this%arr(3))'
+    }
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

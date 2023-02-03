@@ -12,9 +12,10 @@ import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-    OMNI, Module, Subroutine, BasicType, DerivedType, TypeDef,
+    OMNI, OFP, Module, Subroutine, BasicType, DerivedType, TypeDef,
     fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
-    VariableDeclaration, Assignment, InlineCall, Builder
+    VariableDeclaration, Assignment, InlineCall, Builder, StringSubscript,
+    Conditional, CallStatement
 )
 
 
@@ -1179,3 +1180,86 @@ def test_derived_type_rescope_symbols_shadowed(here, shadowed_typedef_symbols_fc
         assert init_maxstreams == 256
 
         clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+    (OFP, 'OFP cannot parse the Fortran')
+]))
+def test_derived_types_character_array_subscript(frontend):
+    fcode = """
+module derived_type_char_arr_mod
+    implicit none
+
+    type char_arr_type
+        character(len=511) :: some_name(3) = ["","",""]
+    end type char_arr_type
+
+contains
+
+    subroutine some_routine(config)
+        type(char_arr_type), intent(in) :: config
+        integer :: i, strlen
+        do i=1,3
+            if (config%some_name(i)(1:1) == '/') then
+                print *, 'absolute path'
+            end if
+            strlen = len_trim(config%some_name(i))
+            if (config%some_name(i)(strlen-2:strlen) == '.nc') then
+                print *, 'netcdf file'
+            end if
+        end do
+    end subroutine some_routine
+end module derived_type_char_arr_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    conditionals = FindNodes(Conditional).visit(module['some_routine'].body)
+    assert all(isinstance(c.condition.left, StringSubscript) for c in conditionals)
+    assert [fgen(c.condition.left) for c in conditionals] == [
+      'config%some_name(i)(1:1)', 'config%some_name(i)(strlen - 2:strlen)'
+    ]
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_types_nested_subscript(frontend):
+    fcode = """
+module derived_types_nested_subscript
+    implicit none
+
+    type inner_type
+        integer :: val
+    contains
+        procedure :: some_routine
+    end type inner_type
+
+    type outer_type
+        type(inner_type) :: inner(3)
+    end type outer_type
+
+contains
+
+    subroutine some_routine(this, val)
+        class(inner_type), intent(inout) :: this
+        integer, intent(in) :: val
+        this%val = val
+    end subroutine some_routine
+
+    subroutine driver(outers)
+        type(outer_type), intent(inout) :: outers(5)
+        integer :: i, j
+
+        do i=1,5
+            do j=1,3
+                call outers(i)%inner(j)%some_routine(i*10 + j)
+            end do
+        end do
+    end subroutine driver
+
+end module derived_types_nested_subscript
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    calls = FindNodes(CallStatement).visit(module['driver'].body)
+    assert len(calls) == 1
+    assert str(calls[0].name) == 'outers(i)%inner(j)%some_routine'
+    assert fgen(calls[0].name) == 'outers(i)%inner(j)%some_routine'

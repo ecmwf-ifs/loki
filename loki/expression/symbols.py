@@ -34,6 +34,7 @@ __all__ = [
     # Internal nodes
     'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
     'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
+    'StringSubscript',
 ]
 
 
@@ -1400,3 +1401,14 @@ class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
     Internal representation of an array subscript.
     """
     mapper_method = intern('map_array_subscript')
+
+
+class StringSubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
+    """
+    Internal representation of a substring subscript operator.
+    """
+    mapper_method = intern('map_string_subscript')
+
+    @property
+    def symbol(self):
+        return self.aggregate

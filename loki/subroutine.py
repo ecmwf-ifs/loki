@@ -44,6 +44,8 @@ class Subroutine(ProgramUnit):
         Prefix specifications for the procedure
     bind : optional
         Bind information (e.g., for Fortran ``BIND(C)`` annotation).
+    result_name : str, optional
+        The name of the result variable for functions.
     is_function : bool, optional
         Flag to indicate this is a function instead of subroutine
         (in the Fortran sense). Defaults to `False`.
@@ -70,12 +72,13 @@ class Subroutine(ProgramUnit):
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, contains=None,
-                 prefix=None, bind=None, is_function=False, ast=None, source=None, parent=None,
+                 prefix=None, bind=None, result_name=None, is_function=False, ast=None, source=None, parent=None,
                  rescope_symbols=False, symbol_attrs=None, incomplete=False):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self.prefix = as_tuple(prefix)
         self.bind = bind
+        self.result_name = result_name
         self.is_function = is_function
 
         # Additional IR components
@@ -261,6 +264,8 @@ class Subroutine(ProgramUnit):
             kwargs['prefix'] = self.prefix
         if self.bind and 'bind' not in kwargs:
             kwargs['bind'] = self.bind
+        if self.result_name and 'result_name' not in kwargs:
+            kwargs['result_name'] = self.result_name
         if self.is_function and 'is_function' not in kwargs:
             kwargs['is_function'] = self.is_function
 
@@ -311,6 +316,8 @@ class Subroutine(ProgramUnit):
         """
         if not self.is_function:
             return None
+        if self.result_name is not None:
+            return self.symbol_attrs.get(self.result_name)
         return self.symbol_attrs.get(self.name)
 
     variables = ProgramUnit.variables
