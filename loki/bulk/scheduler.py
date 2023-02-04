@@ -7,7 +7,7 @@
 
 from os.path import commonpath
 from pathlib import Path
-from collections import deque, OrderedDict
+from collections import deque, OrderedDict, defaultdict
 import networkx as nx
 from codetiming import Timer
 
@@ -271,7 +271,7 @@ class Scheduler:
             for child in self.item_graph.successors(item):
                 child_path = paths_map[child.path]
                 if parent_path != child_path:
-                file_graph.add_edge(parent_path, child_path)
+                    file_graph.add_edge(parent_path, child_path)
 
         return file_graph
 
@@ -472,32 +472,48 @@ class Scheduler:
                 self.obj_map[lookup_name].make_complete(**self.build_args)
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
-    def process(self, transformation, reverse=False):
+    def process(self, transformation, reverse=False, use_file_graph=False):
         """
-        Process all enqueued source modules and routines with the
-        stored kernel. The traversal is performed in topological
-        order, which ensures that :any:`CallStatement` objects are
-        always processed before their target :any:`Subroutine`.
-        """
+        Process all :attr:`items` in the scheduler's graph
 
+        By default, the traversal is performed in topologicalal order, which
+        ensures that :any:`CallStatement` objects are always processed before
+        their target :any:`Subroutine`.
+        This order can be reversed by setting :data:`reverse` to ``True``.
+
+        Optionally, the traversal can be performed on a source file level only,
+        by setting :data:`use_file_graph` to ``True``. Currently, this calls
+        the transformation on the first `item` associated with a file only.
+        """
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
         with Timer(logger=info, text=log):
 
-            traversal = nx.topological_sort(self.item_graph)
+            if use_file_graph:
+                graph = self.file_graph
+            else:
+                graph = self.item_graph
+
+            traversal = nx.topological_sort(graph)
             if reverse:
                 traversal = reversed(list(traversal))
 
-            for item in traversal:
-                if not isinstance(item, SubroutineItem):
-                    continue
+            if use_file_graph:
+                for node in traversal:
+                    items = graph.nodes[node]['items']
+                    transformation.apply(items[0].source, item=items[0], items=items)
 
-                # Process work item with appropriate kernel
-                transformation.apply(
-                    item.source, role=item.role, mode=item.mode,
-                    item=item, targets=item.targets, successors=list(self.item_graph.successors(item)),
-                    depths=self.depths
-                )
+            else:
+                for item in traversal:
+                    if not isinstance(item, SubroutineItem):
+                        continue
+
+                    # Process work item with appropriate kernel
+                    transformation.apply(
+                        item.source, role=item.role, mode=item.mode,
+                        item=item, targets=item.targets, successors=list(graph.successors(item)),
+                        depths=self.depths
+                    )
 
     def callgraph(self, path, with_file_graph=False):
         """

@@ -1330,6 +1330,49 @@ def test_scheduler_typebound_ignore(here, config, frontend):
     cg_path.with_suffix('.pdf').unlink()
 
 
+@pytest.mark.parametrize('use_file_graph,reverse', [
+    (False, False), (False, True), (True, False), (True, True)
+])
+def test_scheduler_traversal_order(here, config, frontend, use_file_graph, reverse):
+    """
+    Test correct traversal order for scheduler processing
+
+    """
+    proj = here/'sources/projHoist'
+
+    scheduler = Scheduler(
+        paths=proj, seed_routines=['driver'], config=config,
+        full_parse=True, frontend=frontend
+    )
+
+    if use_file_graph:
+        expected = [
+            'transformation_module_hoist#driver', 'subroutines_mod#kernel1'
+        ]
+    else:
+        expected = [
+            'transformation_module_hoist#driver', 'subroutines_mod#kernel1', 'subroutines_mod#kernel2',
+            'subroutines_mod#device1', 'subroutines_mod#device2'
+        ]
+
+    class LoggingTransformation(Transformation):
+
+        def __init__(self):
+            self.record = []
+
+        def transform_file(self, sourcefile, **kwargs):
+            item = kwargs['item']
+            self.record += [item.name]
+
+    transformation = LoggingTransformation()
+    scheduler.process(transformation=transformation, reverse=reverse, use_file_graph=use_file_graph)
+
+    if reverse:
+        assert transformation.record == expected[::-1]
+    else:
+        assert transformation.record == expected
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scheduler_nested_type_enrichment(frontend, config):
     """
