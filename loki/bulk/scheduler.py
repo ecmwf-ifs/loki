@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from os.path import commonpath
 from pathlib import Path
 from collections import deque, OrderedDict
 import networkx as nx
@@ -243,6 +244,38 @@ class Scheduler:
         """
         return as_tuple(self.item_graph.edges)
 
+    @property
+    def file_graph(self):
+        """
+        Alternative dependency graph based on relations between source files
+
+        Returns
+        -------
+        nx.DiGraph
+        """
+        paths = {item.path for item in self.item_graph}
+        basepath = Path(commonpath([str(p) for p in paths]))
+        paths_map = {p: p.relative_to(basepath) for p in paths}
+
+        file_graph = nx.DiGraph()
+        file_item_map = defaultdict(list)
+        for item in self.item_graph:
+            relative_path = paths_map[item.path]
+            file_item_map[relative_path] += [item]
+
+        for relative_path, items in file_item_map.items():
+            file_graph.add_node(relative_path, items=items)
+
+        for item in nx.topological_sort(self.item_graph):
+            parent_path = paths_map[item.path]
+            for child in self.item_graph.successors(item):
+                child_path = paths_map[child.path]
+                if parent_path != child_path:
+                file_graph.add_edge(parent_path, child_path)
+
+        return file_graph
+
+
     def __getitem__(self, name):
         """
         Find and return an item in the Scheduler's call graph
@@ -466,11 +499,16 @@ class Scheduler:
                     depths=self.depths
                 )
 
-    def callgraph(self, path):
+    def callgraph(self, path, with_file_graph=False):
         """
         Generate a callgraph visualization and dump to file.
 
-        :param path: Path to write the callgraph figure to.
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            Path to write the callgraph figure to.
+        with_filegraph : bool or str or pathlib.Path
+            Visualize file dependencies in an additional file. Can be set to `True` or a file path to write to.
         """
         try:
             import graphviz as gviz  # pylint: disable=import-outside-toplevel
@@ -485,10 +523,10 @@ class Scheduler:
         for item in self.items:
             if item.replicate:
                 callgraph.node(item.name.upper(), color='black', shape='diamond',
-                                fillcolor='limegreen', style='rounded,filled')
+                               fillcolor='limegreen', style='rounded,filled')
             else:
                 callgraph.node(item.name.upper(), color='black', shape='box',
-                                fillcolor='limegreen', style='filled')
+                               fillcolor='limegreen', style='filled')
 
         # Insert all edges in the schedulers graph
         for parent, child in self.dependencies:
@@ -501,7 +539,7 @@ class Scheduler:
             blocked_children = [child for child in blocked_children if isinstance(child, str)]
             for child in blocked_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='orangered', style='filled')
+                               fillcolor='orangered', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
             ignored_children = [child for child in item.children if child in item.ignore]
@@ -509,20 +547,40 @@ class Scheduler:
             ignored_children = [child for child in ignored_children if isinstance(child, str)]
             for child in ignored_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='lightblue', style='filled')
+                               fillcolor='lightblue', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
             missing_children = item.qualify_names(item.children, self.obj_map.keys())
             missing_children = [child[0] for child in missing_children if isinstance(child, tuple)]
             for child in missing_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='lightgray', style='filled')
+                               fillcolor='lightgray', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
         try:
             callgraph.render(cg_path, view=False)
         except gviz.ExecutableNotFound as e:
             warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')
+
+        if with_file_graph:
+            if with_file_graph is True:
+                fg_path = cg_path.with_name(f'{cg_path.stem}_file_graph{cg_path.suffix}')
+            else:
+                fg_path = Path(with_file_graph)
+            fg = gviz.Digraph(format='pdf', strict=True, graph_attr=(('rankdir', 'LR'),))
+            file_graph = self.file_graph
+
+            for item in file_graph:
+                fg.node(str(item), color='black', shape='box', style='rounded')
+
+            for parent, child in file_graph.edges:
+                fg.edge(str(parent), str(child))
+
+            try:
+                fg.render(fg_path, view=False)
+            except gviz.ExecutableNotFound as e:
+                warning(f'[Loki] Failed to render filegraph due to graphviz error:\n  {e}')
+
 
     @Timer(logger=perf, text='[Loki::Scheduler] Wrote CMake plan file in {:.2f}s')
     def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
