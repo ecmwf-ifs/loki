@@ -18,6 +18,10 @@ from loki.lint.reporter import FileReport, RuleReport
 from loki.lint.utils import Fixer
 from loki.sourcefile import Sourcefile
 from loki.tools import filehash
+from loki.transform import Transformation
+
+
+__all__ = ['Linter', 'LinterTransformation']
 
 
 class Linter:
@@ -211,3 +215,34 @@ class Linter:
         # TODO: this does not necessarily preserve the order of things in the file
         # as it will first generate all modules and then all subroutines
         sourcefile.write(conservative=True)
+
+
+class LinterTransformation(Transformation):
+    """
+    Apply :class:`Linter` as a :any:`Transformation` to :any:`Sourcefile`
+
+    The :any:`FileReport` is stored in the ``trafo_data` in an :any:`Item`
+    object, if it is provided to :meth:`transform_file`, e.g., during a
+    :any:`Scheduler` traversal.
+
+    Parameters
+    ----------
+    linter : :class:`Linter`
+        The linter instance to use
+    key : str, optional
+        Lookup key overwrite for stored reports in the ``trafo_data`` of :any:`Item`
+    """
+
+    _key = 'LinterTransformation'
+
+    def __init__(self, linter, key=None, **kwargs):
+        self.linter = linter
+        if key:
+            self._key = key
+        super().__init__(**kwargs)
+
+    def transform_file(self, sourcefile, **kwargs):
+        item = kwargs.get('item')
+        report = self.linter.check(sourcefile)
+        if item:
+            item.trafo_data[self._key] = report

@@ -10,7 +10,7 @@ import importlib
 import pytest
 
 from loki import Sourcefile, Assignment, FindNodes, FindVariables
-from loki.lint import GenericHandler, Reporter, Linter, GenericRule
+from loki.lint import GenericHandler, Reporter, Linter, GenericRule, LinterTransformation
 
 @pytest.fixture(scope='module', name='rules')
 def fixture_rules():
@@ -36,26 +36,8 @@ end subroutine dummy
     file_path.unlink()
 
 
-@pytest.mark.parametrize('rule_names, num_rules', [
-    (None, 1),
-    (['FooRule'], 0),
-    (['DummyRule'], 1)
-])
-def test_linter_lookup_rules(rules, rule_names, num_rules):
-    '''Make sure that linter picks up all rules by default.'''
-    rule_list = Linter.lookup_rules(rules, rule_names=rule_names)
-    assert len(rule_list) == num_rules
-
-
-def test_linter_fail(rules):
-    '''Make sure that linter fails if it is not given a source file.'''
-    with pytest.raises(TypeError, match=r'.*Sourcefile.*expected.*'):
-        Linter(None, rules).check(None)
-
-
-def test_linter_check(dummy_file):
-    '''Make sure that linter runs through all given and hands them
-    the right config.'''
+@pytest.fixture(scope='module', name='dummy_rules')
+def dummy_rules_fixture():
     class TestRule(GenericRule):
         config = {'key': 'default_value'}
 
@@ -78,6 +60,11 @@ def test_linter_check(dummy_file):
             assert config['other_key'] == 'other_value'
             rule_report.add('TestRule2', ast)
 
+    yield [TestRule2, TestRule]
+
+
+@pytest.fixture(scope='module', name='dummy_handler')
+def dummy_handler_fixture(dummy_file, dummy_rules):
     class TestHandler(GenericHandler):
 
         def handle(self, file_report):
@@ -85,13 +72,37 @@ def test_linter_check(dummy_file):
             assert len(file_report.reports[0].problem_reports) == 1
             assert file_report.reports[0].problem_reports[0].msg == 'TestRule2'
             assert file_report.reports[0].problem_reports[0].location.path == dummy_file
-            assert file_report.reports[0].rule == TestRule2
+            assert file_report.reports[0].rule == dummy_rules[0]
             assert file_report.reports[1].problem_reports[0].msg == 'TestRule'
             assert file_report.reports[1].problem_reports[0].location.path == dummy_file
-            assert file_report.reports[1].rule == TestRule
+            assert file_report.reports[1].rule == dummy_rules[1]
 
         def output(self, handler_reports):
             pass
+
+    yield TestHandler()
+
+
+@pytest.mark.parametrize('rule_names, num_rules', [
+    (None, 1),
+    (['FooRule'], 0),
+    (['DummyRule'], 1)
+])
+def test_linter_lookup_rules(rules, rule_names, num_rules):
+    '''Make sure that linter picks up all rules by default.'''
+    rule_list = Linter.lookup_rules(rules, rule_names=rule_names)
+    assert len(rule_list) == num_rules
+
+
+def test_linter_fail(rules):
+    '''Make sure that linter fails if it is not given a source file.'''
+    with pytest.raises(TypeError, match=r'.*Sourcefile.*expected.*'):
+        Linter(None, rules).check(None)
+
+
+def test_linter_check(dummy_file, dummy_rules, dummy_handler):
+    '''Make sure that linter runs through all given rules and hands them
+    the right config.'''
 
     config = {
         'TestRule2': {
@@ -99,10 +110,25 @@ def test_linter_check(dummy_file):
             'key': 'non_default_value'
         }
     }
-    reporter = Reporter(handlers=[TestHandler()])
-    rule_list = [TestRule2, TestRule]
-    linter = Linter(reporter, rule_list, config=config)
+    reporter = Reporter(handlers=[dummy_handler])
+    linter = Linter(reporter, dummy_rules, config=config)
     linter.check(Sourcefile.from_file(dummy_file))
+
+
+def test_linter_transformation(dummy_file, dummy_rules, dummy_handler):
+    '''Make sure that linter runs through all given rules and hands them
+    the right config when called via Transformation.'''
+
+    config = {
+        'TestRule2': {
+            'other_key': 'other_value',
+            'key': 'non_default_value'
+        }
+    }
+    reporter = Reporter(handlers=[dummy_handler])
+    linter = Linter(reporter, dummy_rules, config=config)
+    transformation = LinterTransformation(linter=linter)
+    transformation.apply(Sourcefile.from_file(dummy_file))
 
 
 @pytest.mark.parametrize('file_rule,module_rule,subroutine_rule,assignment_rule,report_counts', [
