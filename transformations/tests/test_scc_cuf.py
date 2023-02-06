@@ -10,7 +10,7 @@ import pytest
 
 from conftest import available_frontends
 from loki import (
-    Scheduler, OMNI, Subroutine, Dimension, FindNodes, Loop, Assignment,
+    Scheduler, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Allocation, Deallocation, VariableDeclaration, Import, FindVariables
 )
 from loki.transform import HoistTemporaryArraysAnalysis, ParametriseTransformation
