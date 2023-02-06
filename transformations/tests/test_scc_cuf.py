@@ -199,13 +199,13 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
-    
+
     DO jk = 2, nz
       DO jl = start, end
-        z(jl, jk) = 0.0 
+        z(jl, jk) = 0.0
       END DO
     END DO
-    
+
     ! DO JL = START, END
     !   Q(JL, NZ) = Q(JL, NZ) * C
     ! END DO
@@ -225,7 +225,7 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
     check_subroutine_kernel(routine=kernel, horizontal=horizontal, vertical=vertical, blocking=blocking)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Dependencies not fully resolved')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, blocking):
     """
     Test SCC-CUF transformation type 0, thus including parametrising (array dimension(s))
@@ -277,7 +277,7 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
         assert local_array.type.device
 
 
-@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Dependencies not fully resolved')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
     """
     Test SCC-CUF transformation type 1, thus including host side hoisting
@@ -338,7 +338,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
         assert blocking.size in dims
 
 
-@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Dependencies not fully resolved')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_cuf_dynamic_memory(here, frontend, config, horizontal, vertical, blocking):
     """
     Test SCC-CUF transformation type 2, thus including dynamic memory allocation on the device (for local arrays)
