@@ -687,20 +687,17 @@ class SccCufTransformation(Transformation):
     work for GPU threads according to the CUDA programming model using
     CUDA Fortran (CUF) syntax.
 
-    .. note:: this requires preprocessing with the :class:`DerivedTypeArgumentsTransformation`.
+    .. note:: this requires preprocessing with the :any:`DerivedTypeArgumentsTransformation`.
 
     .. note:: in dependence of the transformation type ``transformation_type`` further
      transformation are necessary:
 
-     * `transformation_type = 0` which corresponds to parametrising the array arguments, this
-      requires a subsequent :class:`ParametriseTransformation` transformation with the
-      necessary information to parametrise (at least) the ``vertical`` `size`
-     * `transformation_type = 1` which corresponds to host side hoisting of the relevant arrays,
-      this requires subsequent :class:`HoistVariablesAnalysis` and :class:`HoistVariablesTransformation`
-      transformations (e.g. :class:`HoistTemporaryArraysAnalysis` for analysis and
-      :class:`HoistTemporaryArraysTransformationDeviceAllocatable` for synthesis)
-     * `transformation_type = 2` which corresponds to dynamic memory allocation on the device,
-      this does not require a subsequent transformation
+     * ``transformation_type = 'parametrise'`` requires a subsequent :any:`ParametriseTransformation`
+      transformation with the necessary information to parametrise (at least) the ``vertical`` `size`
+     * ``transformation_type = 'hoist'`` requires subsequent :any:`HoistVariablesAnalysis` and
+      :class:`HoistVariablesTransformation` transformations (e.g. :any:`HoistTemporaryArraysAnalysis`
+      for analysis and :any:`HoistTemporaryArraysTransformationDeviceAllocatable` for synthesis)
+     * ``transformation_type = 'dynamic'`` does not require a subsequent transformation
 
     Parameters
     ----------
@@ -719,7 +716,8 @@ class SccCufTransformation(Transformation):
         Kind of SCC-CUF transformation, as automatic arrays currently not supported. Thus
         automatic arrays need to transformed by either
 
-        - `parametrise`: parametrising the array dimensions
+        - `parametrise`: parametrising the array dimensions to make the vertical dimension
+          a compile-time constant
         - `hoist`: host side hoisting of (relevant) arrays
         - `dynamic`: dynamic memory allocation on the device (not recommended for performance reasons)
 
