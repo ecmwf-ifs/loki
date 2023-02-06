@@ -13,10 +13,14 @@ from loki.expression import symbols as sym
 from loki.transform import resolve_associates, single_variable_declaration, HoistVariablesTransformation
 from loki import ir
 from loki import (
-    Transformation, FindNodes, FindVariables,
-    FindExpressions, Transformer,
-    SubstituteExpressions, SymbolAttributes, BasicType,
+    Transformation, FindNodes, FindVariables, Transformer,
+    SubstituteExpressions, SymbolAttributes,
     CaseInsensitiveDict, as_tuple, flatten, types
+)
+
+from transformations.single_column_coalesced import (
+    resolve_masked_stmts, get_integer_variable, kernel_remove_vector_loops,
+    resolve_vector_dimension
 )
 
 __all__ = ['SccCufTransformation', 'HoistTemporaryArraysDeviceAllocatableTransformation']
@@ -136,43 +140,6 @@ def remove_pragmas(routine):
     """
     pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body)}
     routine.body = Transformer(pragma_map).visit(routine.body)
-
-
-def get_integer_variable(routine, name):
-    """
-    Find a local variable in the routine, or create an integer-typed one.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to find the variable
-    name : string
-        Name of the variable to find the in the routine.
-    """
-    if name in routine.variable_map:
-        v_index = routine.variable_map[name]
-    else:
-        dtype = SymbolAttributes(BasicType.INTEGER)
-        v_index = sym.Variable(name=name, type=dtype, scope=routine)
-    return v_index
-
-
-def kernel_remove_vector_loops(routine, horizontal):
-    """
-    Remove all vector loops over the specified dimension.
-
-    Parameters
-    ----------
-    routine: :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
-    horizontal : :any:`Dimension`
-        The dimension specifying the horizontal vector dimension
-    """
-    loop_map = {}
-    for loop in FindNodes(ir.Loop).visit(routine.body):
-        if loop.variable == horizontal.index:
-            loop_map[loop] = loop.body
-    routine.body = Transformer(loop_map).visit(routine.body)
 
 
 # TODO: correct "definition" of elemental/pure routines ...
@@ -564,65 +531,6 @@ def driver_launch_configuration(routine, block_dim, disable):
                 mapper[loop] = loop.body
 
     routine.body = Transformer(mapper=mapper).visit(routine.body)
-
-
-def resolve_masked_stmts(routine, loop_variable):
-    """
-    Resolve :any:`MaskedStatement` (WHERE statement) objects to an
-    explicit combination of :any:`Loop` and :any:`Conditional` combination.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to resolve masked statements
-    loop_variable : :any:`Scalar`
-        The induction variable for the created loops.
-    """
-    mapper = {}
-    for masked in FindNodes(ir.MaskedStatement).visit(routine.body):
-        ranges = [e for e in FindExpressions().visit(masked.condition) if isinstance(e, sym.RangeIndex)]
-        exprmap = {r: loop_variable for r in ranges}
-        assert len(ranges) > 0
-        assert all(r == ranges[0] for r in ranges)
-        bounds = sym.LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
-        cond = ir.Conditional(condition=masked.condition, body=masked.body, else_body=masked.default)
-        loop = ir.Loop(variable=loop_variable, bounds=bounds, body=cond)
-        # Substitute the loop ranges with the loop index and add to mapper
-        mapper[masked] = SubstituteExpressions(exprmap).visit(loop)
-
-    routine.body = Transformer(mapper).visit(routine.body)
-
-
-def resolve_vector_dimension(routine, loop_variable, bounds):
-    """
-    Resolve vector notation for a given dimension only. The dimension
-    is defined by a loop variable and the bounds of the given range.
-
-    TODO: Consolidate this with the internal
-    `loki.transform.transform_array_indexing.resolve_vector_notation`.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to resolve vector notation usage.
-    loop_variable : :any:`Scalar`
-        The induction variable for the created loops.
-    bounds : tuple of :any:`Scalar`
-        Tuple defining the iteration space of the inserted loops.
-    """
-    bounds_str = f'{bounds[0]}:{bounds[1]}'
-
-    mapper = {}
-    for stmt in FindNodes(ir.Assignment).visit(routine.body):
-        ranges = [e for e in FindExpressions().visit(stmt)
-                  if isinstance(e, sym.RangeIndex) and e == bounds_str]
-        if ranges:
-            exprmap = {r: loop_variable for r in ranges}
-            loop = ir.Loop(variable=loop_variable, bounds=sym.LoopRange(bounds),
-                           body=SubstituteExpressions(exprmap).visit(stmt))
-            mapper[stmt] = loop
-
-    routine.body = Transformer(mapper).visit(routine.body)
 
 
 def device_derived_types(routine, disable, derived_types):
