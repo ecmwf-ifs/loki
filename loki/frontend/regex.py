@@ -398,7 +398,7 @@ class ModulePattern(Pattern):
             module = Module(name=name, source=source, parent=scope)
 
         if match['spec'] and match['spec'].strip():
-            block_candidates = ('TypedefPattern',)
+            block_candidates = ('TypedefPattern', 'InterfacePattern')
             statement_candidates = ('ImportPattern', 'VariableDeclarationPattern')
             spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
@@ -441,7 +441,7 @@ class SubroutineFunctionPattern(Pattern):
     def __init__(self):
         super().__init__(
             r'^[ \t\w()]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
-            r'(?P<spec>.*?)'
+            r'(?P<spec>(?:.*?(?:^(?:abstract[ \t]+)?interface\b.*?^end[ \t]+interface)?)+)'
             r'(?P<contains>^contains\n(?:'
             r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
             r'(?:[ \t\w()]*?function.*?^end[ \t]*function\b(?:[ \t]\w+)?\n)|'
@@ -515,6 +515,111 @@ class SubroutineFunctionPattern(Pattern):
         else:
             pre = None
         return pre, routine, reader.reader_from_sanitized_span((match.span()[1], None), include_padding=True)
+
+
+class InterfacePattern(Pattern):
+    """
+    Pattern to match :any:`Interface` objects
+    """
+
+    parser_class = RegexParserClass.ProgramUnitClass
+
+    def __init__(self):
+        super().__init__(
+            r'^(?P<is_abstract>abstract[ \t]+)?'
+            r'interface\b[ \t]*(?P<spec>\w+\b.*?$)?'
+            r'(?P<body>.*?)'
+            r'^end[ \t]+interface\b[ \t]*(?P=spec)?',
+            re.IGNORECASE | re.DOTALL | re.MULTILINE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`Interface`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        from loki import Interface  # pylint: disable=import-outside-toplevel,cyclic-import
+        match = self.pattern.search(reader.sanitized_string)
+        if not match:
+            return None, None, reader
+
+        source = reader.source_from_sanitized_span(match.span())
+        is_abstract = match['is_abstract'] is not None
+
+        block_candidates = ['SubroutineFunctionPattern']
+        statement_candidates = ('ProcedureStatementPattern',)
+        body = self.match_block_statement_candidates(
+            reader.reader_from_sanitized_span(match.span('body'), include_padding=True),
+            block_candidates, statement_candidates, parser_classes=parser_classes, scope=scope
+        )
+
+        if match['spec']:
+            spec = match['spec'].replace(' ', '')
+            type_ = SymbolAttributes(ProcedureType(name=spec, is_generic=True))
+            spec = sym.Variable(name=spec, type=type_, scope=scope)
+        else:
+            spec = None
+
+        interface = Interface(body=body, abstract=is_abstract, spec=spec, source=source)
+        if match.span()[0] > 0:
+            pre = reader.reader_from_sanitized_span((0, match.span()[0]), include_padding=True)
+        else:
+            pre = None
+        return pre, interface, reader.reader_from_sanitized_span((match.span()[1], None), include_padding=True)
+
+
+class ProcedureStatementPattern(Pattern):
+    """
+    Pattern to match procedure statements in interfaces
+    """
+
+    parser_class = RegexParserClass.ProgramUnitClass
+
+    def __init__(self):
+        super().__init__(
+            r'^(?P<module>module[ \t]+)?procedure\b'  # Match ``procedure`` keyword
+            r'(?:[ \t]*::)?'  # Optional `::` delimiter
+            r'[ \t]*'  # Some white space
+            r'(?P<procedures>'  # Beginning of procedures group
+            r'\w+(?:[ \t]*,[ \t]*\w+)*' # Procedure names, separated by ``,``
+            r')',  # End of procedures group
+            re.IGNORECASE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a procedure binding
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+        if not match:
+            return None
+
+        is_module = match['module'] is not None
+
+        procedures = match['procedures'].replace(' ', '').split(',')
+        symbols = [
+            sym.Variable(name=s, type=SymbolAttributes(ProcedureType(name=s)), scope=scope)
+            for s in procedures
+        ]
+        return ir.ProcedureDeclaration(symbols=symbols, module=is_module, source=reader.source_from_current_line)
 
 
 class TypedefPattern(Pattern):
@@ -695,7 +800,7 @@ class ImportPattern(Pattern):
     def __init__(self):
         super().__init__(
             r'^use +(?P<module>\w+)(?: *, *(?P<only>only *:)?'  # The use statement including an optional ``only``
-            r'(?P<imports>(?: *\w+(?: *=> *\w+)? *,?)+))?',  # The optional list of names (with optional renames)
+            r'(?P<imports>(?: *\w+\b *(?:=> *\w+|\(.*?\))? *,?)+))?',  # The optional list of names (w/ renames, ops)
             re.IGNORECASE
         )
 

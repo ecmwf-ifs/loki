@@ -398,7 +398,8 @@ class Item:
                 warning(f'{candidates} not found in available_names')
                 return candidates
             if len(matched_names) != 1:
-                warning(f'Duplicate symbol: {name[name.index("#")+1:]}, can be one of {matched_names}')
+                name = matched_names[0]
+                warning(f'Duplicate symbol: {name[name.find("#")+1:]}, can be one of {matched_names}')
                 return tuple(name + member_name for name in matched_names)
             return matched_names.pop() + member_name
 

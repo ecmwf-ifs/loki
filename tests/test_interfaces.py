@@ -10,7 +10,7 @@ import pytest
 
 from conftest import available_frontends
 from loki import (
-    Module, Subroutine, FindNodes, Interface, Import, fgen, OMNI,
+    Module, Subroutine, FindNodes, Interface, Import, fgen, OMNI, REGEX,
     ProcedureSymbol, ProcedureType
 )
 
@@ -20,7 +20,7 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
 def test_interface_spec(frontend):
     """
     Test basic functionality of interface representation
@@ -57,7 +57,7 @@ end module interface_spec_mod
     assert 'subroutine sub' in code
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
 def test_interface_module_integration(frontend):
     """
     Test correct integration of interfaces into modules
@@ -183,7 +183,7 @@ end module interface_import_mod
     assert 'import t' in fgen(interface).lower()
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
 def test_interface_multiple_routines(frontend):
     """
     Test interfaces with multiple subroutine/function declarations
@@ -242,7 +242,7 @@ end module interface_multiple_routines_mod
     assert 'function ext3' in code
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
 def test_interface_generic_spec(frontend):
     """
     Test interfaces with a generic identifier
@@ -291,7 +291,7 @@ end module interface_generic_spec_mod
     assert all(s in module.symbols for s in ('switch', 'int_switch', 'real_switch', 'complex_switch'))
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
 def test_interface_operator_module_procedure(frontend):
     """
     Test interfaces that declare generic operators and refer to module procedures
@@ -417,17 +417,56 @@ end module use_spectral_fields_mod
     assert other_mod.imported_symbols == ('assignment(=)', 'operator(.eqv.)')
 
     assign_sym = other_mod.imported_symbol_map['assignment(=)']
-    assert isinstance(assign_sym, ProcedureSymbol)
-    assert isinstance(assign_sym.type.dtype, ProcedureType)
-    assert assign_sym.type.dtype.is_generic is True
-    assert assign_sym.type.imported is True
-    assert assign_sym.type.module is mod
-
     op_sym = other_mod.imported_symbol_map['operator(.eqv.)']
-    assert isinstance(op_sym, ProcedureSymbol)
-    assert isinstance(op_sym.type.dtype, ProcedureType)
-    assert op_sym.type.dtype.is_generic is True
+
+    assert assign_sym.type.imported is True
     assert op_sym.type.imported is True
-    assert op_sym.type.module is mod
+
+    if frontend != REGEX:  # REGEX frontend doesn't use definitions and therefore doesn't import types
+        assert isinstance(assign_sym, ProcedureSymbol)
+        assert isinstance(assign_sym.type.dtype, ProcedureType)
+        assert assign_sym.type.dtype.is_generic is True
+        assert assign_sym.type.module is mod
+
+        assert isinstance(op_sym, ProcedureSymbol)
+        assert isinstance(op_sym.type.dtype, ProcedureType)
+        assert op_sym.type.dtype.is_generic is True
+        assert op_sym.type.module is mod
 
     assert other_code.splitlines()[1].strip() in fgen(other_mod).lower()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
+def test_interface_procedure_pointer(frontend):
+    fcode = """
+module my_interface_mod
+implicit none
+ABSTRACT INTERFACE
+  FUNCTION SIM_FUNC (X)
+    REAL, INTENT (IN) :: X
+    REAL :: SIM_FUNC
+  END FUNCTION SIM_FUNC
+END INTERFACE
+
+INTERFACE
+  SUBROUTINE SUB2 (X, P)
+    REAL, INTENT (INOUT) :: X
+    PROCEDURE(SIM_FUNC) :: P
+  END SUBROUTINE SUB2
+END INTERFACE
+end module my_interface_mod
+    """.strip()
+
+    mod = Module.from_source(fcode, frontend=frontend)
+
+    intf_sim_func = mod.interface_map['sim_func']
+    assert intf_sim_func.abstract
+    assert intf_sim_func.symbols[0].type.dtype.procedure is intf_sim_func.body[0]
+
+    intf_sub2 = mod.interface_map['sub2']
+    assert intf_sub2.symbols[0].type.dtype.procedure is intf_sub2.body[0]
+    sub2 = intf_sub2.body[0]
+
+    if frontend != REGEX:
+        arg_p = sub2.arguments[1]
+        assert isinstance(arg_p.type.dtype, ProcedureType)

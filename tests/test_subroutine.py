@@ -1250,7 +1250,7 @@ subroutine test_subroutine_interface (in1, in2, out1, out2)
   out2 = out1 + 2.
 end subroutine
 """
-    routine = Subroutine.from_source(fcode, xmods=[here/'source/xmod'], frontend=frontend)
+    routine = Subroutine.from_source(fcode, xmods=[here/'sources/xmod'], frontend=frontend)
 
     if frontend == OMNI:
         assert fgen(routine.interface).strip() == """
