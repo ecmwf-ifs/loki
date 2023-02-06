@@ -76,10 +76,11 @@ def dynamic_local_arrays(routine, vertical):
         The dimension specifying the horizontal vector dimension
     """
     local_arrays = []
+    argnames = [name.lower() for name in routine.argnames]
     decl_map = {}
     for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
         if any(isinstance(smbl, sym.Array) for smbl in decl.symbols) and not \
-                any(smbl.name in routine.arguments for smbl in decl.symbols) and \
+                any(smbl in argnames for smbl in decl.symbols) and \
                 any(vertical.size in list(FindVariables().visit(smbl.shape)) for smbl in decl.symbols):
             local_arrays.extend(decl.symbols)
             dimensions = [sym.RangeIndex((None, None))] * len(decl.symbols[0].dimensions)
