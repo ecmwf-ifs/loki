@@ -307,10 +307,13 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
 
     # check driver
     for call in FindNodes(CallStatement).visit(scheduler.item_map["driver_mod#driver"].routine.body):
-        assert all(_ in [arg.name for arg in call.arguments] for _ in ['kernel_local_z', 'DEVICE_local_x'])
+        argnames = [arg.name.lower() for arg in call.arguments]
+        assert 'kernel_local_z' in argnames
+        assert 'device_local_x' in argnames
     # check kernel
-    assert all(_ in [arg.name for arg in scheduler.item_map["kernel_mod#kernel"].routine.arguments]
-               for _ in ['local_z', 'DEVICE_local_x'])
+    argnames = [arg.name.lower() for arg in scheduler.item_map["kernel_mod#kernel"].routine.arguments]
+    assert 'local_z' in argnames
+    assert 'device_local_x' in argnames
     calls = [call for call in FindNodes(CallStatement).visit(scheduler.item_map["kernel_mod#kernel"].routine.body)
              if str(call.name) == "DEVICE"]
     for call in calls:
