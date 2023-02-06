@@ -417,7 +417,7 @@ def driver_device_variables(routine, disable):
     for call in calls:
         relevant_arrays.extend([arg for arg in call.arguments if isinstance(arg, sym.Array)])
 
-    relevant_arrays = list(dict.fromkeys(relevant_arrays))  # list(set(relevant_arrays))
+    relevant_arrays = list(dict.fromkeys(relevant_arrays))
 
     # Declaration
     routine.spec.append(ir.Comment(''))
@@ -486,7 +486,7 @@ def driver_device_variables(routine, disable):
     for call in calls:
         arguments = []
         for arg in call.arguments:
-            if arg in relevant_arrays:  # if isinstance(arg, sym.Array):
+            if arg in relevant_arrays:
                 vtype = arg.type.clone(device=True, allocatable=True, shape=None, intent=None)
                 arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
             else:

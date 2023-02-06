@@ -135,7 +135,6 @@ def cli(debug):
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
-# @click.option('--trafo-type', '-t', default=0, type=int, help='Transformation type to be accomplished.')
 def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
             data_offload, remove_openmp, mode, frontend, config):
     """
@@ -210,15 +209,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
             directive='openacc', hoist_column_arrays='hoist' in mode
         )
 
-    # cuf_info = {0: "Parametrise",
-    #             1: "Hoist",
-    #             2: "Dynamic memory allocation on the device"}
-
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        # if trafo_type not in [0, 1, 2]:
-        #     raise ValueError('[Loki] CUF transformation only allows for transformation types "0, 1, 2"')
-        # if trafo_type == 0:
-        #     info(f'[Loki] CUF transformation version {trafo_type}: {cuf_info[trafo_type]}')
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
