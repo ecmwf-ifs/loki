@@ -155,8 +155,9 @@ def is_elemental(routine):
     routine: :any:`Subroutine`
         The subroutine to check whether elemental
     """
-    if "ELEMENTAL" in routine.prefix:
-        return True
+    for prefix in routine.prefix:
+        if prefix.lower() == 'elemental':
+            return True
     return False
 
 
