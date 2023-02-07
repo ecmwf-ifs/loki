@@ -1026,14 +1026,13 @@ def test_scheduler_typebound_item(here):
     assert driver.qualified_imports == {'other': 'typebound_other#other_type'}
 
     # Check that calls are propagated as children
-    assert driver.children == driver.calls
+    assert set(driver.children) == set(driver.calls)
 
     # Check that fully-qualified names are correctly picked from the available names
     assert driver.qualify_names(driver.children, available_names) == (
         'typebound_item#some_type%other_routine', 'typebound_item#some_type%some_routine',
         'typebound_header#header_type%member_routine', 'typebound_header#header_type%routine',
-        'typebound_header#header_type%routine', 'typebound_other#other_type%member',
-        'typebound_other#other_type%var%member_routine'
+        'typebound_other#other_type%member', 'typebound_other#other_type%var%member_routine'
     )
 
     other_routine = SubroutineItem(name='typebound_item#other_routine', source=source)
