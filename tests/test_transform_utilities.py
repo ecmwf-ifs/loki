@@ -8,8 +8,11 @@
 import pytest
 
 from conftest import available_frontends
-from loki.transform import single_variable_declaration
-from loki import Subroutine, OMNI, FindNodes, VariableDeclaration
+from loki.transform import single_variable_declaration, recursive_expression_map_update
+from loki import (
+    Module, Subroutine, OMNI, FindNodes, VariableDeclaration, FindVariables,
+    SubstituteExpressions, fgen
+)
 from loki.expression import symbols as sym
 
 
@@ -101,3 +104,64 @@ end subroutine foo
             shapes = [smbl.shape for smbl in decl.symbols]
             _ = [shape == shapes[0] for shape in shapes]
             assert all(_)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilities_recursive_expression_map_update(frontend):
+    fcode = """
+module some_mod
+    implicit none
+
+    type some_type
+        integer :: m, n
+        real, allocatable :: a(:, :)
+    contains
+        procedure, pass :: my_add
+    end type some_type
+contains
+    function my_add(self, data, val)
+        class(some_type), intent(inout) :: self
+        real, intent(in) :: data(:,:)
+        real, value :: val
+        real :: my_add(:,:)
+        my_add(:,:) = self%a(:,:) + data(:,:) + val
+    end function my_add
+
+    subroutine do(my_obj)
+        type(some_type), intent(inout) :: my_obj
+        my_obj%a = my_obj%my_add(MY_OBJ%a(1:my_obj%m, 1:MY_OBJ%n), 1.)
+    end subroutine do
+end module some_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['do']
+
+    expr_map = {}
+    expr_map[routine.variable_map['my_obj']] = routine.variable_map['my_obj'].clone(name='obj')
+    for var in FindVariables().visit(routine.body):
+        if var.parent == 'my_obj':
+            expr_map[var] = var.clone(name=f'obj%{var.basename}', parent=var.parent.clone(name='obj'))
+
+    # There are "my_obj" nodes still around...
+    assert any(
+        var == 'my_obj' or var.parent == 'my_obj' for var in FindVariables().visit(list(expr_map.values()))
+    )
+
+    # ...and application performs only a partial substitution
+    cloned = routine.clone()
+    cloned.body = SubstituteExpressions(expr_map).visit(cloned.body)
+    assert fgen(cloned.body.body[0]).lower() == 'obj%a = obj%my_add(obj%a(1:my_obj%m, 1:my_obj%n), 1.)'
+
+    # Apply recursive update
+    expr_map = recursive_expression_map_update(expr_map)
+
+    # No more "my_obj" nodes...
+    assert all(
+        var != 'my_obj' and var.parent != 'my_obj' for var in FindVariables().visit(list(expr_map.values()))
+    )
+
+    # ...and full substitution
+    assert fgen(routine.body.body[0]).lower() == 'my_obj%a = my_obj%my_add(my_obj%a(1:my_obj%m, 1:my_obj%n), 1.)'
+    routine.body = SubstituteExpressions(expr_map).visit(routine.body)
+    assert fgen(routine.body.body[0]) == 'obj%a = obj%my_add(obj%a(1:obj%m, 1:obj%n), 1.)'

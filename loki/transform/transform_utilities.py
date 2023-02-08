@@ -17,6 +17,7 @@ from loki.expression import (
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
+from loki.frontend import Source
 from loki.ir import Import, TypeDef, VariableDeclaration
 from loki.module import Module
 from loki.subroutine import Subroutine
@@ -27,7 +28,7 @@ from loki.visitors import Transformer, FindNodes
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'sanitise_imports',
-    'replace_selected_kind', 'single_variable_declaration'
+    'replace_selected_kind', 'single_variable_declaration', 'recursive_expression_map_update'
 ]
 
 
@@ -407,3 +408,47 @@ def replace_selected_kind(routine):
             # No iso_fortran_env import present, need to insert a new one
             imprt = Import('iso_fortran_env', symbols=as_tuple(mapper.used_names.values()))
             routine.spec.prepend(imprt)
+
+
+def recursive_expression_map_update(expr_map, max_iterations=10):
+    """
+    Utility function to apply a substitution map for expressions to itself
+
+    The expression substitution mechanism :any:`SubstituteExpressions` and the
+    underlying mapper :any:`SubstituteExpressionsMapper` replace nodes that
+    are found in the substitution map by their corresponding replacement.
+
+    However, expression nodes can be nested inside other expression nodes,
+    e.g. via the ``parent`` or ``dimensions`` properties of variables.
+    In situations, where such expression nodes as well as expression nodes
+    appearing inside such properties are marked for substitution, it may
+    be necessary to apply the substitution map to itself first. This utility
+    routine takes care of that.
+
+    Parameters
+    ----------
+    expr_map : dict
+        The substitution map that should be updated
+    max_iterations : int
+        Maximum number of iterations, corresponds to the maximum level of
+        nesting that can be replaced.
+    """
+    constant_types = (type(None), str, Source, SymbolAttributes)
+    for _ in range(max_iterations):
+        # We update the expression map by applying it to the children of each replacement
+        # node, thus making sure node replacements are also applied to nested attributes,
+        # e.g. call arguments or array subscripts etc.
+        mapper = SubstituteExpressionsMapper(expr_map)
+        prev_map, expr_map = expr_map, {
+            expr: type(replacement)(**{
+                name: arg if isinstance(arg, constant_types) else mapper(arg)
+                for name, arg in zip(replacement.init_arg_names, replacement.__getinitargs__())
+            })
+            for expr, replacement in expr_map.items()
+        }
+
+        # Check for early termination opportunities
+        if prev_map == expr_map:
+            break
+
+    return expr_map
