@@ -685,11 +685,12 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
             setattr(self, expr.mapper_method, self.map_from_expr_map)
 
     def map_from_expr_map(self, expr, *args, **kwargs):
-        # We have to recurse here to make sure we are applying the substitution also to
-        # "hidden" places (such as dimension expressions inside an array).
-        # And we have to actually carry out the expression first before looking up the
-        # super()-method as the node type might change.
-        expr = self.expr_map.get(expr, expr)
+        """
+        Replace an expr with its substitution, if found in the :attr:`expr_map`,
+        otherwise continue tree traversal
+        """
+        if expr in self.expr_map:
+            return self.expr_map[expr]
         map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)
 
