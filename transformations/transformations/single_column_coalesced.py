@@ -14,11 +14,149 @@ from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
-    pragmas_attached, CaseInsensitiveDict, as_tuple, flatten
+    pragmas_attached, CaseInsensitiveDict, as_tuple, flatten, 
+    Product, IntLiteral, CallStatement, Array, RangeIndex, Conditional
 )
 
 
 __all__ = ['SingleColumnCoalescedTransformation']
+
+
+def get_nonarguments(routine):
+    return [v for v in routine.variables if v.name.lower() not in routine._dummies]
+
+
+def insert_routine_body(routine):
+    '''
+    routine: Subroutine object
+
+    Replace calls to included routines with routine bodies
+    '''
+
+    minus_one = Product((-1, IntLiteral(1)))
+
+    #List call objects and variable names in routine
+    calls = FindNodes(CallStatement).visit(routine.body)
+    d_names = [v.name for v in routine.variables]
+
+    #Create ampty call map and member variable name list
+    call_map = {}
+    k_names = []
+
+    #Loop over member subroutines
+    for member in routine.members:
+
+        #Make a set of member variables that are not arguments and
+        #not duplicates of routine variables
+        kset = set(get_nonarguments(member)) - set(routine.variables)
+
+        #Add names to l;ist of member variable names
+        k_names += [v.name for v in kset]
+
+        #Have to check for member variables with the same name as routine variables
+        #Create sets of variables to add and remove create a map from old to new names
+        pset = set()
+        mset = set()
+        name_map = {}
+
+        #Loop over variables in member set and check if name exists in routine
+        for v in kset:
+            if v.name in d_names:
+
+                #Add an X at the end of name until the name is unique
+                new_name = v.name + 'X'
+                while (new_name in d_names or new_name in k_names):
+                    new_name += 'X'
+
+                #Create variable with new name and organize set and map
+                mset.add(v)
+                pset.add(v.clone(name = new_name))
+                k_names += [new_name]
+                name_map[v.name] = new_name
+
+        kset = kset - mset
+        kset = kset.union(pset)
+
+        #Check if any names must change
+        kvar_map = {}
+        if name_map:
+            #Map variables to variables with new names
+            for v in FindVariables(unique=False).visit(member.body):
+                if v.name in name_map:
+                    kvar_map[v] = v.clone(name = name_map[v.name])
+
+        temp_body = SubstituteExpressions(kvar_map).visit(member.body)
+
+        #Loop over all calls and check if they call the member
+        for call in calls:
+            if call.routine == member:
+
+                #Create map from member dummy name to actual argument
+                amap = {}
+                for a in call.arg_iter():
+                    amap[a[0].name] = a[1]
+
+                #List member dummy variables
+                variables = [v for v in FindVariables(unique=False).visit(temp_body) if v.name in amap]
+
+                vmap = {}
+                for v in variables:
+                    #If actual argument not an array, just use it directly
+                    if not isinstance(amap[v.name], Array):
+                        vmap[v] = amap[v.name]
+                    # If the shapes are known and the same use actual argument with member dimensions
+                    elif (isinstance(v, Array) and amap[v.name].shape is not None and len(v.shape) == len(amap[v.name].shape)):
+                        vmap[v] = amap[v.name].clone(dimensions = v.dimensions)
+                    else:
+                        #Else we have to be careful
+                        new_dims = []
+                        ranges = sum(1 for d in amap[v.name].dimensions if isinstance(d, RangeIndex))
+
+                        #If shape of dummy matches the number of ranges, match dimensions to ranges
+                        if (len(v.shape) == ranges):
+
+                            #Loop over dimensions of actual argument
+                            j = 0
+                            for a in amap[v.name].dimensions:
+                                #If dimension is a range
+                                if isinstance(a, RangeIndex):
+                                    #If there's no lower range, just use member dimension, else subtract 1
+                                    if not a.lower or (isinstance(a.lower, IntLiteral) and a.lower.value == 1):
+                                        new_dims += [v.dimensions[j]]
+                                    elif isinstance(a.lower, IntLiteral):
+                                        new_dims += [Sum((IntLiteral(value = a.lower.value - 1), v.dimensions[j]))]
+                                    else:
+                                        new_dims += [Sum((a.lower, v.dimensions[j], minus_one))]
+                                    j += 1
+
+                                #else, just add actual argument dimension
+                                else:
+                                    new_dims += [a]
+
+                        #If no ranges, first dimensions are from member, the rest are from routine
+                        elif (ranges == 0):
+                            new_dims += list(v.dimensions)
+                            new_dims += list(amap[v.name].dimensions[len(v.shape):])
+
+                        else:
+                            raise Exception('Mismatch in dimensions')
+
+                        vmap[v] = amap[v.name].clone(dimensions = as_tuple(new_dims))
+
+                call_map[call] = SubstituteExpressions(vmap).visit(temp_body)
+
+        routine.variables = as_tuple(list(routine.variables) + list(kset))
+        d_names += k_names
+
+    routine.body = Transformer(call_map).visit(routine.body)
+    routine.contains = None
+
+    none_map = {}
+    for c in FindNodes(Conditional).visit(routine.body):
+        if c.condition == 'LHOOK':
+            none_map[c] = None
+        
+    routine.body = Transformer(none_map).visit(routine.body)
 
 
 def get_integer_variable(routine, name):
@@ -511,98 +649,100 @@ class SingleColumnCoalescedTransformation(Transformation):
             Subroutine to apply this transformation to.
         """
 
-        pragmas = FindNodes(ir.Pragma).visit(routine.body)
-        routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
-        routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
+#        insert_routine_body(routine)
 
-        seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
-        if seq_pragmas:
-            if self.directive == 'openacc':
-                # Mark routine as acc seq
-                mapper = {seq_pragmas[0]: ir.Pragma(keyword='acc', content='routine seq')}
-                routine.body = Transformer(mapper).visit(routine.body)
-
-            # Bail and leave sequential routines unchanged
-            return
-
-        vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
-        if vec_pragmas:
-            if self.directive == 'openacc':
-                # Bail routines that have already been marked and this processed
-                # TODO: This is a hack until we can avoid redundant re-application
-                return
-
-        if self.horizontal.bounds[0] not in routine.variable_map:
-            raise RuntimeError(f'No horizontal start variable found in {routine.name}')
-        if self.horizontal.bounds[1] not in routine.variable_map:
-            raise RuntimeError(f'No horizontal end variable found in {routine.name}')
-
-        # Find the iteration index variable for the specified horizontal
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
+#        pragmas = FindNodes(ir.Pragma).visit(routine.body)
+#        routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
+#        routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
+#
+#        seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
+#        if seq_pragmas:
+#            if self.directive == 'openacc':
+#                # Mark routine as acc seq
+#                mapper = {seq_pragmas[0]: ir.Pragma(keyword='acc', content='routine seq')}
+#                routine.body = Transformer(mapper).visit(routine.body)
+#
+#            # Bail and leave sequential routines unchanged
+#            return
+#
+#        vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
+#        if vec_pragmas:
+#            if self.directive == 'openacc':
+#                # Bail routines that have already been marked and this processed
+#                # TODO: This is a hack until we can avoid redundant re-application
+#                return
+#
+#        if self.horizontal.bounds[0] not in routine.variable_map:
+#            raise RuntimeError(f'No horizontal start variable found in {routine.name}')
+#        if self.horizontal.bounds[1] not in routine.variable_map:
+#            raise RuntimeError(f'No horizontal end variable found in {routine.name}')
+#
+#        # Find the iteration index variable for the specified horizontal
+#        v_index = get_integer_variable(routine, name=self.horizontal.index)
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
-        resolve_associates(routine)
+#        resolve_associates(routine)
 
-        # Resolve WHERE clauses
-        resolve_masked_stmts(routine, loop_variable=v_index)
-
-        # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
-
-        # Remove all vector loops over the specified dimension
-        kernel_remove_vector_loops(routine, self.horizontal)
-
-        # Extract vector-level compute sections from the kernel
-        sections = extract_vector_sections(routine.body.body, self.horizontal)
-
-        # Extract the local variables to dome after we wrap the sections in vector loops.
-        # We do this, because need the section blocks to determine which local arrays
-        # may carry buffered values between them, so that we may not demote those!
-        to_demote = kernel_get_locals_to_demote(routine, sections, self.horizontal)
-
-        if not self.hoist_column_arrays:
-            # Promote vector loops to be the outermost loop dimension in the kernel
-            mapper = dict((s, wrap_vector_section(s, routine, self.horizontal)) for s in sections)
-            routine.body = NestedTransformer(mapper).visit(routine.body)
-
-        # Demote all private local variables that do not buffer values between sections
-        if demote_locals:
-            kernel_demote_private_locals(routine, to_demote, self.horizontal)
-
-        if self.hoist_column_arrays:
-            # Promote all local arrays with column dimension to arguments
-            # TODO: Should really delete and re-insert in spec, to prevent
-            # issues with shared declarations.
-            column_locals = get_column_locals(routine, vertical=self.vertical)
-            promoted = [v.clone(type=v.type.clone(intent='INOUT')) for v in column_locals]
-            routine.arguments += as_tuple(promoted)
-
-            # Add loop index variable
-            if v_index not in routine.arguments:
-                new_v = v_index.clone(type=v_index.type.clone(intent='in'))
-                # Remove original variable first, since we need to update declaration
-                routine.variables = as_tuple(v for v in routine.variables if v != v_index)
-                routine.arguments += as_tuple(new_v)
-
-        if self.directive == 'openacc':
-            # Mark all non-parallel loops as `!$acc loop seq`
-            kernel_annotate_sequential_loops_openacc(routine, self.horizontal)
-
-            # Mark all parallel vector loops as `!$acc loop vector`
-            kernel_annotate_vector_loops_openacc(routine, self.horizontal, self.vertical)
-
-            # Wrap the routine body in `!$acc data present` markers
-            # to ensure device-resident data is used for array and struct arguments.
-            kernel_annotate_subroutine_present_openacc(routine)
-
-            if self.hoist_column_arrays:
-                # Mark routine as `!$acc routine seq` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine seq'))
-
-            else:
-                # Mark routine as `!$acc routine vector` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine vector'))
+#        # Resolve WHERE clauses
+#        resolve_masked_stmts(routine, loop_variable=v_index)
+#
+#        # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
+#        resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+#
+#        # Remove all vector loops over the specified dimension
+#        kernel_remove_vector_loops(routine, self.horizontal)
+#
+#        # Extract vector-level compute sections from the kernel
+#        sections = extract_vector_sections(routine.body.body, self.horizontal)
+#
+#        # Extract the local variables to dome after we wrap the sections in vector loops.
+#        # We do this, because need the section blocks to determine which local arrays
+#        # may carry buffered values between them, so that we may not demote those!
+#        to_demote = kernel_get_locals_to_demote(routine, sections, self.horizontal)
+#
+#        if not self.hoist_column_arrays:
+#            # Promote vector loops to be the outermost loop dimension in the kernel
+#            mapper = dict((s, wrap_vector_section(s, routine, self.horizontal)) for s in sections)
+#            routine.body = NestedTransformer(mapper).visit(routine.body)
+#
+#        # Demote all private local variables that do not buffer values between sections
+#        if demote_locals:
+#            kernel_demote_private_locals(routine, to_demote, self.horizontal)
+#
+#        if self.hoist_column_arrays:
+#            # Promote all local arrays with column dimension to arguments
+#            # TODO: Should really delete and re-insert in spec, to prevent
+#            # issues with shared declarations.
+#            column_locals = get_column_locals(routine, vertical=self.vertical)
+#            promoted = [v.clone(type=v.type.clone(intent='INOUT')) for v in column_locals]
+#            routine.arguments += as_tuple(promoted)
+#
+#            # Add loop index variable
+#            if v_index not in routine.arguments:
+#                new_v = v_index.clone(type=v_index.type.clone(intent='in'))
+#                # Remove original variable first, since we need to update declaration
+#                routine.variables = as_tuple(v for v in routine.variables if v != v_index)
+#                routine.arguments += as_tuple(new_v)
+#
+#        if self.directive == 'openacc':
+#            # Mark all non-parallel loops as `!$acc loop seq`
+#            kernel_annotate_sequential_loops_openacc(routine, self.horizontal)
+#
+#            # Mark all parallel vector loops as `!$acc loop vector`
+#            kernel_annotate_vector_loops_openacc(routine, self.horizontal, self.vertical)
+#
+#            # Wrap the routine body in `!$acc data present` markers
+#            # to ensure device-resident data is used for array and struct arguments.
+#            kernel_annotate_subroutine_present_openacc(routine)
+#
+#            if self.hoist_column_arrays:
+#                # Mark routine as `!$acc routine seq` to make it device-callable
+#                routine.body.prepend(ir.Pragma(keyword='acc', content='routine seq'))
+#
+#            else:
+#                # Mark routine as `!$acc routine vector` to make it device-callable
+#                routine.body.prepend(ir.Pragma(keyword='acc', content='routine vector'))
 
     def process_driver(self, routine, targets=None):
         """
