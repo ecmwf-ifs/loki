@@ -271,7 +271,7 @@ class Sourcefile:
     @classmethod
     def from_regex(cls, raw_source, filepath, parser_classes=None):
         """
-        Parse a given source string using the fparser frontend
+        Parse a given source string using the REGEX frontend
         """
         ir = parse_regex_source(raw_source, parser_classes=parser_classes)
         lines = (1, raw_source.count('\n') + 1)

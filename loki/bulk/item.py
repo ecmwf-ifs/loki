@@ -20,6 +20,8 @@ from loki.tools import as_tuple
 from loki.tools.util import CaseInsensitiveDict
 from loki.visitors import FindNodes
 from loki.ir import CallStatement
+from loki.subroutine import Subroutine
+from loki.module import Module
 
 
 __all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem']
@@ -93,6 +95,8 @@ class Item:
         self.source = source
         self.config = config or {}
         self.trafo_data = {}
+        self._children = ()
+        self._targets = ()
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
@@ -203,6 +207,13 @@ class Item:
         """
 
     @property
+    @abstractmethod
+    def inline_function_interfaces(self):
+        """
+        All inline functions defined in this :class:`Item` via an explicit interface
+        """
+
+    @property
     def path(self):
         """
         The filepath of the associated source file
@@ -292,7 +303,7 @@ class Item:
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
         # Base definition of child is a procedure call (for now)
-        children = self.calls
+        children = self.calls + self._children
 
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in self.members]
@@ -520,6 +531,44 @@ class SubroutineItem(Item):
         type_name = self.routine.symbol_attrs[var_name].dtype.name
         return type_name + var.name[pos:]
 
+    @property
+    def inline_function_interfaces(self):
+        """
+        Inline functions declared in the corresponding :any:`Subroutine`,
+        or its parent :any:`Module`, via an explicit interface.
+        """
+
+        names = ()
+        interfaces = self.routine.interfaces
+
+        if isinstance(self.scope, Module):
+            interfaces += self.scope.interfaces
+
+        for i in interfaces:
+            for b in i.body:
+                if isinstance(b, Subroutine):
+                    if b.is_function:
+                        names += as_tuple(b.name.lower())
+
+        return names
+
+    @property
+    def children(self):
+        """
+        Extend the base class' definition of children for items of type :class:`SubroutineItem`.
+        """
+
+        self._children = self.inline_function_interfaces
+        return super().children
+
+    @property
+    def targets(self):
+        """
+        Extend the base class' definition of targets for items of type :class:`SubroutineItem`.
+        """
+
+        self._targets = self.inline_function_interfaces
+        return super().targets
 
 class ProcedureBindingItem(Item):
     """
@@ -559,6 +608,17 @@ class ProcedureBindingItem(Item):
         Return modules imported in the parent scope
         """
         return self.scope.imports
+
+    @property
+    def inline_function_interfaces(self):
+        """
+        Empty tuple as procedure bindings cannot include interface blocks
+
+        Returns
+        -------
+        tuple
+        """
+        return None
 
     @property
     def calls(self):

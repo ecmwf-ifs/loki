@@ -443,7 +443,8 @@ class SubroutineFunctionPattern(Pattern):
 
     def __init__(self):
         super().__init__(
-            r'^[ \t\w()=]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
+            r'^(?P<return_type>real(\(kind=.+\))?|integer(\(kind=.+\))?|logical(\(kind=.+\))?|type\(.+\))?'
+            r'[ \t\w()]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
             r'(?P<spec>(?:.*?(?:^(?:abstract[ \t]+)?interface\b.*?^end[ \t]+interface)?)+)'
             r'(?P<contains>^contains\n(?:'
             r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
@@ -489,9 +490,10 @@ class SubroutineFunctionPattern(Pattern):
 
         if match['spec']:
             statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern')
-            spec = self.match_statement_candidates(
+            block_candidates = ('InterfacePattern',)
+            spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
-                statement_candidates, parser_classes=parser_classes, scope=routine
+                block_candidates, statement_candidates, parser_classes=parser_classes, scope=routine
             )
         else:
             spec = None
