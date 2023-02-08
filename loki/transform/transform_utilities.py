@@ -103,34 +103,35 @@ def convert_to_lower_case(routine):
     routine.variables = [mapper(var) for var in routine.variables]
 
 
-def replace_intrinsics(routine, function_map=None, symbol_map=None):
+def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensitive=False):
     """
     Replace known intrinsic functions and symbols.
 
-    :param function_map: Map (string: string) for replacing intrinsic
-                         functions (`InlineCall` objects).
-    :param symbol_map: Map (string: string) for replacing intrinsic
-                       symbols (`Variable` objects).
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine object in which to replace intrinsic calls
+    function_map : dict[str, str]
+        Mapping from function names (:any:`InlineCall` names) to
+        their replacement
+    symbol_map : dict[str, str]
+        Mapping from intrinsic symbol names to their replacement
+    case_sensitive : bool
+        Match case for name lookups in :data:`function_map` and :data:`symbol_map`
     """
     symbol_map = symbol_map or {}
     function_map = function_map or {}
+    if not case_sensitive:
+        symbol_map = CaseInsensitiveDict(symbol_map)
+        function_map = CaseInsensitiveDict(function_map)
 
     callmap = {}
-    for c in FindInlineCalls(unique=False).visit(routine.body):
-        cname = c.name.lower()
+    for call in FindInlineCalls(unique=False).visit(routine.body):
+        if call.name in symbol_map:
+            callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
 
-        if cname in symbol_map:
-            callmap[c] = sym.Variable(name=symbol_map[cname], scope=routine)
-
-        if cname in function_map:
-            fct_symbol = sym.ProcedureSymbol(function_map[cname], scope=routine)
-            callmap[c] = sym.InlineCall(fct_symbol, parameters=c.parameters,
-                                        kw_parameters=c.kw_parameters)
-
-    # Capture nesting by applying map to itself before applying to the routine
-    for _ in range(2):
-        mapper = SubstituteExpressionsMapper(callmap)
-        callmap = {k: mapper(v) for k, v in callmap.items()}
+        if call.name in function_map:
+            callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
 
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
 
