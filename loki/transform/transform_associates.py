@@ -7,7 +7,7 @@
 
 from loki.expression import FindVariables, SubstituteExpressions
 from loki.tools import CaseInsensitiveDict
-from loki.transform import recursive_expression_map_update
+from loki.transform.transform_utilities import recursive_expression_map_update
 from loki.visitors import Transformer
 
 
