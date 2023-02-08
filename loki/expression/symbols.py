@@ -67,7 +67,7 @@ class ExprMetadataMixin:
 
     @property
     def init_arg_names(self):
-        return super().init_arg_names + ('_source', )
+        return super().init_arg_names + ('source', )
 
     def __init__(self, *args, **kwargs):
         self._source = kwargs.pop('source', None)
@@ -80,6 +80,10 @@ class ExprMetadataMixin:
     def source(self):
         """The :any:`Source` object for this expression node."""
         return self._source
+
+    @source.setter
+    def source(self, source):
+        self._source = source
 
     make_stringifier = loki_make_stringifier
 
@@ -301,7 +305,7 @@ class TypedSymbol:
             List of member variables in a derived type
         """
         _type = self.type
-        if isinstance(_type.dtype, DerivedType):
+        if _type and isinstance(_type.dtype, DerivedType):
             if _type.dtype.typedef is BasicType.DEFERRED:
                 return ()
             return tuple(
@@ -424,11 +428,6 @@ class VariableSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Varia
         The type of that symbol. Defaults to :any:`SymbolAttributes` with
         :any:`BasicType.DEFERRED`.
     """
-
-    def __init__(self, name, scope=None, type=None, **kwargs):
-        # Stop complaints about `type` in this function
-        # pylint: disable=redefined-builtin
-        super().__init__(name=name, scope=scope, type=type, **kwargs)
 
     @property
     def initial(self):
@@ -616,11 +615,19 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     def source(self):
         return self.symbol.source
 
+    @source.setter
+    def source(self, source):
+        self.symbol.source = source
+
     mapper_method = intern('map_meta_symbol')
     make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return self.symbol.__getinitargs__()
+
+    @property
+    def init_arg_names(self):
+        return self.symbol.init_arg_names
 
     def clone(self, **kwargs):
         """
@@ -725,6 +732,10 @@ class Array(MetaSymbol):
 
     def __getinitargs__(self):
         return super().__getinitargs__() + (self.dimensions, )
+
+    @property
+    def init_arg_names(self):
+        return super().init_arg_names + ('dimensions', )
 
     mapper_method = intern('map_array')
 

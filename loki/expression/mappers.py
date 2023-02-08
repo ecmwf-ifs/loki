@@ -521,12 +521,18 @@ class LokiIdentityMapper(IdentityMapper):
         if expr is None:
             return None
         new_expr = super().__call__(expr, *args, **kwargs)
-        if new_expr is not expr and hasattr(expr, '_source'):
-            if expr._source:
+        if getattr(expr, 'source', None):
+            if isinstance(new_expr, tuple):
+                for e in new_expr:
+                    if self.invalidate_source:
+                        e.source = None
+                    else:
+                        e.source = deepcopy(expr.source)
+            else:
                 if self.invalidate_source:
-                    new_expr._source = None
+                    new_expr.source = None
                 else:
-                    new_expr._source = deepcopy(expr._source)
+                    new_expr.source = deepcopy(expr.source)
         return new_expr
 
     rec = __call__

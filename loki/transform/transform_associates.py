@@ -7,6 +7,7 @@
 
 from loki.expression import FindVariables, SubstituteExpressions
 from loki.tools import CaseInsensitiveDict
+from loki.transform import recursive_expression_map_update
 from loki.visitors import Transformer
 
 
@@ -53,6 +54,9 @@ class ResolveAssociatesTransformer(Transformer):
                 # Clone the expression to update its parentage and scoping
                 inv = invert_assoc[v.name]
                 vmap[v] = v.clone(name=inv.name, parent=inv.parent, scope=inv.scope)
+
+        # Apply the expression substitution map to itself to handle nested expressions
+        vmap = recursive_expression_map_update(vmap)
 
         # Return the body of the associate block with all expressions replaced
         return SubstituteExpressions(vmap).visit(body)
