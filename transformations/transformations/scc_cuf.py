@@ -76,7 +76,7 @@ def dynamic_local_arrays(routine, vertical):
         The dimension specifying the horizontal vector dimension
     """
     local_arrays = []
-    argnames = [name.lower() for name in routine.argnames]
+    argnames = routine.arguments # [name.upper() for name in routine.argnames]
     decl_map = {}
     for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
         if any(isinstance(smbl, sym.Array) for smbl in decl.symbols) and not \
@@ -157,7 +157,7 @@ def is_elemental(routine):
         The subroutine to check whether elemental
     """
     for prefix in routine.prefix:
-        if prefix.lower() == 'elemental':
+        if prefix.upper() == 'elemental':
             return True
     return False
 
@@ -232,7 +232,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
         new_arguments = [routine.variable_map[horizontal.index].clone(type=vtype), jblk_var.clone(type=vtype)]
         routine.arguments = list(routine.arguments) + new_arguments
 
-    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).lower() not in disable]
+    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
     for call in calls:  # FindNodes(ir.CallStatement).visit(routine.body):
         if not is_elemental(call.routine):
             call.arguments += (routine.variable_map[block_dim.size], routine.variable_map[horizontal.index], jblk_var)
@@ -289,7 +289,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
 
     routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
-    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).lower() not in disable]
+    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
     for call in calls:
         if not is_elemental(call.routine):
             arguments = []
@@ -382,7 +382,7 @@ def driver_device_variables(routine, disable):
     routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="istat", type=i_type),)))
 
     relevant_arrays = []
-    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).lower() not in disable]
+    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
     for call in calls:
         relevant_arrays.extend([arg for arg in call.arguments if isinstance(arg, sym.Array)])
 
@@ -490,7 +490,7 @@ def driver_launch_configuration(routine, block_dim, disable):
             mapper[loop] = loop.body
             kernel_within = False
             for call in FindNodes(ir.CallStatement).visit(loop.body):
-                if str(call.name).lower() not in disable:
+                if str(call.name).upper() not in disable:
                     kernel_within = True
 
                     assignment_lhs = routine.variable_map["istat"]
@@ -550,7 +550,7 @@ def device_derived_types(routine, disable, derived_types):
         Tuple of derived types within the routine
     """
     used_members = [v for v in FindVariables().visit(routine.ir) if v.parent]
-    variables = [v for v in used_members if v.parent.type.dtype.name.lower() in derived_types]
+    variables = [v for v in used_members if v.parent.type.dtype.name.upper() in derived_types]
 
     var_map = {}
     for var in variables:
@@ -562,7 +562,7 @@ def device_derived_types(routine, disable, derived_types):
         routine.body.prepend(ir.Assignment(lhs=new_var, rhs=var))
 
     calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if
-             str(call.name).lower() not in disable]
+             str(call.name).upper() not in disable]
     for call in calls:
         arguments = [var_map.get(arg, arg) for arg in call.arguments]
         call.arguments = arguments
@@ -651,11 +651,11 @@ class SccCufTransformation(Transformation):
         if disable is None:
             self.disable = ()
         else:
-            self.disable = [_.lower() for _ in disable]
+            self.disable = [_.upper() for _ in disable]
         if derived_types is None:
             self.derived_types = ()
         else:
-            self.derived_types = [_.lower() for _ in derived_types]
+            self.derived_types = [_.upper() for _ in derived_types]
         self.derived_type_variables = ()
 
     def transform_module(self, module, **kwargs):
@@ -690,7 +690,6 @@ class SccCufTransformation(Transformation):
 
         if role == 'driver':
             self.process_routine_driver(routine)
-
         if role == 'kernel':
             self.process_routine_kernel(routine, depth=depth)
 
