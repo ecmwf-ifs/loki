@@ -13,9 +13,10 @@ Single Column Abstraction (SCA), as defined by CLAW (Clement et al., 2018)
 from collections import OrderedDict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
-    SubstituteExpressionsMapper, Assignment, CallStatement, Loop, Variable,
+    Assignment, CallStatement, Loop, Variable,
     Array, Pragma, VariableDeclaration, LoopRange, RangeIndex,
-    SymbolAttributes, BasicType, CaseInsensitiveDict, as_tuple, warning
+    SymbolAttributes, BasicType, CaseInsensitiveDict, as_tuple, warning,
+    recursive_expression_map_update
 )
 
 
@@ -126,12 +127,11 @@ class ExtractSCATransformation(Transformation):
         routine.variables = [vmap.get(v, v) for v in routine.variables]
 
         # Apply substitution map to replacements to capture nesting
-        mapper = SubstituteExpressionsMapper(vmap)
-        vmap2 = {k: mapper(v) for k, v in vmap.items()}
+        vmap = recursive_expression_map_update(vmap)
 
-        routine.body = SubstituteExpressions(vmap2).visit(routine.body)
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
         for m in as_tuple(routine.members):
-            m.body = SubstituteExpressions(vmap2).visit(m.body)
+            m.body = SubstituteExpressions(vmap).visit(m.body)
 
     def hoist_dimension_from_call(self, caller, wrap=True):
         """

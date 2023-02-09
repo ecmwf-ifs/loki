@@ -8,7 +8,9 @@
 import pytest
 
 from conftest import available_frontends
-from loki.transform import single_variable_declaration, recursive_expression_map_update
+from loki.transform import (
+    single_variable_declaration, recursive_expression_map_update, convert_to_lower_case
+)
 from loki import (
     Module, Subroutine, OMNI, FindNodes, VariableDeclaration, FindVariables,
     SubstituteExpressions, fgen
@@ -104,6 +106,30 @@ end subroutine foo
             shapes = [smbl.shape for smbl in decl.symbols]
             _ = [shape == shapes[0] for shape in shapes]
             assert all(_)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_convert_to_lower_case(frontend):
+    fcode = """
+subroutine my_NOT_ALL_lowercase_ROUTINE(VAR1, another_VAR, lower_case, MiXeD_CasE)
+    implicit none
+    integer, intent(in) :: VAR1, another_VAR
+    integer, intent(inout) :: lower_case(ANOTHER_VAR)
+    integer, intent(inout) :: MiXeD_CasE(Var1)
+    integer :: J, k
+
+    do J=1,VAR1
+        mixed_CASE(J) = J + j
+    end do
+
+    do K=1,ANOTHER_VAR
+        LOWER_CASE(K) = K - 1
+    end do
+end subroutine my_NOT_ALL_lowercase_ROUTINE
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    convert_to_lower_case(routine)
+    assert all(var.name.islower() and str(var).islower() for var in FindVariables(unique=False).visit(routine.ir))
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -90,18 +90,10 @@ def convert_to_lower_case(routine):
             if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
 
     # Capture nesting by applying map to itself before applying to the routine
-    for _ in range(2):
-        mapper = SubstituteExpressionsMapper(vmap)
-        vmap = {k: mapper(v) for k, v in vmap.items()}
+    vmap = recursive_expression_map_update(vmap)
 
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
-
-    # Down-case all subroutine arguments and variables
-    mapper = SubstituteExpressionsMapper(vmap)
-
-    routine.arguments = [mapper(arg) for arg in routine.arguments]
-    routine.variables = [mapper(var) for var in routine.variables]
 
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensitive=False):
