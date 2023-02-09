@@ -12,6 +12,7 @@ Collection of utility routines to deal with general language conversion.
 """
 import platform
 from collections import defaultdict
+from pymbolic.primitives import Expression
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
@@ -425,7 +426,15 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
         Maximum number of iterations, corresponds to the maximum level of
         nesting that can be replaced.
     """
-    constant_types = (type(None), str, Source, SymbolAttributes)
+    def apply_to_init_arg(name, arg, expr, mapper):
+        # Helper utility to apply the mapper only to expression arguments and
+        # retain the scope while rebuilding the node
+        if isinstance(arg, (tuple, Expression)):
+            return mapper(arg)
+        if name == 'scope':
+            return expr.scope
+        return arg
+
     for _ in range(max_iterations):
         # We update the expression map by applying it to the children of each replacement
         # node, thus making sure node replacements are also applied to nested attributes,
@@ -433,7 +442,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
         mapper = SubstituteExpressionsMapper(expr_map)
         prev_map, expr_map = expr_map, {
             expr: type(replacement)(**{
-                name: arg if isinstance(arg, constant_types) else mapper(arg)
+                name: apply_to_init_arg(name, arg, expr, mapper)
                 for name, arg in zip(replacement.init_arg_names, replacement.__getinitargs__())
             })
             for expr, replacement in expr_map.items()

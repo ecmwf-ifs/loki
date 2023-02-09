@@ -115,11 +115,13 @@ subroutine my_NOT_ALL_lowercase_ROUTINE(VAR1, another_VAR, lower_case, MiXeD_Cas
     implicit none
     integer, intent(in) :: VAR1, another_VAR
     integer, intent(inout) :: lower_case(ANOTHER_VAR)
-    integer, intent(inout) :: MiXeD_CasE(Var1)
+    integer, intent(inout) :: MiXeD_CasE(Var1, ANOTHER_VAR)
     integer :: J, k
 
-    do J=1,VAR1
-        mixed_CASE(J) = J + j
+    do k=1,ANOTHER_VAR
+        do J=1,VAR1
+            mixed_CASE(J, K) = J + K
+        end do
     end do
 
     do K=1,ANOTHER_VAR
