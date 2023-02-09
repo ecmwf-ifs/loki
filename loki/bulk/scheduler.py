@@ -229,6 +229,15 @@ class Scheduler:
             for r in module.subroutines + tuple(module.typedefs.values())
         )
 
+        self.routine_map = CaseInsensitiveDict(
+            (f'#{r.name}', obj) for obj in obj_list for r in obj.subroutines
+        )
+        self.routine_map.update(
+            (f'{module.name}#{r.name}', obj)
+            for obj in obj_list for module in obj.modules
+            for r in module.subroutines
+        )
+
     @property
     def routines(self):
         return as_tuple(item.routine for item in self.item_graph.nodes if item.routine is not None)
@@ -353,7 +362,8 @@ class Scheduler:
         debug(f'[Loki] Scheduler creating Item: {name} => {sourcefile.path}')
         if '%' in name:
             return ProcedureBindingItem(name=name, source=sourcefile, config=item_conf)
-        return SubroutineItem(name=name, source=sourcefile, config=item_conf)
+        elif self.routine_map.get(name):
+            return SubroutineItem(name=name, source=sourcefile, config=item_conf)
 
     def find_routine(self, routine):
         """

@@ -556,6 +556,32 @@ class SubroutineItem(Item):
 
         return names
 
+    @property
+    def children(self):
+        """
+        Set of all child routines that this work item has in the call tree
+
+        Note that this is not the set of active children that a traversal
+        will apply a transformation over, but rather the set of nodes that
+        defines the next level of the internal call tree.
+
+        This returns the local names of children which can be fully qualified
+        via :meth:`qualify_names`.
+
+        Returns
+        -------
+        list of str
+        """
+        disabled = as_tuple(str(b).lower() for b in self.disable)
+
+        # Base definition of child is a procedure call (for now)
+        children = self.calls + self.inline_function_interfaces + tuple([v for v in self.qualified_imports.values()])
+
+        # Filter out local members and disabled sub-branches
+        children = [c for c in children if c not in self.members]
+        children = [c for c in children if c not in disabled]
+        return as_tuple(children)
+
 class ProcedureBindingItem(Item):
     """
     Implementation of :class:`Item` to represent a Fortran procedure binding

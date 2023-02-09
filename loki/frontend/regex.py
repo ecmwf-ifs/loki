@@ -402,7 +402,7 @@ class ModulePattern(Pattern):
 
         if match['spec'] and match['spec'].strip():
             block_candidates = ('TypedefPattern', 'InterfacePattern')
-            statement_candidates = ('ImportPattern', 'VariableDeclarationPattern')
+            statement_candidates = ('ImportPattern', 'DerivedTypeDeclarationPattern', 'IntrinsicDeclarationPattern')
             spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
                 block_candidates, statement_candidates, parser_classes=parser_classes, scope=module
@@ -488,7 +488,7 @@ class SubroutineFunctionPattern(Pattern):
             )
 
         if match['spec']:
-            statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern')
+            statement_candidates = ('ImportPattern', 'DerivedTypeDeclarationPattern', 'CallPattern')
             block_candidates = ('InterfacePattern',)
             spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
@@ -672,7 +672,7 @@ class TypedefPattern(Pattern):
         typedef = ir.TypeDef(name=match['name'], body=(), parent=scope, source=source)
 
         if match['spec'] and match['spec'].strip():
-            statement_candidates = ('VariableDeclarationPattern',)
+            statement_candidates = ('DerivedTypeDeclarationPattern',)
             spec = self.match_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
                 statement_candidates, parser_classes=parser_classes, scope=typedef
@@ -865,7 +865,7 @@ class ImportPattern(Pattern):
         )
 
 
-class VariableDeclarationPattern(Pattern):
+class DerivedTypeDeclarationPattern(Pattern):
     """
     Pattern to match :any:`VariableDeclaration` nodes
 
@@ -909,6 +909,49 @@ class VariableDeclarationPattern(Pattern):
         variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
         return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
 
+class IntrinsicDeclarationPattern(Pattern):
+    """
+    Pattern to match :any:`VariableDeclaration` nodes
+
+    For the moment, this only matches variable declarations for derived type objects
+    (via ``TYPE`` or ``CLASS`` keywords).
+    """
+
+    parser_class = RegexParserClass.DeclarationClass
+
+    def __init__(self):
+        super().__init__(
+            r'^[ \t]*(?P<typename>real(\(kind=.+\))?|integer(\(kind=.+\))?|logical(\(kind=.+\))?)[ \t]*'
+            r'(?:[ \t]*,[ \t]*[a-z]+(?:\(.*?\))?)*'  # Optional attributes
+            r'(?:[ \t]*::)?'  # Optional `::` delimiter
+            r'[ \t]*'  # Some white space
+            r'(?P<variables>\w+\b.*?)$',  # Variable names
+            re.IGNORECASE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`Import`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+        if not match:
+            return None
+
+        type_ = SymbolAttributes(DerivedType(match['typename']))
+        variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
+        variables = variables.replace(' ', '').split(',')  # Variable names without white space
+        variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
+        return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
 
 class CallPattern(Pattern):
     """
