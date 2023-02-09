@@ -549,8 +549,15 @@ def device_derived_types(routine, disable, derived_types):
     derived_types: tuple
         Tuple of derived types within the routine
     """
-    used_members = [v for v in FindVariables().visit(routine.ir) if v.parent]
-    variables = [v for v in used_members if v.parent.type.dtype.name.upper() in derived_types]
+    # used_members = [v for v in FindVariables().visit(routine.ir) if v.parent]
+    # variables = [v for v in used_members if v.parent.type.dtype.name.upper() in derived_types]
+
+    _variables = list(FindVariables().visit(routine.ir))
+    variables = []
+    for var in _variables:
+        for derived_type in derived_types:
+            if derived_type in str(var.type):
+                variables.append(var)
 
     var_map = {}
     for var in variables:
@@ -730,7 +737,6 @@ class SccCufTransformation(Transformation):
 
         self.derived_type_variables = device_derived_types(routine=routine, disable=self.disable,
                                                            derived_types=self.derived_types)
-
         # create variables needed for the device execution, especially generate device versions of arrays
         driver_device_variables(routine=routine, disable=self.disable)
         # remove block loop and generate launch configuration for CUF kernels
