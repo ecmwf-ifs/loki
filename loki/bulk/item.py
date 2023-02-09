@@ -19,10 +19,11 @@ from loki.logging import warning
 from loki.tools import as_tuple
 from loki.tools.util import CaseInsensitiveDict
 from loki.visitors import FindNodes
-from loki.ir import CallStatement
+from loki.ir import CallStatement, TypeDef, ProcedureDeclaration
+from loki import Subroutine
 
 
-__all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem']
+__all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem', 'GlobalVarImportItem', 'GenericImportItem']
 
 
 class Item:
@@ -93,6 +94,8 @@ class Item:
         self.source = source
         self.config = config or {}
         self.trafo_data = {}
+        self._children = ()
+        self._targets = ()
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
@@ -425,6 +428,32 @@ class Item:
         )
 
     @property
+    def children(self):
+        """
+        Set of all child routines that this work item has in the call tree
+
+        Note that this is not the set of active children that a traversal
+        will apply a transformation over, but rather the set of nodes that
+        defines the next level of the internal call tree.
+
+        This returns the local names of children which can be fully qualified
+        via :meth:`qualify_names`.
+
+        Returns
+        -------
+        list of str
+        """
+        disabled = as_tuple(str(b).lower() for b in self.disable)
+
+        # Base definition of child is a procedure call (for now)
+        children = self._children + self.calls
+
+        # Filter out local members and disabled sub-branches
+        children = [c for c in children if c not in self.members]
+        children = [c for c in children if c not in disabled]
+        return as_tuple(children)
+
+    @property
     def targets(self):
         """
         Set of "active" child routines that are part of the transformation
@@ -446,7 +475,7 @@ class Item:
         ignored = as_tuple(str(b).lower() for b in self.ignore)
 
         # Base definition of child is a procedure call
-        targets = self.calls
+        targets = self._targets + self.calls
 
         # Filter out blocked and ignored children
         targets = [c for c in targets if c not in disabled]
@@ -556,6 +585,15 @@ class SubroutineItem(Item):
 
         return names
 
+    @cached_property
+    def _unfiltered_children(self):
+
+        # avoid duplicates in list of children
+        _imports = tuple([v for v in self.qualified_imports.keys()])
+        _imports = tuple([i for i in _imports if i not in self.calls])
+
+        return self.inline_function_interfaces + _imports
+
     @property
     def children(self):
         """
@@ -572,15 +610,16 @@ class SubroutineItem(Item):
         -------
         list of str
         """
-        disabled = as_tuple(str(b).lower() for b in self.disable)
 
-        # Base definition of child is a procedure call (for now)
-        children = self.calls + self.inline_function_interfaces + tuple([v for v in self.qualified_imports.values()])
+        self._children = self._unfiltered_children
 
-        # Filter out local members and disabled sub-branches
-        children = [c for c in children if c not in self.members]
-        children = [c for c in children if c not in disabled]
-        return as_tuple(children)
+        return super().children
+
+    @property
+    def targets(self):
+        self._targets = self._unfiltered_children
+        return super().targets
+
 
 class ProcedureBindingItem(Item):
     """
@@ -665,3 +704,124 @@ class ProcedureBindingItem(Item):
             return (type_.bind_names[0].name.lower(),)
         # The name of the procedure is identical to the name of the binding
         return (name_parts[1],)
+
+
+class GenericImportItem(Item):
+    """
+    Implementation of :class:`Item` to represent a Fortran procedure binding
+
+    This does not constitute a work item when applying transformations across the
+    call tree in the :any:`Scheduler` and is skipped during the processing phase.
+    However, it is necessary to provide the dependency link from calls to type bound
+    procedures to their implementation in a Fortran routine.
+    """
+
+    def __init__(self, name, source, config=None):
+        name_parts = name.split('#')
+        assert len(name_parts) > 1 #only accept fully-qualified module imports
+        super().__init__(name, source, config)
+        assert isinstance(self.scope, Module)
+
+    @property
+    def routine(self):
+        """
+        Always returns `None` as this is not associated with a :any:`Subroutine`
+        """
+        return None
+
+    @property
+    def members(self):
+        """
+        Empty tuple as procedure bindings have no member routines
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
+    @cached_property
+    def imports(self):
+        """
+        Return modules imported in the parent scope
+        """
+        return self.scope.imports
+
+    @property
+    def calls(self):
+        return ()
+
+    @cached_property
+    def _unfiltered_children(self):
+
+        _children = ()
+        intfs = self.scope.interfaces
+        if isinstance(self.source[self.local_name], TypeDef):
+            pass
+        elif self.local_name in [i.spec.name for i in intfs]:
+            for i in intfs:
+                if i.spec.name == self.local_name:
+                    for b in i.body:
+                        if isinstance(b, ProcedureDeclaration):
+                           for s in b.symbols:
+                               _children += as_tuple(s.name)
+                        elif isinstance(b, Subroutine):
+                            if b.is_function:
+                                _children += as_tuple(b.name)
+
+        return _children
+
+    @property
+    def children(self):
+        self._children = self._unfiltered_children
+        return super().children
+
+    @property
+    def targets(self):
+        self._targets = self._unfiltered_children
+        return super().targets
+
+class GlobalVarImportItem(Item):
+    """
+    Implementation of :class:`Item` to represent a Fortran procedure binding
+
+    This does not constitute a work item when applying transformations across the
+    call tree in the :any:`Scheduler` and is skipped during the processing phase.
+    However, it is necessary to provide the dependency link from calls to type bound
+    procedures to their implementation in a Fortran routine.
+    """
+
+    def __init__(self, name, source, config=None):
+        name_parts = name.split('#')
+        assert len(name_parts) > 1 #only accept fully-qualified module imports
+        super().__init__(name, source, config)
+        assert self.scope
+
+    @property
+    def routine(self):
+        """
+        Always returns `None` as this is not associated with a :any:`Subroutine`
+        """
+        return None
+
+    @property
+    def members(self):
+        """
+        Empty tuple as procedure bindings have no member routines
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
+    @cached_property
+    def imports(self):
+        """
+        Return modules imported in the parent scope
+        """
+        return None
+
+    @property
+    def calls(self):
+        return ()

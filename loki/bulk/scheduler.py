@@ -16,7 +16,7 @@ from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug
-from loki.bulk.item import ProcedureBindingItem, SubroutineItem
+from loki.bulk.item import ProcedureBindingItem, SubroutineItem, GlobalVarImportItem, GenericImportItem
 
 
 __all__ = ['Scheduler', 'SchedulerConfig']
@@ -226,7 +226,12 @@ class Scheduler:
         self.obj_map.update(
             (f'{module.name}#{r.name}', obj)
             for obj in obj_list for module in obj.modules
-            for r in module.subroutines + tuple(module.typedefs.values())
+            for r in module.subroutines + tuple(module.typedefs.values()) + module.variables
+        )
+        self.obj_map.update(
+            (f'{module.name}#{r.spec.name}', obj)
+            for obj in obj_list for module in obj.modules
+            for r in module.interfaces
         )
 
         self.routine_map = CaseInsensitiveDict(
@@ -236,6 +241,11 @@ class Scheduler:
             (f'{module.name}#{r.name}', obj)
             for obj in obj_list for module in obj.modules
             for r in module.subroutines
+        )
+
+        self.modvars_map = CaseInsensitiveDict(
+            (f'{module.name}#{r.name}', obj) for obj in obj_list for module in obj.modules
+            for r in module.variables
         )
 
     @property
@@ -364,6 +374,10 @@ class Scheduler:
             return ProcedureBindingItem(name=name, source=sourcefile, config=item_conf)
         elif self.routine_map.get(name):
             return SubroutineItem(name=name, source=sourcefile, config=item_conf)
+        elif self.modvars_map.get(name):
+            return GlobalVarImportItem(name=name, source=sourcefile, config=item_conf)
+        else:
+            return GenericImportItem(name=name, source=sourcefile, config=item_conf)
 
     def find_routine(self, routine):
         """
@@ -621,7 +635,6 @@ class Scheduler:
                 for node in traversal:
                     items = graph.nodes[node]['items']
                     transformation.apply(items[0].source, item=items[0], items=items)
-
             else:
                 for item in traversal:
                     if item_filter and not isinstance(item, item_filter):
