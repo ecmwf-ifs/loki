@@ -18,7 +18,6 @@ from loki.expression import (
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
-from loki.frontend import Source
 from loki.ir import Import, TypeDef, VariableDeclaration
 from loki.module import Module
 from loki.subroutine import Subroutine
