@@ -157,7 +157,7 @@ def is_elemental(routine):
         The subroutine to check whether elemental
     """
     for prefix in routine.prefix:
-        if prefix.upper() == 'elemental':
+        if prefix.lower() == 'elemental':
             return True
     return False
 
