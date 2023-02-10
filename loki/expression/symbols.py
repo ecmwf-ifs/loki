@@ -295,6 +295,22 @@ class TypedSymbol:
         self._parent = parent
 
     @property
+    def parents(self):
+        """
+        Variables nodes for all parents
+
+        Returns
+        -------
+        tuple
+            The list of parent variables, e.g., for a variable ``a%b%c%d`` this
+            yields the nodes corresponding to ``(a, a%b, a%b%c)``
+        """
+        parent = self.parent
+        if parent:
+            return parent.parents + (parent,)
+        return ()
+
+    @property
     def variables(self):
         """
         List of member variables in a derived type
@@ -552,6 +568,13 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         which it belongs
         """
         return self.symbol.parent
+
+    @property
+    def parents(self):
+        """
+        Yield all parent symbols for derived type members
+        """
+        return self.symbol.parents
 
     @property
     def scope(self):
