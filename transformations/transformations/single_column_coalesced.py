@@ -86,13 +86,19 @@ def insert_routine_body(routine):
                 if v.name in name_map:
                     member_var_map[v] = v.clone(name = name_map[v.name])
 
+        temp_body = SubstituteExpressions(member_var_map).visit(member.body)
+
+        none_map = {}
+        for c in FindNodes(Conditional).visit(temp_body):
+            if c.condition == 'LHOOK':
+                none_map[c] = None
+        
+        temp_body = Transformer(none_map).visit(temp_body)
 
         #Loop over all calls and check if they call the member
         for call in calls:
 
             if call.routine == member:
-
-                temp_body = SubstituteExpressions(member_var_map).visit(member.body)
 
                 #Create map from member dummy name to actual argument
                 amap = {}
@@ -154,12 +160,6 @@ def insert_routine_body(routine):
     routine.body = Transformer(call_map).visit(routine.body)
     routine.contains = None
 
-    none_map = {}
-    for c in FindNodes(Conditional).visit(routine.body):
-        if c.condition == 'LHOOK':
-            none_map[c] = None
-        
-    routine.body = Transformer(none_map).visit(routine.body)
 
 
 
