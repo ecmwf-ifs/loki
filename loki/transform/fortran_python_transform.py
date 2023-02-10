@@ -20,7 +20,7 @@ from loki.transform.transform_associates import resolve_associates
 from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics
 )
-from loki.visitors import Transformer
+from loki.visitors import FindNodes, Transformer
 
 
 __all__ = ['FortranPythonTransformation']
@@ -51,6 +51,13 @@ class FortranPythonTransformation(Transformation):
         kernel = Subroutine(name=f'{routine.name}_py', spec=spec, body=body)
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables
+
+        # Remove all "IMPLICT" intrinsic statements
+        mapper = {
+            i: None for i in FindNodes(ir.Intrinsic).visit(kernel.spec)
+            if 'implicit' in i.text.lower()
+        }
+        kernel.spec = Transformer(mapper).visit(kernel.spec)
 
         # Force all variables to lower-caps, as Python is case-sensitive
         convert_to_lower_case(kernel)
