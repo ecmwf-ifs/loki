@@ -269,7 +269,7 @@ class PyCodegen(Stringifier):
           <name>(<args>)
         """
         args = self.visit_all(o.arguments, **kwargs)
-        kw_args = [f'{kw}={self.visit(arg, **kwargs)}' for kw, arg in o.kwarguments]
+        kw_args = tuple(f'{kw}={self.visit(arg, **kwargs)}' for kw, arg in o.kwarguments)
         return self.format_line(o.name, '(', self.join_items(args + kw_args), ')')
 
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
