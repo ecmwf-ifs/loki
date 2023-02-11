@@ -9,7 +9,7 @@ from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
 from loki.expression import symbols as sym, LokiStringifyMapper
 from loki.visitors import Stringifier
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType, DerivedType, SymbolAttributes
 
 
 __all__ = ['pygen', 'PyCodegen', 'PyCodeMapper']
@@ -26,6 +26,8 @@ def numpy_type(_type):
         if str(_type.kind) in ('real32',):
             return 'np.float32'
         return 'np.float64'
+    if isinstance(_type.dtype, DerivedType):
+        return _type.dtype.name.lower()
     raise ValueError(str(_type))
 
 
@@ -52,7 +54,7 @@ class PyCodeMapper(LokiStringifyMapper):
             self.format('%s(%s)', numpy_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
-        return expr.name
+        return expr.name.replace('%', '.')
 
     def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
@@ -86,6 +88,9 @@ class PyCodeMapper(LokiStringifyMapper):
 
         f = self.rec(expr.function, PREC_NONE, *args, **kwargs)
         return self.format(f'{str(f).lower()}({arguments})')
+
+    def map_deferred_type_symbol(self, expr, *args, **kwargs):
+        return str(expr.name).lower().replace('%', '.')
 
 
 class PyCodegen(Stringifier):
@@ -127,13 +132,18 @@ class PyCodegen(Stringifier):
 
         # Generate header with argument signature
         # Note: we skip scalar out arguments and add a return statement for those below
-        inout_args = [arg for arg in o.arguments
-                      if isinstance(arg, sym.Scalar) and arg.type.intent.lower() == 'inout']
-        out_args = [arg for arg in o.arguments
-                    if isinstance(arg, sym.Scalar) and arg.type.intent.lower() == 'out']
-        arguments = [f'{arg.name.lower()}: {self.visit(arg.type, **kwargs)}'
-                     for arg in o.arguments if arg not in out_args]
-        header += [self.format_line('def ', o.name.lower(), '(', self.join_items(arguments), '):')]
+        scalar_args = [a for a in o.arguments if isinstance(a, sym.Scalar)]
+        inout_args = [a for a in scalar_args if a.type.intent and a.type.intent.lower() == 'inout']
+        out_args = [a for a in scalar_args if a.type.intent and a.type.intent.lower() == 'out']
+        arguments = [arg for arg in o.arguments if arg not in out_args]
+        arg_str = []
+        for arg in arguments:
+            if isinstance(arg.type.dtype, DerivedType):
+                arg_str += [f'{arg.name.lower()}']
+            else:
+                dtype = self.visit(arg.type, **kwargs)
+                arg_str += [f'{arg.name.lower()}: {dtype}']
+        header += [self.format_line('def ', o.name.lower(), '(', self.join_items(arg_str), '):')]
 
         # ...and generate the spec without imports and only declarations for variables that
         # either are local arrays or are assigned an initial value
@@ -312,4 +322,4 @@ def pygen(ir):
     """
     Generate standard Python 3 code (that uses Numpy) from one or many IR objects/trees.
     """
-    return PyCodegen().visit(ir)
+    return PyCodegen(linewidth=300).visit(ir)
