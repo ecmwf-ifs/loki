@@ -12,7 +12,7 @@ import numpy as np
 
 from conftest import available_frontends, jit_compile, jit_compile_lib, clean_test
 from loki import (
-    Sourcefile, Subroutine, OFP, OMNI, REGEX, FindVariables, FindNodes,
+    Sourcefile, Module, Subroutine, OFP, OMNI, REGEX, FindVariables, FindNodes,
     Section, CallStatement, BasicType, Array, Scalar, Variable,
     SymbolAttributes, StringLiteral, fgen, fexprgen, VariableDeclaration,
     Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType,
@@ -1250,7 +1250,7 @@ subroutine test_subroutine_interface (in1, in2, out1, out2)
   out2 = out1 + 2.
 end subroutine
 """
-    routine = Subroutine.from_source(fcode, xmods=[here/'source/xmod'], frontend=frontend)
+    routine = Subroutine.from_source(fcode, xmods=[here/'sources/xmod'], frontend=frontend)
 
     if frontend == OMNI:
         assert fgen(routine.interface).strip() == """
@@ -1579,6 +1579,79 @@ end function f_elem
     assert 'PURE' in code
     assert 'ELEMENTAL' in code
     assert fgen(decl) in code
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_suffix(frontend):
+    """
+    Test that subroutine suffixes are supported and correctly reproduced
+    """
+    fcode = """
+module subroutine_suffix_mod
+    implicit none
+
+    interface
+        function check_value(value) bind(C, name='check_value')
+            use, intrinsic :: iso_c_binding
+            real(c_float), value :: value
+            integer(c_int) :: check_value
+        end function check_value
+    end interface
+
+    interface
+        function fix_value(value) result(fixed) bind(C, name='fix_value')
+            use, intrinsic :: iso_c_binding
+            real(c_float), value :: value
+            real(c_float) :: fixed
+        end function fix_value
+    end interface
+contains
+    function out_of_physical_bounds(field, istartcol, iendcol, do_fix) result(is_bad)
+        real, intent(inout) :: field(:)
+        integer, intent(in) :: istartcol, iendcol
+        logical, intent(in) :: do_fix
+        logical :: is_bad
+
+        integer :: jcol
+        logical :: bad_value
+
+        is_bad = .false.
+        do jcol=istartcol,iendcol
+            bad_value = check_value(field(jcol)) > 0
+            is_bad = is_bad .or. bad_value
+            if (do_fix .and. bad_value) field(jcol) = fix_value(field(jcol))
+        end do
+    end function out_of_physical_bounds
+end module subroutine_suffix_mod
+    """.strip()
+    module = Module.from_source(fcode, frontend=frontend)
+
+    check_value = module.interface_map['check_value'].body[0]
+    assert check_value.is_function
+    assert check_value.result_name is None
+    assert check_value.return_type.dtype is BasicType.INTEGER
+    assert check_value.return_type.kind == 'c_int'
+    if frontend != OMNI:
+        assert check_value.bind == 'check_value'
+        assert "bind(c, name='check_value')" in fgen(check_value).lower()
+
+    fix_value = module.interface_map['fix_value'].body[0]
+    assert fix_value.is_function
+    assert fix_value.result_name == 'fixed'
+    assert fix_value.return_type.dtype is BasicType.REAL
+    assert fix_value.return_type.kind == 'c_float'
+    if frontend == OMNI:
+        assert "result(fixed)" in fgen(fix_value).lower()
+    else:
+        assert fix_value.bind == 'fix_value'
+        assert "result(fixed) bind(c, name='fix_value')" in fgen(fix_value).lower()
+
+    routine = module['out_of_physical_bounds']
+    assert routine.is_function
+    assert routine.result_name == 'is_bad'
+    assert routine.bind is None
+    assert routine.return_type.dtype is BasicType.LOGICAL
+    assert "result(is_bad)" in fgen(routine).lower()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

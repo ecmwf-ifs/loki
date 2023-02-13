@@ -93,21 +93,32 @@ class JoinableStringList:
         # on a line
         if (isinstance(item, type(self)) and (item.separable or not item_fits_in_line) and
                 len(item.items) > 1):
-            line, new_item = item._to_str(line=line, stop_on_continuation=True)
-            new_line, lines = self._add_item_to_line(self.cont[1], new_item)
-            return new_line, [line + self.cont[0], *lines]
+            line_, new_item = item._to_str(line=line, stop_on_continuation=True)
+            if len(new_item.items) < len(item.items):
+                # If we have been able to put at least one entry from item on the line, we
+                # continue recursively:
+                new_line, lines = self._add_item_to_line(self.cont[1], new_item)
+                return new_line, [line_ + self.cont[0], *lines]
 
         # Otherwise, let's put it on a new line if the item as a whole fits on the next line
         if item_fits_in_line:
             return item_line, [line + self.cont[0]]
 
         # The new item does not fit onto a line at all and it is not a JoinableStringList
-        # for which we know how to split it: let's try our best anyways
+        # where the first item fits onto a line, or for which we know how to split it:
+        # let's try our best by splitting the string
         # TODO: This is not safe for strings currently and may still exceed
         #       the line limit if the chunks are too big! Safest option would
         #       be to have expression mapper etc. all return JoinableStringList instances
         #       and accept violations for the remaining cases.
-        chunk_list = re.split(r'(\s|\)(?!%))', str(item))  # split on ' ' and ')' (the latter not if followed by '%')
+        if isinstance(item, str):
+            item_str = item
+        elif isinstance(item, type(self)):
+            # We simply join up the items here to avoid that any line continuations are introduced
+            item_str = item.sep.join(str(i) for i in item.items)
+        else:
+            item_str = str(item)
+        chunk_list = re.split(r'(\s|\)(?!%)|\n)', item_str)  # split on ' ', ')' (unless followed by '%') and '\n'
 
         # First, add as much as possible to the previous line
         next_chunk = 0
@@ -130,6 +141,7 @@ class JoinableStringList:
                 line = self.cont[1] + chunk
             else:
                 line = new_line
+
         return line, lines
 
     def _to_str(self, line='', stop_on_continuation=False):

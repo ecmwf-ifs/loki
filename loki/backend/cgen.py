@@ -85,6 +85,8 @@ class CCodeMapper(LokiStringifyMapper):
                 index_str += self.format('[%s]', d)
         return self.format('%s%s', name_str, index_str)
 
+    map_string_subscript = map_array_subscript
+
     def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize_if_needed(
             "!" + self.rec(expr.child, PREC_UNARY, *args, **kwargs),

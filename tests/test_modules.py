@@ -12,7 +12,8 @@ from conftest import available_frontends, jit_compile, clean_test
 from loki import (
     OFP, OMNI, Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
-    Transformer, fgen, SymbolAttributes, Variable, Import, Section, Intrinsic
+    Transformer, fgen, SymbolAttributes, Variable, Import, Section, Intrinsic,
+    Scalar, DeferredTypeSymbol
 )
 
 
@@ -1152,3 +1153,57 @@ end subroutine routine2
     assert isinstance(module.contains, Section)
     assert isinstance(module.contains.body[0], Intrinsic)
     assert module.contains.body[0].text == 'CONTAINS'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('only_list', [True, False])
+@pytest.mark.parametrize('complete_tree', [True, False])
+def test_module_missing_imported_symbol(frontend, only_list, complete_tree):
+    fcode_mod1 = """
+module mod1
+    implicit none
+    integer, parameter :: a = 1, b=2
+end module mod1
+    """.strip()
+
+    fcode_mod2 = f"""
+module mod2
+    use mod1{', only: a, b' if only_list else ''}
+    implicit none
+end module mod2
+    """.strip()
+
+    fcode_driver = """
+subroutine driver
+    use mod2, only: a, b
+    implicit none
+    integer c
+    c = a + b
+end subroutine driver
+    """.strip()
+
+    if complete_tree:
+        modules = [Module.from_source(fcode_mod1, frontend=frontend)]
+    else:
+        modules = []
+    modules += [Module.from_source(fcode_mod2, frontend=frontend, definitions=modules)]
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=modules)
+
+    a = driver.symbol_map['a']
+    b = driver.symbol_map['b']
+
+    if complete_tree:
+        assert isinstance(a, Scalar)
+        assert a.type.dtype is BasicType.INTEGER
+        assert isinstance(b, Scalar)
+        assert b.type.dtype is BasicType.INTEGER
+    else:
+        assert isinstance(a, DeferredTypeSymbol)
+        assert a.type.dtype is BasicType.DEFERRED
+        assert isinstance(b, DeferredTypeSymbol)
+        assert b.type.dtype is BasicType.DEFERRED
+
+    assert a.type.imported
+    assert b.type.imported
+    assert a.type.module is modules[-1]
+    assert b.type.module is modules[-1]

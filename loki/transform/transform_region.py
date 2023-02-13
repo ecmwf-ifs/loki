@@ -86,7 +86,7 @@ def region_hoist(routine):
             if collapse > 0:
                 scopes = FindScopes(start).visit(routine.body)[0]
                 if len(scopes) <= collapse:
-                    RuntimeError(f'Not enough enclosing scopes for collapse({collapse})')
+                    raise RuntimeError(f'Not enough enclosing scopes for collapse({collapse})')
                 scopes = scopes[-(collapse+1):]
                 region = NestedMaskedTransformer(start=start, stop=stop, mapper={start: None}).visit(scopes[0])
 

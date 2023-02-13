@@ -400,7 +400,8 @@ class Item:
                 warning(f'{candidates} not found in available_names')
                 return candidates
             if len(matched_names) != 1:
-                warning(f'Duplicate symbol: {name[name.index("#")+1:]}, can be one of {matched_names}')
+                name = matched_names[0]
+                warning(f'Duplicate symbol: {name[name.find("#")+1:]}, can be one of {matched_names}')
                 return tuple(name + member_name for name in matched_names)
             return matched_names.pop() + member_name
 
@@ -584,7 +585,7 @@ class ProcedureBindingItem(Item):
         if type_.dtype.is_generic:
             # This is a generic binding, so we need to refer to other type-bound procedures
             # in this type
-            return tuple(name_parts[0] + '%' + name for name in type_.bind_names)
+            return tuple(f'{name_parts[0]}%{name!s}' for name in type_.bind_names)
         if type_.initial is not None:
             # This has a bind name explicitly specified:
             return (type_.initial.name.lower(), )

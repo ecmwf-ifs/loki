@@ -1061,7 +1061,10 @@ class OFP2IR(GenericVisitor):
 
     def visit_interface(self, o, **kwargs):
         scope = kwargs['scope']
-        abstract = o.get('type') == 'abstract'
+        if o.get('type') is not None:
+            abstract = o.get('type').lower() == 'abstract'
+        else:
+            abstract = False
 
         if o.find('header/defined-operator') is not None:
             spec = self.visit(o.find('header/defined-operator'), **kwargs)
@@ -1133,19 +1136,30 @@ class OFP2IR(GenericVisitor):
         else:
             is_function = False
             args = [a.attrib['name'].upper() for a in header_ast.findall('arguments/argument')]
-            if header_ast.find('subroutine-stmt').attrib['hasBindingSpec'] == 'true':
-                self.warn_or_fail('binding-spec not implemented')
+
+        # Subroutine/Function statement suffix (such as result name and language binding)
+        result = None
+        bind = None
+        suffix = header_ast.find('suffix')
+        if suffix is None:
+            # For absolutely no conceivable reason, suffix is sometimes wrapped inside a "declaration" tag???
+            suffix = header_ast.find('declaration/suffix')
+        if suffix is not None:
+            if suffix.attrib['hasProcLangBindSpec'] == 'true':
+                bind = self.visit(header_ast.find('literal'))
+            if suffix.attrib['result'] == 'result':
+                result = header_ast.find('name').attrib['name']
 
         if routine is None:
             routine = Subroutine(
-                name=name, args=args, prefix=None, bind=None,
+                name=name, args=args, prefix=None, bind=bind, result_name=result,
                 is_function=is_function, parent=scope,
                 ast=o, source=self.get_source(o)
             )
         else:
             routine.__init__(  # pylint: disable=unnecessary-dunder-call
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=None, bind=None, is_function=is_function,
+                contains=routine.contains, prefix=None, bind=bind, result_name=result, is_function=is_function,
                 ast=o, source=self.get_source(o), parent=routine.parent, symbol_attrs=routine.symbol_attrs,
                 incomplete=routine._incomplete
             )
@@ -1188,8 +1202,8 @@ class OFP2IR(GenericVisitor):
         # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
-            docstring=docstring, spec=spec, body=body, contains=contains,
-            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            docstring=docstring, spec=spec, body=body, contains=contains, ast=o,
+            prefix=routine.prefix, bind=routine.bind, result_name=routine.result_name, is_function=routine.is_function,
             rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
             source=kwargs['source'], incomplete=False
         )
@@ -1354,23 +1368,27 @@ class OFP2IR(GenericVisitor):
             symbols = self.visit(o.find('only'), **kwargs)
             # No rename-list
             rename_list = None
+            deferred_type = SymbolAttributes(BasicType.DEFERRED, imported=True)
             if module is None:
                 # Initialize symbol attributes as DEFERRED
                 for s in symbols:
-                    _type = SymbolAttributes(BasicType.DEFERRED, imported=True)
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = _type.clone(use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = deferred_type.clone(use_name=s[0])
                     else:
-                        scope.symbol_attrs[s.name] = _type
+                        scope.symbol_attrs[s.name] = deferred_type
             else:
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                        _type = module.symbol_attrs.get(s[0], deferred_type)
+                        scope.symbol_attrs[s[1].name] = _type.clone(
                             imported=True, module=module, use_name=s[0]
                         )
                     else:
-                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                        # Need to explicitly reset use_name in case we are importing a symbol
+                        # that stems from an import with a rename-list
+                        _type = module.symbol_attrs.get(s.name, deferred_type)
+                        scope.symbol_attrs[s.name] = _type.clone(
                             imported=True, module=module, use_name=None
                         )
             symbols = tuple(

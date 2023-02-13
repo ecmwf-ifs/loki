@@ -345,7 +345,7 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Name` has no children.
         """
-        return sym.Variable(name=o.tostr(), source=kwargs.get('source'))
+        return sym.Variable(name=o.tostr(), parent=kwargs.get('parent'), source=kwargs.get('source'))
 
     def visit_Type_Name(self, o, **kwargs):
         """
@@ -464,25 +464,27 @@ class FParser2IR(GenericVisitor):
             symbols = () if o.children[4] is None else self.visit(o.children[4], **kwargs)
             # No rename-list
             rename_list = None
+            deferred_type = SymbolAttributes(BasicType.DEFERRED, imported=True)
             if module is None:
                 # Initialize symbol attributes as DEFERRED
                 for s in symbols:
-                    _type = SymbolAttributes(BasicType.DEFERRED, imported=True)
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = _type.clone(use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = deferred_type.clone(use_name=s[0])
                     else:
-                        scope.symbol_attrs[s.name] = _type
+                        scope.symbol_attrs[s.name] = deferred_type
             else:
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                        _type = module.symbol_attrs.get(s[0], deferred_type)
+                        scope.symbol_attrs[s[1].name] = _type.clone(
                             imported=True, module=module, use_name=s[0]
                         )
                     else:
                         # Need to explicitly reset use_name in case we are importing a symbol
                         # that stems from an import with a rename-list
-                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                        _type = module.symbol_attrs.get(s.name, deferred_type)
+                        scope.symbol_attrs[s.name] = _type.clone(
                             imported=True, module=module, use_name=None
                         )
             symbols = tuple(
@@ -1108,12 +1110,37 @@ class FParser2IR(GenericVisitor):
         return sym.RangeIndex((start, stop, stride), source=source)
 
     def visit_Array_Section(self, o, **kwargs):
-        # TODO: Implement Array_Section
-        return self.visit_Base(o, **kwargs)
+        """
+        A subscript operation on a data-ref
+
+        This includes dereferences such as ``a%b%c`` or extracting a substring.
+        In practice, the first are typically flattened in the Fparser AST and
+        directly returned as `Part_Ref`, so we should see only the substring
+        operation here.
+
+        :class:`fparser.two.Fortran2003.Array_Subscript` has two children:
+
+        * the subscript data-ref :class:`fparser.two.Fortran2003.Data_Ref`
+        * an optional substring range :class:`fparser.two.Fortran2003.Substring_Range`
+        """
+        name = self.visit(o.children[0], **kwargs)
+        if o.children[1] is None:
+            return name
+        substring = self.visit(o.children[1], **kwargs)
+        return sym.StringSubscript(name, substring, source=kwargs.get('source'))
 
     def visit_Substring_Range(self, o, **kwargs):
-        # TODO: Implement Substring_Range
-        return self.visit_Base(o, **kwargs)
+        """
+        The range of a substring operation
+
+        :class:`fparser.two.Fortran2003.Substring_Range` has two children:
+
+        * start :class:`fparser.two.Fortran2003.Scalar_Int_Expr` or None
+        * stop :class:`fparser.two.Fortran2003.Scalar_Int_Expr` or None
+        """
+        start = self.visit(o.children[0], **kwargs) if o.children[0] is not None else None
+        stop = self.visit(o.children[1], **kwargs) if o.children[1] is not None else None
+        return sym.RangeIndex((start, stop), source=kwargs.get('source'))
 
     def visit_Stride(self, o, **kwargs):
         # TODO: Implement Stride
@@ -1765,8 +1792,8 @@ class FParser2IR(GenericVisitor):
         # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
-            docstring=docs, spec=spec, body=body, contains=contains,
-            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            docstring=docs, spec=spec, body=body, contains=contains, ast=o,
+            prefix=routine.prefix, bind=routine.bind, result_name=routine.result_name, is_function=routine.is_function,
             rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
             incomplete=False
         )
@@ -1802,7 +1829,8 @@ class FParser2IR(GenericVisitor):
         * prefix :class:`fparser.two.Fortran2003.Prefix`
         * name :class:`fparser.two.Fortran2003.Subroutine_Name`
         * dummy argument list :class:`fparser.two.Fortran2003.Dummy_Arg_List`
-        * language binding specs :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
+        * suffix :class:`fparser.two.Fortran2003.Suffix` or language binding
+          spec :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
         """
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
 
@@ -1838,20 +1866,25 @@ class FParser2IR(GenericVisitor):
             dummy_arg_list = self.visit(o.children[2], **kwargs)
             args = tuple(str(arg) for arg in dummy_arg_list)
 
-        # Parse language binding specs
-        bind = None if o.children[3] is None else o.children[3].tostr()
+        # Parse suffix, such as result name or language binding specs
+        if isinstance(o.children[3], Fortran2003.Suffix):
+            result, bind = self.visit(o.children[3], **kwargs)
+        else:
+            # Fparser inlines the language-binding spec directly if there is not other suffix
+            result = None
+            bind = None if o.children[3] is None else self.visit(o.children[3], **kwargs)
 
         # Instantiate the object
         is_function = isinstance(o, Fortran2003.Function_Stmt)
         if routine is None:
             routine = Subroutine(
-                name=name, args=args, prefix=prefix, bind=bind,
+                name=name, args=args, prefix=prefix, bind=bind, result_name=result,
                 is_function=is_function, parent=kwargs['scope']
             )
         else:
             routine.__init__(  # pylint: disable=unnecessary-dunder-call
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=prefix, bind=bind, is_function=is_function,
+                contains=routine.contains, prefix=prefix, bind=bind, result_name=result, is_function=is_function,
                 ast=routine._ast, source=routine._source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
                 incomplete=routine._incomplete
             )
@@ -1884,6 +1917,30 @@ class FParser2IR(GenericVisitor):
         :class:`fparser.two.Fortran2003.Prefix_Spec` has no children
         """
         return o.string
+
+    def visit_Suffix(self, o, **kwargs):
+        """
+        The suffix of a subprogram statement
+
+        :class:`fparser.two.Fortran2003.Suffix` has two children:
+
+        * A :class:`fparser.two.Fortran2003.Result_Name` if specified, or None
+        * a :class:`fparser.two.Fortran2003.Language_Binding_Spec` if specified, or None
+        """
+        result = o.children[0].tostr() if o.children[0] is not None else None
+        bind = self.visit(o.children[1], **kwargs) if o.children[1] is not None else None
+        return result, bind
+
+    def visit_Language_Binding_Spec(self, o, **kwargs):
+        """
+        A language binding spec suffix
+
+        :class:`fparser.two.Fortran2003.Language_Binding_Spec` has a single child:
+
+        * :class:`fparser.two.Fortran2003.Char_Literal_Constant` with the name of the
+          C routine it binds to
+        """
+        return self.visit(o.children[0], **kwargs)
 
     #
     # Module definition

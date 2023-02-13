@@ -445,6 +445,13 @@ class Sourcefile:
         routines += as_tuple(flatten(m.subroutines for m in self.modules))
         return routines
 
+    @property
+    def definitions(self):
+        """
+        List of all definitions made in this sourcefile, i.e. modules, subroutines and types
+        """
+        return self.modules + self.subroutines + self.typedefs
+
     def __getitem__(self, name):
         module_map = {m.name.lower(): m for m in self.modules}
         if name.lower() in module_map:

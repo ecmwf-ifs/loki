@@ -21,7 +21,8 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
-    DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList
+    DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList, FindInlineCalls,
+    AttachScopesMapper
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -661,6 +662,60 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_call_derived_type_arguments(frontend):
+    """
+    Check that derived type arguments are correctly represented in
+    function calls that include keyword parameters.
+
+    This is due to fparser's habit of sometimes representing function calls
+    wrongly as structure constructors, which are handled differently in
+    Loki's frontend
+    """
+    fcode = """
+module inline_call_mod
+    implicit none
+
+    type mytype
+        integer :: val
+        integer :: arr(3)
+    contains
+        procedure :: some_func
+    end type mytype
+
+contains
+
+    function check(val, thr) result(is_bad)
+        integer, intent(in) :: val
+        integer, intent(in), optional :: thr
+        integer :: eff_thr
+        logical :: is_bad
+        if (present(thr)) then
+            eff_thr = thr
+        else
+            eff_thr = 10
+        end if
+        is_bad = val > thr
+    end function check
+
+    function some_func(this) result(is_bad)
+        class(mytype), intent(in) :: this
+        logical :: is_bad
+
+        is_bad = check(this%val, thr=10) &
+            &   .or. check(this%arr(1)) .or. check(val=this%arr(2)) .or. check(this%arr(3))
+    end function some_func
+end module inline_call_mod
+    """.strip()
+    module = Module.from_source(fcode, frontend=frontend)
+    some_func = module['some_func']
+    inline_calls = FindInlineCalls().visit(some_func.body)
+    assert len(inline_calls) == 4
+    assert {fgen(c) for c in inline_calls} == {
+        'check(this%val, thr=10)', 'check(this%arr(1))', 'check(val=this%arr(2))', 'check(this%arr(3))'
+    }
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_character_concat(here, frontend):
     """
     Concatenation operator ``//``
@@ -1175,3 +1230,28 @@ def test_standalone_expr_parenthesis(expr):
     ir = parse_fparser_expression(expr, scope)
     assert isinstance(ir, pmbl.Expression)
     assert fgen(ir) == expr
+
+
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
+def test_array_to_inline_call_rescope():
+    """
+    Test a mechanism that can convert arrays to procedure calls, to mop up
+    broken frontend behaviour wrongly classifying inline calls as array subscripts
+    """
+    # Parse the expression, which fparser will interpret as an array
+    scope = Scope()
+    expr = parse_fparser_expression('FLUX%OUT_OF_PHYSICAL_BOUNDS(KIDIA, KFDIA)', scope=scope)
+    assert isinstance(expr, symbols.Array)
+
+    # Detach the expression from the scope and update the type information in the scope
+    expr = expr.clone(scope=None)
+    return_type = SymbolAttributes(BasicType.INTEGER)
+    proc_type = ProcedureType('out_of_physical_bounds', is_function=True, return_type=return_type)
+    scope.symbol_attrs['flux%out_of_physical_bounds'] = SymbolAttributes(proc_type)
+
+    # Re-attach the scope to trigger the rescoping (and symbol rebuild)
+    expr = AttachScopesMapper()(expr, scope=scope)
+    assert isinstance(expr, symbols.InlineCall)
+    assert expr.function.type.dtype is proc_type
+    assert expr.function == 'flux%out_of_physical_bounds'
+    assert expr.parameters == ('kidia', 'kfdia')

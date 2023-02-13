@@ -129,6 +129,7 @@ class OMNI2IR(GenericVisitor):
         self.symbol_map = symbol_map or {}
         self.raw_source = raw_source.splitlines(keepends=True)
         self.default_scope = scope
+        self.lineno = None  # use to save lineno of last element with attribute lineno
 
     @staticmethod
     def warn_or_fail(msg):
@@ -166,11 +167,11 @@ class OMNI2IR(GenericVisitor):
     def get_source(self, o):
         """Helper method that builds the source object for a node"""
         file = o.attrib.get('file', None)
-        lineno = o.attrib.get('lineno', None)
+        lineno = o.attrib.get('lineno', self.lineno)
         if lineno:
-            lineno = int(lineno)
-            lines = (lineno, lineno)
-            string = self.raw_source[lineno-1]
+            self.lineno = int(lineno)
+            lines = (self.lineno, self.lineno)
+            string = self.raw_source[self.lineno-1]
         else:
             lines = (None, None)
             string = None
@@ -236,24 +237,28 @@ class OMNI2IR(GenericVisitor):
             module = None
         else:
             module = self.definitions.get(name, None)
+
+        deferred_type = SymbolAttributes(BasicType.DEFERRED, imported=True)
         if module is None:
             # Initialize symbol attributes as DEFERRED
             for s in symbols:
                 if isinstance(s, tuple):  # Renamed symbol
-                    scope.symbol_attrs[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
+                    scope.symbol_attrs[s[1].name] = deferred_type.clone(use_name=s[0])
                 else:
-                    scope.symbol_attrs[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
+                    scope.symbol_attrs[s.name] = deferred_type
         else:
             # Import symbol attributes from module
             for s in symbols:
                 if isinstance(s, tuple):  # Renamed symbol
-                    scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                    _type = module.symbol_attrs.get(s[0], deferred_type)
+                    scope.symbol_attrs[s[1].name] = _type.clone(
                         imported=True, module=module, use_name=s[0]
                     )
                 else:
                     # Need to explicitly reset use_name in case we are importing a symbol
                     # that stems from an import with a rename-list
-                    scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                    _type = module.symbol_attrs.get(s.name, deferred_type)
+                    scope.symbol_attrs[s.name] = _type.clone(
                         imported=True, module=module, use_name=None
                     )
         symbols = tuple(
@@ -329,17 +334,20 @@ class OMNI2IR(GenericVisitor):
             # We store the prefix on the Subroutine object, so let's remove it from the symbol attrs
             proc_type = proc_type.clone(prefix=None)
 
+        # Function suffix (result name and language binding, but no support for the latter in OMNI)
+        result = ftype.attrib.get('result_name')
+
         # Instantiate the object
         if routine is None:
             routine = Subroutine(
                 name=name, args=args, prefix=prefix, bind=None,
-                is_function=is_function, parent=scope,
+                result_name=result, is_function=is_function, parent=scope,
                 ast=o, source=self.get_source(o)
             )
         else:
             routine.__init__(  # pylint: disable=unnecessary-dunder-call
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=prefix, bind=None, is_function=is_function,
+                contains=routine.contains, prefix=prefix, bind=None, result_name=result, is_function=is_function,
                 ast=o, source=self.get_source(o), parent=routine.parent, symbol_attrs=routine.symbol_attrs,
                 incomplete=routine._incomplete
             )
@@ -412,8 +420,8 @@ class OMNI2IR(GenericVisitor):
         # pylint: disable=unnecessary-dunder-call
         routine.__init__(
             name=routine.name, args=routine._dummies,
-            docstring=docstring, spec=spec, body=body, contains=contains,
-            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            docstring=docstring, spec=spec, body=body, contains=contains, ast=o,
+            prefix=routine.prefix, bind=routine.bind, result_name=routine.result_name, is_function=routine.is_function,
             rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
             source=routine.source, incomplete=False
         )
@@ -1115,6 +1123,11 @@ class OMNI2IR(GenericVisitor):
         # Drop OMNI's `:1` step counting for ranges in the name of consistency
         step = None if step == '1' else step
         return sym.RangeIndex((lower, upper, step), source=kwargs['source'])
+
+    def visit_FcharacterRef(self, o, **kwargs):
+        var = self.visit(o.find('varRef'), **kwargs)
+        dimensions = self.visit(o.find('indexRange'), **kwargs)
+        return sym.StringSubscript(var, dimensions)
 
     def visit_lowerBound(self, o, **kwargs):
         return self.visit(o[0], **kwargs)

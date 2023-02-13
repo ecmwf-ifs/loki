@@ -1263,3 +1263,87 @@ end program
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     assert source.ir.body == ()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_frontend_source_lineno(frontend):
+    """
+    ...
+    """
+    fcode = """
+    subroutine driver
+        call kernel()
+        call kernel()
+        call kernel()
+    end subroutine driver
+    """
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['driver']
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert calls[0] != calls[1]
+    assert calls[1] != calls[2]
+    assert calls[0].source.lines[0] < calls[1].source.lines[0] < calls[2].source.lines[0]
+
+
+def test_regex_interface_subroutine():
+    fcode = """
+subroutine test(callback)
+
+implicit none
+interface
+    subroutine some_kernel(a, b, c)
+    integer, intent(in) :: a, b
+    integer, intent(out) :: c
+    end subroutine some_kernel
+
+    SUBROUTINE other_kernel(a)
+    integer, intent(inout) :: a
+    end subroutine
+end interface
+
+INTERFACE
+    function other_func(a)
+    integer, intent(in) :: a
+    integer, other_func
+    end function other_func
+end interface
+
+abstract interface
+    function callback_func(a) result(b)
+        integer, intent(in) :: a
+        integer :: b
+    end FUNCTION callback_func
+end INTERFACE
+
+procedure(callback_func), pointer, intent(in) :: callback
+integer :: a, b, c
+
+a = callback(1)
+b = other_func(a)
+
+call some_kernel(a, b, c)
+call other_kernel(c)
+
+end subroutine test
+    """.strip()
+
+    # Make sure only the host subroutine is captured
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert len(source.subroutines) == 1
+    assert source.subroutines[0].name == 'test'
+    assert source.subroutines[0].source.lines == (1, 38)
+
+    # Make sure this also works for module procedures
+    fcode = f"""
+module my_mod
+    implicit none
+contains
+{fcode}
+end module my_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert not source.subroutines
+    assert len(source.all_subroutines) == 1
+    assert source.all_subroutines[0].name == 'test'
+    assert source.all_subroutines[0].source.lines == (4, 41)

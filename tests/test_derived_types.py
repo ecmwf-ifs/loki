@@ -12,9 +12,10 @@ import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-    OMNI, Module, Subroutine, BasicType, DerivedType, TypeDef,
+    OMNI, OFP, Module, Subroutine, BasicType, DerivedType, TypeDef,
     fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
-    VariableDeclaration, Assignment, InlineCall, Builder
+    VariableDeclaration, Assignment, InlineCall, Builder, StringSubscript,
+    Conditional, CallStatement, ProcedureSymbol
 )
 
 
@@ -1028,10 +1029,19 @@ end module derived_type_nested_proc_call_mod
 
     assignment = FindNodes(Assignment).visit(mod['exists'].body)
     assert len(assignment) == 1
-    assert isinstance(assignment[0].rhs, InlineCall)
-    assert fgen(assignment[0].rhs).lower() == 'this%file%exists(var_name)'
+    assignment = assignment[0]
+    assert isinstance(assignment.rhs, InlineCall)
+    assert fgen(assignment.rhs).lower() == 'this%file%exists(var_name)'
 
-    # TODO: Verify type of function symbol etc
+    assert isinstance(assignment.rhs.function, ProcedureSymbol)
+    assert isinstance(assignment.rhs.function.type.dtype, ProcedureType)
+    assert assignment.rhs.function.parent and isinstance(assignment.rhs.function.parent.type.dtype, DerivedType)
+    assert assignment.rhs.function.parent.type.dtype.name == 'netcdf_file_raw'
+    assert assignment.rhs.function.parent.type.dtype.typedef is mod['netcdf_file_raw']
+    assert assignment.rhs.function.parent.parent
+    assert isinstance(assignment.rhs.function.parent.parent.type.dtype, DerivedType)
+    assert assignment.rhs.function.parent.parent.type.dtype.name == 'netcdf_file'
+    assert assignment.rhs.function.parent.parent.type.dtype.typedef is mod['netcdf_file']
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1179,3 +1189,169 @@ def test_derived_type_rescope_symbols_shadowed(here, shadowed_typedef_symbols_fc
         assert init_maxstreams == 256
 
         clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+    (OFP, 'OFP cannot parse the Fortran')
+]))
+def test_derived_types_character_array_subscript(frontend):
+    fcode = """
+module derived_type_char_arr_mod
+    implicit none
+
+    type char_arr_type
+        character(len=511) :: some_name(3) = ["","",""]
+    end type char_arr_type
+
+contains
+
+    subroutine some_routine(config)
+        type(char_arr_type), intent(in) :: config
+        integer :: i, strlen
+        do i=1,3
+            if (config%some_name(i)(1:1) == '/') then
+                print *, 'absolute path'
+            end if
+            strlen = len_trim(config%some_name(i))
+            if (config%some_name(i)(strlen-2:strlen) == '.nc') then
+                print *, 'netcdf file'
+            end if
+        end do
+    end subroutine some_routine
+end module derived_type_char_arr_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    conditionals = FindNodes(Conditional).visit(module['some_routine'].body)
+    assert all(isinstance(c.condition.left, StringSubscript) for c in conditionals)
+    assert [fgen(c.condition.left) for c in conditionals] == [
+      'config%some_name(i)(1:1)', 'config%some_name(i)(strlen - 2:strlen)'
+    ]
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_types_nested_subscript(frontend):
+    fcode = """
+module derived_types_nested_subscript
+    implicit none
+
+    type inner_type
+        integer :: val
+    contains
+        procedure :: some_routine
+    end type inner_type
+
+    type outer_type
+        type(inner_type) :: inner(3)
+    end type outer_type
+
+contains
+
+    subroutine some_routine(this, val)
+        class(inner_type), intent(inout) :: this
+        integer, intent(in) :: val
+        this%val = val
+    end subroutine some_routine
+
+    subroutine driver(outers)
+        type(outer_type), intent(inout) :: outers(5)
+        integer :: i, j
+
+        do i=1,5
+            do j=1,3
+                call outers(i)%inner(j)%some_routine(i*10 + j)
+            end do
+        end do
+    end subroutine driver
+
+end module derived_types_nested_subscript
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    calls = FindNodes(CallStatement).visit(module['driver'].body)
+    assert len(calls) == 1
+    assert str(calls[0].name) == 'outers(i)%inner(j)%some_routine'
+    assert fgen(calls[0].name) == 'outers(i)%inner(j)%some_routine'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_types_nested_type(frontend):
+    fcode_module = """
+module some_mod
+    implicit none
+
+    type some_type
+        integer :: val
+    contains
+        procedure :: some_routine
+    end type some_type
+
+    type other_type
+        type(some_type) :: data
+    contains
+        procedure :: other_routine
+    end type other_type
+
+contains
+
+    subroutine some_routine(this)
+        class(some_type), intent(inout) :: this
+        this%val = 5
+    end subroutine some_routine
+
+    subroutine other_routine(this)
+        class(other_type), intent(inout) :: this
+        call this%data%some_routine
+    end subroutine other_routine
+end module some_mod
+    """.strip()
+
+    fcode_driver = """
+subroutine driver
+    use some_mod, only: other_type
+    implicit none
+    type(other_type) :: var
+    integer :: val
+    call var%other_routine
+    call var%data%some_routine
+    val = var%data%val
+end subroutine driver
+    """.strip()
+
+    module = Module.from_source(fcode_module, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[module])
+
+    other_routine = module['other_routine']
+    call = other_routine.body.body[0]
+    assert isinstance(call, CallStatement)
+    assert isinstance(call.name.type.dtype, ProcedureType)
+    assert call.name.parent and isinstance(call.name.parent.type.dtype, DerivedType)
+    assert call.name.parent.type.dtype.name == 'some_type'
+    assert call.name.parent.type.dtype.typedef is module['some_type']
+    assert call.name.parent.parent and isinstance(call.name.parent.parent.type.dtype, DerivedType)
+    assert call.name.parent.parent.type.dtype.name == 'other_type'
+    assert call.name.parent.parent.type.dtype.typedef is module['other_type']
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 2
+    for call in calls:
+        assert isinstance(call.name.type.dtype, ProcedureType)
+        assert call.name.parent and isinstance(call.name.parent.type.dtype, DerivedType)
+
+    assert calls[0].name.parent.type.dtype.name == 'other_type'
+    assert calls[0].name.parent.type.dtype.typedef is module['other_type']
+
+    assert calls[1].name.parent.type.dtype.name == 'some_type'
+    assert calls[1].name.parent.type.dtype.typedef is module['some_type']
+    assert calls[1].name.parent.parent
+    assert calls[1].name.parent.parent.type.dtype.name == 'other_type'
+    assert calls[1].name.parent.parent.type.dtype.typedef is module['other_type']
+
+    assignment = driver.body.body[-1]
+    assert isinstance(assignment, Assignment)
+    assert assignment.rhs.type.dtype is BasicType.INTEGER
+    assert assignment.rhs.parent and isinstance(assignment.rhs.parent.type.dtype, DerivedType)
+    assert assignment.rhs.parent.type.dtype.name == 'some_type'
+    assert assignment.rhs.parent.type.dtype.typedef is module['some_type']
+    assert assignment.rhs.parent.parent.type.dtype.name == 'other_type'
+    assert assignment.rhs.parent.parent.type.dtype.typedef is module['other_type']

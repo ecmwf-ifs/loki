@@ -12,7 +12,7 @@ from pymbolic.primitives import FloorDiv, Remainder
 
 from loki.visitors import Stringifier
 from loki.tools import as_tuple, JoinableStringList, flatten
-from loki.expression import LokiStringifyMapper
+from loki.expression import LokiStringifyMapper, StringLiteral
 from loki.types import DataType, BasicType, DerivedType, ProcedureType
 from loki.pragma_utils import get_pragma_parameters
 
@@ -73,7 +73,7 @@ class FCodeMapper(LokiStringifyMapper):
             enclosing_prec, PREC_COMPARISON)
 
     def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
-        values = ','.join(self.rec(c, PREC_NONE, *args, **kwargs) for c in expr.elements)
+        values = ', '.join(self.rec(c, PREC_NONE, *args, **kwargs) for c in expr.elements)
         if expr.dtype is not None:
             return f'(/ {fgen(expr.dtype)} :: {values} /)'
         return f'(/ {values} /)'
@@ -197,7 +197,7 @@ class FortranCodegen(Stringifier):
     def visit_Subroutine(self, o, **kwargs):
         """
         Format as
-          <ftype> [<prefix>] <name> ([<args>]) [BIND(c, name=<name>)]
+          <ftype> [<prefix>] <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
             ...docstring...
             ...spec...
             ...body...
@@ -210,8 +210,14 @@ class FortranCodegen(Stringifier):
         if o.prefix:
             prefix += ' '
         arguments = self.join_items(o.argnames)
-        bind_c = f' BIND(c, name=\'{o.bind}\')' if o.bind else ''
-        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
+        result = f' RESULT({o.result_name})' if o.result_name else ''
+        if isinstance(o.bind, str):
+            bind_c = f' BIND(c, name="{o.bind}")'
+        elif isinstance(o.bind, StringLiteral):
+            bind_c = f' BIND(c, name={o.bind})'
+        else:
+            bind_c = ''
+        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', result, bind_c)
         footer = self.format_line('END ', ftype, ' ', o.name)
 
         self.depth += 1
@@ -451,10 +457,10 @@ class FortranCodegen(Stringifier):
     def visit_DataDeclaration(self, o, **kwargs):
         """
         Format as
-          DATA <var> /<values>/
+          DATA <var> / <values> /
         """
         values = self.visit_all(o.values, **kwargs)
-        return self.format_line('DATA ', o.variable, '/', values, '/')
+        return self.format_line('DATA ', self.visit(o.variable, **kwargs), ' / ', self.join_items(values), ' /')
 
     def visit_StatementFunction(self, o, **kwargs):
         """

@@ -19,7 +19,7 @@ from loki.expression import (
     symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions
 )
 from loki.ir import Assignment, Loop, VariableDeclaration
-from loki.tools import as_tuple
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType
 from loki.visitors import FindNodes, Transformer
 
@@ -28,7 +28,7 @@ __all__ = [
     'shift_to_zero_indexing', 'invert_array_indices',
     'resolve_vector_notation', 'normalize_range_indexing',
     'promote_variables', 'promote_nonmatching_variables',
-    'promotion_dimensions_from_loop_nest'
+    'promotion_dimensions_from_loop_nest', 'demote_variables'
 ]
 
 
@@ -428,3 +428,71 @@ def promote_nonmatching_variables(routine, promotion_vars_dims, promotion_vars_i
     for (index, size), var_names in index_size_var_map.items():
         promote_variables(routine, var_names, -1, index=index, size=size)
     info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
+
+
+def demote_variables(routine, variable_names, dimensions):
+    """
+    Demote a list of array variables by removing any occurence of a
+    provided set of dimension symbols.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which the variables should be promoted.
+    variable_names : list of str
+        The names of variables to be promoted. Matching of variables against
+        names is case-insensitive.
+    dimensions : :py:class:`pymbolic.Expression` or tuple
+        Symbol name or tuple of symbol names representing the dimension
+        to remove from all occurances of the named variables.
+    """
+    dimensions = as_tuple(dimensions)
+
+    # Compare lower-case only, since we're not comparing symbols
+    vnames = tuple(name.lower() for name in variable_names)
+
+    variables = FindVariables(unique=False).visit(routine.ir)
+    variables = tuple(v for v in variables if v.name.lower() in vnames)
+    variables = tuple(v for v in variables if hasattr(v, 'shape'))
+
+    if not variables:
+        return
+
+    # Record original array shapes
+    shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
+
+    # Remove shape and dimension entries from each variable in the list
+    vmap = {}
+    for v in variables:
+        old_shape = shape_map[v.name]
+        new_shape = tuple(s for s in old_shape if s not in dimensions)
+        new_dims = tuple(d for d, s in zip(v.dimensions, old_shape) if s in new_shape)
+
+        new_type = v.type.clone(shape=new_shape or None)
+        vmap[v] = v.clone(dimensions=new_dims or None, type=new_type)
+
+    # Propagate the new dimensions to declarations and routine bodys
+    routine.body = SubstituteExpressions(vmap).visit(routine.body)
+    routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+
+    # Ensure all declarations with `DIMENSION` keywords are modified too!
+    decls = tuple(
+        d for d in FindNodes(VariableDeclaration).visit(routine.spec)
+        if d.dimensions and any(s.name.lower() in vnames for s in d.symbols)
+    )
+    decl_map = {}
+    for decl in decls:
+        # If all symbols have the same shape (after demotion)
+        sym_shape = tuple(s.shape if isinstance(s, sym.Array) else None for s in decl.symbols)
+        if all(d == sym_shape[0] for d in sym_shape):
+            dimensions = decl.symbols[0].shape if isinstance(decl.symbols[0], sym.Array) else None
+            decl_map[decl] = decl.clone(dimensions=dimensions)
+        else:
+            # If not, split into multiple declarations
+            sdims = tuple(s.shape if isinstance(s, sym.Array) else None for s in decl.symbols)
+            decl_map[decl] = tuple(
+                decl.clone(symbols=(s,), dimensions=d) for s, d in zip(decl.symbols, sdims)
+            )
+    routine.spec = Transformer(decl_map).visit(routine.spec)
+
+    info(f'[Loki] {routine.name}:: demoted variable(s): {", ".join(variable_names)}')

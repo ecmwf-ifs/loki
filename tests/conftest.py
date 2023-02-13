@@ -226,7 +226,7 @@ def stdchannel_is_captured(capsys):
     return capturemanager._global_capturing.out is not None
 
 
-def available_frontends(xfail=None, skip=None):
+def available_frontends(xfail=None, skip=None, include_regex=False):
     """
     Provide list of available frontends to parametrize tests with
 
@@ -253,6 +253,8 @@ def available_frontends(xfail=None, skip=None):
     skip : list, optional
         Provide frontends that are always skipped, optionally as tuple with reason
         provided as string. By default `None`
+    include_regex : bool, optional
+        Include the :any:`REGEX` frontend in the list. By default `false`.
     """
     if xfail:
         xfail = dict((as_tuple(f) + (None,))[:2] for f in xfail)
@@ -278,7 +280,7 @@ def available_frontends(xfail=None, skip=None):
             params += [pytest.param(f, marks=pytest.mark.skip(reason=skip[f]))]
         elif f in xfail:
             params += [pytest.param(f, marks=pytest.mark.xfail(reason=xfail[f]))]
-        elif f != REGEX:
+        elif f != REGEX or include_regex:
             params += [f]
 
     return params
