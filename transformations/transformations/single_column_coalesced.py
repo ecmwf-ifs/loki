@@ -15,7 +15,7 @@ from loki import (
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten, 
-    Product, IntLiteral, CallStatement, Array, RangeIndex, Conditional, Section
+    Product, IntLiteral, CallStatement, Array, RangeIndex, Conditional, Section,
     demote_variables
 )
 
@@ -44,9 +44,6 @@ def insert_routine_body(routine):
     #Create ampty call map and member variable name list
     call_map = {}
     member_names = []
-
-    print(routine.name)
-    print()
 
     #Loop over member subroutines
     for member in routine.members:
