@@ -15,7 +15,7 @@ from loki import (
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten, 
-    Product, IntLiteral, CallStatement, Array, RangeIndex, Conditional
+    Product, IntLiteral, CallStatement, Array, RangeIndex, Conditional, Section
 )
 
 
@@ -43,6 +43,9 @@ def insert_routine_body(routine):
     #Create ampty call map and member variable name list
     call_map = {}
     member_names = []
+
+    print(routine.name)
+    print()
 
     #Loop over member subroutines
     for member in routine.members:
@@ -100,13 +103,20 @@ def insert_routine_body(routine):
 
             if call.routine == member:
 
+                #Create explicit copy of body
+                new_body = []
+                for n in temp_body.body:
+                    new_body += [n.clone()]
+
+                new_body = as_tuple(new_body)
+
                 #Create map from member dummy name to actual argument
                 amap = {}
                 for a in call.arg_iter():
                     amap[a[0].name] = a[1]
 
                 #List member dummy variables
-                variables = [v for v in FindVariables(unique=False).visit(temp_body) if v.name in amap]
+                variables = [v for v in FindVariables(unique=False).visit(new_body) if v.name in amap]
 
                 vmap = {}
                 for v in variables:
@@ -152,7 +162,7 @@ def insert_routine_body(routine):
 
                         vmap[v] = amap[v.name].clone(dimensions = as_tuple(new_dims))
 
-                call_map[call] = SubstituteExpressions(vmap).visit(temp_body)
+                call_map[call] = Section(SubstituteExpressions(vmap).visit(new_body))
 
         routine.variables = as_tuple(list(routine.variables) + list(member_set))
         routine_names += member_names
