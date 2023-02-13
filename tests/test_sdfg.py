@@ -35,7 +35,14 @@ def fixture_here():
 
 def load_module(path):
     path = Path(path)
-    return importlib.import_module(path.stem)
+
+    # Trigger the actual module import
+    try:
+        return importlib.import_module(path.stem)
+    except ModuleNotFoundError:
+        # If module caching interferes, try again with clean caches
+        importlib.invalidate_caches()
+        return importlib.import_module(path.stem)
 
 
 def create_sdfg(routine, here):

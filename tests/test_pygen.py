@@ -7,7 +7,7 @@
 
 import sys
 from pathlib import Path
-from importlib import import_module
+from importlib import import_module, reload, invalidate_caches
 import pytest
 import numpy as np
 
@@ -27,7 +27,17 @@ def load_module(here, module):
     modpath = str(Path(here).absolute())
     if modpath not in sys.path:
         sys.path.insert(0, modpath)
-    return import_module(module)
+    if module in sys.modules:
+        reload(sys.modules[module])
+        return sys.modules[module]
+
+    # Trigger the actual module import
+    try:
+        return import_module(module)
+    except ModuleNotFoundError:
+        # If module caching interferes, try again with clean caches
+        invalidate_caches()
+        return import_module(module)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
