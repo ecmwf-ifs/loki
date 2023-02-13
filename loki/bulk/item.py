@@ -291,6 +291,14 @@ class Item:
         return self.config.get('enrich', tuple())
 
     @property
+    def disable_imports(self):
+        """
+        Configurable option to disable the addition of module imports as children.
+        """
+
+        return self.config.get('disable_imports', False)
+
+    @property
     def children(self):
         """
         Set of all child routines that this work item has in the call tree
@@ -566,9 +574,11 @@ class SubroutineItem(Item):
         Comprises of inline function declarations and qualified module imports.
         """
 
-        # avoid duplicates in list of children
-        _imports = tuple([v for v in self.qualified_imports.keys()])
-        _imports = tuple([i for i in _imports if i not in self.calls])
+        _imports = ()
+        if not self.disable_imports:
+            # avoid duplicates of import calls in list of children
+            _imports = tuple([v for v in self.qualified_imports.keys()])
+            _imports = tuple([i for i in _imports if i not in self.calls])
 
         return self.inline_function_interfaces + _imports
 
