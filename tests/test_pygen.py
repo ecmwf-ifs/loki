@@ -89,7 +89,7 @@ end subroutine pygen_simple_loops
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -172,7 +172,7 @@ end subroutine pygen_arguments
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -243,7 +243,7 @@ end subroutine pygen_vectorization
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -298,7 +298,7 @@ end subroutine pygen_intrinsics
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -366,7 +366,7 @@ end subroutine pygen_loop_indices
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -427,7 +427,7 @@ end subroutine pygen_logical_statements
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)

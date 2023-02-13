@@ -27,14 +27,34 @@ __all__ = ['FortranPythonTransformation']
 
 class FortranPythonTransformation(Transformation):
     """
-    A transformer class to convert Fortran to Python.
+    A transformer class to convert Fortran to Python or DaCe.
+
+    This :any:`Transformation` will generate Python code from a
+    given Fortran routine, and if configured, annotate it with DaCe
+    dataflow pragmas.
+
+    Parameters
+    ----------
+    with_dace : bool
+        Generate DaCe-specific Python code via :any:`dacegen` backend.
+        This option implies inverted array indexing; default: ``False``
+    invert_indices : bool
+        Switch to C-style indexing (row-major) with fastest loop
+        indices being used rightmost; default: ``False``
+    suffix : str
+        Optional suffix to append to converted routine names.
     """
+
+    def __init__(self, **kwargs):
+        self.with_dace = kwargs.pop('with_dace', False)
+        self.invert_indices = kwargs.pop('invert_indices', False)
+        self.suffix = kwargs.pop('suffix', '')
 
     def transform_subroutine(self, routine, **kwargs):
         path = Path(kwargs.get('path'))
 
         # Rename subroutine to generate Python kernel
-        routine.name = f'{routine.name}_py'
+        routine.name = f'{routine.name}{self.suffix}'
 
         # Remove all "IMPLICT" intrinsic statements
         mapper = {
@@ -51,7 +71,7 @@ class FortranPythonTransformation(Transformation):
 
         # Do some vector and indexing transformations
         normalize_range_indexing(routine)
-        if kwargs.get('with_dace', False) is True:
+        if self.with_dace or self.invert_indices:
             invert_array_indices(routine)
         shift_to_zero_indexing(routine)
 
@@ -67,5 +87,5 @@ class FortranPythonTransformation(Transformation):
         self.mod_name = routine.name.lower()
         # Need to attach Loop pragmas to honour dataflow pragmas for loops
         with pragmas_attached(routine, ir.Loop):
-            source = dacegen(routine) if kwargs.get('with_dace', False) is True else pygen(routine)
+            source = dacegen(routine) if self.with_dace else pygen(routine)
         Sourcefile.to_file(source=source, path=self.py_path)
