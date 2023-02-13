@@ -119,13 +119,14 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
         function_map = CaseInsensitiveDict(function_map)
 
     callmap = {}
-    for call in FindInlineCalls(unique=False).visit(routine.body):
+    for call in FindInlineCalls(unique=False).visit(routine.ir):
         if call.name in symbol_map:
             callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
 
         if call.name in function_map:
             callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
 
+    routine.spec = SubstituteExpressions(callmap).visit(routine.spec)
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
 
 

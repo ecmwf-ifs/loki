@@ -9,6 +9,9 @@ from pathlib import Path
 
 from loki.backend import pygen, dacegen
 from loki import ir
+from loki.expression import (
+    symbols as sym, FindInlineCalls, SubstituteExpressions
+)
 from loki.pragma_utils import pragmas_attached
 from loki.sourcefile import Sourcefile
 from loki.transform.transformation import Transformation
@@ -79,8 +82,25 @@ class FortranPythonTransformation(Transformation):
         # Note that this substitution is case-insensitive, and therefore we have
         # this seemingly identity mapping to make sure Python function names are
         # lower-case
-        intrinsic_map = {'min': 'min', 'max': 'max', 'abs': 'abs'}
+        intrinsic_map = {
+            'min': 'min', 'max': 'max', 'abs': 'abs',
+            'exp': 'np.exp', 'sqrt': 'np.sqrt',
+        }
         replace_intrinsics(routine, function_map=intrinsic_map)
+
+        # Sign intrinsic function takes a little more thought
+        sign_map = {}
+        for c in FindInlineCalls(unique=False).visit(routine.ir):
+            if c.function == 'sign':
+                assert len(c.parameters) == 2
+                sign = sym.InlineCall(
+                    function=sym.ProcedureSymbol(name='np.sign', scope=routine),
+                    parameters=(c.parameters[1],)
+                )
+                sign_map[c] = sym.Product((c.parameters[0], sign))
+
+        routine.spec = SubstituteExpressions(sign_map).visit(routine.spec)
+        routine.body = SubstituteExpressions(sign_map).visit(routine.body)
 
         # Rename subroutine to generate Python kernel
         self.py_path = (path/routine.name.lower()).with_suffix('.py')
