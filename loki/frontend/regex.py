@@ -921,7 +921,7 @@ class IntrinsicDeclarationPattern(Pattern):
 
     def __init__(self):
         super().__init__(
-            r'^[ \t]*(?P<typename>real(\(kind=.+\))?|integer(\(kind=.+\))?|logical(\(kind=.+\))?)[ \t]*'
+            r'^[ \t]*(?P<typename>real(\(kind=.+\))?|integer(\(kind=.+\))?|logical(\(kind=.+\))?|character\(len=.+\))[ \t]*'
             r'(?:[ \t]*,[ \t]*[a-z]+(?:\(.*?\))?)*'  # Optional attributes
             r'(?:[ \t]*::)?'  # Optional `::` delimiter
             r'[ \t]*'  # Some white space
@@ -949,7 +949,7 @@ class IntrinsicDeclarationPattern(Pattern):
 
         type_ = SymbolAttributes(DerivedType(match['typename']))
         variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
-        variables = re.sub(r'[ \t]*=(>)?[ \t]*\w+[ \t]*', r'', variables) # Remove initialization
+        variables = re.sub(r'[ \t]*=(>)?[ \t]*[-.\w/]+[ \t]*', r'', variables) # Remove initialization
         variables = variables.replace(' ', '').split(',')  # Variable names without white space
         variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
         return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
