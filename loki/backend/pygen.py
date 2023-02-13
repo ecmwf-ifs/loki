@@ -75,6 +75,18 @@ class PyCodeMapper(LokiStringifyMapper):
     def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
         return ' + '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)
 
+    def map_inline_call(self, expr, enclosing_prec, *args, **kwargs):
+        arguments = ', '.join(self.rec(p, PREC_NONE, *args, **kwargs) for p in expr.parameters)
+
+        if expr.kw_parameters:
+            arguments += ', ' + ', '.join(
+                f'{self.rec(k, PREC_NONE, *args, **kwargs)}={self.rec(v, PREC_NONE, *args, **kwargs)}'
+                for k, v in expr.kw_parameters.items()
+            )
+
+        f = self.rec(expr.function, PREC_NONE, *args, **kwargs)
+        return self.format(f'{str(f).lower()}({arguments})')
+
 
 class PyCodegen(Stringifier):
     """
@@ -167,16 +179,27 @@ class PyCodegen(Stringifier):
           <name> = <initial>
         and skip any arguments or scalars without an initial value
         """
-        decls = []
-        if o.comment:
-            decls += [self.visit(o.comment, **kwargs)]
+        comment = self.visit(o.comment, **kwargs) if o.comment else None
+
+        # Initialise local arrays via numpy
         local_arrays = [v for v in o.symbols if isinstance(v, sym.Array) and not v.type.intent]
-        decls += [self.format_line(v.name.lower(), ' = np.ndarray(order="F", shape=(',
-                                   self.join_items(self.visit_all(v.shape, **kwargs)), ',))')
-                  for v in local_arrays]
-        decls += [self.format_line(v.name.lower(), ' = ', self.visit(v.initial, **kwargs))
-                  for v in o.symbols if v.initial is not None]
-        return self.join_lines(*decls)
+        array_decls = tuple(
+            self.format_line(v.name.lower(), ' = np.ndarray(order="F", shape=(',
+                             self.join_items(self.visit_all(v.dimensions, **kwargs)), ',))')
+            for v in local_arrays
+        )
+
+        # Assign initial values, if given
+        init_decls = tuple(
+            self.format_line(v.name.lower(), ' = ', self.visit(v.initial, **kwargs))
+            for v in o.symbols if hasattr(v, 'initial') and v.initial is not None
+        )
+
+        # Break out early to avoid needless newlines
+        if not comment and not array_decls and not init_decls:
+            return None
+
+        return self.join_lines(comment, *array_decls, *init_decls)
 
     def visit_Import(self, o, **kwargs):  # pylint: disable=unused-argument
         """
@@ -274,6 +297,15 @@ class PyCodegen(Stringifier):
 
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         return numpy_type(o)
+
+    def visit_StatementFunction(self, o, **kwargs):
+        args = tuple(self.visit(a, **kwargs) for a in o.arguments)
+        header = self.format_line('def ', o.variable.name.lower(), f'({self.join_items(args)}):')
+
+        self.depth += 1
+        body = self.format_line('return ', self.visit(o.rhs, **kwargs))
+        self.depth -= 1
+        return f'{header}\n{body}'
 
 
 def pygen(ir):
