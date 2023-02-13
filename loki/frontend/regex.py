@@ -869,7 +869,7 @@ class DerivedTypeDeclarationPattern(Pattern):
     """
     Pattern to match :any:`VariableDeclaration` nodes
 
-    For the moment, this only matches variable declarations for derived type objects
+    This subclass only matches variable declarations for derived type objects
     (via ``TYPE`` or ``CLASS`` keywords).
     """
 
@@ -887,7 +887,7 @@ class DerivedTypeDeclarationPattern(Pattern):
 
     def match(self, reader, parser_classes, scope):
         """
-        Match the provided source string against the pattern for a :any:`Import`
+        Match the provided source string against the pattern for a :any:`VariableDeclaration`
 
         Parameters
         ----------
@@ -913,8 +913,8 @@ class IntrinsicDeclarationPattern(Pattern):
     """
     Pattern to match :any:`VariableDeclaration` nodes
 
-    For the moment, this only matches variable declarations for derived type objects
-    (via ``TYPE`` or ``CLASS`` keywords).
+    This subclass only matches variable declarations for intrinsic types,
+    e.g. REAL, INTEGER, LOGICAL, etc.
     """
 
     parser_class = RegexParserClass.DeclarationClass
@@ -931,7 +931,7 @@ class IntrinsicDeclarationPattern(Pattern):
 
     def match(self, reader, parser_classes, scope):
         """
-        Match the provided source string against the pattern for a :any:`Import`
+        Match the provided source string against the pattern for a :any:`VariableDeclaration`
 
         Parameters
         ----------

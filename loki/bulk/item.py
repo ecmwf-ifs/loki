@@ -428,32 +428,6 @@ class Item:
         )
 
     @property
-    def children(self):
-        """
-        Set of all child routines that this work item has in the call tree
-
-        Note that this is not the set of active children that a traversal
-        will apply a transformation over, but rather the set of nodes that
-        defines the next level of the internal call tree.
-
-        This returns the local names of children which can be fully qualified
-        via :meth:`qualify_names`.
-
-        Returns
-        -------
-        list of str
-        """
-        disabled = as_tuple(str(b).lower() for b in self.disable)
-
-        # Base definition of child is a procedure call (for now)
-        children = self._children + self.calls
-
-        # Filter out local members and disabled sub-branches
-        children = [c for c in children if c not in self.members]
-        children = [c for c in children if c not in disabled]
-        return as_tuple(children)
-
-    @property
     def targets(self):
         """
         Set of "active" child routines that are part of the transformation
@@ -587,6 +561,10 @@ class SubroutineItem(Item):
 
     @cached_property
     def _unfiltered_children(self):
+        """
+        The set of children unique to items of type :class:`SubroutineItem`.
+        Comprises of inline function declarations and qualified module imports.
+        """
 
         # avoid duplicates in list of children
         _imports = tuple([v for v in self.qualified_imports.keys()])
@@ -597,26 +575,18 @@ class SubroutineItem(Item):
     @property
     def children(self):
         """
-        Set of all child routines that this work item has in the call tree
-
-        Note that this is not the set of active children that a traversal
-        will apply a transformation over, but rather the set of nodes that
-        defines the next level of the internal call tree.
-
-        This returns the local names of children which can be fully qualified
-        via :meth:`qualify_names`.
-
-        Returns
-        -------
-        list of str
+        Extend the base definition of children for items of type :class:`SubroutineItem`.
         """
 
         self._children = self._unfiltered_children
-
         return super().children
 
     @property
     def targets(self):
+        """
+        Extend the base definition of targets for items of type :class:`SubroutineItem`.
+        """
+
         self._targets = self._unfiltered_children
         return super().targets
 
@@ -708,12 +678,10 @@ class ProcedureBindingItem(Item):
 
 class GenericImportItem(Item):
     """
-    Implementation of :class:`Item` to represent a Fortran procedure binding
+    Implementation of :class:`Item` to represent a generic Fortran module import.
 
     This does not constitute a work item when applying transformations across the
     call tree in the :any:`Scheduler` and is skipped during the processing phase.
-    However, it is necessary to provide the dependency link from calls to type bound
-    procedures to their implementation in a Fortran routine.
     """
 
     def __init__(self, name, source, config=None):
@@ -732,7 +700,7 @@ class GenericImportItem(Item):
     @property
     def members(self):
         """
-        Empty tuple as procedure bindings have no member routines
+        Empty tuple as generic imports have no member routines
 
         Returns
         -------
@@ -753,6 +721,11 @@ class GenericImportItem(Item):
 
     @cached_property
     def _unfiltered_children(self):
+        """
+        The set of children unique to items of type :class:`GenericImportItem`.
+        Comprises exclusively of inline function calls, including any bound to
+        a generic interface.
+        """
 
         _children = ()
         intfs = self.scope.interfaces
@@ -773,22 +746,26 @@ class GenericImportItem(Item):
 
     @property
     def children(self):
+        """
+        Extend the base definition of children for items of type :class:`GenericImportItem`.
+        """
+
         self._children = self._unfiltered_children
         return super().children
 
     @property
     def targets(self):
+        """
+        Extend the base definition of targets for items of type :class:`GenericImportItem`.
+        """
+
         self._targets = self._unfiltered_children
         return super().targets
 
 class GlobalVarImportItem(Item):
     """
-    Implementation of :class:`Item` to represent a Fortran procedure binding
-
-    This does not constitute a work item when applying transformations across the
-    call tree in the :any:`Scheduler` and is skipped during the processing phase.
-    However, it is necessary to provide the dependency link from calls to type bound
-    procedures to their implementation in a Fortran routine.
+    Implementation of :class:`Item` to represent a global variable import.
+    These only appear at the end of dependency trees and do not have children.
     """
 
     def __init__(self, name, source, config=None):
@@ -807,7 +784,7 @@ class GlobalVarImportItem(Item):
     @property
     def members(self):
         """
-        Empty tuple as procedure bindings have no member routines
+        Empty tuple as variable imports have no member routines
 
         Returns
         -------
@@ -820,8 +797,12 @@ class GlobalVarImportItem(Item):
         """
         Return modules imported in the parent scope
         """
-        return None
+
+        return self.scope.imports
 
     @property
     def calls(self):
+        """
+        Empty tuple as items of type :class:`GlobalVarImportItem` cannot have any children.
+        """
         return ()
