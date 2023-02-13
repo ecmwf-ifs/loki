@@ -19,7 +19,7 @@ from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable,
     RangeIndex, as_tuple, BasicType, DerivedType, CaseInsensitiveDict,
-    warning, debug
+    warning, debug, ProcedureDeclaration
 )
 
 
@@ -166,7 +166,7 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
             return expansion_candidates
 
         for kernel_arg, caller_arg in call.arg_iter():
-            if kernel_arg.name in child_map or getattr(caller_arg, 'parent'):
+            if kernel_arg.name in child_map or hasattr(caller_arg, 'parent'):
                 parent, expansion = cls.expand_derived_type_member(caller_arg)
 
                 if expansion:
@@ -298,8 +298,13 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
         """
         # Build a map from derived type arguments to expanded arguments
         argument_map = {}
+        typedefs = []
         for arg in routine.arguments:
             if arg.name in expansion_map:
+                # Collect the typedefs corresponding to arguments
+                if arg.type.dtype.typedef not in typedefs:
+                    typedefs += [arg.type.dtype.typedef]
+
                 new_args = []
                 for member in expansion_map[arg.name]:
                     # Instantiate the expanded argument's non-expanded counterpart
@@ -308,7 +313,7 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                         arg_member = Variable(name=f'{arg_member.name}%{n}', parent=arg_member, scope=routine)
 
                     # Use same argument intent and insert `:` range dimensions
-                    new_type = arg_member.type.clone(intent=arg.type.intent)
+                    new_type = arg_member.type.clone(intent=arg.type.intent, initial=None)
                     new_dims = tuple(RangeIndex((None, None)) for _ in new_type.shape or [])
 
                     # Create the expanded argument
@@ -335,6 +340,13 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 # had derived previously (ie. the type from the struct definition.)
                 vmap[var] = var.clone(name=var.name.replace('%', '_'), parent=None, type=None)
 
-
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+        # Update procedure bindings by specifying NOPASS attribute
+        for tdef in typedefs:
+            for decl in tdef.declarations:
+                if isinstance(decl, ProcedureDeclaration) and not proc.generic:
+                    for proc in decl.symbols:
+                        if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
+                            proc.type = proc.type.clone(pass_attr=False)

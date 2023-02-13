@@ -8,7 +8,10 @@
 from itertools import zip_longest
 import pytest
 
-from loki import OMNI, Sourcefile, FindNodes, CallStatement, SubroutineItem, as_tuple
+from loki import (
+    OMNI, Sourcefile, FindNodes, CallStatement, SubroutineItem, as_tuple,
+    ProcedureDeclaration
+)
 from conftest import available_frontends
 from transformations import DerivedTypeArgumentsExpansionAnalysis, DerivedTypeArgumentsExpansionTransformation
 
@@ -538,3 +541,121 @@ end module transform_derived_type_arguments_mod
             )
         else:
             pytest.xfail('Unknown call name')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_typebound_proc(frontend):
+    fcode = f"""
+module transform_derived_type_arguments_mod
+
+    implicit none
+
+    type some_derived_type
+{'!$loki dimension(n)' if frontend is not OMNI else ''}
+        real, allocatable :: a(:)
+{'!$loki dimension(m, n)' if frontend is not OMNI else ''}
+        real, allocatable :: b(:,:)
+{'!$loki dimension(m, n)' if frontend is not OMNI else ''}
+        real, allocatable :: c(:,:)
+    contains
+        procedure, pass :: kernel_a
+        procedure :: kernel_b_c => kernel
+        procedure, pass(this) :: reduce
+    end type some_derived_type
+
+contains
+
+    subroutine kernel_a(this, out, n)
+        class(some_derived_type), intent(inout) :: this
+        real, allocatable, intent(inout)        :: out(:)
+        integer                , intent(in)     :: n
+        integer :: j
+
+        do j=1,n
+            out(j) = this%a(j) + 1.
+        end do
+    end subroutine kernel_a
+
+    subroutine kernel(this, other, m, n)
+        class(some_derived_type), intent(in)   :: this
+        type(some_derived_type), intent(inout) :: other
+        integer                , intent(in)    :: m, n
+        integer :: j, k
+
+        do j=1,n
+            do k=1,m
+                other%b(k, j) = 1.e3 - this%b(k, j) - this%c(k, j)
+            end do
+        end do
+    end subroutine kernel
+
+    function reduce(start, this) result(val)
+        real, intent(in) :: start
+        class(some_derived_type), intent(in) :: this
+        real :: val
+        val = sum(this%a + sum(this%b + this%c, 1))
+    end function reduce
+end module transform_derived_type_arguments_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    kernel_a = SubroutineItem(name='transform_derived_type_arguments_mod#kernel_a', source=source)
+    kernel = SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source)
+    reduce = SubroutineItem(name='transform_derived_type_arguments_mod#reduce', source=source)
+
+    # Run analysis
+    analysis = DerivedTypeArgumentsExpansionAnalysis(key='some_key')  # Use a custom key because of the lolz
+    source.apply(analysis, role='kernel', item=kernel_a)
+    source.apply(analysis, role='kernel', item=kernel)
+    source.apply(analysis, role='kernel', item=reduce)
+
+    # Check analysis outcome
+    assert 'some_key' in kernel_a.trafo_data
+    assert 'some_key' in kernel.trafo_data
+    assert 'some_key' in reduce.trafo_data
+
+    assert kernel_a.trafo_data['some_key']['expansion_map'] == {
+        'this': ('a',),
+    }
+    assert kernel.trafo_data['some_key']['expansion_map'] == {
+        'this': ('b', 'c'),
+        'other': ('b',)
+    }
+    assert reduce.trafo_data['some_key']['expansion_map'] == {
+        'this': ('a', 'b', 'c'),
+    }
+
+    # Check procedure bindings before the transformation
+    typedef = source['some_derived_type']
+    assert typedef.variable_map['kernel_a'].type.pass_attr is True
+    assert typedef.variable_map['kernel_b_c'].type.pass_attr in (None, True)
+    assert typedef.variable_map['reduce'].type.pass_attr == 'this'
+    proc_decls = [decl for decl in typedef.declarations if isinstance(decl, ProcedureDeclaration)]
+    assert len(proc_decls) == 3
+    assert proc_decls[0].symbols[0] == 'kernel_a'
+    assert proc_decls[1].symbols[0] == 'kernel_b_c'
+    assert proc_decls[2].symbols[0] == 'reduce'
+
+    # Apply transformation
+    transformation = DerivedTypeArgumentsExpansionTransformation(key='some_key')
+    source.apply(transformation, role='kernel', item=kernel_a)
+    source.apply(transformation, role='kernel', item=kernel)
+    source.apply(transformation, role='kernel', item=reduce)
+
+    # Check routine outcome
+    assert kernel_a.routine.arguments == ('this_a(:)', 'out(:)', 'n')
+    assert kernel.routine.arguments == ('this_b(:, :)', 'this_c(:, :)', 'other_b(:, :)', 'm', 'n')
+
+    # Check updated procedure bindings
+    typedef = source['some_derived_type']
+    assert typedef.variable_map['kernel_a'].type.pass_attr is False
+    assert typedef.variable_map['kernel_b_c'].type.pass_attr is False
+    assert typedef.variable_map['reduce'].type.pass_attr is False
+    proc_decls = [decl for decl in typedef.declarations if isinstance(decl, ProcedureDeclaration)]
+    assert len(proc_decls) == 3
+    assert proc_decls[0].symbols[0] == 'kernel_a'
+    assert proc_decls[1].symbols[0] == 'kernel_b_c'
+    assert proc_decls[2].symbols[0] == 'reduce'
+
+    # Check output of fgen
+    assert source.to_fortran().count(' NOPASS ') == 3
