@@ -1558,3 +1558,31 @@ end module some_mod
     assert item.qualify_names(item.children) == (
         ('#routine', 'yet_another_mod#routine', 'other_mod#routine', 'more_mod#routine'),
     )
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scheduler_inline_call(here, config, frontend):
+    """
+    Test that inline function calls declared via an explicit interface are added as dependencies.
+    """
+
+    my_config = config.copy()
+    my_config['routine'] = [
+        {
+            'name': 'driver',
+            'role': 'driver'
+        }
+    ]
+
+    scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
+    print(scheduler.items)
+
+    expected_items = {'#driver', '#double_real'}
+    expected_dependencies = {('#driver', '#double_real')}
+
+    assert expected_items == {i.name for i in scheduler.items}
+    assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
+
+    for i in scheduler.items:
+        if i.name == '#double_real':
+            assert isinstance(i, SubroutineItem)
