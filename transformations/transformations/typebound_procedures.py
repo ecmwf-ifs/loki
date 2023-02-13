@@ -37,6 +37,12 @@ class TypeboundProcedureCallTransformation(Transformation):
         """
         Apply the transformation of calls to the given :data:`routine`
         """
+        item = kwargs.get('item')
+
+        # Bail out if the current subroutine is not part of the call tree
+        if item and item.local_name != routine.name.lower():
+            return
+
         self.apply_default_polymorphic_intent(routine)
 
         new_subroutine_imports = defaultdict(set)
