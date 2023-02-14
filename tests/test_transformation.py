@@ -449,7 +449,7 @@ SUBROUTINE driver(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
   a = kernel(a)
-  b = kernel(b)
+  b = kernel(a)
   c = kernel(c)
 END SUBROUTINE driver
 """, frontend=frontend)
@@ -484,6 +484,8 @@ END FUNCTION kernel
 
     # Check that calls and imports have been diverted to the re-generated routine
     calls = tuple(FindInlineCalls().visit(driver['driver'].body))
+    assert len(calls) == 2
+    calls = tuple(FindInlineCalls(unique=False).visit(driver['driver'].body))
     assert len(calls) == 3
     assert calls[0].name == 'kernel_test'
     imports = FindNodes(Import).visit(driver['driver'].spec)

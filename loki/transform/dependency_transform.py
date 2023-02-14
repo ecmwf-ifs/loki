@@ -162,7 +162,7 @@ class DependencyTransformation(Transformation):
             if targets is None or call.name in targets:
                 call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
 
-        for call in FindInlineCalls().visit(routine.body):
+        for call in FindInlineCalls(unique=False).visit(routine.body):
             if targets is None or call.name.upper() in targets:
                 call.function = call.function.clone(name=f'{call.name}{self.suffix}')
 
