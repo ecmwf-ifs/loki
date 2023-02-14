@@ -1138,7 +1138,7 @@ class OFP2IR(GenericVisitor):
             args = [a.attrib['name'].upper() for a in header_ast.findall('arguments/argument')]
 
         # Subroutine/Function statement suffix (such as result name and language binding)
-        result = None
+        result_name = None
         bind = None
         suffix = header_ast.find('suffix')
         if suffix is None:
@@ -1148,18 +1148,20 @@ class OFP2IR(GenericVisitor):
             if suffix.attrib['hasProcLangBindSpec'] == 'true':
                 bind = self.visit(header_ast.find('literal'))
             if suffix.attrib['result'] == 'result':
-                result = header_ast.find('name').attrib['name']
+                result_name = header_ast.find('name').attrib['name']
+
+        prefix = [a.attrib['spec'].upper() for a in header_ast.findall('t-prefix-spec')] or None
 
         if routine is None:
             routine = Subroutine(
-                name=name, args=args, prefix=None, bind=bind, result_name=result,
+                name=name, args=args, prefix=prefix, bind=bind, result_name=result_name,
                 is_function=is_function, parent=scope,
                 ast=o, source=self.get_source(o)
             )
         else:
             routine.__init__(  # pylint: disable=unnecessary-dunder-call
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=None, bind=bind, result_name=result, is_function=is_function,
+                contains=routine.contains, prefix=prefix, bind=bind, result_name=result_name, is_function=is_function,
                 ast=o, source=self.get_source(o), parent=routine.parent, symbol_attrs=routine.symbol_attrs,
                 incomplete=routine._incomplete
             )

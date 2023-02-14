@@ -43,7 +43,7 @@ class SchedulerConfig:
         control flow, like ``flush`` or ``abort``.
     """
 
-    def __init__(self, default, routines, disable=None, dimensions=None):
+    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
@@ -51,6 +51,14 @@ class SchedulerConfig:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
+        if dic2p is not None:
+            self.dic2p = dic2p
+        else:
+            self.dic2p = {}
+        if derived_types is not None:
+            self.derived_types = derived_types
+        else:
+            self.derived_types = ()
 
     @classmethod
     def from_dict(cls, config):
@@ -68,7 +76,16 @@ class SchedulerConfig:
             dimensions = [Dimension(**d) for d in config['dimension']]
             dimensions = {d.name: d for d in dimensions}
 
-        return cls(default=default, routines=routines, disable=disable, dimensions=dimensions)
+        dic2p = {}
+        if 'dic2p' in config:
+            dic2p = config['dic2p']
+
+        derived_types = ()
+        if 'derived_types' in config:
+            derived_types = config['derived_types']
+
+        return cls(default=default, routines=routines, disable=disable, dimensions=dimensions, dic2p=dic2p,
+                   derived_types=derived_types)
 
     @classmethod
     def from_file(cls, path):
@@ -120,6 +137,11 @@ class Scheduler:
         By default a full parse is executed, use this flag to suppress.
     frontend : :any:`Frontend`, optional
         Frontend to use when parsing source files (default :any:`FP`).
+
+    Attributes
+    ----------
+    depths : dict
+        depth of each item according to the topological generations (stratified item graph)
     """
 
     # TODO: Should be user-definable!
@@ -165,6 +187,12 @@ class Scheduler:
 
             # Attach interprocedural call-tree information
             self._enrich()
+
+        topological_generations = list(nx.topological_generations(self.item_graph))
+        self.depths = {}
+        for i_gen, gen in enumerate(topological_generations):
+            for item in gen:
+                self.depths[item] = i_gen
 
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
@@ -434,7 +462,8 @@ class Scheduler:
                 # Process work item with appropriate kernel
                 transformation.apply(
                     item.source, role=item.role, mode=item.mode,
-                    item=item, targets=item.targets, successors=list(self.item_graph.successors(item))
+                    item=item, targets=item.targets, successors=list(self.item_graph.successors(item)),
+                    depths=self.depths
                 )
 
     def callgraph(self, path):

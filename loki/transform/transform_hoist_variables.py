@@ -117,7 +117,7 @@ class HoistVariablesAnalysis(Transformation):
         if disable is None:
             self.disable = ()
         else:
-            self.disable = [_.upper() for _ in disable]
+            self.disable = [_.lower() for _ in disable]
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -136,9 +136,10 @@ class HoistVariablesAnalysis(Transformation):
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
         _successors = kwargs.get('successors', ())
-        successors = [_ for _ in _successors if _.local_name.upper() not in self.disable]
+        successors = [_ for _ in _successors if _.local_name.lower()
+                      not in self.disable and _.name.lower() not in self.disable]
 
-        if item and not item.local_name == routine.name.lower() or item.local_name.upper() in self.disable:
+        if item and not item.local_name == routine.name.lower() or item.local_name.lower() in self.disable:
             return
 
         item.trafo_data[self._key] = {}
@@ -211,7 +212,7 @@ class HoistVariablesTransformation(Transformation):
         if disable is None:
             self.disable = ()
         else:
-            self.disable = [_.upper() for _ in disable]
+            self.disable = [_.lower() for _ in disable]
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -233,11 +234,13 @@ class HoistVariablesTransformation(Transformation):
         """
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
+        # targets = kwargs.get('targets', None)
         _successors = kwargs.get('successors', ())
-        successors = [_ for _ in _successors if _.local_name.upper() not in self.disable]
+        successors = [_ for _ in _successors if _.local_name.lower()
+                      not in self.disable and _.name.lower() not in self.disable]
         successor_map = {successor.routine.name: successor for successor in successors}
 
-        if item and not item.local_name == routine.name.lower() or item.local_name.upper() in self.disable:
+        if item and not item.local_name == routine.name.lower() or item.local_name.lower() in self.disable:
             return
 
         if self._key not in item.trafo_data:
