@@ -162,8 +162,8 @@ def is_elemental(routine):
     return False
 
 
-def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation_type, depth,
-               derived_type_variables):
+def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
+               depth, derived_type_variables, targets=None):
     """
     For CUDA Fortran (CUF) kernels and device functions: thread mapping, array dimension transformation,
     transforming (call) arguments, ...
@@ -178,8 +178,6 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
         The dimension object specifying the vertical loop dimension
     block_dim: :any:`Dimension`
         The dimension object specifying the block loop dimension
-    disable: tuple
-        Tuple of routines not to be processed
     transformation_type: int
         Type of SCC-CUF transformation
     depth: int
@@ -187,6 +185,8 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
         and device functions (`device` subroutines)
     derived_type_variables: tuple
         Tuple of derived types within the routine
+    targets : tuple of str
+        Tuple of subroutine call names that are processed in this traversal
     """
 
     if is_elemental(routine):
@@ -232,8 +232,10 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
         new_arguments = [routine.variable_map[horizontal.index].clone(type=vtype), jblk_var.clone(type=vtype)]
         routine.arguments = list(routine.arguments) + new_arguments
 
-    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
-    for call in calls:  # FindNodes(ir.CallStatement).visit(routine.body):
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
+        if call.name not in as_tuple(targets):
+            continue
+
         if not is_elemental(call.routine):
             call.arguments += (routine.variable_map[block_dim.size], routine.variable_map[horizontal.index], jblk_var)
 
@@ -289,8 +291,10 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, disable, transformation
 
     routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
-    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
-    for call in calls:
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
+        if call.name not in as_tuple(targets):
+            continue
+
         if not is_elemental(call.routine):
             arguments = []
             for arg in call.arguments:
@@ -360,7 +364,7 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
 
-def driver_device_variables(routine, disable):
+def driver_device_variables(routine, targets=None):
     """
     Driver device variable versions including
 
@@ -373,8 +377,8 @@ def driver_device_variables(routine, disable):
     ----------
     routine: :any:`Subroutine`
         The subroutine (driver) to handle the device variables
-    disable: tuple
-        Tuple of routines not to be processed
+    targets : tuple of str
+        Tuple of subroutine call names that are processed in this traversal
     """
 
     # istat: status of CUDA runtime function (e.g. for cudaDeviceSynchronize(), cudaMalloc(), cudaFree(), ...)
@@ -382,7 +386,10 @@ def driver_device_variables(routine, disable):
     routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="istat", type=i_type),)))
 
     relevant_arrays = []
-    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if str(call.name).upper() not in disable]
+    calls = tuple(
+        call for call in FindNodes(ir.CallStatement).visit(routine.body)
+        if call.name in as_tuple(targets)
+    )
     for call in calls:
         relevant_arrays.extend([arg for arg in call.arguments if isinstance(arg, sym.Array)])
 
@@ -464,7 +471,7 @@ def driver_device_variables(routine, disable):
     routine.body = Transformer(call_map).visit(routine.body)
 
 
-def driver_launch_configuration(routine, block_dim, disable):
+def driver_launch_configuration(routine, block_dim, targets=None):
     """
     Launch configuration for kernel calls within the driver with the
     CUDA Fortran (CUF) specific chevron syntax `<<<griddim, blockdim>>>`.
@@ -475,8 +482,8 @@ def driver_launch_configuration(routine, block_dim, disable):
         The subroutine to specify the launch configurations for kernel calls.
     block_dim: :any:`Dimension`
         The dimension object specifying the block loop dimension
-    disable: tuple
-        Tuple of routines not to be processed
+    targets : tuple of str
+        Tuple of subroutine call names that are processed in this traversal
     """
 
     d_type = SymbolAttributes(types.DerivedType("DIM3"))
@@ -489,19 +496,21 @@ def driver_launch_configuration(routine, block_dim, disable):
         if loop.variable == block_dim.index or loop.variable in block_dim._aliases:
             mapper[loop] = loop.body
             kernel_within = False
-            for call in FindNodes(ir.CallStatement).visit(loop.body):
-                if str(call.name).upper() not in disable:
-                    kernel_within = True
+            for call in FindNodes(ir.CallStatement).visit(routine.body):
+                if call.name not in as_tuple(targets):
+                    continue
 
-                    assignment_lhs = routine.variable_map["istat"]
-                    assignment_rhs = sym.InlineCall(
-                        function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
-                        parameters=())
+                kernel_within = True
 
-                    mapper[call] = (call.clone(chevron=(routine.variable_map["GRIDDIM"],
-                                                        routine.variable_map["BLOCKDIM"]),
-                                               arguments=call.arguments + (routine.variable_map[block_dim.size],)),
-                                    ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
+                assignment_lhs = routine.variable_map["istat"]
+                assignment_rhs = sym.InlineCall(
+                    function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
+                    parameters=())
+
+                mapper[call] = (call.clone(chevron=(routine.variable_map["GRIDDIM"],
+                                                    routine.variable_map["BLOCKDIM"]),
+                                           arguments=call.arguments + (routine.variable_map[block_dim.size],)),
+                                ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
 
             if kernel_within:
                 upper = routine.variable_map[loop.bounds.children[1].name]
@@ -535,7 +544,7 @@ def driver_launch_configuration(routine, block_dim, disable):
     routine.body = Transformer(mapper=mapper).visit(routine.body)
 
 
-def device_derived_types(routine, disable, derived_types):
+def device_derived_types(routine, derived_types, targets=None):
     """
     Create device versions of variables of specific derived types including
     host-device-synchronisation.
@@ -544,10 +553,10 @@ def device_derived_types(routine, disable, derived_types):
     ----------
     routine: :any:`Subroutine`
         The subroutine to create device versions of the specified derived type variables.
-    disable: tuple
-        Tuple of routines not to be processed
     derived_types: tuple
         Tuple of derived types within the routine
+    targets : tuple of str
+        Tuple of subroutine call names that are processed in this traversal
     """
     # used_members = [v for v in FindVariables().visit(routine.ir) if v.parent]
     # variables = [v for v in used_members if v.parent.type.dtype.name.upper() in derived_types]
@@ -568,9 +577,9 @@ def device_derived_types(routine, disable, derived_types):
         routine.spec.append(ir.VariableDeclaration((new_var,)))
         routine.body.prepend(ir.Assignment(lhs=new_var, rhs=var))
 
-    calls = [call for call in FindNodes(ir.CallStatement).visit(routine.body) if
-             str(call.name).upper() not in disable]
-    for call in calls:
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
+        if call.name not in as_tuple(targets):
+            continue
         arguments = [var_map.get(arg, arg) for arg in call.arguments]
         call.arguments = arguments
     return variables
@@ -627,8 +636,6 @@ class SccCufTransformation(Transformation):
     block_dim : :any:`Dimension`
         :any:`Dimension` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
-    disable: tuple
-        Optional, tuple of subroutines not to be processed.
     transformation_type : str
         Kind of SCC-CUF transformation, as automatic arrays currently not supported. Thus
         automatic arrays need to transformed by either
@@ -640,7 +647,7 @@ class SccCufTransformation(Transformation):
 
     """
 
-    def __init__(self, horizontal, vertical, block_dim, disable=None, transformation_type='parametrise',
+    def __init__(self, horizontal, vertical, block_dim, transformation_type='parametrise',
                  derived_types=None):
         self.horizontal = horizontal
         self.vertical = vertical
@@ -655,10 +662,6 @@ class SccCufTransformation(Transformation):
                                            'hoist': 'host side hoisted local arrays',
                                            'dynamic': 'dynamic memory allocation on the device'}
 
-        if disable is None:
-            self.disable = ()
-        else:
-            self.disable = [_.upper() for _ in disable]
         if derived_types is None:
             self.derived_types = ()
         else:
@@ -680,6 +683,7 @@ class SccCufTransformation(Transformation):
 
         role = kwargs.get('role')
         depths = kwargs.get('depths', None)
+        targets = kwargs.get('targets', None)
         if depths is None:
             if role == 'driver':
                 depth = 0
@@ -696,11 +700,11 @@ class SccCufTransformation(Transformation):
             routine.spec.prepend(ir.Import(module="cudafor"))
 
         if role == 'driver':
-            self.process_routine_driver(routine)
+            self.process_routine_driver(routine, targets=targets)
         if role == 'kernel':
-            self.process_routine_kernel(routine, depth=depth)
+            self.process_routine_kernel(routine, depth=depth, targets=targets)
 
-    def process_routine_kernel(self, routine, depth=1):
+    def process_routine_kernel(self, routine, depth=1, targets=None):
         """
         Kernel/Device subroutine specific changes/transformations.
 
@@ -718,14 +722,17 @@ class SccCufTransformation(Transformation):
         resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
         kernel_remove_vector_loops(routine, self.horizontal)
 
-        kernel_cuf(routine, self.horizontal, self.vertical, self.block_dim, self.disable,
-                   self.transformation_type, depth=depth, derived_type_variables=self.derived_type_variables)
+        kernel_cuf(
+            routine, self.horizontal, self.vertical, self.block_dim,
+            self.transformation_type, depth=depth,
+            derived_type_variables=self.derived_type_variables, targets=targets
+        )
 
         # dynamic memory allocation of local arrays (only for version with dynamic memory allocation on device)
         if self.transformation_type == 'dynamic':
             dynamic_local_arrays(routine, self.vertical)
 
-    def process_routine_driver(self, routine):
+    def process_routine_driver(self, routine, targets=None):
         """
         Driver subroutine specific changes/transformations.
 
@@ -735,12 +742,13 @@ class SccCufTransformation(Transformation):
             The subroutine (driver) to process
         """
 
-        self.derived_type_variables = device_derived_types(routine=routine, disable=self.disable,
-                                                           derived_types=self.derived_types)
+        self.derived_type_variables = device_derived_types(
+            routine=routine, derived_types=self.derived_types, targets=targets
+        )
         # create variables needed for the device execution, especially generate device versions of arrays
-        driver_device_variables(routine=routine, disable=self.disable)
+        driver_device_variables(routine=routine, targets=targets)
         # remove block loop and generate launch configuration for CUF kernels
-        driver_launch_configuration(routine=routine, block_dim=self.block_dim, disable=self.disable)
+        driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
 
         # increase heap size (only for version with dynamic memory allocation on device)
         if self.transformation_type == 'dynamic':

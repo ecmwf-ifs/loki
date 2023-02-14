@@ -213,11 +213,12 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
-        disable = scheduler.config.disable
         derived_types = scheduler.config.derived_types
-        transformation = SccCufTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-                                              disable=disable, transformation_type=mode.replace('cuf-', ''),
-                                              derived_types=derived_types)
+        transformation = SccCufTransformation(
+            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+            transformation_type=mode.replace('cuf-', ''),
+            derived_types=derived_types
+        )
 
     if transformation:
         scheduler.process(transformation=transformation)
