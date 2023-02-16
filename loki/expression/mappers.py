@@ -679,7 +679,31 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     defines on-the-fly handlers from a given substitution map.
 
     It returns a copy of the expression tree with expressions substituted according
-    to the given `expr_map`.
+    to the given :data:`expr_map`. If an expression node is encountered that is
+    found in :data:`expr_map`, it is replaced with the corresponding expression from
+    the map. For any other nodes, traversal is performed via :any:`LokiIdentityMapper`.
+
+    .. note::
+       No recursion is performed on substituted expression nodes, they are taken
+       as-is from the map. Otherwise substitutions that involve the original node
+       would result in infinite recursion - for example a replacement that wraps
+       a variable in an inline call:  ``my_var -> wrapped_in_call(my_var)``.
+
+       When there is a need to recursively apply the mapping, the mapping needs to
+       be applied to itself first. A potential use-case is renaming of variables,
+       which may appear as the name of an array subscript as well as in the ``dimensions``
+       attribute of the same expression: ``SOME_ARR(SOME_ARR > SOME_VAL)``.
+       The mapping can be applied to itself using the utility function
+       :any:`recursive_expression_map_update`.
+
+    Parameters
+    ----------
+    expr_map : dict
+        Expression mapping to apply to the expression tree.
+    invalidate_source : bool, optional
+        By default the :attr:`source` property of nodes is discarded
+        when rebuilding the node, setting this to `False` allows to
+        retain that information
     """
     # pylint: disable=abstract-method
 
