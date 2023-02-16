@@ -141,6 +141,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
+
     if config is None:
         config = SchedulerConfig.from_dict(cloudsc_config)
     else:
@@ -174,6 +175,9 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
 
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+
+    # Remove DR_HOOK calls first, so they don't interfere with SCC loop hoisting
+    scheduler.process(transformation=DrHookTransformation(mode=mode, remove=mode in ['scc', 'scc-hoist']))
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True

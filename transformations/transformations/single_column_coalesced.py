@@ -89,13 +89,6 @@ def insert_routine_body(routine):
 
         temp_body = SubstituteExpressions(member_var_map).visit(member.body)
 
-        none_map = {}
-        for c in FindNodes(Conditional).visit(temp_body):
-            if c.condition == 'LHOOK':
-                none_map[c] = None
-        
-        temp_body = Transformer(none_map).visit(temp_body)
-
         #Loop over all calls and check if they call the member
         for call in calls:
 
