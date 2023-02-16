@@ -268,7 +268,7 @@ subroutine pygen_intrinsics(v1, v2, v3, v4, vmin, vmax, vabs, vmin_nested, vmax_
   vmin = MIN(v1, v2)
   vmax = MAX(v1, v2)
   vabs = ABS(v1 - v2)
-  vmin_nested = MIN(MIN(v1, v2), MIN(v3, v4))
+  vmin_nested = MIN(MIN(MAX(v1, -1._real64), v2), MIN(v3, v4))
   vmax_nested = MAX(MAX(v1, v2), MAX(v3, v4))
 end subroutine pygen_intrinsics
 """

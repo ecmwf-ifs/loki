@@ -1255,3 +1255,33 @@ def test_array_to_inline_call_rescope():
     assert expr.function.type.dtype is proc_type
     assert expr.function == 'flux%out_of_physical_bounds'
     assert expr.parameters == ('kidia', 'kfdia')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_recursive_substitution(frontend):
+    """
+    Test expression substitution where the substitution key is included
+    in the replacement
+    """
+    fcode = """
+subroutine my_routine(var, n)
+    real, intent(inout) :: var(:)
+    integer, intent(in) :: n
+    integer j
+    do j=1,n
+        var(j) = 1.
+    end do
+end subroutine my_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assignment = FindNodes(Assignment).visit(routine.body)[0]
+    assert assignment.lhs == 'var(j)'
+
+    # Replace Array subscript by j+1
+    j = routine.variable_map['j']
+    expr_map = {j: symbols.Sum((j, symbols.Literal(1)))}
+    assert j in FindVariables().visit(list(expr_map.values()))
+    routine.body = SubstituteExpressions(expr_map).visit(routine.body)
+    assignment = FindNodes(Assignment).visit(routine.body)[0]
+    assert assignment.lhs == 'var(j + 1)'

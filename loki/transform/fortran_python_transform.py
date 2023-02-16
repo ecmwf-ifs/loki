@@ -64,6 +64,10 @@ class FortranPythonTransformation(Transformation):
             invert_array_indices(kernel)
         shift_to_zero_indexing(kernel)
 
+        # We replace calls to intrinsic functions with their Python counterparts
+        # Note that this substitution is case-insensitive, and therefore we have
+        # this seemingly identity mapping to make sure Python function names are
+        # lower-case
         intrinsic_map = {'min': 'min', 'max': 'max', 'abs': 'abs'}
         replace_intrinsics(kernel, function_map=intrinsic_map)
 
