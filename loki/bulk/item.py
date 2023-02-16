@@ -297,7 +297,9 @@ class Item:
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in self.members]
         children = [c for c in children if c not in disabled]
-        return as_tuple(children)
+
+        # Remove duplicates
+        return as_tuple(dict.fromkeys(children))
 
     def qualify_names(self, names, available_names=None):
         """
@@ -374,8 +376,8 @@ class Item:
             # scope (i.e. defined directly in a source file). We add all
             # possibilities, of which only one should match (otherwise we would
             # have duplicate symbols in this compilation unit)
-            candidates = [f'#{name}']
-            candidates += [f'{import_}#{name}' for import_ in self.unqualified_imports]
+            candidates = [f'#{name}'.lower()]
+            candidates += [f'{import_}#{name}'.lower() for import_ in self.unqualified_imports]
             qualified_names += [as_tuple(candidates)]
 
         if available_names is None:

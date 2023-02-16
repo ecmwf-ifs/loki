@@ -129,12 +129,15 @@ class DependencyTransformation(Transformation):
         """
         targets = as_tuple(kwargs.get('targets', None))
         targets = as_tuple(str(t).upper() for t in targets)
+        members = [r.name for r in routine.subroutines]
 
         if self.replace_ignore_items:
             item = kwargs.get('item', None)
             targets += as_tuple(str(i).upper() for i in item.ignore) if item else ()
 
         for call in FindNodes(CallStatement).visit(routine.body):
+            if call.name in members:
+                continue
             if targets is None or call.name in targets:
                 call.name = call.name.clone(name=f'{call.name}{self.suffix}')
 
@@ -198,11 +201,11 @@ class DependencyTransformation(Transformation):
 
         # First step through known suffix variants to determine canonical basename
         if modname.lower().endswith(self.suffix.lower()+self.module_suffix.lower()):
-            idx = modname.lower().index(self.suffix.lower()+self.module_suffix.lower())
+            idx = modname.lower().rindex(self.suffix.lower()+self.module_suffix.lower())
         elif modname.lower().endswith(self.suffix.lower()):
-            idx = modname.lower().index(self.suffix.lower())
+            idx = modname.lower().rindex(self.suffix.lower())
         elif modname.lower().endswith(self.module_suffix.lower()):
-            idx = modname.lower().index(self.module_suffix.lower())
+            idx = modname.lower().rindex(self.module_suffix.lower())
         else:
             idx = len(modname)
         base = modname[:idx]
