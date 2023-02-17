@@ -15,6 +15,7 @@ derived-type arguments in complex calling structures.
 """
 
 from collections import defaultdict
+import re
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable,
@@ -279,6 +280,8 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
 
     _key = 'DerivedTypeArgumentsExpansionTransformation'
 
+    _re_non_alphanum = re.compile(r'\W+')
+
     def __init__(self, key=None, **kwargs):
         if key is not None:
             self._key = key
@@ -398,13 +401,18 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
         Unroll all derived-type arguments used in the subroutine
         signature, declarations and body.
 
-        The convention used is: ``derived%var => derived_var``
+        The convention used is: ``derived%var => derived_var``.
+        In elemental routines, where indexing is hoisted to the caller,
+        the convention is: ``derived%var(idx + 1) => derived_var_idx1``.
         """
         is_elemental_routine = is_elemental(routine)
         def _expanded_name(name):
             new_name = name.replace('%', '_')
             if is_elemental_routine and '(' in new_name:
-                return new_name[:new_name.index('(')]
+                index_expr = new_name[new_name.index('(')+1:new_name.index(')')]
+                index_expr = self._re_non_alphanum.sub('', index_expr)
+                new_name = new_name[:new_name.index('(')]
+                return f'{new_name}_{index_expr}'
             return new_name
 
         # Build a map from derived type arguments to expanded arguments
@@ -459,7 +467,7 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 # we just derived above, as it would otherwise use whatever type we
                 # had derived previously (ie. the type from the struct definition.)
                 if is_elemental_routine:
-                    vmap[var] = var.clone(name=_expanded_name(var.name), parent=None, type=None, dimensions=None)
+                    vmap[var] = var.clone(name=_expanded_name(str(var)), parent=None, type=None, dimensions=None)
                 else:
                     vmap[var] = var.clone(name=_expanded_name(var.name), parent=None, type=None)
 

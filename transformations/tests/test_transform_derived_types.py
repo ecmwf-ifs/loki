@@ -10,7 +10,7 @@ import pytest
 
 from loki import (
     OMNI, Sourcefile, FindNodes, CallStatement, SubroutineItem, as_tuple,
-    ProcedureDeclaration, Scalar, FindVariables
+    ProcedureDeclaration, Scalar, FindVariables, Assignment
 )
 from conftest import available_frontends
 from transformations import DerivedTypeArgumentsExpansionAnalysis, DerivedTypeArgumentsExpansionTransformation
@@ -676,16 +676,17 @@ contains
         type(some_type), intent(in) :: obj
         integer, intent(inout) :: arr(4)
         integer :: idx = (/2, 3, 4/)
+        integer :: other_idx = (/4, 3, 2/)
 
-        call callee(obj, 1, arr(1))
-        call callee(obj, idx, arr(idx))
+        call callee(obj, 1, 10, arr(1))
+        call callee(obj, idx, other_idx, arr(idx))
     end subroutine caller
 
-    elemental subroutine callee(o, idx, v)
+    elemental subroutine callee(o, idx, idx2, v)
         type(some_type), intent(in) :: o
-        integer, intent(in) :: idx
+        integer, intent(in) :: idx, idx2
         integer, intent(out) :: v
-        v = o%a + O%b(idx) + o%vALs(iDX)
+        v = o%a + O%b(idx) + o%vALs(iDX) + o%vals(idx) + o%b(idx2)
     end subroutine callee
 end module elemental_mod
     """.strip()
@@ -700,7 +701,7 @@ end module elemental_mod
 
     assert caller.trafo_data[analysis._key] == {}
     assert callee.trafo_data[analysis._key]['expansion_map'] == {
-        'o': ('a', 'b(idx)', 'vals(idx)')
+        'o': ('a', 'b(idx)', 'b(idx2)', 'vals(idx)')
     }
 
     transformation = DerivedTypeArgumentsExpansionTransformation()
@@ -711,7 +712,9 @@ end module elemental_mod
         assert source['caller'].arguments == ('obj', 'arr(1:4)')
     else:
         assert source['caller'].arguments == ('obj', 'arr(4)')
-    assert source['callee'].arguments == ('o_a', 'o_b', 'o_vals', 'idx', 'v')
+    assert source['callee'].arguments == (
+        'o_a', 'o_b_idx', 'o_b_idx2', 'o_vals_idx', 'idx', 'idx2', 'v'
+    )
 
     for arg in source['callee'].arguments:
         assert isinstance(arg, Scalar)
@@ -722,10 +725,16 @@ end module elemental_mod
     for var in FindVariables().visit(source['callee'].body):
         assert isinstance(var, Scalar)
 
+    assignments = FindNodes(Assignment).visit(source['callee'].body)
+    assert len(assignments) == 1
+    assert assignments[0].rhs == (
+        'o_a + o_b_idx + o_vals_idx + o_vals_idx + o_b_idx2'
+    )
+
     calls = FindNodes(CallStatement).visit(source['caller'].body)
     assert calls[0].arguments == (
-        'obj%a', 'obj%b(1)', 'obj%vals(1)', '1', 'arr(1)'
+        'obj%a', 'obj%b(1)', 'obj%b(10)', 'obj%vals(1)', '1', '10', 'arr(1)'
     )
     assert calls[1].arguments == (
-        'obj%a', 'obj%b(idx)', 'obj%vals(idx)', 'idx', 'arr(idx)'
+        'obj%a', 'obj%b(idx)', 'obj%b(other_idx)', 'obj%vals(idx)', 'idx', 'other_idx', 'arr(idx)'
     )
