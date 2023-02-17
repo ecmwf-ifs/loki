@@ -10,7 +10,7 @@ import pytest
 
 from loki import (
     OMNI, Sourcefile, FindNodes, CallStatement, SubroutineItem, as_tuple,
-    ProcedureDeclaration
+    ProcedureDeclaration, Scalar, FindVariables
 )
 from conftest import available_frontends
 from transformations import DerivedTypeArgumentsExpansionAnalysis, DerivedTypeArgumentsExpansionTransformation
@@ -659,3 +659,73 @@ end module transform_derived_type_arguments_mod
 
     # Check output of fgen
     assert source.to_fortran().count(' NOPASS ') == 3
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_elemental(frontend):
+    fcode = """
+module elemental_mod
+    implicit none
+    type some_type
+        integer :: a
+        integer, allocatable :: b(:)
+        integer, pointer :: vals(:)
+    end type some_type
+contains
+    subroutine caller(obj, arr)
+        type(some_type), intent(in) :: obj
+        integer, intent(inout) :: arr(4)
+        integer :: idx = (/2, 3, 4/)
+
+        call callee(obj, 1, arr(1))
+        call callee(obj, idx, arr(idx))
+    end subroutine caller
+
+    elemental subroutine callee(o, idx, v)
+        type(some_type), intent(in) :: o
+        integer, intent(in) :: idx
+        integer, intent(out) :: v
+        v = o%a + O%b(idx) + o%vALs(iDX)
+    end subroutine callee
+end module elemental_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    caller = SubroutineItem(name='elemental_mod#caller', source=source)
+    callee = SubroutineItem(name='elemental_mod#callee', source=source)
+
+    analysis = DerivedTypeArgumentsExpansionAnalysis()
+    source.apply(analysis, item=callee, role='kernel', successors=())
+    source.apply(analysis, item=caller, role='driver', successors=(callee,))
+
+    assert caller.trafo_data[analysis._key] == {}
+    assert callee.trafo_data[analysis._key]['expansion_map'] == {
+        'o': ('a', 'b(idx)', 'vals(idx)')
+    }
+
+    transformation = DerivedTypeArgumentsExpansionTransformation()
+    source.apply(transformation, item=caller, role='driver', successors=(callee,))
+    source.apply(transformation, item=callee, role='kernel', successors=())
+
+    if frontend == OMNI:
+        assert source['caller'].arguments == ('obj', 'arr(1:4)')
+    else:
+        assert source['caller'].arguments == ('obj', 'arr(4)')
+    assert source['callee'].arguments == ('o_a', 'o_b', 'o_vals', 'idx', 'v')
+
+    for arg in source['callee'].arguments:
+        assert isinstance(arg, Scalar)
+        for attr in ('allocatable', 'target', 'pointer', 'shape'):
+            # Check attributes are removed from declarations
+            assert getattr(arg.type, attr) is None
+
+    for var in FindVariables().visit(source['callee'].body):
+        assert isinstance(var, Scalar)
+
+    calls = FindNodes(CallStatement).visit(source['caller'].body)
+    assert calls[0].arguments == (
+        'obj%a', 'obj%b(1)', 'obj%vals(1)', '1', 'arr(1)'
+    )
+    assert calls[1].arguments == (
+        'obj%a', 'obj%b(idx)', 'obj%vals(idx)', 'idx', 'arr(idx)'
+    )

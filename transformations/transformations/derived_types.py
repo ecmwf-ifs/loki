@@ -19,8 +19,9 @@ from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable,
     RangeIndex, as_tuple, BasicType, DerivedType, CaseInsensitiveDict,
-    warning, debug, ProcedureDeclaration
+    warning, debug, ProcedureDeclaration, recursive_expression_map_update
 )
+from transformations.scc_cuf import is_elemental
 
 
 __all__ = ['DerivedTypeArgumentsExpansionAnalysis', 'DerivedTypeArgumentsExpansionTransformation']
@@ -32,7 +33,7 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
 
     This has to be applied over the call tree in reverse order before calling
     :any:`DerivedtypeArgumentsExpansionTransformation`, i.e. callees have to be visited
-    before their callerss, to ensure derived type arguments can be expanded
+    before their callers, to ensure derived type arguments can be expanded
     across nested call trees.
 
     This analysis step collects for all derived type arguments the member
@@ -68,6 +69,31 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
 
     @classmethod
     def routine_expansion_map(cls, routine, child_expansion_maps):
+        """
+        Build the :data:`expansion_map` for the given :data:`routine`
+
+        This inspects the use of derived type variables inside the routine,
+        building a map that contains for every derived type argument
+        the list of members that are used from that derived type.
+
+        The use of derived type members in called routines is taken into
+        account via their respective expansion maps, provided in
+        :data:`child_expansion_maps`.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The routine for which to build the map
+        child_expansion_maps : :any:`CaseInsensitiveDict` of (str, :any:`CaseInsensitiveDict`)
+            Dictionary containing the expansion maps of every child routine
+
+        Returns
+        -------
+        :any:`CaseInsensitiveDict` of (str, tuple)
+            The expansion map, mapping derived type arguments to the members that
+            need to be expanded
+        """
+        is_elemental_routine = is_elemental(routine)
         expansion_candidates = defaultdict(set)
 
         # Add all variables used in the routine that have parents
@@ -80,13 +106,15 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
             for var in var_list if var.parent is not None
         }
         for var in candidates:
-            parent, expansion = cls.expand_derived_type_member(var)
+            parent, expansion = cls.expand_derived_type_member(var, is_elemental_routine)
             if expansion:
                 expansion_candidates[parent].add(expansion)
 
         # Add all expansion names from derived type unrolling in calls
         for call in FindNodes(CallStatement).visit(routine.body):
-            child_candidates = cls.call_expansion_candidates(call, child_expansion_maps.get(str(call.name), {}))
+            child_candidates = cls.call_expansion_candidates(
+                call, child_expansion_maps.get(str(call.name), {}), is_elemental_routine
+            )
             for parent, expansion in child_candidates.items():
                 expansion_candidates[parent] |= expansion
 
@@ -103,7 +131,9 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
                 # member of the derived type
                 members_to_expand = defaultdict(set)
                 for candidate in expansion_candidates[arg]:
-                    members_to_expand[candidate.split('%')[0].lower()] |= {candidate}
+                    basename = candidate.split('(')[0]  # Remove dimension expression
+                    basename = basename.split('%')[0]  # Remove children for partial flattening
+                    members_to_expand[basename.lower()] |= {candidate}
 
                 expansion_map[arg.name] = as_tuple(sorted([
                     expansion_name
@@ -114,7 +144,48 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
         return expansion_map
 
     @staticmethod
-    def expand_derived_type_member(var):
+    def expand_derived_type_member(var, is_elemental_routine):
+        """
+        Determine the member expansion for a derived type member variable
+
+        For a given derived type member use :data:`var`, this determines
+        the name of the root parent and the member expansion.
+
+        A few examples to illustrate the behaviour, with Fortran variable use
+        in the left column and return value of this routine on the right:
+
+        .. code-block::
+            var name            | return value (parent_name, expansion)  | remarks
+           ---------------------+----------------------------------------+---------------
+            SOME_VAR            | ('some_var', None)                     | No expansion
+            SOME%VAR            | ('some', 'var')                        |
+            ARRAY(5)%VAR        | ('array', None)                        | Cannot expand array of derived types
+            SOME%NESTED%VAR     | ('some', 'nested%var')                 |
+            NESTED%ARRAY(I)%VAR | ('nested', 'array')                    | Partial expansion
+
+        For elemental routines, we may need to hoist subscript expressions to the caller side,
+        in which case the corresponding index expression is included in the expansion field,
+        for example:
+
+        .. code-block::
+            var name            | return value (parent_name, expansion)
+           ---------------------+---------------------------------------
+            SOME%VAR(IDX)       | ('some', 'var(idx)')
+
+        Note, that this currently supports only index expressions where another argument
+        is directly used as the index variable.
+
+        Parameters
+        ----------
+        var : :any:`MetaSymbol`
+            The use of a derived type member
+        is_elemental_routine : bool
+            Flag to indicate that the current routine is an ``ELEMENTAL`` routine
+
+        Returns
+        -------
+        (str, str or NoneType)
+        """
         parents = var.parents
         if not parents:
             return var.name.lower(), None
@@ -135,10 +206,18 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
             debug(f'Array of derived types {var!s}. Can only partially expand argument.')
             return parents[0].name.lower(), ('%'.join(p.name for p in unrolled_parents))
 
+        if is_elemental_routine:
+            # In elemental routines, we can have scalar derived type arguments with
+            # array members, where the subscript operation is performed inside the elemental
+            # routine. Because Fortran mandates (for good reasons!) scalar arguments in
+            # elemental routines, we have to include the dimension subscript in the
+            # argument expansion and hoist this to the caller side.
+            var_string = str(var)
+            return parents[0].name.lower(), var_string[var_string.index('%')+1:].lower()
         return parents[0].name.lower(), '%'.join([p.name for p in parents[1:]] + [var.basename]).lower()
 
     @classmethod
-    def call_expansion_candidates(cls, call, child_map):
+    def call_expansion_candidates(cls, call, child_map, is_elemental_routine):
         """
         Create the call's argument list with derived type arguments expanded
 
@@ -149,6 +228,8 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
         expansion_map : :any:`CaseInsensitiveDict`
             Map of maps, specifying for each child routine the derived type arguments
             and the names of members of that derived type argument that need to be expanded.
+        is_elemental_routine : bool
+            Flag to indicate that the current routine is an ``ELEMENTAL`` routine
 
         Returns
         -------
@@ -160,14 +241,14 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
         # Can only expand on caller side
         if call.not_active or call.routine is BasicType.DEFERRED:
             for var in FindVariables().visit(call):
-                parent, expansion = cls.expand_derived_type_member(var)
+                parent, expansion = cls.expand_derived_type_member(var, is_elemental_routine)
                 if expansion:
                     expansion_candidates[parent].add(expansion)
             return expansion_candidates
 
         for kernel_arg, caller_arg in call.arg_iter():
             if kernel_arg.name in child_map or hasattr(caller_arg, 'parent'):
-                parent, expansion = cls.expand_derived_type_member(caller_arg)
+                parent, expansion = cls.expand_derived_type_member(caller_arg, is_elemental_routine)
 
                 if expansion:
                     # Check if this argument has been expanded further on the kernel side,
@@ -227,20 +308,22 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
         if role == 'kernel':
             self.expand_derived_args_routine(routine, item.trafo_data[self._key]['expansion_map'])
 
-    def expand_derived_args_caller(self, caller, child_expansion_maps):
+    def expand_derived_args_caller(self, routine, child_expansion_maps):
         """
-        Flatten all derived-type call arguments used in the target
-        :any:`Subroutine` for all active :any:`CallStatement` nodes.
+        Flatten all derived-type call arguments used in the provided :data:`routine`
+        for all active :any:`CallStatement` nodes.
 
         The convention used is: ``derived%var => derived_var``.
 
         Parameters
         ----------
-        caller : :any:`Subroutine`
+        routine : :any:`Subroutine`
             The routine in which to transform call statements
+        child_expansion_maps : :any:`CaseInsensitiveDict` of (str, :any:`CaseInsensitiveDict`)
+            Dictionary containing the expansion maps of every child routine
         """
         call_mapper = {}
-        for call in FindNodes(CallStatement).visit(caller.body):
+        for call in FindNodes(CallStatement).visit(routine.body):
             if not call.not_active and call.routine is not BasicType.DEFERRED:
                 if str(call.name) not in child_expansion_maps:
                     continue
@@ -248,9 +331,9 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 expanded_arguments = self.expand_call_arguments(call, child_expansion_maps[str(call.name)])
                 call_mapper[call] = call.clone(arguments=expanded_arguments)
 
-        # Rebuild the caller's IR tree
+        # Rebuild the routine's IR tree
         if call_mapper:
-            caller.body = Transformer(call_mapper).visit(caller.body)
+            routine.body = Transformer(call_mapper).visit(routine.body)
 
     @staticmethod
     def expand_call_arguments(call, expansion_map):
@@ -279,10 +362,31 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
 
                 # Found derived-type argument, unroll according to candidate map
                 for member in expansion_map[kernel_arg.name]:
+                    if '(' in member:
+                        member_name = member[:member.index('(')]
+                        index_expr = member[member.index('(')+1:member.index(')')]
+                    else:
+                        member_name = member
+                        index_expr = None
+
                     # We build the name bit-by-bit for nested derived type arguments
                     arg_member = caller_arg
-                    for n in member.split('%'):
+                    for n in member_name.split('%'):
                         arg_member = Variable(name=f'{arg_member.name}%{n}', parent=arg_member, scope=arg_member.scope)
+
+                    if index_expr:
+                        # Find the position of the argument corresponding to the
+                        # index expr on the kernel side and use the corresponding
+                        # caller side expression as dimensions
+                        try:
+                            arg_index = call.routine.arguments.index(index_expr)
+                        except ValueError as exc:
+                            raise NotImplementedError(
+                                'Transformation supports only index expressions that are kernel arguments'
+                            ) from exc
+                        dimensions = call.arguments[arg_index]
+                        arg_member = arg_member.clone(dimensions=dimensions)
+
                     arguments += [arg_member]
             else:
                 arguments += [caller_arg]
@@ -296,6 +400,13 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
 
         The convention used is: ``derived%var => derived_var``
         """
+        is_elemental_routine = is_elemental(routine)
+        def _expanded_name(name):
+            new_name = name.replace('%', '_')
+            if is_elemental_routine and '(' in new_name:
+                return new_name[:new_name.index('(')]
+            return new_name
+
         # Build a map from derived type arguments to expanded arguments
         argument_map = {}
         typedefs = []
@@ -312,12 +423,21 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                     for n in member.split('%'):
                         arg_member = Variable(name=f'{arg_member.name}%{n}', parent=arg_member, scope=routine)
 
-                    # Use same argument intent and insert `:` range dimensions
-                    new_type = arg_member.type.clone(intent=arg.type.intent, initial=None)
-                    new_dims = tuple(RangeIndex((None, None)) for _ in new_type.shape or [])
+                    if is_elemental_routine:
+                        # Use same argument intent, dismiss all initializer and other array attributes
+                        # and discard all dimensions
+                        new_type = arg_member.type.clone(
+                            intent=arg.type.intent, initial=None, allocatable=None, target=None, pointer=None,
+                            shape=None
+                        )
+                        new_dims = None
+                    else:
+                        # Use same argument intent, dismiss any initializer, and insert `:` range dimensions
+                        new_type = arg_member.type.clone(intent=arg.type.intent, initial=None)
+                        new_dims = tuple(RangeIndex((None, None)) for _ in new_type.shape or [])
 
                     # Create the expanded argument
-                    new_name = arg_member.name.replace('%', '_')
+                    new_name = _expanded_name(arg_member.name)
                     new_args += [arg_member.clone(name=new_name, parent=None, type=new_type, dimensions=new_dims)]
 
                 argument_map[arg] = as_tuple(new_args)
@@ -338,7 +458,12 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 # Note: The ``type=None`` prevents this clone from overwriting the type
                 # we just derived above, as it would otherwise use whatever type we
                 # had derived previously (ie. the type from the struct definition.)
-                vmap[var] = var.clone(name=var.name.replace('%', '_'), parent=None, type=None)
+                if is_elemental_routine:
+                    vmap[var] = var.clone(name=_expanded_name(var.name), parent=None, type=None, dimensions=None)
+                else:
+                    vmap[var] = var.clone(name=_expanded_name(var.name), parent=None, type=None)
+
+        vmap = recursive_expression_map_update(vmap)
 
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
@@ -346,7 +471,7 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
         # Update procedure bindings by specifying NOPASS attribute
         for tdef in typedefs:
             for decl in tdef.declarations:
-                if isinstance(decl, ProcedureDeclaration) and not proc.generic:
+                if isinstance(decl, ProcedureDeclaration) and not decl.generic:
                     for proc in decl.symbols:
                         if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
                             proc.type = proc.type.clone(pass_attr=False)
