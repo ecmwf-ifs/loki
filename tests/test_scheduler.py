@@ -1026,14 +1026,13 @@ def test_scheduler_typebound_item(here):
     assert driver.qualified_imports == {'other': 'typebound_other#other_type'}
 
     # Check that calls are propagated as children
-    assert driver.children == driver.calls
+    assert set(driver.children) == set(driver.calls)
 
     # Check that fully-qualified names are correctly picked from the available names
     assert driver.qualify_names(driver.children, available_names) == (
         'typebound_item#some_type%other_routine', 'typebound_item#some_type%some_routine',
         'typebound_header#header_type%member_routine', 'typebound_header#header_type%routine',
-        'typebound_header#header_type%routine', 'typebound_other#other_type%member',
-        'typebound_other#other_type%var%member_routine'
+        'typebound_other#other_type%member', 'typebound_other#other_type%var%member_routine'
     )
 
     other_routine = SubroutineItem(name='typebound_item#other_routine', source=source)
@@ -1483,3 +1482,27 @@ end subroutine driver
         assert isinstance(call.function.parent.parent.type.dtype.typedef, TypeDef)
 
     rmtree(workdir)
+
+
+def test_scheduler_qualify_names():
+    """
+    Make sure qualified names are all lower case
+    """
+    fcode = """
+module some_mod
+    use other_mod
+    use MORE_MOD
+    implicit none
+contains
+    subroutine DRIVER
+        use YET_another_mod
+        call routine
+    end subroutine DRIVER
+end module some_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    item = SubroutineItem(name='some_mod#driver', source=source)
+    assert item.qualify_names(item.children) == (
+        ('#routine', 'yet_another_mod#routine', 'other_mod#routine', 'more_mod#routine'),
+    )

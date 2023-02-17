@@ -12,6 +12,7 @@ Collection of utility routines to deal with general language conversion.
 """
 import platform
 from collections import defaultdict
+from pymbolic.primitives import Expression
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
@@ -27,7 +28,7 @@ from loki.visitors import Transformer, FindNodes
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'sanitise_imports',
-    'replace_selected_kind', 'single_variable_declaration'
+    'replace_selected_kind', 'single_variable_declaration', 'recursive_expression_map_update'
 ]
 
 
@@ -89,48 +90,41 @@ def convert_to_lower_case(routine):
             if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
 
     # Capture nesting by applying map to itself before applying to the routine
-    for _ in range(2):
-        mapper = SubstituteExpressionsMapper(vmap)
-        vmap = {k: mapper(v) for k, v in vmap.items()}
+    vmap = recursive_expression_map_update(vmap)
 
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
-    # Down-case all subroutine arguments and variables
-    mapper = SubstituteExpressionsMapper(vmap)
 
-    routine.arguments = [mapper(arg) for arg in routine.arguments]
-    routine.variables = [mapper(var) for var in routine.variables]
-
-
-def replace_intrinsics(routine, function_map=None, symbol_map=None):
+def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensitive=False):
     """
     Replace known intrinsic functions and symbols.
 
-    :param function_map: Map (string: string) for replacing intrinsic
-                         functions (`InlineCall` objects).
-    :param symbol_map: Map (string: string) for replacing intrinsic
-                       symbols (`Variable` objects).
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine object in which to replace intrinsic calls
+    function_map : dict[str, str]
+        Mapping from function names (:any:`InlineCall` names) to
+        their replacement
+    symbol_map : dict[str, str]
+        Mapping from intrinsic symbol names to their replacement
+    case_sensitive : bool
+        Match case for name lookups in :data:`function_map` and :data:`symbol_map`
     """
     symbol_map = symbol_map or {}
     function_map = function_map or {}
+    if not case_sensitive:
+        symbol_map = CaseInsensitiveDict(symbol_map)
+        function_map = CaseInsensitiveDict(function_map)
 
     callmap = {}
-    for c in FindInlineCalls(unique=False).visit(routine.body):
-        cname = c.name.lower()
+    for call in FindInlineCalls(unique=False).visit(routine.body):
+        if call.name in symbol_map:
+            callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
 
-        if cname in symbol_map:
-            callmap[c] = sym.Variable(name=symbol_map[cname], scope=routine)
-
-        if cname in function_map:
-            fct_symbol = sym.ProcedureSymbol(function_map[cname], scope=routine)
-            callmap[c] = sym.InlineCall(fct_symbol, parameters=c.parameters,
-                                        kw_parameters=c.kw_parameters)
-
-    # Capture nesting by applying map to itself before applying to the routine
-    for _ in range(2):
-        mapper = SubstituteExpressionsMapper(callmap)
-        callmap = {k: mapper(v) for k, v in callmap.items()}
+        if call.name in function_map:
+            callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
 
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
 
@@ -406,3 +400,55 @@ def replace_selected_kind(routine):
             # No iso_fortran_env import present, need to insert a new one
             imprt = Import('iso_fortran_env', symbols=as_tuple(mapper.used_names.values()))
             routine.spec.prepend(imprt)
+
+
+def recursive_expression_map_update(expr_map, max_iterations=10):
+    """
+    Utility function to apply a substitution map for expressions to itself
+
+    The expression substitution mechanism :any:`SubstituteExpressions` and the
+    underlying mapper :any:`SubstituteExpressionsMapper` replace nodes that
+    are found in the substitution map by their corresponding replacement.
+
+    However, expression nodes can be nested inside other expression nodes,
+    e.g. via the ``parent`` or ``dimensions`` properties of variables.
+    In situations, where such expression nodes as well as expression nodes
+    appearing inside such properties are marked for substitution, it may
+    be necessary to apply the substitution map to itself first. This utility
+    routine takes care of that.
+
+    Parameters
+    ----------
+    expr_map : dict
+        The substitution map that should be updated
+    max_iterations : int
+        Maximum number of iterations, corresponds to the maximum level of
+        nesting that can be replaced.
+    """
+    def apply_to_init_arg(name, arg, expr, mapper):
+        # Helper utility to apply the mapper only to expression arguments and
+        # retain the scope while rebuilding the node
+        if isinstance(arg, (tuple, Expression)):
+            return mapper(arg)
+        if name == 'scope':
+            return expr.scope
+        return arg
+
+    for _ in range(max_iterations):
+        # We update the expression map by applying it to the children of each replacement
+        # node, thus making sure node replacements are also applied to nested attributes,
+        # e.g. call arguments or array subscripts etc.
+        mapper = SubstituteExpressionsMapper(expr_map)
+        prev_map, expr_map = expr_map, {
+            expr: type(replacement)(**{
+                name: apply_to_init_arg(name, arg, expr, mapper)
+                for name, arg in zip(replacement.init_arg_names, replacement.__getinitargs__())
+            })
+            for expr, replacement in expr_map.items()
+        }
+
+        # Check for early termination opportunities
+        if prev_map == expr_map:
+            break
+
+    return expr_map

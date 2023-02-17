@@ -104,6 +104,7 @@ useful in a wider context. These are defined in :mod:`transformations`:
    transformations.single_column_claw.ExtractSCATransformation
    transformations.single_column_claw.CLAWTransformation
    transformations.single_column_coalesced.SingleColumnCoalescedTransformation
+   transformations.scc_cuf.SccCufTransformation
 
 Additionally, a number of tools for common transformation tasks are provided as
 functions that can be readily used in a step of the transformation pipeline:
