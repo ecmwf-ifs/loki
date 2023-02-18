@@ -18,9 +18,9 @@ from collections import defaultdict
 import re
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
-    SubstituteExpressions, CallStatement, Variable,
-    RangeIndex, as_tuple, BasicType, DerivedType, CaseInsensitiveDict,
-    warning, debug, ProcedureDeclaration, recursive_expression_map_update
+    SubstituteExpressions, CallStatement, RangeIndex, as_tuple,
+    BasicType, DerivedType, CaseInsensitiveDict, warning, debug,
+    ProcedureDeclaration, recursive_expression_map_update
 )
 from transformations.scc_cuf import is_elemental
 
@@ -132,15 +132,14 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
                 # member of the derived type
                 members_to_expand = defaultdict(set)
                 for candidate in expansion_candidates[arg]:
-                    basename = candidate.split('(')[0]  # Remove dimension expression
-                    basename = basename.split('%')[0]  # Remove children for partial flattening
-                    members_to_expand[basename.lower()] |= {candidate}
+                    base_member = [*candidate.parents, candidate][0]
+                    members_to_expand[base_member.name.lower()] |= {candidate}
 
                 expansion_map[arg.name] = as_tuple(sorted([
                     expansion_name
                     for var in arg_type.dtype.typedef.variables
                     for expansion_name in members_to_expand.get(var.name.lower(), [])
-                ]))
+                ], key=lambda v: str(v).lower()))
 
         return expansion_map
 
@@ -194,9 +193,13 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
         if any(hasattr(p, 'dimensions') for p in parents):
             # We unroll the derived type member as far as possible, stopping at
             # the occurence of an intermediate derived type array
-            unrolled_parents = []
+            # Note that we set scope=None, which detaches the symbol from the current
+            # scope and stores the type information locally on the symbol. This makes
+            # them available later on without risking losing this information due to
+            # intermediate rescoping operations
+            unrolled_parents = None
             for parent in parents[1:]:
-                unrolled_parents += [parent]
+                unrolled_parents = parent.clone(parent=unrolled_parents, scope=None, dimensions=None)
                 if hasattr(parent, 'dimensions'):
                     break
 
@@ -205,17 +208,22 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
                 return parents[0].name.lower(), None
 
             debug(f'Array of derived types {var!s}. Can only partially expand argument.')
-            return parents[0].name.lower(), ('%'.join(p.name for p in unrolled_parents))
+            return parents[0].name.lower(), unrolled_parents
+
+        unrolled_parents = None
+        for parent in parents[1:]:
+            unrolled_parents = parent.clone(parent=unrolled_parents, scope=None)
 
         if is_elemental_routine:
             # In elemental routines, we can have scalar derived type arguments with
             # array members, where the subscript operation is performed inside the elemental
             # routine. Because Fortran mandates (for good reasons!) scalar arguments in
-            # elemental routines, we have to include the dimension subscript in the
-            # argument expansion and hoist this to the caller side.
-            var_string = str(var)
-            return parents[0].name.lower(), var_string[var_string.index('%')+1:].lower()
-        return parents[0].name.lower(), '%'.join([p.name for p in parents[1:]] + [var.basename]).lower()
+            # elemental routines, we have to include the dimensions in the
+            # argument expansion and hoist them to the caller side.
+            unrolled_parents = var.clone(parent=unrolled_parents, scope=None)
+        else:
+            unrolled_parents = var.clone(parent=unrolled_parents, scope=None, dimensions=None)
+        return parents[0].name.lower(), unrolled_parents
 
     @classmethod
     def call_expansion_candidates(cls, call, child_map, is_elemental_routine):
@@ -255,9 +263,18 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
                     # Check if this argument has been expanded further on the kernel side,
                     # otherwise add to expansion candidates as is
                     if kernel_arg.name in child_map and not hasattr(caller_arg, 'dimensions'):
-                        expansion_candidates[parent] |= {
-                            f'{expansion}%{v}' for v in child_map[kernel_arg.name]
-                        }
+                        for child in child_map[kernel_arg.name]:
+                            unrolled_member = expansion
+                            for child_parent in child.parents:
+                                unrolled_member = child_parent.clone(
+                                    name=f'{unrolled_member.name}%{child_parent.name}',
+                                    parent=unrolled_member, dimensions=None
+                                )
+                            unrolled_member = unrolled_member.clone(
+                                name=f'{unrolled_member.name}%{child.name}',
+                                parent=unrolled_member, dimensions=None
+                            )
+                            expansion_candidates[parent].add(unrolled_member)
                     else:
                         expansion_candidates[parent].add(expansion)
 
@@ -365,30 +382,34 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
 
                 # Found derived-type argument, unroll according to candidate map
                 for member in expansion_map[kernel_arg.name]:
-                    if '(' in member:
-                        member_name = member[:member.index('(')]
-                        index_expr = member[member.index('(')+1:member.index(')')]
-                    else:
-                        member_name = member
-                        index_expr = None
-
-                    # We build the name bit-by-bit for nested derived type arguments
-                    arg_member = caller_arg
-                    for n in member_name.split('%'):
-                        arg_member = Variable(name=f'{arg_member.name}%{n}', parent=arg_member, scope=arg_member.scope)
-
-                    if index_expr:
-                        # Find the position of the argument corresponding to the
-                        # index expr on the kernel side and use the corresponding
-                        # caller side expression as dimensions
+                    if getattr(member, 'dimensions', None):
+                        # Extract all variables used in the index expression, and try
+                        # to match them to arguments in the call signature
+                        vmap = {}
                         try:
-                            arg_index = call.routine.arguments.index(index_expr)
+                            for var in FindVariables().visit(member.dimensions):
+                                arg_index = call.routine.arguments.index(var)
+                                vmap[var] = call.arguments[arg_index]
                         except ValueError as exc:
                             raise NotImplementedError(
-                                'Transformation supports only index expressions that are kernel arguments'
+                                'Transformation supports only kernel arguments as variables in index expressions'
                             ) from exc
-                        dimensions = call.arguments[arg_index]
-                        arg_member = arg_member.clone(dimensions=dimensions)
+                        dimensions = SubstituteExpressions(vmap).visit(member.dimensions)
+                    else:
+                        dimensions = None
+
+                    # We build the name bit-by-bit to obtain nested derived type arguments
+                    # relative to the local derived type variable
+                    arg_member = caller_arg
+                    for child in member.parents:
+                        arg_member = child.clone(
+                            name=f'{arg_member.name}%{child.name}', parent=arg_member,
+                            scope=arg_member.scope
+                        )
+                    arg_member = member.clone(
+                        name=f'{arg_member.name}%{member.name}', parent=arg_member,
+                        scope=arg_member.scope, dimensions=dimensions
+                    )
 
                     arguments += [arg_member]
             else:
@@ -401,18 +422,29 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
         Unroll all derived-type arguments used in the subroutine
         signature, declarations and body.
 
-        The convention used is: ``derived%var => derived_var``.
-        In elemental routines, where indexing is hoisted to the caller,
-        the convention is: ``derived%var(idx + 1) => derived_var_idx1``.
+        The convention used is to replace the ``%`` operator by an
+        underscore ``_``, for example: ``derived%var => derived_var``.
+
+        In elemental routines, where indexing may be hoisted to the caller,
+        a running index is appended to such arguments to distinguish between
+        multiple uses of the same member. For example:
+
+        .. code-block::
+           derived%var(idx) => derived_var_1
+           derived%var(idx+1) => derived_var_2
         """
         is_elemental_routine = is_elemental(routine)
-        def _expanded_name(name):
-            new_name = name.replace('%', '_')
-            if is_elemental_routine and '(' in new_name:
-                index_expr = new_name[new_name.index('(')+1:new_name.index(')')]
-                index_expr = self._re_non_alphanum.sub('', index_expr)
-                new_name = new_name[:new_name.index('(')]
-                return f'{new_name}_{index_expr}'
+        arg_counter = defaultdict(int)
+        arg_map = {}
+        def _expanded_name(arg):
+            if arg in arg_map:
+                return arg_map[arg]
+
+            new_name = arg.name.replace('%', '_')
+            if is_elemental_routine and getattr(arg, 'dimensions', None):
+                arg_counter[new_name] += 1
+                new_name += f'_{arg_counter[new_name]!s}'
+                arg_map[arg] = new_name
             return new_name
 
         # Build a map from derived type arguments to expanded arguments
@@ -428,8 +460,11 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 for member in expansion_map[arg.name]:
                     # Instantiate the expanded argument's non-expanded counterpart
                     arg_member = arg
-                    for n in member.split('%'):
-                        arg_member = Variable(name=f'{arg_member.name}%{n}', parent=arg_member, scope=routine)
+                    for child in [*member.parents, member]:
+                        # Note: We clone the child here to retain the dimensions
+                        # from the declaration in the typedef. To not overwrite the stored type
+                        # information from the routine's symbol table, we use type=None
+                        arg_member = child.clone(name=f'{arg_member.name}%{child.name}', parent=arg_member, scope=routine, type=None)
 
                     if is_elemental_routine:
                         # Use same argument intent, dismiss all initializer and other array attributes
@@ -445,7 +480,7 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                         new_dims = tuple(RangeIndex((None, None)) for _ in new_type.shape or [])
 
                     # Create the expanded argument
-                    new_name = _expanded_name(arg_member.name)
+                    new_name = _expanded_name(arg_member)
                     new_args += [arg_member.clone(name=new_name, parent=None, type=new_type, dimensions=new_dims)]
 
                 argument_map[arg] = as_tuple(new_args)
@@ -467,9 +502,9 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 # we just derived above, as it would otherwise use whatever type we
                 # had derived previously (ie. the type from the struct definition.)
                 if is_elemental_routine:
-                    vmap[var] = var.clone(name=_expanded_name(str(var)), parent=None, type=None, dimensions=None)
+                    vmap[var] = var.clone(name=_expanded_name(var), parent=None, type=None, dimensions=None)
                 else:
-                    vmap[var] = var.clone(name=_expanded_name(var.name), parent=None, type=None)
+                    vmap[var] = var.clone(name=_expanded_name(var), parent=None, type=None)
 
         vmap = recursive_expression_map_update(vmap)
 
