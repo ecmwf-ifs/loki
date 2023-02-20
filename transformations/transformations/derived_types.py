@@ -113,8 +113,10 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
 
         # Add all expansion names from derived type unrolling in calls
         for call in FindNodes(CallStatement).visit(routine.body):
+            # Determine correct call name, in case it has been renamed via import
+            call_name = call.name.type.use_name or str(call.name)
             child_candidates = cls.call_expansion_candidates(
-                call, child_expansion_maps.get(str(call.name), {}), is_elemental_routine
+                call, child_expansion_maps.get(call_name, {}), is_elemental_routine
             )
             for parent, expansion in child_candidates.items():
                 expansion_candidates[parent] |= expansion
@@ -259,24 +261,22 @@ class DerivedTypeArgumentsExpansionAnalysis(Transformation):
             if kernel_arg.name in child_map or hasattr(caller_arg, 'parent'):
                 parent, expansion = cls.expand_derived_type_member(caller_arg, is_elemental_routine)
 
-                if expansion:
-                    # Check if this argument has been expanded further on the kernel side,
-                    # otherwise add to expansion candidates as is
-                    if kernel_arg.name in child_map and not hasattr(caller_arg, 'dimensions'):
-                        for child in child_map[kernel_arg.name]:
-                            unrolled_member = expansion
-                            for child_parent in child.parents:
-                                unrolled_member = child_parent.clone(
-                                    name=f'{unrolled_member.name}%{child_parent.name}',
-                                    parent=unrolled_member, dimensions=None
-                                )
-                            unrolled_member = unrolled_member.clone(
-                                name=f'{unrolled_member.name}%{child.name}',
-                                parent=unrolled_member, dimensions=None
-                            )
+                # Check if this argument has been expanded further on the kernel side,
+                # otherwise add to expansion candidates as is
+                if kernel_arg.name in child_map and not hasattr(caller_arg, 'dimensions'):
+                    for child in child_map[kernel_arg.name]:
+                        unrolled_member = expansion
+                        for child_parent in [*child.parents, child]:
+                            if unrolled_member:
+                                new_name = f'{unrolled_member.name}%{child_parent.name}'
+                            else:
+                                new_name = child_parent.name
+                            unrolled_member = child_parent.clone(name=new_name, parent=unrolled_member, dimensions=None)
+
+                        if unrolled_member:
                             expansion_candidates[parent].add(unrolled_member)
-                    else:
-                        expansion_candidates[parent].add(expansion)
+                elif expansion:
+                    expansion_candidates[parent].add(expansion)
 
         return expansion_candidates
 
@@ -345,11 +345,12 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
         call_mapper = {}
         for call in FindNodes(CallStatement).visit(routine.body):
             if not call.not_active and call.routine is not BasicType.DEFERRED:
-                if str(call.name) not in child_expansion_maps:
-                    continue
-                # Set the new call signature on the IR node
-                expanded_arguments = self.expand_call_arguments(call, child_expansion_maps[str(call.name)])
-                call_mapper[call] = call.clone(arguments=expanded_arguments)
+                # Determine correct call name, in case it has been renamed via import
+                call_name = call.name.type.use_name or str(call.name)
+                if call_name in child_expansion_maps:
+                    # Set the new call signature on the IR node
+                    expanded_arguments = self.expand_call_arguments(call, child_expansion_maps[call_name])
+                    call_mapper[call] = call.clone(arguments=expanded_arguments)
 
         # Rebuild the routine's IR tree
         if call_mapper:

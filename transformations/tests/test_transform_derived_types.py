@@ -737,3 +737,55 @@ end module elemental_mod
     assert calls[1].arguments == (
         'obj%a', 'obj%b(idx + 1)', 'obj%b(idx)', 'obj%vals(idx)', 'idx', 'arr(idx)'
     )
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_import_rename(frontend):
+    fcode1 = """
+module some_mod
+    implicit none
+    type some_type
+        integer, allocatable :: a(:)
+    end type some_type
+contains
+    subroutine some_routine(t)
+        type(some_type), intent(inout) :: t
+        t%a = 1.
+    end subroutine some_routine
+end module some_mod
+    """.strip()
+    fcode2 = """
+subroutine some_routine(t)
+    use some_mod, only: some_type, routine => some_routine
+    type(some_type), intent(inout) :: t
+    call routine(t)
+end subroutine some_routine
+    """.strip()
+
+    source1 = Sourcefile.from_source(fcode1, frontend=frontend)
+    source2 = Sourcefile.from_source(fcode2, frontend=frontend, definitions=source1.definitions)
+
+    callee = SubroutineItem(name='some_mod#some_routine', source=source1)
+    caller = SubroutineItem(name='#some_routine', source=source2)
+
+    analysis = DerivedTypeArgumentsExpansionAnalysis()
+    source1.apply(analysis, item=callee, role='kernel', successors=())
+    source2.apply(analysis, item=caller, role='kernel', successors=(callee,))
+
+    assert caller.trafo_data[analysis._key]['expansion_map'] == {
+        't': ('a',),
+    }
+    assert callee.trafo_data[analysis._key]['expansion_map'] == {
+        't': ('a',),
+    }
+
+    transformation = DerivedTypeArgumentsExpansionTransformation()
+    source2.apply(transformation, item=caller, role='kernel', successors=(callee,))
+    source1.apply(transformation, item=callee, role='kernel', successors=())
+
+    assert caller.routine.arguments == ('t_a(:)',)
+    assert callee.routine.arguments == ('t_a(:)',)
+
+    calls = FindNodes(CallStatement).visit(caller.routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == ('t_a',)
