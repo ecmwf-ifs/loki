@@ -16,6 +16,11 @@ derived-type arguments in complex calling structures.
 
 from collections import defaultdict
 import re
+try:
+    from fparser.two.Fortran2003 import Intrinsic_Name
+    _intrinsic_fortran_names = Intrinsic_Name.function_names
+except ImportError:
+    _intrinsic_fortran_names = ()
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, RangeIndex, as_tuple,
@@ -389,12 +394,22 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                         vmap = {}
                         try:
                             for var in FindVariables().visit(member.dimensions):
-                                arg_index = call.routine.arguments.index(var)
-                                vmap[var] = call.arguments[arg_index]
+                                components = [*var.parents, var]
+                                declared_var = components[0]
+                                arg_index = call.routine.arguments.index(declared_var)
+                                new_var = call.arguments[arg_index]
+                                for child in components[1:]:
+                                    new_var = child.clone(
+                                        name=f'{new_var.name}%{child.name}', parent=new_var,
+                                        scope=new_var.scope
+                                    )
+                                vmap[var] = new_var
                         except ValueError as exc:
-                            raise NotImplementedError(
-                                'Transformation supports only kernel arguments as variables in index expressions'
-                            ) from exc
+                            if var not in _intrinsic_fortran_names:
+                                raise NotImplementedError(
+                                    'Transformation supports only kernel arguments as variables in index expressions'
+                                ) from exc
+                        vmap = recursive_expression_map_update(vmap)
                         dimensions = SubstituteExpressions(vmap).visit(member.dimensions)
                     else:
                         dimensions = None
@@ -436,16 +451,17 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
         """
         is_elemental_routine = is_elemental(routine)
         arg_counter = defaultdict(int)
-        arg_map = {}
+        expanded_variable_map = {}
         def _expanded_name(arg):
-            if arg in arg_map:
-                return arg_map[arg]
+            if arg in expanded_variable_map:
+                return expanded_variable_map[arg]
 
             new_name = arg.name.replace('%', '_')
             if is_elemental_routine and getattr(arg, 'dimensions', None):
-                arg_counter[new_name] += 1
-                new_name += f'_{arg_counter[new_name]!s}'
-                arg_map[arg] = new_name
+                arg_counter[new_name.lower()] += 1
+                new_name += f'_{arg_counter[new_name.lower()]!s}'
+
+            expanded_variable_map[arg] = new_name
             return new_name
 
         # Build a map from derived type arguments to expanded arguments
@@ -465,7 +481,10 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                         # Note: We clone the child here to retain the dimensions
                         # from the declaration in the typedef. To not overwrite the stored type
                         # information from the routine's symbol table, we use type=None
-                        arg_member = child.clone(name=f'{arg_member.name}%{child.name}', parent=arg_member, scope=routine, type=None)
+                        arg_member = child.clone(
+                            name=f'{arg_member.name}%{child.name}', parent=arg_member,
+                            scope=routine, type=None
+                        )
 
                     if is_elemental_routine:
                         # Use same argument intent, dismiss all initializer and other array attributes
@@ -503,9 +522,9 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 # we just derived above, as it would otherwise use whatever type we
                 # had derived previously (ie. the type from the struct definition.)
                 if is_elemental_routine:
-                    vmap[var] = var.clone(name=_expanded_name(var), parent=None, type=None, dimensions=None)
+                    vmap[var] = var.clone(name=expanded_variable_map[var], parent=None, type=None, dimensions=None)
                 else:
-                    vmap[var] = var.clone(name=_expanded_name(var), parent=None, type=None)
+                    vmap[var] = var.clone(name=expanded_variable_map[var], parent=None, type=None)
 
         vmap = recursive_expression_map_update(vmap)
 

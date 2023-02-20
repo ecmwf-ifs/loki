@@ -685,7 +685,8 @@ contains
         type(some_type), intent(in) :: o
         integer, intent(in) :: idx
         integer, intent(out) :: v
-        v = o%a + O%b(idx) + o%vALs(iDX) + o%vals(idx) + o%b(idx + 1) + o%b(idx + 1)
+        v = o%a + O%b(idx) + o%vALs(MIN(iDX, 1)) + o%vals(min(idx, 1)) + o%b(idx + 1) + o%b(idx + 1)
+        v = v + o%vals(o%a + 1)
     end subroutine callee
 end module elemental_mod
     """.strip()
@@ -700,7 +701,7 @@ end module elemental_mod
 
     assert caller.trafo_data[analysis._key] == {}
     assert callee.trafo_data[analysis._key]['expansion_map'] == {
-        'o': ('a', 'b(idx + 1)', 'b(idx)', 'vals(idx)')
+        'o': ('a', 'b(idx + 1)', 'b(idx)', 'vals(min(idx, 1))', 'vals(o%a + 1)')
     }
 
     transformation = DerivedTypeArgumentsExpansionTransformation()
@@ -712,7 +713,7 @@ end module elemental_mod
     else:
         assert source['caller'].arguments == ('obj', 'arr(4)')
     assert source['callee'].arguments == (
-        'o_a', 'o_b_1', 'o_b_2', 'o_vals_1', 'idx', 'v'
+        'o_a', 'o_b_1', 'o_b_2', 'o_vals_1', 'o_vals_2', 'idx', 'v'
     )
 
     for arg in source['callee'].arguments:
@@ -725,17 +726,16 @@ end module elemental_mod
         assert isinstance(var, Scalar)
 
     assignments = FindNodes(Assignment).visit(source['callee'].body)
-    assert len(assignments) == 1
-    assert assignments[0].rhs == (
-        'o_a + o_b_2 + o_vals_1 + o_vals_1 + o_b_1 + o_b_1'
-    )
+    assert len(assignments) == 2
+    assert assignments[0].rhs == 'o_a + o_b_2 + o_vals_1 + o_vals_1 + o_b_1 + o_b_1'
+    assert assignments[1].rhs == 'v + o_vals_2'
 
     calls = FindNodes(CallStatement).visit(source['caller'].body)
     assert calls[0].arguments == (
-        'obj%a', 'obj%b(1 + 1)', 'obj%b(1)', 'obj%vals(1)', '1', 'arr(1)'
+        'obj%a', 'obj%b(1 + 1)', 'obj%b(1)', 'obj%vals(min(1, 1))', 'obj%vals(obj%a + 1)', '1', 'arr(1)'
     )
     assert calls[1].arguments == (
-        'obj%a', 'obj%b(idx + 1)', 'obj%b(idx)', 'obj%vals(idx)', 'idx', 'arr(idx)'
+        'obj%a', 'obj%b(idx + 1)', 'obj%b(idx)', 'obj%vals(min(idx, 1))', 'obj%vals(obj%a + 1)', 'idx', 'arr(idx)'
     )
 
 
