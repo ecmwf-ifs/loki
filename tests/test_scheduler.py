@@ -1594,3 +1594,98 @@ def test_scheduler_inline_call(here, config, frontend):
     for i in scheduler.items:
         if i.name == '#double_real':
             assert isinstance(i, SubroutineItem)
+
+
+def test_scheduler_successors(config):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        real :: a
+    contains
+        procedure :: procedure => some_procedure
+        procedure :: routine
+        procedure :: other
+        generic :: do => procedure, routine
+    end type some_type
+contains
+    subroutine some_procedure(t, i)
+        class(some_type), intent(inout) :: t
+        integer, intent(in) :: i
+        t%a = t%a + real(i)
+    end subroutine some_procedure
+
+    subroutine routine(t, v)
+        class(some_type), intent(inout) :: t
+        real, intent(in) :: v
+        t%a = t%a + v
+        call t%other
+    end subroutine routine
+
+    subroutine other(t)
+        class(some_type), intent(in) :: t
+        print *,t%a
+    end subroutine other
+end module some_mod
+    """.strip()
+
+    fcode = """
+subroutine caller(val)
+    use some_mod, only: some_type
+    implicit none
+    real, intent(inout) :: val
+    type(some_type) :: t
+    t%a = val
+    call t%routine(1)
+    call t%routine(2.0)
+    call t%do(10)
+    call t%do(20.0)
+    val = t%a
+end subroutine caller
+    """.strip()
+
+    class SuccessorTransformation(Transformation):
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.counter = {}
+
+        def transform_subroutine(self, routine, **kwargs):
+            item = kwargs.get('item')
+            if item and item.local_name != routine.name.lower():
+                return
+
+            assert item.local_name in ('caller', 'routine', 'some_procedure', 'other')
+            self.counter[item.local_name] = self.counter.get(item.local_name, 0) + 1
+
+            successors = kwargs.get('successors')
+            assert isinstance(successors, list)
+            if item.local_name == 'caller':
+                expected_successors = {
+                    'some_mod#some_type%routine', 'some_mod#some_type%do',
+                    'some_mod#some_type%procedure', 'some_mod#some_procedure', 'some_mod#routine'
+                }
+            elif item.local_name == 'routine':
+                expected_successors = {'some_mod#some_type%other', 'some_mod#other'}
+            else:
+                expected_successors = set()
+            assert expected_successors == set(successors)
+
+    workdir = gettempdir()/'test_scheduler_successors'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'])
+
+    transformation = SuccessorTransformation()
+    scheduler.process(transformation=transformation)
+
+    assert transformation.counter == {
+        'caller': 1,
+        'routine': 1,
+        'some_procedure': 1,
+        'other': 1,
+    }
+
+    rmtree(workdir)

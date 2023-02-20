@@ -472,6 +472,34 @@ class Scheduler:
                 self.obj_map[lookup_name].make_complete(**self.build_args)
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
+    def item_successors(self, item):
+        """
+        Yields list of successor :any:`Item` for the given :data:`item`
+
+        Successors are all items onto which a dependency exists, such as
+        call targets.
+
+        For intermediate items, such as :any:`ProcedureBindingItem`, this
+        yields also the successors of these items to provide direct access
+        to the called routine.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item for which to yield the successors
+
+        Returns
+        -------
+        list of :any:`Item`
+        """
+        successors = []
+        for child in self.item_graph.successors(item):
+            if isinstance(child, SubroutineItem):
+                successors += [child]
+            else:
+                successors += [child] + self.item_successors(child)
+        return successors
+
     def process(self, transformation, reverse=False, use_file_graph=False):
         """
         Process all :attr:`items` in the scheduler's graph
@@ -508,12 +536,12 @@ class Scheduler:
                     if not isinstance(item, SubroutineItem):
                         continue
 
-                    # Process work item with appropriate kernel
-                    transformation.apply(
-                        item.source, role=item.role, mode=item.mode,
-                        item=item, targets=item.targets, successors=list(graph.successors(item)),
-                        depths=self.depths
-                    )
+                # Process work item with appropriate kernel
+                transformation.apply(
+                    item.source, role=item.role, mode=item.mode,
+                    item=item, targets=item.targets, successors=self.item_successors(item),
+                    depths=self.depths
+                )
 
     def callgraph(self, path, with_file_graph=False):
         """
