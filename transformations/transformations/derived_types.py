@@ -25,7 +25,7 @@ from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, RangeIndex, as_tuple,
     BasicType, DerivedType, CaseInsensitiveDict, warning, debug,
-    ProcedureDeclaration, recursive_expression_map_update
+    ProcedureDeclaration, recursive_expression_map_update, Import
 )
 from transformations.scc_cuf import is_elemental
 
@@ -326,7 +326,11 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
 
         # Apply caller transformation first to update call
         # signatures...
-        self.expand_derived_args_caller(routine, child_expansion_maps)
+        dependencies_updated = self.expand_derived_args_caller(routine, child_expansion_maps)
+
+        # ...and invalidate cached properties if dependencies have changed...
+        if dependencies_updated and item:
+            item.clear_cached_property('imports')
 
         # ...before updating all other uses in the routine
         # and the routine's signature
@@ -346,7 +350,13 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
             The routine in which to transform call statements
         child_expansion_maps : :any:`CaseInsensitiveDict` of (str, :any:`CaseInsensitiveDict`)
             Dictionary containing the expansion maps of every child routine
+
+        Returns
+        -------
+        bool
+            Flag to indicate that dependencies have been changed (e.g. via new imports)
         """
+        other_symbols = set()
         call_mapper = {}
         for call in FindNodes(CallStatement).visit(routine.body):
             if not call.not_active and call.routine is not BasicType.DEFERRED:
@@ -354,12 +364,34 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 call_name = call.name.type.use_name or str(call.name)
                 if call_name in child_expansion_maps:
                     # Set the new call signature on the IR node
-                    expanded_arguments = self.expand_call_arguments(call, child_expansion_maps[call_name])
+                    expanded_arguments, others = self.expand_call_arguments(call, child_expansion_maps[call_name])
                     call_mapper[call] = call.clone(arguments=expanded_arguments)
+                    other_symbols |= others
 
         # Rebuild the routine's IR tree
         if call_mapper:
             routine.body = Transformer(call_mapper).visit(routine.body)
+
+        # Add parameter declarations or imports
+        if other_symbols:
+            new_symbols = []
+            new_imports = []
+            for s in other_symbols:
+                if s.type.imported:
+                    if not s.type.module:
+                        raise RuntimeError(
+                            f'Incomplete type information available for {s!s}'
+                        )
+                    new_imports += [Import(module=s.type.module.name, symbols=(s.rescope(routine),))]
+                else:
+                    new_symbols += [s.rescope(routine)]
+            if new_symbols:
+                routine.variables += as_tuple(new_symbols)
+            if new_imports:
+                routine.spec.prepend(as_tuple(new_imports))
+                return True
+            return False
+
 
     @staticmethod
     def expand_call_arguments(call, expansion_map):
@@ -375,10 +407,13 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
 
         Returns
         -------
-        tuple :
-            The argument list with derived type arguments expanded
+        (tuple, set) :
+            The argument list with derived type arguments expanded, and a set of
+            additional symbols to cater for (either import them or replicate the
+            parameter definition)
         """
         arguments = []
+        other_symbols = set()
         for kernel_arg, caller_arg in call.arg_iter():
             if kernel_arg.name in expansion_map:
                 arg_type = kernel_arg.type
@@ -392,23 +427,28 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                         # Extract all variables used in the index expression, and try
                         # to match them to arguments in the call signature
                         vmap = {}
-                        try:
-                            for var in FindVariables().visit(member.dimensions):
-                                components = [*var.parents, var]
-                                declared_var = components[0]
-                                arg_index = call.routine.arguments.index(declared_var)
-                                new_var = call.arguments[arg_index]
-                                for child in components[1:]:
-                                    new_var = child.clone(
-                                        name=f'{new_var.name}%{child.name}', parent=new_var,
-                                        scope=new_var.scope
-                                    )
-                                vmap[var] = new_var
-                        except ValueError as exc:
-                            if var not in _intrinsic_fortran_names:
-                                raise NotImplementedError(
-                                    'Transformation supports only kernel arguments as variables in index expressions'
-                                ) from exc
+                        for var in FindVariables().visit(member.dimensions):
+                            components = [*var.parents, var]
+
+                            try:
+                                arg_index = call.routine.arguments.index(components[0])
+                            except ValueError as exc:
+                                if var.type.imported or var.type.parameter:
+                                    other_symbols.add(var)
+                                elif var not in _intrinsic_fortran_names:
+                                    raise NotImplementedError(
+                                        f'Unsupported variable {var} in index expression of {member}'
+                                    ) from exc
+                                continue
+
+                            new_var = call.arguments[arg_index]
+                            for child in components[1:]:
+                                new_var = child.clone(
+                                    name=f'{new_var.name}%{child.name}', parent=new_var,
+                                    scope=new_var.scope
+                                )
+                            vmap[var] = new_var
+
                         vmap = recursive_expression_map_update(vmap)
                         dimensions = SubstituteExpressions(vmap).visit(member.dimensions)
                     else:
@@ -431,7 +471,7 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
             else:
                 arguments += [caller_arg]
 
-        return as_tuple(arguments)
+        return as_tuple(arguments), other_symbols
 
     def expand_derived_args_routine(self, routine, expansion_map):
         """
@@ -522,9 +562,9 @@ class DerivedTypeArgumentsExpansionTransformation(Transformation):
                 # we just derived above, as it would otherwise use whatever type we
                 # had derived previously (ie. the type from the struct definition.)
                 if is_elemental_routine:
-                    vmap[var] = var.clone(name=expanded_variable_map[var], parent=None, type=None, dimensions=None)
+                    vmap[var] = var.clone(name=_expanded_name(var), parent=None, type=None, dimensions=None)
                 else:
-                    vmap[var] = var.clone(name=expanded_variable_map[var], parent=None, type=None)
+                    vmap[var] = var.clone(name=_expanded_name(var), parent=None, type=None)
 
         vmap = recursive_expression_map_update(vmap)
 

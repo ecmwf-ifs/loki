@@ -10,7 +10,7 @@ import pytest
 
 from loki import (
     OMNI, Sourcefile, FindNodes, CallStatement, SubroutineItem, as_tuple,
-    ProcedureDeclaration, Scalar, FindVariables, Assignment
+    ProcedureDeclaration, Scalar, FindVariables, Assignment, fgen
 )
 from conftest import available_frontends
 from transformations import DerivedTypeArgumentsExpansionAnalysis, DerivedTypeArgumentsExpansionTransformation
@@ -663,80 +663,133 @@ end module transform_derived_type_arguments_mod
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_derived_type_arguments_elemental(frontend):
-    fcode = """
+    fcode_header = """
+module header_mod
+    implicit none
+    integer, parameter :: jpia = selected_int_kind(9)
+end module header_mod
+    """.strip()
+
+    fcode_mod = """
 module elemental_mod
     implicit none
+    integer, parameter :: jpim = selected_int_kind(9)
     type some_type
         integer :: a
         integer, allocatable :: b(:)
         integer, pointer :: vals(:)
     end type some_type
 contains
-    subroutine caller(obj, arr)
-        type(some_type), intent(in) :: obj
-        integer, intent(inout) :: arr(4)
-        integer :: idx = (/2, 3, 4/)
-
-        call callee(obj, 1, arr(1))
-        call callee(obj, idx, arr(idx))
-    end subroutine caller
-
     elemental subroutine callee(o, idx, v)
+        use header_mod, only: jpia
         type(some_type), intent(in) :: o
         integer, intent(in) :: idx
         integer, intent(out) :: v
-        v = o%a + O%b(idx) + o%vALs(MIN(iDX, 1)) + o%vals(min(idx, 1)) + o%b(idx + 1) + o%b(idx + 1)
+        v = o%a + O%b(idx) + o%vALs(MIN(iDX, 1_jpim)) + o%vals(min(idx, 1_JPIM)) + o%b(idx + 1_jpia) + o%b(idx + 1_jpia)
         v = v + o%vals(o%a + 1)
     end subroutine callee
 end module elemental_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    caller = SubroutineItem(name='elemental_mod#caller', source=source)
-    callee = SubroutineItem(name='elemental_mod#callee', source=source)
+    fcode_caller = """
+subroutine caller(obj, arr)
+    use elemental_mod, only: some_type, callee
+    implicit none
+    type(some_type), intent(in) :: obj
+    integer, intent(inout) :: arr(4)
+    integer :: idx = (/2, 3, 4/)
+
+    call callee(obj, 1, arr(1))
+    call callee(obj, idx, arr(idx))
+end subroutine caller
+    """.strip()
+
+    source_header = Sourcefile.from_source(fcode_header, frontend=frontend)
+    source_mod = Sourcefile.from_source(
+        fcode_mod, frontend=frontend,
+        definitions=source_header.definitions
+    )
+    source_caller = Sourcefile.from_source(
+        fcode_caller, frontend=frontend,
+        definitions=source_mod.definitions + source_header.definitions
+    )
+    caller = SubroutineItem(name='#caller', source=source_caller)
+    callee = SubroutineItem(name='elemental_mod#callee', source=source_mod)
 
     analysis = DerivedTypeArgumentsExpansionAnalysis()
-    source.apply(analysis, item=callee, role='kernel', successors=())
-    source.apply(analysis, item=caller, role='driver', successors=(callee,))
+    source_mod.apply(analysis, item=callee, role='kernel', successors=())
+    source_caller.apply(analysis, item=caller, role='driver', successors=(callee,))
 
+    # Check analysis outcome
     assert caller.trafo_data[analysis._key] == {}
     assert callee.trafo_data[analysis._key]['expansion_map'] == {
         'o': ('a', 'b(idx + 1)', 'b(idx)', 'vals(min(idx, 1))', 'vals(o%a + 1)')
     }
 
-    transformation = DerivedTypeArgumentsExpansionTransformation()
-    source.apply(transformation, item=caller, role='driver', successors=(callee,))
-    source.apply(transformation, item=callee, role='kernel', successors=())
+    assert 'jpia' not in caller.qualified_imports
 
+    transformation = DerivedTypeArgumentsExpansionTransformation()
+    source_caller.apply(transformation, item=caller, role='driver', successors=(callee,))
+    source_mod.apply(transformation, item=callee, role='kernel', successors=())
+
+    # Check arguments
     if frontend == OMNI:
-        assert source['caller'].arguments == ('obj', 'arr(1:4)')
+        assert caller.routine.arguments == ('obj', 'arr(1:4)')
     else:
-        assert source['caller'].arguments == ('obj', 'arr(4)')
-    assert source['callee'].arguments == (
+        assert caller.routine.arguments == ('obj', 'arr(4)')
+    assert callee.routine.arguments == (
         'o_a', 'o_b_1', 'o_b_2', 'o_vals_1', 'o_vals_2', 'idx', 'v'
     )
 
-    for arg in source['callee'].arguments:
+    for arg in callee.routine.arguments:
         assert isinstance(arg, Scalar)
         for attr in ('allocatable', 'target', 'pointer', 'shape'):
             # Check attributes are removed from declarations
             assert getattr(arg.type, attr) is None
 
-    for var in FindVariables().visit(source['callee'].body):
+    # Check there are only scalar variables in the callee
+    for var in FindVariables().visit(callee.routine.body):
         assert isinstance(var, Scalar)
 
-    assignments = FindNodes(Assignment).visit(source['callee'].body)
+    # Check that substitution happened in expressions
+    assignments = FindNodes(Assignment).visit(callee.routine.body)
     assert len(assignments) == 2
     assert assignments[0].rhs == 'o_a + o_b_2 + o_vals_1 + o_vals_1 + o_b_1 + o_b_1'
     assert assignments[1].rhs == 'v + o_vals_2'
 
-    calls = FindNodes(CallStatement).visit(source['caller'].body)
+    # Check that calls on caller side have been updated
+    calls = FindNodes(CallStatement).visit(caller.routine.body)
     assert calls[0].arguments == (
         'obj%a', 'obj%b(1 + 1)', 'obj%b(1)', 'obj%vals(min(1, 1))', 'obj%vals(obj%a + 1)', '1', 'arr(1)'
     )
     assert calls[1].arguments == (
         'obj%a', 'obj%b(idx + 1)', 'obj%b(idx)', 'obj%vals(min(idx, 1))', 'obj%vals(obj%a + 1)', 'idx', 'arr(idx)'
     )
+
+    # Check that the global symbols (parameters) have been carried over accordingly
+    if frontend == OMNI:
+        # OMNI inlines parameters
+        assert fgen(calls[0]) == (
+            'CALL callee(obj%a, obj%b(1 + 1_4), obj%b(1), obj%vals(min(1, 1_4)), '
+            'obj%vals(obj%a + 1), 1, arr(1))'
+        )
+        assert fgen(calls[1]) == (
+            'CALL callee(obj%a, obj%b(idx + 1_4), obj%b(idx), obj%vals(min(idx, 1_4)), '
+            'obj%vals(obj%a + 1), idx, arr(idx))'
+        )
+    else:
+        assert fgen(calls[0]).lower() == (
+            'call callee(obj%a, obj%b(1 + 1_jpia), obj%b(1), obj%vals(min(1, 1_jpim)), '
+            'obj%vals(obj%a + 1), 1, arr(1))'
+        )
+        assert fgen(calls[1]).lower() == (
+            'call callee(obj%a, obj%b(idx + 1_jpia), obj%b(idx), obj%vals(min(idx, 1_jpim)), '
+            'obj%vals(obj%a + 1), idx, arr(idx))'
+        )
+
+        assert 'jpia' in caller.routine.imported_symbols
+        assert 'jpim' in caller.routine.variables
+        assert 'jpia' in caller.qualified_imports
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
