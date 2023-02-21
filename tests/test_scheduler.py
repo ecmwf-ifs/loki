@@ -59,7 +59,8 @@ from loki import (
     HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
-    ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls
+    ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
+    Import, Variable
 )
 
 
@@ -1778,3 +1779,33 @@ end subroutine caller
     verify_graph(scheduler, expected_items, expected_dependencies)
 
     rmtree(workdir)
+
+
+def test_scheduler_cached_properties():
+    fcode = """
+subroutine some_routine
+    implicit none
+    integer i
+    i = 1
+end subroutine some_routine
+    """.strip()
+
+    source = Sourcefile.from_source(fcode)
+    item = SubroutineItem('#some_routine', source=source)
+
+    assert not item.imports
+    assert not item.qualified_imports
+
+    # Add a random import...
+    item.routine.spec.prepend(
+        Import(module='some_mod', symbols=(Variable(name='some_var', scope=item.routine),))
+    )
+
+    # ...and see the caching in effect
+    assert not item.imports
+    assert not item.qualified_imports
+
+    # Clear the cache to update the property
+    item.clear_cached_property('imports')
+    assert item.imports and item.imports[0].module == 'some_mod'
+    assert 'some_var' in item.qualified_imports

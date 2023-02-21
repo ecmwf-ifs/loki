@@ -471,6 +471,7 @@ class Scheduler:
             item = self.create_item(item_name)
 
             if item:
+                item.clear_cached_property('imports')
                 queue.append(item)
 
                 if item.name not in self.item_map:
