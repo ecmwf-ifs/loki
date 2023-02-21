@@ -1578,3 +1578,92 @@ end subroutine caller
     }
 
     rmtree(workdir)
+
+
+@pytest.mark.parametrize('full_parse', [True, False])
+def test_scheduler_add_dependencies(config, full_parse):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        integer :: a
+    contains
+        procedure :: some_routine
+        procedure :: some_function
+    end type some_type
+contains
+    subroutine some_routine(t)
+        class(some_type), intent(inout) :: t
+        t%a = 5
+    end subroutine some_routine
+
+    integer function some_function(t)
+        class(some_type), intent(in) :: t
+        some_function = t%a
+    end function some_function
+end module some_mod
+    """.strip()
+
+    fcode_caller = """
+subroutine caller(b)
+    use some_mod, only: some_type
+    implicit none
+    integer, intent(inout) :: b
+    type(some_type) :: t
+    t%a = b
+    call t%some_routine()
+    b = t%some_function()
+end subroutine caller
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_add_dependencies'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode_caller)
+
+    def verify_graph(scheduler, expected_items, expected_dependencies):
+        assert len(scheduler.items) == len(expected_items)
+        assert all(n in scheduler.items for n in expected_items)
+        assert len(scheduler.dependencies) == len(expected_dependencies)
+        assert all(e in scheduler.dependencies for e in expected_dependencies)
+
+        assert all(item.source._incomplete is not full_parse for item in scheduler.items)
+
+        # Testing of callgraph visualisation
+        cg_path = workdir/'callgraph'
+        scheduler.callgraph(cg_path)
+
+        vgraph = VisGraphWrapper(cg_path)
+        assert all(n.upper() in vgraph.nodes for n in expected_items)
+        assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
+
+    expected_items = [
+        '#caller', 'some_mod#some_type%some_routine', 'some_mod#some_routine'
+    ]
+    expected_dependencies = [
+        ('#caller', 'some_mod#some_type%some_routine'),
+        ('some_mod#some_type%some_routine', 'some_mod#some_routine')
+    ]
+    verify_graph(scheduler, expected_items, expected_dependencies)
+
+    # Function should be in the obj map already
+    assert 'some_mod#some_function' in scheduler.obj_map
+
+    # Add inline call dependency
+    scheduler.add_dependencies(
+        {'#caller': ['some_mod#some_type%some_function']}
+    )
+
+    # Scheduler should have automatically added further relevant dependencies
+    expected_items += [
+        'some_mod#some_type%some_function', 'some_mod#some_function'
+    ]
+    expected_dependencies += [
+        ('#caller', 'some_mod#some_type%some_function'),
+        ('some_mod#some_type%some_function', 'some_mod#some_function')
+    ]
+    verify_graph(scheduler, expected_items, expected_dependencies)
+
+    rmtree(workdir)
