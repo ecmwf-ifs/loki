@@ -8,7 +8,7 @@
 from shutil import rmtree
 import pytest
 
-from loki import Scheduler, gettempdir, FindNodes, CallStatement
+from loki import Scheduler, gettempdir, FindNodes, CallStatement, FindInlineCalls
 from conftest import available_frontends
 
 from transformations import TypeboundProcedureCallTransformation
@@ -118,8 +118,10 @@ contains
 
     subroutine print_content(this)
         class(third_type), intent(inout) :: this
+        integer :: val
         call this%stuff(1)%add(this%stuff(2))
-        print *, this%stuff(1)%total_sum()
+        val = this%stuff(1)%total_sum()
+        print *, val
     end subroutine print_content
 end module other_typebound_procedure_calls_mod
     """.strip()
@@ -145,7 +147,22 @@ end subroutine driver
     (workdir/'driver.F90').write_text(fcode3)
 
     scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['driver'], frontend=frontend)
-    scheduler.process(transformation=TypeboundProcedureCallTransformation())
+
+    transformation = TypeboundProcedureCallTransformation()
+    scheduler.process(transformation=transformation)
+
+    # Verify that new dependencies have been identified correctly...
+    assert transformation.inline_call_dependencies == {
+        '#driver': {'typebound_procedure_calls_mod#total_sum'},
+        'other_typebound_procedure_calls_mod#print_content': {'typebound_procedure_calls_mod#total_sum'}
+    }
+
+    # ...which are not yet in the scheduler
+    assert 'typebound_procedure_calls_mod#total_sum' not in scheduler.item_graph.nodes
+
+    # Make sure that we can add them successfully to the scheduler
+    scheduler.add_dependencies(transformation.inline_call_dependencies)
+    assert 'typebound_procedure_calls_mod#total_sum' in scheduler.item_graph.nodes
 
     driver = scheduler['#driver'].routine
     calls = FindNodes(CallStatement).visit(driver.body)
@@ -156,6 +173,17 @@ end subroutine driver
     assert calls[1].arguments == ('data%stuff(1)%arr(1)', '1')
     assert calls[2].name == 'print_content'
     assert calls[2].arguments == ('data',)
+
+    calls = FindInlineCalls().visit(driver.body)
+    assert len(calls) == 2
+    assert {str(call).lower() for call in calls} == {
+        'total_sum(data%stuff(1))', 'total_sum(data%stuff(2))'
+    }
+
+    assert 'init' in driver.imported_symbols
+    assert 'add_my_type' in driver.imported_symbols
+    assert 'print_content' in driver.imported_symbols
+    assert 'total_sum' in driver.imported_symbols
 
     add_other_type = scheduler['typebound_procedure_calls_mod#add_other_type'].routine
     calls = FindNodes(CallStatement).visit(add_other_type.body)
@@ -177,6 +205,8 @@ end subroutine driver
     assert calls[0].name == 'add_other_type'
     assert calls[0].arguments == ('this%stuff(1)', 'this%stuff(2)')
 
-    # TODO: resolve inline calls
+    calls = list(FindInlineCalls().visit(print_content.body))
+    assert len(calls) == 1
+    assert str(calls[0]).lower() == 'total_sum(this%stuff(1))'
 
     rmtree(workdir)

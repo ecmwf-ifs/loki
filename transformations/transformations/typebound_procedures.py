@@ -1,7 +1,7 @@
 from collections import defaultdict
 from loki import (
     Transformation, FindNodes, CallStatement, Transformer, BasicType, Variable,
-    Module, warning, as_tuple, Import
+    Module, warning, as_tuple, Import, FindInlineCalls, SubstituteExpressions
 )
 
 __all__ = ['TypeboundProcedureCallTransformation']
@@ -20,8 +20,19 @@ class TypeboundProcedureCallTransformation(Transformation):
 
     Also, for some compilers these direct calls seem to require an explicit
     ``INTENT`` specification on the polymorphic derived type dummy argument,
-    which is set to `INOUT` by default, if missing.
+    which is set to `INOUT` by default, if missing. This behaviour can be switched
+    off by setting :data:`fix_intent` to `False`.
+
+    Parameters
+    ----------
+    fix_intent: bool
+        Supply ``INOUT`` as intent on polymorphic dummy arguments  without
     """
+
+    def __init__(self, fix_intent=True, **kwargs):
+        super().__init__(**kwargs)
+        self.fix_intent = fix_intent
+        self.inline_call_dependencies = defaultdict(set)
 
     def apply_default_polymorphic_intent(self, routine):
         """
@@ -33,6 +44,50 @@ class TypeboundProcedureCallTransformation(Transformation):
             if type_.polymorphic and not type_.intent:
                 arg.type = type_.clone(intent='inout')
 
+    def get_procedure_name(self, routine, proc_symbol):
+        if proc_symbol.type.bind_names is not None:
+            return proc_symbol.type.bind_names[0]
+
+        parent = proc_symbol.parents[0]
+        if parent.type.dtype.typedef is not BasicType.DEFERRED:
+            # Fiddle our way through derived type nesting until we obtain the symbol corresponding
+            # to the procedure-binding in the TypeDef
+            local_parent = None
+            local_var = parent
+            try:
+                for local_name in proc_symbol.name_parts[1:]:
+                    local_parent = local_var
+                    local_var = local_var.type.dtype.typedef.variable_map[local_name]
+            except AttributeError:
+                warning('Type definitions incomplete for %s in %s', proc_symbol, routine.name)
+                return None
+
+            if local_var.type.dtype.is_generic:
+                warning('Cannot resolve generic binding %s (not implemented) in %s', proc_symbol, routine.name)
+                return None
+
+            if local_var.type.bind_names is not None:
+                # Although this should have ben taken care of by the first if branch,
+                # this may trigger here when the bind_names property hasn't been imported
+                # into the local symbol table
+                new_name = local_var.type.bind_names[0]
+            else:
+                # If the binding doesn't have any specific bind_names, this means the
+                # corresponding subroutine has the same name and should be declared
+                # in the same module as the typedef
+                new_name = Variable(name=local_var.name, scope=local_parent.type.dtype.typedef.parent)
+            return new_name
+
+        # We don't have any binding information available
+        return None
+
+    def add_inline_call_dependency(self, caller, callee):
+        caller_module = getattr(caller.parent, 'name', '')
+        callee_module = getattr(callee.parent, 'name', '')
+        self.inline_call_dependencies[f'{caller_module}#{caller.name}'.lower()] |= {
+            f'{callee_module}#{callee.name}'.lower()
+        }
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply the transformation of calls to the given :data:`routine`
@@ -43,76 +98,79 @@ class TypeboundProcedureCallTransformation(Transformation):
         if item and item.local_name != routine.name.lower():
             return
 
-        self.apply_default_polymorphic_intent(routine)
+        # Fix any wrong intents on polymorphic arguments
+        # (sadly, it's not uncommon to omit the intent specification on the CLASS declaration,
+        # so we set them to `inout` here for any missing intents)
+        if self.fix_intent:
+            self.apply_default_polymorphic_intent(routine)
 
-        new_subroutine_imports = defaultdict(set)
-        call_mapper = {}
-        for call in FindNodes(CallStatement).visit(routine.body):
-            if not call.name.parent:
-                continue
-
-            # Get the parent variable corresponding to the declared variable (i.e. outermost parent)
-            parent = call.name.parent
-            while parent.parent is not None:
-                parent = parent.parent
-
-            if call.name.type.bind_names is not None:
-                new_name = call.name.type.bind_names[0]
-            elif parent.type.dtype.typedef is not BasicType.DEFERRED:
-                # Fiddle our way through derived type nesting until we obtain the symbol corresponding
-                # to the procedure-binding in the TypeDef
-                local_parent = None
-                local_var = parent
-                try:
-                    for local_name in call.name.name_parts[1:]:
-                        local_parent = local_var
-                        local_var = local_var.type.dtype.typedef.variable_map[local_name]
-                except AttributeError:
-                    warning('Type definitions incomplete for %s in %s', call.name, routine.name)
-                    continue
-
-                if local_var.type.dtype.is_generic:
-                    warning('Cannot resolve generic binding %s (not implemented) in %s', call.name, routine.name)
-                    continue
-
-                if local_var.type.bind_names is not None:
-                    # Although this should have ben taken care of by the first if branch,
-                    # this may trigger here when the bind_names property hasn't been imported
-                    # into the local symbol table
-                    new_name = local_var.type.bind_names[0]
-                else:
-                    # If the binding doesn't have any specific bind_names, this means the
-                    # corresponding subroutine has the same name and should be declared
-                    # in the same module as the typedef
-                    new_name = Variable(name=local_var.name, scope=local_parent.type.dtype.typedef.parent)
-            else:
-                # We don't have any binding information available
-                continue
-
-            # Mark the call for replacement
-            new_arguments = (call.name.parent,) + call.arguments
-            call_mapper[call] = call.clone(name=new_name.rescope(scope=routine), arguments=new_arguments)
-
-            # Add the subroutine to the list of symbols that need to be imported
-            if isinstance(new_name.scope, Module):
-                module_name = new_name.scope.name.lower()
-            else:
-                module_name = new_name.type.dtype.procedure.procedure_symbol.scope.name.lower()
-            new_subroutine_imports[module_name.lower()] |= {new_name.name.lower()}
-
-        # Replace the calls
-        routine.body = Transformer(call_mapper).visit(routine.body)
-
-        # Add missing imports
         if routine.parent:
             current_module = routine.parent.name.lower()
         else:
             current_module = None
+
+        # Collect names of new procedure symbols that need to be imported
+        new_procedure_imports = defaultdict(set)
+
+        # Search for typebound procedure calls to subroutines
+        call_mapper = {}
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if call.name.parent:
+                new_proc_symbol = self.get_procedure_name(routine, call.name)
+                if not new_proc_symbol:
+                    continue
+
+                # Mark the call for replacement
+                new_arguments = (call.name.parent,) + call.arguments
+                call_mapper[call] = call.clone(name=new_proc_symbol.rescope(scope=routine), arguments=new_arguments)
+
+                # Add the subroutine to the list of symbols that need to be imported
+                if isinstance(new_proc_symbol.scope, Module):
+                    module_name = new_proc_symbol.scope.name.lower()
+                else:
+                    module_name = new_proc_symbol.type.dtype.procedure.procedure_symbol.scope.name.lower()
+
+                if module_name != current_module:
+                    new_procedure_imports[module_name] |= {new_proc_symbol.name.lower()}
+
+        # Replace the calls
+        if call_mapper:
+            routine.body = Transformer(call_mapper).visit(routine.body)
+
+        # Search for typebound procedure calls to functions
+        expr_mapper = {}
+        for call in FindInlineCalls().visit(routine.body):
+            if call.function.parent:
+                new_proc_symbol = self.get_procedure_name(routine, call.function)
+                if not new_proc_symbol:
+                    continue
+
+                new_arguments = (call.function.parent,) + call.parameters
+                expr_mapper[call] = call.clone(
+                    function=new_proc_symbol.rescope(scope=routine), parameters=new_arguments
+                )
+
+                # Add the function to the list of symbols that need to be imported
+                if isinstance(new_proc_symbol.scope, Module):
+                    module_name = new_proc_symbol.scope.name.lower()
+                else:
+                    module_name = new_proc_symbol.type.dtype.procedure.procedure_symbol.scope.name.lower()
+
+                if module_name != current_module:
+                    new_procedure_imports[module_name] |= {new_proc_symbol.name.lower()}
+                    self.add_inline_call_dependency(routine, call.function.type.dtype.procedure)
+
+        # Replace the inline calls
+        if expr_mapper:
+            routine.body = SubstituteExpressions(expr_mapper).visit(routine.body)
+
+        # Add missing imports
         imported_symbols = routine.imported_symbols
         new_imports = []
-        for modname, routines in new_subroutine_imports.items():
-            if modname != current_module:
-                new_symbols = tuple(Variable(name=s, scope=routine) for s in routines if s not in imported_symbols)
-                if new_symbols:
-                    new_imports += [Import(module=modname, symbols=new_symbols)]
-        routine.spec.prepend(as_tuple(new_imports))
+        for module_name, proc_symbols in new_procedure_imports.items():
+            new_symbols = tuple(Variable(name=s, scope=routine) for s in proc_symbols if s not in imported_symbols)
+            if new_symbols:
+                new_imports += [Import(module=module_name, symbols=new_symbols)]
+
+        if new_imports:
+            routine.spec.prepend(as_tuple(new_imports))
