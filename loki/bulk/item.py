@@ -113,6 +113,13 @@ class Item:
     def __hash__(self):
         return hash(self.name)
 
+    def clear_cached_property(self, property_name):
+        """
+        Clear the cached value for a cached property
+        """
+        if property_name in self.__dict__:
+            del self.__dict__[property_name]
+
     @property
     def scope_name(self):
         """
@@ -169,7 +176,7 @@ class Item:
         list of :any:`Import`
         """
 
-    @cached_property
+    @property
     def qualified_imports(self):
         """
         Return the mapping of named imports (i.e. explicitly qualified imports via a use-list
@@ -181,7 +188,7 @@ class Item:
             for symbol in import_.symbols + tuple(s for _, s in as_tuple(import_.rename_list))
         )
 
-    @cached_property
+    @property
     def unqualified_imports(self):
         """
         Return names of imported modules without explicit ``ONLY`` list
@@ -353,7 +360,7 @@ class Item:
                 # Search for named import of the derived type
                 type_name = name[:pos]
                 if type_name in qualified_imports:
-                    qualified_names += [self.qualified_imports[type_name] + name[pos:]]
+                    qualified_names += [qualified_imports[type_name] + name[pos:]]
                     continue
 
                 # Search for definition of the type in parent scope
@@ -363,7 +370,7 @@ class Item:
             else:
                 # Search for named import of the subroutine
                 if name in qualified_imports:
-                    qualified_names += [self.qualified_imports[name]]
+                    qualified_names += [qualified_imports[name]]
                     continue
 
                 # Search for subroutine in parent scope
