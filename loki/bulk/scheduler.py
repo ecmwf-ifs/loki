@@ -159,6 +159,8 @@ class Scheduler:
         else:
             self.config = SchedulerConfig.from_dict(config)
 
+        self.full_parse = full_parse
+
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
 
@@ -183,7 +185,7 @@ class Scheduler:
             seed_routines = self.config.routines.keys()
         self._populate(routines=seed_routines)
 
-        if full_parse:
+        if self.full_parse:
             self._parse_items()
 
             # Attach interprocedural call-tree information
@@ -385,6 +387,48 @@ class Scheduler:
                 raise RuntimeError(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
         return candidates[0]
 
+    def _add_children(self, item, children):
+        """
+        Create items for the provided list of children and insert them into the
+        item graph, marking them as dependencies of :data:`item`
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item for which to add the children
+        children : list
+            The list of children names
+        """
+        new_items = []
+
+        for c in children:
+            child = self.create_item(c)
+
+            if child is None:
+                continue
+
+            # Skip blocked children as well
+            if child.local_name in item.block:
+                continue
+
+            # Append child to work queue if expansion is configured
+            if item.expand:
+                # Do not propagate to dependencies marked as "ignore"
+                # Note that, unlike blackisted items, "ignore" items
+                # are still marked as targets during bulk-processing,
+                # so that calls to "ignore" routines will be renamed.
+                if child.local_name in item.ignore:
+                    continue
+
+                if child not in self.item_map:
+                    new_items += [child]
+                    self.item_map[child.name] = child
+                    self.item_graph.add_node(child)
+
+                self.item_graph.add_edge(item, child)
+
+        return new_items
+
     @Timer(logger=perf, text='[Loki::Scheduler] Populated initial call tree in {:.2f}s')
     def _populate(self, routines):
         """
@@ -407,33 +451,46 @@ class Scheduler:
 
         while len(queue) > 0:
             item = queue.popleft()
-
             children = item.qualify_names(item.children, available_names=self.obj_map.keys())
-            for c in children:
-                child = self.create_item(c)
+            new_items = self._add_children(item, children)
 
-                if child is None:
-                    continue
+            if new_items:
+                queue.extend(new_items)
 
-                # Skip blocked children as well
-                if child.local_name in item.block:
-                    continue
+    def add_dependencies(self, dependencies):
+        """
+        Add new dependencies to the item graph
 
-                # Append child to work queue if expansion is configured
-                if item.expand:
-                    # Do not propagate to dependencies marked as "ignore"
-                    # Note that, unlike blackisted items, "ignore" items
-                    # are still marked as targets during bulk-processing,
-                    # so that calls to "ignore" routines will be renamed.
-                    if child.local_name in item.ignore:
-                        continue
+        Parameters
+        ----------
+        dependencies : dict
+            Mapping from items to new dependencies of that item
+        """
+        queue = deque()
+        for item_name in dependencies:
+            item = self.create_item(item_name)
 
-                    if child not in self.item_map:
-                        queue.append(child)
-                        self.item_map[child.name] = child
-                        self.item_graph.add_node(child)
+            if item:
+                queue.append(item)
 
-                    self.item_graph.add_edge(item, child)
+                if item.name not in self.item_map:
+                    self.item_map[item.name] = item
+                if item not in self.item_graph:
+                    self.item_graph.add_node(item)
+
+        while len(queue) > 0:
+            item = queue.popleft()
+            children = item.qualify_names(item.children, available_names=self.obj_map.keys())
+            if item.name in dependencies:
+                children += as_tuple(dependencies[item.name])
+            new_items = self._add_children(item, children)
+
+            if new_items:
+                queue.extend(new_items)
+
+        if self.full_parse:
+            self._parse_items()
+            self._enrich()
 
     @Timer(logger=info, text='[Loki::Scheduler] Performed full source parse in {:.2f}s')
     def _parse_items(self):
