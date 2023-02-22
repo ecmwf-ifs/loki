@@ -18,11 +18,12 @@ import re
 from codetiming import Timer
 
 from loki import ir
+from loki.config import config
 from loki.expression import symbols as sym
 from loki.frontend.source import Source, FortranReader
 from loki.logging import debug
 from loki.scope import SymbolAttributes
-from loki.tools import as_tuple
+from loki.tools import as_tuple, timeout
 from loki.types import BasicType, ProcedureType, DerivedType
 
 __all__ = ['RegexParserClass', 'parse_regex_source', 'HAVE_REGEX']
@@ -343,7 +344,9 @@ def parse_regex_source(source, parser_classes=None, scope=None):
         reader = FortranReader(source.string)
     else:
         reader = FortranReader(source)
-    ir_ = Pattern.match_block_candidates(reader, candidates, parser_classes=parser_classes, scope=scope)
+    timeout_message = f'REGEX frontend timeout of {config["regex-frontend-timeout"]} s exceeded'
+    with timeout(config['regex-frontend-timeout'], message=timeout_message):
+        ir_ = Pattern.match_block_candidates(reader, candidates, parser_classes=parser_classes, scope=scope)
     return ir.Section(body=as_tuple(ir_), source=source)
 
 
