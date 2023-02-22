@@ -14,6 +14,7 @@ import operator as op
 from contextlib import contextmanager
 from pathlib import Path
 from subprocess import CalledProcessError
+from time import sleep, perf_counter
 import pytest
 
 try:
@@ -25,7 +26,7 @@ except ImportError:
 from conftest import stdchannel_is_captured, stdchannel_redirected
 from loki.tools import (
     JoinableStringList, truncate_string, binary_insertion_sort, is_subset,
-    optional, yaml_include_constructor, execute
+    optional, yaml_include_constructor, execute, timeout
 )
 
 
@@ -306,3 +307,37 @@ def test_execute(here, capsys):
     # Success
     cmd = 'true'
     execute(cmd)
+
+
+def test_timeout():
+    # Should not trigger:
+    start = perf_counter()
+    with timeout(5):
+        sleep(.3)
+    stop = perf_counter()
+    assert .2 < stop - start < .4
+
+    # Timeout disabled:
+    start = perf_counter()
+    with timeout(0):
+        sleep(.3)
+    stop = perf_counter()
+    assert .2 < stop - start < .4
+
+    # Default exception
+    with pytest.raises(RuntimeError) as exc:
+        start = perf_counter()
+        with timeout(1):
+            sleep(5)
+        stop = perf_counter()
+        assert .9 < stop - start < 1.1
+        assert "Timeout reached after 2 second(s)" in str(exc.value)
+
+    # Custom message
+    with pytest.raises(RuntimeError) as exc:
+        start = perf_counter()
+        with timeout(1, message="My message"):
+            sleep(5)
+        stop = perf_counter()
+        assert .9 < stop - start < 1.1
+        assert "My message" in str(exc.value)
