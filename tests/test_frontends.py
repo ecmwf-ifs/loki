@@ -1347,3 +1347,19 @@ end module my_mod
     assert len(source.all_subroutines) == 1
     assert source.all_subroutines[0].name == 'test'
     assert source.all_subroutines[0].source.lines == (4, 41)
+
+
+def test_regex_function_inline_return_type():
+    fcode = """
+REAL(KIND=JPRB)  FUNCTION  DOT_PRODUCT_ECV()
+
+END FUNCTION DOT_PRODUCT_ECV
+
+SUBROUTINE DOT_PROD_SP_2D()
+
+END SUBROUTINE DOT_PROD_SP_2D
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert {
+        routine.name for routine in source.subroutines
+    } == {'dot_product_ecv', 'dot_prod_sp_2d'}
