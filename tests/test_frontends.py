@@ -1361,5 +1361,5 @@ END SUBROUTINE DOT_PROD_SP_2D
     """.strip()
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     assert {
-        routine.name for routine in source.subroutines
+        routine.name.lower() for routine in source.subroutines
     } == {'dot_product_ecv', 'dot_prod_sp_2d'}
