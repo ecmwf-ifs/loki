@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import signal
 import sys
 import operator as op
 import weakref
@@ -28,7 +29,8 @@ from loki.logging import debug, error
 __all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
            'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
            'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
-           'yaml_include_constructor', 'auto_post_mortem_debugger', 'set_excepthook']
+           'yaml_include_constructor', 'auto_post_mortem_debugger', 'set_excepthook',
+           'timeout']
 
 
 def as_tuple(item, type=None, length=None):
@@ -553,3 +555,44 @@ def set_excepthook(hook=None):
         sys.excepthook = sys.__excepthook__
     else:
         sys.excepthook = hook
+
+
+@contextmanager
+def timeout(time_in_s, message=None):
+    """
+    Context manager that specifies a timeout for the code section in its body
+
+    This is implemented by installing a signal handler for :any:`signal.SIGALRM`
+    and scheduling that signal for :data:`time_in_s` in the future.
+    For that reason, this context manager cannot be nested.
+
+    A value of 0 for :data:`time_in_s` will not install any timeout.
+
+    The following example illustrates the usage, which will result in a
+    :any:`RuntimeError` being raised.
+
+    .. code-block::
+       with timeout(5):
+           sleep(10)
+
+    Parameters
+    ----------
+    time_in_s : int
+        Timeout in seconds after which to interrupt the code
+    message : str
+        A custom error message to use if a timeout occurs
+    """
+    if message is None:
+        message = f"Timeout reached after {time_in_s} second(s)"
+
+    def timeout_handler(signum, frame): # pylint: disable=unused-argument
+        raise RuntimeError(message)
+
+    if time_in_s > 0:
+        handler = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(time_in_s)
+    yield
+    if time_in_s > 0:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, handler)
