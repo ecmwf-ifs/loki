@@ -401,7 +401,7 @@ class FortranCTransformation(Transformation):
 
             elif not im.c_import and im.symbols:
                 # Create a C-header import for any converted modules
-                import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=None)
+                import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=())
 
             else:
                 # Remove other imports, as they might include untreated Fortran code

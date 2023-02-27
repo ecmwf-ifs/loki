@@ -241,17 +241,17 @@ class OFP2IR(GenericVisitor):
     def visit_if(self, o, **kwargs):
         # process all conditions and bodies
         conditions = [self.visit(h, **kwargs) for h in o.findall('header')]
-        bodies = [as_tuple(self.visit(b, **kwargs)) for b in o.findall('body')]
+        bodies = [flatten(as_tuple(self.visit(b, **kwargs))) for b in o.findall('body')]
         ncond = len(conditions)
         if len(bodies) > ncond:
             else_body = bodies[-1]
             bodies = bodies[:-1]
         else:
-            else_body = None
+            else_body = ()
         assert ncond == len(bodies)
         # shortcut for inline conditionals
         if o.find('if-then-stmt') is None:
-            assert ncond == 1 and else_body is None
+            assert ncond == 1 and else_body is ()
             return ir.Conditional(condition=conditions[0], body=bodies[0], else_body=(),
                                   inline=True, has_elseif=False, label=kwargs['label'],
                                   source=kwargs['source'])
@@ -1398,7 +1398,7 @@ class OFP2IR(GenericVisitor):
             )
         else:
             # No ONLY list
-            symbols = None
+            symbols = ()
             # Rename list
             rename_list = dict(self.visit(s, **kwargs) for s in o.findall('rename/rename'))
             if module is not None:

@@ -501,7 +501,7 @@ class Loop(InternalNode, _LoopBase):
 class _WhileLoopBase():
     """ Type definitions for :any:`WhileLoop` node type. """
 
-    condition: Expression
+    condition: Union[Expression, None]
     body: Tuple[Node, ...]
     pragma: Node = None
     pragma_post: Node = None
@@ -1191,7 +1191,7 @@ class PreprocessorDirective(LeafNode, _PreprocessorDirectiveBase):
 class _ImportBase():
     """ Type definitions for :any:`Import` node type. """
 
-    module: str
+    module: Union[str, None]
     symbols: Tuple[Expression, ...] = ()
     nature: str = None
     c_import: bool = False

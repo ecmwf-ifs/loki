@@ -70,7 +70,7 @@ class ProgramUnit(Scope):
             spec = ir.Section(body=as_tuple(spec))
         if contains is not None:
             if not isinstance(contains, ir.Section):
-                contains = ir.Section(body=contains)
+                contains = ir.Section(body=as_tuple(contains))
             for node in contains.body:
                 if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():
                     break

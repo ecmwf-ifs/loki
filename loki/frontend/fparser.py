@@ -437,7 +437,7 @@ class FParser2IR(GenericVisitor):
         scope = kwargs['scope']
         if o.children[3] == '' or o.children[3] == ',':
             # No ONLY list (import all)
-            symbols = None
+            symbols = ()
             # Rename list
             if o.children[4]:
                 rename_list = dict(self.visit(o.children[4], **kwargs))
@@ -1564,8 +1564,12 @@ class FParser2IR(GenericVisitor):
             spec = spec.rescope(scope=scope)
 
         # Traverse the body and build the object
-        body = as_tuple(self.visit(c, **kwargs) for c in o.children[interface_stmt_index+1:end_interface_stmt_index])
-        interface = ir.Interface(body=body, abstract=abstract, spec=spec, label=kwargs.get('label'), source=source)
+        body = as_tuple(flatten(
+            self.visit(c, **kwargs) for c in o.children[interface_stmt_index+1:end_interface_stmt_index]
+        ))
+        interface = ir.Interface(
+            body=body, abstract=abstract, spec=spec, label=kwargs.get('label'), source=source
+        )
 
         # Everything past the END INTERFACE (should be empty)
         assert not o.children[end_interface_stmt_index+1:]
@@ -2098,7 +2102,7 @@ class FParser2IR(GenericVisitor):
         else_stmt = get_child(o, Fortran2003.Else_Stmt)
         else_stmt_index = o.children.index(else_stmt) if else_stmt else end_if_stmt_index
         conditions = as_tuple(self.visit(c, **kwargs) for c in (if_then_stmt,) + else_if_stmts)
-        bodies = [as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])
+        bodies = [flatten(as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop]))
                   for start, stop in zip((if_then_stmt_index,) + else_if_stmt_index,
                                          else_if_stmt_index + (else_stmt_index,))]
         else_body = flatten([self.visit(c, **kwargs) for c in o.children[else_stmt_index+1:end_if_stmt_index]])
@@ -2202,7 +2206,7 @@ class FParser2IR(GenericVisitor):
 
         values = as_tuple(self.visit(c, **kwargs) for c in case_stmts)
         bodies = tuple(
-            as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])
+            as_tuple(flatten(as_tuple(self.visit(c, **kwargs)) for c in o.children[start+1:stop]))
             for start, stop in zip(case_stmt_index, case_stmt_index[1:] + (end_select_stmt_index,))
         )
 
@@ -2646,11 +2650,11 @@ class FParser2IR(GenericVisitor):
         where_stmts_index = where_stmts_index + (end_where_stmt_index,)
 
         # Handle all cases
-        conditions = [self.visit(c, **kwargs) for c in where_stmts]
-        bodies = [
-            as_tuple([self.visit(c, **kwargs) for c in o.children[start+1:stop]])
+        conditions = tuple(self.visit(c, **kwargs) for c in where_stmts)
+        bodies = tuple(
+            flatten(as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop]))
             for start, stop in zip(where_stmts_index[:-1], where_stmts_index[1:])
-        ]
+        )
 
         # Extract the default case if any
         if conditions[-1] == 'DEFAULT':
@@ -2663,7 +2667,7 @@ class FParser2IR(GenericVisitor):
         assert not o.children[end_where_stmt_index+1:]
 
         masked_statement = ir.MaskedStatement(
-            conditions=as_tuple(conditions), bodies=as_tuple(bodies),
+            conditions=conditions, bodies=as_tuple(bodies),
             default=default, label=kwargs.get('label'), source=source
         )
         return (*pre, masked_statement)
