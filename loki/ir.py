@@ -294,13 +294,18 @@ class ScopedNode(Scope):
 
 
 @dataclass(frozen=True)
-class Section(InternalNode):
-    """
-    Internal representation of a single code region.
-    """
+class _SectionBase():
+    """ Type definitions for :any:`Section` node type. """
 
     # Sections may contain Module / Subroutine objects
     body: Tuple[Any, ...] = None
+
+
+@dataclass(frozen=True)
+class Section(InternalNode, _SectionBase):
+    """
+    Internal representation of a single code region.
+    """
 
     _argnames = InternalNode._argnames
 
@@ -404,7 +409,21 @@ class Associate(ScopedNode, Section):
 
 
 @dataclass(frozen=True)
-class Loop(InternalNode):
+class _LoopBase():
+    """ Type definitions for :any:`Loop` node type. """
+
+    variable: Expression
+    bounds: Expression
+    body: Tuple[Node, ...]
+    pragma: Tuple[Node, ...] = None
+    pragma_post: Tuple[Node, ...] = None
+    loop_label: Any = None
+    name: str = None
+    has_end_do: bool = True
+
+
+@dataclass(frozen=True)
+class Loop(InternalNode, _LoopBase):
     """
     Internal representation of a loop with induction variable and range.
 
@@ -439,15 +458,6 @@ class Loop(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    variable: Expression = None
-    bounds: Expression = None
-    body: Tuple[Node, ...] = None
-    pragma: Tuple[Node, ...] = None
-    pragma_post: Tuple[Node, ...] = None
-    loop_label: Any = None
-    name: str = None
-    has_end_do: bool = True
-
     _argnames = InternalNode._argnames + (
         'variable', 'bounds', 'body', 'pragma', 'pragma_post',
         'loop_label', 'name', 'has_end_do'
@@ -467,7 +477,20 @@ class Loop(InternalNode):
 
 
 @dataclass(frozen=True)
-class WhileLoop(InternalNode):
+class _WhileLoopBase():
+    """ Type definitions for :any:`WhileLoop` node type. """
+
+    condition: Expression
+    body: Tuple[Node, ...]
+    pragma: Node = None
+    pragma_post: Node = None
+    loop_label: Any = None
+    name: str = None
+    has_end_do: bool = True
+
+
+@dataclass(frozen=True)
+class WhileLoop(InternalNode, _WhileLoopBase):
     """
     Internal representation of a while loop in source code.
 
@@ -504,14 +527,6 @@ class WhileLoop(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    condition: Expression = None
-    body: Tuple[Node, ...] = None
-    pragma: Node = None
-    pragma_post: Node = None
-    loop_label: Any = None
-    name: str = None
-    has_end_do: bool = True
-
     _argnames = InternalNode._argnames + (
         'condition', 'body', 'pragma', 'pragma_post', 'loop_label',
         'name', 'has_end_do'
@@ -528,7 +543,19 @@ class WhileLoop(InternalNode):
 
 
 @dataclass(frozen=True)
-class Conditional(InternalNode):
+class _ConditionalBase():
+    """ Type definitions for :any:`Conditional` node type. """
+
+    condition: Expression
+    body: Tuple[Node, ...]
+    else_body: Tuple[Node, ...] = None
+    inline: bool = False
+    has_elseif: bool = False
+    name: str = None
+
+
+@dataclass(frozen=True)
+class Conditional(InternalNode, _ConditionalBase):
     """
     Internal representation of a conditional branching construct.
 
@@ -555,13 +582,6 @@ class Conditional(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    condition: Expression = None
-    body: Tuple[Node, ...] = None
-    else_body: Tuple[Node, ...] = None
-    inline: bool = False
-    has_elseif: bool = False
-    name: str = None
-
     _argnames = InternalNode._argnames + (
         'condition', 'body', 'else_body', 'inline', 'has_elseif', 'name'
     )
@@ -585,7 +605,16 @@ class Conditional(InternalNode):
 
 
 @dataclass(frozen=True)
-class PragmaRegion(InternalNode):
+class _PragmaRegionBase():
+    """ Type definitions for :any:`PragmaRegion` node type. """
+
+    body: Tuple[Node, ...]
+    pragma: Node = None
+    pragma_post: Node = None
+
+
+@dataclass(frozen=True)
+class PragmaRegion(InternalNode, _PragmaRegionBase):
     """
     Internal representation of a block of code defined by two matching pragmas.
 
@@ -607,10 +636,6 @@ class PragmaRegion(InternalNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    body: Tuple[Node, ...] = None
-    pragma: Node = None
-    pragma_post: Node = None
-
     _argnames = InternalNode._argnames + ('body', 'pragma', 'pragma_post')
 
     _traversable = ['body']
@@ -630,7 +655,16 @@ class PragmaRegion(InternalNode):
 
 
 @dataclass(frozen=True)
-class Interface(InternalNode):
+class _InterfaceBase():
+    """ Type definitions for :any:`Interface` node type. """
+
+    body: Tuple[Any, ...]
+    abstract: bool = False
+    spec: Union[Expression, str] = None
+
+
+@dataclass(frozen=True)
+class Interface(InternalNode, _InterfaceBase):
     """
     Internal representation of a Fortran interface block.
 
@@ -646,10 +680,6 @@ class Interface(InternalNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    body: Tuple[Any, ...] = None
-    abstract: bool = False
-    spec: Union[Expression, str] = None
 
     _argnames = InternalNode._argnames + ('body', 'abstract', 'spec')
 
@@ -682,7 +712,17 @@ class Interface(InternalNode):
 # Leaf node types
 
 @dataclass(frozen=True)
-class Assignment(LeafNode):
+class _AssignmentBase():
+    """ Type definitions for :any:`Assignment` node type. """
+
+    lhs: Expression
+    rhs: Expression
+    ptr: bool = False
+    comment: Node = None
+
+
+@dataclass(frozen=True)
+class Assignment(LeafNode, _AssignmentBase):
     """
     Internal representation of a variable assignment.
 
@@ -701,11 +741,6 @@ class Assignment(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    lhs: Expression = None
-    rhs: Expression = None
-    ptr: bool = False
-    comment: Node = None
-
     _argnames = LeafNode._argnames + ('lhs', 'rhs', 'ptr', 'comment')
 
     _traversable = ['lhs', 'rhs']
@@ -719,7 +754,17 @@ class Assignment(LeafNode):
 
 
 @dataclass(frozen=True)
-class ConditionalAssignment(LeafNode):
+class _ConditionalAssignmentBase():
+    """ Type definitions for :any:`ConditionalAssignment` node type. """
+
+    lhs: Expression = None
+    condition: Expression = None
+    rhs: Expression = None
+    else_rhs: Expression = None
+
+
+@dataclass(frozen=True)
+class ConditionalAssignment(LeafNode, _ConditionalAssignmentBase):
     """
     Internal representation of an inline conditional assignment using a
     ternary operator.
@@ -746,11 +791,6 @@ class ConditionalAssignment(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    lhs: Expression = None
-    condition: Expression = None
-    rhs: Expression = None
-    else_rhs: Expression = None
-
     _argnames = LeafNode._argnames + ('condition', 'lhs', 'rhs', 'else_rhs')
 
     _traversable = ['condition', 'lhs', 'rhs', 'else_rhs']
@@ -760,7 +800,19 @@ class ConditionalAssignment(LeafNode):
 
 
 @dataclass(frozen=True)
-class CallStatement(LeafNode):
+class _CallStatementBase():
+    """ Type definitions for :any:`CallStatement` node type. """
+
+    name: Expression
+    arguments: Tuple[Expression, ...] = None
+    kwarguments: Tuple[Any, ...] = None
+    pragma: Tuple[Node, ...] = None
+    not_active: bool = None
+    chevron: Tuple[Expression, ...] = None
+
+
+@dataclass(frozen=True)
+class CallStatement(LeafNode, _CallStatementBase):
     """
     Internal representation of a subroutine call.
 
@@ -786,13 +838,6 @@ class CallStatement(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    name: Expression = None
-    arguments: Tuple[Expression, ...] = None
-    kwarguments: Tuple[Any, ...] = None
-    pragma: Tuple[Node, ...] = None
-    not_active: bool = None
-    chevron: Tuple[Expression, ...] = None
 
     _argnames = LeafNode._argnames + (
         'name', 'arguments', 'kwarguments', 'pragma', 'not_active', 'chevron'
@@ -872,7 +917,16 @@ class CallStatement(LeafNode):
 
 
 @dataclass(frozen=True)
-class Allocation(LeafNode):
+class _AllocationBase():
+    """ Type definitions for :any:`Allocation` node type. """
+
+    variables: Tuple[Expression, ...]
+    data_source: Expression = None
+    status_var: Expression = None
+
+
+@dataclass(frozen=True)
+class Allocation(LeafNode, _AllocationBase):
     """
     Internal representation of a variable allocation.
 
@@ -887,10 +941,6 @@ class Allocation(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    variables: Tuple[Expression, ...] = None
-    data_source: Expression = None
-    status_var: Expression = None
 
     _argnames = LeafNode._argnames + ('variables', 'data_source', 'status_var')
 
@@ -907,7 +957,15 @@ class Allocation(LeafNode):
 
 
 @dataclass(frozen=True)
-class Deallocation(LeafNode):
+class _DeallocationBase():
+    """ Type definitions for :any:`Deallocation` node type. """
+
+    variables: Tuple[Expression, ...]
+    status_var: Expression = None
+
+
+@dataclass(frozen=True)
+class Deallocation(LeafNode, _DeallocationBase):
     """
     Internal representation of a variable deallocation.
 
@@ -920,10 +978,6 @@ class Deallocation(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    variables: Tuple[Expression, ...] = None
-    status_var: Expression = None
-
     _argnames = LeafNode._argnames + ('variables', 'status_var')
 
     _traversable = ['variables', 'status_var']
@@ -936,8 +990,16 @@ class Deallocation(LeafNode):
     def __repr__(self):
         return f'Deallocation:: {", ".join(str(var) for var in self.variables)}'
 
+
 @dataclass(frozen=True)
-class Nullify(LeafNode):
+class _NullifyBase():
+    """ Type definitions for :any:`Nullify` node type. """
+
+    variables: Tuple[Expression, ...]
+
+
+@dataclass(frozen=True)
+class Nullify(LeafNode, _NullifyBase):
     """
     Internal representation of a pointer nullification.
 
@@ -948,8 +1010,6 @@ class Nullify(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    variables: Tuple[Expression, ...] = None
 
     _traversable = ['variables']
 
@@ -962,7 +1022,14 @@ class Nullify(LeafNode):
 
 
 @dataclass(frozen=True)
-class Comment(LeafNode):
+class _CommentBase():
+    """ Type definitions for :any:`Comment` node type. """
+
+    text: str
+
+
+@dataclass(frozen=True)
+class Comment(LeafNode, _CommentBase):
     """
     Internal representation of a single comment.
 
@@ -975,8 +1042,6 @@ class Comment(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    text: str = None
-
     _argnames = LeafNode._argnames + ('text', )
 
     def __post_init__(self):
@@ -987,7 +1052,14 @@ class Comment(LeafNode):
 
 
 @dataclass(frozen=True)
-class CommentBlock(LeafNode):
+class _CommentBlockBase():
+    """ Type definitions for :any:`CommentBlock` node type. """
+
+    comments: Tuple[Node, ...]
+
+
+@dataclass(frozen=True)
+class CommentBlock(LeafNode, _CommentBlockBase):
     """
     Internal representation of a block comment that is formed from
     multiple single-line comments.
@@ -999,8 +1071,6 @@ class CommentBlock(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    comments: Tuple[Node, ...] = None
 
     _argnames = LeafNode._argnames + ('comments', )
 
@@ -1018,7 +1088,15 @@ class CommentBlock(LeafNode):
 
 
 @dataclass(frozen=True)
-class Pragma(LeafNode):
+class _PragmaBase():
+    """ Type definitions for :any:`Pragma` node type. """
+
+    keyword: str
+    content: str = None
+
+
+@dataclass(frozen=True)
+class Pragma(LeafNode, _PragmaBase):
     """
     Internal representation of a pragma.
 
@@ -1035,9 +1113,6 @@ class Pragma(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    keyword: str = None
-    content: str = None
-
     _argnames = LeafNode._argnames + ('keyword', 'content')
 
     def __post_init__(self):
@@ -1048,7 +1123,14 @@ class Pragma(LeafNode):
 
 
 @dataclass(frozen=True)
-class PreprocessorDirective(LeafNode):
+class _PreprocessorDirectiveBase():
+    """ Type definitions for :any:`PreprocessorDirective` node type. """
+
+    text: str = None
+
+
+@dataclass(frozen=True)
+class PreprocessorDirective(LeafNode, _PreprocessorDirectiveBase):
     """
     Internal representation of a preprocessor directive.
 
@@ -1063,8 +1145,6 @@ class PreprocessorDirective(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    text: str = None
-
     _argnames = LeafNode._argnames + ('text', )
 
     def __repr__(self):
@@ -1072,7 +1152,20 @@ class PreprocessorDirective(LeafNode):
 
 
 @dataclass(frozen=True)
-class Import(LeafNode):
+class _ImportBase():
+    """ Type definitions for :any:`Import` node type. """
+
+    module: str
+    symbols: Tuple[Expression, ...] = ()
+    nature: str = None
+    c_import: bool = False
+    f_include: bool = False
+    f_import: bool = False
+    rename_list: Tuple[Any, ...] = None
+
+
+@dataclass(frozen=True)
+class Import(LeafNode, _ImportBase):
     """
     Internal representation of an import.
 
@@ -1096,14 +1189,6 @@ class Import(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    module: str = None
-    symbols: Tuple[Expression, ...] = ()
-    nature: str = None
-    c_import: bool = False
-    f_include: bool = False
-    f_import: bool = False
-    rename_list: Tuple[Any, ...] = None
 
     _argnames = LeafNode._argnames + (
         'module', 'symbols', 'nature', 'c_import', 'f_include',
@@ -1134,7 +1219,17 @@ class Import(LeafNode):
 
 
 @dataclass(frozen=True)
-class VariableDeclaration(LeafNode):
+class _VariableDeclarationBase():
+    """ Type definitions for :any:`VariableDeclaration` node type. """
+
+    symbols: Tuple[Expression, ...]
+    dimensions: Tuple[Expression, ...] = None
+    comment: Node = None
+    pragma: Node = None
+
+
+@dataclass(frozen=True)
+class VariableDeclaration(LeafNode, _VariableDeclarationBase):
     """
     Internal representation of a variable declaration.
 
@@ -1157,11 +1252,6 @@ class VariableDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    symbols: Tuple[Expression, ...] = None
-    dimensions: Tuple[Expression, ...] = None
-    comment: Node = None
-    pragma: Node = None
-
     _argnames = LeafNode._argnames + (
         'symbols', 'dimensions', 'comment', 'pragma'
     )
@@ -1183,7 +1273,21 @@ class VariableDeclaration(LeafNode):
 
 
 @dataclass(frozen=True)
-class ProcedureDeclaration(LeafNode):
+class _ProcedureDeclarationBase():
+    """ Type definitions for :any:`ProcedureDeclaration` node type. """
+
+    symbols: Tuple[Expression, ...]
+    interface: Union[Expression, DataType] = None
+    external: bool = False
+    module: bool = False
+    generic: bool = False
+    final: bool = False
+    comment: Node = None
+    pragma: Tuple[Node, ...] = None
+
+
+@dataclass(frozen=True)
+class ProcedureDeclaration(LeafNode, _ProcedureDeclarationBase):
     """
     Internal representation of a procedure declaration.
 
@@ -1215,15 +1319,6 @@ class ProcedureDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    symbols: Tuple[Expression, ...] = None
-    interface: Union[Expression, DataType] = None
-    external: bool = False
-    module: bool = False
-    generic: bool = False
-    final: bool = False
-    comment: Node = None
-    pragma: Tuple[Node, ...] = None
-
     _argnames = LeafNode._argnames + (
         'symbols', 'interface', 'external', 'module', 'generic',
         'final', 'comment', 'pragma'
@@ -1244,7 +1339,17 @@ class ProcedureDeclaration(LeafNode):
 
 
 @dataclass(frozen=True)
-class DataDeclaration(LeafNode):
+class _DataDeclarationBase():
+    """ Type definitions for :any:`DataDeclaration` node type. """
+
+    # TODO: This should only allow Expression instances but needs frontend changes
+    # TODO: Support complex statements (LOKI-23)
+    variable: Any
+    values: Tuple[Expression, ...]
+
+
+@dataclass(frozen=True)
+class DataDeclaration(LeafNode, _DataDeclarationBase):
     """
     Internal representation of a ``DATA`` declaration for explicit array
     value lists.
@@ -1258,11 +1363,6 @@ class DataDeclaration(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    # TODO: This should only allow Expression instances but needs frontend changes
-    # TODO: Support complex statements (LOKI-23)
-    variable: Any = None
-    values: Tuple[Expression, ...] = None
 
     _argnames = LeafNode._argnames + ('variable', 'values')
 
@@ -1278,7 +1378,17 @@ class DataDeclaration(LeafNode):
 
 
 @dataclass(frozen=True)
-class StatementFunction(LeafNode):
+class _StatementFunctionBase():
+    """ Type definitions for :any:`StatementFunction` node type. """
+
+    variable: Expression
+    arguments: Tuple[Expression, ...]
+    rhs: Expression
+    return_type: SymbolAttributes
+
+
+@dataclass(frozen=True)
+class StatementFunction(LeafNode, _StatementFunctionBase):
     """
     Internal representation of Fortran statement function statements
 
@@ -1293,11 +1403,6 @@ class StatementFunction(LeafNode):
     return_type : :any:`SymbolAttributes`
         The return type of the statement function
     """
-
-    variable: Expression = None
-    arguments: Tuple[Expression, ...] = None
-    rhs: Expression = None
-    return_type: SymbolAttributes = None
 
     _argnames = LeafNode._argnames + (
         'variable', 'arguments', 'rhs', 'return_type'
@@ -1467,7 +1572,18 @@ class TypeDef(ScopedNode, LeafNode):
 
 
 @dataclass(frozen=True)
-class MultiConditional(LeafNode):
+class _MultiConditionalBase():
+    """ Type definitions for :any:`MultiConditional` node type. """
+
+    expr: Expression
+    values: Tuple[Any, ...]
+    bodies: Tuple[Any, ...]
+    else_body: Tuple[Node, ...]
+    name: str = None
+
+
+@dataclass(frozen=True)
+class MultiConditional(LeafNode, _MultiConditionalBase):
     """
     Internal representation of a multi-value conditional (eg. ``SELECT``).
 
@@ -1486,12 +1602,6 @@ class MultiConditional(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    expr: Expression = None
-    values: Tuple[Any, ...] = None
-    bodies: Tuple[Any, ...] = None
-    else_body: Tuple[Node, ...] = None
-    name: str = None
 
     _argnames = LeafNode._argnames + (
         'expr', 'values', 'bodies', 'else_body', 'name'
@@ -1513,7 +1623,17 @@ class MultiConditional(LeafNode):
 
 
 @dataclass(frozen=True)
-class MaskedStatement(LeafNode):
+class _MaskedStatementBase():
+    """ Type definitions for :any:`MaskedStatement` node type. """
+
+    conditions: Tuple[Expression, ...]
+    bodies: Tuple[Tuple[Node, ...], ...]
+    default: Tuple[Node, ...] = None
+    inline: bool = False
+
+
+@dataclass(frozen=True)
+class MaskedStatement(LeafNode, _MaskedStatementBase):
     """
     Internal representation of a masked array assignment (``WHERE`` clause).
 
@@ -1531,11 +1651,6 @@ class MaskedStatement(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    conditions: Tuple[Expression, ...] = None
-    bodies: Tuple[Tuple[Node, ...], ...] = None
-    default: Tuple[Node, ...] = None
-    inline: bool = False
 
     _argnames = LeafNode._argnames + (
         'conditions', 'bodies', 'default', 'inline'
@@ -1557,7 +1672,14 @@ class MaskedStatement(LeafNode):
 
 
 @dataclass(frozen=True)
-class Intrinsic(LeafNode):
+class _IntrinsicBase():
+    """ Type definitions for :any:`Intrinsic` node type. """
+
+    text: str
+
+
+@dataclass(frozen=True)
+class Intrinsic(LeafNode, _IntrinsicBase):
     """
     Catch-all generic node for corner-cases.
 
@@ -1575,8 +1697,6 @@ class Intrinsic(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    text: str = None
-
     _argnames = LeafNode._argnames + ('text', )
 
     def __post_init__(self):
@@ -1587,7 +1707,14 @@ class Intrinsic(LeafNode):
 
 
 @dataclass(frozen=True)
-class Enumeration(LeafNode):
+class _EnumerationBase():
+    """ Type definitions for :any:`Enumeration` node type. """
+
+    symbols: Tuple[Expression, ...]
+
+
+@dataclass(frozen=True)
+class Enumeration(LeafNode, _EnumerationBase):
     """
     Internal representation of an ``ENUM``
 
@@ -1603,8 +1730,6 @@ class Enumeration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    symbols: Tuple[Expression, ...] = None
-
     _argnames = LeafNode._argnames + ('symbols', )
 
     def __post_init__(self):
@@ -1617,7 +1742,14 @@ class Enumeration(LeafNode):
 
 
 @dataclass(frozen=True)
-class RawSource(LeafNode):
+class _RawSourceBase():
+    """ Type definitions for :any:`RawSource` node type. """
+
+    text: str
+
+
+@dataclass(frozen=True)
+class RawSource(LeafNode, _RawSourceBase):
     """
     Generic node for unparsed source code sections
 
@@ -1632,8 +1764,6 @@ class RawSource(LeafNode):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    text: str = None
 
     _argnames = LeafNode._argnames + ('text', )
 
