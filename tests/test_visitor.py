@@ -1278,7 +1278,10 @@ SUBROUTINE compute_column(start, end, nlon, nz, q)
 END SUBROUTINE compute_column
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    # Empty substitution pass, which invalidates the source property
     kernel.body = SubstituteExpressions({}, invalidate_source=invalidate_source).visit(kernel.body)
+
     loops = FindNodes(Loop).visit(kernel.body)
     if replacement == 'body':
         # Replace loop by its body
@@ -1287,7 +1290,7 @@ END SUBROUTINE compute_column
         # Replace loop by itself
         mapper = {l: l for l in loops}
     elif replacement == 'self_tuple':
-        # Replace loop by itself, but wrapped in a loop
+        # Replace loop by itself, but wrapped in a tuple
         mapper = {l: (l,) for l in loops}
     elif replacement == 'duplicate':
         # Duplicate the loop (will this trigger infinite recursion in tuple injection)?
@@ -1301,3 +1304,9 @@ END SUBROUTINE compute_column
     kernel.body = Transformer({}).visit(kernel.body)
     # If the code gen works, then it's probably not too broken...
     assert kernel.to_fortran()
+    # Make sure the number of loops is correct
+    assert len(FindNodes(Loop).visit(kernel.body)) == {
+        'body': 0, # All loops replaced by the body
+        'self': 2, 'self_tuple': 2,  # Loop replaced by itself
+        'duplicate': 4  # Loops duplicated
+    }[replacement]
