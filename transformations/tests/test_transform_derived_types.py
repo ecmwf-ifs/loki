@@ -10,14 +10,14 @@ import pytest
 
 from loki import (
     OMNI, Sourcefile, FindNodes, CallStatement, SubroutineItem, as_tuple,
-    ProcedureDeclaration, Scalar, FindVariables, Assignment, fgen
+    ProcedureDeclaration, Scalar, Array, FindVariables, Assignment, fgen, BasicType
 )
 from conftest import available_frontends
-from transformations import DerivedTypeArgumentsExpansionAnalysis, DerivedTypeArgumentsExpansionTransformation
+from transformations import DerivedTypeArgumentsTransformation #DerivedTypeArgumentsExpansionAnalysis, DerivedTypeArgumentsExpansionTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_expansion_analysis(frontend):
+def test_transform_derived_type_arguments_analysis(frontend):
     fcode = f"""
 module transform_derived_type_arguments_mod
 
@@ -53,18 +53,28 @@ end module transform_derived_type_arguments_mod
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     item = SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source)
-    source.apply(DerivedTypeArgumentsExpansionAnalysis(), role='kernel', item=item)
+    source.apply(DerivedTypeArgumentsTransformation(), role='kernel', item=item)
 
-    assert item.trafo_data[DerivedTypeArgumentsExpansionAnalysis._key] == {
+    # Make sure the trafo data contains the right information
+    assert item.trafo_data[DerivedTypeArgumentsTransformation._key] == {
         'expansion_map': {
-            'q': ('a', 'b', 'c'),
-            'r': ('a', 'b'),
-        }
+            'q': ('q%a', 'q%b', 'q%c'),
+            'r': ('r%a', 'r%b'),
+        },
+        'orig_argnames': ('m', 'n', 'p_a', 'p_b', 'q', 'r')
     }
+
+    # Make sure the trafo data is actual variable nodes with proper type information
+    # but not attached to any scope
+    for members in item.trafo_data[DerivedTypeArgumentsTransformation._key]['expansion_map'].values():
+        for member in members:
+            assert isinstance(member, (Scalar, Array))
+            assert member.scope is None
+            assert member.type.dtype != BasicType.DEFERRED
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_expansion_transformation(frontend):
+def test_transform_derived_type_arguments_expansion(frontend):
     fcode = f"""
 module transform_derived_type_arguments_mod
 
@@ -152,14 +162,9 @@ end module transform_derived_type_arguments_mod
         SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}),
     ]
 
-    # Apply analysis
-    analysis = DerivedTypeArgumentsExpansionAnalysis()
-    for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        analysis.apply(item.source, role=item.role, item=item, successors=as_tuple(successor))
-
     # Apply transformation
-    transformation = DerivedTypeArgumentsExpansionTransformation()
-    for item, successor in zip_longest(call_tree, call_tree[1:]):
+    transformation = DerivedTypeArgumentsTransformation()
+    for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
         transformation.apply(item.source, role=item.role, item=item, successors=as_tuple(successor))
 
     # Make sure derived type arguments are flattened
@@ -168,14 +173,15 @@ end module transform_derived_type_arguments_mod
         't_out(i)%a', 't_out(i)%b'
     )
     if frontend == OMNI:
-        kernel_args = ['m', 'n', 'p_a(1:n)', 'p_b(1:m, 1:n)', 'q_a(:)', 'q_b(:, :)', 'r_a(:)', 'r_b(:, :)']
+        kernel_args = ('m', 'n', 'p_a(1:n)', 'p_b(1:m, 1:n)', 'q_a(:)', 'q_b(:, :)', 'r_a(:)', 'r_b(:, :)')
     else:
-        kernel_args = ['m', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(n)', 'Q_b(m, n)', 'R_a(n)', 'R_b(m, n)']
+        kernel_args = ('m', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(:)', 'Q_b(:, :)', 'R_a(:)', 'R_b(:, :)')
 
     call = FindNodes(CallStatement).visit(source['caller'].ir)[0]
     assert call.name == 'kernel'
     assert call.arguments == call_args
-    assert [v in kernel_args for v in source['kernel'].arguments]
+    assert source['kernel'].arguments == kernel_args
+    assert all(v.type.intent for v in source['kernel'].arguments)
 
     # Make sure rescoping hasn't accidentally overwritten the
     # type information for local variables that have the same name
@@ -262,18 +268,20 @@ end module transform_derived_type_arguments_multilevel
         ),
     ]
 
-    # Apply analysis
-    analysis = DerivedTypeArgumentsExpansionAnalysis()
-    for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        analysis.apply(item.source, role=item.role, item=item, successors=as_tuple(successor))
-
     # Apply transformation
-    transformation = DerivedTypeArgumentsExpansionTransformation()
-    for item, successor in zip_longest(call_tree, call_tree[1:]):
+    transformation = DerivedTypeArgumentsTransformation()
+    for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
         transformation.apply(item.source, role=item.role, item=item, successors=as_tuple(successor))
+
+    for item in call_tree:
+        if item.role == 'driver':
+            assert not item.trafo_data[transformation._key]
+        else:
+            assert item.trafo_data[transformation._key]['orig_argnames'] == orig_args[item.routine.name.lower()]
 
     for routine in source.subroutines:
         assert routine.arguments == transformed_args[routine.name.lower()]
+        assert all(a.type.intent for a in routine.arguments)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -447,37 +455,35 @@ end module transform_derived_type_arguments_mod
         ('teardown', [])
     ]
 
-    # Apply analysis
-    analysis = DerivedTypeArgumentsExpansionAnalysis()
+    # Apply transformation
+    transformation = DerivedTypeArgumentsTransformation()
     for name, successors in reversed(call_tree):
         item = items[name]
         children = [items[c] for c in successors]
-        analysis.apply(item.source, role=item.role, item=item, successors=as_tuple(children))
+        transformation.apply(item.source, role=item.role, item=item, successors=as_tuple(children))
 
-    key = DerivedTypeArgumentsExpansionAnalysis._key
-    assert DerivedTypeArgumentsExpansionTransformation._key == key
+    key = DerivedTypeArgumentsTransformation._key
 
     # Check analysis result in kernel
     assert key in items['kernel'].trafo_data
     assert items['kernel'].trafo_data[key]['expansion_map'] == {
-        'q': ('a', 'b'),
-        'r': ('a', 'b'),
+        'q': ('q%a', 'q%b'),
+        'r': ('r%a', 'r%b'),
     }
+    assert items['kernel'].trafo_data[key]['orig_argnames'] == (
+        'm', 'n', 'p_a', 'p_b', 'q', 'r'
+    )
 
     # Check analysis result in layer
     assert key in items['layer'].trafo_data
     assert items['layer'].trafo_data[key]['expansion_map'] == {
-        'p_a': ('a', 'b'),
-        'q': ('a%a', 'a%b', 'b'),
-        'r': ('a%a', 'a%b', 'b')
+        'p_a': ('p_a%a', 'p_a%b'),
+        'q': ('q%a%a', 'q%a%b', 'q%b'),
+        'r': ('r%a%a', 'r%a%b', 'r%b')
     }
-
-    # Apply transformation
-    transformation = DerivedTypeArgumentsExpansionTransformation()
-    for name, successors in call_tree:
-        item = items[name]
-        children = [items[c] for c in successors]
-        transformation.apply(item.source, role=item.role, item=item, successors=as_tuple(children))
+    assert items['layer'].trafo_data[key]['orig_argnames'] == (
+        'm', 'n', 'p_a', 'p_b', 'q', 'r'
+    )
 
     # Check arguments of setup
     assert items['setup'].routine.arguments == (
@@ -603,28 +609,6 @@ end module transform_derived_type_arguments_mod
     kernel = SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source)
     reduce = SubroutineItem(name='transform_derived_type_arguments_mod#reduce', source=source)
 
-    # Run analysis
-    analysis = DerivedTypeArgumentsExpansionAnalysis(key='some_key')  # Use a custom key because of the lolz
-    source.apply(analysis, role='kernel', item=kernel_a)
-    source.apply(analysis, role='kernel', item=kernel)
-    source.apply(analysis, role='kernel', item=reduce)
-
-    # Check analysis outcome
-    assert 'some_key' in kernel_a.trafo_data
-    assert 'some_key' in kernel.trafo_data
-    assert 'some_key' in reduce.trafo_data
-
-    assert kernel_a.trafo_data['some_key']['expansion_map'] == {
-        'this': ('a',),
-    }
-    assert kernel.trafo_data['some_key']['expansion_map'] == {
-        'this': ('b', 'c'),
-        'other': ('b',)
-    }
-    assert reduce.trafo_data['some_key']['expansion_map'] == {
-        'this': ('a', 'b', 'c'),
-    }
-
     # Check procedure bindings before the transformation
     typedef = source['some_derived_type']
     assert typedef.variable_map['kernel_a'].type.pass_attr is True
@@ -637,12 +621,31 @@ end module transform_derived_type_arguments_mod
     assert proc_decls[2].symbols[0] == 'reduce'
 
     # Apply transformation
-    transformation = DerivedTypeArgumentsExpansionTransformation(key='some_key')
+    transformation = DerivedTypeArgumentsTransformation(key='some_key')
     source.apply(transformation, role='kernel', item=kernel_a)
     source.apply(transformation, role='kernel', item=kernel)
     source.apply(transformation, role='kernel', item=reduce)
 
-    # Check routine outcome
+    # Check analysis outcome
+    assert 'some_key' in kernel_a.trafo_data
+    assert 'some_key' in kernel.trafo_data
+    assert 'some_key' in reduce.trafo_data
+
+    assert kernel_a.trafo_data['some_key']['expansion_map'] == {
+        'this': ('this%a',),
+    }
+    assert kernel_a.trafo_data['some_key']['orig_argnames'] == ('this', 'out', 'n')
+    assert kernel.trafo_data['some_key']['expansion_map'] == {
+        'this': ('this%b', 'this%c'),
+        'other': ('other%b',)
+    }
+    assert kernel.trafo_data['some_key']['orig_argnames'] == ('this', 'other', 'm', 'n')
+    assert reduce.trafo_data['some_key']['expansion_map'] == {
+        'this': ('this%a', 'this%b', 'this%c'),
+    }
+    assert reduce.trafo_data['some_key']['orig_argnames'] == ('start', 'this')
+
+    # Check transformation outcome
     assert kernel_a.routine.arguments == ('this_a(:)', 'out(:)', 'n')
     assert kernel.routine.arguments == ('this_b(:, :)', 'this_c(:, :)', 'other_b(:, :)', 'm', 'n')
 
@@ -716,36 +719,44 @@ end subroutine caller
     caller = SubroutineItem(name='#caller', source=source_caller)
     callee = SubroutineItem(name='elemental_mod#callee', source=source_mod)
 
-    analysis = DerivedTypeArgumentsExpansionAnalysis()
-    source_mod.apply(analysis, item=callee, role='kernel', successors=())
-    source_caller.apply(analysis, item=caller, role='driver', successors=(callee,))
-
-    # Check analysis outcome
-    assert caller.trafo_data[analysis._key] == {}
-    assert callee.trafo_data[analysis._key]['expansion_map'] == {
-        'o': ('a', 'b(idx + 1)', 'b(idx)', 'vals(min(idx, 1))', 'vals(o%a + 1)')
-    }
-
     assert 'jpia' not in caller.qualified_imports
 
-    transformation = DerivedTypeArgumentsExpansionTransformation()
-    source_caller.apply(transformation, item=caller, role='driver', successors=(callee,))
+    transformation = DerivedTypeArgumentsTransformation()
     source_mod.apply(transformation, item=callee, role='kernel', successors=())
+    source_caller.apply(transformation, item=caller, role='driver', successors=(callee,))
+
+    # Check analysis outcome
+    assert caller.trafo_data[transformation._key] == {}
+    assert callee.trafo_data[transformation._key]['expansion_map'] == {
+        'o': ('o%a', 'o%b(idx + 1)', 'o%b(idx)', 'o%vals(min(idx, 1))', 'o%vals(o%a + 1)')
+    }
+    assert callee.trafo_data[transformation._key]['orig_argnames'] == ('o', 'idx', 'v')
 
     # Check arguments
     if frontend == OMNI:
         assert caller.routine.arguments == ('obj', 'arr(1:4)')
     else:
         assert caller.routine.arguments == ('obj', 'arr(4)')
-    assert callee.routine.arguments == (
-        'o_a', 'o_b_1', 'o_b_2', 'o_vals_1', 'o_vals_2', 'idx', 'v'
-    )
+
+    # Note: The local naming of arguments with running counters
+    # is not stable because of random hash sorting
+    # in the transformation. This is not a problem because the order
+    # of the
+    argument_name_permutations = [
+        ('o_a', 'o_b_1', 'o_b_2', 'o_vals_1', 'o_vals_2', 'idx', 'v'),
+        ('o_a', 'o_b_2', 'o_b_1', 'o_vals_1', 'o_vals_2', 'idx', 'v'),
+        ('o_a', 'o_b_1', 'o_b_2', 'o_vals_2', 'o_vals_1', 'idx', 'v'),
+        ('o_a', 'o_b_2', 'o_b_1', 'o_vals_2', 'o_vals_1', 'idx', 'v'),
+    ]
+
+    assert callee.routine.arguments in argument_name_permutations
+    permutation_index = argument_name_permutations.index(callee.routine.arguments)
 
     for arg in callee.routine.arguments:
         assert isinstance(arg, Scalar)
         for attr in ('allocatable', 'target', 'pointer', 'shape'):
             # Check attributes are removed from declarations
-            assert getattr(arg.type, attr) is None
+            assert getattr(arg.type, attr) in (None, False)
 
     # Check there are only scalar variables in the callee
     for var in FindVariables().visit(callee.routine.body):
@@ -754,8 +765,17 @@ end subroutine caller
     # Check that substitution happened in expressions
     assignments = FindNodes(Assignment).visit(callee.routine.body)
     assert len(assignments) == 2
-    assert assignments[0].rhs == 'o_a + o_b_2 + o_vals_1 + o_vals_1 + o_b_1 + o_b_1'
-    assert assignments[1].rhs == 'v + o_vals_2'
+    assert assignments[0].rhs == [
+        'o_a + o_b_2 + o_vals_1 + o_vals_1 + o_b_1 + o_b_1',
+        'o_a + o_b_1 + o_vals_1 + o_vals_1 + o_b_2 + o_b_2',
+        'o_a + o_b_2 + o_vals_2 + o_vals_2 + o_b_1 + o_b_1',
+        'o_a + o_b_1 + o_vals_2 + o_vals_2 + o_b_2 + o_b_2',
+    ][permutation_index]
+
+    assert assignments[1].rhs == [
+        'v + o_vals_2', 'v + o_vals_2',
+        'v + o_vals_1', 'v + o_vals_1'
+    ][permutation_index]
 
     # Check that calls on caller side have been updated
     calls = FindNodes(CallStatement).visit(caller.routine.body)
@@ -821,20 +841,16 @@ end subroutine some_routine
     callee = SubroutineItem(name='some_mod#some_routine', source=source1)
     caller = SubroutineItem(name='#some_routine', source=source2)
 
-    analysis = DerivedTypeArgumentsExpansionAnalysis()
-    source1.apply(analysis, item=callee, role='kernel', successors=())
-    source2.apply(analysis, item=caller, role='kernel', successors=(callee,))
-
-    assert caller.trafo_data[analysis._key]['expansion_map'] == {
-        't': ('a',),
-    }
-    assert callee.trafo_data[analysis._key]['expansion_map'] == {
-        't': ('a',),
-    }
-
-    transformation = DerivedTypeArgumentsExpansionTransformation()
-    source2.apply(transformation, item=caller, role='kernel', successors=(callee,))
+    transformation = DerivedTypeArgumentsTransformation()
     source1.apply(transformation, item=callee, role='kernel', successors=())
+    source2.apply(transformation, item=caller, role='kernel', successors=(callee,))
+
+    assert caller.trafo_data[transformation._key]['expansion_map'] == {
+        't': ('t%a',),
+    }
+    assert callee.trafo_data[transformation._key]['expansion_map'] == {
+        't': ('t%a',),
+    }
 
     assert caller.routine.arguments == ('t_a(:)',)
     assert callee.routine.arguments == ('t_a(:)',)
@@ -842,3 +858,57 @@ end subroutine some_routine
     calls = FindNodes(CallStatement).visit(caller.routine.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('t_a',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_optional_named_arg(frontend):
+    fcode = """
+module some_mod
+    implicit none
+    type some_type
+        integer, allocatable :: arr(:)
+    end type some_type
+contains
+    subroutine callee(t, val, opt1, opt2)
+        type(some_type), intent(inout) :: t
+        integer, intent(in) :: val
+        integer, intent(in), optional :: opt1
+        integer, intent(in), optional :: opt2
+
+        t%arr(:) = val
+
+        if (present(opt1)) then
+            t%arr(:) = t%arr(:) + opt1
+        endif
+        if (present(opt2)) then
+            t%arr(:) = t%arr(:) + opt2
+        endif
+    end subroutine callee
+
+    subroutine caller(t)
+        type(some_type), intent(inout) :: t
+        call callee(t, 1, opt2=2)
+        call callee(t, 1, 1)
+    end subroutine caller
+end module some_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+
+    callee = SubroutineItem(name='some_mod#callee', source=source)
+    caller = SubroutineItem(name='some_mod#caller', source=source)
+
+    transformation = DerivedTypeArgumentsTransformation()
+    source.apply(transformation, item=callee, role='kernel', successors=())
+    source.apply(transformation, item=caller, role='driver', successors=(callee,))
+
+    assert not caller.trafo_data[transformation._key]
+    assert callee.trafo_data[transformation._key]['expansion_map'] == {
+        't': ('t%arr',)
+    }
+
+    calls = FindNodes(CallStatement).visit(caller.routine.body)
+    assert len(calls) == 2
+    assert calls[0].arguments == ('t%arr', '1')
+    assert calls[0].kwarguments == (('opt2', '2'),)
+    assert calls[1].arguments == ('t%arr', '1', '1')
+    assert not calls[1].kwarguments
