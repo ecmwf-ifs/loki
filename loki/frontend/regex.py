@@ -443,7 +443,7 @@ class SubroutineFunctionPattern(Pattern):
 
     def __init__(self):
         super().__init__(
-            r'^[ \t\w()=]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
+            r'^(?P<prefix>[ \t\w()=]*)?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
             r'(?P<spec>(?:.*?(?:^(?:abstract[ \t]+)?interface\b.*?^end[ \t]+interface)?)+)'
             r'(?P<contains>^contains\n(?:'
             r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
@@ -507,9 +507,14 @@ class SubroutineFunctionPattern(Pattern):
         else:
             contains = None
 
+        if match['prefix'].strip():
+            prefix = match['prefix'].strip()
+        else:
+            prefix=None
+
         routine.__init__(  # pylint: disable=unnecessary-dunder-call
             name=routine.name, args=routine._dummies, is_function=routine.is_function,
-            spec=spec, contains=contains, parent=routine.parent, source=routine.source,
+            prefix=prefix, spec=spec, contains=contains, parent=routine.parent, source=routine.source,
             symbol_attrs=routine.symbol_attrs, incomplete=True
         )
 
