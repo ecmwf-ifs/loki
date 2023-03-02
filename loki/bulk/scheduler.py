@@ -184,6 +184,8 @@ class Scheduler:
             seed_routines = self.config.routines.keys()
         self._populate(routines=seed_routines)
 
+        self._break_cycles()
+
         if self.full_parse:
             self._parse_items()
 
@@ -423,6 +425,21 @@ class Scheduler:
 
             if new_items:
                 queue.extend(new_items)
+
+    def _break_cycles(self):
+        """
+        Remove cyclic dependencies by deleting the first outgoing edge of
+        each cyclic dependency for all subroutine items with a ``RECURSIVE`` prefix
+        """
+        for item in self.items:
+            if item.routine and any('recursive' in prefix.lower() for prefix in item.routine.prefix or []):
+                try:
+                    while True:
+                        cycle_path = nx.find_cycle(self.item_graph, item)
+                        debug(f'Removed edge {cycle_path[0]!s} to break cyclic dependency {cycle_path!s}')
+                        self.item_graph.remove_edge(*cycle_path[0])
+                except nx.NetworkXNoCycle:
+                    pass
 
     def add_dependencies(self, dependencies):
         """
