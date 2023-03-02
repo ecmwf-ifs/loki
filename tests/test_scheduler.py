@@ -1809,3 +1809,68 @@ end subroutine some_routine
     item.clear_cached_property('imports')
     assert item.imports and item.imports[0].module == 'some_mod'
     assert 'some_var' in item.qualified_imports
+
+
+@pytest.mark.parametrize('full_parse', [False, True])
+def test_scheduler_cycle(config, full_parse):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        integer :: a
+    contains
+        procedure :: proc => some_proc
+        procedure :: other => some_other
+    end type some_type
+contains
+    recursive subroutine some_proc(this, val, recurse, fallback)
+        class(some_type), intent(inout) :: this
+        integer, intent(in) :: val
+        logical, intent(in), optional :: recurse
+
+        if (present(recurse)) then
+            if (present(fallback)) then
+                call this%other(val)
+            else
+                call some_proc(this, val, .true., .true.)
+            end if
+        else
+            call this%proc(val, .true.)
+        end if
+    end subroutine some_proc
+
+    subroutine some_other(this, val)
+        class(some_type), intent(inout) :: this
+        integer, intent(in) :: val
+        this%a = val
+    end subroutine some_other
+end module some_mod
+    """.strip()
+
+    fcode_caller = """
+subroutine caller
+    use some_mod, only: some_type
+    implicit none
+    type(some_type) :: t
+
+    call t%proc(1)
+end subroutine caller
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_cycle'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode_caller)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
+
+    # Make sure we the outgoing edges from the recursive routine to the procedure binding
+    # and itself are removed but the other edge still exists
+    assert (scheduler['#caller'], scheduler['some_mod#some_type%proc']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_type%proc'], scheduler['some_mod#some_proc']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_type%proc']) not in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_proc']) not in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_type%other']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_type%other'], scheduler['some_mod#some_other']) in scheduler.dependencies
+
+    rmtree(workdir)
