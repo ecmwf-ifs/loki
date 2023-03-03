@@ -14,6 +14,7 @@ from loki.expression import FindVariables, Array, FindInlineCalls
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.visitors import Visitor, Transformer
+from loki import Subroutine
 
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
@@ -96,6 +97,13 @@ class DataflowAnalysisAttacher(Transformer):
 
     # Internal nodes
 
+    def visit_Interface(self, o, **kwargs):
+        defines = set()
+        for b in o.body:
+            if isinstance(b, Subroutine):
+                defines = defines | self._symbols_from_expr(b.name)
+        return self.visit_Node(o, defines_symbols=defines, **kwargs)
+
     def visit_InternalNode(self, o, **kwargs):
         # An internal node defines all symbols defined by its body and uses all
         # symbols used by its body before they are defined in the body
@@ -119,7 +127,7 @@ class DataflowAnalysisAttacher(Transformer):
         # A while loop uses variables in its condition
         live = kwargs.pop('live_symbols', set())
         uses = self._symbols_from_expr(o.condition)
-        body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, uses=uses, **kwargs)
+        body, defines, uses = self._visit_body(o.body, live=live, uses=uses, **kwargs)
         o._update(body=body)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
