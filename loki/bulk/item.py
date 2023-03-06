@@ -589,5 +589,7 @@ class ProcedureBindingItem(Item):
         if type_.initial is not None:
             # This has a bind name explicitly specified:
             return (type_.initial.name.lower(), )
+        if type_.bind_names is not None and len(type_.bind_names) == 1:
+            return (type_.bind_names[0].name.lower(),)
         # The name of the procedure is identical to the name of the binding
         return (name_parts[1],)
