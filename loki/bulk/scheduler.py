@@ -233,6 +233,10 @@ class Scheduler:
         return as_tuple(item.routine for item in self.item_graph.nodes if item.routine is not None)
 
     @property
+    def typedefs(self):
+        return as_tuple(flatten(module.typedefs.values() for obj in self.obj_map.values() for module in obj.modules))
+
+    @property
     def items(self):
         """
         All :any:`Item` objects contained in the :any:`Scheduler` call graph.
@@ -502,6 +506,7 @@ class Scheduler:
 
             # Enrich with all routines in the call tree
             item.routine.enrich_calls(routines=self.routines)
+            item.routine.enrich_types(typedefs=self.typedefs)
 
             # Enrich item with meta-info from outside of the callgraph
             for routine in item.enrich:
