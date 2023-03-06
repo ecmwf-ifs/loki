@@ -590,12 +590,18 @@ class Scheduler:
 
         # Insert all nodes in the schedulers graph
         for item in self.items:
+            style = {
+                'color': 'black',
+                'shape': 'box',
+                'fillcolor': 'limegreen',
+                'style': 'filled'
+            }
+            if isinstance(item, ProcedureBindingItem):
+                style['fillcolor'] = 'palegreen'
             if item.replicate:
-                callgraph.node(item.name.upper(), color='black', shape='diamond',
-                                fillcolor='limegreen', style='rounded,filled')
-            else:
-                callgraph.node(item.name.upper(), color='black', shape='box',
-                                fillcolor='limegreen', style='filled')
+                style['shape'] = 'diamond'
+                style['style'] += ',rounded'
+            callgraph.node(item.name.upper(), **style)
 
         # Insert all edges in the schedulers graph
         for parent, child in self.dependencies:
@@ -608,7 +614,7 @@ class Scheduler:
             blocked_children = [child for child in blocked_children if isinstance(child, str)]
             for child in blocked_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='orangered', style='filled')
+                               fillcolor='orangered', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
             ignored_children = [child for child in item.children if child in item.ignore]
@@ -616,14 +622,14 @@ class Scheduler:
             ignored_children = [child for child in ignored_children if isinstance(child, str)]
             for child in ignored_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='lightblue', style='filled')
+                               fillcolor='lightblue', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
             missing_children = item.qualify_names(item.children, self.obj_map.keys())
             missing_children = [child[0] for child in missing_children if isinstance(child, tuple)]
             for child in missing_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='lightgray', style='filled')
+                               fillcolor='lightgray', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
         try:
