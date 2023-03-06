@@ -10,7 +10,7 @@ import pytest
 from conftest import available_frontends
 from loki import (
     Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
-    CallStatement, MultiConditional, MaskedStatement
+    CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol
 )
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
@@ -238,6 +238,46 @@ end subroutine analyse_loop_carried_dependencies
     with dataflow_analysis_attached(routine):
         assert loop_carried_dependencies(loops[0]) == {variable_map['b'], variable_map['c']}
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_analyse_interface(frontend):
+    fcode = """
+subroutine random_call(v_out,v_in,v_inout)
+implicit none
+
+  real,intent(in)  :: v_in
+  real,intent(out)  :: v_out
+  real,intent(inout)  :: v_inout
+
+
+end subroutine random_call
+
+subroutine test(v_out,v_in,v_inout)
+implicit none
+interface
+  subroutine random_call(v_out,v_in,v_inout)
+     real,intent(in)  :: v_in
+     real,intent(out)  :: v_out
+     real,intent(inout)  :: v_inout
+  end subroutine random_call
+end interface
+
+real,intent(in   )  :: v_in
+real,intent(out  )  :: v_out
+real,intent(inout)  :: v_inout
+
+end subroutine test
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test']
+
+    with dataflow_analysis_attached(routine):
+        assert len(routine.body.defines_symbols) == 0
+        assert len(routine.body.uses_symbols) == 0
+        assert len(routine.spec.uses_symbols) == 0
+        assert len(routine.spec.defines_symbols) == 1
+        assert isinstance(list(routine.spec.defines_symbols)[0], ProcedureSymbol)
+        assert 'random_call' in routine.spec.defines_symbols
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_enriched_call(frontend):

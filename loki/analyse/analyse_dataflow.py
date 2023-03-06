@@ -10,7 +10,7 @@ Collection of dataflow analysis schema routines.
 """
 
 from contextlib import contextmanager
-from loki.expression import FindVariables, Array, FindInlineCalls
+from loki.expression import FindVariables, Array, FindInlineCalls, ProcedureSymbol
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.visitors import Visitor, Transformer
@@ -98,10 +98,11 @@ class DataflowAnalysisAttacher(Transformer):
     # Internal nodes
 
     def visit_Interface(self, o, **kwargs):
+        # Subroutines/functions calls defined in an explicit interface
         defines = set()
         for b in o.body:
             if isinstance(b, Subroutine):
-                defines = defines | self._symbols_from_expr(b.name)
+                defines = defines | set(as_tuple(ProcedureSymbol(name=b.name)))
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
     def visit_InternalNode(self, o, **kwargs):
