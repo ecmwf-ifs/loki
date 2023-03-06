@@ -645,12 +645,18 @@ class Scheduler:
 
         # Insert all nodes in the schedulers graph
         for item in self.items:
+            style = {
+                'color': 'black',
+                'shape': 'box',
+                'fillcolor': 'limegreen',
+                'style': 'filled'
+            }
+            if isinstance(item, ProcedureBindingItem):
+                style['fillcolor'] = 'palegreen'
             if item.replicate:
-                callgraph.node(item.name.upper(), color='black', shape='diamond',
-                               fillcolor='limegreen', style='rounded,filled')
-            else:
-                callgraph.node(item.name.upper(), color='black', shape='box',
-                               fillcolor='limegreen', style='filled')
+                style['shape'] = 'diamond'
+                style['style'] += ',rounded'
+            callgraph.node(item.name.upper(), **style)
 
         # Insert all edges in the schedulers graph
         for parent, child in self.dependencies:
