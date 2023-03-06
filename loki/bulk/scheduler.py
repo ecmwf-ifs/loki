@@ -662,20 +662,20 @@ class Scheduler:
 
             # Make new CMake paths relative to source again
             if rootpath is not None:
-            sourcepath = sourcepath.relative_to(rootpath)
+                sourcepath = sourcepath.relative_to(rootpath)
 
             debug(f'Planning:: {item.name} (role={item.role}, mode={mode})')
 
             # Inject new object into the final binary libs
             if newsource not in sources_to_append:
                 sources_to_transform += [sourcepath]
-            if item.replicate:
-                # Add new source file next to the old one
-                sources_to_append += [newsource]
-            else:
-                # Replace old source file to avoid ghosting
-                sources_to_append += [newsource]
-                sources_to_remove += [sourcepath]
+                if item.replicate:
+                    # Add new source file next to the old one
+                    sources_to_append += [newsource]
+                else:
+                    # Replace old source file to avoid ghosting
+                    sources_to_append += [newsource]
+                    sources_to_remove += [sourcepath]
 
         info(f'[Loki] CMakePlanner writing plan: {filepath}')
         with Path(filepath).open('w') as f:
