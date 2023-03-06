@@ -15,7 +15,7 @@ from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.program_unit import ProgramUnit
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, ProcedureType, SymbolAttributes
+from loki.types import BasicType, ProcedureType, DerivedType, SymbolAttributes
 
 
 __all__ = ['Subroutine']
@@ -461,6 +461,15 @@ class Subroutine(ProgramUnit):
 
         # TODO: Could extend this to module and header imports to
         # facilitate user-directed inlining.
+
+    def enrich_types(self, typedefs):
+
+        type_map = CaseInsensitiveDict((t.name, t) for t in as_tuple(typedefs))
+        for variable in self.variables:
+            type_ = variable.type
+            if isinstance(type_.dtype, DerivedType) and type_.dtype.typedef is BasicType.DEFERRED:
+                if type_.dtype.name in type_map:
+                    variable.type = type_.clone(dtype=DerivedType(typedef=type_map[type_.dtype.name]))
 
     def __repr__(self):
         """
