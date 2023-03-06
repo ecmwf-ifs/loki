@@ -77,8 +77,18 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
         # Extract expansion maps and argument re-mapping for successors
         successors = [child for child in kwargs.get('successors', []) if self._key in child.trafo_data]
+        renamed_import_map = {
+            import_.module.lower(): {
+                s.type.use_name.lower(): s.name.lower()
+                for s in import_.symbols if s.type.use_name
+            }
+            for import_ in routine.imports + getattr(routine.parent, 'imports', [])
+        }
         successors_data = CaseInsensitiveDict(
-            (child.local_name, child.trafo_data[self._key])
+            (
+                renamed_import_map.get(child.scope_name, {}).get(child.local_name, child.local_name),
+                child.trafo_data[self._key]
+            )
             for child in successors
         )
 
@@ -125,8 +135,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         call_mapper = {}
         for call in FindNodes(CallStatement).visit(routine.body):
             if not call.not_active:
-                # Determine correct call name, in case it has been renamed via import
-                call_name = call.name.type.use_name or str(call.name)
+                call_name = str(call.name)
                 if call_name in successors_data:
                     # Set the new call signature on the IR node
                     arguments, kwarguments, others = self.expand_call_arguments(call, successors_data[call_name])

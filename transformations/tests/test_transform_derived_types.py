@@ -912,3 +912,73 @@ end module some_mod
     assert calls[0].kwarguments == (('opt2', '2'),)
     assert calls[1].arguments == ('t%arr', '1', '1')
     assert not calls[1].kwarguments
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_renamed_calls(frontend):
+    fcode_header = """
+module header_mod
+    implicit none
+    type some_type
+        integer, allocatable :: some(:)
+        integer, allocatable :: other(:)
+    end type some_type
+end module header_mod
+    """.strip()
+    fcode_some = """
+module some_mod
+    implicit none
+contains
+    subroutine sub(t)
+        use header_mod, only: some_type
+        type(some_type), intent(inout) :: t
+        t%some(:) = 1
+    end subroutine sub
+end module some_mod
+    """.strip()
+    fcode_other = """
+module other_mod
+    implicit none
+contains
+    subroutine sub(t)
+        use header_mod, only: some_type
+        type(some_type), intent(inout) :: t
+        t%other(:) = 2
+    end subroutine sub
+end module other_mod
+    """.strip()
+    fcode_caller = """
+subroutine caller(t)
+    use header_mod, only: some_type
+    use some_mod, only: some_sub => sub
+    use other_mod, only: sub
+    implicit none
+    type(some_type), intent(inout) :: t
+    call some_sub(t)
+    call sub(t)
+end subroutine caller
+    """.strip()
+
+    source_header = Sourcefile.from_source(fcode_header, frontend=frontend)
+    source_some = Sourcefile.from_source(fcode_some, frontend=frontend, definitions=source_header.definitions)
+    source_other = Sourcefile.from_source(fcode_other, frontend=frontend, definitions=source_header.definitions)
+    source_caller = Sourcefile.from_source(
+        fcode_caller, frontend=frontend,
+        definitions=source_header.definitions + source_some.definitions + source_other.definitions
+    )
+
+    some_sub = SubroutineItem(name='some_mod#sub', source=source_some)
+    other_sub = SubroutineItem(name='other_mod#sub', source=source_other)
+    caller = SubroutineItem(name='#caller', source=source_caller)
+
+    transformation = DerivedTypeArgumentsTransformation()
+    source_some.apply(transformation, item=some_sub, role='kernel', successors=())
+    source_other.apply(transformation, item=other_sub, role='kernel', successors=())
+    source_caller.apply(transformation, item=caller, role='driver', successors=(some_sub, other_sub))
+
+    assert some_sub.routine.arguments == ('t_some(:)',)
+    assert other_sub.routine.arguments == ('t_other(:)',)
+    calls = FindNodes(CallStatement).visit(caller.routine.body)
+    assert len(calls) == 2
+    assert calls[0].arguments == ('t%some',)
+    assert calls[1].arguments == ('t%other',)
