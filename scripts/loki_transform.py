@@ -471,17 +471,23 @@ def ecrad(mode, config, header, source, build, frontend):
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
 
     headers = [Sourcefile.from_file(filename=h, frontend=frontend_type) for h in header]
-    definitions = flatten(h.modules for h in headers)
+    definitions = flatten(h.definitions for h in headers)
 
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=True)
 
-    # First, remove all derived-type arguments; caller first!
-    scheduler.process(transformation=TypeboundProcedureCallTransformation())
-    # scheduler.process(transformation=DerivedTypeArgumentsAnalysis(), reverse=True)
-    # scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+
+    # Next, replace typebound procedure calls
+    transformation = TypeboundProcedureCallTransformation()
+    scheduler.process(transformation=transformation)
+    if transformation.inline_call_dependencies:
+        scheduler.add_dependencies(transformation.inline_call_dependencies)
+        scheduler.callgraph('updated_callgraph')
+
+    # Now remove all derived-type arguments; start at the leaves!
+    scheduler.process(transformation=DerivedTypeArgumentsTransformation(), reverse=True)
 
     # # Backward insert argument shapes (for surface routines)
     # scheduler.process(transformation=ArgumentArrayShapeAnalysis())
@@ -489,7 +495,7 @@ def ecrad(mode, config, header, source, build, frontend):
     # scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
 
     # # Remove DR_HOOK calls first, so they don't interfere with SCC loop hoisting
-    scheduler.process(transformation=DrHookTransformation(mode=mode, remove='scc' in mode))
+    scheduler.process(transformation=DrHookTransformation(mode=mode, remove=True))
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
