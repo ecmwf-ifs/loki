@@ -580,7 +580,7 @@ class Scheduler:
                 successors += [child] + self.item_successors(child)
         return successors
 
-    def process(self, transformation, reverse=False, use_file_graph=False):
+    def process(self, transformation, reverse=False, item_filter=SubroutineItem, use_file_graph=False):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -613,7 +613,7 @@ class Scheduler:
 
             else:
                 for item in traversal:
-                    if not isinstance(item, SubroutineItem):
+                    if item_filter and not isinstance(item, item_filter):
                         continue
 
                 # Process work item with appropriate kernel
