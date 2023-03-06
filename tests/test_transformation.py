@@ -260,6 +260,114 @@ END MODULE driver_mod
     assert driver['driver_mod'].spec.body[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in driver['driver_mod'].spec.body[0].symbols]
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_globalvar_imports(frontend):
+    """
+    Test that global variable imports are not renamed as a
+    call statement would be.
+    """
+
+    kernel = Sourcefile.from_source(source="""
+MODULE kernel_mod
+    INTEGER :: some_const
+CONTAINS
+    SUBROUTINE kernel(a, b, c)
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    a = 1
+    b = 2
+    c = 3
+  END SUBROUTINE kernel
+END MODULE kernel_mod
+""", frontend=frontend)
+
+    driver = Sourcefile.from_source(source="""
+SUBROUTINE driver(a, b, c)
+    USE kernel_mod, only: kernel
+    USE kernel_mod, only: some_const
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    CALL kernel(a, b ,c)
+END SUBROUTINE driver
+""", frontend=frontend)
+
+    transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
+    kernel.apply(transformation, role='kernel')
+    driver.apply(transformation, role='driver', targets=('kernel', 'some_const'))
+
+    # Check that the global variable declaration remains unchanged
+    assert kernel.modules[0].variables[0].name == 'some_const'
+
+    # Check that calls and matching import have been diverted to the re-generated routine
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 2
+    assert isinstance(imports[0], Import)
+    assert driver['driver'].spec.body[0].module == 'kernel_test_mod'
+    assert 'kernel_test' in [str(s) for s in driver['driver'].spec.body[0].symbols]
+
+    # Check that global variable import remains unchanged
+    assert isinstance(imports[1], Import)
+    assert driver['driver'].spec.body[1].module == 'kernel_mod'
+    assert 'some_const' in [str(s) for s in driver['driver'].spec.body[1].symbols]
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_globalvar_imports_driver_mod(frontend):
+    """
+    Test that global variable imports are not renamed as a
+    call statement would be.
+    """
+
+    kernel = Sourcefile.from_source(source="""
+MODULE kernel_mod
+    INTEGER :: some_const
+CONTAINS
+    SUBROUTINE kernel(a, b, c)
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    a = 1
+    b = 2
+    c = 3
+  END SUBROUTINE kernel
+END MODULE kernel_mod
+""", frontend=frontend)
+
+    driver = Sourcefile.from_source(source="""
+MODULE DRIVER_MOD
+    USE kernel_mod, only: kernel
+    USE kernel_mod, only: some_const
+CONTAINS
+SUBROUTINE driver(a, b, c)
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    CALL kernel(a, b ,c)
+END SUBROUTINE driver
+END MODULE DRIVER_MOD
+""", frontend=frontend)
+
+    transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
+    kernel.apply(transformation, role='kernel')
+    driver.apply(transformation, role='driver', targets=('kernel', 'some_const'))
+
+    # Check that the global variable declaration remains unchanged
+    assert kernel.modules[0].variables[0].name == 'some_const'
+
+    # Check that calls and matching import have been diverted to the re-generated routine
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver_mod'].spec)
+    assert len(imports) == 2
+    assert isinstance(imports[0], Import)
+    assert driver['driver_mod'].spec.body[0].module == 'kernel_test_mod'
+    assert 'kernel_test' in [str(s) for s in driver['driver_mod'].spec.body[0].symbols]
+
+    # Check that global variable import remains unchanged
+    assert isinstance(imports[1], Import)
+    assert driver['driver_mod'].spec.body[1].module == 'kernel_mod'
+    assert 'some_const' in [str(s) for s in driver['driver_mod'].spec.body[1].symbols]
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
 def test_dependency_transformation_header_includes(here, frontend):
