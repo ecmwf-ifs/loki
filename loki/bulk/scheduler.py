@@ -547,13 +547,13 @@ class Scheduler:
                 successors += [child] + self.item_successors(child)
         return successors
 
+    def process(self, transformation, reverse=False, item_filter=SubroutineItem):
         """
         Process all enqueued source modules and routines with the
         stored kernel. The traversal is performed in topological
         order, which ensures that :any:`CallStatement` objects are
         always processed before their target :any:`Subroutine`.
         """
-
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
         with Timer(logger=info, text=log):
@@ -563,7 +563,7 @@ class Scheduler:
                 traversal = reversed(list(traversal))
 
             for item in traversal:
-                if not isinstance(item, SubroutineItem):
+                if item_filter and not isinstance(item, item_filter):
                     continue
 
                 # Process work item with appropriate kernel
