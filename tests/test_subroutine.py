@@ -1892,7 +1892,7 @@ end function f_elem
 
     routine = Subroutine.from_source(fcode, frontend=REGEX)
     assert routine._incomplete
-    assert routine.prefix == ()
+    assert routine.prefix == ('pure elemental real',)
     assert routine.arguments == ()
     assert routine.is_function is True
     assert routine.return_type is None
