@@ -12,7 +12,6 @@ Loki head script for source-to-source transformations concerning ECMWF
 physics, including "Single Column" (SCA) and CLAW transformations.
 """
 
-import sys
 from pathlib import Path
 import click
 
@@ -24,6 +23,7 @@ from loki import (
 # Get generalized transformations provided by Loki
 from loki.transform import (
     DependencyTransformation, FortranCTransformation, FileWriteTransformation,
+    resolve_associates,
     ParametriseTransformation, HoistTemporaryArraysAnalysis
 )
 
@@ -464,6 +464,34 @@ def ecrad(mode, config, header, source, build, frontend):
     to apply ecRad-specific source-to-source transformations
     """
 
+    class PragmaTransformation(Transformation):
+
+        def transform_subroutine(self, routine, **kwargs):
+            from loki import Pragma, Intrinsic, FindNodes, Transformer, Comment
+
+            item = kwargs.get('item')
+
+            # Bail if this routine is not part of a scheduler traversal
+            if item and item.local_name != routine.name.lower():
+                return
+
+            resolve_associates(routine)
+
+            node_map = {
+                p: None for p in FindNodes(Pragma).visit(routine.body)
+                if p.keyword.lower() == 'omp'
+            }
+            node_map.update({
+                n: Comment(text=f'! {n.text}')
+                for n in FindNodes(Intrinsic).visit(routine.body)
+                if n.text.lstrip().lower().startswith('write')
+            })
+            if node_map:
+                routine.body = Transformer(node_map).visit(routine.body)
+
+            # if role == 'kernel':
+            #     routine.body.prepend(Pragma(keyword='acc', content='routine vector'))
+
     info('[Loki] Bulk-processing ecRad using config: %s ', config)
     config = SchedulerConfig.from_file(config)
 
@@ -478,6 +506,8 @@ def ecrad(mode, config, header, source, build, frontend):
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=True)
 
+    # First, remove pragmas, resolve associates and replace write statements with comments
+    scheduler.process(transformation=PragmaTransformation())
 
     # Next, replace typebound procedure calls
     transformation = TypeboundProcedureCallTransformation()
