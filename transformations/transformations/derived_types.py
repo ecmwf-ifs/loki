@@ -306,7 +306,14 @@ class DerivedTypeArgumentsTransformation(Transformation):
             var_cache = None
 
         # All derived type arguments are candidates for expansion
-        candidates = [arg for arg in routine.arguments if isinstance(arg.type.dtype, DerivedType)]
+        candidates = []
+        for arg in routine.arguments:
+            if isinstance(arg.type.dtype, DerivedType):
+                arg_variables = as_tuple(arg.variables)
+                if any(v.type.pointer or v.type.allocatable or
+                       isinstance(v.type.dtype, DerivedType) for v in arg_variables):
+                    # Only include derived types with array members or nested derived types
+                    candidates += [arg]
 
         # Inspect all derived type member use and determine their expansion
         expansion_map = defaultdict(set)
