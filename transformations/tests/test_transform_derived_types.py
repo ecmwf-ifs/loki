@@ -12,7 +12,8 @@ import pytest
 from loki import (
     OMNI, Sourcefile, Scheduler, SubroutineItem, as_tuple, gettempdir,
     CallStatement, ProcedureDeclaration, Assignment, Scalar, Array,
-    FindNodes, FindVariables, FindInlineCalls, fgen, BasicType
+    FindNodes, FindVariables, FindInlineCalls, fgen, BasicType,
+    CaseInsensitiveDict, resolve_associates
 )
 from conftest import available_frontends
 from transformations import (
@@ -1009,6 +1010,46 @@ end subroutine caller
     assert len(calls) == 2
     assert calls[0].arguments == ('t%some',)
     assert calls[1].arguments == ('t%other',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_associate_intent(frontend):
+    fcode = """
+module some_mod
+    implicit none
+    type some_type
+        real, allocatable :: arr(:)
+    end type some_type
+contains
+    subroutine some_routine(t)
+        type(some_type), intent(inout) :: t
+        associate(arr=>t%arr)
+            arr(:) = arr(:) + 1
+        end associate
+    end subroutine some_routine
+end module some_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+
+    variables = FindVariables().visit(source['some_routine'].body)
+    assert variables == {'arr(:)', 'arr', 't%arr', 't'}
+    variable_map = CaseInsensitiveDict((v.name, v) for v in variables)
+    assert variable_map['t'].type.intent == 'inout'
+    assert variable_map['arr'].type.intent is None
+
+    resolve_associates(source['some_routine'])
+    variables = FindVariables().visit(source['some_routine'].body)
+    assert variables == {'t', 't%arr(:)'}
+    variable_map = CaseInsensitiveDict((v.name, v) for v in variables)
+    assert variable_map['t'].type.intent == 'inout'
+    assert variable_map['t%arr'].type.intent is None
+
+    transformation = DerivedTypeArgumentsTransformation()
+    source.apply(transformation, role='kernel')
+    variables = FindVariables().visit(source['some_routine'].body)
+    assert variables == {'t_arr(:)'}
+    variable_map = CaseInsensitiveDict((v.name, v) for v in variables)
+    assert variable_map['t_arr'].type.intent == 'inout'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
