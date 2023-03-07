@@ -49,11 +49,14 @@ class ResolveAssociatesTransformer(Transformer):
 
         # Build the expression substitution map
         vmap = {}
-        for v in FindVariables(unique=False).visit(body):
+        for v in FindVariables().visit(body):
             if v.name in invert_assoc:
                 # Clone the expression to update its parentage and scoping
                 inv = invert_assoc[v.name]
-                vmap[v] = v.clone(name=inv.name, parent=inv.parent, scope=inv.scope)
+                if hasattr(v, 'dimensions'):
+                    vmap[v] = inv.clone(dimensions=v.dimensions)
+                else:
+                    vmap[v] = inv
 
         # Apply the expression substitution map to itself to handle nested expressions
         vmap = recursive_expression_map_update(vmap)
