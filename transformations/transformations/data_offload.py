@@ -105,9 +105,9 @@ class DataOffloadTransformation(Transformation):
                     raise RuntimeError('[Loki] Data-offload: Cannot deal with multiple '
                                        'target calls in loki offload region.')
 
-                inargs = []
-                inoutargs = []
-                outargs = []
+                inargs = set()
+                inoutargs = set()
+                outargs = set()
 
                 for call in calls:
                     if call.routine is BasicType.DEFERRED:
@@ -118,11 +118,11 @@ class DataOffloadTransformation(Transformation):
 
                     for param, arg in call.arg_iter():
                         if isinstance(param, Array) and param.type.intent.lower() == 'in':
-                            inargs += [str(arg.name).lower()]
+                            inargs.add(str(arg.name).lower())
                         if isinstance(param, Array) and param.type.intent.lower() == 'inout':
-                            inoutargs += [str(arg.name).lower()]
+                            inoutargs.add(str(arg.name).lower())
                         if isinstance(param, Array) and param.type.intent.lower() == 'out':
-                            outargs += [str(arg.name).lower()]
+                            outargs.add(str(arg.name).lower())
 
                 # Now geenerate the pre- and post pragmas (OpenACC)
                 copyin = 'copyin(' + ', '.join(inargs) + ')' if inargs else ''
