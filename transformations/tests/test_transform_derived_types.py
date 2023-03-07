@@ -1023,3 +1023,36 @@ end module some_mod
     assert variables == {'t_arr(:)'}
     variable_map = CaseInsensitiveDict((v.name, v) for v in variables)
     assert variable_map['t_arr'].type.intent == 'inout'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_non_array(frontend):
+    fcode = """
+module some_mod
+    implicit none
+    type scalar_type
+        integer :: i
+    end type scalar_type
+    type array_type
+        integer, allocatable :: a(:)
+    end type array_type
+    type nested_type
+        type(scalar_type) :: s
+    end type nested_type
+contains
+    subroutine kernel(s, a, n)
+        type(scalar_type), intent(inout) :: s
+        type(array_type), intent(inout) :: a
+        type(nested_type), intent(inout) :: n
+        s%i = 1
+        a%a(:) = 2
+        n%s%i = 3
+    end subroutine kernel
+end module some_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+
+    transformation = DerivedTypeArgumentsTransformation()
+    source.apply(transformation, role='kernel')
+    # Only type with derived type member
+    assert source['kernel'].arguments == ('s', 'a_a(:)', 'n_s_i')
