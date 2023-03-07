@@ -17,7 +17,7 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Transformation, Scheduler, SchedulerConfig,
+    Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
     Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info
 )
 
@@ -284,7 +284,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     for h in header:
         sfile = Sourcefile.from_file(h, xmods=xmod, definitions=definitions,
                                      frontend=frontend_type, preprocess=cpp)
-        definitions = definitions + list(sfile.modules)
+        definitions = definitions + list(sfile.definitions)
 
     # Parse original driver and kernel routine, and enrich the driver
     kernel = Sourcefile.from_file(source, definitions=definitions, preprocess=cpp,
@@ -294,9 +294,12 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
+    kernel_item = SubroutineItem(f'#{kernel_name.lower()}', source=kernel)
+    driver_item = SubroutineItem(f'#{driver_name.lower()}', source=driver)
+
     # First, remove all derived-type arguments; caller first!
-    driver.apply(DerivedTypeArgumentsTransformation(), role='driver')
-    kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
+    kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel', item=kernel_item)
+    driver.apply(DerivedTypeArgumentsTransformation(), role='driver', item=driver_item, successors=(kernel_item,))
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation()
