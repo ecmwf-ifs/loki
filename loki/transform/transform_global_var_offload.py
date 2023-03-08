@@ -15,6 +15,7 @@ class GlobalVarOffloadTransformation(Transformation):
 
         self._acc_copyin = set()
         self._acc_copyout = set()
+        self._var_set = set()
 #        self._imports = set()
 
     def transform_module(self, module, **kwargs):
@@ -27,8 +28,7 @@ class GlobalVarOffloadTransformation(Transformation):
 
         #... confirm that var to be offloaded is declared in module
         _symbol = item.name.split('#')[-1].lower()
-        decl_symbs = [s.name.lower() for s in module.variables]
-        assert _symbol in decl_symbs
+        assert _symbol in [s.name.lower() for s in module.variables]
 
         sym_dict = {s.name.lower(): s for s in module.variables}
         pragmas = [p for p in FindNodes(Pragma).visit(module.spec) if p.keyword.lower() == 'acc']
@@ -42,6 +42,7 @@ class GlobalVarOffloadTransformation(Transformation):
             if re.search(fr'\b{_symbol}\b', p.content.lower()):
                 return
 
+        self._var_set.add(_symbol)
         module.spec.append(Pragma(keyword='acc', content=f'declare create({_symbol})'))
 
     def transform_subroutine(self, routine, **kwargs):
@@ -56,10 +57,16 @@ class GlobalVarOffloadTransformation(Transformation):
 
         pragma_map = {}
         for pragma in [pragma for pragma in FindNodes(Pragma).visit(routine.body) if pragma.keyword == 'loki']:
-            if 'update_device' in pragma.content and self._acc_copyin:
-                pragma_map.update({pragma: Pragma(keyword='acc', content='update device(' + ','.join(self._acc_copyin) + ')')})
-            if 'update_host' in pragma.content and self._acc_copyout:
-                pragma_map.update({pragma: Pragma(keyword='acc', content='update self(' + ','.join(self._acc_copyout) + ')')})
+            if 'update_device' in pragma.content:
+                if self._acc_copyin:
+                    pragma_map.update({pragma: Pragma(keyword='acc', content='update device(' + ','.join(self._acc_copyin) + ')')})
+                else:
+                    pragma_map.update({pragma: None})
+            if 'update_host' in pragma.content:
+                if self._acc_copyout:
+                    pragma_map.update({pragma: Pragma(keyword='acc', content='update self(' + ','.join(self._acc_copyout) + ')')})
+                else:
+                    pragma_map.update({pragma: None})
 
         routine.body = Transformer(pragma_map).visit(routine.body)
 
@@ -77,6 +84,8 @@ class GlobalVarOffloadTransformation(Transformation):
 
         with dataflow_analysis_attached(routine):
             for item in [i for i in _imports if i in kwargs.get('targets')]:
+                if item not in self._var_set:
+                    continue
                 if item in routine.body.uses_symbols:
                     self._acc_copyin.add(item)
                 if item in routine.body.defines_symbols:
