@@ -87,7 +87,7 @@ class PyCodeMapper(LokiStringifyMapper):
             )
 
         f = self.rec(expr.function, PREC_NONE, *args, **kwargs)
-        return self.format(f'{str(f).lower()}({arguments})')
+        return self.format(f'{str(f)}({arguments})')
 
     def map_deferred_type_symbol(self, expr, *args, **kwargs):
         return str(expr.name).replace('%', '.')

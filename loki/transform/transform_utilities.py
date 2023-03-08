@@ -93,9 +93,17 @@ def convert_to_lower_case(routine):
 
     # Capture nesting by applying map to itself before applying to the routine
     vmap = recursive_expression_map_update(vmap)
-
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+
+    # Downcase inline calls to, but only after the above has been propagated,
+    # so that we  capture the updates from the variable update in the arguments
+    call_map = {
+        c: c.clone(function=c.function.clone(name=c.name.lower()))
+        for c in FindInlineCalls().visit(routine.ir) if not c.name.islower()
+    }
+    routine.spec = SubstituteExpressions(call_map).visit(routine.spec)
+    routine.body = SubstituteExpressions(call_map).visit(routine.body)
 
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensitive=False):
