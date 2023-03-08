@@ -9,11 +9,14 @@
 :any:`Linter` operator class definition to drive rule checking for
 :any:`Sourcefile` objects
 """
+from concurrent.futures import as_completed
 import inspect
+from multiprocessing import Manager
 import shutil
 import time
 from pathlib import Path
 
+from loki.build import workqueue
 from loki.bulk import Scheduler, SchedulerConfig
 from loki.config import config as loki_config
 from loki.lint.reporter import (
@@ -21,6 +24,7 @@ from loki.lint.reporter import (
     DefaultHandler, JunitXmlHandler, ViolationFileHandler
 )
 from loki.lint.utils import Fixer
+from loki.logging import logger
 from loki.sourcefile import Sourcefile
 from loki.tools import filehash, find_paths
 from loki.transform import Transformation
@@ -242,6 +246,7 @@ class LinterTransformation(Transformation):
 
     def __init__(self, linter, key=None, **kwargs):
         self.linter = linter
+        self.counter = 0
         if key:
             self._key = key
         super().__init__(**kwargs)
@@ -249,6 +254,7 @@ class LinterTransformation(Transformation):
     def transform_file(self, sourcefile, **kwargs):
         item = kwargs.get('item')
         report = self.linter.check(sourcefile)
+        self.counter += 1
         if item:
             item.trafo_data[self._key] = report
 
@@ -261,22 +267,47 @@ def lint_files_scheduler(linter, basedir, config):
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config))
     transformation = LinterTransformation(linter=linter)
     scheduler.process(transformation=transformation, use_file_graph=True)
+    return transformation.counter
 
 
-def lint_files_glob(linter, basedir, include, exclude=None):
+def check_and_fix_file(path, linter, fix=False, backup_suffix=None):
+    try:
+        source = Sourcefile.from_file(path)
+        report = linter.check(source)
+        if fix:
+            linter.fix(source, report, backup_suffix=backup_suffix)
+    except Exception as exc:  # pylint: disable=broad-except
+        linter.reporter.add_file_error(path, type(exc), str(exc))
+        if loki_config['debug']:
+            raise exc
+        return False
+    return True
+
+
+def lint_files_glob(linter, basedir, include, exclude=None, max_workers=1, fix=False, backup_suffix=None):
     """
     Discover files relative to :data:`basedir` using patterns in :data:`include`
     and apply :data:`linter` on each of them.
     """
     files = find_paths(basedir, include, ignore=exclude)
-    for path in files:
-        try:
-            source = Sourcefile.from_file(path)
-            linter.check(source)
-        except Exception as exc:  # pylint: disable=broad-except
-            linter.reporter.add_file_error(path, type(exc), str(exc))
-            if loki_config['debug']:
-                raise exc
+    checked_count = 0
+    if max_workers == 1 or loki_config['debug']:
+        for path in files:
+            checked_count += check_and_fix_file(path, linter, fix=fix, backup_suffix=backup_suffix)
+    else:
+        manager = Manager()
+        linter.reporter.init_parallel(manager)
+
+        with workqueue(workers=max_workers, logger=logger, manager=manager) as q:
+            log_queue = getattr(q, 'log_queue', None)
+            q_tasks = [
+                q.call(check_and_fix_file, f, linter, fix=fix, backup_suffix=backup_suffix, log_queue=log_queue)
+                for f in files
+            ]
+            for t in as_completed(q_tasks):
+                checked_count += t.result()
+
+    return checked_count
 
 
 def lint_files(rules, config, handlers=None):
@@ -293,6 +324,9 @@ def lint_files(rules, config, handlers=None):
     .. code-block::
        {
            'basedir': <some file path>,
+           'max_workers': <n>, # Optional: use multiple workers
+           'fix': <True|False>, # Optional: attempt automatic fixing of rule violations
+           'backup_suffix': <suffix>, # Optional: Backup original file with given suffix
            'junitxml_file': <some file path>,  # Optional: write JunitXML-output of lint results
            'violations_file': <some file path>,  # Optional: write a YAML file containing violations
            'rules': ['SomeRule', 'AnotherRule', ...],  # Optional: select only these rules
@@ -337,6 +371,11 @@ def lint_files(rules, config, handlers=None):
         Configuration for file discovery/scheduler and linting rules
     handlers : list, optional
         Additional instances of :any:`GenericHandler` to use during linting
+
+    Returns
+    -------
+    int :
+        The number of checked files
     """
     basedir = config['basedir']
 
@@ -352,5 +391,13 @@ def lint_files(rules, config, handlers=None):
 
     linter = Linter(reporter=Reporter(handlers), rules=rules, config=config)
     if 'scheduler' in config:
-        return lint_files_scheduler(linter, basedir, config['scheduler'])
-    return lint_files_glob(linter, basedir, config['include'], config.get('exclude', []))
+        checked_count = lint_files_scheduler(linter, basedir, config['scheduler'])
+    else:
+        checked_count = lint_files_glob(
+            linter, basedir, config['include'],
+            exclude=config.get('exclude'), max_workers=config.get('max_workers', 1),
+            fix=config.get('fix', False), backup_suffix=config.get('backup_suffix')
+        )
+
+    linter.reporter.output()
+    return checked_count

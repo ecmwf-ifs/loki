@@ -9,10 +9,10 @@ from pathlib import Path
 import importlib
 import pytest
 
-from loki import Sourcefile, Assignment, FindNodes, FindVariables
+from loki import Sourcefile, Assignment, FindNodes, FindVariables, gettempdir
 from loki.lint import (
     GenericHandler, Reporter, Linter, GenericRule,
-    LinterTransformation, lint_files
+    LinterTransformation, lint_files, LazyTextfile
 )
 
 @pytest.fixture(scope='module', name='rules')
@@ -327,7 +327,20 @@ end module linter_disable_config_mod
 
     assert reporter.handlers_reports[handler] == [count]
 
+class PicklableTestHandler(GenericHandler):
 
+    def __init__(self, basedir, target):
+        super().__init__(basedir)
+        self.target = target
+
+    def handle(self, file_report):
+        return str(self.get_relative_filename(file_report.filename))
+
+    def output(self, handler_reports):
+        self.target('\n'.join(handler_reports))
+
+
+@pytest.mark.parametrize('max_workers', [None, 1, 4])
 @pytest.mark.parametrize('counter,exclude,files', [
     (13, None, [
         'projA/module/compute_l1_mod.f90',
@@ -373,34 +386,39 @@ end module linter_disable_config_mod
         'projA/source/another_l2.F90'
     ])
 ])
-def test_linter_lint_files_glob(here, rules, counter, exclude, files):
+def test_linter_lint_files_glob(here, rules, counter, exclude, files, max_workers):
     basedir = here.parent/'sources'
-
-    class TestHandler(GenericHandler):
-        def __init__(self, **kwargs):
-            super().__init__(**kwargs)
-            self.counter = 0
-            self.files = []
-
-        def handle(self, file_report):
-            self.counter += 1
-            self.files += [str(Path(file_report.filename).relative_to(basedir))]
-
-        def output(self, handler_reports):
-            pass
-
     config = {
         'basedir': str(basedir),
         'include': ['projA/**/*.f90', 'projA/**/*.F90'],
     }
     if exclude is not None:
         config['exclude'] = exclude
+    if max_workers is not None:
+        config['max_workers'] = max_workers
 
-    handler = TestHandler()
-    lint_files(rules, config, handlers=[handler])
+    target_file_name = gettempdir()/'linter_lint_files_glob.log'
+    if max_workers and max_workers > 1:
+        target = LazyTextfile(target_file_name)
+    else:
+        target = target_file_name.open('w')
+    handler = PicklableTestHandler(basedir=basedir, target=target.write)
+    checked = lint_files(rules, config, handlers=[handler])
 
-    assert handler.counter == counter
-    assert handler.files == files
+    assert checked == counter
+
+    if not max_workers or max_workers == 1:
+        target.close()
+
+    checked_files = Path(target_file_name).read_text().splitlines()
+    assert len(checked_files) == counter
+    if max_workers and max_workers > 1:
+        # Cannot guarantee order anymore
+        assert set(checked_files) == set(files)
+    else:
+        assert checked_files == files
+
+    target_file_name.unlink(missing_ok=True)
 
 
 @pytest.mark.parametrize('counter,routines,files', [
@@ -457,7 +475,8 @@ def test_linter_lint_files_scheduler(here, rules, counter, routines, files):
     }
 
     handler = TestHandler()
-    lint_files(rules, config, handlers=[handler])
+    checked = lint_files(rules, config, handlers=[handler])
 
+    assert checked == counter
     assert handler.counter == counter
     assert handler.files == files
