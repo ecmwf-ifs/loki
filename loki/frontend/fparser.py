@@ -2823,12 +2823,12 @@ class FParser2IR(GenericVisitor):
         return ir.Comment(text=o.tostr(), source=source)
 
     def visit_Data_Pointer_Object(self, o, **kwargs):
-        v = self.visit(o.items[0], source=kwargs.get('source'))
+        v = self.visit(o.items[0], source=kwargs.get('source'), scope=kwargs['scope'])
         for i in o.items[1:-1]:
             if i == '%':
                 continue
             # Careful not to propagate type or dims here
-            v = self.visit(i, parent=v, source=kwargs.get('source'))
+            v = self.visit(i, parent=v, source=kwargs.get('source'), scope=kwargs['scope'])
         # Attach types and dims to final leaf variable
         return self.visit(o.items[-1], parent=v, **kwargs)
 
@@ -2838,7 +2838,7 @@ class FParser2IR(GenericVisitor):
         v = AttachScopesMapper()(sym.Variable(name=pname), scope=kwargs['scope'])
         for i in o.items[1:-1]:
             if i != '%':
-                v = self.visit(i, parent=v, source=kwargs.get('source'))
+                v = self.visit(i, parent=v, source=kwargs.get('source'), scope=kwargs['scope'])
         return self.visit(o.items[-1], parent=v, **kwargs)
 
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
