@@ -9,48 +9,14 @@
 
 import sys
 import importlib
-from concurrent.futures import as_completed
-from itertools import chain
 from logging import FileHandler
 from pathlib import Path
-from multiprocessing import Manager
 import click
 import yaml
 
-from loki.logging import logger, DEBUG, warning, info, debug
-from loki.sourcefile import Sourcefile
-from loki.frontend import FP
-from loki.build import workqueue
-from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler, ViolationFileHandler
+from loki.logging import logger, DEBUG, warning, info, debug, error
+from loki.lint import Linter, lint_files
 from loki.tools import yaml_include_constructor, auto_post_mortem_debugger, as_tuple
-
-
-class OutputFile:
-    """
-    Helper class to encapsulate opening and writing to a file.
-    This exists because opening the file immediately and then passing
-    its ``write`` function to a handler makes it impossible to pickle
-    it afterwards, which would make parallel execution infeasible.
-    Instead of creating a more complicated interface for the handlers
-    we opted for this way of a just-in-time file handler.
-    """
-
-    def __init__(self, filename):
-        self.file_name = filename
-        self.file_handle = None
-
-    def _check_open(self):
-        if not self.file_handle:
-            self.file_handle = open(self.file_name, 'w')  # pylint: disable=consider-using-with
-
-    def __del__(self):
-        if self.file_handle:
-            self.file_handle.close()
-            self.file_handle = None
-
-    def write(self, msg):
-        self._check_open()
-        self.file_handle.write(msg)
 
 
 def get_rules(module):
@@ -59,56 +25,6 @@ def get_rules(module):
     """
     rules_module = importlib.import_module(f'lint_rules.{module}')
     return Linter.lookup_rules(rules_module)
-
-
-def get_relative_path_and_anchor(path, anchor):
-    """
-    If the given path is an absolute path, it is converted into a
-    relative path and returned together with the corresponding anchor.
-    """
-    p = Path(path)
-    if p.is_absolute():
-        anchor = p.anchor
-        p = p.relative_to(anchor)
-        return anchor, str(p)
-    return anchor, path
-
-
-def get_file_list(includes, excludes, basedir):
-    """
-    From given lists of include and exclude file names or patterns
-    this routine builds the actual lists of file names to be
-    included and excluded.
-    """
-    # Transform absolute paths to relative paths
-    includes = [get_relative_path_and_anchor(p, basedir) for p in includes]
-    excludes = [get_relative_path_and_anchor(p, basedir) for p in excludes]
-    # Building include and exclude lists first...
-    incl = [Path(p[0]).glob(p[1]) for p in includes]
-    incl = sorted(chain(*incl))
-    excl = [Path(p[0]).glob(p[1]) for p in excludes]
-    excl = sorted(chain(*excl))
-    # ...and sanitising them afterwards.
-    excl = [f for f in excl if f in incl]
-    incl = [f for f in incl if f not in excl]
-    return incl, excl
-
-
-def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=False,
-                       backup_suffix=None, ctx=None):
-    debug('[%s] Parsing...', filename)
-    try:
-        source = Sourcefile.from_file(filename, frontend=frontend, preprocess=preprocess)
-        debug('[%s] Parsing completed without error.', filename)
-        report = linter.check(source)
-        if fix:
-            linter.fix(source, report, backup_suffix=backup_suffix)
-    except Exception as excinfo:  # pylint: disable=broad-except
-        linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
-        if ctx and ctx.obj.get('DEBUG'):
-            raise excinfo
-        return False
-    return True
 
 
 @click.group()
@@ -205,90 +121,86 @@ def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
 @click.option('--worker', type=int, default=4, show_default=True,
               help=('Number of worker processes to use. With --debug enabled '
                     'this option is ignored and only one worker is used.'))
-@click.option('--write-violation-file', is_flag=False,
-              flag_value='violations.yml', default=None,
-              help=('Write a YAML file that lists for every file the rules '
-                    'violated. Can be included into a config to disable them in '
-                    'future linting runs.'))
-# @click.option('--preprocess/--no-preprocess', default=False, show_default=True,
-#               help='Enable C-preprocessing of files before parsing them.')
+@click.option('--write-violations-file', is_flag=False, flag_value='violations.yml', default=None,
+              help=('Write a YAML file that lists for every file the violated rules. '
+                    'The file can be included into a config file to disable reporting '
+                    'these violations in subsequent linting runs.'))
+@click.option('--scheduler/--no-scheduler', default=False, show_default=True,
+              help='Use a Scheduler to plan source file traversal.')
 @click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, write_violation_file, junitxml):
+def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker,
+          write_violations_file, scheduler, junitxml):
     yaml.add_constructor('!include', yaml_include_constructor, yaml.SafeLoader)
     config_values = yaml.safe_load(config) if config else {}
     if ctx.obj['DEBUG']:
         worker = 1
 
-    if 'include' in config_values:
+    if include:
+        if 'include' in config_values:
+            info('Merging include patterns from config and command line')
+            config_values['include'] = as_tuple(config_values['include']) + as_tuple(include)
+        else:
+            config_values['include'] = as_tuple(include)
         include += as_tuple(config_values['include'])
-    if 'exclude' in config_values:
-        exclude += as_tuple(config_values['exclude'])
 
-    if basedir and 'basedir' in config_values:
-        warning('basedir given as explicit argument and in the config file. Ignoring the config file value.')
-    if not basedir:
-        basedir = config_values.get('basedir', Path.cwd())
+    if 'include' not in config_values:
+        error('No include pattern given')
+        return
 
-    info('Base directory: %s', basedir)
-    info('Include patterns:')
-    for p in include:
-        info('  - %s', p)
-    info('Exclude patterns:')
-    for p in exclude:
-        info('  - %s', p)
-    info('')
+    if exclude:
+        if 'exclude' in config_values:
+            info('Merging exclude patterns from config and command line')
+            config_values['exclude'] = as_tuple(config_values['exclude']) + as_tuple(exclude)
+        else:
+            config_values['exclude'] = as_tuple(exclude)
 
-    debug('Searching for files using specified patterns...')
-    files, excludes = get_file_list(include, exclude, basedir)
-    info('%d files selected for checking (%d files excluded).',
-         len(files), len(excludes))
+    if basedir:
+        if 'basedir' in config_values:
+            warning('Overwriting `basedir` value in the config file with command line argument')
+        config_values['basedir'] = basedir
+    elif 'basedir' not in config_values:
+        config_values['basedir'] = Path.cwd()
 
-    info('')
-    info('Using %d worker.', worker)
+    debug('Base directory: %s', basedir)
+
+    if scheduler:
+        config_values.setdefault('scheduler', {
+            'default': {
+                'mode': 'lint',
+                'role': 'kernel',
+                'expand': True,
+                'strict': False,
+            }
+        })
+    else:
+        debug('Include patterns:')
+        for p in include:
+            debug('  - %s', p)
+        debug('Exclude patterns:')
+        for p in exclude:
+            debug('  - %s', p)
+        debug('')
 
     rule_list = get_rules(ctx.obj['rules_module'])
-    info('%d rules available.', len(rule_list))
+    debug('%d rules available.', len(rule_list))
 
-    handlers = [DefaultHandler(basedir=basedir)]
+    config_values['fix'] = fix
+    if backup_suffix:
+        if not backup_suffix.startswith('.'):
+            backup_suffix = '.' + backup_suffix
+        config_values['backup_suffix'] = backup_suffix
+
+    config_values['max_workers'] = worker
+
+    if write_violations_file:
+        config_values['violations_file'] = write_violations_file
     if junitxml:
-        junitxml_file = OutputFile(junitxml)
-        handlers.append(JunitXmlHandler(target=junitxml_file.write, basedir=basedir))
-    if write_violation_file:
-        violation_file = OutputFile(write_violation_file)
-        handlers.append(ViolationFileHandler(target=violation_file.write, basedir=basedir))
+        config_values['junitxml_files'] = junitxml
 
-    linter = Linter(reporter=Reporter(handlers), rules=rule_list, config=config_values)
-    info('Checking against %d rules.', len(linter.rules))
-    info('')
-
-    if backup_suffix and not backup_suffix.startswith('.'):
-        backup_suffix = '.' + backup_suffix
-
-    success_count = 0
-    if worker == 1:
-        for f in files:
-            success_count += check_and_fix_file(f, linter, fix=fix, backup_suffix=backup_suffix, ctx=ctx)
-    else:
-        manager = Manager()
-        linter.reporter.init_parallel(manager)
-
-        with workqueue(workers=worker, logger=logger, manager=manager) as q:
-            log_queue = q.log_queue if hasattr(q, 'log_queue') else None  # pylint: disable=no-member
-            q_tasks = [q.call(check_and_fix_file, f, linter, log_queue=log_queue, fix=fix, backup_suffix=backup_suffix)
-                       for f in files]
-            for t in as_completed(q_tasks):
-                success_count += t.result()
-
-    linter.reporter.output()
-
-    info('')
-    info('%d files parsed successfully', success_count)
-
-    fail_count = len(files) - success_count
-    if fail_count > 0:
-        warning('%d files failed to parse', fail_count)
+    checked_count = lint_files(rule_list, config_values)
+    info('%d files checked', checked_count)
 
 
 if __name__ == "__main__":
