@@ -1,10 +1,12 @@
 from loki.transform.transformation import Transformation
 from loki.bulk.item import GlobalVarImportItem
 from loki.analyse import dataflow_analysis_attached
-from loki.ir import Pragma, CallStatement, Import
+from loki.ir import Pragma, CallStatement, Import, Comment
 from loki.visitors.find import FindNodes
 from loki.visitors.transform import Transformer
 from loki.expression.expr_visitors import FindInlineCalls
+from loki.expression.symbols import Variable
+from loki.tools.util import as_tuple
 import re
 
 __all__ = ['GlobalVarOffloadTransformation']
@@ -16,7 +18,7 @@ class GlobalVarOffloadTransformation(Transformation):
         self._acc_copyin = set()
         self._acc_copyout = set()
         self._var_set = set()
-#        self._imports = set()
+        self._imports = {}
 
     def transform_module(self, module, **kwargs):
 
@@ -56,19 +58,47 @@ class GlobalVarOffloadTransformation(Transformation):
     def process_driver(self, routine, **kwargs):
 
         pragma_map = {}
+        _symbols = set()
         for pragma in [pragma for pragma in FindNodes(Pragma).visit(routine.body) if pragma.keyword == 'loki']:
             if 'update_device' in pragma.content:
                 if self._acc_copyin:
                     pragma_map.update({pragma: Pragma(keyword='acc', content='update device(' + ','.join(self._acc_copyin) + ')')})
+                    _symbols = _symbols | self._acc_copyin
                 else:
                     pragma_map.update({pragma: None})
             if 'update_host' in pragma.content:
                 if self._acc_copyout:
                     pragma_map.update({pragma: Pragma(keyword='acc', content='update self(' + ','.join(self._acc_copyout) + ')')})
+                    _symbols = _symbols | self._acc_copyout
                 else:
                     pragma_map.update({pragma: None})
 
         routine.body = Transformer(pragma_map).visit(routine.body)
+
+        _import_dict = {}
+        _old_imports = FindNodes(Import).visit(routine.spec)
+        _imported_symbols = [s.name.lower() for i in _old_imports for s in i.symbols]
+        for s in _symbols:
+            if s in routine.variables:
+                continue
+            if s in _imported_symbols:
+                continue
+
+            if _import_dict.get(self._imports[s], None):
+                _import_dict[self._imports[s]] += as_tuple(s)
+            else:
+                _import_dict.update({self._imports[s]: as_tuple(s)})
+
+        _new_imports = ()
+        for k, v in _import_dict.items():
+            _new_imports += as_tuple(Import(k, symbols=tuple(Variable(name=s, scope=routine) for s in v)))
+
+        import_pos = routine.spec.body.index(_old_imports[-1]) + 1
+        if _new_imports:
+            routine.spec.insert(import_pos, Comment(text='!.....Adding global variables to driver symbol table for offload instructions'))
+        import_pos += 1
+        for index, i in enumerate(_new_imports):
+            routine.spec.insert(import_pos + index, i)
 
     def process_kernel(self, routine, **kwargs):
 
@@ -88,5 +118,7 @@ class GlobalVarOffloadTransformation(Transformation):
                     continue
                 if item in routine.body.uses_symbols:
                     self._acc_copyin.add(item)
+                    self._imports.update({item: _import_dict[item]})
                 if item in routine.body.defines_symbols:
                     self._acc_copyout.add(item)
+                    self._imports.update({item: _import_dict[item]})
