@@ -14,8 +14,12 @@ try:
 except ImportError:
     HAVE_YAML = False
 
-from loki import Intrinsic
-from loki.lint.reporter import ProblemReport, RuleReport, FileReport, DefaultHandler, ViolationFileHandler
+from loki import Intrinsic, gettempdir
+from loki.lint.reporter import (
+    ProblemReport, RuleReport, FileReport,
+    DefaultHandler, ViolationFileHandler,
+    LazyTextfile
+)
 from loki.lint.rules import GenericRule
 
 
@@ -104,6 +108,30 @@ def test_violation_file_handler(dummy_file, dummy_file_report):
     assert len(file_report['rules']) == 1
     assert 'GenericRule' in file_report['rules']
 
+
+def test_lazy_textfile():
+    # Choose the output file and make sure it doesn't exist
+    filename = gettempdir()/'lazytextfile.log'
+    filename.unlink(missing_ok=True)
+
+    # Instantiating the object should _not_ create the file
+    f = LazyTextfile(filename)
+    assert not filename.exists()
+
+    # Writing to the object should open (and therefore create) the file
+    f.write('s0me TEXT')
+    assert filename.exists()
+
+    # Writing more to the object should append text
+    f.write(' AAAAND other Th1ngs!!!')
+
+    # Deleting the object should (hopefully) trigger __del__,
+    # which should flush the buffers to disk and allow us to read
+    # (and check) the content
+    del f
+    assert filename.read_text() == 's0me TEXT AAAAND other Th1ngs!!!'
+
+    filename.unlink(missing_ok=True)
 
 @pytest.mark.skip()
 def test_junit_xml_handler():

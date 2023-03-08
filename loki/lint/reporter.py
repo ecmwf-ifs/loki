@@ -27,6 +27,12 @@ from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.tools import filehash
 
+__all__ = [
+    'ProblemReport', 'RuleReport', 'FileReport', 'Reporter',
+    'GenericHandler', 'DefaultHandler', 'ViolationFileHandler',
+    'JunitXmlHandler', 'LazyTextfile'
+]
+
 
 class ProblemReport:
     """
@@ -489,3 +495,50 @@ class JunitXmlHandler(GenericHandler):
             testsuites.append(TestSuite(filename, testcases))
         xml_string = TestSuite.to_xml_string(testsuites)
         self.target(xml_string)
+
+
+class LazyTextfile:
+    """
+    Helper class to encapsulate opening and writing to a file.
+
+    This exists because opening the file immediately and then passing
+    its ``write`` function to a :any:`GenericHandler` makes it
+    impossible to pickle it afterwards, which would make parallel
+    execution infeasible.
+
+    Instead of creating a more complicated interface for the handlers
+    we opted for this way of a just-in-time/lazy file handler.
+
+    The file is opened automatically for writing when calling :meth:`write`
+    for the first time, and closed when the object is garbage collected.
+
+    Parameters
+    ----------
+    filename : str
+        The filename of the output file
+    """
+
+    def __init__(self, filename):
+        self.file_name = Path(filename)
+        self.file_handle = None
+
+    def _check_open(self):
+        """
+        Check if the file is open already, otherwise open it
+        """
+        if not self.file_handle:
+            self.file_handle = self.file_name.open(mode='w')  # pylint: disable=consider-using-with
+
+    def __del__(self):
+        if self.file_handle:
+            self.file_handle.close()
+            self.file_handle = None
+
+    def write(self, msg):
+        """
+        Write the given :data:`msg` to the file
+
+        The file is opened first, unless it is open already
+        """
+        self._check_open()
+        self.file_handle.write(msg)
