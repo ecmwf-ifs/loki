@@ -10,7 +10,10 @@ import importlib
 import pytest
 
 from loki import Sourcefile, Assignment, FindNodes, FindVariables
-from loki.lint import GenericHandler, Reporter, Linter, GenericRule, LinterTransformation
+from loki.lint import (
+    GenericHandler, Reporter, Linter, GenericRule,
+    LinterTransformation, lint_files
+)
 
 @pytest.fixture(scope='module', name='rules')
 def fixture_rules():
@@ -323,3 +326,138 @@ end module linter_disable_config_mod
     linter.check(sourcefile)
 
     assert reporter.handlers_reports[handler] == [count]
+
+
+@pytest.mark.parametrize('counter,exclude,files', [
+    (13, None, [
+        'projA/module/compute_l1_mod.f90',
+        'projA/module/compute_l2_mod.f90',
+        'projA/module/driverA_mod.f90',
+        'projA/module/driverB_mod.f90',
+        'projA/module/driverC_mod.f90',
+        'projA/module/driverD_mod.f90',
+        'projA/module/header_mod.f90',
+        'projA/module/kernelA_mod.F90',
+        'projA/module/kernelB_mod.F90',
+        'projA/module/kernelC_mod.f90',
+        'projA/module/kernelD_mod.f90',
+        'projA/source/another_l1.F90',
+        'projA/source/another_l2.F90'
+    ]),
+    (13, [], [
+        'projA/module/compute_l1_mod.f90',
+        'projA/module/compute_l2_mod.f90',
+        'projA/module/driverA_mod.f90',
+        'projA/module/driverB_mod.f90',
+        'projA/module/driverC_mod.f90',
+        'projA/module/driverD_mod.f90',
+        'projA/module/header_mod.f90',
+        'projA/module/kernelA_mod.F90',
+        'projA/module/kernelB_mod.F90',
+        'projA/module/kernelC_mod.f90',
+        'projA/module/kernelD_mod.f90',
+        'projA/source/another_l1.F90',
+        'projA/source/another_l2.F90'
+    ]),
+    (5, ['**/kernel*', '**/driver*'], [
+        'projA/module/compute_l1_mod.f90',
+        'projA/module/compute_l2_mod.f90',
+        'projA/module/header_mod.f90',
+        'projA/source/another_l1.F90',
+        'projA/source/another_l2.F90'
+    ]),
+    (4, ['*.f90'], [
+        'projA/module/kernelA_mod.F90',
+        'projA/module/kernelB_mod.F90',
+        'projA/source/another_l1.F90',
+        'projA/source/another_l2.F90'
+    ])
+])
+def test_linter_lint_files_glob(here, rules, counter, exclude, files):
+    basedir = here.parent/'sources'
+
+    class TestHandler(GenericHandler):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.counter = 0
+            self.files = []
+
+        def handle(self, file_report):
+            self.counter += 1
+            self.files += [str(Path(file_report.filename).relative_to(basedir))]
+
+        def output(self, handler_reports):
+            pass
+
+    config = {
+        'basedir': str(basedir),
+        'include': ['projA/**/*.f90', 'projA/**/*.F90'],
+    }
+    if exclude is not None:
+        config['exclude'] = exclude
+
+    handler = TestHandler()
+    lint_files(rules, config, handlers=[handler])
+
+    assert handler.counter == counter
+    assert handler.files == files
+
+
+@pytest.mark.parametrize('counter,routines,files', [
+    (5, [{'name': 'driverA', 'role': 'driver'}], [
+        'module/driverA_mod.f90',
+        'module/kernelA_mod.F90',
+        'module/compute_l1_mod.f90',
+        'source/another_l1.F90',
+        'source/another_l2.F90'
+    ]),
+    (3, [
+        {'name': 'another_l1', 'role': 'driver'},
+        {'name': 'compute_l1', 'role': 'driver'}
+    ], [
+        'source/another_l1.F90',
+        'module/compute_l1_mod.f90',
+        'source/another_l2.F90',
+    ]),
+    (2, [
+        {'name': 'another_l1', 'role': 'driver'}
+    ], [
+        'source/another_l1.F90',
+        'source/another_l2.F90'
+    ]),
+])
+def test_linter_lint_files_scheduler(here, rules, counter, routines, files):
+    basedir = here.parent/'sources/projA'
+
+    class TestHandler(GenericHandler):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.counter = 0
+            self.files = []
+
+        def handle(self, file_report):
+            self.counter += 1
+            self.files += [str(Path(file_report.filename).relative_to(basedir))]
+
+        def output(self, handler_reports):
+            pass
+
+    config = {
+        'basedir': str(basedir),
+        'scheduler': {
+            'default': {
+                'mode': 'lint',
+                'role': 'kernel',
+                'expand': True,
+                'strict': False,
+                'block': ['compute_l2']
+            },
+            'routine': routines
+        }
+    }
+
+    handler = TestHandler()
+    lint_files(rules, config, handlers=[handler])
+
+    assert handler.counter == counter
+    assert handler.files == files

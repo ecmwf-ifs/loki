@@ -14,14 +14,19 @@ import shutil
 import time
 from pathlib import Path
 
-from loki.lint.reporter import FileReport, RuleReport
+from loki.bulk import Scheduler, SchedulerConfig
+from loki.config import config as loki_config
+from loki.lint.reporter import (
+    FileReport, RuleReport, Reporter, LazyTextfile,
+    DefaultHandler, JunitXmlHandler, ViolationFileHandler
+)
 from loki.lint.utils import Fixer
 from loki.sourcefile import Sourcefile
-from loki.tools import filehash
+from loki.tools import filehash, find_paths
 from loki.transform import Transformation
 
 
-__all__ = ['Linter', 'LinterTransformation']
+__all__ = ['Linter', 'LinterTransformation', 'lint_files']
 
 
 class Linter:
@@ -35,7 +40,7 @@ class Linter:
     ----------
     reporter : :any:`Reporter`
         The reporter instance to be used for problem reporting.
-    Rules : list of :any:`GenericRule` or a Python module
+    rules : list of :any:`GenericRule` or a Python module
         List of rules to check files against or a module that contains the rules.
     config : dict, optional
         Configuration (e.g., from config file) to change behaviour of rules.
@@ -246,3 +251,106 @@ class LinterTransformation(Transformation):
         report = self.linter.check(sourcefile)
         if item:
             item.trafo_data[self._key] = report
+
+
+def lint_files_scheduler(linter, basedir, config):
+    """
+    Discover files relative to :data:`basedir` using :any:`SchedulerConfig`
+    from :data:`config`, and apply :data:`linter` on each of them.
+    """
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config))
+    transformation = LinterTransformation(linter=linter)
+    scheduler.process(transformation=transformation, use_file_graph=True)
+
+
+def lint_files_glob(linter, basedir, include, exclude=None):
+    """
+    Discover files relative to :data:`basedir` using patterns in :data:`include`
+    and apply :data:`linter` on each of them.
+    """
+    files = find_paths(basedir, include, ignore=exclude)
+    for path in files:
+        try:
+            source = Sourcefile.from_file(path)
+            linter.check(source)
+        except Exception as exc:  # pylint: disable=broad-except
+            linter.reporter.add_file_error(path, type(exc), str(exc))
+            if loki_config['debug']:
+                raise exc
+
+
+def lint_files(rules, config, handlers=None):
+    """
+    Construct a :any:`Linter` according to :data:`config` and
+    check the rules in :data:`rules`
+
+    Depending on the given config values, this will use a :any:`Scheduler`
+    to discover files and drive the linting, or apply glob-based file
+    discovery and apply linting to each of them.
+
+    Common config options include:
+
+    .. code-block::
+       {
+           'basedir': <some file path>,
+           'junitxml_file': <some file path>,  # Optional: write JunitXML-output of lint results
+           'violations_file': <some file path>,  # Optional: write a YAML file containing violations
+           'rules': ['SomeRule', 'AnotherRule', ...],  # Optional: select only these rules
+           'SomeRule': <rule options>, # Optional: configuration values for individual rules
+        }
+
+    The ``basedir`` option is given as the discovery path to the :any:`Scheduler`.
+    See :any:`SchedulerConfig` for more details on the available config options.
+
+    See :any:`JunitXmlHandler` and :any:`ViolationFileHandler` for more details
+    on the output file options.
+
+    The ``rules`` option in the config allows selecting only certain rules out of
+    the provided :data:`rules` argument.
+
+    In addition, :data:`config` takes for scheduler the following options:
+
+    .. code-block::
+       {
+           'scheduler': <SchedulerConfig values>
+       }
+
+    If the ``scheduler`` key is found in :data:`config`, the scheduler-based
+    linting is automatically enabled.
+
+    For glob-based file discovery, the config takes the following options:
+
+    .. code-block::
+       {
+           'include': [<some pattern>, <another pattern>, ...]
+           'exclude': [<some pattern>] # Optional
+       }
+
+    The ``include`` and ``exclude`` options are provided to :any:`find_paths` to
+    discover files that should be linted.
+
+    Parameters
+    ----------
+    rules : list of :any:`GenericRule` or a Python module
+        List of rules to check files against or a module that contains the rules.
+    config : dict
+        Configuration for file discovery/scheduler and linting rules
+    handlers : list, optional
+        Additional instances of :any:`GenericHandler` to use during linting
+    """
+    basedir = config['basedir']
+
+    if not handlers:
+        handlers = []
+    handlers += [DefaultHandler(basedir=basedir)]
+    if 'junitxml_file' in config:
+        junitxml_file = LazyTextfile(config['junitxml_file'])
+        handlers.append(JunitXmlHandler(target=junitxml_file.write, basedir=basedir))
+    if 'violations_file' in config:
+        violations_file = LazyTextfile(config['violations_file'])
+        handlers.append(ViolationFileHandler(target=violations_file.write, basedir=basedir))
+
+    linter = Linter(reporter=Reporter(handlers), rules=rules, config=config)
+    if 'scheduler' in config:
+        return lint_files_scheduler(linter, basedir, config['scheduler'])
+    return lint_files_glob(linter, basedir, config['include'], config.get('exclude', []))
