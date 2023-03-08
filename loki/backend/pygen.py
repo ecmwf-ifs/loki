@@ -90,7 +90,7 @@ class PyCodeMapper(LokiStringifyMapper):
         return self.format(f'{str(f).lower()}({arguments})')
 
     def map_deferred_type_symbol(self, expr, *args, **kwargs):
-        return str(expr.name).lower().replace('%', '.')
+        return str(expr.name).replace('%', '.')
 
 
 class PyCodegen(Stringifier):

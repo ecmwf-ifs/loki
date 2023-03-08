@@ -8,11 +8,12 @@
 import sys
 from pathlib import Path
 from importlib import import_module, reload, invalidate_caches
+from collections import namedtuple
 import pytest
 import numpy as np
 
 from conftest import available_frontends, jit_compile, clean_test
-from loki import Subroutine, FortranPythonTransformation, pygen, OFP
+from loki import Subroutine, FortranPythonTransformation, pygen, OFP, OMNI
 
 
 @pytest.fixture(scope='module', name='here')
@@ -508,3 +509,49 @@ end subroutine pygen_downcasing
     vector = np.zeros(shape=(n,), order='F') + 2.
     func(n, scalar, vector)
     assert np.all(vector == 6.)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI strictly needs type definitions')])
+)
+def test_pygen_derived_type_members(here, frontend):
+    """
+    A simple test to check derived type member usage.
+    """
+
+    fcode = """
+subroutine pygen_derived_type_members(n, MyObject)
+  use iso_fortran_env, only: real64
+  use some_module, only: my_TYPE
+  implicit none
+
+  integer, intent(in) :: N
+  type(my_TYPE), intent(in) :: MyObject
+
+  integer :: i
+  real(kind=real64) :: tmp
+
+  do i=1, n
+     tmp = myobject%vector(i) + myobject%scalar
+     myobject%vector(i) = tmp
+  end do
+
+end subroutine pygen_derived_type_members
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # TODO: Implement type definition representation and test!
+    # Without the TypeDef, we can't test the reference either.
+
+    # Generate and test the transpiled Python kernel
+    f2p = FortranPythonTransformation(suffix='_py')
+    f2p.apply(source=routine, path=here)
+    mod = load_module(here, f2p.mod_name)
+    func = getattr(mod, f2p.mod_name)
+
+    n = 3
+    MyType = namedtuple('MyType', ['scalar', 'vector'])
+    obj = MyType(scalar=40.0, vector=np.zeros(shape=(n,), order='F') + 2.)
+    func(n, obj)
+    assert np.all(obj.vector == 42.)
