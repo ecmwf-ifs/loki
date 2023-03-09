@@ -8,7 +8,9 @@
 import importlib
 from pathlib import Path
 from shutil import rmtree
+import xml.etree.ElementTree as ET
 import pytest
+from fparser.two.utils import FortranSyntaxError
 
 from loki import Sourcefile, Assignment, FindNodes, FindVariables, gettempdir
 from loki.lint import (
@@ -497,7 +499,8 @@ def test_linter_lint_files_scheduler(here, rules, counter, routines, files):
     }},
     {'include': ['linter_lint_files_fix.F90']}
 ])
-def test_linter_lint_files_fix(config):
+@pytest.mark.parametrize('backup_suffix', [None, '.bak'])
+def test_linter_lint_files_fix(config, backup_suffix):
 
     class TestRule(GenericRule):
 
@@ -539,10 +542,10 @@ end subroutine OTHER_ROUTINE
     filename = basedir/'linter_lint_files_fix.F90'
     filename.write_text(fcode)
 
-    config.update({
-        'basedir': basedir,
-        'fix': True,
-    })
+    config['basedir'] = basedir
+    config['fix'] = True
+    if backup_suffix:
+        config['backup_suffix'] = backup_suffix
 
     checked_files = lint_files([TestRule], config)
     assert checked_files == 1
@@ -550,5 +553,64 @@ end subroutine OTHER_ROUTINE
     fixed_fcode = filename.read_text()
     assert fixed_fcode.count('some_routine') == 1  # call statement
     assert fixed_fcode.count('SOME_ROUTINE') == 2
+
+    if backup_suffix:
+        backup_file = filename.with_suffix('.bak.F90')
+        assert backup_file.read_text() == fcode
+
+    rmtree(basedir)
+
+
+@pytest.mark.parametrize('config', [
+    {'scheduler': {
+        'default': {
+            'mode': 'lint',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True
+        },
+        'routine': [{
+            'name': 'other_routine',
+        }]
+    }},
+    {'include': ['*.F90']}
+])
+def test_linter_fortran_syntax_error(config, rules):
+    fcode = """
+subroutine some_routine
+implicit none
+This is invalid Fortran syntax
+end subroutine some_routine
+
+subroutine OTHER_ROUTINE
+implicit none
+call some_routine
+end subroutine OTHER_ROUTINE
+    """.strip()
+
+    basedir = gettempdir()/'lint_files_syntax_error'
+    basedir.mkdir(exist_ok=True)
+    filename = basedir/'linter_lint_files_syntax_error.F90'
+    filename.write_text(fcode)
+    junitxml_file = basedir/'junitxml.xml'
+
+    config.update({
+        'basedir': basedir,
+        'junitxml_file': str(junitxml_file)
+    })
+
+    if 'scheduler' in config:
+        with pytest.raises(FortranSyntaxError):
+            lint_files(rules, config)
+    else:
+        checked_files = lint_files(rules, config)
+        assert checked_files == 0
+
+        # Sanity check that this ends up in reports
+        xml = ET.parse(junitxml_file).getroot()
+        assert xml.attrib['tests'] == '1'
+        assert xml.attrib['failures'] == '1'
+        report = xml.find('testsuite/testcase/failure')
+        assert 'This is invalid Fortran syntax' in report.attrib['message']
 
     rmtree(basedir)

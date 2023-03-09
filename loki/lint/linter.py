@@ -271,6 +271,10 @@ def lint_files_scheduler(linter, basedir, config):
 
 
 def check_and_fix_file(path, linter, fix=False, backup_suffix=None):
+    """
+    Check the file at :data:`path` with :data:`linter` and, optionally,
+    fix it
+    """
     try:
         source = Sourcefile.from_file(path)
         report = linter.check(source)
