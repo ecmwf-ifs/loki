@@ -27,7 +27,7 @@ def numpy_type(_type):
             return 'np.float32'
         return 'np.float64'
     if isinstance(_type.dtype, DerivedType):
-        return _type.dtype.name.lower()
+        return _type.dtype.name
     raise ValueError(str(_type))
 
 
@@ -139,11 +139,11 @@ class PyCodegen(Stringifier):
         arg_str = []
         for arg in arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                arg_str += [f'{arg.name.lower()}']
+                arg_str += [f'{arg.name}']
             else:
                 dtype = self.visit(arg.type, **kwargs)
-                arg_str += [f'{arg.name.lower()}: {dtype}']
-        header += [self.format_line('def ', o.name.lower(), '(', self.join_items(arg_str), '):')]
+                arg_str += [f'{arg.name}: {dtype}']
+        header += [self.format_line('def ', o.name, '(', self.join_items(arg_str), '):')]
 
         # ...and generate the spec without imports and only declarations for variables that
         # either are local arrays or are assigned an initial value
@@ -194,14 +194,15 @@ class PyCodegen(Stringifier):
         # Initialise local arrays via numpy
         local_arrays = [v for v in o.symbols if isinstance(v, sym.Array) and not v.type.intent]
         array_decls = tuple(
-            self.format_line(v.name.lower(), ' = np.ndarray(order="F", shape=(',
-                             self.join_items(self.visit_all(v.dimensions, **kwargs)), ',))')
-            for v in local_arrays
+            self.format_line(
+                v.name, ' = np.ndarray(order="F", shape=(',
+                self.join_items(self.visit_all(v.dimensions, **kwargs)), ',))'
+            ) for v in local_arrays
         )
 
         # Assign initial values, if given
         init_decls = tuple(
-            self.format_line(v.name.lower(), ' = ', self.visit(v.initial, **kwargs))
+            self.format_line(v.name, ' = ', self.visit(v.initial, **kwargs))
             for v in o.symbols if hasattr(v, 'initial') and v.initial is not None
         )
 
@@ -310,7 +311,7 @@ class PyCodegen(Stringifier):
 
     def visit_StatementFunction(self, o, **kwargs):
         args = tuple(self.visit(a, **kwargs) for a in o.arguments)
-        header = self.format_line('def ', o.variable.name.lower(), f'({self.join_items(args)}):')
+        header = self.format_line('def ', o.variable.name, f'({self.join_items(args)}):')
 
         self.depth += 1
         body = self.format_line('return ', self.visit(o.rhs, **kwargs))

@@ -57,7 +57,7 @@ class FortranPythonTransformation(Transformation):
         path = Path(kwargs.get('path'))
 
         # Rename subroutine to generate Python kernel
-        routine.name = f'{routine.name}{self.suffix}'
+        routine.name = f'{routine.name}{self.suffix}'.lower()
 
         # Remove all "IMPLICT" intrinsic statements
         mapper = {

@@ -18,7 +18,7 @@ from loki.expression import (
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
-from loki.ir import Import, TypeDef, VariableDeclaration
+from loki.ir import Import, TypeDef, VariableDeclaration, StatementFunction
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
@@ -98,12 +98,16 @@ def convert_to_lower_case(routine):
 
     # Downcase inline calls to, but only after the above has been propagated,
     # so that we  capture the updates from the variable update in the arguments
-    call_map = {
+    mapper = {
         c: c.clone(function=c.function.clone(name=c.name.lower()))
         for c in FindInlineCalls().visit(routine.ir) if not c.name.islower()
     }
-    routine.spec = SubstituteExpressions(call_map).visit(routine.spec)
-    routine.body = SubstituteExpressions(call_map).visit(routine.body)
+    mapper.update(
+        (stmt.variable, stmt.variable.clone(name=stmt.variable.name.lower()))
+        for stmt in FindNodes(StatementFunction).visit(routine.spec)
+    )
+    routine.spec = SubstituteExpressions(mapper).visit(routine.spec)
+    routine.body = SubstituteExpressions(mapper).visit(routine.body)
 
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensitive=False):
