@@ -592,7 +592,9 @@ def timeout(time_in_s, message=None):
         handler = signal.getsignal(signal.SIGALRM)
         signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(time_in_s)
-    yield
-    if time_in_s > 0:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, handler)
+    try:
+        yield
+    finally:
+        if time_in_s > 0:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, handler)
