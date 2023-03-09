@@ -6,7 +6,8 @@
 # nor does it submit to any jurisdiction.
 
 """
-Utility transformations to update or remove calls to DR_HOOK
+Utility transformations to update or remove calls to DR_HOOK and other
+utility routines
 """
 
 from loki import (
