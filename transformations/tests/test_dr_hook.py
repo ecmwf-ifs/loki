@@ -78,6 +78,10 @@ subroutine never_gonna_give
     print *, 'never gonna let you down'
 
     if (dave) call abor1('[INLINE CONDITIONAL]')
+
+    WRITE(NULOUT,*) "[WRITE INTRINSIC]"
+    if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
+
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
 end subroutine
     """.strip()
@@ -142,17 +146,25 @@ def test_dr_hook_transformation_remove(frontend, config, source):
             assert not drhook_calls
 
 
+@pytest.mark.parametrize('include_intrinsics', (True, False))
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'Incomplete source tree impossible with OMNI')]
 ))
-def test_utility_routine_removal(frontend, config, source):
+def test_utility_routine_removal(frontend, config, source, include_intrinsics):
     """
     Test removal of utility calls and intrinsics with custom patterns.
     """
     scheduler_config = SchedulerConfig.from_dict(config)
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
-    scheduler.process(transformation=RemoveCallsTransformation(routines=['ABOR1']))
+    scheduler.process(
+        transformation=RemoveCallsTransformation(
+            routines=['ABOR1', 'WRITE(NULOUT'], include_intrinsics=include_intrinsics
+        )
+    )
 
     driver = scheduler.item_map['#never_gonna_give'].routine
-    assert '[SUBROUTINE CALL]' not in driver.to_fortran()
-    assert '[INLINE CONDITIONAL]' not in driver.to_fortran()
+    transformed = driver.to_fortran()
+    assert '[SUBROUTINE CALL]' not in transformed
+    assert '[INLINE CONDITIONAL]' not in transformed
+    assert ('dave' not in transformed) == include_intrinsics
+    assert ('[WRITE INTRINSIC]' not in transformed) == include_intrinsics

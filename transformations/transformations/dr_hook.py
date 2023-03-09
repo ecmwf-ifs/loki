@@ -10,7 +10,8 @@ Utility transformations to update or remove calls to DR_HOOK
 """
 
 from loki import (
-    FindNodes, Transformer, Transformation, CallStatement, Conditional, as_tuple, Literal
+    FindNodes, Transformer, Transformation, CallStatement,
+    Conditional, as_tuple, Literal, Intrinsic
 )
 
 
@@ -67,13 +68,20 @@ class RemoveCallsTransformation(Transformation):
     """
     Removes specified :any:`CallStatement` objects from any :any:`Subroutine`.
 
+    In addition, this transformation will also remove inline conditionals that
+    guard the respective utility calls, in order to preserve consistent code.
+
     Parameters
     ----------
     routines : list of str
         List of subroutine names to remove
+    include_intrinsics : bool
+        Option to extend searches to :any:`Initrinsic` nodes to
+        capture print/write statements
     """
-    def __init__(self, routines, **kwargs):
+    def __init__(self, routines, include_intrinsics=False, **kwargs):
         self.routines = as_tuple(routines)
+        self.include_intrinsics = include_intrinsics
         super().__init__(**kwargs)
 
     def transform_subroutine(self, routine, **kwargs):
@@ -82,12 +90,8 @@ class RemoveCallsTransformation(Transformation):
         """
         mapper = {}
 
-        # Find direct calls to specified routines
-        for call in FindNodes(CallStatement).visit(routine.body):
-            if call.name in self.routines:
-                mapper[call] = None
-
-        # Also remove inline conditionals with calls to specified routines
+        # First remove inline conditionals with calls to specified routines or intrinsics
+        # This check happesn first, as we would leave empty-bodies conditionals otherwise
         inline_conditionals = tuple(
             cond for cond in FindNodes(Conditional).visit(routine.body) if cond.inline
         )
@@ -95,5 +99,21 @@ class RemoveCallsTransformation(Transformation):
             if len(cond.body) == 1 and isinstance(cond.body[0], CallStatement):
                 if cond.body[0].name in self.routines:
                     mapper[cond] = None
+
+            if self.include_intrinsics:
+                if len(cond.body) == 1 and isinstance(cond.body[0], Intrinsic):
+                    if any(str(r).lower() in cond.body[0].text.lower() for r in self.routines):
+                        mapper[cond] = None
+
+        # Find direct calls to specified routines
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if call.name in self.routines:
+                mapper[call] = None
+
+        # Include intrinsics that match the routine name partially
+        if self.include_intrinsics:
+            for intr in FindNodes(Intrinsic).visit(routine.body):
+                if any(str(r).lower() in intr.text.lower() for r in self.routines):
+                    mapper[intr] = None
 
         routine.body = Transformer(mapper).visit(routine.body)
