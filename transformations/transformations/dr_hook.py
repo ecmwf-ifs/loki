@@ -87,4 +87,13 @@ class RemoveCallsTransformation(Transformation):
             if call.name in self.routines:
                 mapper[call] = None
 
+        # Also remove inline conditionals with calls to specified routines
+        inline_conditionals = tuple(
+            cond for cond in FindNodes(Conditional).visit(routine.body) if cond.inline
+        )
+        for cond in inline_conditionals:
+            if len(cond.body) == 1 and isinstance(cond.body[0], CallStatement):
+                if cond.body[0].name in self.routines:
+                    mapper[cond] = None
+
         routine.body = Transformer(mapper).visit(routine.body)

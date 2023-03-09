@@ -76,6 +76,8 @@ subroutine never_gonna_give
     CALL ABOR1('[SUBROUTINE CALL]')
 
     print *, 'never gonna let you down'
+
+    if (dave) call abor1('[INLINE CONDITIONAL]')
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
 end subroutine
     """.strip()
@@ -153,3 +155,4 @@ def test_utility_routine_removal(frontend, config, source):
 
     driver = scheduler.item_map['#never_gonna_give'].routine
     assert '[SUBROUTINE CALL]' not in driver.to_fortran()
+    assert '[INLINE CONDITIONAL]' not in driver.to_fortran()
