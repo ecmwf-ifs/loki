@@ -12,9 +12,9 @@
 from concurrent.futures import as_completed
 import inspect
 from multiprocessing import Manager
-import shutil
-import time
 from pathlib import Path
+import shutil
+from codetiming import Timer
 
 from loki.build import workqueue
 from loki.bulk import Scheduler, SchedulerConfig
@@ -169,13 +169,14 @@ class Linter:
         rules = overwrite_rules if overwrite_rules is not None else self.rules
         rules = [rule for rule in rules if not rule.__name__ in disabled_rules]
 
+        timer = Timer()
+
         # Run all the rules on that file
         for rule in rules:
-            start_time = time.time()
+            timer.start()
             rule_report = RuleReport(rule)
             rule.check(sourcefile, rule_report, config[rule.__name__])
-            end_time = time.time()
-            rule_report.elapsed_sec = end_time - start_time
+            rule_report.elapsed_sec = timer.stop()
             file_report.add(rule_report)
 
         # Store the file report

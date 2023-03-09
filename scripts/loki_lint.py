@@ -198,7 +198,7 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker,
     if write_violations_file:
         config_values['violations_file'] = write_violations_file
     if junitxml:
-        config_values['junitxml_files'] = junitxml
+        config_values['junitxml_file'] = junitxml
 
     with Timer(logger=info, text='Files checking completed in {:.2f}s'):
         checked_count = lint_files(rule_list, config_values)
