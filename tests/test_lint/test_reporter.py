@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import importlib
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import pytest
@@ -28,6 +29,12 @@ from loki.lint.rules import GenericRule, RuleType
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.fixture(scope='module', name='rules')
+def fixture_rules():
+    rules = importlib.import_module('rules')
+    return rules
 
 
 @pytest.fixture(scope='module', name='dummy_file')
@@ -135,6 +142,7 @@ def test_lazy_textfile():
 
     filename.unlink(missing_ok=True)
 
+
 @pytest.mark.parametrize('max_workers', [None, 1])
 @pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',3)])
 def test_linter_junitxml(here, max_workers, fail_on, failures):
@@ -170,3 +178,47 @@ def test_linter_junitxml(here, max_workers, fail_on, failures):
     assert xml.attrib['failures'] == str(failures)
 
     junitxml_file.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(not HAVE_YAML, reason='Pyyaml not installed')
+@pytest.mark.parametrize('max_workers', [None, 1])
+@pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',3)])
+def test_linter_violation_file(here, rules, max_workers, fail_on, failures):
+    class RandomFailingRule(GenericRule):
+        type = RuleType.WARN
+        docs = {'title': 'A dummy rule for the sake of testing the Linter'}
+        config = {'dummy_key': 'dummy value'}
+
+        @classmethod
+        def check_subroutine(cls, subroutine, rule_report, config):
+            if fail_on and fail_on in subroutine.name:
+                rule_report.add(cls.__name__, subroutine)
+
+    basedir = here.parent/'sources'
+    violations_file = gettempdir()/'linter_violations_file.yml'
+    violations_file.unlink(missing_ok=True)
+    config = {
+        'basedir': str(basedir),
+        'include': ['projA/**/*.f90', 'projA/**/*.F90'],
+        'violations_file': str(violations_file)
+    }
+    if max_workers is not None:
+        config['max_workers'] = max_workers
+
+    checked = lint_files([RandomFailingRule, rules.DummyRule], config)
+
+    assert checked == 13
+
+    # Just a few sanity checks on the yaml
+    yaml_report = yaml.safe_load(violations_file.read_text())
+    if not failures:
+        assert yaml_report is None
+    else:
+        assert len(yaml_report) == failures
+
+        for file, report in yaml_report.items():
+            assert fail_on in file
+            assert 'filehash' in report
+            assert report['rules'] == ['RandomFailingRule']
+
+    violations_file.unlink(missing_ok=True)

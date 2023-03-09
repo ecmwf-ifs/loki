@@ -412,13 +412,20 @@ class ViolationFileHandler(GenericHandler):
         str
             YAML block for this file
         """
-        file_report = {
-            str(self.get_relative_filename(file_report.filename)): {
-                'filehash': file_report.hash,
-                'rules': [rule_report.rule.__name__ for rule_report in file_report.reports]
+        violated_rules = [
+            rule_report.rule.__name__
+            for rule_report in file_report.reports
+            if rule_report.problem_reports
+        ]
+        if violated_rules:
+            violations_report = {
+                str(self.get_relative_filename(file_report.filename)): {
+                    'filehash': file_report.hash,
+                    'rules': violated_rules
+                }
             }
-        }
-        return yaml.dump(file_report)
+            return yaml.dump(violations_report)
+        return ''
 
     def output(self, handler_reports):
         """
