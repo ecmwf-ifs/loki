@@ -5,8 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 import importlib
+from pathlib import Path
 import pytest
 
 from loki import Sourcefile, Assignment, FindNodes, FindVariables, gettempdir

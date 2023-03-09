@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
 import pytest
 
 try:
@@ -15,12 +16,13 @@ except ImportError:
     HAVE_YAML = False
 
 from loki import Intrinsic, gettempdir
+from loki.lint.linter import lint_files
 from loki.lint.reporter import (
     ProblemReport, RuleReport, FileReport,
     DefaultHandler, ViolationFileHandler,
     LazyTextfile
 )
-from loki.lint.rules import GenericRule
+from loki.lint.rules import GenericRule, RuleType
 
 
 @pytest.fixture(scope='module', name='here')
@@ -133,7 +135,38 @@ def test_lazy_textfile():
 
     filename.unlink(missing_ok=True)
 
-@pytest.mark.skip()
-def test_junit_xml_handler():
-    # TODO
-    pass
+@pytest.mark.parametrize('max_workers', [None, 1])
+@pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',3)])
+def test_linter_junitxml(here, max_workers, fail_on, failures):
+    class RandomFailingRule(GenericRule):
+        type = RuleType.WARN
+        docs = {'title': 'A dummy rule for the sake of testing the Linter'}
+        config = {'dummy_key': 'dummy value'}
+
+        @classmethod
+        def check_subroutine(cls, subroutine, rule_report, config):
+            if fail_on and fail_on in subroutine.name:
+                rule_report.add(cls.__name__, subroutine)
+
+    basedir = here.parent/'sources'
+    junitxml_file = gettempdir()/'linter_junitxml_outputfile.xml'
+    junitxml_file.unlink(missing_ok=True)
+    config = {
+        'basedir': str(basedir),
+        'include': ['projA/**/*.f90', 'projA/**/*.F90'],
+        'junitxml_file': str(junitxml_file)
+    }
+    if max_workers is not None:
+        config['max_workers'] = max_workers
+
+    checked = lint_files([RandomFailingRule], config)
+
+    assert checked == 13
+
+    # Just a few sanity checks on the XML
+    xml = ET.parse(junitxml_file).getroot()
+    assert xml.tag == 'testsuites'
+    assert xml.attrib['tests'] == '13'
+    assert xml.attrib['failures'] == str(failures)
+
+    junitxml_file.unlink(missing_ok=True)

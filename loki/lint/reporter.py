@@ -14,7 +14,7 @@ except ImportError:
     HAVE_YAML = False
 
 try:
-    from junit_xml import TestSuite, TestCase
+    from junit_xml import TestSuite, TestCase, to_xml_report_string
     HAVE_JUNIT_XML = True
 except ImportError:
     HAVE_JUNIT_XML = False
@@ -493,7 +493,7 @@ class JunitXmlHandler(GenericHandler):
                     testcase.add_failure_info(msg)
                 testcases.append(testcase)
             testsuites.append(TestSuite(filename, testcases))
-        xml_string = TestSuite.to_xml_string(testsuites)
+        xml_string = to_xml_report_string(testsuites)
         self.target(xml_string)
 
 
