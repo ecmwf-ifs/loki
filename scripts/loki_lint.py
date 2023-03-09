@@ -12,6 +12,7 @@ import importlib
 from logging import FileHandler
 from pathlib import Path
 import click
+from codetiming import Timer
 import yaml
 
 from loki.logging import logger, DEBUG, warning, info, debug, error
@@ -199,7 +200,8 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker,
     if junitxml:
         config_values['junitxml_files'] = junitxml
 
-    checked_count = lint_files(rule_list, config_values)
+    with Timer(logger=info, text='Files checking completed in {:.2f}s'):
+        checked_count = lint_files(rule_list, config_values)
     info('%d files checked', checked_count)
 
 
