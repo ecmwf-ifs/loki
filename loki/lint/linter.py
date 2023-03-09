@@ -169,7 +169,7 @@ class Linter:
         rules = overwrite_rules if overwrite_rules is not None else self.rules
         rules = [rule for rule in rules if not rule.__name__ in disabled_rules]
 
-        timer = Timer()
+        timer = Timer(logger=None)
 
         # Run all the rules on that file
         for rule in rules:
@@ -327,6 +327,7 @@ def lint_files(rules, config, handlers=None):
     Common config options include:
 
     .. code-block::
+
        {
            'basedir': <some file path>,
            'max_workers': <n>, # Optional: use multiple workers
@@ -350,6 +351,7 @@ def lint_files(rules, config, handlers=None):
     In addition, :data:`config` takes for scheduler the following options:
 
     .. code-block::
+
        {
            'scheduler': <SchedulerConfig values>
        }
@@ -360,6 +362,7 @@ def lint_files(rules, config, handlers=None):
     For glob-based file discovery, the config takes the following options:
 
     .. code-block::
+
        {
            'include': [<some pattern>, <another pattern>, ...]
            'exclude': [<some pattern>] # Optional
