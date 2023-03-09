@@ -7,6 +7,7 @@
 
 import importlib
 from pathlib import Path
+from shutil import rmtree
 import pytest
 
 from loki import Sourcefile, Assignment, FindNodes, FindVariables, gettempdir
@@ -533,7 +534,8 @@ end subroutine OTHER_ROUTINE
     assert fcode.count('some_routine') == 3
     assert fcode.count('SOME_ROUTINE') == 0
 
-    basedir = gettempdir()
+    basedir = gettempdir()/'lint_files_fix'
+    basedir.mkdir(exist_ok=True)
     filename = basedir/'linter_lint_files_fix.F90'
     filename.write_text(fcode)
 
@@ -549,4 +551,4 @@ end subroutine OTHER_ROUTINE
     assert fixed_fcode.count('some_routine') == 1  # call statement
     assert fixed_fcode.count('SOME_ROUTINE') == 2
 
-    filename.unlink(missing_ok=True)
+    rmtree(basedir)
