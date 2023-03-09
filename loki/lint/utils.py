@@ -28,6 +28,8 @@ class Fixer:
         Call `fix_module` for all rules and apply the transformations.
         """
         # TODO: implement this!
+        if reports:
+            module._source = None
         return module
 
     @classmethod
@@ -58,6 +60,8 @@ class Fixer:
         Call `fix_sourcefile` for all rules and apply the transformations.
         """
         # TODO: implement this!
+        if reports:
+            sourcefile._source = None
         return sourcefile
 
     @classmethod
@@ -82,27 +86,31 @@ class Fixer:
         if isinstance(ast, Sourcefile):
             # Depth-first traversal
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
-                ast._routines = [cls.fix(routine, reports, config) for routine in ast.subroutines]
+                for routine in ast.subroutines:
+                    cls.fix_subroutine(routine, reports, config)
             if hasattr(ast, 'modules') and ast.modules is not None:
-                ast._modules = [cls.fix(module, reports, config) for module in ast.modules]
+                for module in ast.modules:
+                    cls.fix_module(module, reports, config)
 
-            ast = cls.fix_sourcefile(ast, reports, config)
+            cls.fix_sourcefile(ast, reports, config)
 
         # Fix on module level
         elif isinstance(ast, Module):
             # Depth-first traversal
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
-                ast.routines = [cls.fix(routine, reports, config) for routine in ast.subroutines]
+                for routine in ast.subroutines:
+                    cls.fix_subroutine(routine, reports, config)
 
-            ast = ast.fix_module(ast, reports, config)
+            cls.fix_module(ast, reports, config)
 
         # Fix on subroutine level
         elif isinstance(ast, Subroutine):
             # Depth-first traversal
             if hasattr(ast, 'members') and ast.members is not None:
-                ast._members = [cls.fix(member, reports, config) for member in ast.members]
+                for routine in ast.members:
+                    cls.fix_subroutine(routine, reports, config)
 
-            ast = cls.fix_subroutine(ast, reports, config)
+            cls.fix_subroutine(ast, reports, config)
 
         return ast
 

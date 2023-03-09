@@ -221,8 +221,6 @@ class Linter:
         sourcefile = Fixer.fix(sourcefile, file_report.fixable_reports, config)
 
         # Create the the source string for the output
-        # TODO: this does not necessarily preserve the order of things in the file
-        # as it will first generate all modules and then all subroutines
         sourcefile.write(conservative=True)
 
 
@@ -257,6 +255,8 @@ class LinterTransformation(Transformation):
         self.counter += 1
         if item:
             item.trafo_data[self._key] = report
+        if self.linter.config.get('fix'):
+            self.linter.fix(sourcefile, report, backup_suffix=self.linter.config.get('backup_suffix'))
 
 
 def lint_files_scheduler(linter, basedir, config):

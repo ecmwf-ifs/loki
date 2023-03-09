@@ -480,3 +480,73 @@ def test_linter_lint_files_scheduler(here, rules, counter, routines, files):
     assert checked == counter
     assert handler.counter == counter
     assert handler.files == files
+
+
+@pytest.mark.parametrize('config', [
+    {'scheduler': {
+        'default': {
+            'mode': 'lint',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+        },
+        'routine': [{
+            'name': 'other_routine',
+        }]
+    }},
+    {'include': ['linter_lint_files_fix.F90']}
+])
+def test_linter_lint_files_fix(config):
+
+    class TestRule(GenericRule):
+
+        fixable = True
+
+        @classmethod
+        def check_subroutine(cls, subroutine, rule_report, config):
+            if not subroutine.name.isupper():
+                rule_report.add(f'Subroutine name "{subroutine.name}" is not upper case', subroutine)
+
+        @classmethod
+        def fix_sourcefile(cls, sourcefile, rule_report, config):
+            if rule_report.problem_reports:
+                sourcefile._source = None
+
+        @classmethod
+        def fix_subroutine(cls, subroutine, rule_report, config):
+            assert len(rule_report.problem_reports) == 1
+            if rule_report.problem_reports[0].location is subroutine:
+                subroutine.name = subroutine.name.upper()
+                return {None: None}
+            return {}
+
+    fcode = """
+subroutine some_routine
+implicit none
+end subroutine some_routine
+
+subroutine OTHER_ROUTINE
+implicit none
+call some_routine
+end subroutine OTHER_ROUTINE
+    """.strip()
+    assert fcode.count('some_routine') == 3
+    assert fcode.count('SOME_ROUTINE') == 0
+
+    basedir = gettempdir()
+    filename = basedir/'linter_lint_files_fix.F90'
+    filename.write_text(fcode)
+
+    config.update({
+        'basedir': basedir,
+        'fix': True,
+    })
+
+    checked_files = lint_files([TestRule], config)
+    assert checked_files == 1
+
+    fixed_fcode = filename.read_text()
+    assert fixed_fcode.count('some_routine') == 1  # call statement
+    assert fixed_fcode.count('SOME_ROUTINE') == 2
+
+    filename.unlink(missing_ok=True)
