@@ -13,7 +13,7 @@ from loki import (
 )
 
 from conftest import available_frontends
-from transformations import DrHookTransformation
+from transformations import DrHookTransformation, RemoveCallsTransformation
 
 
 @pytest.fixture(scope='module', name='config')
@@ -23,7 +23,9 @@ def fixture_config():
     the file path
     """
     default_config = {
-        'default': {'role': 'kernel', 'expand': True, 'strict': True, 'disable': ['dr_hook']},
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': True, 'disable': ['dr_hook', 'abor1']
+        },
         'routine': [
             {'name': 'rick_astley', 'role': 'driver'},
         ]
@@ -70,6 +72,9 @@ subroutine never_gonna_give
 
     real(kind=jprb) :: zhook_handle
     if (lhook) call dr_hook('never_gonna_give',0,zhook_handle)
+
+    CALL ABOR1('[SUBROUTINE CALL]')
+
     print *, 'never gonna let you down'
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
 end subroutine
@@ -133,3 +138,18 @@ def test_dr_hook_transformation_remove(frontend, config, source):
             )
         elif item.role == 'kernel':
             assert not drhook_calls
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'Incomplete source tree impossible with OMNI')]
+))
+def test_utility_routine_removal(frontend, config, source):
+    """
+    Test removal of utility calls and intrinsics with custom patterns.
+    """
+    scheduler_config = SchedulerConfig.from_dict(config)
+    scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
+    scheduler.process(transformation=RemoveCallsTransformation(routines=['ABOR1']))
+
+    driver = scheduler.item_map['#never_gonna_give'].routine
+    assert '[SUBROUTINE CALL]' not in driver.to_fortran()

@@ -13,6 +13,10 @@ from loki import (
     FindNodes, Transformer, Transformation, CallStatement, Conditional, as_tuple, Literal
 )
 
+
+__all__ = ['DrHookTransformation', 'RemoveCallsTransformation']
+
+
 class DrHookTransformation(Transformation):
     """
     Re-write or remove the DrHook label markers in transformed
@@ -55,5 +59,32 @@ class DrHookTransformation(Transformation):
             for cond in FindNodes(Conditional).visit(routine.body):
                 if cond.inline and 'LHOOK' in as_tuple(cond.condition):
                     mapper[cond] = None
+
+        routine.body = Transformer(mapper).visit(routine.body)
+
+
+class RemoveCallsTransformation(Transformation):
+    """
+    Removes specified :any:`CallStatement` objects from any :any:`Subroutine`.
+
+    Parameters
+    ----------
+    routines : list of str
+        List of subroutine names to remove
+    """
+    def __init__(self, routines, **kwargs):
+        self.routines = as_tuple(routines)
+        super().__init__(**kwargs)
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Apply transformation to subroutine object
+        """
+        mapper = {}
+
+        # Find direct calls to specified routines
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if call.name in self.routines:
+                mapper[call] = None
 
         routine.body = Transformer(mapper).visit(routine.body)
