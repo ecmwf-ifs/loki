@@ -142,7 +142,21 @@ def get_filename_from_parent(obj):
 
 
 def get_location_hash(location):
-    if location.source and location.source.string:
+    """
+    Utility routine that produces an identifier hash for a location in the IR
+
+    Parameters
+    ----------
+    location : :class:`Node` or :class:`ProgramUnit`
+        The IR object for which to produce the hash
+
+    Returns
+    -------
+    str or None
+        The hash as a string or, if no hash can be created for :data:`location`,
+        `None` is returned.
+    """
+    if getattr(location, 'source') and location.source.string:
         first_line = location.source.string[:location.source.string.find('\n')]
         line_hash = str(md5(first_line.encode()).hexdigest())
         return line_hash
