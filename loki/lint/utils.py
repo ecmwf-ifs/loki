@@ -156,7 +156,7 @@ def get_location_hash(location):
         The hash as a string or, if no hash can be created for :data:`location`,
         `None` is returned.
     """
-    if getattr(location, 'source') and location.source.string:
+    if getattr(location, 'source', None) and location.source.string:
         first_line = location.source.string[:location.source.string.find('\n')]
         line_hash = str(md5(first_line.encode()).hexdigest())
         return line_hash
