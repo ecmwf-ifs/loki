@@ -164,7 +164,7 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker,
     elif 'basedir' not in config_values:
         config_values['basedir'] = Path.cwd()
 
-    debug('Base directory: %s', basedir)
+    debug('Base directory: %s', config_values['basedir'])
 
     if scheduler:
         config_values.setdefault('scheduler', {
@@ -177,11 +177,12 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker,
         })
     else:
         debug('Include patterns:')
-        for p in include:
+        for p in config_values['include']:
             debug('  - %s', p)
-        debug('Exclude patterns:')
-        for p in exclude:
-            debug('  - %s', p)
+        if 'exclude' in config_values:
+            debug('Exclude patterns:')
+            for p in config_values['exclude']:
+                debug('  - %s', p)
         debug('')
 
     rule_list = get_rules(ctx.obj['rules_module'])
