@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from hashlib import md5
 import re
 
 from loki.ir import Comment, CommentBlock, LeafNode
@@ -14,7 +15,7 @@ from loki.subroutine import Subroutine
 from loki.visitors import FindNodes, Transformer
 
 
-__all__ = ['Fixer', 'get_filename_from_parent', 'is_rule_disabled']
+__all__ = ['Fixer', 'get_filename_from_parent', 'get_location_hash', 'is_rule_disabled']
 
 
 class Fixer:
@@ -140,9 +141,17 @@ def get_filename_from_parent(obj):
     return None
 
 
+def get_location_hash(location):
+    if location.source and location.source.string:
+        first_line = location.source.string[:location.source.string.find('\n')]
+        line_hash = str(md5(first_line.encode()).hexdigest())
+        return line_hash
+    return None
+
+
 _disabled_rules_re = re.compile(r'^\s*!\s*loki-lint\s*:(?:.*?)disable=(?P<rules>[\w\.,]*)')
 
-def is_rule_disabled(ir, identifiers):
+def is_rule_disabled(ir, identifiers, disabled_line_hashes=None):
     """
     Check if a Linter rule is disabled in the provided context via user annotations
 
@@ -164,6 +173,9 @@ def is_rule_disabled(ir, identifiers):
         The IR object for which to check if a rule is disabled
     identifiers : list
         A list of string identifiers via which the rule can be disabled
+    disabled_line_hashes : list, optional
+        A list of hashes. If the first line of :data:`ir` corresponding to
+        the violation matches a hash in this list, the rule is disabled
 
     Returns
     -------
@@ -177,6 +189,11 @@ def is_rule_disabled(ir, identifiers):
                 if rule in identifiers:
                     return True
         return False
+
+    if disabled_line_hashes:
+        line_hash = get_location_hash(ir)
+        if line_hash and line_hash in disabled_line_hashes:
+            return True
 
     # If we have a leaf node, we check for in-line comments
     if isinstance(ir, LeafNode):

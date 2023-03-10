@@ -221,4 +221,65 @@ def test_linter_violation_file(here, rules, max_workers, fail_on, failures):
             assert 'filehash' in report
             assert report['rules'] == ['RandomFailingRule']
 
+    # Plug the violations file into the config and see if we don't have
+    # violations in another linter pass
+    config['disable'] = yaml_report
+    checked = lint_files([RandomFailingRule, rules.DummyRule], config)
+    assert checked == 13
+    assert yaml.safe_load(violations_file.read_text()) is None
+
+    violations_file.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(not HAVE_YAML, reason='Pyyaml not installed')
+@pytest.mark.parametrize('max_workers', [None, 1])
+@pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',3)])
+def test_linter_violation_file_line_hashes(here, rules, max_workers, fail_on, failures):
+    class RandomFailingRule(GenericRule):
+        type = RuleType.WARN
+        docs = {'title': 'A dummy rule for the sake of testing the Linter'}
+        config = {'dummy_key': 'dummy value'}
+
+        @classmethod
+        def check_subroutine(cls, subroutine, rule_report, config):
+            if fail_on and fail_on in subroutine.name:
+                rule_report.add(cls.__name__, subroutine)
+
+    basedir = here.parent/'sources'
+    violations_file = gettempdir()/'linter_violations_file.yml'
+    violations_file.unlink(missing_ok=True)
+    config = {
+        'basedir': str(basedir),
+        'include': ['projA/**/*.f90', 'projA/**/*.F90'],
+        'violations_file': str(violations_file),
+        'use_violations_file_line_hashes': True
+    }
+    if max_workers is not None:
+        config['max_workers'] = max_workers
+
+    checked = lint_files([RandomFailingRule, rules.DummyRule], config)
+
+    assert checked == 13
+
+    # Just a few sanity checks on the yaml
+    yaml_report = yaml.safe_load(violations_file.read_text())
+    if not failures:
+        assert yaml_report is None
+    else:
+        assert len(yaml_report) == failures
+
+        for file, report in yaml_report.items():
+            assert fail_on in file
+            assert 'filehash' not in report
+            assert len(report['rules']) == 1
+            assert 'RandomFailingRule' in report['rules'][0]
+            assert len(report['rules'][0]['RandomFailingRule']) == 1
+
+    # Plug the violations into the config and see if we don't have
+    # violations in another linter pass
+    config['disable'] = yaml_report
+    checked = lint_files([RandomFailingRule, rules.DummyRule], config)
+    assert checked == 13
+    assert yaml.safe_load(violations_file.read_text()) is None
+
     violations_file.unlink(missing_ok=True)

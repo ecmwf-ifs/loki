@@ -26,7 +26,7 @@ from loki.lint.reporter import (
 from loki.lint.utils import Fixer
 from loki.logging import logger
 from loki.sourcefile import Sourcefile
-from loki.tools import filehash, find_paths
+from loki.tools import filehash, find_paths, CaseInsensitiveDict
 from loki.transform import Transformation
 
 
@@ -158,23 +158,28 @@ class Linter:
         file_report = FileReport(filename, hash=filehash(sourcefile.source.string))
 
         # Check "disable" config section for an entry matching the file name and, if given, filehash
-        disabled_rules = []
+        disabled_rules = CaseInsensitiveDict()
         disable_file_key = next((key for key in disable_config if sourcefile.path.match(key)), None)
         if disable_file_key:
             disable_file = disable_config[disable_file_key]
             if 'filehash' not in disable_file or disable_file['filehash'] == file_report.hash:
-                disabled_rules = disable_file.get('rules', [])
+                for rule in disable_file.get('rules', []):
+                    if isinstance(rule, dict):
+                        for name, line_hashes in rule.items():
+                            disabled_rules[name] = line_hashes
+                    else:
+                        disabled_rules[rule] = True
 
         # Prepare list of rules
         rules = overwrite_rules if overwrite_rules is not None else self.rules
-        rules = [rule for rule in rules if not rule.__name__ in disabled_rules]
+        rules = [rule for rule in rules if disabled_rules.get(rule.__name__) is not True]
 
         timer = Timer(logger=None)
 
         # Run all the rules on that file
         for rule in rules:
             timer.start()
-            rule_report = RuleReport(rule)
+            rule_report = RuleReport(rule, disabled=disabled_rules.get(rule.__name__))
             rule.check(sourcefile, rule_report, config[rule.__name__])
             rule_report.elapsed_sec = timer.stop()
             file_report.add(rule_report)
@@ -395,7 +400,10 @@ def lint_files(rules, config, handlers=None):
         handlers.append(JunitXmlHandler(target=junitxml_file.write, basedir=basedir))
     if 'violations_file' in config:
         violations_file = LazyTextfile(config['violations_file'])
-        handlers.append(ViolationFileHandler(target=violations_file.write, basedir=basedir))
+        handlers.append(ViolationFileHandler(
+            target=violations_file.write, basedir=basedir,
+            use_line_hashes=config.get('use_violations_file_line_hashes', True)
+        ))
 
     linter = Linter(reporter=Reporter(handlers), rules=rules, config=config)
     if 'scheduler' in config:
