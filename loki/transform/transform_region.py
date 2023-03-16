@@ -188,6 +188,29 @@ def region_to_call(routine):
                 region_inout_args = (region_inout_args - (pragma_in_args | pragma_out_args)) | pragma_inout_args
                 region_out_args = (region_out_args - (pragma_in_args | pragma_inout_args)) | pragma_out_args
 
+                # Filter arguments
+                def remove_intrinsics(arg_set):
+                    from fparser.two.Fortran2003 import Intrinsic_Name
+                    _intrinsic_fortran_names = Intrinsic_Name.function_names
+                    return {a for a in arg_set if a not in _intrinsic_fortran_names}
+
+                region_in_args = remove_intrinsics(region_in_args)
+                region_inout_args = remove_intrinsics(region_inout_args)
+                region_out_args = remove_intrinsics(region_out_args)
+
+                def find_derived_type_basename(arg_set):
+                    ret = set()
+                    for arg in arg_set:
+                        var = arg
+                        while var.parent:
+                            var = var.parent
+                        ret.add(var)
+                    return ret
+
+                region_in_args = find_derived_type_basename(region_in_args)
+                region_inout_args = find_derived_type_basename(region_inout_args)
+                region_out_args = find_derived_type_basename(region_out_args)
+
                 # Now fix the order
                 region_inout_args = as_tuple(region_inout_args)
                 region_in_args = as_tuple(region_in_args)
@@ -212,7 +235,9 @@ def region_to_call(routine):
                         region_routine_arguments += [local_var]
 
                 # We need to update the list of variables again to avoid duplicate declarations
-                region_routine.variables = as_tuple(region_routine_var_map.values())
+                region_routine_variables = remove_intrinsics(region_routine_var_map.values())
+                region_routine_variables = find_derived_type_basename(region_routine_variables)
+                region_routine.variables = as_tuple(region_routine_variables)
                 region_routine.arguments = as_tuple(region_routine_arguments)
 
                 # insert into list of new routines
