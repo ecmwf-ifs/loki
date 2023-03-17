@@ -159,9 +159,12 @@ class DataflowAnalysisAttacher(Transformer):
         vset = set(v for v in FindVariables().visit(o.values) if not v in query_args)
 
         uses = self._symbols_from_expr(as_tuple(eset)) | self._symbols_from_expr(as_tuple(vset))
-        body, defines, uses = self._visit_body(o.bodies, live=live, uses=uses, **kwargs)
+        body = ()
+        defines = set()
+        for b in o.bodies:
+            _b, defines, uses = self._visit_body(b, live=live, uses=uses, defines=defines, **kwargs)
+            body += (as_tuple(_b),)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
-        body = tuple(as_tuple(b,) for b in body)
         o._update(bodies=body, else_body=else_body)
         defines = defines | else_defines
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
