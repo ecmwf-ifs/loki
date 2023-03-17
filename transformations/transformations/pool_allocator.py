@@ -6,10 +6,10 @@
 # nor does it submit to any jurisdiction.
 
 from loki import (
-    as_tuple,
+    as_tuple, warning,
     Transformation, FindNodes, Transformer,
     SymbolAttributes, BasicType, DerivedType,
-    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
+    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, IntrinsicLiteral,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
     Loop
 )
@@ -109,10 +109,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         )
 
     def _get_stack_storage_and_size(self, routine):
+        variable_map = routine.variable_map
         body_prepend = []
         body_append = []
         variables_append = []
-        if self.stack_size_name in routine.variables:
+        if self.stack_size_name in variable_map:
             stack_size = routine.variable_map[self.stack_size_name]
         else:
             stack_size = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER))
@@ -126,7 +127,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_size]
             body_prepend += [stack_size_assign]
-        if self.stack_storage_name in routine.variables:
+        if self.stack_storage_name in variable_map:
             stack_storage = routine.variable_map[self.stack_storage_name]
         else:
             stack_type = SymbolAttributes(
@@ -197,18 +198,35 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
 
-        # Find block loops and assign local stack pointers there
+        # Find first block loop and assign local stack pointers there
         loop_map = {}
         for loop in FindNodes(Loop).visit(routine.body):
             if loop.variable == self.block_dim.index:
-                ptr_assignment = Intrinsic(
-                    f'{stack_ptr.name} = LOC({stack_storage.name}, (1, {loop.variable.name}))'  # pylint: disable=no-member
+                # Check for existing pointer assignment
+                if any(a.lhs == stack_ptr.name for a in FindNodes(Assignment).visit(loop.body)):  # pylint: disable=no-member
+                    break
+
+                ptr_assignment = Assignment(
+                    lhs=stack_ptr, rhs=InlineCall(
+                        function=Variable(name='LOC'),
+                        parameters=(
+                            stack_storage.clone(dimensions=None),
+                            IntrinsicLiteral(f'(1, {loop.variable.name})')
+                        ),
+                        kw_parameters=None
+                    )
                 )
                 # Stack increment
                 stack_incr = Assignment(
-                    lhs=stack_end, rhs=Sum((stack_end, Product((stack_size, Literal(8)))))
+                    lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size, Literal(8)))))
                 )
                 loop_map[loop] = loop.clone(body=(ptr_assignment, stack_incr) + loop.body)
+                break
+        else:
+            warning(
+                f'{self.__class__.__name__}:'
+                'Could not find a block dimension loop; no stack pointer assignment inserted.'
+            )
 
         if loop_map:
             routine.body = Transformer(loop_map).visit(routine.body)
