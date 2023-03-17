@@ -9,8 +9,8 @@ from shutil import rmtree
 
 import pytest
 from loki import (
-    gettempdir, Scheduler, SchedulerConfig, Dimension,
-    FindNodes,
+    gettempdir, Scheduler, SchedulerConfig, Dimension, simplify,
+    FindNodes, FindVariables,
     CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall
 )
 from conftest import available_frontends
@@ -18,24 +18,55 @@ from conftest import available_frontends
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 
 
-@pytest.fixture(scope='module', name='horizontal')
-def fixture_horizontal():
-    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'))
-
-
-@pytest.fixture(scope='module', name='vertical')
-def fixture_vertical():
-    return Dimension(name='vertical', size='nz', index='jk')
-
-
 @pytest.fixture(scope='module', name='blocking')
 def fixture_blocking():
     return Dimension(name='blocking', size='nb', index='b')
 
 
+def check_stack_module_import(routine):
+    assert any(import_.module.lower() == 'stack_mod' for import_ in routine.imports)
+    assert 'stack' in routine.imported_symbols
+
+
+def check_stack_created_in_driver(driver, stack_size, first_kernel_call, generate_driver_stack=True):
+    # Are stack size, storage and stack derived type declared?
+    assert 'istsz' in driver.variables
+    assert 'pstack(:,:)' in driver.variables
+    assert 'ylstack' in driver.variables
+
+    # Is there an allocation and deallocation for the stack storage?
+    allocations = FindNodes(Allocation).visit(driver.body)
+    assert len(allocations) == 1 and 'pstack(istsz,nb)' in allocations[0].variables
+    deallocations = FindNodes(Deallocation).visit(driver.body)
+    assert len(deallocations) == 1 and 'pstack' in deallocations[0].variables
+
+    # Check the stack size
+    assignments = FindNodes(Assignment).visit(driver.body)
+    for assignment in assignments:
+        if assignment.lhs == 'istsz':
+            assert simplify(assignment.rhs) == stack_size
+            break
+
+    # Check for stack assignment inside loop
+    loops = FindNodes(Loop).visit(driver.body)
+    assert len(loops) == 1
+    assignments = FindNodes(Assignment).visit(loops[0].body)
+    assert len(assignments) == 2
+    assert assignments[0].lhs == 'ylstack%l'
+    assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
+    assert 'pstack' in assignments[0].rhs.parameters
+    if generate_driver_stack:
+        assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + istsz * 8'
+    else:
+        assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + 8 * istsz'
+
+    # Check that stack assignment happens before kernel call
+    assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
+
+
 @pytest.mark.parametrize('generate_driver_stack', [False, True])
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pool_allocator_temporaries(frontend, generate_driver_stack, horizontal, vertical, blocking):
+def test_pool_allocator_temporaries(frontend, generate_driver_stack, blocking):
     fcode_stack_import = "use stack_mod, only: stack"
     fcode_stack_decl = """
     integer :: istsz
@@ -113,10 +144,13 @@ end module kernel_mod
         }]
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-    transformation = TemporariesPoolAllocatorTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking
-    )
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=blocking)
     scheduler.process(transformation=transformation, reverse=True)
+    kernel_item = scheduler['kernel_mod#kernel']
+
+    assert transformation._key in kernel_item.trafo_data
+    assert kernel_item.trafo_data[transformation._key] == 'nlon + nlon * nz'
+    assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
 
     #
     # A few checks on the driver
@@ -124,52 +158,22 @@ end module kernel_mod
     driver = scheduler['#driver'].routine
 
     # Has the stack module been imported?
-    assert any(import_.module.lower() == 'stack_mod' for import_ in driver.imports)
-    assert 'stack' in driver.imported_symbols
-
-    # Are stack size, storage and stack derived type declared?
-    assert 'istsz' in driver.variables
-    assert 'pstack(:,:)' in driver.variables
-    assert 'ylstack' in driver.variables
-
-    # Is there an allocation and deallocation for the stack storage?
-    allocations = FindNodes(Allocation).visit(driver.body)
-    assert len(allocations) == 1 and 'pstack(istsz,nb)' in allocations[0].variables
-    deallocations = FindNodes(Deallocation).visit(driver.body)
-    assert len(deallocations) == 1 and 'pstack' in deallocations[0].variables
+    check_stack_module_import(driver)
 
     # Has the stack been added to the call statement?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
-    # Check the stack size
-    # TODO
-
-    # Check for stack assignment inside loop
-    loops = FindNodes(Loop).visit(driver.body)
-    assert len(loops) == 1
-    assignments = FindNodes(Assignment).visit(loops[0].body)
-    assert len(assignments) == 2
-    assert assignments[0].lhs == 'ylstack%l'
-    assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
-    assert 'pstack' in assignments[0].rhs.parameters
-    if generate_driver_stack:
-        assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + istsz * 8'
-    else:
-        assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + 8 * istsz'
-
-    # Check that stack assignment happens before kernel call
-    assert all(loops[0].body.index(a) < loops[0].body.index(calls[0]) for a in assignments)
+    check_stack_created_in_driver(driver, 'nlon + nlon * nz', calls[0], generate_driver_stack)
 
     #
     # A few checks on the kernel
     #
-    kernel = scheduler['kernel_mod#kernel'].routine
+    kernel = kernel_item.routine
 
     # Has the stack module been imported?
-    assert any(import_.module.lower() == 'stack_mod' for import_ in kernel.imports)
-    assert 'stack' in kernel.imported_symbols
+    check_stack_module_import(kernel)
 
     # Has the stack been added to the arguments?
     assert 'ydstack' in kernel.arguments

@@ -6,8 +6,8 @@
 # nor does it submit to any jurisdiction.
 
 from loki import (
-    as_tuple, warning,
-    Transformation, FindNodes, Transformer,
+    as_tuple, warning, simplify,
+    Transformation, FindNodes, Transformer, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, IntrinsicLiteral,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
@@ -21,25 +21,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     """
     Parameters
     ----------
-    horizontal : :any:`Dimension`
-        :any:`Dimension` object describing the variable conventions used in code
-        to define the horizontal data dimension and iteration space.
-    vertical : :any:`Dimension`
-        :any:`Dimension` object describing the variable conventions used in code
-        to define the vertical dimension, as needed to decide array privatization.
     block_dim : :any:`Dimension`
         Optional ``Dimension`` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
     """
 
-    def __init__(self, horizontal, vertical, block_dim,
-                 stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
+    _key = 'TemporariesPoolAllocatorTransformation'
+
+    def __init__(self, block_dim, stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='PSTACK',
                  stack_arg_name='YDSTACK', stack_var_name='YLSTACK', pointer_var_name_pattern='IP_{name}',
-                 **kwargs):
+                 key=None, **kwargs):
         super().__init__(**kwargs)
-        self.horizontal = horizontal
-        self.vertical = vertical
         self.block_dim = block_dim
         self.stack_module_name = stack_module_name
         self.stack_type_name = stack_type_name
@@ -50,6 +43,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.stack_arg_name = stack_arg_name
         self.stack_var_name = stack_var_name
         self.pointer_var_name_pattern = pointer_var_name_pattern
+        if key:
+            self._key = key
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -57,16 +52,23 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         item = kwargs.get('item', None)
         targets = kwargs.get('targets', None)
 
-        if item  and item.local_name != routine.name.lower():
+        if item and item.local_name != routine.name.lower():
             return
+
+        successors = kwargs.get('successors', ())
 
         self.inject_pool_allocator_import(routine)
 
         if role == 'kernel':
-            self.apply_temporaries_pool_allocator(routine)
+            stack_size = self.apply_temporaries_pool_allocator(routine)
+            if item:
+                stack_size = self._determine_stack_size(successors, stack_size)
+                stack_size = DetachScopesMapper()(stack_size)
+                item.trafo_data[self._key] = stack_size
 
         elif role == 'driver':
-            self.create_temporaries_pool_allocator(routine)
+            stack_size = self._determine_stack_size(successors)
+            self.create_temporaries_pool_allocator(routine, stack_size)
 
         self.inject_pool_allocator_into_calls(routine, targets)
 
@@ -108,24 +110,17 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             scope=routine
         )
 
-    def _get_stack_storage_and_size(self, routine):
+    def _get_stack_storage_and_size(self, routine, stack_size):
         variable_map = routine.variable_map
         body_prepend = []
         body_append = []
         variables_append = []
         if self.stack_size_name in variable_map:
-            stack_size = routine.variable_map[self.stack_size_name]
+            stack_size_var = routine.variable_map[self.stack_size_name]
         else:
-            stack_size = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER))
-            stack_size_assign = Assignment(
-                lhs=stack_size,
-                rhs=Product((
-                    Literal(50),
-                    Variable(name=self.horizontal.size, scope=routine),
-                    Variable(name=self.vertical.size, scope=routine)
-                ))
-            )
-            variables_append += [stack_size]
+            stack_size_var = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER))
+            stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
+            variables_append += [stack_size_var]
             body_prepend += [stack_size_assign]
         if self.stack_storage_name in variable_map:
             stack_storage = routine.variable_map[self.stack_storage_name]
@@ -142,7 +137,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_storage]
             stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
-                stack_size, Variable(name=self.block_dim.size, scope=routine)
+                stack_size_var, Variable(name=self.block_dim.size, scope=routine)
             )),))
             body_prepend += [stack_alloc]
             stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member
@@ -153,7 +148,25 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             routine.body.prepend(body_prepend)
         if body_append:
             routine.body.append(body_append)
-        return stack_storage, stack_size
+        return stack_storage, stack_size_var
+
+    def _determine_stack_size(self, successors, local_stack_size=None):
+        # Collect stack sizes for successors
+        stack_sizes = [s.trafo_data[self._key] for s in successors if self._key in s.trafo_data]
+        # Unwind "max" expressions from successors
+        stack_sizes = [
+            d for s in stack_sizes
+            for d in (s.parameters if isinstance(s, InlineCall) and s.function == 'MAX' else [s])
+        ]
+        if local_stack_size:
+            local_stack_size = simplify(local_stack_size)
+            stack_sizes = [simplify(Sum((local_stack_size, s))) for s in stack_sizes]
+        if not stack_sizes:
+            return local_stack_size or Literal(0)
+        if len(stack_sizes) == 1:
+            return stack_sizes[0]
+        stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
+        return stack_size
 
     def _create_stack_allocation(self, stack_ptr, stack_size, ptr_var, arr):
         ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
@@ -174,6 +187,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if isinstance(var, Array) and var not in arguments
         ]
 
+        # Determine size of temporary arrays
+        stack_size = Literal(0)
+        for array in temporary_arrays:
+            dim = array.dimensions[0]
+            for d in array.dimensions[1:]:
+                dim = Product((dim, d))
+            stack_size = Sum((stack_size, dim))
+
         # Create stack argument and local stack var
         stack_var = self._get_stack_var(routine)
         stack_arg = self._get_stack_arg(routine)
@@ -191,9 +212,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         routine.spec.append(declarations)
         routine.body.prepend(allocations)
 
-    def create_temporaries_pool_allocator(self, routine):
+        return stack_size
+
+    def create_temporaries_pool_allocator(self, routine, stack_size):
         # Create and allocate the stack
-        stack_storage, stack_size = self._get_stack_storage_and_size(routine)
+        stack_storage, stack_size = self._get_stack_storage_and_size(routine, stack_size)
         self._get_stack_var(routine)
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
