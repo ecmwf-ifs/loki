@@ -11,7 +11,7 @@ import pytest
 from loki import (
     gettempdir, Scheduler, SchedulerConfig, Dimension,
     FindNodes,
-    CallStatement, Assignment
+    CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall
 )
 from conftest import available_frontends
 
@@ -36,9 +36,10 @@ def fixture_blocking():
 @pytest.mark.parametrize('generate_driver_stack', [False, True])
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_pool_allocator_temporaries(frontend, generate_driver_stack, horizontal, vertical, blocking):
+    fcode_stack_import = "use stack_mod, only: stack"
     fcode_stack_decl = """
     integer :: istsz
-    REAL(KIND=JPRGB), ALLOCATABLE :: PSTACK(:, :)
+    REAL(KIND=JPRB), ALLOCATABLE :: PSTACK(:, :)
     type(stack) :: ylstack
 
     istsz = (nz+1) * nlon
@@ -48,10 +49,11 @@ def test_pool_allocator_temporaries(frontend, generate_driver_stack, horizontal,
         ylstack%l = loc(pstack, (1, b))
         ylstack%u = ylstack%l + 8 * istsz
     """
+    fcode_stack_dealloc = "DEALLOCATE(PSTACK)"
 
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NGPBLK, FIELD1, FIELD2)
-    use stack_mod, only: stack
+    {fcode_stack_import if not generate_driver_stack else ''}
     use kernel_mod, only: kernel
     implicit none
     INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
@@ -64,6 +66,7 @@ subroutine driver(NLON, NZ, NGPBLK, FIELD1, FIELD2)
         {fcode_stack_assign if not generate_driver_stack else ''}
         call KERNEL(nlon, nz, field1(:,b), field2(:,:,b))
     end do
+    {fcode_stack_dealloc if not generate_driver_stack else ''}
 end subroutine driver
     """.strip()
     fcode_kernel = """
@@ -120,10 +123,44 @@ end module kernel_mod
     #
     driver = scheduler['#driver'].routine
 
+    # Has the stack module been imported?
+    assert any(import_.module.lower() == 'stack_mod' for import_ in driver.imports)
+    assert 'stack' in driver.imported_symbols
+
+    # Are stack size, storage and stack derived type declared?
+    assert 'istsz' in driver.variables
+    assert 'pstack(:,:)' in driver.variables
+    assert 'ylstack' in driver.variables
+
+    # Is there an allocation and deallocation for the stack storage?
+    allocations = FindNodes(Allocation).visit(driver.body)
+    assert len(allocations) == 1 and 'pstack(istsz,nb)' in allocations[0].variables
+    deallocations = FindNodes(Deallocation).visit(driver.body)
+    assert len(deallocations) == 1 and 'pstack' in deallocations[0].variables
+
     # Has the stack been added to the call statement?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
+
+    # Check the stack size
+    # TODO
+
+    # Check for stack assignment inside loop
+    loops = FindNodes(Loop).visit(driver.body)
+    assert len(loops) == 1
+    assignments = FindNodes(Assignment).visit(loops[0].body)
+    assert len(assignments) == 2
+    assert assignments[0].lhs == 'ylstack%l'
+    assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
+    assert 'pstack' in assignments[0].rhs.parameters
+    if generate_driver_stack:
+        assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + istsz * 8'
+    else:
+        assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + 8 * istsz'
+
+    # Check that stack assignment happens before kernel call
+    assert all(loops[0].body.index(a) < loops[0].body.index(calls[0]) for a in assignments)
 
     #
     # A few checks on the kernel
@@ -175,8 +212,5 @@ end module kernel_mod
     # Check for stack size safegurads in generated code
     assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
     assert fcode.lower().count('stop') == 2
-
-    if generate_driver_stack:
-        breakpoint()
 
     rmtree(basedir)
