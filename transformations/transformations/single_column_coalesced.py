@@ -570,11 +570,11 @@ class SingleColumnCoalescedTransformation(Transformation):
 
             if self.hoist_column_arrays:
                 # Mark routine as `!$acc routine seq` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine seq'))
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
 
             else:
                 # Mark routine as `!$acc routine vector` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine vector'))
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
 
     def process_driver(self, routine, targets=None):
         """
