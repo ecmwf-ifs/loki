@@ -54,7 +54,7 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
     assert len(assignments) == 2
     assert assignments[0].lhs == 'ylstack%l'
     assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
-    assert 'pstack' in assignments[0].rhs.parameters
+    assert 'pstack(1, b)' in assignments[0].rhs.parameters
     if generate_driver_stack:
         assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + istsz * 8'
     else:
@@ -77,18 +77,18 @@ def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim):
     ALLOCATE(PSTACK(ISTSZ, nb))
     """
     fcode_stack_assign = """
-        ylstack%l = loc(pstack, (1, b))
+        ylstack%l = loc(pstack(1, b))
         ylstack%u = ylstack%l + 8 * istsz
     """
     fcode_stack_dealloc = "DEALLOCATE(PSTACK)"
 
     fcode_driver = f"""
-subroutine driver(NLON, NZ, NGPBLK, FIELD1, FIELD2)
+subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     {fcode_stack_import if not generate_driver_stack else ''}
     use kernel_mod, only: kernel
     implicit none
     INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
-    INTEGER, INTENT(IN) :: NLON, NZ, NGPBLK
+    INTEGER, INTENT(IN) :: NLON, NZ, NB
     real(kind=jprb), intent(inout) :: field1(nlon, nb)
     real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
     integer :: b
@@ -104,17 +104,17 @@ end subroutine driver
 module kernel_mod
     implicit none
 contains
-    subroutine kernel(start, end, nlon, nz, field1, field2)
+    subroutine kernel(start, end, klon, klev, field1, field2)
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
-        integer, intent(in) :: start, end, nlon, nz
-        real(kind=jprb), intent(inout) :: field1(nlon)
-        real(kind=jprb), intent(inout) :: field2(nlon,nz)
-        real(kind=jprb) :: tmp1(nlon)
-        real(kind=jprb) :: tmp2(nlon, nz)
+        integer, intent(in) :: start, end, klon, klev
+        real(kind=jprb), intent(inout) :: field1(klon)
+        real(kind=jprb), intent(inout) :: field2(klon,klev)
+        real(kind=jprb) :: tmp1(klon)
+        real(kind=jprb) :: tmp2(klon, klev)
         integer :: jk, jl
 
-        do jk=1,nz
+        do jk=1,klev
             tmp1(jl) = 0.0_jprb
             do jl=start,end
                 tmp2(jl, jk) = field2(jl, jk)
@@ -149,7 +149,7 @@ end module kernel_mod
     kernel_item = scheduler['kernel_mod#kernel']
 
     assert transformation._key in kernel_item.trafo_data
-    assert kernel_item.trafo_data[transformation._key] == 'nlon + nlon * nz'
+    assert kernel_item.trafo_data[transformation._key] == 'klon + klev * klon'
     assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
 
     #
@@ -223,11 +223,11 @@ end module kernel_mod
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim):
     fcode_driver = """
-subroutine driver(NLON, NZ, NGPBLK, FIELD1, FIELD2)
+subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel, kernel2
     implicit none
     INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
-    INTEGER, INTENT(IN) :: NLON, NZ, NGPBLK
+    INTEGER, INTENT(IN) :: NLON, NZ, NB
     real(kind=jprb), intent(inout) :: field1(nlon, nb)
     real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
     integer :: b
@@ -243,17 +243,17 @@ end subroutine driver
 module kernel_mod
     implicit none
 contains
-    subroutine kernel(start, end, nlon, nz, field1, field2)
+    subroutine kernel(start, end, klon, klev, field1, field2)
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
-        integer, intent(in) :: start, end, nlon, nz
-        real(kind=jprb), intent(inout) :: field1(nlon)
-        real(kind=jprb), intent(inout) :: field2(nlon,nz)
-        real(kind=jprb) :: tmp1(nlon)
-        real(kind=jprb) :: tmp2(nlon, nz)
+        integer, intent(in) :: start, end, klon, klev
+        real(kind=jprb), intent(inout) :: field1(klon)
+        real(kind=jprb), intent(inout) :: field2(klon,klev)
+        real(kind=jprb) :: tmp1(klon)
+        real(kind=jprb) :: tmp2(klon, klev)
         integer :: jk, jl
 
-        do jk=1,nz
+        do jk=1,klev
             tmp1(jl) = 0.0_jprb
             do jl=start,end
                 tmp2(jl, jk) = field2(jl, jk)
@@ -263,15 +263,15 @@ contains
         end do
     end subroutine kernel
 
-    subroutine kernel2(start, end, nlon, nz, field2)
+    subroutine kernel2(start, end, klon, klev, field2)
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
-        integer, intent(in) :: start, end, nlon, nz
-        real(kind=jprb), intent(inout) :: field2(nlon,nz)
-        real(kind=jprb) :: tmp1(nlon, nz), tmp2(nlon, nz)
+        integer, intent(in) :: start, end, klon, klev
+        real(kind=jprb), intent(inout) :: field2(klon,klev)
+        real(kind=jprb) :: tmp1(klon, klev), tmp2(klon, klev)
         integer :: jk, jl
 
-        do jk=1,nz
+        do jk=1,klev
             do jl=start,end
                 tmp1(jl, jk) = field2(jl, jk)
                 tmp2(jl, jk) = tmp1(jl, jk) + 1._jprb
@@ -307,8 +307,8 @@ end module kernel_mod
     kernel2_item = scheduler['kernel_mod#kernel2']
 
     assert transformation._key in kernel_item.trafo_data
-    assert kernel_item.trafo_data[transformation._key] == 'nlon + nlon * nz'
-    assert kernel2_item.trafo_data[transformation._key] == '2 * nlon * nz'
+    assert kernel_item.trafo_data[transformation._key] == 'klon + klev * klon'
+    assert kernel2_item.trafo_data[transformation._key] == '2 * klev * klon'
     assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
     assert all(v.scope is None for v in FindVariables().visit(kernel2_item.trafo_data[transformation._key]))
 
@@ -326,7 +326,7 @@ end module kernel_mod
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
     assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)', 'ylstack')
 
-    check_stack_created_in_driver(driver, 'max(nlon + nlon * nz, 2 * nlon * nz)', calls[0], 2)
+    check_stack_created_in_driver(driver, 'max(nlon + nlon * nz, 2 * nz * nlon)', calls[0], 2)
 
     #
     # A few checks on the kernel
@@ -385,11 +385,11 @@ end module kernel_mod
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim):
     fcode_driver = """
-subroutine driver(NLON, NZ, NGPBLK, FIELD1, FIELD2)
+subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel
     implicit none
     INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
-    INTEGER, INTENT(IN) :: NLON, NZ, NGPBLK
+    INTEGER, INTENT(IN) :: NLON, NZ, NB
     real(kind=jprb), intent(inout) :: field1(nlon, nb)
     real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
     integer :: b
@@ -402,17 +402,17 @@ end subroutine driver
 module kernel_mod
     implicit none
 contains
-    subroutine kernel(start, end, nlon, nz, field1, field2)
+    subroutine kernel(start, end, klon, klev, field1, field2)
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
-        integer, intent(in) :: start, end, nlon, nz
-        real(kind=jprb), intent(inout) :: field1(nlon)
-        real(kind=jprb), intent(inout) :: field2(nlon,nz)
-        real(kind=jprb) :: tmp1(nlon)
-        real(kind=jprb) :: tmp2(nlon, nz)
+        integer, intent(in) :: start, end, klon, klev
+        real(kind=jprb), intent(inout) :: field1(klon)
+        real(kind=jprb), intent(inout) :: field2(klon,klev)
+        real(kind=jprb) :: tmp1(klon)
+        real(kind=jprb) :: tmp2(klon, klev)
         integer :: jk, jl
 
-        do jk=1,nz
+        do jk=1,klev
             tmp1(jl) = 0.0_jprb
             do jl=start,end
                 tmp2(jl, jk) = field2(jl, jk)
@@ -421,18 +421,18 @@ contains
             field1(jl) = tmp1(jl)
         end do
 
-        call kernel2(start, end, nlon, nz, field2)
+        call kernel2(start, end, klon, klev, field2)
     end subroutine kernel
 
-    subroutine kernel2(start, end, nlon, nz, field2)
+    subroutine kernel2(start, end, columns, levels, field2)
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
-        integer, intent(in) :: start, end, nlon, nz
-        real(kind=jprb), intent(inout) :: field2(nlon,nz)
-        real(kind=jprb) :: tmp1(nlon, nz), tmp2(nlon, nz)
+        integer, intent(in) :: start, end, columns, levels
+        real(kind=jprb), intent(inout) :: field2(columns,levels)
+        real(kind=jprb) :: tmp1(columns, levels), tmp2(columns, levels)
         integer :: jk, jl
 
-        do jk=1,nz
+        do jk=1,levels
             do jl=start,end
                 tmp1(jl, jk) = field2(jl, jk)
                 tmp2(jl, jk) = tmp1(jl, jk) + 1._jprb
