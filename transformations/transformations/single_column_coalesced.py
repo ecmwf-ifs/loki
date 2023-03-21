@@ -636,7 +636,8 @@ class SingleColumnCoalescedTransformation(Transformation):
                         if loop.pragma[0].keyword == 'acc' and 'data' in loop.pragma[0].content:
                             p_content = f'parallel loop gang{private_clause}'
                             loop._update(pragma=(loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
-                            loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'), loop.pragma_post[0]))
+                            loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
+                                                      loop.pragma_post[0]))
 
                 # Apply hoisting of temporary "column arrays"
                 if self.hoist_column_arrays:
