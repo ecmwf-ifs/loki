@@ -14,7 +14,7 @@ from loki.expression import FindVariables, Array, FindInlineCalls, ProcedureSymb
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.visitors import Visitor, Transformer
-from loki import Subroutine
+from loki.subroutine import Subroutine
 
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
