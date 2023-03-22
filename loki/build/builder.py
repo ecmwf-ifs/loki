@@ -8,7 +8,7 @@
 import sys
 from pathlib import Path
 from collections import deque
-from importlib import import_module, reload
+from importlib import import_module, reload, invalidate_caches
 from operator import attrgetter
 import networkx as nx
 
@@ -155,7 +155,15 @@ class Builder:
         if module in sys.modules:
             reload(sys.modules[module])
             return sys.modules[module]
-        return import_module(module)
+
+        try:
+            # Attempt to load module directly
+            return import_module(module)
+        except ModuleNotFoundError:
+            # If module caching interferes, try again with clean caches
+            invalidate_caches()
+            return import_module(module)
+
 
     def wrap_and_load(self, sources, modname=None, build=True,
                       libs=None, lib_dirs=None, incl_dirs=None,

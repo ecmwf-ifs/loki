@@ -35,15 +35,22 @@ def fixture_here():
 
 def load_module(path):
     path = Path(path)
-    return importlib.import_module(path.stem)
+
+    # Trigger the actual module import
+    try:
+        return importlib.import_module(path.stem)
+    except ModuleNotFoundError:
+        # If module caching interferes, try again with clean caches
+        importlib.invalidate_caches()
+        return importlib.import_module(path.stem)
 
 
 def create_sdfg(routine, here):
-    trafo = FortranPythonTransformation()
-    routine.apply(trafo, path=here, with_dace=True)
+    trafo = FortranPythonTransformation(with_dace=True, suffix='_py')
+    routine.apply(trafo, path=here)
 
     mod = load_module(trafo.py_path)
-    function = getattr(mod, f'{routine.name}_py')
+    function = getattr(mod, routine.name)
     return function.to_sdfg()
 
 
@@ -92,7 +99,7 @@ end subroutine routine_copy
     assert all(x_ref == y)
 
     clean_test(filepath)
-    (here / (routine.name + '_py.py')).unlink()
+    (here / (routine.name + '.py')).unlink()
 
 
 @pytest.mark.xfail(reason='Scalar inout arguments do not work in dace')
@@ -138,7 +145,7 @@ end subroutine routine_axpy_scalar
     assert x_out == a * x + y
 
     clean_test(filepath)
-    (here / (routine.name + '_py.py')).unlink()
+    (here / (routine.name + '.py')).unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -187,7 +194,7 @@ end subroutine routine_copy_stream
     assert np.all(vec_out == np.array(range(length)) + alpha)
 
     clean_test(filepath)
-    (here / (routine.name + '_py.py')).unlink()
+    (here / (routine.name + '.py')).unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -249,7 +256,7 @@ end subroutine routine_fixed_loop
     assert np.all(tensor_out == ref_tensor)
 
     clean_test(filepath)
-    (here / (routine.name + '_py.py')).unlink()
+    (here / (routine.name + '.py')).unlink()
 
 
 @pytest.mark.skip(reason=('This translates successfully but the generated OpenMP code does not '
@@ -297,7 +304,7 @@ end subroutine routine_loop_carried_dependency
     assert np.all(vector == ref_vector)
 
     clean_test(filepath)
-    (here / (routine.name + '_py.py')).unlink()
+    (here / (routine.name + '.py')).unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -376,4 +383,4 @@ end subroutine routine_moving_average
     assert np.all(data_out[1:-1] == expected[1:-1])
 
     clean_test(filepath)
-    (here / (routine.name + '_py.py')).unlink()
+    (here / (routine.name + '.py')).unlink()

@@ -18,7 +18,7 @@ from loki.expression import (
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
-from loki.ir import Import, TypeDef, VariableDeclaration
+from loki.ir import Import, TypeDef, VariableDeclaration, StatementFunction
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
@@ -86,14 +86,28 @@ def convert_to_lower_case(routine):
 
     # Force all variables in a subroutine body to lower-caps
     variables = FindVariables(unique=False).visit(routine.ir)
-    vmap = {v: v.clone(name=v.name.lower()) for v in variables
-            if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
+    vmap = {
+        v: v.clone(name=v.name.lower()) for v in variables
+        if isinstance(v, (sym.Scalar, sym.Array, sym.DeferredTypeSymbol)) and not v.name.islower()
+    }
 
     # Capture nesting by applying map to itself before applying to the routine
     vmap = recursive_expression_map_update(vmap)
-
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+
+    # Downcase inline calls to, but only after the above has been propagated,
+    # so that we  capture the updates from the variable update in the arguments
+    mapper = {
+        c: c.clone(function=c.function.clone(name=c.name.lower()))
+        for c in FindInlineCalls().visit(routine.ir) if not c.name.islower()
+    }
+    mapper.update(
+        (stmt.variable, stmt.variable.clone(name=stmt.variable.name.lower()))
+        for stmt in FindNodes(StatementFunction).visit(routine.spec)
+    )
+    routine.spec = SubstituteExpressions(mapper).visit(routine.spec)
+    routine.body = SubstituteExpressions(mapper).visit(routine.body)
 
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensitive=False):
@@ -119,13 +133,14 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
         function_map = CaseInsensitiveDict(function_map)
 
     callmap = {}
-    for call in FindInlineCalls(unique=False).visit(routine.body):
+    for call in FindInlineCalls(unique=False).visit(routine.ir):
         if call.name in symbol_map:
             callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
 
         if call.name in function_map:
             callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
 
+    routine.spec = SubstituteExpressions(callmap).visit(routine.spec)
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
 
 

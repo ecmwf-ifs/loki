@@ -9,9 +9,11 @@ from pathlib import Path
 
 from loki.backend import pygen, dacegen
 from loki import ir
+from loki.expression import (
+    symbols as sym, FindInlineCalls, SubstituteExpressions
+)
 from loki.pragma_utils import pragmas_attached
 from loki.sourcefile import Sourcefile
-from loki.subroutine import Subroutine
 from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
@@ -20,7 +22,7 @@ from loki.transform.transform_associates import resolve_associates
 from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics
 )
-from loki.visitors import Transformer
+from loki.visitors import FindNodes, Transformer
 
 
 __all__ = ['FortranPythonTransformation']
@@ -28,47 +30,82 @@ __all__ = ['FortranPythonTransformation']
 
 class FortranPythonTransformation(Transformation):
     """
-    A transformer class to convert Fortran to Python.
+    A transformer class to convert Fortran to Python or DaCe.
+
+    This :any:`Transformation` will generate Python code from a
+    given Fortran routine, and if configured, annotate it with DaCe
+    dataflow pragmas.
+
+    Parameters
+    ----------
+    with_dace : bool
+        Generate DaCe-specific Python code via :any:`dacegen` backend.
+        This option implies inverted array indexing; default: ``False``
+    invert_indices : bool
+        Switch to C-style indexing (row-major) with fastest loop
+        indices being used rightmost; default: ``False``
+    suffix : str
+        Optional suffix to append to converted routine names.
     """
+
+    def __init__(self, **kwargs):
+        self.with_dace = kwargs.pop('with_dace', False)
+        self.invert_indices = kwargs.pop('invert_indices', False)
+        self.suffix = kwargs.pop('suffix', '')
 
     def transform_subroutine(self, routine, **kwargs):
         path = Path(kwargs.get('path'))
 
-        # Generate Python kernel
-        kernel = self.generate_kernel(routine, **kwargs)
-        self.py_path = (path/kernel.name.lower()).with_suffix('.py')
-        self.mod_name = kernel.name.lower()
-        # Need to attach Loop pragmas to honour dataflow pragmas for loops
-        with pragmas_attached(kernel, ir.Loop):
-            source = dacegen(kernel) if kwargs.get('with_dace', False) is True else pygen(kernel)
-        Sourcefile.to_file(source=source, path=self.py_path)
+        # Rename subroutine to generate Python kernel
+        routine.name = f'{routine.name}{self.suffix}'.lower()
 
-    @classmethod
-    def generate_kernel(cls, routine, **kwargs):
-        # Replicate the kernel to strip the Fortran-specific boilerplate
-        spec = ir.Section(body=())
-        body = ir.Section(body=Transformer({}).visit(routine.body))
-        kernel = Subroutine(name=f'{routine.name}_py', spec=spec, body=body)
-        kernel.arguments = routine.arguments
-        kernel.variables = routine.variables
+        # Remove all "IMPLICT" intrinsic statements
+        mapper = {
+            i: None for i in FindNodes(ir.Intrinsic).visit(routine.spec)
+            if 'implicit' in i.text.lower()
+        }
+        routine.spec = Transformer(mapper).visit(routine.spec)
 
         # Force all variables to lower-caps, as Python is case-sensitive
-        convert_to_lower_case(kernel)
+        convert_to_lower_case(routine)
 
         # Resolve implicit struct mappings through "associates"
-        resolve_associates(kernel)
+        resolve_associates(routine)
 
         # Do some vector and indexing transformations
-        normalize_range_indexing(kernel)
-        if kwargs.get('with_dace', False) is True:
-            invert_array_indices(kernel)
-        shift_to_zero_indexing(kernel)
+        normalize_range_indexing(routine)
+        if self.with_dace or self.invert_indices:
+            invert_array_indices(routine)
+        shift_to_zero_indexing(routine)
 
         # We replace calls to intrinsic functions with their Python counterparts
         # Note that this substitution is case-insensitive, and therefore we have
         # this seemingly identity mapping to make sure Python function names are
         # lower-case
-        intrinsic_map = {'min': 'min', 'max': 'max', 'abs': 'abs'}
-        replace_intrinsics(kernel, function_map=intrinsic_map)
+        intrinsic_map = {
+            'min': 'min', 'max': 'max', 'abs': 'abs',
+            'exp': 'np.exp', 'sqrt': 'np.sqrt',
+        }
+        replace_intrinsics(routine, function_map=intrinsic_map)
 
-        return kernel
+        # Sign intrinsic function takes a little more thought
+        sign_map = {}
+        for c in FindInlineCalls(unique=False).visit(routine.ir):
+            if c.function == 'sign':
+                assert len(c.parameters) == 2
+                sign = sym.InlineCall(
+                    function=sym.ProcedureSymbol(name='np.sign', scope=routine),
+                    parameters=(c.parameters[1],)
+                )
+                sign_map[c] = sym.Product((c.parameters[0], sign))
+
+        routine.spec = SubstituteExpressions(sign_map).visit(routine.spec)
+        routine.body = SubstituteExpressions(sign_map).visit(routine.body)
+
+        # Rename subroutine to generate Python kernel
+        self.py_path = (path/routine.name.lower()).with_suffix('.py')
+        self.mod_name = routine.name.lower()
+        # Need to attach Loop pragmas to honour dataflow pragmas for loops
+        with pragmas_attached(routine, ir.Loop):
+            source = dacegen(routine) if self.with_dace else pygen(routine)
+        Sourcefile.to_file(source=source, path=self.py_path)
