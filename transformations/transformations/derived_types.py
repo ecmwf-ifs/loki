@@ -9,7 +9,7 @@
 Transformations dealing with derived types in subroutines and
 derived-type arguments in complex calling structures.
 
- * DerivedTypeArgumentsExpansionTransformation:
+ * DerivedTypeArgumentsTransformation:
         Transformation to resolve array-of-structure (AOS) uses of derived-type
         variables to explicitly expose arrays from which to hoist dimensions.
 """
@@ -33,6 +33,32 @@ __all__ = ['DerivedTypeArgumentsTransformation', 'TypeboundProcedureCallTransfor
 
 
 class DerivedTypeArgumentsTransformation(Transformation):
+    """
+    Remove derived types from procedure signatures by replacing the
+    relevant derived type arguments by its member variables
+
+    .. note::
+       This transformation requires a Scheduler traversal that
+       processes callees before callers.
+
+    On the caller side, this updates calls to transformed subroutines
+    and functions by passing the relevant derived type member variables
+    instead of the original derived type argument. This uses information
+    from previous application of this transformation to the called
+    procedure.
+    For calls to elemental routines, this may include the hoisting of
+    a dimension expression to the caller. Where this dimension
+    expression requires additional module variable imports, these
+    imports are added on the caller side and the ``imports``
+    cached property on the callers :any:`Item` is invalidated.
+
+    On the callee side, this identifies derived type member variable
+    usage, builds an expansion mapping, updates the procedure's
+    signature accordingly, and substitutes the variable's use inside
+    the routine. The information about the expansion map is stored
+    in the :any:`Item`'s ``trafo_data``.
+    See :meth:`expand_derived_args_kernel` for more information.
+    """
 
     _key = 'DerivedTypeArgumentsTransformation'
 
@@ -169,6 +195,19 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
     @staticmethod
     def _expand_relative_to_local_var(local_var, expansion_components):
+        """
+        Utility routine that returns an expanded (nested) derived type argument
+        relative to the local derived type variable declared on caller side
+
+        Example: A subroutine that previously accepted a derived type argument
+        ``some_arg`` uses only a member variable ``some_arg%nested_thing%var``,
+        which is now replaced in the procedure interface by
+        ``some_arg_nested_thing_var``. On the caller side, ``local_var`` is the
+        instance of the derived type argument that used to be passed to the
+        subroutine call. This utility routine determines and returns
+        the new call argument ``local_var%nested_thing%var`` that has to be
+        passed instead.
+        """
         # We build the name bit-by-bit to obtain nested derived type arguments
         # relative to the local derived type variable
         for child in expansion_components:
@@ -181,6 +220,16 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
     @classmethod
     def _expand_call_argument_dimensions(cls, call, expanded_arg, orig_argnames):
+        """
+        Utility routine that expands the dimension expression in a derived type
+        argument expansion by matching symbols in the expression against other
+        procedure arguments. Imported module level symbols or parameters that
+        are used in the expression are identified and returned.
+
+        The return value is a 2-tuple consisting of the dimension expression,
+        where arguments are substituted with their caller-side expressions, and
+        a set that contains parameters and module variables.
+        """
         if not getattr(expanded_arg, 'dimensions', None):
             return None, set()
 
@@ -209,6 +258,16 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
     @classmethod
     def _expand_call_argument(cls, call, caller_arg, expansion_list, orig_argnames):
+        """
+        Utility routine to expand :data:`caller_arg` in a subroutine call :data:`call`
+        according to the provided :data:`expansion_list` and original arguments of the
+        call target, as given in :data:`orig_argnames
+
+        It returns a 2-tuple consisting of a list of new arguments and other symbols
+        that become relevant on the caller side as a consequence of expanding a
+        dimension expression, needing either a matching parameter declaration or module
+        import.
+        """
         other_symbols = set()
 
         # Found derived-type argument, unroll according to candidate map
@@ -275,6 +334,10 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
     @staticmethod
     def _expand_kernel_variable(var, var_cache=None, **kwargs):
+        """
+        Utility routine that yields the expanded variable in the
+        kernel for a given derived type variable member use :data:`var`
+        """
         if var_cache is not None and var in var_cache:
             # If we have a variable cache with var already in there,
             # we can directly return that
@@ -297,6 +360,17 @@ class DerivedTypeArgumentsTransformation(Transformation):
         return var.clone(name=new_name, parent=None, **kwargs)
 
     def expand_derived_args_kernel(self, routine):
+        """
+        Find the use of member variables for derived type arguments of
+        :data:`routine`, update the call signature to directly pass the
+        variable and substitute its use in the routine's body.
+
+        Note that this will only carry out replacements for derived types
+        that contain an allocatable, pointer, or nested derived type member.
+
+        See :meth:`expand_derived_type_member` for more details on how
+        the expansion is performed.
+        """
         is_elemental_routine = is_elemental(routine)
         if is_elemental_routine:
             var_cache = self._VariableCache()
@@ -439,9 +513,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
         parents = var.parents
         if not parents:
             return var, None, None
-
-        # if not (getattr(var, 'shape', None) or isinstance(var.type.dtype, DerivedType)):
-        #     return var.name.lower(), None
 
         if is_elemental_routine:
             # In elemental routines, we can have scalar derived type arguments with
