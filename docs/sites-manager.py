@@ -114,7 +114,7 @@ def upload(ctx, local_path, remote_path, clean):
             my_site_manager.delete(remote_path=remote_path, recursive=True)
         except ApiCallException:
             pass
-    my_site_manager.upload(local_path=local_path, remote_path=remote_path)
+    my_site_manager.upload(local_path=local_path, remote_path=remote_path, recursive=True)
 
 
 @cli.command(short_help='Download a remote path')
