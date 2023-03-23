@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
+
 """
 Specialised test that exercises the bulk-processing capabilities and
 source-injection mechanism provided by the `loki.scheduler` and
