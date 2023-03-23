@@ -121,7 +121,7 @@ macro( _loki_transform_parse_convert_args _func_name )
         ecbuild_critical( "No DEPENDS specified for ${_func_name}()" )
     endif()
 
-    if( ${_PAR_CPP} )
+    if( _PAR_CPP )
         list( APPEND _ARGS --cpp )
     endif()
 
@@ -456,6 +456,10 @@ macro( _loki_transform_parse_target_args _func_name )
         ecbuild_critical( "No MODE specified for ${_func_name}()" )
     endif()
 
+    if( _PAR_CPP )
+        list( APPEND _ARGS --cpp )
+    endif()
+
     if( _PAR_CONFIG )
         list( APPEND _ARGS --config ${_PAR_CONFIG} )
     else()
@@ -485,6 +489,7 @@ endmacro()
 #   loki_transform_plan(
 #       MODE <mode>
 #       FRONTEND <frontend>
+#       [CPP]
 #       [CONFIG <config-file>]
 #       [BUILDDIR <build-path>]
 #       [NO_SOURCEDIR | SOURCEDIR <source-path>]
@@ -501,7 +506,7 @@ endmacro()
 
 function( loki_transform_plan )
 
-    set( options NO_SOURCEDIR )
+    set( options NO_SOURCEDIR CPP )
     set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR SOURCEDIR CALLGRAPH PLAN )
     set( multiValueArgs SOURCES HEADERS )
 
@@ -558,6 +563,7 @@ endfunction()
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       MODE <mode>
 #       CONFIG <config-file>
+#       [CPP]
 #       [FRONTEND <frontend>]
 #       [BUILDDIR <build-path>]
 #       [SOURCES <source1> [<source2> ...]]
@@ -578,7 +584,7 @@ endfunction()
 
 function( loki_transform_command )
 
-    set( options "" )
+    set( options CPP )
     set( oneValueArgs COMMAND MODE FRONTEND CONFIG BUILDDIR )
     set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS )
 
@@ -668,6 +674,7 @@ endfunction()
 #       MODE <mode>
 #       CONFIG <config-file>
 #       PLAN <plan-file>
+#       [CPP] [CPP_PLAN]
 #       [FRONTEND <frontend>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
@@ -686,6 +693,9 @@ endfunction()
 # where ``<command>`` is provided via ``COMMAND``. If none is given, this defaults
 # to ``ecphys``.
 #
+# Preprocessing of source files during plan or transformation stage can be
+# enabled using ``CPP_PLAN`` and ``CPP`` options, respectively.
+#
 # ``NO_PLAN_SOURCEDIR`` can optionally be specified to call the plan stage without
 # an explicit root directory. That means, Loki will generate absolute paths in the
 # CMake plan file. This requires the ``SOURCES`` of the target to transform also
@@ -698,7 +708,7 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED )
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN )
     set( single_value_args TARGET COMMAND MODE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS )
 
@@ -724,29 +734,25 @@ function( loki_transform_target )
     configure_file( ${_PAR_CONFIG} ${CMAKE_CURRENT_BINARY_DIR}/loki_${_PAR_TARGET}.config )
 
     # Create the bulk-transformation plan
-    if( _PAR_NO_PLAN_SOURCEDIR )
-        loki_transform_plan(
-            MODE      ${_PAR_MODE}
-            CONFIG    ${_PAR_CONFIG}
-            FRONTEND  ${_PAR_FRONTEND}
-            SOURCES   ${_PAR_SOURCES}
-            PLAN      ${_PAR_PLAN}
-            CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_TARGET}
-            BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
-            NO_SOURCEDIR
-        )
-    else()
-        loki_transform_plan(
-            MODE      ${_PAR_MODE}
-            CONFIG    ${_PAR_CONFIG}
-            FRONTEND  ${_PAR_FRONTEND}
-            SOURCES   ${_PAR_SOURCES}
-            PLAN      ${_PAR_PLAN}
-            CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_TARGET}
-            BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
-            SOURCEDIR ${CMAKE_CURRENT_SOURCE_DIR}
-        )
+    set( _PLAN_OPTIONS "" )
+    if( _PAR_CPP_PLAN )
+        list( APPEND _PLAN_OPTIONS CPP )
     endif()
+    if( _PAR_NO_PLAN_SOURCEDIR )
+        list( APPEND _PLAN_OPTIONS NO_SOURCEDIR )
+    endif()
+
+    loki_transform_plan(
+        MODE      ${_PAR_MODE}
+        CONFIG    ${_PAR_CONFIG}
+        FRONTEND  ${_PAR_FRONTEND}
+        SOURCES   ${_PAR_SOURCES}
+        PLAN      ${_PAR_PLAN}
+        CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_TARGET}
+        BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
+        SOURCEDIR ${CMAKE_CURRENT_SOURCE_DIR}
+        ${_PLAN_OPTIONS}
+    )
 
     # Import the generated plan
     include( ${_PAR_PLAN} )
@@ -760,6 +766,11 @@ function( loki_transform_target )
     if ( LOKI_APPEND_LENGTH GREATER 0 )
 
         # Apply the bulk-transformation according to the plan
+        set( _TRANSFORM_OPTIONS "" )
+        if( _PAR_CPP )
+            list( APPEND _TRANSFORM_OPTIONS CPP )
+        endif()
+
         loki_transform_command(
             COMMAND   ${_PAR_COMMAND}
             OUTPUT    ${LOKI_SOURCES_TO_APPEND}
@@ -770,6 +781,7 @@ function( loki_transform_target )
             SOURCES   ${_PAR_SOURCES}
             HEADERS   ${_PAR_HEADERS}
             DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_HEADER} ${_PAR_CONFIG}
+            ${_TRANSFORM_OPTIONS}
         )
     endif()
 
