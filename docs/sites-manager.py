@@ -9,7 +9,9 @@
 
 import os
 import click
-from sites.toolkit.file_manager import Authenticator, FileManager, Site
+from sites.sdk import SitesClient
+from sites.sdk.sites import Site, Authenticator
+from sites.sdk.sites.site_content import ApiCallException
 
 class NotRequiredIf(click.Option):
     """
@@ -33,8 +35,9 @@ class NotRequiredIf(click.Option):
         if other_present:
             if we_are_present:
                 raise click.UsageError(
-                    "Illegal usage: `%s` is mutually exclusive with `%s`" % (
-                        self.name, self.not_required_if))
+                    f"Illegal usage: `{self.name}` is mutually exclusive with "
+                    f"`{self.not_required_if}`"
+                )
             self.prompt = None
 
         return super().handle_parse_result(ctx, opts, args)
@@ -49,26 +52,28 @@ def get_file_manager(ctx):
 
     # Authenticate against Site
     if ctx.obj['token']:
-        my_authenticator = Authenticator.from_token(token=ctx.obj['token'])
+        sites_authenticator = Authenticator.from_token(token=ctx.obj['token'])
     else:
         if not ctx.obj['password']:
             ctx.obj['password'] = click.prompt('Password', hide_input=True)
-        my_authenticator = Authenticator.from_credentials(username=ctx.obj['username'],
-                                                          password=ctx.obj['password'])
+        if not ctx.obj['totp']:
+            ctx.obj['totp'] = click.prompt('TOTP', hide_input=False)
+        sites_authenticator = Authenticator.from_credentials(
+            username=ctx.obj['username'],
+            password=ctx.obj['password'],
+            otp=ctx.obj['totp']
+        )
 
     # Connect to the selected site...
-    if ctx.obj['use_stage']:
-        my_site = Site(space=ctx.obj['space'], name=ctx.obj['name'],
-                       authenticator=my_authenticator,
-                       sites_base_url='https://sites-stage.ecmwf.int')
-    else:
-        my_site = Site(space=ctx.obj['space'], name=ctx.obj['name'],
-                       authenticator=my_authenticator)
+    site = Site.from_space_and_name(
+        space=ctx.obj['space'], name=ctx.obj['name']
+    )
+    client = SitesClient(authenticator=sites_authenticator)
 
     # ...and create a file manager
-    my_site_manager = FileManager(site=my_site)
+    site_content_manager = client.content(site=site)
 
-    return my_site_manager
+    return site_content_manager
 
 
 @click.group()
@@ -78,19 +83,17 @@ def get_file_manager(ctx):
 @click.option('--username', help='Username for authentication',
               default=lambda: os.environ.get('USER', ''), show_default='current user',
               cls=NotRequiredIf, not_required_if='token')
-@click.option('--password', help='Password for authentication')#, prompt=True,
-#              hide_input=True, cls=NotRequiredIf, not_required_if='token')
-@click.option('--use-stage', help='Use staging hub (https://sites-stage.ecmwf.int)',
-              is_flag=True, default=False)
+@click.option('--password', help='Password for authentication')
+@click.option('--totp', help='One time password for authentication')
 @click.pass_context
-def cli(ctx, space, name, token, username, password, use_stage):
+def cli(ctx, space, name, token, username, password, totp):
     """Interact with the Sites hub. """
     ctx.obj['space'] = space
     ctx.obj['name'] = name
     ctx.obj['token'] = token
     ctx.obj['username'] = username
     ctx.obj['password'] = password
-    ctx.obj['use_stage'] = use_stage
+    ctx.obj['totp'] = totp
 
 
 @cli.command(short_help='Upload a local path')
@@ -109,7 +112,7 @@ def upload(ctx, local_path, remote_path, clean):
     if clean:
         try:
             my_site_manager.delete(remote_path=remote_path, recursive=True)
-        except FileManager.ApiCallException:
+        except ApiCallException:
             pass
     my_site_manager.upload(local_path=local_path, remote_path=remote_path)
 
@@ -120,7 +123,7 @@ def upload(ctx, local_path, remote_path, clean):
 def download(ctx, remote_path):
     """Download REMOTE_PATH."""
     my_site_manager = get_file_manager(ctx)
-    my_site_manager.download(remote_path=remote_path, recursive=True)
+    my_site_manager.download(remote_path=remote_path)
 
 
 @cli.command(short_help='Delete a remote path')
