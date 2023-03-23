@@ -633,7 +633,8 @@ class SingleColumnCoalescedTransformation(Transformation):
                         loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
                     # add acc parallel loop gang if the only existing pragma is acc data
                     elif len(loop.pragma) == 1:
-                        if loop.pragma[0].keyword == 'acc' and 'data' in loop.pragma[0].content:
+                        if (loop.pragma[0].keyword == 'acc' and
+                           loop.pragma[0].content.lower().lstrip().startswith('data ')):
                             p_content = f'parallel loop gang{private_clause}'
                             loop._update(pragma=(loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
                             loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),

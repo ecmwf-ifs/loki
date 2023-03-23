@@ -872,6 +872,8 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
            work(jl) = work(jl) + 3.
         enddo
         call some_kernel(start, end, work)
+      case default
+        work(start:end) = 0.
       end select
 
     end subroutine test
@@ -887,20 +889,23 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
 
     # Ensure we have three vector loops in the kernel
     kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 3
+    assert len(kernel_loops) == 4
     assert kernel_loops[0].variable == 'jl'
     assert kernel_loops[1].variable == 'jl'
     assert kernel_loops[2].variable == 'jl'
+    assert kernel_loops[3].variable == 'jl'
 
     # Check acc pragmas of newly created vector loops
     pragmas = FindNodes(Pragma).visit(kernel.body)
-    assert len(pragmas) == 6
+    assert len(pragmas) == 7
     assert pragmas[2].keyword == 'acc'
     assert pragmas[2].content == 'loop vector'
     assert pragmas[3].keyword == 'acc'
     assert pragmas[3].content == 'loop vector'
     assert pragmas[4].keyword == 'acc'
     assert pragmas[4].content == 'loop vector'
+    assert pragmas[5].keyword == 'acc'
+    assert pragmas[5].content == 'loop vector'
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vertical, blocking):
