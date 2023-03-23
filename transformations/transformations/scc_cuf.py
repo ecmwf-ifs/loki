@@ -614,17 +614,21 @@ class SccCufTransformation(Transformation):
     work for GPU threads according to the CUDA programming model using
     CUDA Fortran (CUF) syntax.
 
-    .. note:: this requires preprocessing with the :any:`DerivedTypeArgumentsTransformation`.
+    .. note::
+       This requires preprocessing with the :any:`DerivedTypeArgumentsTransformation`.
 
-    .. note:: in dependence of the transformation type ``transformation_type`` further
-     transformation are necessary:
+    .. note::
+       In dependence of the transformation type ``transformation_type``, further
+       transformations are necessary:
 
-     * ``transformation_type = 'parametrise'`` requires a subsequent :any:`ParametriseTransformation`
-      transformation with the necessary information to parametrise (at least) the ``vertical`` `size`
-     * ``transformation_type = 'hoist'`` requires subsequent :any:`HoistVariablesAnalysis` and
-      :class:`HoistVariablesTransformation` transformations (e.g. :any:`HoistTemporaryArraysAnalysis`
-      for analysis and :any:`HoistTemporaryArraysTransformationDeviceAllocatable` for synthesis)
-     * ``transformation_type = 'dynamic'`` does not require a subsequent transformation
+       * ``transformation_type = 'parametrise'`` requires a subsequent
+         :any:`ParametriseTransformation` transformation with the necessary information
+         to parametrise (at least) the ``vertical`` `size`
+       * ``transformation_type = 'hoist'`` requires subsequent :any:`HoistVariablesAnalysis`
+         and :class:`HoistVariablesTransformation` transformations (e.g.
+         :any:`HoistTemporaryArraysAnalysis` for analysis and
+         :any:`HoistTemporaryArraysTransformationDeviceAllocatable` for synthesis)
+       * ``transformation_type = 'dynamic'`` does not require a subsequent transformation
 
     Parameters
     ----------

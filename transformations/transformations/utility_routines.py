@@ -77,7 +77,7 @@ class RemoveCallsTransformation(Transformation):
     routines : list of str
         List of subroutine names to remove
     include_intrinsics : bool
-        Option to extend searches to :any:`Initrinsic` nodes to
+        Option to extend searches to :any:`Intrinsic` nodes to
         capture print/write statements
     """
     def __init__(self, routines, include_intrinsics=False, **kwargs):
