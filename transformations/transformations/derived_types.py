@@ -164,7 +164,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
             if new_imports:
                 routine.spec.prepend(as_tuple(new_imports))
                 return True
-            return False
+
+        return False
 
     @staticmethod
     def _expand_relative_to_local_var(local_var, expansion_components):
@@ -265,10 +266,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                     call, caller_arg,
                     expansion_map[kernel_argname], orig_argnames
                 )
-                kwarguments += [
-                    (new_argname, expanded_arg)
-                    for new_argname, expanded_arg in zip(expansion_map[kernel_argname], new_arguments)
-                ]
+                kwarguments += list(zip(expansion_map[kernel_argname], new_arguments))
                 other_symbols.update(others)
             else:
                 kwarguments += [(kernel_argname, caller_arg)]
