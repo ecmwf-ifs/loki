@@ -1782,7 +1782,8 @@ class FParser2IR(GenericVisitor):
         if return_type is not None:
             routine.symbol_attrs[routine.name] = return_type
             return_var = sym.Variable(name=routine.name, scope=routine)
-            return_var_decl = ir.VariableDeclaration(symbols=(return_var,))
+            decl_source = self.get_source(subroutine_stmt, source=None)
+            return_var_decl = ir.VariableDeclaration(symbols=(return_var,), source=decl_source)
 
             decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
             if not decls:
