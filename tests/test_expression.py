@@ -1289,3 +1289,39 @@ end subroutine my_routine
     routine.body = SubstituteExpressions(expr_map).visit(routine.body)
     assignment = FindNodes(Assignment).visit(routine.body)[0]
     assert assignment.lhs == 'var(j + 1)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_variable_in_declaration_initializer(frontend):
+    """
+    Check correct handling of cases where the variable appears
+    in the initializer expression (i.e. no infinite recursion)
+    """
+    fcode = """
+subroutine some_routine(var)
+implicit none
+INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
+REAL(KIND=JPRB), PARAMETER :: ZEXPLIMIT = LOG(HUGE(ZEXPLIMIT))
+real(kind=jprb), intent(inout) :: var
+var = var + ZEXPLIMIT
+end subroutine some_routine
+    """.strip()
+
+    def _check(routine_):
+        # A few sanity checks
+        assert 'zexplimit' in routine_.variable_map
+        zexplimit = routine_.variable_map['zexplimit']
+        assert zexplimit.scope is routine_
+        # Now let's take a closer look at the initializer expression
+        # The way we currently work around the infinite recursion, is
+        # that we don't attach the scope for the variable in the rhs
+        assert 'zexplimit' in str(zexplimit.type.initial).lower()
+        variables = FindVariables().visit(zexplimit.type.initial)
+        assert 'zexplimit' in variables
+        assert variables[variables.index('zexplimit')].scope is None
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    _check(routine)
+    # Make sure that's still true when doing another scope attachment
+    routine.rescope_symbols()
+    _check(routine)

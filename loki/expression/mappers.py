@@ -566,6 +566,23 @@ class LokiIdentityMapper(IdentityMapper):
             _kwargs = kwargs.copy()
             _kwargs['scope'] = expr.scope.parent
             initial = self.rec(expr.type.initial, *args, **_kwargs)
+        elif expr.type.initial and expr.name.lower() in str(expr.type.initial).lower():
+            # FIXME: This is another hack to work around situations where the
+            # variable itself appears in the initializer expression (e.g. to
+            # inquire value limits via ``HUGE``), which would otherwise result in
+            # infinite recursion:
+            # 1. Replace occurences in initializer expression by a temporary variable...
+            retr = ExpressionRetriever(query=lambda e: e == expr.name)
+            retr(expr.type.initial)
+            tmp_map = {e: e.clone(name=f'___tmp___{expr.name}', scope=None) for e in retr.exprs}
+            tmp_initial = SubstituteExpressionsMapper(tmp_map)(expr.type.initial)
+            # 2. ...do the recursion into the initializer expression...
+            tmp_initial = self.rec(tmp_initial, *args, **kwargs)
+            # 3. ...and reverse the replacement by a temporary variable:
+            retr = ExpressionRetriever(query=lambda e: e == f'___tmp___{expr.name}')
+            retr(tmp_initial)
+            tmp_map = {e: e.clone(name=expr.name) for e in retr.exprs}
+            initial = SubstituteExpressionsMapper(tmp_map)(tmp_initial)
         else:
             initial = self.rec(expr.type.initial, *args, **kwargs)
         if initial is not expr.type.initial and expr.scope:
