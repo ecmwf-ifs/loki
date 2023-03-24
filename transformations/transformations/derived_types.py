@@ -554,7 +554,31 @@ class DerivedTypeArgumentsTransformation(Transformation):
         return parents[0], expansion, local_use
 
 
-def get_procedure_name(proc_symbol, routine_name):
+def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_name):
+    """
+    Utility routine that returns the :any:`ProcedureSymbol` of the :any:`Subroutine`
+    that a typebound procedure corresponds to.
+
+    .. warning::
+       Resolving generic bindings is currently not implemented
+
+    This uses binding information (such as ``proc_symbol.type.bind_names``) or the
+    :any:`TypeDef` to resolve the procedure binding. If the type information is
+    incomplete or the resolution fails for other reasons, ``None`` is returned.
+
+    Parameters
+    ----------
+    proc_symbol : :any:`ProcedureSymbol`
+        The typebound procedure symbol that is to be resolved
+    routine_name : str
+        The name of the routine :data:`proc_symbol` appears in. This is used for
+        logging purposes only
+
+    Returns
+    -------
+    :any:`ProcedureSymbol` or None
+        The procedure symbol of the :any:`Subroutine` or ``None`` if it fails to resolve
+    """
     if proc_symbol.type.bind_names is not None:
         return proc_symbol.type.bind_names[0]
 
@@ -593,6 +617,33 @@ def get_procedure_name(proc_symbol, routine_name):
 
 
 class TypeboundProcedureCallTransformer(Transformer):
+    """
+    Transformer to carry out the replacement of subroutine and inline function
+    calls to typebound procedures by direct calls to the respective procedures
+
+    During the transformer pass, this identifies also new dependencies due to
+    inline function calls, which the :any:`Scheduler` may not be able to
+    discover otherwise at the moment.
+
+    Parameters
+    ----------
+    routine_name : str
+        The name of the :any:`Subroutine` the replacement takes place. This is used
+        for logging purposes only.
+    current_module : str
+        The name of the enclosing module. This is used to determine whether the
+        resolved procedure needs to be added as an import.
+
+    Attributes
+    ----------
+    new_procedure_imports : dict
+        After a transformer pass, this will contain the mapping
+        ``{module: {proc_name, proc_name, ...}}`` for new imports that are required
+        as a consequence of the replacement.
+    new_dependencies : set
+        New dependencies due to inline function calls that are identified during the
+        transformer pass.
+    """
 
     def __init__(self, routine_name, current_module, **kwargs):
         super().__init__(inplace=True, **kwargs)
@@ -609,9 +660,15 @@ class TypeboundProcedureCallTransformer(Transformer):
         return self._retriever.retrieve(o)
 
     def visit_CallStatement(self, o, **kwargs):
+        """
+        Rebuild a :any:`CallStatement`
+
+        If this is a call to a typebound procedure, resolve the procedure binding and
+        insert the derived type as the first argument in the call statement.
+        """
         rebuilt = {k: self.visit(c, **kwargs) for k, c in zip(o._traversable, o.children)}
         if rebuilt['name'].parent:
-            new_proc_symbol = get_procedure_name(rebuilt['name'], self.routine_name)
+            new_proc_symbol = get_procedure_symbol_from_typebound_procedure_symbol(rebuilt['name'], self.routine_name)
 
             if new_proc_symbol:
                 # Add the derived type as first argument to the call
@@ -631,13 +688,18 @@ class TypeboundProcedureCallTransformer(Transformer):
         return self._rebuild(o, children)
 
     def visit_Expression(self, o, **kwargs):
+        """
+        Return the expression unchanged unless there are :any:`InlineCall` nodes in the expression
+        that are calls to typebound procedures, which are replaced by direct calls to the function
+        with the derived type added as the first argument.
+        """
         inline_calls = self.retrieve(o)
         if not inline_calls:
             return o
 
         expr_map = {}
         for call in inline_calls:
-            new_proc_symbol = get_procedure_name(call.function, self.routine_name)
+            new_proc_symbol = get_procedure_symbol_from_typebound_procedure_symbol(call.function, self.routine_name)
 
             if new_proc_symbol:
                 new_arguments = (call.function.parent,) + call.parameters
@@ -662,7 +724,6 @@ class TypeboundProcedureCallTransformer(Transformer):
         return SubstituteExpressionsMapper(expr_map)(o)
 
 
-
 class TypeboundProcedureCallTransformation(Transformation):
     """
     Replace calls to type-bound procedures with direct calls to the
@@ -681,8 +742,14 @@ class TypeboundProcedureCallTransformation(Transformation):
 
     Parameters
     ----------
-    fix_intent: bool
-        Supply ``INOUT`` as intent on polymorphic dummy arguments  without
+    fix_intent : bool
+        Supply ``INOUT`` as intent on polymorphic dummy arguments missing an intent
+
+    Attributes
+    ----------
+    inline_call_dependencies : dict
+        Additional call dependencies identified during the transformer pass that can
+        be registered in the :any:`Scheduler` via :any:`Scheduler.add_dependencies`.
     """
 
     def __init__(self, fix_intent=True, **kwargs):
@@ -701,6 +768,11 @@ class TypeboundProcedureCallTransformation(Transformation):
                 arg.type = type_.clone(intent='inout')
 
     def add_inline_call_dependency(self, caller, callee):
+        """
+        Register a new dependency due to an inline call from :data:`caller` to :data:`callee`
+
+        These dependencies are later on available to query via :attr:`inline_call_dependencies`.
+        """
         caller_module = getattr(caller.parent, 'name', '')
         callee_module = getattr(callee.parent, 'name', '')
         self.inline_call_dependencies[f'{caller_module}#{caller.name}'.lower()] |= {
