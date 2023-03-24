@@ -16,7 +16,8 @@ from loki import (
     Section, CallStatement, BasicType, Array, Scalar, Variable,
     SymbolAttributes, StringLiteral, fgen, fexprgen, VariableDeclaration,
     Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType,
-    StatementFunction, normalize_range_indexing, DeferredTypeSymbol
+    StatementFunction, normalize_range_indexing, DeferredTypeSymbol,
+    Assignment
 )
 
 
@@ -1503,6 +1504,10 @@ end subroutine subroutine_stmt_func
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine.name += f'_{frontend!s}'
+
+    # Make sure the statement function injection doesn't invalidate source
+    for assignment in FindNodes(Assignment).visit(routine.body):
+        assert assignment.source is not None
 
     # OMNI inlines statement functions, so we can only check correct representation
     # for fparser

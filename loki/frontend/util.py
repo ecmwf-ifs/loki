@@ -271,15 +271,15 @@ def inject_statement_functions(routine):
 
         # Apply transformer with the built maps
         if spec_map:
-            routine.spec = Transformer(spec_map).visit(routine.spec)
+            routine.spec = Transformer(spec_map, invalidate_source=False).visit(routine.spec)
         if body_map:
-            routine.body = Transformer(body_map).visit(routine.body)
+            routine.body = Transformer(body_map, invalidate_source=False).visit(routine.body)
             if spec_appendix:
                 routine.spec.append(spec_appendix)
         if expr_map_spec:
-            routine.spec = SubstituteExpressions(expr_map_spec).visit(routine.spec)
+            routine.spec = SubstituteExpressions(expr_map_spec, invalidate_source=False).visit(routine.spec)
         if expr_map_body:
-            routine.body = SubstituteExpressions(expr_map_body).visit(routine.body)
+            routine.body = SubstituteExpressions(expr_map_body, invalidate_source=False).visit(routine.body)
 
         # And make sure all symbols have the right type
         routine.rescope_symbols()
