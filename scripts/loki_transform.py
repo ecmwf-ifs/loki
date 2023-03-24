@@ -32,12 +32,11 @@ from transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
 from transformations.data_offload import DataOffloadTransformation
-from transformations.derived_types import DerivedTypeArgumentsTransformation
+from transformations.derived_types import DerivedTypeArgumentsTransformation, TypeboundProcedureCallTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
-from transformations.typebound_procedures import TypeboundProcedureCallTransformation
 
 
 """
@@ -176,8 +175,8 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend,
                           definitions=definitions, **build_args)
 
-    # First, remove all derived-type arguments; caller first!
-    scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+    # First, remove all derived-type arguments; callee first!
+    scheduler.process(transformation=DerivedTypeArgumentsTransformation(), reverse=True)
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
