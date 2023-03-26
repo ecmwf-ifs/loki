@@ -1520,6 +1520,7 @@ end subroutine subroutine_stmt_func
             assert isinstance(var, ProcedureSymbol)
             assert isinstance(var.type.dtype, ProcedureType)
             assert var.type.dtype.procedure is stmt_func_decls[var]
+            assert stmt_func_decls[var].source is not None
 
     # Make sure this produces the correct result
     filepath = here/f'{routine.name}.f90'

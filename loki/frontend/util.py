@@ -205,7 +205,7 @@ def inject_statement_functions(routine):
     def create_stmt_func(assignment):
         arguments = assignment.lhs.dimensions
         variable = assignment.lhs.clone(dimensions=None)
-        return StatementFunction(variable, arguments, assignment.rhs, variable.type)
+        return StatementFunction(variable, arguments, assignment.rhs, variable.type, source=assignment.source)
 
     def create_type(stmt_func):
         name = str(stmt_func.variable)
@@ -253,7 +253,9 @@ def inject_statement_functions(routine):
             if variable.name.lower() in stmt_funcs:
                 if isinstance(variable, Array):
                     parameters = variable.dimensions
-                    expr_map_spec[variable] = InlineCall(variable.clone(dimensions=None), parameters=parameters)
+                    expr_map_spec[variable] = InlineCall(
+                        variable.clone(dimensions=None), parameters=parameters, source=variable.source
+                    )
                 elif not isinstance(variable, ProcedureSymbol):
                     expr_map_spec[variable] = variable.clone()
         expr_map_body = {}
@@ -261,7 +263,9 @@ def inject_statement_functions(routine):
             if variable.name.lower() in stmt_funcs:
                 if isinstance(variable, Array):
                     parameters = variable.dimensions
-                    expr_map_body[variable] = InlineCall(variable.clone(dimensions=None), parameters=parameters)
+                    expr_map_body[variable] = InlineCall(
+                        variable.clone(dimensions=None), parameters=parameters, source=variable.source
+                    )
                 elif not isinstance(variable, ProcedureSymbol):
                     expr_map_body[variable] = variable.clone()
 

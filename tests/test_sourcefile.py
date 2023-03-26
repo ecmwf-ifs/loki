@@ -216,6 +216,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
             assert isinstance(var, ProcedureSymbol)
             assert isinstance(var.type.dtype, ProcedureType)
             assert var.type.dtype.procedure is decl
+            assert decl.source is not None
 
     # Generate code and compile
     filepath = here/f'{module.name}.f90'
