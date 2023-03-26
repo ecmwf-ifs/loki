@@ -23,7 +23,7 @@ try:
 except ImportError:
     _intrinsic_fortran_names = ()
 
-from loki.ir import VariableDeclaration, Import
+from loki.ir import DECLARATION_NODES
 from loki.logging import debug
 from loki.tools import as_tuple, flatten
 from loki.types import SymbolAttributes, BasicType
@@ -523,7 +523,7 @@ class LokiIdentityMapper(IdentityMapper):
             return None
         kwargs.setdefault(
             'recurse_to_declaration_attributes',
-            'current_node' not in kwargs or isinstance(kwargs['current_node'], (VariableDeclaration, Import))
+            'current_node' not in kwargs or isinstance(kwargs['current_node'], DECLARATION_NODES)
         )
         new_expr = super().__call__(expr, *args, **kwargs)
         if getattr(expr, 'source', None):
@@ -583,11 +583,25 @@ class LokiIdentityMapper(IdentityMapper):
             # it does not affect the outcome of expr.clone
             expr.scope.symbol_attrs[expr.name] = expr.type.clone(initial=initial)
 
-        bind_names = self.rec(expr.type.bind_names, *args, **kwargs)
-        if not (bind_names is None or all(new is old for new, old in zip_longest(bind_names, expr.type.bind_names))):
-            # Update symbol table entry for bind_names directly because with a scope attached
-            # it does not affect the outcome of expr.clone
-            expr.scope.symbol_attrs[expr.name] = expr.type.clone(bind_names=as_tuple(bind_names))
+        if kwargs['recurse_to_declaration_attributes']:
+            _kwargs = kwargs.copy()
+            _kwargs['recurse_to_declaration_attributes'] = False
+            if (old_bind_names := expr.type.bind_names):
+                bind_names = ()
+                for bind_name in old_bind_names:
+                    if bind_name == expr.name:
+                        # FIXME: This is a hack to work around situations where an
+                        # explicit interface is used with the same name as the
+                        # type bound procedure. This hands down the correct scope.
+                        __kwargs = _kwargs.copy()
+                        __kwargs['scope'] = expr.scope.parent
+                        bind_names += (self.rec(bind_name, *args, **__kwargs),)
+                    else:
+                        bind_names += (self.rec(bind_name, *args, **_kwargs),)
+                if bind_names and any(new is not old for new, old in zip_longest(bind_names, expr.type.bind_names)):
+                    # Update symbol table entry for bind_names directly because with a scope attached
+                    # it does not affect the outcome of expr.clone
+                    expr.scope.symbol_attrs[expr.name] = expr.type.clone(bind_names=bind_names)
 
         parent = self.rec(expr.parent, *args, **kwargs)
         if parent is expr.parent and (kind is expr.type.kind or expr.scope):

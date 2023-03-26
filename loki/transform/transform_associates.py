@@ -40,7 +40,7 @@ class ResolveAssociatesTransformer(Transformer):
     corresponding `selector` expression defined in ``associations``.
     """
 
-    def visit_Associate(self, o, **kwargs):
+    def visit_Associate(self, o, **kwargs):  # pylint: disable=unused-argument
         # First head-recurse, so that all associate blocks beneath are resolved
         body = self.visit(o.body)
 

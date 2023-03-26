@@ -1359,3 +1359,42 @@ end subroutine driver
     assert assignment.rhs.parent.type.dtype.typedef is module['some_type']
     assert assignment.rhs.parent.parent.type.dtype.name == 'other_type'
     assert assignment.rhs.parent.parent.type.dtype.typedef is module['other_type']
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_types_abstract_deferred_procedure(frontend):
+    fcode = """
+module some_mod
+    implicit none
+    type, abstract :: abstract_type
+        contains
+        procedure (some_proc), deferred :: some_proc
+        procedure (other_proc), deferred :: other_proc
+    end type abstract_type
+
+    abstract interface
+        subroutine some_proc(this)
+            import abstract_type
+            class(abstract_type), intent(in) :: this
+        end subroutine some_proc
+    end interface
+
+    abstract interface
+        subroutine other_proc(this)
+            import abstract_type
+            class(abstract_type), intent(inout) :: this
+        end subroutine other_proc
+    end interface
+end module some_mod
+    """.strip()
+    module = Module.from_source(fcode, frontend=frontend)
+    typedef = module['abstract_type']
+    assert typedef.abstract is True
+    assert typedef.variables == ('some_proc', 'other_proc')
+    for symbol in typedef.variables:
+        assert isinstance(symbol, ProcedureSymbol)
+        assert isinstance(symbol.type.dtype, ProcedureType)
+        assert symbol.type.dtype.name.lower() == symbol.name.lower()
+        assert symbol.type.bind_names == (symbol,)
+        assert symbol.scope is typedef
+        assert symbol.type.bind_names[0].scope is module
