@@ -297,7 +297,7 @@ class SubstituteExpressions(Transformer):
                                                        invalidate_source=invalidate_source)
 
     def visit_Expression(self, o, **kwargs):
-        return self.expr_mapper(o)
+        return self.expr_mapper(o, parent_node=kwargs.get('current_node'))
 
 
 class AttachScopes(Visitor):
@@ -338,13 +338,15 @@ class AttachScopes(Visitor):
         Default visitor method that dispatches the node-specific handler
         """
         kwargs.setdefault('scope', None)
+        if isinstance(o, Node):
+            kwargs['current_node'] = o
         return super().visit(o, *args, **kwargs)
 
     def visit_Expression(self, o, **kwargs):
         """
         Dispatch :any:`AttachScopesMapper` for :any:`Expression` tree nodes
         """
-        return self.expr_mapper(o, scope=kwargs['scope'])
+        return self.expr_mapper(o, scope=kwargs['scope'], current_node=kwargs.get('current_node'))
 
     def visit_list(self, o, **kwargs):
         """

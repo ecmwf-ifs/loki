@@ -1313,15 +1313,50 @@ end subroutine some_routine
         zexplimit = routine_.variable_map['zexplimit']
         assert zexplimit.scope is routine_
         # Now let's take a closer look at the initializer expression
-        # The way we currently work around the infinite recursion, is
-        # that we don't attach the scope for the variable in the rhs
         assert 'zexplimit' in str(zexplimit.type.initial).lower()
         variables = FindVariables().visit(zexplimit.type.initial)
         assert 'zexplimit' in variables
-        assert variables[variables.index('zexplimit')].scope is None
+        assert variables[variables.index('zexplimit')].scope is routine_
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     _check(routine)
     # Make sure that's still true when doing another scope attachment
     routine.rescope_symbols()
     _check(routine)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_variable_in_dimensions(frontend):
+    """
+    Check correct handling of cases where the variable appears in the
+    dimensions expression of the same variable (i.e. do not cause
+    infinite recursion)
+    """
+    fcode = """
+module some_mod
+    implicit none
+
+    type multi_level
+        real, allocatable :: data(:, :)
+    end type multi_level
+contains
+    subroutine some_routine(levels, num_levels)
+        type(multi_level), intent(inout) :: levels(:)
+        integer, intent(in) :: num_levels
+        integer jscale
+
+        do jscale = 2,num_levels
+            allocate(levels(jscale)%data(size(levels(jscale-1)%data,1), size(levels(jscale-1)%data,2)))
+        end do
+    end subroutine some_routine
+end module some_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['some_routine']
+    assert 'levels%data' in routine.symbol_attrs
+    shape = routine.symbol_attrs['levels%data'].shape
+    assert len(shape) == 2
+    for i, dim in enumerate(shape):
+        assert isinstance(dim, symbols.InlineCall)
+        assert str(dim).lower() == f'size(levels(jscale - 1)%data, {i+1})'

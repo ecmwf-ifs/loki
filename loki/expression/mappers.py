@@ -23,6 +23,7 @@ try:
 except ImportError:
     _intrinsic_fortran_names = ()
 
+from loki.ir import VariableDeclaration, Import
 from loki.logging import debug
 from loki.tools import as_tuple, flatten
 from loki.types import SymbolAttributes, BasicType
@@ -520,6 +521,10 @@ class LokiIdentityMapper(IdentityMapper):
     def __call__(self, expr, *args, **kwargs):
         if expr is None:
             return None
+        kwargs.setdefault(
+            'recurse_to_declaration_attributes',
+            'current_node' not in kwargs or isinstance(kwargs['current_node'], (VariableDeclaration, Import))
+        )
         new_expr = super().__call__(expr, *args, **kwargs)
         if getattr(expr, 'source', None):
             if isinstance(new_expr, tuple):
@@ -557,34 +562,22 @@ class LokiIdentityMapper(IdentityMapper):
             # it does not affect the outcome of expr.clone
             expr.scope.symbol_attrs[expr.name] = expr.type.clone(kind=kind)
 
-        if expr.scope and expr.type.initial and expr.name == expr.type.initial:
-            # FIXME: This is a hack to work around situations where a constant
-            # symbol (from a parent scope) with the same name as the declared
-            # variable is used as initializer. This hands down the correct scope
-            # (in case this traversal is part of ``AttachScopesMapper``) and thus
-            # interrupts an otherwise infinite recursion (see LOKI-52).
+        if kwargs['recurse_to_declaration_attributes']:
             _kwargs = kwargs.copy()
-            _kwargs['scope'] = expr.scope.parent
-            initial = self.rec(expr.type.initial, *args, **_kwargs)
-        elif expr.type.initial and expr.name.lower() in str(expr.type.initial).lower():
-            # FIXME: This is another hack to work around situations where the
-            # variable itself appears in the initializer expression (e.g. to
-            # inquire value limits via ``HUGE``), which would otherwise result in
-            # infinite recursion:
-            # 1. Replace occurences in initializer expression by a temporary variable...
-            retr = ExpressionRetriever(query=lambda e: e == expr.name)
-            retr(expr.type.initial)
-            tmp_map = {e: e.clone(name=f'___tmp___{expr.name}', scope=None) for e in retr.exprs}
-            tmp_initial = SubstituteExpressionsMapper(tmp_map)(expr.type.initial)
-            # 2. ...do the recursion into the initializer expression...
-            tmp_initial = self.rec(tmp_initial, *args, **kwargs)
-            # 3. ...and reverse the replacement by a temporary variable:
-            retr = ExpressionRetriever(query=lambda e: e == f'___tmp___{expr.name}')
-            retr(tmp_initial)
-            tmp_map = {e: e.clone(name=expr.name) for e in retr.exprs}
-            initial = SubstituteExpressionsMapper(tmp_map)(tmp_initial)
+            _kwargs['recurse_to_declaration_attributes'] = False
+            if expr.scope and expr.type.initial and expr.name == expr.type.initial:
+                # FIXME: This is a hack to work around situations where a constant
+                # symbol (from a parent scope) with the same name as the declared
+                # variable is used as initializer. This hands down the correct scope
+                # (in case this traversal is part of ``AttachScopesMapper``) and thus
+                # interrupts an otherwise infinite recursion (see LOKI-52).
+                _kwargs['scope'] = expr.scope.parent
+                initial = self.rec(expr.type.initial, *args, **_kwargs)
+            else:
+                initial = self.rec(expr.type.initial, *args, **_kwargs)
         else:
-            initial = self.rec(expr.type.initial, *args, **kwargs)
+            initial = expr.type.initial
+
         if initial is not expr.type.initial and expr.scope:
             # Update symbol table entry for initial directly because with a scope attached
             # it does not affect the outcome of expr.clone
@@ -628,7 +621,13 @@ class LokiIdentityMapper(IdentityMapper):
             # and make sure we don't loose the call parameters (aka dimensions)
             return InlineCall(function=symbol.clone(parent=parent), parameters=dimensions)
 
-        shape = self.rec(symbol.type.shape, *args, **kwargs)
+        if kwargs['recurse_to_declaration_attributes']:
+            _kwargs = kwargs.copy()
+            _kwargs['recurse_to_declaration_attributes'] = False
+            shape = self.rec(symbol.type.shape, *args, **_kwargs)
+        else:
+            shape = symbol.type.shape
+
         if (getattr(symbol, 'symbol', symbol) is expr.symbol and
                 all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ())) and
                 all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))):

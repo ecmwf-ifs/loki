@@ -40,7 +40,7 @@ class ResolveAssociatesTransformer(Transformer):
     corresponding `selector` expression defined in ``associations``.
     """
 
-    def visit_Associate(self, o):
+    def visit_Associate(self, o, **kwargs):
         # First head-recurse, so that all associate blocks beneath are resolved
         body = self.visit(o.body)
 
