@@ -456,6 +456,8 @@ def ecphys(mode, config, header, source, build, cpp, frontend):
               help='Path to source files to transform.')
 @click.option('--build', '-b', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
+@click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
               help='Frontend parser to use (default FP)')
 def ecrad(mode, config, header, source, build, frontend):
@@ -504,7 +506,7 @@ def ecrad(mode, config, header, source, build, frontend):
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=True)
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=cpp)
 
     # First, remove pragmas, resolve associates and replace write statements with comments
     scheduler.process(transformation=PragmaTransformation())
