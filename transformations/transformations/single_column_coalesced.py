@@ -336,8 +336,10 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
                   if isinstance(e, sym.RangeIndex) and e == bounds_str]
         if ranges:
             exprmap = {r: loop_variable for r in ranges}
-            loop = ir.Loop(variable=loop_variable, bounds=sym.LoopRange(bounds_v),
-                           body=SubstituteExpressions(exprmap).visit(stmt))
+            loop = ir.Loop(
+                variable=loop_variable, bounds=sym.LoopRange(bounds_v),
+                body=as_tuple(SubstituteExpressions(exprmap).visit(stmt))
+            )
             mapper[stmt] = loop
 
     routine.body = Transformer(mapper).visit(routine.body)
