@@ -329,6 +329,14 @@ class Section(InternalNode, _SectionBase):
 
     _argnames = InternalNode._argnames
 
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.body is None or isinstance(self.body, tuple)
+
+        # Ensure we have no nested tuples in the body
+        if not all(not isinstance(n, tuple) for n in as_tuple(self.body)):
+            self._update(body=as_tuple(flatten(self.body)))
+
     def append(self, node):
         """
         Append the given node(s) to the section's body.
