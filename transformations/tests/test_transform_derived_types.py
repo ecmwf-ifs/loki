@@ -1111,6 +1111,39 @@ end module some_mod
     assert source['kernel'].arguments == ('t_a(:)', 'n')
     assert FindNodes(CallStatement).visit(source['kernel'].body)[0].arguments == ('t_a', 'n-1')
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_target(frontend):
+    fcode = """
+module some_mod
+    implicit none
+    type some_type
+        real, allocatable :: a(:,:)
+        real, pointer :: p(:)
+    end type some_type
+contains
+    subroutine get_view(this, block)
+        type(some_type), intent(inout), target :: this
+        integer,  intent(in) :: block
+        nullify(this%p)
+        this%p => this%a(:, block)
+    end subroutine get_view
+end module some_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    item = SubroutineItem('some_mod#get_view', source=source)
+
+    transformation = DerivedTypeArgumentsTransformation()
+    source.apply(transformation, role='kernel', item=item)
+
+    assert item.routine.arguments == ('this_a(:, :)', 'this_p(:)', 'block')
+    assert item.routine.variable_map['this_a'].type.intent == 'inout'
+    assert item.routine.variable_map['this_a'].type.target
+    assert item.routine.variable_map['this_p'].type.intent == 'inout'
+    assert item.routine.variable_map['this_p'].type.pointer
+    assert not item.routine.variable_map['this_p'].type.target
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_typebound_procedure_calls(frontend, config):
     fcode1 = """

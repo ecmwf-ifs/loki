@@ -432,6 +432,10 @@ class DerivedTypeArgumentsTransformation(Transformation):
                     intent=arg.type.intent, initial=None,
                     allocatable=None, target=None, pointer=None, shape=None
                 )
+            return var.type.clone(
+                intent=arg.type.intent, initial=None,
+                target=arg.type.target if not var.type.pointer else None
+            )
 
         # Update calls to itself for recursive procedures
         if any('recursive' in prefix.lower() for prefix in as_tuple(routine.prefix)):
