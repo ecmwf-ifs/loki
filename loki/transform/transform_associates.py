@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.expression import FindVariables, SubstituteExpressions
+from loki.expression import FindVariables, SubstituteExpressions, AttachScopes
 from loki.tools import CaseInsensitiveDict
 from loki.transform.transform_utilities import recursive_expression_map_update
 from loki.visitors import Transformer
@@ -24,11 +24,6 @@ def resolve_associates(routine):
         The subroutine for which to resolve all associate blocks.
     """
     routine.body = ResolveAssociatesTransformer().visit(routine.body)
-
-    # Ensure that all symbols have the appropriate scope attached.
-    # This is needed, as the parent of a symbol might have changed,
-    # which affects the symbol's type-defining scope.
-    routine.rescope_symbols()
 
 
 class ResolveAssociatesTransformer(Transformer):
@@ -58,8 +53,16 @@ class ResolveAssociatesTransformer(Transformer):
                 else:
                     vmap[v] = inv
 
-        # Apply the expression substitution map to itself to handle nested expressions
-        vmap = recursive_expression_map_update(vmap)
+        if vmap:
+            # Apply the expression substitution map to itself to handle nested expressions
+            vmap = recursive_expression_map_update(vmap)
 
-        # Return the body of the associate block with all expressions replaced
-        return SubstituteExpressions(vmap).visit(body)
+            # Return the body of the associate block with all expressions replaced
+            body = SubstituteExpressions(vmap).visit(body)
+
+            # Ensure that all symbols have the appropriate scope attached.
+            # This is needed, as the parent of a symbol might have changed,
+            # which affects the symbol's type-defining scope.
+            return AttachScopes().visit(body, scope=o.parent)
+
+        return body
