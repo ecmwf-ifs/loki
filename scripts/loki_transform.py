@@ -460,7 +460,7 @@ def ecphys(mode, config, header, source, build, cpp, frontend):
               help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
               help='Frontend parser to use (default FP)')
-def ecrad(mode, config, header, source, build, frontend):
+def ecrad(mode, config, header, source, build, cpp, frontend):
     """
     Bulk-processing option that employs a :class:`Scheduler`
     to apply ecRad-specific source-to-source transformations
@@ -469,7 +469,7 @@ def ecrad(mode, config, header, source, build, frontend):
     class PragmaTransformation(Transformation):
 
         def transform_subroutine(self, routine, **kwargs):
-            from loki import Pragma, Intrinsic, FindNodes, Transformer, Comment
+            from loki import Pragma, FindNodes, Transformer
 
             item = kwargs.get('item')
 
@@ -483,11 +483,6 @@ def ecrad(mode, config, header, source, build, frontend):
                 p: None for p in FindNodes(Pragma).visit(routine.body)
                 if p.keyword.lower() == 'omp'
             }
-            node_map.update({
-                n: Comment(text=f'! {n.text}')
-                for n in FindNodes(Intrinsic).visit(routine.body)
-                if n.text.lstrip().lower().startswith('write')
-            })
             if node_map:
                 routine.body = Transformer(node_map).visit(routine.body)
 
@@ -526,8 +521,10 @@ def ecrad(mode, config, header, source, build, frontend):
 
     # scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
 
-    # # Remove DR_HOOK calls first, so they don't interfere with SCC loop hoisting
-    scheduler.process(transformation=DrHookTransformation(mode=mode, remove=True))
+    # # Remove calls to utility routines first, so they don't interfere with SCC loop hoisting
+    scheduler.process(transformation=RemoveCallsTransformation(
+        routines=['DR_HOOK', 'ABOR1', 'WRITE('], include_intrinsics=True
+    ))
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
