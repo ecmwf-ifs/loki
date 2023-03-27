@@ -1084,6 +1084,34 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_recursive(frontend):
+    fcode = """
+module some_mod
+    implicit none
+    type some_type
+        integer, allocatable :: a(:)
+    end type some_type
+contains
+    recursive subroutine kernel(t, n)
+        type(some_type), intent(inout) :: t
+        integer, intent(in) :: n
+        if (n > 0) then
+            call kernel(t, n-1)
+        end if
+        t%a(:) = t%a(:) + 1
+    end subroutine kernel
+end module some_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    item = SubroutineItem('some_mod#kernel', source=source)
+
+    transformation = DerivedTypeArgumentsTransformation()
+    source.apply(transformation, role='kernel', item=item)
+
+    assert source['kernel'].arguments == ('t_a(:)', 'n')
+    assert FindNodes(CallStatement).visit(source['kernel'].body)[0].arguments == ('t_a', 'n-1')
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_typebound_procedure_calls(frontend, config):
     fcode1 = """
 module typebound_procedure_calls_mod

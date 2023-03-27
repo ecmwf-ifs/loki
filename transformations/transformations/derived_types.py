@@ -432,7 +432,26 @@ class DerivedTypeArgumentsTransformation(Transformation):
                     intent=arg.type.intent, initial=None,
                     allocatable=None, target=None, pointer=None, shape=None
                 )
-            return var.type.clone(intent=arg.type.intent, initial=None)
+
+        # Update calls to itself for recursive procedures
+        if any('recursive' in prefix.lower() for prefix in as_tuple(routine.prefix)):
+            successor_data = {
+                'expansion_map': expansion_map,
+                'orig_argnames': tuple(arg.lower() for arg in routine.argnames)
+            }
+            for call in FindNodes(CallStatement).visit(routine.body):
+                if not call.not_active and call.name == routine.name:
+                    arguments, kwarguments, others = self.expand_call_arguments(call, successor_data)
+                    assert not others
+                    call._update(arguments=arguments, kwarguments=kwarguments)
+                    for var in FindVariables(recurse_to_parent=False).visit(call):
+                        if var.parent and var not in vmap:
+                            declared_var, expansion, local_use = self.expand_derived_type_member(
+                                var, is_elemental_routine, var_cache
+                            )
+                            if expansion and declared_var in candidates:
+                                # Mark this derived type member for expansion
+                                vmap[var] = local_use
 
         # Build the arguments map to update the call signature
         arguments_map = {}
