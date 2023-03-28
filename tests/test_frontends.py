@@ -1399,3 +1399,7 @@ END SUBROUTINE DOT_PROD_SP_2D
     assert {
         routine.name.lower() for routine in source.subroutines
     } == {'dot_product_ecv', 'dot_prod_sp_2d'}
+
+    source.make_complete()
+    routine = source['dot_product_ecv']
+    assert 'dot_product_ecv' in routine.variables
