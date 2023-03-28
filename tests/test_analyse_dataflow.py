@@ -10,7 +10,7 @@ import pytest
 from conftest import available_frontends
 from loki import (
     Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
-    CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol
+    CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol, WhileLoop
 )
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
@@ -470,6 +470,11 @@ end subroutine test
     routine = Subroutine.from_source(fcode, frontend=frontend)
     mcond = FindNodes(MultiConditional).visit(routine.body)[0]
     with dataflow_analysis_attached(routine):
+        assert len(mcond.bodies) == 2
+        assert len(mcond.else_body) == 1
+        for b in mcond.bodies:
+            assert len(b) == 1
+
         assert len(mcond.uses_symbols) == 3
         assert len(mcond.defines_symbols) == 2
         assert all(i in mcond.uses_symbols for i in ['ic', 'ia', 'ib'])
@@ -502,3 +507,30 @@ end subroutine masked_statements
         assert len(mask.defines_symbols) == 1
         assert 'mask' in mask.uses_symbols
         assert 'vec1' in mask.defines_symbols
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_analyse_whileloop(frontend):
+    fcode = """
+subroutine while_loop()
+   implicit none
+
+   integer :: ij
+   real :: a(10)
+
+   ij = 0
+   do while(ij .lt. 10)
+     ij = ij + 1
+     a(ij) = 0.
+   enddo
+
+end subroutine while_loop
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loop = FindNodes(WhileLoop).visit(routine.body)[0]
+    with dataflow_analysis_attached(routine):
+        assert len(loop.uses_symbols) == 1
+        assert len(loop.defines_symbols) == 2
+        assert 'ij' in loop.uses_symbols
+        assert all(v in loop.defines_symbols for v in ('ij', 'a'))
