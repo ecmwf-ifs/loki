@@ -251,7 +251,7 @@ class OFP2IR(GenericVisitor):
         assert ncond == len(bodies)
         # shortcut for inline conditionals
         if o.find('if-then-stmt') is None:
-            assert ncond == 1 and else_body is ()
+            assert ncond == 1 and else_body == ()
             return ir.Conditional(condition=conditions[0], body=bodies[0], else_body=(),
                                   inline=True, has_elseif=False, label=kwargs['label'],
                                   source=kwargs['source'])

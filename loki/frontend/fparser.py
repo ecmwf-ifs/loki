@@ -2102,9 +2102,12 @@ class FParser2IR(GenericVisitor):
         else_stmt = get_child(o, Fortran2003.Else_Stmt)
         else_stmt_index = o.children.index(else_stmt) if else_stmt else end_if_stmt_index
         conditions = as_tuple(self.visit(c, **kwargs) for c in (if_then_stmt,) + else_if_stmts)
-        bodies = [flatten(as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop]))
-                  for start, stop in zip((if_then_stmt_index,) + else_if_stmt_index,
-                                         else_if_stmt_index + (else_stmt_index,))]
+        bodies = tuple(
+            tuple(flatten(as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])))
+            for start, stop in zip(
+                    (if_then_stmt_index,) + else_if_stmt_index, else_if_stmt_index + (else_stmt_index,)
+            )
+        )
         else_body = flatten([self.visit(c, **kwargs) for c in o.children[else_stmt_index+1:end_if_stmt_index]])
 
         # Extract source objects for branches
@@ -2116,7 +2119,7 @@ class FParser2IR(GenericVisitor):
             labels += [self.get_label(conditional)]
 
         # Build IR nodes backwards using else-if branch as else body
-        body = as_tuple(flatten(bodies[-1]))
+        body = bodies[-1]
         node = ir.Conditional(condition=conditions[-1], body=body, else_body=as_tuple(else_body),
                               inline=False, has_elseif=False, label=labels[-1], source=sources[-1])
         for idx in reversed(range(len(conditions)-1)):
