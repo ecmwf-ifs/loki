@@ -20,8 +20,6 @@ from loki.tools import as_tuple
 from loki.tools.util import CaseInsensitiveDict
 from loki.visitors import FindNodes
 from loki.ir import CallStatement
-from loki.subroutine import Subroutine
-from loki.module import Module
 
 
 __all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem']
@@ -208,7 +206,7 @@ class Item:
 
     @property
     @abstractmethod
-    def inline_function_interfaces(self):
+    def function_interfaces(self):
         """
         All inline functions defined in this :class:`Item` via an explicit interface
         """
@@ -532,7 +530,7 @@ class SubroutineItem(Item):
         return type_name + var.name[pos:]
 
     @property
-    def inline_function_interfaces(self):
+    def function_interfaces(self):
         """
         Inline functions declared in the corresponding :any:`Subroutine`,
         or its parent :any:`Module`, via an explicit interface.
@@ -541,14 +539,13 @@ class SubroutineItem(Item):
         names = ()
         interfaces = self.routine.interfaces
 
-        if isinstance(self.scope, Module):
-            interfaces += self.scope.interfaces
+        if (scope := self.scope) is not None:
+            interfaces += scope.interfaces
 
-        for i in interfaces:
-            for b in i.body:
-                if isinstance(b, Subroutine):
-                    if b.is_function:
-                        names += as_tuple(b.name.lower())
+        names = tuple(
+            s.name.lower() for intf in interfaces for s in intf.symbols
+            if s.type.dtype.is_function
+        )
 
         return names
 
@@ -558,7 +555,7 @@ class SubroutineItem(Item):
         Extend the base class' definition of children for items of type :class:`SubroutineItem`.
         """
 
-        self._children = self.inline_function_interfaces
+        self._children = self.function_interfaces
         return super().children
 
     @property
@@ -567,7 +564,7 @@ class SubroutineItem(Item):
         Extend the base class' definition of targets for items of type :class:`SubroutineItem`.
         """
 
-        self._targets = self.inline_function_interfaces
+        self._targets = self.function_interfaces
         return super().targets
 
 class ProcedureBindingItem(Item):
@@ -610,7 +607,7 @@ class ProcedureBindingItem(Item):
         return self.scope.imports
 
     @property
-    def inline_function_interfaces(self):
+    def function_interfaces(self):
         """
         Empty tuple as procedure bindings cannot include interface blocks
 
@@ -618,7 +615,7 @@ class ProcedureBindingItem(Item):
         -------
         tuple
         """
-        return None
+        return ()
 
     @property
     def calls(self):
