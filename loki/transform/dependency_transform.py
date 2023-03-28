@@ -225,32 +225,31 @@ class DependencyTransformation(Transformation):
         """
 
         targets = as_tuple(kwargs.get('targets', None))
-        targets = as_tuple(str(t).upper() for t in targets)
+        targets = as_tuple(str(t).lower() for t in targets)
 
-        if self.replace_ignore_items:
-            item = kwargs.get('item', None)
-            targets += as_tuple(str(i).upper() for i in item.ignore) if item else ()
+        if self.replace_ignore_items and (item := kwargs.get('item', None)):
+            targets += as_tuple(str(i).lower() for i in item.ignore)
 
         # Transformer map to remove any outdated interfaces
         removal_map = {}
 
         for i in intfs:
+            new_imports = ()
             for b in i.body:
                 if isinstance(b, Subroutine):
-                    target_symbol = b.name.lower()
-
-                    if targets is not None and target_symbol.upper() in targets:
+                    if targets is not None and b.name in targets:
                         # Create a new module import with explicitly qualified symbol
                         new_module = self.derive_module_name(b.name)
-                        new_symbol = Variable(name=f'{target_symbol}{self.suffix}', scope=source)
+                        new_symbol = Variable(name=f'{b.name}{self.suffix}', scope=source)
                         new_import = Import(module=new_module, c_import=False, symbols=(new_symbol,))
-                        source.spec.prepend(new_import)
+                        new_imports += as_tuple(new_import)
 
-                        # Mark current interface for removal
-                        removal_map[i] = None
+            if new_imports:
+                removal_map[i] = new_imports
 
         # Apply any scheduled interface removals to spec
-        source.spec = Transformer(removal_map).visit(source.spec)
+        if removal_map:
+            source.spec = Transformer(removal_map).visit(source.spec)
 
     def derive_module_name(self, modname):
         """
