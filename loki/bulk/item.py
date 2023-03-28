@@ -93,8 +93,6 @@ class Item:
         self.source = source
         self.config = config or {}
         self.trafo_data = {}
-        self._children = ()
-        self._targets = ()
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
@@ -301,7 +299,7 @@ class Item:
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
         # Base definition of child is a procedure call (for now)
-        children = self.calls + self._children
+        children = self.calls
 
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in self.members]
@@ -514,7 +512,7 @@ class SubroutineItem(Item):
         return tuple(
             self._variable_to_type_name(call.name).lower()
             for call in FindNodes(CallStatement).visit(self.routine.ir)
-        )
+        ) + self.function_interfaces
 
     def _variable_to_type_name(self, var):
         """
@@ -548,24 +546,6 @@ class SubroutineItem(Item):
         )
 
         return names
-
-    @property
-    def children(self):
-        """
-        Extend the base class' definition of children for items of type :class:`SubroutineItem`.
-        """
-
-        self._children = self.function_interfaces
-        return super().children
-
-    @property
-    def targets(self):
-        """
-        Extend the base class' definition of targets for items of type :class:`SubroutineItem`.
-        """
-
-        self._targets = self.function_interfaces
-        return super().targets
 
 class ProcedureBindingItem(Item):
     """
