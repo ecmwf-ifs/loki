@@ -43,13 +43,13 @@ __all__ = [
 ]
 
 # Configuration for validation mechanism via pydantic
-config = {
+dataclass_validation_config  = {
     'validate_assignment': True,
     'arbitrary_types_allowed': True,
 }
 
 # Using this decorator, we can force strict validation
-dataclass_strict = partial(dataclass_validated, config=config)
+dataclass_strict = partial(dataclass_validated, config=dataclass_validation_config)
 
 # Abstract base classes
 
@@ -90,9 +90,7 @@ class Node:
         # Create private placeholders for dataflow analysis fields that
         # do not show up in the dataclass field definitions, as these
         # are entirely transient.
-        self._update(_live_symbols=None)
-        self._update(_defines_symbols=None)
-        self._update(_uses_symbols=None)
+        self._update(_live_symbols=None, _defines_symbols=None, _uses_symbols=None)
 
     @property
     def _canonical(self):
@@ -257,6 +255,7 @@ class InternalNode(Node):
         The nodes that make up the body.
     """
 
+    # Certain Node types may contain Module / Subroutine objects
     body: Tuple[Any, ...] = None
 
     _argnames = Node._argnames + ('body',)
@@ -622,7 +621,7 @@ class Conditional(InternalNode, _ConditionalBase):
         assert self.condition is not None
 
         if self.body is not None:
-            assert is_iterable(self.body)
+            assert isinstance(self.body, tuple)
             assert all(isinstance(c, Node) for c in self.body)  # pylint: disable=not-an-iterable
 
         if self.has_elseif:
@@ -838,7 +837,7 @@ class _CallStatementBase():
 
     name: Expression
     arguments: Tuple[Expression, ...] = None
-    kwarguments: Tuple[Any, ...] = None
+    kwarguments: Tuple[Tuple[str, Expression], ...] = None
     pragma: Tuple[Node, ...] = None
     not_active: bool = None
     chevron: Tuple[Expression, ...] = None
@@ -880,18 +879,18 @@ class CallStatement(LeafNode, _CallStatementBase):
 
     def __post_init__(self):
         super().__post_init__()
-        assert is_iterable(self.arguments)
+        assert isinstance(self.arguments, tuple)
         assert all(isinstance(arg, Expression) for arg in as_tuple(self.arguments))
 
         if self.kwarguments is not None:
-            assert is_iterable(self.kwarguments)
+            assert isinstance(self.kwarguments, tuple)
             assert all(
                 isinstance(a, tuple) and len(a) == 2 and isinstance(a[1], Expression)
                 for a in self.kwarguments  # pylint: disable=not-an-iterable
             )
 
         if self.chevron is not None:
-            assert is_iterable(self.chevron)
+            assert isinstance(self.chevron, tuple)
             assert all(isinstance(a, Expression) for a in self.chevron)  # pylint: disable=not-an-iterable
             assert 2 <= len(self.chevron) <= 4
 
