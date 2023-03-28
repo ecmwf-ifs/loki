@@ -432,7 +432,8 @@ END SUBROUTINE kernel
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'OFP does not add return type to variables.')]))
+@pytest.mark.parametrize('frontend', available_frontends(
+                         xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
 def test_dependency_transformation_inline_call(frontend):
     """
     Test injection of suffixed kernel, accessed through inline function call.
