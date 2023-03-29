@@ -141,6 +141,15 @@ def extract_vector_sections(section, horizontal):
             if subsec_else:
                 subsections += subsec_else
 
+        if isinstance(separator, ir.MultiConditional):
+            for body in separator.bodies:
+                subsec_body = extract_vector_sections(body, horizontal)
+                if subsec_body:
+                    subsections += subsec_body
+            subsec_else = extract_vector_sections(separator.else_body, horizontal)
+            if subsec_else:
+                subsections += subsec_else
+
     return subsections
 
 
@@ -343,6 +352,10 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
             mapper[stmt] = loop
 
     routine.body = Transformer(mapper).visit(routine.body)
+
+    #if loops have been inserted, check if loop variable is declared
+    if mapper and loop_variable not in routine.variables:
+        routine.variables += as_tuple(loop_variable)
 
 
 def get_column_locals(routine, vertical):
@@ -618,6 +631,14 @@ class SingleColumnCoalescedTransformation(Transformation):
                         p_content = f'parallel loop gang{private_clause}'
                         loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
                         loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
+                    # add acc parallel loop gang if the only existing pragma is acc data
+                    elif len(loop.pragma) == 1:
+                        if (loop.pragma[0].keyword == 'acc' and
+                           loop.pragma[0].content.lower().lstrip().startswith('data ')):
+                            p_content = f'parallel loop gang{private_clause}'
+                            loop._update(pragma=(loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
+                            loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
+                                                      loop.pragma_post[0]))
 
                 # Apply hoisting of temporary "column arrays"
                 if self.hoist_column_arrays:
