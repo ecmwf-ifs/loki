@@ -275,7 +275,7 @@ class ParametriseTransformation(Transformation):
                         name = str(call.name)
                         successor_map[name].trafo_data[self._key][str(arg_map_reversed[call.arguments[index]])] = \
                             dic2p[call.arguments[index].name]
-                    arguments = [arg for i, arg in enumerate(call.arguments) if arg not in vars2p]
+                    arguments = tuple(arg for arg in call.arguments if arg not in vars2p)
                     call_map[call] = call.clone(arguments=arguments)
             routine.body = Transformer(call_map).visit(routine.body)
 
