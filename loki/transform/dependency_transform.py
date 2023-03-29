@@ -87,7 +87,8 @@ class DependencyTransformation(Transformation):
         if role == 'kernel':
             # Change the name of kernel routines
             if routine.is_function:
-                self.update_result_var(routine)
+                if not routine.result_name:
+                    self.update_result_var(routine)
             routine.name += self.suffix
 
         self.rename_calls(routine, **kwargs)
