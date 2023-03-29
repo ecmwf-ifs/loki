@@ -569,7 +569,7 @@ class NestedMaskedTransformer(MaskedTransformer):
         if not body:
             return else_body
 
-        has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
+        has_elseif = o.has_elseif and bool(else_body) and isinstance(else_body[0], Conditional)
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
 
     def visit_MultiConditional(self, o, **kwargs):
@@ -586,9 +586,9 @@ class NestedMaskedTransformer(MaskedTransformer):
 
         # need to make (value, body) pairs to track vanishing bodies
         expr = self.visit(o.expr, **kwargs)
-        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
-                    for c, b in zip(o.values, o.bodies)]
-        branches = [(c, b) for c, b in branches if flatten(as_tuple(b))]
+        branches = tuple((self.visit(c, **kwargs), self.visit(b, **kwargs))
+                         for c, b in zip(o.values, o.bodies))
+        branches = tuple((c, b) for c, b in branches if flatten(as_tuple(b)))
         else_body = self.visit(o.else_body, **kwargs)
 
         # retain whatever is in the else body if all other branches are gone

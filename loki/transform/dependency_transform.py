@@ -139,7 +139,7 @@ class DependencyTransformation(Transformation):
             if call.name in members:
                 continue
             if targets is None or call.name in targets:
-                call.name = call.name.clone(name=f'{call.name}{self.suffix}')
+                call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
 
     def rename_imports(self, source, imports, **kwargs):
         """

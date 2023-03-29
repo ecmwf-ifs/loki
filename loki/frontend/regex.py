@@ -622,7 +622,9 @@ class ProcedureStatementPattern(Pattern):
             sym.Variable(name=s, type=SymbolAttributes(ProcedureType(name=s)), scope=scope)
             for s in procedures
         ]
-        return ir.ProcedureDeclaration(symbols=symbols, module=is_module, source=reader.source_from_current_line)
+        return ir.ProcedureDeclaration(
+            symbols=symbols, module=is_module, source=reader.source_from_current_line()
+        )
 
 
 class TypedefPattern(Pattern):
@@ -746,7 +748,7 @@ class ProcedureBindingPattern(Pattern):
                 initial = sym.Variable(name=s[1], type=type_, scope=scope.parent)
                 symbols += [sym.Variable(name=s[0], type=type_.clone(initial=initial), scope=scope)]
 
-        return ir.ProcedureDeclaration(symbols=symbols, source=reader.source_from_current_line)
+        return ir.ProcedureDeclaration(symbols=symbols, source=reader.source_from_current_line())
 
 
 class GenericBindingPattern(Pattern):

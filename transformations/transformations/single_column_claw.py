@@ -337,4 +337,4 @@ class CLAWTransformation(ExtractSCATransformation):
 
                 if loop.variable == self.horizontal.index:
                     pragma = Pragma(keyword='claw', content=claw_keywords)
-                    loop._update(pragma=pragma)
+                    loop._update(pragma=as_tuple(pragma))

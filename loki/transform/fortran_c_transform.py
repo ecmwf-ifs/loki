@@ -181,7 +181,9 @@ class FortranCTransformation(Transformation):
         arguments = tuple(local_arg_map[a] if a in local_arg_map else Variable(name=a)
                           for a in routine.argnames)
         wrapper_body = casts_in
-        wrapper_body += [CallStatement(name=Variable(name=interface.body[0].name), arguments=arguments)]
+        wrapper_body += [
+            CallStatement(name=Variable(name=interface.body[0].name), arguments=arguments)  # pylint: disable=unsubscriptable-object
+        ]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
 
@@ -399,7 +401,7 @@ class FortranCTransformation(Transformation):
 
             elif not im.c_import and im.symbols:
                 # Create a C-header import for any converted modules
-                import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=None)
+                import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=())
 
             else:
                 # Remove other imports, as they might include untreated Fortran code
