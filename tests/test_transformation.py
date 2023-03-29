@@ -632,7 +632,8 @@ end subroutine transform_replace_selected_kind
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_post_apply_subroutine(here, frontend):
+@pytest.mark.parametrize('post_apply_rescope_symbols', [True, False])
+def test_transformation_post_apply_subroutine(here, frontend, post_apply_rescope_symbols):
     """Verify that post_apply is called for subroutines."""
 
     #### Test that rescoping is applied and effective ####
@@ -667,8 +668,13 @@ end subroutine transformation_post_apply
     assert i == 1
 
     # Apply transformation and make sure variable scope is correct
-    routine.apply(ScopingErrorTransformation())
-    assert routine.variable_map['j'].scope is routine
+    routine.apply(ScopingErrorTransformation(), post_apply_rescope_symbols=post_apply_rescope_symbols)
+    if post_apply_rescope_symbols:
+        # Scope is correct
+        assert routine.variable_map['j'].scope is routine
+    else:
+        # Scope is wrong
+        assert routine.variable_map['j'].scope is tmp_routine
 
     new_filepath = here/(f'{routine.name}_{frontend}.f90')
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
@@ -681,7 +687,8 @@ end subroutine transformation_post_apply
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_post_apply_module(here, frontend):
+@pytest.mark.parametrize('post_apply_rescope_symbols', [True, False])
+def test_transformation_post_apply_module(here, frontend, post_apply_rescope_symbols):
     """Verify that post_apply is called for modules."""
 
     #### Test that rescoping is applied and effective ####
@@ -715,17 +722,22 @@ end module transformation_module_post_apply
     module = Module.from_source(fcode, frontend=frontend)
 
     # Test the original implementation
-    filepath = here/(f'{module.name}_{frontend}.f90')
+    filepath = here/(f'{module.name}_{frontend}_{post_apply_rescope_symbols!s}.f90')
     mod = jit_compile(module, filepath=filepath, objname=module.name)
 
     i = mod.test_post_apply()
     assert i == 1
 
     # Apply transformation
-    module.apply(ScopingErrorTransformation())
-    assert module.variable_map['j'].scope is module
+    module.apply(ScopingErrorTransformation(), post_apply_rescope_symbols=post_apply_rescope_symbols)
+    if post_apply_rescope_symbols:
+        # Scope is correct
+        assert module.variable_map['j'].scope is module
+    else:
+        # Scope is wrong
+        assert module.variable_map['j'].scope is tmp_scope
 
-    new_filepath = here/(f'{module.name}_{frontend}.f90')
+    new_filepath = here/(f'{module.name}_{frontend}_{post_apply_rescope_symbols!s}.f90')
     new_mod = jit_compile(module, filepath=new_filepath, objname=module.name)
 
     i = new_mod.test_post_apply()
