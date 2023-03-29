@@ -7,9 +7,8 @@
 
 """
 Collection of utility routines to deal with general language conversion.
-
-
 """
+
 import platform
 from collections import defaultdict
 from pymbolic.primitives import Expression
@@ -37,9 +36,9 @@ def single_variable_declaration(routine, variables=None, group_by_shape=False):
     Modify/extend variable declarations to
 
     * default: only declare one variable each time while preserving the order if ``variables=None`` and
-     ``group_by_shape=False``
+      ``group_by_shape=False``
     * declare variables specified in ``variables``in single/unique declarations if ``variables`` is a tuple
-     of variables
+      of variables
     * variable declarations to be grouped according to their shapes if ``group_by_shape=True``
 
     Parameters

@@ -572,6 +572,7 @@ def timeout(time_in_s, message=None):
     :any:`RuntimeError` being raised.
 
     .. code-block::
+
        with timeout(5):
            sleep(10)
 
