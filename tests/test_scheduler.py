@@ -1575,7 +1575,6 @@ def test_scheduler_inline_call(here, config, frontend):
     ]
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
-    print(scheduler.items)
 
     expected_items = {'#driver', '#double_real'}
     expected_dependencies = {('#driver', '#double_real')}
