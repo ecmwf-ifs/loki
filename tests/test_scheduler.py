@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
 """
 Specialised test that exercises the bulk-processing capabilities and
 source-injection mechanism provided by the `loki.scheduler` and
@@ -104,8 +105,8 @@ class VisGraphWrapper:
     Testing utility to parse the generated callgraph visualisation.
     """
 
-    _re_nodes = re.compile(r'\s*\"?(?P<node>[\w%#]+)\"? \[colo', re.IGNORECASE)
-    _re_edges = re.compile(r'\s*\"?(?P<parent>[\w%#]+)\"? -> \"?(?P<child>[\w%#]+)\"?', re.IGNORECASE)
+    _re_nodes = re.compile(r'\s*\"?(?P<node>[\w%#./]+)\"? \[colo', re.IGNORECASE)
+    _re_edges = re.compile(r'\s*\"?(?P<parent>[\w%#./]+)\"? -> \"?(?P<child>[\w%#./]+)\"?', re.IGNORECASE)
 
     def __init__(self, path):
         with Path(path).open('r') as f:
@@ -121,7 +122,8 @@ class VisGraphWrapper:
 
 
 @pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
-def test_scheduler_graph_simple(here, config, frontend):
+@pytest.mark.parametrize('with_file_graph', [True, False, 'filegraph_simple'])
+def test_scheduler_graph_simple(here, config, frontend, with_file_graph):
     """
     Create a simple task graph from a single sub-project:
 
@@ -151,17 +153,47 @@ def test_scheduler_graph_simple(here, config, frontend):
     assert all(n in scheduler.items for n in expected_items)
     assert all(e in scheduler.dependencies for e in expected_dependencies)
 
+    if with_file_graph:
+        file_graph = scheduler.file_graph
+        expected_files = [
+            'module/driverA_mod.f90', 'module/kernelA_mod.F90',
+            'module/compute_l1_mod.f90', 'module/compute_l2_mod.f90',
+            'source/another_l1.F90', 'source/another_l2.F90',
+        ]
+        expected_file_dependencies = [
+            ('module/driverA_mod.f90', 'module/kernelA_mod.F90'),
+            ('module/kernelA_mod.F90', 'module/compute_l1_mod.f90'),
+            ('module/compute_l1_mod.f90', 'module/compute_l2_mod.f90'),
+            ('module/kernelA_mod.F90', 'source/another_l1.F90'),
+            ('source/another_l1.F90', 'source/another_l2.F90'),
+        ]
+        assert all(Path(n) in file_graph for n in expected_files)
+        assert all((Path(a), Path(b)) in file_graph.edges for a, b in expected_file_dependencies)
+
     # Testing of callgraph visualisation
     cg_path = here/'callgraph_simple'
-    scheduler.callgraph(cg_path)
+    if not isinstance(with_file_graph, bool):
+        with_file_graph = here/with_file_graph
+    scheduler.callgraph(cg_path, with_file_graph=with_file_graph)
 
     vgraph = VisGraphWrapper(cg_path)
     assert all(n.upper() in vgraph.nodes for n in expected_items)
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
 
+    if with_file_graph:
+        if isinstance(with_file_graph, bool):
+            fg_path = cg_path.with_name(f'{cg_path.stem}_file_graph{cg_path.suffix}')
+        else:
+            fg_path = here/with_file_graph
+        fgraph = VisGraphWrapper(fg_path)
+        assert all(n in fgraph.nodes for n in expected_files)
+        assert all((e[0], e[1]) in fgraph.edges for e in expected_file_dependencies)
+
+        fg_path.unlink()
+        fg_path.with_suffix('.pdf').unlink(missing_ok=True)
+
     cg_path.unlink()
-    if cg_path.with_suffix('.pdf').exists():
-        cg_path.with_suffix('.pdf').unlink()
+    cg_path.with_suffix('.pdf').unlink(missing_ok=True)
 
 
 @pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
@@ -1297,6 +1329,49 @@ def test_scheduler_typebound_ignore(here, config, frontend):
 
     cg_path.unlink()
     cg_path.with_suffix('.pdf').unlink()
+
+
+@pytest.mark.parametrize('use_file_graph,reverse', [
+    (False, False), (False, True), (True, False), (True, True)
+])
+def test_scheduler_traversal_order(here, config, frontend, use_file_graph, reverse):
+    """
+    Test correct traversal order for scheduler processing
+
+    """
+    proj = here/'sources/projHoist'
+
+    scheduler = Scheduler(
+        paths=proj, seed_routines=['driver'], config=config,
+        full_parse=True, frontend=frontend
+    )
+
+    if use_file_graph:
+        expected = [
+            'transformation_module_hoist#driver', 'subroutines_mod#kernel1'
+        ]
+    else:
+        expected = [
+            'transformation_module_hoist#driver', 'subroutines_mod#kernel1', 'subroutines_mod#kernel2',
+            'subroutines_mod#device1', 'subroutines_mod#device2'
+        ]
+
+    class LoggingTransformation(Transformation):
+
+        def __init__(self):
+            self.record = []
+
+        def transform_file(self, sourcefile, **kwargs):
+            item = kwargs['item']
+            self.record += [item.name]
+
+    transformation = LoggingTransformation()
+    scheduler.process(transformation=transformation, reverse=reverse, use_file_graph=use_file_graph)
+
+    if reverse:
+        assert transformation.record == expected[::-1]
+    else:
+        assert transformation.record == expected
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

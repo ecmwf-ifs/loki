@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from hashlib import md5
 import re
 
 from loki.ir import Comment, CommentBlock, LeafNode
@@ -14,7 +15,7 @@ from loki.subroutine import Subroutine
 from loki.visitors import FindNodes, Transformer
 
 
-__all__ = ['Fixer', 'get_filename_from_parent', 'is_rule_disabled']
+__all__ = ['Fixer', 'get_filename_from_parent', 'get_location_hash', 'is_rule_disabled']
 
 
 class Fixer:
@@ -28,6 +29,8 @@ class Fixer:
         Call `fix_module` for all rules and apply the transformations.
         """
         # TODO: implement this!
+        if reports:
+            module._source = None
         return module
 
     @classmethod
@@ -58,6 +61,8 @@ class Fixer:
         Call `fix_sourcefile` for all rules and apply the transformations.
         """
         # TODO: implement this!
+        if reports:
+            sourcefile._source = None
         return sourcefile
 
     @classmethod
@@ -82,27 +87,31 @@ class Fixer:
         if isinstance(ast, Sourcefile):
             # Depth-first traversal
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
-                ast._routines = [cls.fix(routine, reports, config) for routine in ast.subroutines]
+                for routine in ast.subroutines:
+                    cls.fix_subroutine(routine, reports, config)
             if hasattr(ast, 'modules') and ast.modules is not None:
-                ast._modules = [cls.fix(module, reports, config) for module in ast.modules]
+                for module in ast.modules:
+                    cls.fix_module(module, reports, config)
 
-            ast = cls.fix_sourcefile(ast, reports, config)
+            cls.fix_sourcefile(ast, reports, config)
 
         # Fix on module level
         elif isinstance(ast, Module):
             # Depth-first traversal
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
-                ast.routines = [cls.fix(routine, reports, config) for routine in ast.subroutines]
+                for routine in ast.subroutines:
+                    cls.fix_subroutine(routine, reports, config)
 
-            ast = ast.fix_module(ast, reports, config)
+            cls.fix_module(ast, reports, config)
 
         # Fix on subroutine level
         elif isinstance(ast, Subroutine):
             # Depth-first traversal
             if hasattr(ast, 'members') and ast.members is not None:
-                ast._members = [cls.fix(member, reports, config) for member in ast.members]
+                for routine in ast.members:
+                    cls.fix_subroutine(routine, reports, config)
 
-            ast = cls.fix_subroutine(ast, reports, config)
+            cls.fix_subroutine(ast, reports, config)
 
         return ast
 
@@ -132,9 +141,31 @@ def get_filename_from_parent(obj):
     return None
 
 
+def get_location_hash(location):
+    """
+    Utility routine that produces an identifier hash for a location in the IR
+
+    Parameters
+    ----------
+    location : :class:`Node` or :class:`ProgramUnit`
+        The IR object for which to produce the hash
+
+    Returns
+    -------
+    str or None
+        The hash as a string or, if no hash can be created for :data:`location`,
+        `None` is returned.
+    """
+    if getattr(location, 'source', None) and location.source.string:
+        first_line = location.source.string[:location.source.string.find('\n')]
+        line_hash = str(md5(first_line.encode()).hexdigest())
+        return line_hash
+    return None
+
+
 _disabled_rules_re = re.compile(r'^\s*!\s*loki-lint\s*:(?:.*?)disable=(?P<rules>[\w\.,]*)')
 
-def is_rule_disabled(ir, identifiers):
+def is_rule_disabled(ir, identifiers, disabled_line_hashes=None):
     """
     Check if a Linter rule is disabled in the provided context via user annotations
 
@@ -156,6 +187,9 @@ def is_rule_disabled(ir, identifiers):
         The IR object for which to check if a rule is disabled
     identifiers : list
         A list of string identifiers via which the rule can be disabled
+    disabled_line_hashes : list, optional
+        A list of hashes. If the first line of :data:`ir` corresponding to
+        the violation matches a hash in this list, the rule is disabled
 
     Returns
     -------
@@ -169,6 +203,11 @@ def is_rule_disabled(ir, identifiers):
                 if rule in identifiers:
                     return True
         return False
+
+    if disabled_line_hashes:
+        line_hash = get_location_hash(ir)
+        if line_hash and line_hash in disabled_line_hashes:
+            return True
 
     # If we have a leaf node, we check for in-line comments
     if isinstance(ir, LeafNode):

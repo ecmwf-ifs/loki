@@ -5,8 +5,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from os.path import commonpath
 from pathlib import Path
-from collections import deque, OrderedDict
+from collections import deque, OrderedDict, defaultdict
 import networkx as nx
 from codetiming import Timer
 
@@ -243,6 +244,38 @@ class Scheduler:
         """
         return as_tuple(self.item_graph.edges)
 
+    @property
+    def file_graph(self):
+        """
+        Alternative dependency graph based on relations between source files
+
+        Returns
+        -------
+        nx.DiGraph
+        """
+        paths = {item.path for item in self.item_graph}
+        basepath = Path(commonpath([str(p) for p in paths]))
+        paths_map = {p: p.relative_to(basepath) for p in paths}
+
+        file_graph = nx.DiGraph()
+        file_item_map = defaultdict(list)
+        for item in self.item_graph:
+            relative_path = paths_map[item.path]
+            file_item_map[relative_path] += [item]
+
+        for relative_path, items in file_item_map.items():
+            file_graph.add_node(relative_path, items=items)
+
+        for item in nx.topological_sort(self.item_graph):
+            parent_path = paths_map[item.path]
+            for child in self.item_graph.successors(item):
+                child_path = paths_map[child.path]
+                if parent_path != child_path:
+                    file_graph.add_edge(parent_path, child_path)
+
+        return file_graph
+
+
     def __getitem__(self, name):
         """
         Find and return an item in the Scheduler's call graph
@@ -439,38 +472,59 @@ class Scheduler:
                 self.obj_map[lookup_name].make_complete(**self.build_args)
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
-    def process(self, transformation, reverse=False):
+    def process(self, transformation, reverse=False, use_file_graph=False):
         """
-        Process all enqueued source modules and routines with the
-        stored kernel. The traversal is performed in topological
-        order, which ensures that :any:`CallStatement` objects are
-        always processed before their target :any:`Subroutine`.
-        """
+        Process all :attr:`items` in the scheduler's graph
 
+        By default, the traversal is performed in topologicalal order, which
+        ensures that :any:`CallStatement` objects are always processed before
+        their target :any:`Subroutine`.
+        This order can be reversed by setting :data:`reverse` to ``True``.
+
+        Optionally, the traversal can be performed on a source file level only,
+        by setting :data:`use_file_graph` to ``True``. Currently, this calls
+        the transformation on the first `item` associated with a file only.
+        """
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
         with Timer(logger=info, text=log):
 
-            traversal = nx.topological_sort(self.item_graph)
+            if use_file_graph:
+                graph = self.file_graph
+            else:
+                graph = self.item_graph
+
+            traversal = nx.topological_sort(graph)
             if reverse:
                 traversal = reversed(list(traversal))
 
-            for item in traversal:
-                if not isinstance(item, SubroutineItem):
-                    continue
+            if use_file_graph:
+                for node in traversal:
+                    items = graph.nodes[node]['items']
+                    transformation.apply(items[0].source, item=items[0], items=items)
 
-                # Process work item with appropriate kernel
-                transformation.apply(
-                    item.source, role=item.role, mode=item.mode,
-                    item=item, targets=item.targets, successors=list(self.item_graph.successors(item)),
-                    depths=self.depths
-                )
+            else:
+                for item in traversal:
+                    if not isinstance(item, SubroutineItem):
+                        continue
 
-    def callgraph(self, path):
+                    # Process work item with appropriate kernel
+                    transformation.apply(
+                        item.source, role=item.role, mode=item.mode,
+                        item=item, targets=item.targets, successors=list(graph.successors(item)),
+                        depths=self.depths
+                    )
+
+    def callgraph(self, path, with_file_graph=False):
         """
         Generate a callgraph visualization and dump to file.
 
-        :param path: Path to write the callgraph figure to.
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            Path to write the callgraph figure to.
+        with_filegraph : bool or str or pathlib.Path
+            Visualize file dependencies in an additional file. Can be set to `True` or a file path to write to.
         """
         try:
             import graphviz as gviz  # pylint: disable=import-outside-toplevel
@@ -485,10 +539,10 @@ class Scheduler:
         for item in self.items:
             if item.replicate:
                 callgraph.node(item.name.upper(), color='black', shape='diamond',
-                                fillcolor='limegreen', style='rounded,filled')
+                               fillcolor='limegreen', style='rounded,filled')
             else:
                 callgraph.node(item.name.upper(), color='black', shape='box',
-                                fillcolor='limegreen', style='filled')
+                               fillcolor='limegreen', style='filled')
 
         # Insert all edges in the schedulers graph
         for parent, child in self.dependencies:
@@ -501,7 +555,7 @@ class Scheduler:
             blocked_children = [child for child in blocked_children if isinstance(child, str)]
             for child in blocked_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='orangered', style='filled')
+                               fillcolor='orangered', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
             ignored_children = [child for child in item.children if child in item.ignore]
@@ -509,20 +563,40 @@ class Scheduler:
             ignored_children = [child for child in ignored_children if isinstance(child, str)]
             for child in ignored_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='lightblue', style='filled')
+                               fillcolor='lightblue', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
             missing_children = item.qualify_names(item.children, self.obj_map.keys())
             missing_children = [child[0] for child in missing_children if isinstance(child, tuple)]
             for child in missing_children:
                 callgraph.node(child.upper(), color='black', shape='box',
-                            fillcolor='lightgray', style='filled')
+                               fillcolor='lightgray', style='filled')
                 callgraph.edge(item.name.upper(), child.upper())
 
         try:
             callgraph.render(cg_path, view=False)
         except gviz.ExecutableNotFound as e:
             warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')
+
+        if with_file_graph:
+            if with_file_graph is True:
+                fg_path = cg_path.with_name(f'{cg_path.stem}_file_graph{cg_path.suffix}')
+            else:
+                fg_path = Path(with_file_graph)
+            fg = gviz.Digraph(format='pdf', strict=True, graph_attr=(('rankdir', 'LR'),))
+            file_graph = self.file_graph
+
+            for item in file_graph:
+                fg.node(str(item), color='black', shape='box', style='rounded')
+
+            for parent, child in file_graph.edges:
+                fg.edge(str(parent), str(child))
+
+            try:
+                fg.render(fg_path, view=False)
+            except gviz.ExecutableNotFound as e:
+                warning(f'[Loki] Failed to render filegraph due to graphviz error:\n  {e}')
+
 
     @Timer(logger=perf, text='[Loki::Scheduler] Wrote CMake plan file in {:.2f}s')
     def write_cmake_plan(self, filepath, mode, buildpath, rootpath):

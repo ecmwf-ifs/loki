@@ -65,9 +65,21 @@ def find_paths(directory, pattern, ignore=None, sort=True):
     Utility function to generate a list of file paths based on include
     and exclude patterns applied to a root directory.
 
-    :param root: Root director from which to glob files.
-    :param includes: A glob pattern generating files to include in the list.
-    :param excludes: A glob pattern generating files to exclude from the list.
+    Parameters
+    ----------
+    directory : str or :any:`pathlib.Path`
+        Root directory from which to glob files.
+    pattern : list of str
+        A list of glob patterns generating files to include in the list.
+    ignore : list of str, optional
+        A list of glob patterns generating files to exclude from the list.
+    sort : bool, optional
+        Flag to indicate alphabetic ordering of files
+
+    Returns
+    -------
+    list :
+        The list of file names
     """
     directory = Path(directory)
     excludes = flatten(directory.rglob(e) for e in as_tuple(ignore))
