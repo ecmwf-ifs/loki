@@ -203,6 +203,13 @@ class Item:
         """
 
     @property
+    @abstractmethod
+    def function_interfaces(self):
+        """
+        All inline functions defined in this :class:`Item` via an explicit interface
+        """
+
+    @property
     def path(self):
         """
         The filepath of the associated source file
@@ -505,7 +512,7 @@ class SubroutineItem(Item):
         return tuple(
             self._variable_to_type_name(call.name).lower()
             for call in FindNodes(CallStatement).visit(self.routine.ir)
-        )
+        ) + self.function_interfaces
 
     def _variable_to_type_name(self, var):
         """
@@ -520,6 +527,25 @@ class SubroutineItem(Item):
         type_name = self.routine.symbol_attrs[var_name].dtype.name
         return type_name + var.name[pos:]
 
+    @property
+    def function_interfaces(self):
+        """
+        Inline functions declared in the corresponding :any:`Subroutine`,
+        or its parent :any:`Module`, via an explicit interface.
+        """
+
+        names = ()
+        interfaces = self.routine.interfaces
+
+        if (scope := self.scope) is not None:
+            interfaces += scope.interfaces
+
+        names = tuple(
+            s.name.lower() for intf in interfaces for s in intf.symbols
+            if s.type.dtype.is_function
+        )
+
+        return names
 
 class ProcedureBindingItem(Item):
     """
@@ -559,6 +585,17 @@ class ProcedureBindingItem(Item):
         Return modules imported in the parent scope
         """
         return self.scope.imports
+
+    @property
+    def function_interfaces(self):
+        """
+        Empty tuple as procedure bindings cannot include interface blocks
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
 
     @property
     def calls(self):

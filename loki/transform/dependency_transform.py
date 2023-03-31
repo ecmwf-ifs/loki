@@ -11,8 +11,8 @@ from loki.transform.transformation import Transformation
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.visitors import FindNodes, Transformer
-from loki.ir import CallStatement, Import, Section
-from loki.expression import Variable
+from loki.ir import CallStatement, Import, Section, Interface
+from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
 from loki.backend import fgen
 from loki.tools import as_tuple
 
@@ -86,6 +86,9 @@ class DependencyTransformation(Transformation):
 
         if role == 'kernel':
             # Change the name of kernel routines
+            if routine.is_function:
+                if not routine.result_name:
+                    self.update_result_var(routine)
             routine.name += self.suffix
 
         self.rename_calls(routine, **kwargs)
@@ -94,9 +97,28 @@ class DependencyTransformation(Transformation):
         imports = FindNodes(Import).visit(routine.ir)
         self.rename_imports(routine, imports=imports, **kwargs)
 
+        # Interface blocks can only be in the spec
+        intfs = FindNodes(Interface).visit(routine.spec)
+        self.rename_interfaces(routine, intfs=intfs, **kwargs)
+
         if role == 'kernel' and self.mode == 'strict':
             # Re-generate C-style interface header
             self.generate_interfaces(routine)
+
+    def update_result_var(self, routine):
+        """
+        Update name of result variable for function calls.
+        """
+
+        assert routine.name in routine.variables
+
+        vmap = {}
+        for v in routine.variables:
+            if v == routine.name:
+                vmap.update({v: v.clone(name=v.name + self.suffix)})
+
+        routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     def transform_module(self, module, **kwargs):
         """
@@ -140,6 +162,10 @@ class DependencyTransformation(Transformation):
                 continue
             if targets is None or call.name in targets:
                 call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
+
+        for call in FindInlineCalls(unique=False).visit(routine.body):
+            if targets is None or call.name.upper() in targets:
+                call.function = call.function.clone(name=f'{call.name}{self.suffix}')
 
     def rename_imports(self, source, imports, **kwargs):
         """
@@ -193,6 +219,38 @@ class DependencyTransformation(Transformation):
         source.spec = Transformer(removal_map).visit(source.spec)
         if isinstance(source, Subroutine):
             source.body = Transformer(removal_map).visit(source.body)
+
+    def rename_interfaces(self, source, intfs, **kwargs):
+        """
+        Update explicit interfaces to actively transformed subroutines.
+        """
+
+        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(str(t).lower() for t in targets)
+
+        if self.replace_ignore_items and (item := kwargs.get('item', None)):
+            targets += as_tuple(str(i).lower() for i in item.ignore)
+
+        # Transformer map to remove any outdated interfaces
+        removal_map = {}
+
+        for i in intfs:
+            new_imports = ()
+            for b in i.body:
+                if isinstance(b, Subroutine):
+                    if targets is not None and b.name in targets:
+                        # Create a new module import with explicitly qualified symbol
+                        new_module = self.derive_module_name(b.name)
+                        new_symbol = Variable(name=f'{b.name}{self.suffix}', scope=source)
+                        new_import = Import(module=new_module, c_import=False, symbols=(new_symbol,))
+                        new_imports += as_tuple(new_import)
+
+            if new_imports:
+                removal_map[i] = new_imports
+
+        # Apply any scheduled interface removals to spec
+        if removal_map:
+            source.spec = Transformer(removal_map).visit(source.spec)
 
     def derive_module_name(self, modname):
         """

@@ -489,9 +489,10 @@ class SubroutineFunctionPattern(Pattern):
 
         if match['spec']:
             statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern')
-            spec = self.match_statement_candidates(
+            block_candidates = ('InterfacePattern',)
+            spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
-                statement_candidates, parser_classes=parser_classes, scope=routine
+                block_candidates, statement_candidates, parser_classes=parser_classes, scope=routine
             )
         else:
             spec = None
