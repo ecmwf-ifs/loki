@@ -14,6 +14,7 @@ from loki.expression import FindVariables, Array, FindInlineCalls
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.visitors import Visitor, Transformer
+from loki.subroutine import Subroutine
 
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
@@ -96,6 +97,14 @@ class DataflowAnalysisAttacher(Transformer):
 
     # Internal nodes
 
+    def visit_Interface(self, o, **kwargs):
+        # Subroutines/functions calls defined in an explicit interface
+        defines = set()
+        for b in o.body:
+            if isinstance(b, Subroutine):
+                defines = defines | set(as_tuple(b.procedure_symbol))
+        return self.visit_Node(o, defines_symbols=defines, **kwargs)
+
     def visit_InternalNode(self, o, **kwargs):
         # An internal node defines all symbols defined by its body and uses all
         # symbols used by its body before they are defined in the body
@@ -119,7 +128,7 @@ class DataflowAnalysisAttacher(Transformer):
         # A while loop uses variables in its condition
         live = kwargs.pop('live_symbols', set())
         uses = self._symbols_from_expr(o.condition)
-        body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, uses=uses, **kwargs)
+        body, defines, uses = self._visit_body(o.body, live=live, uses=uses, **kwargs)
         o._update(body=body)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
@@ -150,9 +159,12 @@ class DataflowAnalysisAttacher(Transformer):
         vset = set(v for v in FindVariables().visit(o.values) if not v in query_args)
 
         uses = self._symbols_from_expr(as_tuple(eset)) | self._symbols_from_expr(as_tuple(vset))
-        body, defines, uses = self._visit_body(o.bodies, live=live, uses=uses, **kwargs)
+        body = ()
+        defines = set()
+        for b in o.bodies:
+            _b, defines, uses = self._visit_body(b, live=live, uses=uses, defines=defines, **kwargs)
+            body += (as_tuple(_b),)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
-        body = tuple(as_tuple(b,) for b in body)
         o._update(bodies=body, else_body=else_body)
         defines = defines | else_defines
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
