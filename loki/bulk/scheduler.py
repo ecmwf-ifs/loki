@@ -584,7 +584,7 @@ class Scheduler:
         """
         Process all :attr:`items` in the scheduler's graph
 
-        By default, the traversal is performed in topologicalal order, which
+        By default, the traversal is performed in topological order, which
         ensures that :any:`CallStatement` objects are always processed before
         their target :any:`Subroutine`.
         This order can be reversed by setting :data:`reverse` to ``True``.
@@ -592,6 +592,7 @@ class Scheduler:
         Optionally, the traversal can be performed on a source file level only,
         by setting :data:`use_file_graph` to ``True``. Currently, this calls
         the transformation on the first `item` associated with a file only.
+        In this mode, :data:`item_filter` does not have any effect.
         """
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
@@ -616,12 +617,12 @@ class Scheduler:
                     if item_filter and not isinstance(item, item_filter):
                         continue
 
-                # Process work item with appropriate kernel
-                transformation.apply(
-                    item.source, role=item.role, mode=item.mode,
-                    item=item, targets=item.targets, successors=self.item_successors(item),
-                    depths=self.depths
-                )
+                    # Process work item with appropriate kernel
+                    transformation.apply(
+                        item.source, role=item.role, mode=item.mode,
+                        item=item, targets=item.targets, successors=self.item_successors(item),
+                        depths=self.depths
+                    )
 
     def callgraph(self, path, with_file_graph=False):
         """
