@@ -404,8 +404,8 @@ class Subroutine(ProgramUnit):
         routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
         decl_map = {}
         for decl in FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(self.spec):
-            if any(v in arg_names for v in decl.symbols):
-                assert all(v in arg_names and v.type.intent is not None for v in decl.symbols), \
+            if any(v.name in arg_names for v in decl.symbols):
+                assert all(v.name in arg_names and v.type.intent is not None for v in decl.symbols), \
                     "Declarations must have intents and dummy and local arguments cannot be mixed."
                 # Replicate declaration with re-scoped variables
                 variables = as_tuple(v.clone(scope=routine) for v in decl.symbols)
