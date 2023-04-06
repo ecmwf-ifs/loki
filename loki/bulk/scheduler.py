@@ -42,9 +42,12 @@ class SchedulerConfig:
         visualisation. These are intended for utility routines that
         pop up in many routines but can be ignored in terms of program
         control flow, like ``flush`` or ``abort``.
+    enable_imports : bool
+        Disable the inclusion of module imports as scheduler dependencies.
     """
 
-    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None):
+    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None,
+                 enable_imports=False):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
@@ -52,6 +55,8 @@ class SchedulerConfig:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
+        self.enable_imports = enable_imports
+
         if dic2p is not None:
             self.dic2p = dic2p
         else:
@@ -70,6 +75,7 @@ class SchedulerConfig:
             config['routines'] = []
         routines = config['routines']
         disable = default.get('disable', None)
+        enable_imports = default.get('enable_imports', False)
 
         # Add any dimension definitions contained in the config dict
         dimensions = {}

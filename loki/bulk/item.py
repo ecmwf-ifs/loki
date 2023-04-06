@@ -290,12 +290,12 @@ class Item:
         return self.config.get('enrich', tuple())
 
     @property
-    def disable_imports(self):
+    def enable_imports(self):
         """
-        Configurable option to disable the addition of module imports as children.
+        Configurable option to enable the addition of module imports as children.
         """
 
-        return self.config.get('disable_imports', False)
+        return self.config.get('enable_imports', False)
 
     @property
     def children(self):
@@ -318,7 +318,7 @@ class Item:
         # Base definition of child is a procedure call
         children = self.calls
 
-        if not self.disable_imports:
+        if self.enable_imports:
             if isinstance(self, SubroutineItem):
                 children += tuple(self.qualified_imports.keys())
             elif isinstance(self, GenericImportItem):
@@ -464,7 +464,7 @@ class Item:
         # Base definition of child is a procedure call
         targets = self.calls
 
-        if not self.disable_imports:
+        if self.enable_imports:
             if isinstance(self, SubroutineItem):
                 targets += tuple(self.qualified_imports.keys())
             elif isinstance(self, GenericImportItem):
