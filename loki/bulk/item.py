@@ -35,11 +35,12 @@ class Item:
     sub-trees.
 
     Depending of the nature of the work item, the implementation of :class:`Item` is
-    done in subclasses :class:`SubroutineItem` and :class:`ProcedureBindingItem`.
+    done in subclasses :class:`SubroutineItem`, :class:`ProcedureBindingItem`,
+    :class:`GlobalVarImportItem` and :class:`GenericImportItem`.
 
-    The :attr:`name` of a :class:`Item` refers to the routine name using
+    The :attr:`name` of a :class:`Item` refers to the routine or variable name using
     a fully-qualified name in the format ``<scope_name>#<local_name>``. The
-    ``<scope_name>`` corresponds to a Fortran module that a subroutine is declared
+    ``<scope_name>`` corresponds to a Fortran module that a subroutine or variable is declared
     in, or can be empty if the subroutine is not enclosed in a module (i.e. exists
     in the global scope). This is to enable use of routines with the same name that
     are declared in different modules.
@@ -94,8 +95,6 @@ class Item:
         self.source = source
         self.config = config or {}
         self.trafo_data = {}
-        self._children = ()
-        self._targets = ()
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
@@ -316,8 +315,14 @@ class Item:
         """
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
-        # Base definition of child is a procedure call (for now)
+        # Base definition of child is a procedure call
         children = self.calls
+
+        if not self.disable_imports:
+            if isinstance(self, SubroutineItem):
+                children += tuple(self.qualified_imports.keys())
+            elif isinstance(self, GenericImportItem):
+                children += self.procedure_interface_members
 
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in self.members]
@@ -457,7 +462,13 @@ class Item:
         ignored = as_tuple(str(b).lower() for b in self.ignore)
 
         # Base definition of child is a procedure call
-        targets = self._targets + self.calls
+        targets = self.calls
+
+        if not self.disable_imports:
+            if isinstance(self, SubroutineItem):
+                targets += tuple(self.qualified_imports.keys())
+            elif isinstance(self, GenericImportItem):
+                targets += self.procedure_interface_members
 
         # Filter out blocked and ignored children
         targets = [c for c in targets if c not in disabled]
@@ -567,39 +578,6 @@ class SubroutineItem(Item):
 
         return names
 
-    @cached_property
-    def _unfiltered_children(self):
-        """
-        The set of children unique to items of type :class:`SubroutineItem`.
-        Comprises of inline function declarations and qualified module imports.
-        """
-
-        _imports = ()
-        if not self.disable_imports:
-            # avoid duplicates of import calls in list of children
-            _imports = tuple([v for v in self.qualified_imports.keys()])
-            _imports = tuple([i for i in _imports if i not in self.calls])
-
-        return self.inline_function_interfaces + _imports
-
-    @property
-    def children(self):
-        """
-        Extend the base definition of children for items of type :class:`SubroutineItem`.
-        """
-
-        self._children = self._unfiltered_children
-        return super().children
-
-    @property
-    def targets(self):
-        """
-        Extend the base definition of targets for items of type :class:`SubroutineItem`.
-        """
-
-        self._targets = self._unfiltered_children
-        return super().targets
-
 
 class ProcedureBindingItem(Item):
     """
@@ -692,13 +670,15 @@ class GenericImportItem(Item):
 
     This does not constitute a work item when applying transformations across the
     call tree in the :any:`Scheduler` and is skipped during the processing phase.
+    However, it is needed to determine whether the import corresponds to a type
+    declaration or a procedure interface.
     """
 
     def __init__(self, name, source, config=None):
         name_parts = name.split('#')
         assert len(name_parts) > 1 #only accept fully-qualified module imports
         super().__init__(name, source, config)
-        assert isinstance(self.scope, Module)
+        assert self.scope
 
     @property
     def routine(self):
@@ -729,12 +709,11 @@ class GenericImportItem(Item):
     def calls(self):
         return ()
 
-    @cached_property
-    def _unfiltered_children(self):
+    @property
+    def procedure_interface_members(self):
         """
         The set of children unique to items of type :class:`GenericImportItem`.
-        Comprises exclusively of inline function calls, including any bound to
-        a generic interface.
+        Comprises exclusively of function calls bound to a procedure interface.
         """
 
         _children = ()
@@ -754,23 +733,6 @@ class GenericImportItem(Item):
 
         return _children
 
-    @property
-    def children(self):
-        """
-        Extend the base definition of children for items of type :class:`GenericImportItem`.
-        """
-
-        self._children = self._unfiltered_children
-        return super().children
-
-    @property
-    def targets(self):
-        """
-        Extend the base definition of targets for items of type :class:`GenericImportItem`.
-        """
-
-        self._targets = self._unfiltered_children
-        return super().targets
 
 class GlobalVarImportItem(Item):
     """
