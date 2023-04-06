@@ -234,6 +234,7 @@ class Scheduler:
             for r in module.interfaces
         )
 
+        # Create maps of routines and module variables to help with fast sorting in create_item later
         self.routine_map = CaseInsensitiveDict(
             (f'#{r.name}', obj) for obj in obj_list for r in obj.subroutines
         )
@@ -242,7 +243,6 @@ class Scheduler:
             for obj in obj_list for module in obj.modules
             for r in module.subroutines
         )
-
         self.modvars_map = CaseInsensitiveDict(
             (f'{module.name}#{r.name}', obj) for obj in obj_list for module in obj.modules
             for r in module.variables
