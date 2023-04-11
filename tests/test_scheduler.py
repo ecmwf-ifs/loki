@@ -1587,14 +1587,42 @@ def test_scheduler_inline_call(here, config, frontend):
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
+    expected_items = {'#driver', '#double_real'}
+    expected_dependencies = {('#driver', '#double_real')}
+
+    assert expected_items == {i.name for i in scheduler.items}
+    assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
+
+    for i in scheduler.items:
+        if i.name == '#double_real':
+            assert isinstance(i, SubroutineItem)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scheduler_import_dependencies(here, config, frontend):
+    """
+    Test that import dependencies are correctly classified.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+    my_config['routine'] = [
+        {
+            'name': 'driver',
+            'role': 'driver'
+        }
+    ]
+
+    scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
+
     expected_items = {
-        '#driver', '#double_real', 'some_module#return_one', 'some_module#some_var', 'some_module#add_args', 'some_module#some_type',
-        'some_module#some_type%do_something', 'some_module#add_two_args', 'some_module#add_three_args', 'some_module#add_const'
+        '#driver', '#double_real', 'some_module#return_one', 'some_module#some_var', 'some_module#add_args',
+        'some_module#some_type', 'some_module#add_two_args', 'some_module#add_three_args'
     }
     expected_dependencies = {
-        ('#driver', '#double_real'), ('#driver', 'some_module#return_one'), ('#driver', 'some_module#some_var'), ('#driver', 'some_module#add_args'),
-        ('#driver', 'some_module#some_type'), ('#driver', 'some_module#some_type%do_something'), ('some_module#add_args', 'some_module#add_two_args'),
-        ('some_module#add_args', 'some_module#add_three_args'), ('some_module#some_type%do_something', 'some_module#add_const')
+        ('#driver', '#double_real'), ('#driver', 'some_module#return_one'), ('#driver', 'some_module#some_var'),
+        ('#driver', 'some_module#add_args'), ('#driver', 'some_module#some_type'),
+        ('some_module#add_args', 'some_module#add_two_args'), ('some_module#add_args', 'some_module#add_three_args')
     }
 
     assert expected_items == {i.name for i in scheduler.items}
@@ -1602,6 +1630,8 @@ def test_scheduler_inline_call(here, config, frontend):
 
     for i in scheduler.items:
         if i.name == 'some_module#add_args':
+            assert isinstance(i, GenericImportItem)
+        if i.name == 'some_module#some_type':
             assert isinstance(i, GenericImportItem)
         elif i.name == 'some_module#some_var':
             assert isinstance(i, GlobalVarImportItem)
