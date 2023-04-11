@@ -698,6 +698,17 @@ class GenericImportItem(Item):
         """
         return ()
 
+    @property
+    def function_interfaces(self):
+        """
+        Empty tuple as generic import items cannot include interface blocks
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
     @cached_property
     def imports(self):
         """
@@ -725,8 +736,8 @@ class GenericImportItem(Item):
                 if i.spec.name == self.local_name:
                     for b in i.body:
                         if isinstance(b, ProcedureDeclaration):
-                           for s in b.symbols:
-                               _children += as_tuple(s.name)
+                            for s in b.symbols:
+                                _children += as_tuple(s.name)
                         elif isinstance(b, Subroutine):
                             if b.is_function:
                                 _children += as_tuple(b.name)
@@ -757,6 +768,17 @@ class GlobalVarImportItem(Item):
     def members(self):
         """
         Empty tuple as variable imports have no member routines
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
+    @property
+    def function_interfaces(self):
+        """
+        Empty tuple as global variable imports cannot include interface blocks
 
         Returns
         -------

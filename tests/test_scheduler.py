@@ -1635,7 +1635,7 @@ def test_scheduler_import_dependencies(here, config, frontend):
             assert isinstance(i, GenericImportItem)
         elif i.name == 'some_module#some_var':
             assert isinstance(i, GlobalVarImportItem)
-        elif i.name == 'some_module#add_two_args' or i.name == 'some_module#add_three_args':
+        elif i.name in ('some_module#add_two_args', 'some_module#add_three_args'):
             assert isinstance(i, SubroutineItem)
         elif i.name == '#double_real':
             assert isinstance(i, SubroutineItem)

@@ -92,7 +92,7 @@ class SchedulerConfig:
             derived_types = config['derived_types']
 
         return cls(default=default, routines=routines, disable=disable, dimensions=dimensions, dic2p=dic2p,
-                   derived_types=derived_types)
+                   derived_types=derived_types, enable_imports=enable_imports)
 
     @classmethod
     def from_file(cls, path):
@@ -378,12 +378,11 @@ class Scheduler:
         debug(f'[Loki] Scheduler creating Item: {name} => {sourcefile.path}')
         if '%' in name:
             return ProcedureBindingItem(name=name, source=sourcefile, config=item_conf)
-        elif self.routine_map.get(name):
+        if self.routine_map.get(name):
             return SubroutineItem(name=name, source=sourcefile, config=item_conf)
-        elif self.modvars_map.get(name):
+        if self.modvars_map.get(name):
             return GlobalVarImportItem(name=name, source=sourcefile, config=item_conf)
-        else:
-            return GenericImportItem(name=name, source=sourcefile, config=item_conf)
+        return GenericImportItem(name=name, source=sourcefile, config=item_conf)
 
     def find_routine(self, routine):
         """

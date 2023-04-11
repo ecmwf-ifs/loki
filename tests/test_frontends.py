@@ -13,7 +13,7 @@ from loki import (
     Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
     config, REGEX, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective, config_override, BasicType
+    PreprocessorDirective, config_override
 )
 from loki.expression import symbols as sym
 
