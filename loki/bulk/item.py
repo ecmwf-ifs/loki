@@ -20,7 +20,7 @@ from loki.tools import as_tuple
 from loki.tools.util import CaseInsensitiveDict
 from loki.visitors import FindNodes
 from loki.ir import CallStatement, TypeDef, ProcedureDeclaration
-from loki import Subroutine
+from loki.subroutine import Subroutine
 
 
 __all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem', 'GlobalVarImportItem', 'GenericImportItem']
