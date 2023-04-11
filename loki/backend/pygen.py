@@ -9,7 +9,7 @@ from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
 from loki.expression import symbols as sym, LokiStringifyMapper
 from loki.visitors import Stringifier
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType, DerivedType, SymbolAttributes
 
 
 __all__ = ['pygen', 'PyCodegen', 'PyCodeMapper']
@@ -26,6 +26,8 @@ def numpy_type(_type):
         if str(_type.kind) in ('real32',):
             return 'np.float32'
         return 'np.float64'
+    if isinstance(_type.dtype, DerivedType):
+        return _type.dtype.name
     raise ValueError(str(_type))
 
 
@@ -52,7 +54,7 @@ class PyCodeMapper(LokiStringifyMapper):
             self.format('%s(%s)', numpy_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
-        return expr.name
+        return expr.name.replace('%', '.')
 
     def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
@@ -74,6 +76,21 @@ class PyCodeMapper(LokiStringifyMapper):
 
     def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
         return ' + '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)
+
+    def map_inline_call(self, expr, enclosing_prec, *args, **kwargs):
+        arguments = ', '.join(self.rec(p, PREC_NONE, *args, **kwargs) for p in expr.parameters)
+
+        if expr.kw_parameters:
+            arguments += ', ' + ', '.join(
+                f'{self.rec(k, PREC_NONE, *args, **kwargs)}={self.rec(v, PREC_NONE, *args, **kwargs)}'
+                for k, v in expr.kw_parameters.items()
+            )
+
+        f = self.rec(expr.function, PREC_NONE, *args, **kwargs)
+        return self.format(f'{str(f)}({arguments})')
+
+    def map_deferred_type_symbol(self, expr, *args, **kwargs):
+        return str(expr.name).replace('%', '.')
 
 
 class PyCodegen(Stringifier):
@@ -115,13 +132,18 @@ class PyCodegen(Stringifier):
 
         # Generate header with argument signature
         # Note: we skip scalar out arguments and add a return statement for those below
-        inout_args = [arg for arg in o.arguments
-                      if isinstance(arg, sym.Scalar) and arg.type.intent.lower() == 'inout']
-        out_args = [arg for arg in o.arguments
-                    if isinstance(arg, sym.Scalar) and arg.type.intent.lower() == 'out']
-        arguments = [f'{arg.name.lower()}: {self.visit(arg.type, **kwargs)}'
-                     for arg in o.arguments if arg not in out_args]
-        header += [self.format_line('def ', o.name.lower(), '(', self.join_items(arguments), '):')]
+        scalar_args = [a for a in o.arguments if isinstance(a, sym.Scalar)]
+        inout_args = [a for a in scalar_args if a.type.intent and a.type.intent.lower() == 'inout']
+        out_args = [a for a in scalar_args if a.type.intent and a.type.intent.lower() == 'out']
+        arguments = [arg for arg in o.arguments if arg not in out_args]
+        arg_str = []
+        for arg in arguments:
+            if isinstance(arg.type.dtype, DerivedType):
+                arg_str += [f'{arg.name}']
+            else:
+                dtype = self.visit(arg.type, **kwargs)
+                arg_str += [f'{arg.name}: {dtype}']
+        header += [self.format_line('def ', o.name, '(', self.join_items(arg_str), '):')]
 
         # ...and generate the spec without imports and only declarations for variables that
         # either are local arrays or are assigned an initial value
@@ -167,16 +189,28 @@ class PyCodegen(Stringifier):
           <name> = <initial>
         and skip any arguments or scalars without an initial value
         """
-        decls = []
-        if o.comment:
-            decls += [self.visit(o.comment, **kwargs)]
+        comment = self.visit(o.comment, **kwargs) if o.comment else None
+
+        # Initialise local arrays via numpy
         local_arrays = [v for v in o.symbols if isinstance(v, sym.Array) and not v.type.intent]
-        decls += [self.format_line(v.name.lower(), ' = np.ndarray(order="F", shape=(',
-                                   self.join_items(self.visit_all(v.shape, **kwargs)), ',))')
-                  for v in local_arrays]
-        decls += [self.format_line(v.name.lower(), ' = ', self.visit(v.initial, **kwargs))
-                  for v in o.symbols if v.initial is not None]
-        return self.join_lines(*decls)
+        array_decls = tuple(
+            self.format_line(
+                v.name, ' = np.ndarray(order="F", shape=(',
+                self.join_items(self.visit_all(v.dimensions, **kwargs)), ',))'
+            ) for v in local_arrays
+        )
+
+        # Assign initial values, if given
+        init_decls = tuple(
+            self.format_line(v.name, ' = ', self.visit(v.initial, **kwargs))
+            for v in o.symbols if hasattr(v, 'initial') and v.initial is not None
+        )
+
+        # Break out early to avoid needless newlines
+        if not comment and not array_decls and not init_decls:
+            return None
+
+        return self.join_lines(comment, *array_decls, *init_decls)
 
     def visit_Import(self, o, **kwargs):  # pylint: disable=unused-argument
         """
@@ -269,15 +303,24 @@ class PyCodegen(Stringifier):
           <name>(<args>)
         """
         args = self.visit_all(o.arguments, **kwargs)
-        kw_args = [f'{kw}={self.visit(arg, **kwargs)}' for kw, arg in o.kwarguments]
+        kw_args = tuple(f'{kw}={self.visit(arg, **kwargs)}' for kw, arg in o.kwarguments)
         return self.format_line(o.name, '(', self.join_items(args + kw_args), ')')
 
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         return numpy_type(o)
+
+    def visit_StatementFunction(self, o, **kwargs):
+        args = tuple(self.visit(a, **kwargs) for a in o.arguments)
+        header = self.format_line('def ', o.variable.name, f'({self.join_items(args)}):')
+
+        self.depth += 1
+        body = self.format_line('return ', self.visit(o.rhs, **kwargs))
+        self.depth -= 1
+        return f'{header}\n{body}'
 
 
 def pygen(ir):
     """
     Generate standard Python 3 code (that uses Numpy) from one or many IR objects/trees.
     """
-    return PyCodegen().visit(ir)
+    return PyCodegen(linewidth=300).visit(ir)

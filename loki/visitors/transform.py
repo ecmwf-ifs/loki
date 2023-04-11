@@ -127,6 +127,13 @@ class Transformer(Visitor):
         Utility method for one-to-many mappings to insert iterables for
         the replaced node into a tuple.
         """
+        def _inject_handle(nodes, i, old, new):
+            """Utility to replace `old` in `nodes[i:]` by `new`"""
+            j = nodes.index(old, i)
+            new = tuple(new)
+            nodes = nodes[:j] + new + nodes[j+1:]
+            return nodes, j + len(new)
+
         for k, handle in self.mapper.items():
             if is_iterable(k):
                 w = list(windowed(o, len(k)))
@@ -134,8 +141,13 @@ class Transformer(Visitor):
                     i = list(w).index(k)
                     o = o[:i] + as_tuple(handle) + o[i+len(k):]
             if k in o and is_iterable(handle):
-                i = o.index(k)
-                o = o[:i] + tuple(handle) + o[i+1:]
+                # Replace k by the iterable that is provided by handle
+                o, i = _inject_handle(o, 0, k, handle)
+                while k in o[i:]:
+                    # Repeat in case there are multiple occurences of k in the tuple,
+                    # but only look in the tail of the original tuple to avoid running
+                    # into infinite recursion if k is included in the handle
+                    o, i = _inject_handle(o, i, k, handle)
         return o
 
     def visit_tuple(self, o, **kwargs):
@@ -557,7 +569,7 @@ class NestedMaskedTransformer(MaskedTransformer):
         if not body:
             return else_body
 
-        has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
+        has_elseif = o.has_elseif and bool(else_body) and isinstance(else_body[0], Conditional)
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
 
     def visit_MultiConditional(self, o, **kwargs):
@@ -574,9 +586,9 @@ class NestedMaskedTransformer(MaskedTransformer):
 
         # need to make (value, body) pairs to track vanishing bodies
         expr = self.visit(o.expr, **kwargs)
-        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
-                    for c, b in zip(o.values, o.bodies)]
-        branches = [(c, b) for c, b in branches if flatten(as_tuple(b))]
+        branches = tuple((self.visit(c, **kwargs), self.visit(b, **kwargs))
+                         for c, b in zip(o.values, o.bodies))
+        branches = tuple((c, b) for c, b in branches if flatten(as_tuple(b)))
         else_body = self.visit(o.else_body, **kwargs)
 
         # retain whatever is in the else body if all other branches are gone

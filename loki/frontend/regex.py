@@ -18,11 +18,12 @@ import re
 from codetiming import Timer
 
 from loki import ir
+from loki.config import config
 from loki.expression import symbols as sym
 from loki.frontend.source import Source, FortranReader
 from loki.logging import debug
 from loki.scope import SymbolAttributes
-from loki.tools import as_tuple
+from loki.tools import as_tuple, timeout
 from loki.types import BasicType, ProcedureType, DerivedType
 
 __all__ = ['RegexParserClass', 'parse_regex_source', 'HAVE_REGEX']
@@ -343,7 +344,9 @@ def parse_regex_source(source, parser_classes=None, scope=None):
         reader = FortranReader(source.string)
     else:
         reader = FortranReader(source)
-    ir_ = Pattern.match_block_candidates(reader, candidates, parser_classes=parser_classes, scope=scope)
+    timeout_message = f'REGEX frontend timeout of {config["regex-frontend-timeout"]} s exceeded'
+    with timeout(config['regex-frontend-timeout'], message=timeout_message):
+        ir_ = Pattern.match_block_candidates(reader, candidates, parser_classes=parser_classes, scope=scope)
     return ir.Section(body=as_tuple(ir_), source=source)
 
 
@@ -440,7 +443,7 @@ class SubroutineFunctionPattern(Pattern):
 
     def __init__(self):
         super().__init__(
-            r'^[ \t\w()]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
+            r'^[ \t\w()=]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
             r'(?P<spec>(?:.*?(?:^(?:abstract[ \t]+)?interface\b.*?^end[ \t]+interface)?)+)'
             r'(?P<contains>^contains\n(?:'
             r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
@@ -486,9 +489,10 @@ class SubroutineFunctionPattern(Pattern):
 
         if match['spec']:
             statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern')
-            spec = self.match_statement_candidates(
+            block_candidates = ('InterfacePattern',)
+            spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
-                statement_candidates, parser_classes=parser_classes, scope=routine
+                block_candidates, statement_candidates, parser_classes=parser_classes, scope=routine
             )
         else:
             spec = None
@@ -619,7 +623,9 @@ class ProcedureStatementPattern(Pattern):
             sym.Variable(name=s, type=SymbolAttributes(ProcedureType(name=s)), scope=scope)
             for s in procedures
         ]
-        return ir.ProcedureDeclaration(symbols=symbols, module=is_module, source=reader.source_from_current_line)
+        return ir.ProcedureDeclaration(
+            symbols=symbols, module=is_module, source=reader.source_from_current_line()
+        )
 
 
 class TypedefPattern(Pattern):
@@ -743,7 +749,7 @@ class ProcedureBindingPattern(Pattern):
                 initial = sym.Variable(name=s[1], type=type_, scope=scope.parent)
                 symbols += [sym.Variable(name=s[0], type=type_.clone(initial=initial), scope=scope)]
 
-        return ir.ProcedureDeclaration(symbols=symbols, source=reader.source_from_current_line)
+        return ir.ProcedureDeclaration(symbols=symbols, source=reader.source_from_current_line())
 
 
 class GenericBindingPattern(Pattern):

@@ -8,11 +8,12 @@
 import pytest
 
 from loki import (
-    OMNI, Subroutine, Dimension, FindNodes, Loop, Assignment,
-    CallStatement, Scalar, Array, Pragma, pragmas_attached, fgen
+    OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
+    CallStatement, Scalar, Array, Pragma, pragmas_attached, fgen,
+    Sourcefile
 )
 from conftest import available_frontends
-from transformations import SingleColumnCoalescedTransformation
+from transformations import SingleColumnCoalescedTransformation, DataOffloadTransformation
 
 
 @pytest.fixture(scope='module', name='horizontal')
@@ -113,6 +114,83 @@ def test_single_column_coalesced_simple(frontend, horizontal, vertical):
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_vector_notation(frontend, horizontal, vertical):
+    """
+    Test resolving of vector notation in kernel and re-insertion of the
+    horizontal loop in the "driver".
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, t, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column(start, end, nlon, nz, q(:,:,b), t(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      t(start:end, jk) = c * k
+      q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+
+    scc_transform = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical,
+        hoist_column_arrays=False
+    )
+    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    scc_transform.apply(kernel, role='kernel')
+
+    # Ensure horizontal loop variable has been declared
+    assert 'jl' in kernel.variables
+
+    # Ensure we have two nested loops in the kernel
+    # (the hoisted horizontal and the native vertical)
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 2
+    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[0].variable == 'jl'
+    assert kernel_loops[0].bounds == 'start:end'
+    assert kernel_loops[1].variable == 'jk'
+    assert kernel_loops[1].bounds == '2:nz'
+
+    # Ensure all expressions and array indices are unchanged
+    assigns = FindNodes(Assignment).visit(kernel.body)
+    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
+    assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+
+    # Ensure only one loop in the driver
+    driver_loops = FindNodes(Loop).visit(driver.body)
+    assert len(driver_loops) == 1
+    assert driver_loops[0].variable == 'b'
+    assert driver_loops[0].bounds == '1:nb'
+
+    # Ensure we have a kernel call in the driver loop
+    kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
+    assert len(kernel_calls) == 1
+    assert kernel_calls[0].name == 'compute_column'
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_demote(frontend, horizontal, vertical):
@@ -765,3 +843,132 @@ def test_single_column_coalesced_variable_demotion(frontend, horizontal, vertica
     assert isinstance(kernel.variable_map['a'], Array)
     assert isinstance(kernel.variable_map['b'], Scalar)
     assert isinstance(kernel.variable_map['c'], Scalar)
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP,
+                         'OFP fails to parse multiconditional with embedded call.')]))
+def test_single_column_coalesced_multicond(frontend, horizontal, vertical, blocking):
+    """
+    Test if horizontal loops in multiconditionals with CallStatements are
+    correctly transformed.
+    """
+
+    fcode = """
+    subroutine test(icase, start, end, work)
+    implicit none
+
+      integer, intent(in) :: icase, start, end
+      real, dimension(start:end), intent(inout) :: work
+      integer :: jl
+
+      select case(icase)
+      case(1)
+        work(start:end) = 1.
+      case(2)
+        do jl = start,end
+           work(jl) = work(jl) + 2.
+        enddo
+      case(3)
+        do jl = start,end
+           work(jl) = work(jl) + 3.
+        enddo
+        call some_kernel(start, end, work)
+      case default
+        work(start:end) = 0.
+      end select
+
+    end subroutine test
+    """
+
+    kernel = Subroutine.from_source(fcode, frontend=frontend)
+
+    transformation = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        directive='openacc', hoist_column_arrays=False )
+
+    transformation.transform_subroutine(kernel, role='kernel')
+
+    # Ensure we have three vector loops in the kernel
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 4
+    assert kernel_loops[0].variable == 'jl'
+    assert kernel_loops[1].variable == 'jl'
+    assert kernel_loops[2].variable == 'jl'
+    assert kernel_loops[3].variable == 'jl'
+
+    # Check acc pragmas of newly created vector loops
+    pragmas = FindNodes(Pragma).visit(kernel.body)
+    assert len(pragmas) == 7
+    assert pragmas[2].keyword == 'acc'
+    assert pragmas[2].content == 'loop vector'
+    assert pragmas[3].keyword == 'acc'
+    assert pragmas[3].content == 'loop vector'
+    assert pragmas[4].keyword == 'acc'
+    assert pragmas[4].content == 'loop vector'
+    assert pragmas[5].keyword == 'acc'
+    assert pragmas[5].content == 'loop vector'
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vertical, blocking):
+    """
+    Test that both '!$acc data' and '!$acc parallel loop gang' pragmas are created at the
+    driver layer.
+    """
+
+    fcode = """
+    subroutine test(work, nlon, nb)
+    implicit none
+
+      integer, intent(in) :: nb, nlon
+      real, dimension(nlon, nb), intent(inout) :: work
+      integer :: b
+
+      !$loki data
+      !$omp parallel do private(b) shared(work, nproma)
+        do b=1, nb
+           call some_kernel(nlon, work(:,b))
+        enddo
+      !$omp end parallel do
+      !$loki end data
+
+    end subroutine test
+
+    subroutine some_kernel(nlon, work)
+    implicit none
+
+      integer, intent(in) :: nlon
+      real, dimension(nlon), intent(inout) :: work
+      integer :: jl
+
+      do jl=1,nlon
+         work(jl) = work(jl) + 1.
+      enddo
+
+    end subroutine some_kernel
+    """
+
+    transformation = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, block_dim=blocking, vertical=vertical,
+        directive='openacc', hoist_column_arrays=False )
+    data_offload = DataOffloadTransformation(remove_openmp=True)
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test']
+    routine.enrich_calls(source.all_subroutines)
+
+    data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
+    transformation.transform_subroutine(routine, role='driver', targets=['some_kernel',])
+
+    # Check that both acc pragmas are created
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    assert len(pragmas) == 4
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[1].keyword == 'acc'
+    assert pragmas[2].keyword == 'acc'
+    assert pragmas[3].keyword == 'acc'
+
+    assert 'data' in pragmas[0].content
+    assert 'copy' in pragmas[0].content
+    assert '(work)' in pragmas[0].content
+    assert pragmas[1].content == 'parallel loop gang'
+    assert pragmas[2].content == 'end parallel loop'
+    assert pragmas[3].content == 'end data'

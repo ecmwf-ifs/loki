@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # Configuration of package versions:
-loki_ant_version=1.10.12
+loki_ant_version=1.10.13
 
 hpc2020_java_version=11.0.6
 hpc2020_python_version=3.8.8-01
@@ -242,6 +242,11 @@ fi
 if [ "$venv_path" == "" ]; then
   print_step "Creating virtualenv"
   venv_path=${loki_path}/loki_env
+  for activate_file in activate activate.csh activate.fish Activate.ps1; do
+    if [ -f "${loki_path}/loki_env/bin/${activate_file}" ]; then
+      chmod u+w "${loki_path}/loki_env/bin/${activate_file}"
+    fi
+  done
   python3 -m venv "${venv_path}"
 fi
 
@@ -324,7 +329,14 @@ if [ "$with_ant" == true ]; then
   mkdir -p "${HOME}/.ant/tempcache"
   if [[ $(shasum -a 1 "${NETREXX_TEMP}" | cut -d ' ' -f1) != "1a47bf7b5d0055d4a94befc999c593d15b66c119" ]]
   then
-    wget $WGETPROXYOPTIONS -O "${NETREXX_TEMP}" ftp://ftp.software.ibm.com/software/awdtools/netrexx/NetRexx.zip
+    for mirror in https://public.dhe.ibm.com ftp://ftp.software.ibm.com
+    do
+      wget --tries 3 $WGETPROXYOPTIONS -O "${NETREXX_TEMP}" $mirror/software/awdtools/netrexx/NetRexx.zip
+      if [ $? -eq 0 ]
+      then
+        break
+      fi
+    done
   fi
 
   # Download, unpack and install ant

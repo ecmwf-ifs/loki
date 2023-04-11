@@ -3,7 +3,7 @@ import pytest
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    OMNI, REGEX, Sourcefile, Subroutine, CallStatement, Import,
+    OMNI, REGEX, OFP, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen, Assignment, IntLiteral, Module,
     SubroutineItem
 )
@@ -373,6 +373,193 @@ END SUBROUTINE kernel
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_replace_interface(frontend):
+    """
+    Test injection of suffixed kernels defined in interface block
+    into unchanged driver routines automatic module wrapping of the kernel.
+    """
+
+    driver = Sourcefile.from_source(source="""
+SUBROUTINE driver(a, b, c)
+  INTERFACE
+    SUBROUTINE kernel(a, b, c)
+      INTEGER, INTENT(INOUT) :: a, b, c
+    END SUBROUTINE kernel
+  END INTERFACE
+
+  INTEGER, INTENT(INOUT) :: a, b, c
+
+  CALL kernel(a, b ,c)
+END SUBROUTINE driver
+""", frontend=frontend)
+
+    kernel = Sourcefile.from_source(source="""
+SUBROUTINE kernel(a, b, c)
+  INTEGER, INTENT(INOUT) :: a, b, c
+
+  a = 1
+  b = 2
+  c = 3
+END SUBROUTINE kernel
+""", frontend=frontend)
+
+    # Apply injection transformation via C-style includes by giving `include_path`
+    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    kernel.apply(transformation, role='kernel')
+    driver.apply(transformation, role='driver', targets='kernel')
+
+    # Check that the kernel has been wrapped
+    assert len(kernel.subroutines) == 0
+    assert len(kernel.all_subroutines) == 1
+    assert kernel.all_subroutines[0].name == 'kernel_test'
+    assert kernel['kernel_test'] == kernel.all_subroutines[0]
+    assert len(kernel.modules) == 1
+    assert kernel.modules[0].name == 'kernel_test_mod'
+    assert kernel['kernel_test_mod'] == kernel.modules[0]
+
+    # Check that the driver name has not changed
+    assert len(driver.modules) == 0
+    assert len(driver.subroutines) == 1
+    assert driver.subroutines[0].name == 'driver'
+
+    # Check that calls and imports have been diverted to the re-generated routine
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 1
+    assert imports[0].module == 'kernel_test_mod'
+    assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+
+@pytest.mark.parametrize('frontend', available_frontends(
+                         xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
+def test_dependency_transformation_inline_call(frontend):
+    """
+    Test injection of suffixed kernel, accessed through inline function call.
+    """
+
+    driver = Sourcefile.from_source(source="""
+SUBROUTINE driver(a, b, c)
+  INTERFACE
+    INTEGER FUNCTION kernel(a)
+      INTEGER, INTENT(IN) :: a
+    END FUNCTION kernel
+  END INTERFACE
+
+  INTEGER, INTENT(INOUT) :: a, b, c
+
+  a = kernel(a)
+  b = kernel(a)
+  c = kernel(c)
+END SUBROUTINE driver
+""", frontend=frontend)
+
+    kernel = Sourcefile.from_source(source="""
+INTEGER FUNCTION kernel(a)
+  INTEGER, INTENT(IN) :: a
+
+  kernel = 2*a
+END FUNCTION kernel
+""", frontend=frontend)
+
+    # Apply injection transformation via C-style includes by giving `include_path`
+    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    kernel.apply(transformation, role='kernel')
+    driver.apply(transformation, role='driver', targets='kernel')
+
+    # Check that the kernel has been wrapped
+    assert len(kernel.subroutines) == 0
+    assert len(kernel.all_subroutines) == 1
+    assert kernel.all_subroutines[0].name == 'kernel_test'
+    assert kernel['kernel_test'] == kernel.all_subroutines[0]
+    assert kernel['kernel_test'].is_function
+    assert len(kernel.modules) == 1
+    assert kernel.modules[0].name == 'kernel_test_mod'
+    assert kernel['kernel_test_mod'] == kernel.modules[0]
+
+    # Check that the return name has been added as a variable
+    assert 'kernel_test' in kernel['kernel_test'].variables
+
+    # Check that the driver name has not changed
+    assert len(driver.modules) == 0
+    assert len(driver.subroutines) == 1
+    assert driver.subroutines[0].name == 'driver'
+
+    # Check that calls and imports have been diverted to the re-generated routine
+    calls = tuple(FindInlineCalls().visit(driver['driver'].body))
+    assert len(calls) == 2
+    calls = tuple(FindInlineCalls(unique=False).visit(driver['driver'].body))
+    assert len(calls) == 3
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 1
+    assert imports[0].module == 'kernel_test_mod'
+    assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+
+@pytest.mark.parametrize('frontend', available_frontends(
+                         xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
+def test_dependency_transformation_inline_call_result_var(frontend):
+    """
+    Test injection of suffixed kernel, accessed through inline function call.
+    """
+
+    driver = Sourcefile.from_source(source="""
+SUBROUTINE driver(a, b, c)
+  INTERFACE
+    FUNCTION kernel(a) RESULT(ret)
+      INTEGER, INTENT(IN) :: a
+      INTEGER :: ret
+    END FUNCTION kernel
+  END INTERFACE
+
+  INTEGER, INTENT(INOUT) :: a, b, c
+
+  a = kernel(a)
+  b = kernel(a)
+  c = kernel(c)
+END SUBROUTINE driver
+""", frontend=frontend)
+
+    kernel = Sourcefile.from_source(source="""
+FUNCTION kernel(a) RESULT(ret)
+  INTEGER, INTENT(IN) :: a
+  INTEGER :: ret
+
+  ret = 2*a
+END FUNCTION kernel
+""", frontend=frontend)
+
+    # Apply injection transformation via C-style includes by giving `include_path`
+    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    kernel.apply(transformation, role='kernel')
+    driver.apply(transformation, role='driver', targets='kernel')
+
+    # Check that the kernel has been wrapped
+    assert len(kernel.subroutines) == 0
+    assert len(kernel.all_subroutines) == 1
+    assert kernel.all_subroutines[0].name == 'kernel_test'
+    assert kernel['kernel_test'] == kernel.all_subroutines[0]
+    assert kernel['kernel_test'].is_function
+    assert len(kernel.modules) == 1
+    assert kernel.modules[0].name == 'kernel_test_mod'
+    assert kernel['kernel_test_mod'] == kernel.modules[0]
+
+    # Check that the driver name has not changed
+    assert len(driver.modules) == 0
+    assert len(driver.subroutines) == 1
+    assert driver.subroutines[0].name == 'driver'
+
+    # Check that calls and imports have been diverted to the re-generated routine
+    calls = tuple(FindInlineCalls().visit(driver['driver'].body))
+    assert len(calls) == 2
+    calls = tuple(FindInlineCalls(unique=False).visit(driver['driver'].body))
+    assert len(calls) == 3
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 1
+    assert imports[0].module == 'kernel_test_mod'
+    assert 'kernel_test' in [str(s) for s in imports[0].symbols]
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_replace_selected_kind(here, frontend):

@@ -133,7 +133,7 @@ def reinsert_contiguous(ir, pp_info):
     """
     if pp_info:
         for decl in FindNodes(VariableDeclaration).visit(ir):
-            if decl._source.lines[0] in pp_info:
+            if decl.source.lines[0] in pp_info:
                 for var in decl.symbols:
                     var.scope.symbol_attrs[var.name] = var.scope.symbol_attrs[var.name].clone(contiguous=True)
     return ir
@@ -146,9 +146,9 @@ def reinsert_convert_endian(ir, pp_info):
     """
     if pp_info:
         for intr in FindNodes(Intrinsic).visit(ir):
-            match = pp_info.get(intr._source.lines[0], [None])[0]
+            match = pp_info.get(intr.source.lines[0], [None])[0]
             if match is not None:
-                source = intr._source
+                source = intr.source
                 assert source is not None
                 text = match['ws'] + match['pre'] + match['convert'] + match['post']
                 if match['post'].rstrip().endswith('&'):
@@ -165,9 +165,9 @@ def reinsert_open_newunit(ir, pp_info):
     """
     if pp_info:
         for intr in FindNodes(Intrinsic).visit(ir):
-            match = pp_info.get(intr._source.lines[0], [None])[0]
+            match = pp_info.get(intr.source.lines[0], [None])[0]
             if match is not None:
-                source = intr._source
+                source = intr.source
                 assert source is not None
                 text = match['ws'] + match['open'] + match['args1'] + (match['delim'] or '')
                 text += match['newunit_key'] + match['newunit_val'] + match['args2']

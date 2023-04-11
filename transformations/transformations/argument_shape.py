@@ -151,7 +151,7 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
                            and not a.type.optional and a in dim_vars]
 
                 # Add missing dimension variables (scalars
-                new_kwargs = tuple((m, m) for m in missing if m.type.dtype == BasicType.INTEGER)
+                new_kwargs = tuple((str(m), m) for m in missing if m.type.dtype == BasicType.INTEGER)
                 call_map[call] = call.clone(kwarguments=call.kwarguments + new_kwargs)
 
         # Replace all adjusted calls on the caller-side

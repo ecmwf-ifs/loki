@@ -283,6 +283,15 @@ def extract_vector_sections(section, horizontal):
             if subsec_else:
                 subsections += subsec_else
 
+        if isinstance(separator, ir.MultiConditional):
+            for body in separator.bodies:
+                subsec_body = extract_vector_sections(body, horizontal)
+                if subsec_body:
+                    subsections += subsec_body
+            subsec_else = extract_vector_sections(separator.else_body, horizontal)
+            if subsec_else:
+                subsections += subsec_else
+
     return subsections
 
 
@@ -371,10 +380,10 @@ def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
             if loop.variable == horizontal.index:
                 # Construct pragma and wrap entire body in vector loop
                 private_arrs = ', '.join(v.name for v in private_arrays)
-                pragma = None
+                pragma = ()
                 private_clause = '' if not private_arrays else f' private({private_arrs})'
                 pragma = ir.Pragma(keyword='acc', content=f'loop vector{private_clause}')
-                mapper[loop] = loop.clone(pragma=pragma)
+                mapper[loop] = loop.clone(pragma=(pragma,))
 
         routine.body = Transformer(mapper).visit(routine.body)
 
@@ -400,7 +409,7 @@ def kernel_annotate_sequential_loops_openacc(routine, horizontal):
 
             if loop.variable != horizontal.index:
                 # Perform pragma addition in place to avoid nested loop replacements
-                loop._update(pragma=ir.Pragma(keyword='acc', content='loop seq'))
+                loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
 
 
 def kernel_annotate_subroutine_present_openacc(routine):
@@ -478,11 +487,17 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
                   if isinstance(e, sym.RangeIndex) and e == bounds_str]
         if ranges:
             exprmap = {r: loop_variable for r in ranges}
-            loop = ir.Loop(variable=loop_variable, bounds=sym.LoopRange(bounds_v),
-                           body=SubstituteExpressions(exprmap).visit(stmt))
+            loop = ir.Loop(
+                variable=loop_variable, bounds=sym.LoopRange(bounds_v),
+                body=as_tuple(SubstituteExpressions(exprmap).visit(stmt))
+            )
             mapper[stmt] = loop
 
     routine.body = Transformer(mapper).visit(routine.body)
+
+    #if loops have been inserted, check if loop variable is declared
+    if mapper and loop_variable not in routine.variables:
+        routine.variables += as_tuple(loop_variable)
 
 
 def get_column_locals(routine, vertical):
@@ -758,8 +773,16 @@ class SingleColumnCoalescedTransformation(Transformation):
 
                     if loop.pragma is None:
                         p_content = f'parallel loop gang{private_clause}'
-                        loop._update(pragma=ir.Pragma(keyword='acc', content=p_content))
-                        loop._update(pragma_post=ir.Pragma(keyword='acc', content='end parallel loop'))
+                        loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
+                        loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
+                    # add acc parallel loop gang if the only existing pragma is acc data
+                    elif len(loop.pragma) == 1:
+                        if (loop.pragma[0].keyword == 'acc' and
+                           loop.pragma[0].content.lower().lstrip().startswith('data ')):
+                            p_content = f'parallel loop gang{private_clause}'
+                            loop._update(pragma=(loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
+                            loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
+                                                      loop.pragma_post[0]))
 
                 # Apply hoisting of temporary "column arrays"
                 if self.hoist_column_arrays:
@@ -836,13 +859,15 @@ class SingleColumnCoalescedTransformation(Transformation):
         new_call._update(kwarguments=new_call.kwarguments + ((self.horizontal.index, v_index),))
 
         # Now create a vector loop around the kerne invocation
-        pragma = None
+        pragma = ()
         if self.directive == 'openacc':
             pragma = ir.Pragma(keyword='acc', content='loop vector')
         v_start = arg_map[kernel.variable_map[self.horizontal.bounds[0]]]
         v_end = arg_map[kernel.variable_map[self.horizontal.bounds[1]]]
         bounds = sym.LoopRange((v_start, v_end))
-        vector_loop = ir.Loop(variable=v_index, bounds=bounds, body=[new_call], pragma=pragma)
+        vector_loop = ir.Loop(
+            variable=v_index, bounds=bounds, body=(new_call,), pragma=as_tuple(pragma)
+        )
         call_map[call] = vector_loop
 
         routine.body = Transformer(call_map).visit(routine.body)

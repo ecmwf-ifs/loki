@@ -3,6 +3,7 @@ Verify correct frontend behaviour and correct parsing of certain Fortran
 language features.
 """
 from pathlib import Path
+from time import perf_counter
 import numpy as np
 import pytest
 
@@ -27,6 +28,13 @@ def fixture_reset_frontend_mode():
     original_frontend_mode = config['frontend-strict-mode']
     yield
     config['frontend-strict-mode'] = original_frontend_mode
+
+
+@pytest.fixture(name='reset_regex_frontend_timeout')
+def fixture_reset_regex_frontend_timeout():
+    original_timeout = config['regex-frontend-timeout']
+    yield
+    config['regex-frontend-timeout'] = original_timeout
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -803,6 +811,34 @@ END SUBROUTINE SOME_ROUTINE
     assert directives[1].text == '#endif'
 
 
+@pytest.mark.usefixtures('reset_regex_frontend_timeout')
+def test_regex_timeout():
+    """
+    This source fails to parse because of missing SUBROUTINE in END
+    statement, and the test verifies that a timeout is encountered
+    """
+    fcode = """
+subroutine some_routine(a)
+  real, intent(in) :: a
+end
+    """.strip()
+
+    # Test timeout
+    config['regex-frontend-timeout'] = 1
+    start = perf_counter()
+    with pytest.raises(RuntimeError) as exc:
+        _ = Sourcefile.from_source(fcode, frontend=REGEX)
+    stop = perf_counter()
+    assert .9 < stop - start < 1.1
+    assert 'REGEX frontend timeout of 1 s exceeded' in str(exc.value)
+
+    # Test it works fine with proper Fortran:
+    fcode += ' subroutine'
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert len(source.subroutines) == 1
+    assert source.subroutines[0].name == 'some_routine'
+
+
 def test_regex_module_imports():
     """
     Verify that the regex frontend is able to find and correctly parse
@@ -1347,3 +1383,23 @@ end module my_mod
     assert len(source.all_subroutines) == 1
     assert source.all_subroutines[0].name == 'test'
     assert source.all_subroutines[0].source.lines == (4, 41)
+
+
+def test_regex_function_inline_return_type():
+    fcode = """
+REAL(KIND=JPRB)  FUNCTION  DOT_PRODUCT_ECV()
+
+END FUNCTION DOT_PRODUCT_ECV
+
+SUBROUTINE DOT_PROD_SP_2D()
+
+END SUBROUTINE DOT_PROD_SP_2D
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert {
+        routine.name.lower() for routine in source.subroutines
+    } == {'dot_product_ecv', 'dot_prod_sp_2d'}
+
+    source.make_complete()
+    routine = source['dot_product_ecv']
+    assert 'dot_product_ecv' in routine.variables

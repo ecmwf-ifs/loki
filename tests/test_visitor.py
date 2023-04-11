@@ -15,7 +15,7 @@ from loki import (
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
     ExpressionCallbackMapper, ExpressionRetriever, Stringifier, Transformer,
-    NestedTransformer, MaskedTransformer, NestedMaskedTransformer,
+    NestedTransformer, MaskedTransformer, NestedMaskedTransformer, SubstituteExpressions,
     is_parent_of, is_child_of, fgen, FindScopes, Intrinsic
 )
 
@@ -380,7 +380,7 @@ end subroutine routine_simple
     retriever = ExpressionRetriever(lambda e: isinstance(e, FloatLiteral))
     literals = ExpressionFinder(retrieve=retriever.retrieve, with_ir_node=True).visit(routine.body)
     assert len(literals) == 1
-    assert isinstance(literals[0][0], Assignment) and literals[0][0]._source.lines == (13, 13)
+    assert isinstance(literals[0][0], Assignment) and literals[0][0].source.lines == (13, 13)
 
     literal_root = FindExpressionRoot(literals[0][1].pop()).visit(literals[0][0])
     assert literal_root[0] is cast_root[0]
@@ -1255,3 +1255,58 @@ end module attach_scopes_associates_mod
     assert var_map['var%foo'].scope is associates[0]
     assert var_map['var%foo'].parent.scope is associates[0]
     assert var_map['var%foo'].parent is var_map['var']
+
+
+@pytest.mark.parametrize('invalidate_source', [True, False])
+@pytest.mark.parametrize('replacement', ['body', 'self', 'self_tuple', 'duplicate'])
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transformer_duplicate_node_tuple_injection(frontend, invalidate_source, replacement):
+    """Test for #41, where identical nodes in a tuple have not been
+    correctly handled in the tuple injection mechanism."""
+    fcode_kernel = """
+SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jl
+    DO JL = START, END
+        Q(JL, NZ) = Q(JL, NZ) * 0.5
+    END DO
+    DO JL = START, END
+        Q(JL, NZ) = Q(JL, NZ) * 0.5
+    END DO
+END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    # Empty substitution pass, which invalidates the source property
+    kernel.body = SubstituteExpressions({}, invalidate_source=invalidate_source).visit(kernel.body)
+
+    loops = FindNodes(Loop).visit(kernel.body)
+    if replacement == 'body':
+        # Replace loop by its body
+        mapper = {l: l.body for l in loops}
+    elif replacement == 'self':
+        # Replace loop by itself
+        mapper = {l: l for l in loops}
+    elif replacement == 'self_tuple':
+        # Replace loop by itself, but wrapped in a tuple
+        mapper = {l: (l,) for l in loops}
+    elif replacement == 'duplicate':
+        # Duplicate the loop (will this trigger infinite recursion in tuple injection)?
+        mapper = {l: (l, l) for l in loops}
+    else:
+        # We shouldn't be here!
+        assert False
+    kernel.body = Transformer(mapper).visit(kernel.body)
+    # Make sure we don't have any nested tuples or similar nasty things, which would
+    # cause a transformer pass to fail
+    kernel.body = Transformer({}).visit(kernel.body)
+    # If the code gen works, then it's probably not too broken...
+    assert kernel.to_fortran()
+    # Make sure the number of loops is correct
+    assert len(FindNodes(Loop).visit(kernel.body)) == {
+        'body': 0, # All loops replaced by the body
+        'self': 2, 'self_tuple': 2,  # Loop replaced by itself
+        'duplicate': 4  # Loops duplicated
+    }[replacement]

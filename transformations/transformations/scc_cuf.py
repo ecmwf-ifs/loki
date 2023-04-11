@@ -225,7 +225,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
                                                    routine.variable_map[horizontal.size])))
 
         routine.body = ir.Section((jl_assignment, jblk_assignment, ir.Comment(''),
-                        ir.Conditional(condition=condition, body=routine.body, else_body=None)))
+                        ir.Conditional(condition=condition, body=routine.body.body, else_body=())))
 
     elif depth > 1:
         vtype = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
@@ -237,7 +237,8 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
             continue
 
         if not is_elemental(call.routine):
-            call.arguments += (routine.variable_map[block_dim.size], routine.variable_map[horizontal.index], jblk_var)
+            arguments = (routine.variable_map[block_dim.size], routine.variable_map[horizontal.index], jblk_var)
+            call._update(arguments=call.arguments + arguments)
 
     variables = routine.variables
     arguments = routine.arguments
@@ -302,7 +303,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
                     arguments.append(arg.clone(dimensions=None))
                 else:
                     arguments.append(arg)
-            call.arguments = arguments
+            call._update(arguments=arguments)
 
 
 def kernel_demote_private_locals(routine, horizontal, vertical):
@@ -580,8 +581,8 @@ def device_derived_types(routine, derived_types, targets=None):
     for call in FindNodes(ir.CallStatement).visit(routine.body):
         if call.name not in as_tuple(targets):
             continue
-        arguments = [var_map.get(arg, arg) for arg in call.arguments]
-        call.arguments = arguments
+        arguments = tuple(var_map.get(arg, arg) for arg in call.arguments)
+        call._update(arguments=arguments)
     return variables
 
 
@@ -613,17 +614,21 @@ class SccCufTransformation(Transformation):
     work for GPU threads according to the CUDA programming model using
     CUDA Fortran (CUF) syntax.
 
-    .. note:: this requires preprocessing with the :any:`DerivedTypeArgumentsTransformation`.
+    .. note::
+       This requires preprocessing with the :any:`DerivedTypeArgumentsTransformation`.
 
-    .. note:: in dependence of the transformation type ``transformation_type`` further
-     transformation are necessary:
+    .. note::
+       In dependence of the transformation type ``transformation_type``, further
+       transformations are necessary:
 
-     * ``transformation_type = 'parametrise'`` requires a subsequent :any:`ParametriseTransformation`
-      transformation with the necessary information to parametrise (at least) the ``vertical`` `size`
-     * ``transformation_type = 'hoist'`` requires subsequent :any:`HoistVariablesAnalysis` and
-      :class:`HoistVariablesTransformation` transformations (e.g. :any:`HoistTemporaryArraysAnalysis`
-      for analysis and :any:`HoistTemporaryArraysTransformationDeviceAllocatable` for synthesis)
-     * ``transformation_type = 'dynamic'`` does not require a subsequent transformation
+       * ``transformation_type = 'parametrise'`` requires a subsequent
+         :any:`ParametriseTransformation` transformation with the necessary information
+         to parametrise (at least) the ``vertical`` `size`
+       * ``transformation_type = 'hoist'`` requires subsequent :any:`HoistVariablesAnalysis`
+         and :class:`HoistVariablesTransformation` transformations (e.g.
+         :any:`HoistTemporaryArraysAnalysis` for analysis and
+         :any:`HoistTemporaryArraysTransformationDeviceAllocatable` for synthesis)
+       * ``transformation_type = 'dynamic'`` does not require a subsequent transformation
 
     Parameters
     ----------

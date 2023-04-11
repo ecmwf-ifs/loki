@@ -7,12 +7,13 @@
 
 import sys
 from pathlib import Path
-from importlib import import_module
+from importlib import import_module, reload, invalidate_caches
+from collections import namedtuple
 import pytest
 import numpy as np
 
 from conftest import available_frontends, jit_compile, clean_test
-from loki import Subroutine, FortranPythonTransformation
+from loki import Subroutine, FortranPythonTransformation, pygen, OFP, OMNI
 
 
 @pytest.fixture(scope='module', name='here')
@@ -27,7 +28,17 @@ def load_module(here, module):
     modpath = str(Path(here).absolute())
     if modpath not in sys.path:
         sys.path.insert(0, modpath)
-    return import_module(module)
+    if module in sys.modules:
+        reload(sys.modules[module])
+        return sys.modules[module]
+
+    # Trigger the actual module import
+    try:
+        return import_module(module)
+    except ModuleNotFoundError:
+        # If module caching interferes, try again with clean caches
+        invalidate_caches()
+        return import_module(module)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -79,7 +90,7 @@ end subroutine pygen_simple_loops
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -162,7 +173,7 @@ end subroutine pygen_arguments
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -233,7 +244,7 @@ end subroutine pygen_vectorization
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -259,17 +270,20 @@ def test_pygen_intrinsics(here, frontend):
     """
 
     fcode = """
-subroutine pygen_intrinsics(v1, v2, v3, v4, vmin, vmax, vabs, vmin_nested, vmax_nested)
+subroutine pygen_intrinsics(v1, v2, v3, v4, vmin, vmax, vabs, vmin_nested, vmax_nested, vexp, vsqrt, vsign)
   ! Test supported intrinsic functions
   use iso_fortran_env, only: real64
   real(kind=real64), intent(in) :: v1, v2, v3, v4
-  real(kind=real64), intent(out) :: vmin, vmax, vabs, vmin_nested, vmax_nested
+  real(kind=real64), intent(out) :: vmin, vmax, vabs, vmin_nested, vmax_nested, vexp, vsqrt, vsign
 
   vmin = MIN(v1, v2)
   vmax = MAX(v1, v2)
   vabs = ABS(v1 - v2)
   vmin_nested = MIN(MIN(MAX(v1, -1._real64), v2), MIN(v3, v4))
   vmax_nested = MAX(MAX(v1, v2), MAX(v3, v4))
+  vexp = EXP(v2)
+  vsqrt = SQRT(v2)
+  vsign = SIGN(v4, v1-v2)
 end subroutine pygen_intrinsics
 """
 
@@ -280,22 +294,26 @@ end subroutine pygen_intrinsics
 
     # Test the reference solution
     v1, v2, v3, v4 = 2., 4., 1., 5.
-    vmin, vmax, vabs, vmin_nested, vmax_nested = function(v1, v2, v3, v4)
+    vmin, vmax, vabs, vmin_nested, vmax_nested, vexp, vsqrt, vsign = function(v1, v2, v3, v4)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vmin_nested == 1. and vmax_nested == 5.
+    assert vexp == np.exp(4.) and vsqrt == 2.
+    assert vsign == -5.
 
     # Rename routine to avoid problems with module import caching
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
-    vmin, vmax, vabs, vmin_nested, vmax_nested = func(v1, v2, v3, v4)
+    vmin, vmax, vabs, vmin_nested, vmax_nested, vexp, vsqrt, vsign = func(v1, v2, v3, v4)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vmin_nested == 1. and vmax_nested == 5.
+    assert vexp == np.exp(4.) and vsqrt == 2.
+    assert vsign == -5.
 
     clean_test(filepath)
     f2p.py_path.unlink()
@@ -356,7 +374,7 @@ end subroutine pygen_loop_indices
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -417,7 +435,7 @@ end subroutine pygen_logical_statements
     routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
-    f2p = FortranPythonTransformation()
+    f2p = FortranPythonTransformation(suffix='_py')
     f2p.apply(source=routine, path=here)
     mod = load_module(here, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
@@ -434,3 +452,106 @@ end subroutine pygen_logical_statements
 
     clean_test(filepath)
     f2p.py_path.unlink()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'OFP cannot handle stmt functions')]))
+def test_pygen_downcasing(here, frontend):
+    """
+    A simple test routine to test the conversion to lower case.
+    """
+
+    fcode = """
+subroutine pygen_downcasing(n, ScalaR, VectOr)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer, intent(in) :: N
+  real(kind=real64), intent(inout) :: scalar
+  real(kind=real64), intent(inout) :: vector(n)
+
+  integer :: i
+  real(kind=real64) :: a, tmp
+
+  real(kind=real64) :: sTmT_F
+  sTmT_F(a) = a + 2.
+
+  do i=1, n
+     tmp = stmt_F(scalar)
+     veCtor(i) = vecTor(i) + tmp
+  end do
+
+end subroutine pygen_downcasing
+"""
+
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/(f'pygen_downcasing_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='pygen_downcasing')
+
+    n = 3
+    scalar = 2.0
+    vector = np.zeros(shape=(n,), order='F') + 2.
+    function(n, scalar, vector)
+    assert np.all(vector == 6.)
+
+    # Rename routine to avoid problems with module import caching
+    routine.name = f'{routine.name}_{str(frontend)}'
+
+    # Generate and test the transpiled Python kernel
+    f2p = FortranPythonTransformation(suffix='_py')
+    f2p.apply(source=routine, path=here)
+    mod = load_module(here, f2p.mod_name)
+    func = getattr(mod, f2p.mod_name)
+
+    assert pygen(routine).islower()
+
+    n = 3
+    scalar = 2.0
+    vector = np.zeros(shape=(n,), order='F') + 2.
+    func(n, scalar, vector)
+    assert np.all(vector == 6.)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI strictly needs type definitions')])
+)
+def test_pygen_derived_type_members(here, frontend):
+    """
+    A simple test to check derived type member usage.
+    """
+
+    fcode = """
+subroutine pygen_derived_type_members(n, MyObject)
+  use iso_fortran_env, only: real64
+  use some_module, only: my_TYPE
+  implicit none
+
+  integer, intent(in) :: N
+  type(my_TYPE), intent(in) :: MyObject
+
+  integer :: i
+  real(kind=real64) :: tmp
+
+  do i=1, n
+     tmp = myobject%vector(i) + myobject%scalar
+     myobject%vector(i) = tmp
+  end do
+
+end subroutine pygen_derived_type_members
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # TODO: Implement type definition representation and test!
+    # Without the TypeDef, we can't test the reference either.
+
+    # Generate and test the transpiled Python kernel
+    f2p = FortranPythonTransformation(suffix='_py')
+    f2p.apply(source=routine, path=here)
+    mod = load_module(here, f2p.mod_name)
+    func = getattr(mod, f2p.mod_name)
+
+    n = 3
+    MyType = namedtuple('MyType', ['scalar', 'vector'])
+    obj = MyType(scalar=40.0, vector=np.zeros(shape=(n,), order='F') + 2.)
+    func(n, obj)
+    assert np.all(obj.vector == 42.)

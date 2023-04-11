@@ -73,6 +73,9 @@ config.register('disk-cache', False, env_variable='LOKI_DISK_CACHE',
 config.register('case-sensitive', False, env_variable='LOKI_CASE_SENSITIVE',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)
 
+# Specify a timeout for the REGEX frontend to catch catastrophic backtracking
+config.register('regex-frontend-timeout', 30, env_variable='LOKI_REGEX_FRONTEND_TIMEOUT', preprocess=int)
+
 # Trigger configuration initialisation, including
 # a scan of the current environment variables
 config.initialize()

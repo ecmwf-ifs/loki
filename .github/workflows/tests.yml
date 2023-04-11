@@ -70,19 +70,19 @@ jobs:
 
       - name: Refresh package lists
         run: |
-          sudo apt-get update || true
+          sudo apt-get -o Acquire::Retries=3 update || true
 
       - name: Install Loki dependencies
         run: |
-          sudo apt-get install -y graphviz gfortran
+          sudo apt-get -o Acquire::Retries=3 install -y graphviz gfortran
 
       - name: Install OMNI + CLAW dependencies
         run: |
-          sudo apt-get install -y byacc flex openjdk-11-jdk cmake
+          sudo apt-get -o Acquire::Retries=3 install -y byacc flex openjdk-11-jdk cmake
 
       - name: Install CLOUDSC dependencies
         run:
-          sudo apt-get install -y libhdf5-dev
+          sudo apt-get -o Acquire::Retries=3 install -y libhdf5-dev
 
       - name: Install Loki
         run: |

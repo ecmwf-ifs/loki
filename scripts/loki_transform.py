@@ -33,7 +33,7 @@ from transformations.argument_shape import (
 )
 from transformations.data_offload import DataOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
-from transformations.dr_hook import DrHookTransformation
+from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
@@ -401,8 +401,13 @@ def ecphys(mode, config, header, source, build, frontend):
 
     scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
 
-    # Remove DR_HOOK calls first, so they don't interfere with SCC loop hoisting
-    scheduler.process(transformation=DrHookTransformation(mode=mode, remove='scc' in mode))
+    # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
+    if 'scc' in mode:
+        scheduler.process(transformation=RemoveCallsTransformation(
+            routines=['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'], include_intrinsics=True
+        ))
+    else:
+        scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None

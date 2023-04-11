@@ -41,6 +41,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install sites-toolkit -i https://get.ecmwf.int/repository/pypi-all/simple
         pip install .[docs]
+        pip install ./transformations/
+        pip install ./lint_rules/
 
     - name: Build documentation
       working-directory: ./docs
@@ -70,7 +72,7 @@ jobs:
         comment-id: ${{ steps.fc.outputs.comment-id }}
         issue-number: ${{ github.event.pull_request.number }}
         body: |
-          Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}
+          Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html
         edit-mode: replace
 
     # Alternative way of creating the comment but without a way to edit it (thus potentially creating many duplicate comments)
