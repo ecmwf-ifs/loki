@@ -1918,3 +1918,27 @@ end subroutine caller
     assert (scheduler['some_mod#some_type%other'], scheduler['some_mod#some_other']) in scheduler.dependencies
 
     rmtree(workdir)
+
+
+def test_scheduler_unqualified_imports(config):
+    """
+    Test that only qualified imports are added as children.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+
+    kernel = """
+    subroutine kernel()
+       use some_mod
+       use other_mod, only: other_routine
+
+       call other_routine
+    end subroutine kernel
+    """
+
+    source = Sourcefile.from_source(kernel, frontend=REGEX)
+    item = SubroutineItem(name='#kernel', source=source, config=my_config['default'])
+
+    assert item.enable_imports
+    assert item.children == ('other_routine',)
