@@ -12,7 +12,7 @@ utility routines
 
 from loki import (
     FindNodes, Transformer, Transformation, CallStatement,
-    Conditional, as_tuple, Literal, Intrinsic
+    Conditional, as_tuple, Literal, Intrinsic, Import
 )
 
 
