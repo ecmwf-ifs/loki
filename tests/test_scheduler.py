@@ -1587,8 +1587,10 @@ def test_scheduler_inline_call(here, config, frontend):
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
-    expected_items = {'#driver', '#double_real'}
-    expected_dependencies = {('#driver', '#double_real')}
+    expected_items = {'#driver', '#double_real', 'some_module#some_type%do_something', 'some_module#add_const'}
+    expected_dependencies = {('#driver', '#double_real'),
+                             ('#driver', 'some_module#some_type%do_something'),
+                             ('some_module#some_type%do_something', 'some_module#add_const')}
 
     assert expected_items == {i.name for i in scheduler.items}
     assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
@@ -1617,12 +1619,14 @@ def test_scheduler_import_dependencies(here, config, frontend):
 
     expected_items = {
         '#driver', '#double_real', 'some_module#return_one', 'some_module#some_var', 'some_module#add_args',
-        'some_module#some_type', 'some_module#add_two_args', 'some_module#add_three_args'
+        'some_module#some_type', 'some_module#add_two_args', 'some_module#add_three_args',
+        'some_module#some_type%do_something', 'some_module#add_const'
     }
     expected_dependencies = {
-        ('#driver', '#double_real'), ('#driver', 'some_module#return_one'), ('#driver', 'some_module#some_var'),
-        ('#driver', 'some_module#add_args'), ('#driver', 'some_module#some_type'),
-        ('some_module#add_args', 'some_module#add_two_args'), ('some_module#add_args', 'some_module#add_three_args')
+     ('#driver', '#double_real'), ('#driver', 'some_module#return_one'), ('#driver', 'some_module#some_var'),
+     ('#driver', 'some_module#add_args'), ('#driver', 'some_module#some_type'),
+     ('#driver', 'some_module#some_type%do_something'), ('some_module#some_type%do_something', 'some_module#add_const'),
+     ('some_module#add_args', 'some_module#add_two_args'), ('some_module#add_args', 'some_module#add_three_args'),
     }
 
     assert expected_items == {i.name for i in scheduler.items}

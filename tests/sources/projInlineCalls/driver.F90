@@ -17,6 +17,7 @@ subroutine driver(n, work)
     work(i) = double_real(i) + return_one()
     work(i) = work(i) + dble(some_var)
     work(i) = work(i) + add_args(i,1) + add_args(i,2)
+    call var%do_something(work(i))
   enddo
 
 end subroutine driver
