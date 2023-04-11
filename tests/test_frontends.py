@@ -13,7 +13,7 @@ from loki import (
     Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
     config, REGEX, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective, config_override
+    PreprocessorDirective, config_override, BasicType
 )
 from loki.expression import symbols as sym
 
@@ -1144,16 +1144,14 @@ end subroutine test
 def test_regex_variable_declaration(here):
     """
     Test correct parsing of derived type variable declarations
-
-    Note: this currently only matches ``TYPE(..)`` and ``CLASS(...)`` declarations
     """
     filepath = here/'sources/projTypeBound/typebound_item.F90'
     source = Sourcefile.from_file(filepath, frontend=REGEX)
 
     driver = source['driver']
-    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived')
-    assert not source['module_routine'].variables
-    assert source['other_routine'].variables == ('self',)
+    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived', 'x', 'i')
+    assert source['module_routine'].variables == ('m',)
+    assert source['other_routine'].variables == ('self', 'm', 'j')
     assert source['routine'].variables == ('self',)
     assert source['routine1'].variables == ('self',)
 
@@ -1170,6 +1168,10 @@ def test_regex_variable_declaration(here):
         assert var_map['other_obj'].type.dtype.name == 'other'
         assert isinstance(var_map['derived'].type.dtype, DerivedType)
         assert var_map['derived'].type.dtype.name == 'other'
+        assert isinstance(var_map['x'].type.dtype, BasicType)
+        assert var_map['x'].type.dtype is BasicType.REAL
+        assert isinstance(var_map['i'].type.dtype, BasicType)
+        assert var_map['i'].type.dtype is BasicType.INTEGER
 
         # While we're here: let's check the call statements, too
         calls = FindNodes(CallStatement).visit(driver.ir)
@@ -1177,7 +1179,7 @@ def test_regex_variable_declaration(here):
         assert all(isinstance(call.name.type.dtype, ProcedureType) for call in calls)
 
         # Note: we're explicitly accessing the string name here (instead of relying
-        # on the StrCompareMixing) as some have dimensions that only show up in the full
+        # on the StrCompareMixin) as some have dimensions that only show up in the full
         # parse
         assert calls[0].name.name == 'obj%other_routine'
         assert calls[0].name.parent.name == 'obj'
@@ -1211,12 +1213,14 @@ subroutine definitely_not_allfpos(ydfpdata)
 implicit none
 type(tfpdata), intent(in) :: ydfpdata
 type(tfpofn) :: ylofn(size(ydfpdata%yfpos%yfpgeometry%yfpusergeo))
+real, dimension(nproma, max(nang, 1), max(nfre, 1)) :: not_an_annoying_ecwam_var
 end subroutine definitely_not_allfpos
     """.strip()
 
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     routine = source['definitely_not_allfpos']
-    assert routine.variables == ('ydfpdata', 'ylofn')
+    assert routine.variables == ('ydfpdata', 'ylofn', 'not_an_annoying_ecwam_var')
+    assert routine.symbol_map['not_an_annoying_ecwam_var'].type.dtype is BasicType.REAL
 
 
 def test_regex_preproc_in_contains():
