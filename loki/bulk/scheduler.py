@@ -237,7 +237,7 @@ class Scheduler:
         self.obj_map.update(
             (f'{module.name}#{r.spec.name}', obj)
             for obj in obj_list for module in obj.modules
-            for r in module.interfaces
+            for r in module.interfaces if r.spec
         )
 
         # Create maps of routines and module variables to help with fast sorting in create_item later
