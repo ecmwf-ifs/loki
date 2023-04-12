@@ -9,7 +9,7 @@ import shutil
 import pytest
 
 from loki import (
-    Scheduler, SchedulerConfig, FindNodes, CallStatement, gettempdir, OMNI
+    Scheduler, SchedulerConfig, FindNodes, CallStatement, gettempdir, OMNI, Import
 )
 
 from conftest import available_frontends
@@ -110,6 +110,12 @@ def test_dr_hook_transformation(frontend, config, source):
             if call.name == 'dr_hook'
         ]
         assert len(drhook_calls) == 2
+        drhook_imports = [
+            imp for imp in FindNodes(Import).visit(item.routine.ir)
+            if imp.module == 'yomhook'
+        ]
+        assert len(drhook_imports) == 1
+        assert 'zhook_handle' in item.routine.variables
         if item.role == 'driver':
             assert all(
                 str(call.arguments[0]).lower().strip("'") == item.local_name.lower()
@@ -136,14 +142,22 @@ def test_dr_hook_transformation_remove(frontend, config, source):
             call for call in FindNodes(CallStatement).visit(item.routine.ir)
             if call.name == 'dr_hook'
         ]
+        drhook_imports = [
+            imp for imp in FindNodes(Import).visit(item.routine.ir)
+            if imp.module == 'yomhook'
+        ]
         if item.role == 'driver':
             assert len(drhook_calls) == 2
+            assert len(drhook_imports) == 1
+            assert 'zhook_handle' in item.routine.variables
             assert all(
                 str(call.arguments[0]).lower().strip("'") == item.local_name.lower()
                 for call in drhook_calls
             )
         elif item.role == 'kernel':
             assert not drhook_calls
+            assert not drhook_imports
+            assert 'zhook_handle' not in item.routine.variables
 
 
 @pytest.mark.parametrize('include_intrinsics', (True, False))
