@@ -67,7 +67,7 @@ class DrHookTransformation(Transformation):
         #Get rid of unused import and variable
         if self.remove:
             for imp in FindNodes(Import).visit(routine.spec):
-                if imp.module == 'yomhook':
+                if imp.module.lower() == 'yomhook':
                     mapper[imp] = None
 
             routine.spec = Transformer(mapper).visit(routine.spec)
