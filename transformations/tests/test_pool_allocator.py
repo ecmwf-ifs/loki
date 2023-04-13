@@ -256,9 +256,28 @@ end module kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [None, 'openmp'])
+@pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directive):
-    fcode_driver = """
+    if directive == 'openmp':
+        driver_loop_pragma1 = '!$omp parallel default(shared) private(b)\n    !$omp do'
+        driver_end_loop_pragma1 = '!$omp end do\n    !$omp end parallel'
+        driver_loop_pragma2 = '!$omp parallel do'
+        driver_end_loop_pragma2 = '!$omp end parallel do'
+        kernel_pragma = ''
+    elif directive == 'openacc':
+        driver_loop_pragma1 = '!$acc parallel loop gang private(b)'
+        driver_end_loop_pragma1 = '!$acc end parallel loop'
+        driver_loop_pragma2 = '!$acc parallel loop gang'
+        driver_end_loop_pragma2 = '!$acc end parallel loop'
+        kernel_pragma = '!$acc routine vector'
+    else:
+        driver_loop_pragma1 = ''
+        driver_end_loop_pragma1 = ''
+        driver_loop_pragma2 = ''
+        driver_end_loop_pragma2 = ''
+        kernel_pragma = ''
+
+    fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel, kernel2
     implicit none
@@ -268,24 +287,21 @@ subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
     integer :: b
 
-    !$omp parallel default(shared) private(b)
-
-    !$omp do
+    {driver_loop_pragma1}
     do b=1,nb
         call KERNEL(1, nlon, nlon, nz, field1(:,b), field2(:,:,b))
     end do
-    !$omp end do
+    {driver_end_loop_pragma1}
 
-    !$omp do
+    {driver_loop_pragma2}
     do b=1,nb
         call KERNEL2(1, nlon, nlon, nz, field2(:,:,b))
     end do
-    !$omp end do
-
-    !$omp end parallel
+    {driver_end_loop_pragma2}
 end subroutine driver
     """.strip()
-    fcode_kernel = """
+
+    fcode_kernel = f"""
 module kernel_mod
     implicit none
 contains
@@ -298,6 +314,7 @@ contains
         real(kind=jprb) :: tmp1(klon)
         real(kind=jprb) :: tmp2(klon, klev)
         integer :: jk, jl
+        {kernel_pragma}
 
         do jk=1,klev
             tmp1(jl) = 0.0_jprb
@@ -379,10 +396,26 @@ end module kernel_mod
     check_stack_created_in_driver(driver, 'max(nlon + nlon * nz, 2 * nz * nlon)', calls[0], 2)
 
     # Has the data sharing been updated?
-    if directive == 'openmp':
-        pragmas = FindNodes(Pragma).visit(driver.body)
-        parameters = get_pragma_parameters(pragmas, starts_with='parallel', only_loki_pragmas=False)
-        assert 'private' in parameters and 'ylstack' in parameters['private'].lower()
+    if directive in ['openmp', 'openacc']:
+        keyword = {'openmp': 'omp', 'openacc': 'acc'}[directive]
+        pragmas = [
+            p for p in FindNodes(Pragma).visit(driver.body)
+            if p.keyword.lower() == keyword and p.content.startswith('parallel')
+        ]
+        assert len(pragmas) == 2
+        for pragma in pragmas:
+            parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
+            assert 'private' in parameters and 'ylstack' in parameters['private'].lower()
+
+    # Are there data regions for the stack?
+    if directive == ['openacc']:
+        pragmas = [
+            p for p in FindNodes(Pragma).visit(driver.body)
+            if p.keyword.lower() == 'acc' and 'data' in p.content
+        ]
+        assert len(pragmas) == 2
+        parameters = get_pragma_parameters(pragmas[0], starts_with='data', only_loki_pragmas=False)
+        assert parameters['create'] == 'zstack'
 
     #
     # A few checks on the kernel
@@ -439,9 +472,22 @@ end module kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [None, 'openmp'])
+@pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive):
-    fcode_driver = """
+    if directive == 'openmp':
+        driver_pragma = '!$omp parallel do'
+        driver_end_pragma = '!$omp end parallel do'
+        kernel_pragma = ''
+    elif directive == 'openacc':
+        driver_pragma = '!$acc parallel loop gang'
+        driver_end_pragma = '!$acc end parallel loop'
+        kernel_pragma = '!$acc routine vector'
+    else:
+        driver_pragma = ''
+        driver_end_pragma = ''
+        kernel_pragma = ''
+
+    fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel
     implicit none
@@ -450,14 +496,14 @@ subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     real(kind=jprb), intent(inout) :: field1(nlon, nb)
     real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
     integer :: b
-    !$omp parallel do
+    {driver_pragma}
     do b=1,nb
         call KERNEL(1, nlon, nlon, nz, field1(:,b), field2(:,:,b))
     end do
-    !$omp end parallel do
+    {driver_end_pragma}
 end subroutine driver
     """.strip()
-    fcode_kernel = """
+    fcode_kernel = f"""
 module kernel_mod
     implicit none
 contains
@@ -470,6 +516,7 @@ contains
         real(kind=jprb) :: tmp1(klon)
         real(kind=jprb) :: tmp2(klon, klev)
         integer :: jk, jl
+        {kernel_pragma}
 
         do jk=1,klev
             tmp1(jl) = 0.0_jprb
@@ -490,6 +537,7 @@ contains
         real(kind=jprb), intent(inout) :: field2(columns,levels)
         real(kind=jprb) :: tmp1(columns, levels), tmp2(columns, levels)
         integer :: jk, jl
+        {kernel_pragma}
 
         do jk=1,levels
             do jl=start,end
@@ -525,7 +573,7 @@ end module kernel_mod
         for item in scheduler.items:
             normalize_range_indexing(item.routine)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive)
     scheduler.process(transformation=transformation, reverse=True)
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
@@ -552,10 +600,26 @@ end module kernel_mod
     check_stack_created_in_driver(driver, 'nlon + 3 * nlon * nz', calls[0], 1)
 
     # Has the data sharing been updated?
-    if directive == 'openmp':
-        pragmas = FindNodes(Pragma).visit(driver.body)
-        parameters = get_pragma_parameters(pragmas, starts_with='parallel', only_loki_pragmas=False)
-        assert 'private' in parameters and parameters['private'].lower() == 'ylstack'
+    if directive in ['openmp', 'openacc']:
+        keyword = {'openmp': 'omp', 'openacc': 'acc'}[directive]
+        pragmas = [
+            p for p in FindNodes(Pragma).visit(driver.body)
+            if p.keyword.lower() == keyword and p.content.startswith('parallel')
+        ]
+        assert len(pragmas) == 1
+        for pragma in pragmas:
+            parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
+            assert 'private' in parameters and 'ylstack' in parameters['private'].lower()
+
+    # Are there data regions for the stack?
+    if directive == ['openacc']:
+        pragmas = [
+            p for p in FindNodes(Pragma).visit(driver.body)
+            if p.keyword.lower() == 'acc' and 'data' in p.content
+        ]
+        assert len(pragmas) == 2
+        parameters = get_pragma_parameters(pragmas[0], starts_with='data', only_loki_pragmas=False)
+        assert parameters['create'] == 'zstack'
 
     #
     # A few checks on the kernels
