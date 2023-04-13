@@ -9,8 +9,8 @@ from shutil import rmtree
 
 import pytest
 from loki import (
-    gettempdir, Scheduler, SchedulerConfig, Dimension, simplify,
-    FindNodes, FindVariables,
+    gettempdir, Scheduler, SchedulerConfig, Dimension, simplify, Sourcefile,
+    FindNodes, FindVariables, normalize_range_indexing, OMNI, FP,
     CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall
 )
 from conftest import available_frontends
@@ -31,14 +31,14 @@ def check_stack_module_import(routine):
 def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_block_loops, generate_driver_stack=True):
     # Are stack size, storage and stack derived type declared?
     assert 'istsz' in driver.variables
-    assert 'pstack(:,:)' in driver.variables
+    assert 'zstack(:,:)' in driver.variables
     assert 'ylstack' in driver.variables
 
     # Is there an allocation and deallocation for the stack storage?
     allocations = FindNodes(Allocation).visit(driver.body)
-    assert len(allocations) == 1 and 'pstack(istsz,nb)' in allocations[0].variables
+    assert len(allocations) == 1 and 'zstack(istsz,nb)' in allocations[0].variables
     deallocations = FindNodes(Deallocation).visit(driver.body)
-    assert len(deallocations) == 1 and 'pstack' in deallocations[0].variables
+    assert len(deallocations) == 1 and 'zstack' in deallocations[0].variables
 
     # Check the stack size
     assignments = FindNodes(Assignment).visit(driver.body)
@@ -54,7 +54,7 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
     assert len(assignments) == 2
     assert assignments[0].lhs == 'ylstack%l'
     assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
-    assert 'pstack(1, b)' in assignments[0].rhs.parameters
+    assert 'zstack(1, b)' in assignments[0].rhs.parameters
     if generate_driver_stack:
         assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + istsz * 8'
     else:
@@ -67,20 +67,31 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
 @pytest.mark.parametrize('generate_driver_stack', [False, True])
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim):
+    fcode_stack_mod = """
+MODULE STACK_MOD
+IMPLICIT NONE
+TYPE STACK
+  INTEGER*8 :: L, U
+END TYPE
+PRIVATE
+PUBLIC :: STACK
+END MODULE
+    """.strip()
+
     fcode_stack_import = "use stack_mod, only: stack"
     fcode_stack_decl = """
     integer :: istsz
-    REAL(KIND=JPRB), ALLOCATABLE :: PSTACK(:, :)
+    REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
     type(stack) :: ylstack
 
     istsz = (nz+1) * nlon
-    ALLOCATE(PSTACK(ISTSZ, nb))
+    ALLOCATE(ZSTACK(ISTSZ, nb))
     """
     fcode_stack_assign = """
-        ylstack%l = loc(pstack(1, b))
+        ylstack%l = loc(zstack(1, b))
         ylstack%u = ylstack%l + 8 * istsz
     """
-    fcode_stack_dealloc = "DEALLOCATE(PSTACK)"
+    fcode_stack_dealloc = "DEALLOCATE(ZSTACK)"
 
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
@@ -143,7 +154,31 @@ end module kernel_mod
             'role': 'driver',
         }]
     }
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+
+    if frontend == FP and not generate_driver_stack:
+        # Patch "LOC" intrinsic into fparser. This is not strictly needed (it will just represent it
+        # as Array instead of an InlineCall) but makes for a more coherent check further down
+        from fparser.two import Fortran2003  # pylint: disable=import-outside-toplevel
+        Fortran2003.Intrinsic_Name.other_inquiry_names.update({"LOC": {'min': 1, 'max': 1}})
+        Fortran2003.Intrinsic_Name.generic_function_names.update({"LOC": {'min': 1, 'max': 1}})
+        Fortran2003.Intrinsic_Name.function_names += ["LOC"]
+
+    if frontend == OMNI:
+        (basedir/'stack_mod.F90').write_text(fcode_stack_mod)
+        stack_mod = Sourcefile.from_file(basedir/'stack_mod.F90', frontend=frontend)
+        definitions = stack_mod.definitions
+    else:
+        definitions = ()
+
+    scheduler = Scheduler(
+        paths=[basedir], config=SchedulerConfig.from_dict(config),
+        definitions=definitions, frontend=frontend
+    )
+
+    if frontend == OMNI:
+        for item in scheduler.items:
+            normalize_range_indexing(item.routine)
+
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
     scheduler.process(transformation=transformation, reverse=True)
     kernel_item = scheduler['kernel_mod#kernel']
@@ -301,6 +336,10 @@ end module kernel_mod
         }]
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    if frontend == OMNI:
+        for item in scheduler.items:
+            normalize_range_indexing(item.routine)
+
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
     scheduler.process(transformation=transformation, reverse=True)
     kernel_item = scheduler['kernel_mod#kernel']
@@ -462,14 +501,18 @@ end module kernel_mod
         }]
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    if frontend == OMNI:
+        for item in scheduler.items:
+            normalize_range_indexing(item.routine)
+
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
     scheduler.process(transformation=transformation, reverse=True)
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
 
     assert transformation._key in kernel_item.trafo_data
-    assert kernel_item.trafo_data[transformation._key] == 'nlon + 3 * nlon * nz'
-    assert kernel2_item.trafo_data[transformation._key] == '2 * nlon * nz'
+    assert kernel_item.trafo_data[transformation._key] == 'klon + 3 * klev * klon'
+    assert kernel2_item.trafo_data[transformation._key] == '2 * columns * levels'
     assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
     assert all(v.scope is None for v in FindVariables().visit(kernel2_item.trafo_data[transformation._key]))
 
@@ -493,7 +536,7 @@ end module kernel_mod
     #
     calls = FindNodes(CallStatement).visit(kernel_item.routine.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('start', 'end', 'nlon', 'nz', 'field2', 'ylstack')
+    assert calls[0].arguments == ('start', 'end', 'klon', 'klev', 'field2', 'ylstack')
 
     for item in [kernel_item, kernel2_item]:
         kernel = item.routine
