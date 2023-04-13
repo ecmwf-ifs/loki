@@ -10,8 +10,8 @@ from shutil import rmtree
 import pytest
 from loki import (
     gettempdir, Scheduler, SchedulerConfig, Dimension, simplify, Sourcefile,
-    FindNodes, FindVariables, normalize_range_indexing, OMNI, FP,
-    CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall
+    FindNodes, FindVariables, normalize_range_indexing, OMNI, FP, get_pragma_parameters,
+    CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall, Pragma
 )
 from conftest import available_frontends
 
@@ -256,7 +256,8 @@ end module kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim):
+@pytest.mark.parametrize('directive', [None, 'openmp'])
+def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directive):
     fcode_driver = """
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel, kernel2
@@ -266,12 +267,22 @@ subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     real(kind=jprb), intent(inout) :: field1(nlon, nb)
     real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
     integer :: b
+
+    !$omp parallel default(shared) private(b)
+
+    !$omp do
     do b=1,nb
         call KERNEL(1, nlon, nlon, nz, field1(:,b), field2(:,:,b))
     end do
+    !$omp end do
+
+    !$omp do
     do b=1,nb
         call KERNEL2(1, nlon, nlon, nz, field2(:,:,b))
     end do
+    !$omp end do
+
+    !$omp end parallel
 end subroutine driver
     """.strip()
     fcode_kernel = """
@@ -340,7 +351,7 @@ end module kernel_mod
         for item in scheduler.items:
             normalize_range_indexing(item.routine)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive)
     scheduler.process(transformation=transformation, reverse=True)
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
@@ -366,6 +377,12 @@ end module kernel_mod
     assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)', 'ylstack')
 
     check_stack_created_in_driver(driver, 'max(nlon + nlon * nz, 2 * nz * nlon)', calls[0], 2)
+
+    # Has the data sharing been updated?
+    if directive == 'openmp':
+        pragmas = FindNodes(Pragma).visit(driver.body)
+        parameters = get_pragma_parameters(pragmas, starts_with='parallel', only_loki_pragmas=False)
+        assert 'private' in parameters and 'ylstack' in parameters['private'].lower()
 
     #
     # A few checks on the kernel
@@ -422,7 +439,8 @@ end module kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim):
+@pytest.mark.parametrize('directive', [None, 'openmp'])
+def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive):
     fcode_driver = """
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel
@@ -432,9 +450,11 @@ subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     real(kind=jprb), intent(inout) :: field1(nlon, nb)
     real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
     integer :: b
+    !$omp parallel do
     do b=1,nb
         call KERNEL(1, nlon, nlon, nz, field1(:,b), field2(:,:,b))
     end do
+    !$omp end parallel do
 end subroutine driver
     """.strip()
     fcode_kernel = """
@@ -530,6 +550,12 @@ end module kernel_mod
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
     check_stack_created_in_driver(driver, 'nlon + 3 * nlon * nz', calls[0], 1)
+
+    # Has the data sharing been updated?
+    if directive == 'openmp':
+        pragmas = FindNodes(Pragma).visit(driver.body)
+        parameters = get_pragma_parameters(pragmas, starts_with='parallel', only_loki_pragmas=False)
+        assert 'private' in parameters and parameters['private'].lower() == 'ylstack'
 
     #
     # A few checks on the kernels
