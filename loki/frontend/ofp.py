@@ -1614,7 +1614,7 @@ class OFP2IR(GenericVisitor):
             intrinsic_calls = (
                 'MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD', 'SELECTED_INT_KIND',
                 'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT', 'SIGN', 'EPSILON', 'NULL',
-                'SIZE', 'LBOUND', 'UBOUND'
+                'SIZE', 'LBOUND', 'UBOUND', 'LOC'
             )
             if str(name).upper() in intrinsic_calls or kwarguments:
                 return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
