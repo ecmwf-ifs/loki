@@ -12,15 +12,37 @@ import re
 __all__ = ['GlobalVarOffloadTransformation']
 
 class GlobalVarOffloadTransformation(Transformation):
+    """
+    :any:`Transformation` class that facilitates insertion of offload directives
+    for module variable imports. The following offload paradigms are currently supported:
+
+    * OpenACC
+
+    It comprises of three main components. ``process_kernel`` which collects a set of
+    imported variables to offload, ``transform_module`` which adds device-side declarations
+    for the imported variables to the relevant modules, and ``process_driver`` which adds
+    offload instructions at the driver-layer. ``!$loki update_device`` and ``!$loki update_host``
+    pragmas are needed in the ``driver`` source to insert offload and/or copy-back directives.
+
+    Nested Fortran derived-types are not currently supported. If such an import is encountered,
+    only the device-side declaration will be added to the relevant module file, and the offload
+    instructions will have to manually be added afterwards.
+
+    NB: This transformation should only be used as part of a :any:`Scheduler` traversal, and
+    **must** be run in reverse, e.g.:
+    scheduler.process(transformation=GlobalVarOffloadTransformation(), reverse=True)
+    """
 
     def __init__(self):
-
         self._acc_copyin = set()
         self._acc_copyout = set()
         self._var_set = set()
         self._imports = {}
 
     def transform_module(self, module, **kwargs):
+        """
+        Add device-side declarations for imported variables.
+        """
 
         item = kwargs['item']
 
@@ -48,7 +70,6 @@ class GlobalVarOffloadTransformation(Transformation):
         module.spec.append(Pragma(keyword='acc', content=f'declare create({_symbol})'))
 
     def transform_subroutine(self, routine, **kwargs):
-
         role = kwargs.get('role')
         if role == 'driver':
             self.process_driver(routine, **kwargs)
@@ -56,6 +77,9 @@ class GlobalVarOffloadTransformation(Transformation):
             self.process_kernel(routine, **kwargs)
 
     def process_driver(self, routine, **kwargs):
+        """
+        Add offload and/or copy-back directives for the imported variables.
+        """
 
         pragma_map = {}
         _symbols = set()
@@ -101,6 +125,9 @@ class GlobalVarOffloadTransformation(Transformation):
             routine.spec.insert(import_pos + index, i)
 
     def process_kernel(self, routine, **kwargs):
+        """
+        Collect the set of module variables to be offloaded.
+        """
 
         _imports = FindNodes(Import).visit(routine.spec)
         _calls = [c.name for c in FindNodes(CallStatement).visit(routine.body)]
