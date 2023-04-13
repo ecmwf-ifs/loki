@@ -131,7 +131,7 @@ def cli(debug):
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
                                  'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
@@ -192,7 +192,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
-    if mode == 'idem':
+    if mode in ['idem', 'idem-stack']:
         transformation = IdemTransformation()
 
     if mode == 'sca':
@@ -230,8 +230,8 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
-    if mode == 'scc-stack':
-        transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+    if mode in ['idem-stack', 'scc-stack']:
+        transformation = TemporariesPoolAllocatorTransformation(block_dim=scheduler.config.dimensions['block_dim'])
         scheduler.process(transformation=transformation, reverse=True)
     if mode == 'cuf-parametrise':
         dic2p = scheduler.config.dic2p
