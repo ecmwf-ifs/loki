@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki import (
-    as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
+    as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters, pragmas_attached,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
@@ -371,6 +371,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 pragma_map[loop] = loop.clone(
                     pragma=(Pragma('acc', f'data copyin({stack_var.name, stack_size_var.name}) create(pstack)'),)
                 )
+
+        elif self.directive == 'openmp':
+            # Find OpenMP parallel statements
+            omp_parallel_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'omp']
+            for pragma in omp_parallel_pragmas:
+                if pragma.content.startswith('parallel'):
+                    parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
+                    if 'private' in parameters:
+                        content = pragma.content.replace('private(', f'private({stack_var.name}, ')
+                    else:
+                        content = pragma.content + f' private({stack_var.name})'
+                    pragma_map[pragma] = pragma.clone(content=content)
+                    break
+
         if pragma_map:
             routine.body = Transformer(pragma_map).visit(routine.body)
 
@@ -415,16 +429,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             loop_map[loop] = loop.clone(
                 body=loop.body[:assign_pos + 1] + (ptr_assignment, stack_incr) + loop.body[assign_pos + 1:]
             )
-            break
-
-        else:
-            warning(
-                f'{self.__class__.__name__}: '
-                'Could not find a block dimension loop; no stack pointer assignment inserted.'
-            )
 
         if loop_map:
             routine.body = Transformer(loop_map).visit(routine.body)
+        else:
+            warning(
+                f'{self.__class__.__name__}: '
+                f'Could not find a block dimension loop in {routine.name}; no stack pointer assignment inserted.'
+            )
 
     def inject_pool_allocator_into_calls(self, routine, targets):
         """

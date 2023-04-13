@@ -227,7 +227,9 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
     if mode in ['idem-stack', 'scc-stack']:
-        transformation = TemporariesPoolAllocatorTransformation(block_dim=scheduler.config.dimensions['block_dim'])
+        block_dim = scheduler.config.dimensions['block_dim']
+        directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
+        transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive)
         scheduler.process(transformation=transformation, reverse=True)
     if mode == 'cuf-parametrise':
         dic2p = scheduler.config.dic2p
