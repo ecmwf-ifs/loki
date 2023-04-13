@@ -177,11 +177,21 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 dimensions=stack_type.shape, scope=routine
             )
             variables_append += [stack_storage]
+
             stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
                 stack_size_var, Variable(name=self.block_dim.size, scope=routine)
             )),))
-            body_prepend += [stack_alloc]
             stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member
+
+            body_prepend += [stack_alloc]
+            if self.directive == 'openacc':
+                pragma_data_start = Pragma(
+                    keyword='acc',
+                    content=f'data create({stack_storage.name})' # pylint: disable=no-member
+                )
+                body_prepend += [pragma_data_start]
+                pragma_data_end = Pragma(keyword='acc', content='end data')
+                body_append += [pragma_data_end]
             body_append += [stack_dealloc]
 
         # Inject new variables and body nodes
@@ -350,32 +360,21 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         pragma_map = {}
         if self.directive == 'openacc':
-            # Find an acc data statement
-            acc_data_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
-            for pragma in acc_data_pragmas:
-                if pragma.content.startswith('data'):
-                    content = pragma.content
-                    parameters = get_pragma_parameters(pragma, only_loki_pragmas=False)
-                    if 'create' in parameters:
-                        content = content.replace('create(', f'create({stack_storage.name}, ')
+            # Find OpenACC loop statements
+            acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
+            for pragma in acc_pragmas:
+                if pragma.content.startswith('parallel') and 'gang' in pragma.content.lower():
+                    parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
+                    if 'private' in parameters:
+                        content = pragma.content.replace('private(', f'private({stack_var.name}, ')
                     else:
-                        content += f' create({stack_storage.name})'
-                    if 'copyin' in parameters:
-                        content = content.replace('copyin(', f'copyin({stack_var.name}, {stack_size_var.name}, ')
-                    else:
-                        content += f' copyin({stack_var.name}, {stack_size_var.name})'
+                        content = pragma.content + f' private({stack_var.name})'
                     pragma_map[pragma] = pragma.clone(content=content)
-                    break
-            else:
-                loop = FindNodes(Loop).visit(routine.body)[0]
-                pragma_map[loop] = loop.clone(
-                    pragma=(Pragma('acc', f'data copyin({stack_var.name, stack_size_var.name}) create(pstack)'),)
-                )
 
         elif self.directive == 'openmp':
             # Find OpenMP parallel statements
-            omp_parallel_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'omp']
-            for pragma in omp_parallel_pragmas:
+            omp_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'omp']
+            for pragma in omp_pragmas:
                 if pragma.content.startswith('parallel'):
                     parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
                     if 'private' in parameters:
@@ -383,7 +382,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     else:
                         content = pragma.content + f' private({stack_var.name})'
                     pragma_map[pragma] = pragma.clone(content=content)
-                    break
 
         if pragma_map:
             routine.body = Transformer(pragma_map).visit(routine.body)
