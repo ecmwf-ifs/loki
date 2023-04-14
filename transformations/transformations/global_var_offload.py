@@ -117,7 +117,10 @@ class GlobalVarOffloadTransformation(Transformation):
         for k, v in _import_dict.items():
             _new_imports += as_tuple(Import(k, symbols=tuple(Variable(name=s, scope=routine) for s in v)))
 
-        import_pos = routine.spec.body.index(_old_imports[-1]) + 1
+        import_pos = 0
+        if _old_imports:
+            import_pos = routine.spec.body.index(_old_imports[-1]) + 1
+
         if _new_imports:
             routine.spec.insert(import_pos, Comment(text='!.....Adding global variables to driver symbol table for offload instructions'))
         import_pos += 1
