@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 import pytest
+import re
 from pathlib import Path
 
 from loki import (
@@ -109,3 +110,70 @@ def test_transformation_global_var_import(here, config, frontend):
     assert all('declare create' in p.content for p in pragmas)
     assert any('var4' in p.content for p in pragmas)
     assert any('var5' in p.content for p in pragmas)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transformation_global_var_import_derived_type(here, config, frontend):
+    """
+    Test the generation of offload instructions of derived-type global variable imports.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+    my_config['routine'] = [
+        {
+            'name': 'driver_derived_type',
+            'role': 'driver'
+        }
+    ]
+
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
+    scheduler.process(transformation=GlobalVarOffloadTransformation(), reverse=True)
+
+    item_map = {item.name: item for item in scheduler.items}
+    driver_item = item_map['#driver_derived_type']
+    driver = driver_item.source['driver_derived_type']
+
+    module_item = item_map['module_derived_type#p']
+    module = module_item.source['module_derived_type']
+
+    # check that global variables have been added to driver symbol table
+    imports = FindNodes(Import).visit(driver.spec)
+    assert len(imports) == 1
+    assert len(imports[0].symbols) == 2
+    assert imports[0].module.lower() == 'module_derived_type'
+    assert set(s.name for s in imports[0].symbols) == {'p', 'p0'}
+
+    # check that existing acc pragmas have not been stripped and update device/update self added correctly
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert len(pragmas) == 5
+    assert all(p.keyword.lower() == 'acc' for p in pragmas)
+
+    assert 'enter data copyin' in pragmas[0].content
+    assert re.search(r'\bp0%x\b', pragmas[0].content)
+    assert re.search(r'\bp0%y\b', pragmas[0].content)
+    assert re.search(r'\bp0%z\b', pragmas[0].content)
+    assert re.search(r'\bp%n\b', pragmas[0].content)
+
+    assert 'enter data create' in pragmas[1].content
+    assert re.search(r'\bp%x\b', pragmas[1].content)
+    assert re.search(r'\bp%y\b', pragmas[1].content)
+    assert re.search(r'\bp%z\b', pragmas[1].content)
+
+    assert pragmas[2].content == 'serial'
+    assert pragmas[3].content == 'end serial'
+
+    assert 'exit data copyout' in pragmas[4].content
+    assert re.search(r'\bp%x\b', pragmas[4].content)
+    assert re.search(r'\bp%y\b', pragmas[4].content)
+    assert re.search(r'\bp%z\b', pragmas[4].content)
+
+    # check for device-side declarations
+    pragmas = FindNodes(Pragma).visit(module.spec)
+    assert len(pragmas) == 4
+    assert all(p.keyword == 'acc' for p in pragmas)
+    assert all('declare create' in p.content for p in pragmas)
+    assert re.search(r'\bp_array\b', pragmas[0].content)
+    assert re.search(r'\bg\b', pragmas[1].content)
+    assert re.search(r'\bp0\b', pragmas[2].content)
+    assert re.search(r'\bp\b', pragmas[3].content)
