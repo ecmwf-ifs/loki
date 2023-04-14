@@ -100,6 +100,20 @@ def fixture_frontend():
     return FP if HAVE_FP else OFP
 
 
+def graphviz_present():
+    """
+    Test if graphviz s present,
+    including the executable
+    """
+    try:
+        import graphviz as gviz
+        callgraph = gviz.Graph()
+        callgraph.pipe()
+    except:
+        return False
+    return True
+
+
 class VisGraphWrapper:
     """
     Testing utility to parse the generated callgraph visualisation.
@@ -121,7 +135,7 @@ class VisGraphWrapper:
         return list(self._re_edges.findall(self.text))
 
 
-@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 @pytest.mark.parametrize('with_file_graph', [True, False, 'filegraph_simple'])
 def test_scheduler_graph_simple(here, config, frontend, with_file_graph):
     """
@@ -196,7 +210,7 @@ def test_scheduler_graph_simple(here, config, frontend, with_file_graph):
     cg_path.with_suffix('.pdf').unlink(missing_ok=True)
 
 
-@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 def test_scheduler_graph_partial(here, config, frontend):
     """
     Create a sub-graph from a select set of branches in  single project:
@@ -250,7 +264,7 @@ def test_scheduler_graph_partial(here, config, frontend):
         cg_path.with_suffix('.pdf').unlink()
 
 
-@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 def test_scheduler_graph_config_file(here, frontend):
     """
     Create a sub-graph from a branches using a config file:
@@ -289,7 +303,7 @@ def test_scheduler_graph_config_file(here, frontend):
         cg_path.with_suffix('.pdf').unlink()
 
 
-@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 def test_scheduler_graph_blocked(here, config, frontend):
     """
     Create a simple task graph with a single branch blocked:
@@ -411,7 +425,7 @@ def test_scheduler_process(here, config, frontend):
     assert scheduler.item_map['#another_l2'].routine.name == 'another_l2_kernel'
 
 
-@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 def test_scheduler_graph_multiple_combined(here, config, frontend):
     """
     Create a single task graph spanning two projects
@@ -456,7 +470,7 @@ def test_scheduler_graph_multiple_combined(here, config, frontend):
         cg_path.with_suffix('.pdf').unlink()
 
 
-@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 def test_scheduler_graph_multiple_separate(here, config, frontend):
     """
     Tests combining two scheduler graphs, where that an individual
@@ -1167,7 +1181,7 @@ def test_scheduler_typebound_item(here):
     )
 
 
-@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 def test_scheduler_typebound(here, config, frontend):
     """
     Test correct dependency chasing for typebound procedure calls.
@@ -1249,7 +1263,7 @@ def test_scheduler_typebound(here, config, frontend):
     cg_path.with_suffix('.pdf').unlink()
 
 
-@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 def test_scheduler_typebound_ignore(here, config, frontend):
     """
     Test correct dependency chasing for typebound procedure calls with ignore working for
