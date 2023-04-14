@@ -436,7 +436,7 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
     scc_transform.apply(kernel, role='kernel')
 
     # Ensure routine is anntoated at vector level
-    pragmas = FindNodes(Pragma).visit(kernel.body)
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
     assert len(pragmas) == 5
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine vector'
@@ -529,7 +529,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
 
     with pragmas_attached(kernel, Loop):
         # Ensure routine is anntoated at vector level
-        kernel_pragmas = FindNodes(Pragma).visit(kernel.body)
+        kernel_pragmas = FindNodes(Pragma).visit(kernel.ir)
         assert len(kernel_pragmas) == 3
         assert kernel_pragmas[0].keyword == 'acc'
         assert kernel_pragmas[0].content == 'routine seq'
@@ -670,7 +670,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert len(FindNodes(CallStatement).visit(outer_kernel.body)) == 1
 
         # Ensure the routine has been marked properly
-        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.body)
+        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.ir)
         assert len(outer_kernel_pragmas) == 2
         assert outer_kernel_pragmas[0].keyword == 'acc'
         assert outer_kernel_pragmas[0].content == 'routine vector'
@@ -692,7 +692,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert inner_kernel_loops[1].pragma[0].content == 'loop seq'
 
         # Ensure the routine has been marked properly
-        inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.body)
+        inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.ir)
         assert len(inner_kernel_pragmas) == 2
         assert inner_kernel_pragmas[0].keyword == 'acc'
         assert inner_kernel_pragmas[0].content == 'routine vector'
@@ -896,7 +896,7 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
     assert kernel_loops[3].variable == 'jl'
 
     # Check acc pragmas of newly created vector loops
-    pragmas = FindNodes(Pragma).visit(kernel.body)
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
     assert len(pragmas) == 7
     assert pragmas[2].keyword == 'acc'
     assert pragmas[2].content == 'loop vector'
@@ -959,7 +959,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     transformation.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
     # Check that both acc pragmas are created
-    pragmas = FindNodes(Pragma).visit(routine.body)
+    pragmas = FindNodes(Pragma).visit(routine.ir)
     assert len(pragmas) == 4
     assert pragmas[0].keyword == 'acc'
     assert pragmas[1].keyword == 'acc'
