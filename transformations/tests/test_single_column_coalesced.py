@@ -1124,7 +1124,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     transformation.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
     # Check that both acc pragmas are created
-    pragmas = FindNodes(Pragma).visit(routine.body)
+    pragmas = FindNodes(Pragma).visit(routine.ir)
     assert len(pragmas) == 4
     assert pragmas[0].keyword == 'acc'
     assert pragmas[1].keyword == 'acc'
