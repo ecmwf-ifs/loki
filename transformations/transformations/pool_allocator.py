@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki import (
-    as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters, pragmas_attached,
+    as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
@@ -237,9 +237,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_size = successor_map[call.name].trafo_data[self._key]
                 # Replace any occurence of routine arguments in the stack size expression
-                arg_map = {
-                    kernel_parameter: call_arg for kernel_parameter, call_arg in call.arg_iter()
-                }
+                arg_map = dict(call.arg_iter())
                 expr_map = {
                     expr: DetachScopesMapper()(arg_map[expr]) for expr in FindVariables().visit(successor_stack_size)
                     if expr in arg_map
