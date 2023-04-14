@@ -173,12 +173,12 @@ def test_boz_literals(here, frontend):
 subroutine boz_literals(n1, n2, n3, n4, n5, n6)
   integer, intent(out) :: n1, n2, n3, n4, n5, n6
 
-  n1 = B'00000'
-  n2 = b"101010"
-  n3 = O'737'
-  n4 = o"007"
-  n5 = Z'CAFE'
-  n6 = z"babe"
+  n1 = int(B'00000')
+  n2 = int(b"101010")
+  n3 = int(O'737')
+  n4 = int(o"007")
+  n5 = int(Z'CAFE')
+  n6 = int(z"babe")
 end subroutine boz_literals
 """
     filepath = here/(f'expression_boz_literals_{frontend}.f90')
@@ -194,12 +194,16 @@ end subroutine boz_literals
         # Note: Omni evaluates BOZ constants, so it creates IntegerLiteral instead...
         # Note: FP converts constants to upper case
         stmts = FindNodes(Assignment).visit(routine.body)
-        assert isinstance(stmts[0].rhs, IntrinsicLiteral) and stmts[0].rhs.value == "B'00000'"
-        assert isinstance(stmts[1].rhs, IntrinsicLiteral) and stmts[1].rhs.value == 'b"101010"'
-        assert isinstance(stmts[2].rhs, IntrinsicLiteral) and stmts[2].rhs.value == "O'737'"
-        assert isinstance(stmts[3].rhs, IntrinsicLiteral) and stmts[3].rhs.value == 'o"007"'
-        assert isinstance(stmts[4].rhs, IntrinsicLiteral) and stmts[4].rhs.value == "Z'CAFE'"
-        assert isinstance(stmts[5].rhs, IntrinsicLiteral) and stmts[5].rhs.value == 'z"babe"'
+
+        for stmt in stmts:
+            assert isinstance(stmt.rhs.parameters[0], IntrinsicLiteral)
+
+        assert stmts[0].rhs.parameters[0].value == "B'00000'"
+        assert stmts[1].rhs.parameters[0].value == 'b"101010"'
+        assert stmts[2].rhs.parameters[0].value == "O'737'"
+        assert stmts[3].rhs.parameters[0].value == 'o"007"'
+        assert stmts[4].rhs.parameters[0].value == "Z'CAFE'"
+        assert stmts[5].rhs.parameters[0].value == 'z"babe"'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
