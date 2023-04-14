@@ -31,7 +31,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     def __init__(self, block_dim, stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
                  stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}',
-                 directive=None, key=None, **kwargs):
+                 directive=None, check_bounds=True, key=None, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
         self.stack_module_name = stack_module_name
@@ -44,6 +44,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.stack_local_var_name = stack_local_var_name
         self.local_ptr_var_name_pattern = local_ptr_var_name_pattern
         self.directive = directive
+        self.check_bounds = check_bounds
         if key:
             self._key = key
 
@@ -297,11 +298,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         kind_bytes = Literal(8)  # TODO: Use c_sizeof
         arr_size = InlineCall(Variable(name='SIZE'), parameters=(arr.clone(dimensions=None),))
         ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, Product((kind_bytes, arr_size)))))
-        stack_size_check = Conditional(
-            condition=Comparison(stack_ptr, '>', stack_end), inline=True,
-            body=(Intrinsic('STOP'),), else_body=None
-        )
-        return [ptr_assignment, ptr_increment, stack_size_check]
+        if self.check_bounds:
+            stack_size_check = Conditional(
+                condition=Comparison(stack_ptr, '>', stack_end), inline=True,
+                body=(Intrinsic('STOP'),), else_body=None
+            )
+            return [ptr_assignment, ptr_increment, stack_size_check]
+        return [ptr_assignment, ptr_increment]
 
     def apply_pool_allocator_to_temporaries(self, routine):
         """

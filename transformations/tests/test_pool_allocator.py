@@ -66,7 +66,8 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
 
 @pytest.mark.parametrize('generate_driver_stack', [False, True])
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim):
+@pytest.mark.parametrize('check_bounds', [False,True])
+def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds):
     fcode_stack_mod = """
 MODULE STACK_MOD
 IMPLICIT NONE
@@ -179,7 +180,7 @@ end module kernel_mod
         for item in scheduler.items:
             normalize_range_indexing(item.routine)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, check_bounds=check_bounds)
     scheduler.process(transformation=transformation, reverse=True)
     kernel_item = scheduler['kernel_mod#kernel']
 
@@ -248,9 +249,13 @@ end module kernel_mod
     assert 'pointer(ip_tmp1, tmp1)' in fcode.lower()
     assert 'pointer(ip_tmp2, tmp2)' in fcode.lower()
 
-    # Check for stack size safegurads in generated code
-    assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
-    assert fcode.lower().count('stop') == 2
+    # Check for stack size safeguards in generated code
+    if check_bounds:
+        assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
+        assert fcode.lower().count('stop') == 2
+    else:
+        assert 'if (ylstack%l > ylstack%u)' not in fcode.lower()
+        assert 'stop' not in fcode.lower()
 
     rmtree(basedir)
 
