@@ -5,15 +5,15 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import pytest
 import re
 from pathlib import Path
-
-from loki import (
-    Scheduler, SchedulerConfig, FindNodes, Pragma, Import
-)
+import pytest
 
 from conftest import available_frontends
+from loki import (
+    Scheduler, FindNodes, Pragma, Import
+)
+
 from transformations import GlobalVarOffloadTransformation
 
 
