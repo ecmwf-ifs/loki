@@ -5,11 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from sys import getrecursionlimit
+from inspect import stack
+
 from pathlib import Path
 import re
 import pytest
 import numpy as np
-from sys import getrecursionlimit
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
@@ -976,7 +978,7 @@ end module derived_type_linked_list
     # Chase the next-chain to the limit with a buffer
     var = routine.variable_map['x']
     name = 'x'
-    for _ in range(min(1000, getrecursionlimit()-100)):
+    for _ in range(min(1000, getrecursionlimit()-len(stack())-50)):
         var = var.variable_map['next']
         assert var
         assert var.type.dtype.typedef is module.typedefs['list_t']
