@@ -14,7 +14,7 @@ from loki import (
   FindNodes, FindVariables, Loop, Assignment, CallStatement, Scalar, Array, Associate, Allocation,
   Transformer, Conditional, Intrinsic, SubstituteExpressions, as_tuple, convert_to_lower_case,
   Sourcefile, Subroutine, Nullify, Node, InlineCall, FindInlineCalls, flatten, Section, Scheduler,
-  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer, ResolveAssociationsVisitor
+  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer
   )
 
 
@@ -276,37 +276,37 @@ def resolve_member_routine(routine, var_check, in_vars, out_vars, inout_vars):
     out_vars += intent_vars['out']
     inout_vars += intent_vars['inout']
 
-#def resolve_association(routine):
-#    """Resolves variable associations and replaces associate block with its body"""
-#
-#    assoc = FindNodes(Associate).visit(routine.body)[0]
-#    vmap = {}
-#    for rexpr,lexpr in assoc.associations:
-#        vmap.update({var: rexpr.clone(dimensions=getattr(var, "dimensions", None)) for var in [v for v in FindVariables().visit(assoc.body) if lexpr.name.lower() == v.name.lower()]})
-#    assoc_map = {assoc: SubstituteExpressions(vmap).visit(assoc.body)}
-#    routine.body = Transformer(assoc_map).visit(routine.body)
-#
-#def resolve_pointer(routine):
-#    """Resolves pointer associations and deletes assignment and matching nullify statements"""
-#
-#    assign = [p for p in FindNodes(Assignment).visit(routine.body) if getattr(p, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(p, "rhs", None))]][0]
-#
-#    loc = [k for k, n in enumerate(FindNodes(Node).visit(routine.body)) if n == assign]
-#    assert len(loc)==1, f'location of pointer {assign} not found'
-#
-#    pointer_map = {assign: None}
-#    for n in FindNodes(Node).visit(routine.body)[loc[0]+1:]:
-#        if isinstance(n, Nullify) and assign.lhs in findvarsnotdims(getattr(n, "variables", None)):
-#            pointer_map[n] = None
-#            break
-#        elif isinstance(n, Assignment) and 'null' in [var.name.lower() for var in findvarsnotdims(getattr(n, "rhs", None))]:
-#            pointer_map[n] = None
-#            break
-#
-#        vmap = {var: assign.rhs.clone() for var in [v for v in FindVariables().visit(n) if assign.lhs.name == v.name]}
-#        pointer_map[n] = SubstituteExpressions(vmap).visit(n)
-#
-#    routine.body = Transformer(pointer_map).visit(routine.body)
+def resolve_association(routine):
+    """Resolves variable associations and replaces associate block with its body"""
+
+    assoc = FindNodes(Associate).visit(routine.body)[0]
+    vmap = {}
+    for rexpr,lexpr in assoc.associations:
+        vmap.update({var: rexpr.clone(dimensions=getattr(var, "dimensions", None)) for var in [v for v in FindVariables().visit(assoc.body) if lexpr.name.lower() == v.name.lower()]})
+    assoc_map = {assoc: SubstituteExpressions(vmap).visit(assoc.body)}
+    routine.body = Transformer(assoc_map).visit(routine.body)
+
+def resolve_pointer(routine):
+    """Resolves pointer associations and deletes assignment and matching nullify statements"""
+
+    assign = [p for p in FindNodes(Assignment).visit(routine.body) if getattr(p, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(p, "rhs", None))]][0]
+
+    loc = [k for k, n in enumerate(FindNodes(Node).visit(routine.body)) if n == assign]
+    assert len(loc)==1, f'location of pointer {assign} not found'
+
+    pointer_map = {assign: None}
+    for n in FindNodes(Node).visit(routine.body)[loc[0]+1:]:
+        if isinstance(n, Nullify) and assign.lhs in findvarsnotdims(getattr(n, "variables", None)):
+            pointer_map[n] = None
+            break
+        elif isinstance(n, Assignment) and 'null' in [var.name.lower() for var in findvarsnotdims(getattr(n, "rhs", None))]:
+            pointer_map[n] = None
+            break
+
+        vmap = {var: assign.rhs.clone() for var in [v for v in FindVariables().visit(n) if assign.lhs.name == v.name]}
+        pointer_map[n] = SubstituteExpressions(vmap).visit(n)
+
+    routine.body = Transformer(pointer_map).visit(routine.body)
 
 def decl_check(routine, output):
     "Checks whether all dummy arguments have a specified intent."
@@ -444,16 +444,12 @@ def check(mode, setup, path, disable, output, summary):
             for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
                 decl_check(node, output)
 
-#        # resolving associations in the order in which they appear
-#        for pointer in FindNodes((Associate, Assignment)).visit(routine.body):
-#            if isinstance(pointer, Assignment) and getattr(pointer, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(pointer, "rhs", None))]:
-#                resolve_pointer(routine)
-#            elif isinstance(pointer, Associate):
-#                resolve_association(routine)
-        node_map = ResolveAssociationsVisitor().visit(routine.body)
-        routine.body = Transformer(node_map).visit(routine.body)
-        routine.rescope_symbols()
-#        sys.exit()
+        # resolving associations in the order in which they appear
+        for pointer in FindNodes((Associate, Assignment)).visit(routine.body):
+            if isinstance(pointer, Assignment) and getattr(pointer, "ptr", None) and 'null' not in [var.name.lower() for var in findvarsnotdims(getattr(pointer, "rhs", None))]:
+                resolve_pointer(routine)
+            elif isinstance(pointer, Associate):
+                resolve_association(routine)
 
 
 
