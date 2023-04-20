@@ -14,9 +14,10 @@ from loki import (
   FindNodes, FindVariables, Loop, Assignment, CallStatement, Scalar, Array, Associate, Allocation,
   Transformer, Conditional, Intrinsic, SubstituteExpressions, as_tuple, convert_to_lower_case,
   Sourcefile, Subroutine, Nullify, Node, InlineCall, FindInlineCalls, flatten, Section, Scheduler,
-  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer
+  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer, SchedulerConfig
   )
 
+from loki import fgen
 
 def count_violations(output, summary):
     routines = []
@@ -375,29 +376,30 @@ def check(mode, setup, path, disable, output, summary):
         with Path(path).open('r') as file:
             config = toml.load(file)
 
-        scheduler_config = {'default': config['scheduler_config']}
-
         search_dirs = ()
-        searches = config['search']
+        search = config['search']
+        for s in search['dirs']:
+            p = Path(PurePath(s))
+            p.resolve()
+            search_dirs += as_tuple(str(p))
 
-        assert all(search['mode'] == 'select' for search in searches) or all(search['mode'] == 'all' for search in searches)
+        config = SchedulerConfig.from_file(path=Path(path))
+#        scheduler_config = {'default': config['scheduler_config']}
+#        scheduler_config.update({'routine': config['routine']})
 
-        for search in searches:
-           for s in search['dirs']:
-               p = Path(PurePath(s))
-               p.resolve()
-               search_dirs += as_tuple(str(p))
+#        print(config['routine'])
 
-        scheduler = Scheduler(paths=search_dirs, config=scheduler_config)
-        for search in searches:
-            if search['mode'] == 'select':
-                r = as_tuple([r.lower() for r in search['routines']])
-                scheduler.populate(r)
-            else:
-                scheduler.populate(list(scheduler.obj_map.keys()))
-                break
+        scheduler = Scheduler(paths=search_dirs, config=config)
+        print(scheduler.items)
+#        for search in searches:
+#            if search['mode'] == 'select':
+#                r = as_tuple([r.lower() for r in search['routines']])
+#                scheduler._populate(r)
+#            else:
+#                scheduler._populate(list(scheduler.obj_map.keys()))
+#                break
 
-        scheduler.enrich()
+#        scheduler._enrich()
         disable = scheduler.config.disable
         for i in scheduler.items:
             assert i.routine
@@ -425,11 +427,19 @@ def check(mode, setup, path, disable, output, summary):
             with open(output,'a') as outfile:
                 outfile.write(f'checking {routine}\n')
 
+
+        print(fgen(routine))
+        sys.exit()
+
         # convert entire routine to lowercase
         convert_to_lower_case(routine)
-        if routine.contains:
-            for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
-                convert_to_lower_case(node)
+        for r in routine.members:
+            print(r)
+            convert_to_lower_case(r)
+#        if routine.contains:
+#            for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
+#                print(node)
+#                convert_to_lower_case(node)
 
         # collect variables for which intent is defined
         intent_vars = defaultdict(list)
