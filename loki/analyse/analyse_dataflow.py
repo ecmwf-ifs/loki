@@ -162,8 +162,9 @@ class DataflowAnalysisAttacher(Transformer):
         body = ()
         defines = set()
         for b in o.bodies:
-            _b, defines, uses = self._visit_body(b, live=live, uses=uses, defines=defines, **kwargs)
+            _b, _d, uses = self._visit_body(b, live=live, uses=uses, **kwargs)
             body += (as_tuple(_b),)
+            defines |= _d
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
         o._update(bodies=body, else_body=else_body)
         defines = defines | else_defines
