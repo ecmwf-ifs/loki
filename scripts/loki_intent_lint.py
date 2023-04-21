@@ -184,6 +184,8 @@ def call_check(calls, routine, output):
             for n in [n for n in FindNodes(Node).visit(routine.body) if not isinstance(n, Section)][:loc[-1]+1]:
                 if n in _calls:
                     for f, a in [(f, a) for f, a in n.arg_iter() if getattr(getattr(a, 'type', None), 'intent', None)]:
+                        if not a in n.live_symbols:
+                            assign_type[a.name] = 'none'
                         if not f.type.intent in intent_map[a.type.intent][assign_type[a.name]]:
                             print(f'intent inconsistency in {n} for arg {a.name}')
                             if output:
