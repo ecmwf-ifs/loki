@@ -393,7 +393,6 @@ def check(mode, setup, path, disable, output, summary):
         for i in scheduler.items:
             assert i.routine
             routines += as_tuple(i.routine)
-            print(f'collected from scheduler {i.routine}')
 
             if output:
                 with open(output,'a') as outfile:
