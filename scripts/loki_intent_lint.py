@@ -13,7 +13,8 @@ from loki import (
   FindNodes, FindVariables, Loop, Assignment, CallStatement, Scalar, Array, Associate, Allocation,
   Transformer, Conditional, Intrinsic, SubstituteExpressions, as_tuple, convert_to_lower_case,
   Sourcefile, Subroutine, Nullify, Node, InlineCall, FindInlineCalls, flatten, Section, Scheduler,
-  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer, SchedulerConfig
+  LeafNode, InternalNode, fgen, dataflow_analysis_attached, NestedTransformer, SchedulerConfig,
+  BasicType
   )
 
 from loki import fgen
@@ -155,7 +156,9 @@ def alloc_check(calls, routine, output):
     alloc_vars = flatten([findvarsnotdims(alloc.variables) for alloc in FindNodes(Allocation).visit(routine.body)])
 
     for call in calls:
-        assert call.routine, f'matching routine for {call} not found'
+        ### TODO: temporary hack to get-around type-bound procedure calls
+        if call.routine is BasicType.DEFERRED:
+            continue
         for arg, carg in call.arg_iter():
             if getattr(carg, "name", None) in [a.name for a in alloc_vars] and arg.type.intent not in ('in', 'inout'):
                 print(f'Allocatable dummy arg {arg} has wrong intent in {call.routine} declaration')
@@ -166,18 +169,20 @@ def alloc_check(calls, routine, output):
 def call_check(calls, routine, output):
     """Checks the consistency of intent declaration across calls to subroutines."""
 
-    assign_type = {var.name: 'none' for var in flatten([[a for f, a in call.arg_iter() if hasattr(a, 'type')] for call in calls])}
+    ### TODO: temporary hack to get-around type-bound procedure calls
+    _calls = [c for c in calls if not c.routine is BasicType.DEFERRED]
+    assign_type = {var.name: 'none' for var in flatten([[a for f, a in call.arg_iter() if hasattr(a, 'type')] for call in _calls])}
 
     intent_map = {'in': {'none': ['in'], 'lhs': ['in'], 'rhs': ['in']}}
     intent_map['out'] = {'none': ['out'], 'lhs': ['in', 'inout'], 'rhs': ['in', 'inout', 'out']}
     intent_map['inout'] = {'none': ['in', 'inout', 'out'], 'lhs': ['in', 'inout'], 'rhs': ['in', 'inout', 'out']}
 
-    loc = [c for c, n in enumerate([n for n in FindNodes(Node).visit(routine.body) if not isinstance(n,Section)]) if n in calls]
+    loc = [c for c, n in enumerate([n for n in FindNodes(Node).visit(routine.body) if not isinstance(n,Section)]) if n in _calls]
 
     if loc:
         with dataflow_analysis_attached(routine):
             for n in [n for n in FindNodes(Node).visit(routine.body) if not isinstance(n, Section)][:loc[-1]+1]:
-                if n in calls:
+                if n in _calls:
                     for f, a in [(f, a) for f, a in n.arg_iter() if getattr(getattr(a, 'type', None), 'intent', None)]:
                         if not f.type.intent in intent_map[a.type.intent][assign_type[a.name]]:
                             print(f'intent inconsistency in {n} for arg {a.name}')
@@ -211,10 +216,9 @@ def body_check(routine, in_vars, out_vars, inout_vars, var_check):
                 var_check[v.name][1] = "Used"
 
             # intent violations across callstatements have already been checked
-            if not isinstance(node, CallStatement):
+            if not isinstance(node, CallStatement) and isinstance(node, LeafNode):
                 for v in [v for v in in_vars if v.name in [f.name.lower() for f in flatten([findvarsnotdims(s) for s in node.defines_symbols])]]:
                     var_check[v.name][0] = False
-            if isinstance(node, LeafNode) and not isinstance(node, CallStatement):
                 for v in [v for v in flatten([findvarsnotdims(s) for s in node.uses_symbols]) if v.name.lower() in [v.name for v in out_vars] and v not in flatten([findvarsnotdims(s) for s in node.live_symbols])]:
                     var_check[v.name][0] = False
 
