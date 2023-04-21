@@ -2,7 +2,6 @@
 
 import os
 import sys
-import pdb
 import toml
 import click
 import fnmatch
@@ -241,16 +240,16 @@ def resolve_member_routine(routine, var_check, in_vars, out_vars, inout_vars):
     Variables with intent are added to relevant list, and internal routine is then deleted.
     """
 
-    mem_routines = as_tuple([r for r in routine.contains.body if isinstance(r,Subroutine)])
+    mem_routines = as_tuple([r for r in routine.contains.body if isinstance(r, Subroutine)])
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name.lower() in str(mem_routines).lower()]
 
     new_vars=()
     call_map={}
-    for n,call in enumerate(calls):
+    for n, call in enumerate(calls):
 
         arg_map = {arg: carg for arg, carg in call.arg_iter()}
 
-        r = call.routine.clone()
+        r = call.routine
         vmap = {}
         for v in [var for var in FindVariables().visit(r.body) if var.name.lower() in [s.name.lower() for s in findvarsnotdims(r.spec)]]:
 
@@ -260,12 +259,11 @@ def resolve_member_routine(routine, var_check, in_vars, out_vars, inout_vars):
                 new_vars += as_tuple(v.clone(name=(v.name+f'_{r.name}_tmp_{n}'), scope=routine))
                 vmap[v] = new_vars[-1]
 
-        r.body = SubstituteExpressions(vmap).visit(r.body)
-        call_map[call] = r.body.clone()
+        call_map[call] = SubstituteExpressions(vmap).visit(r.body)
 
     routine.variables += new_vars
+    call_map.update({routine.contains: None})
     routine.body = Transformer(call_map).visit(routine.body)
-    routine.contains = None
 
     # add new vars to intent var list
     intent_vars = defaultdict(list)
@@ -384,22 +382,9 @@ def check(mode, setup, path, disable, output, summary):
             search_dirs += as_tuple(str(p))
 
         config = SchedulerConfig.from_file(path=Path(path))
-#        scheduler_config = {'default': config['scheduler_config']}
-#        scheduler_config.update({'routine': config['routine']})
-
-#        print(config['routine'])
 
         scheduler = Scheduler(paths=search_dirs, config=config)
-        print(scheduler.items)
-#        for search in searches:
-#            if search['mode'] == 'select':
-#                r = as_tuple([r.lower() for r in search['routines']])
-#                scheduler._populate(r)
-#            else:
-#                scheduler._populate(list(scheduler.obj_map.keys()))
-#                break
 
-#        scheduler._enrich()
         disable = scheduler.config.disable
         for i in scheduler.items:
             assert i.routine
@@ -427,19 +412,10 @@ def check(mode, setup, path, disable, output, summary):
             with open(output,'a') as outfile:
                 outfile.write(f'checking {routine}\n')
 
-
-        print(fgen(routine))
-        sys.exit()
-
         # convert entire routine to lowercase
         convert_to_lower_case(routine)
         for r in routine.members:
-            print(r)
             convert_to_lower_case(r)
-#        if routine.contains:
-#            for node in [node for node in routine.contains.body if isinstance(node, Subroutine)]:
-#                print(node)
-#                convert_to_lower_case(node)
 
         # collect variables for which intent is defined
         intent_vars = defaultdict(list)
@@ -448,6 +424,7 @@ def check(mode, setup, path, disable, output, summary):
         in_vars = intent_vars['in']
         out_vars = intent_vars['out']
         inout_vars = intent_vars['inout']
+
         # check if intent is specified for all dummy arguments
         decl_check(routine, output)
         if routine.contains:
