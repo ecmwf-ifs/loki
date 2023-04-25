@@ -480,6 +480,10 @@ end subroutine test
         assert all(i in mcond.uses_symbols for i in ['ic', 'ia', 'ib'])
         assert all(i in mcond.defines_symbols for i in ['a', 'b'])
 
+        assigns = FindNodes(Assignment).visit(routine.body)
+        for assign in assigns:
+            assert assign.live_symbols == {'ia', 'ib', 'ic'}
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_maskedstatement(frontend):
