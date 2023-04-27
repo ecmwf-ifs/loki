@@ -640,7 +640,12 @@ class SingleColumnCoalescedTransformation(Transformation):
                             loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
                                                       loop.pragma_post[0]))
 
-                # Apply hoisting of temporary "column arrays"
+        # Apply hoisting of temporary "column arrays"
+        with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+            for call in FindNodes(ir.CallStatement).visit(routine.body):
+                if not call.name in targets:
+                    continue
+
                 if self.hoist_column_arrays:
                     self.hoist_temporary_column_arrays(routine, call)
 
