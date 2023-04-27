@@ -15,7 +15,7 @@ from loki import (
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten,
-    demote_variables
+    demote_variables, info
 )
 
 
@@ -710,6 +710,9 @@ class SingleColumnCoalescedTransformation(Transformation):
             scope=routine
         ) for v in column_locals]
         new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
+
+        info(f'[Loki-SCC] Hoisted variables in call {routine.name} => {call.name}:'
+             f'{[v.name for v in column_locals]}')
 
         # Find the iteration index variable for the specified horizontal
         v_index = get_integer_variable(routine, name=self.horizontal.index)
