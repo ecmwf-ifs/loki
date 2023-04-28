@@ -189,6 +189,15 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
+    # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
+    if 'scc' in mode:
+        scheduler.process(transformation=RemoveCallsTransformation(
+            routines=config.default['utility_routines'] or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
+            include_intrinsics=True
+        ))
+    else:
+        scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
+
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
     if data_offload:
