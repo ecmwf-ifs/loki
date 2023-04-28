@@ -15,7 +15,7 @@ from loki import (
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten,
-    demote_variables
+    demote_variables, info
 )
 
 
@@ -640,9 +640,13 @@ class SingleColumnCoalescedTransformation(Transformation):
                             loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
                                                       loop.pragma_post[0]))
 
-                # Apply hoisting of temporary "column arrays"
-                if self.hoist_column_arrays:
-                    self.hoist_temporary_column_arrays(routine, call)
+        # Apply hoisting of temporary "column arrays"
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if not call.name in targets:
+                continue
+
+            if self.hoist_column_arrays:
+                self.hoist_temporary_column_arrays(routine, call)
 
     def hoist_temporary_column_arrays(self, routine, call):
         """
@@ -705,6 +709,9 @@ class SingleColumnCoalescedTransformation(Transformation):
             scope=routine
         ) for v in column_locals]
         new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
+
+        info(f'[Loki-SCC] Hoisted variables in call {routine.name} => {call.name}:'
+             f'{[v.name for v in column_locals]}')
 
         # Find the iteration index variable for the specified horizontal
         v_index = get_integer_variable(routine, name=self.horizontal.index)

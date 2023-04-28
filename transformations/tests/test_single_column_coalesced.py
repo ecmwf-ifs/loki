@@ -294,6 +294,9 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     end = nlon
     do b=1, nb
       call compute_column(start, end, nlon, nz, q(:,:,b))
+
+      ! A second call, to check multiple calls are honored
+      call compute_column(start, end, nlon, nz, q(:,:,b))
     end do
   END SUBROUTINE column_driver
 """
@@ -344,21 +347,27 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
-    # Ensure we have two nested driver loops
+    # Ensure we have two vector loops, nested in one driver loop
     driver_loops = FindNodes(Loop).visit(driver.body)
-    assert len(driver_loops) == 2
+    assert len(driver_loops) == 3
     assert driver_loops[1] in FindNodes(Loop).visit(driver_loops[0].body)
+    assert driver_loops[2] in FindNodes(Loop).visit(driver_loops[0].body)
     assert driver_loops[0].variable == 'b'
     assert driver_loops[0].bounds == '1:nb'
     assert driver_loops[1].variable == 'jl'
     assert driver_loops[1].bounds == 'start:end'
+    assert driver_loops[2].variable == 'jl'
+    assert driver_loops[2].bounds == 'start:end'
 
-    # Ensure we have a kernel call in the driver loop
+    # Ensure we have two kernel calls in the driver loop
     kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
-    assert len(kernel_calls) == 1
+    assert len(kernel_calls) == 2
     assert kernel_calls[0].name == 'compute_column'
+    assert kernel_calls[1].name == 'compute_column'
     assert ('jl', 'jl') in kernel_calls[0].kwarguments
     assert 't(:,:,b)' in kernel_calls[0].arguments
+    assert ('jl', 'jl') in kernel_calls[1].kwarguments
+    assert 't(:,:,b)' in kernel_calls[1].arguments
 
     # Ensure that column local `t(nlon,nz)` has been hoisted
     assert 't' in kernel.argnames
