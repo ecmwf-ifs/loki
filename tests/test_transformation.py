@@ -383,9 +383,9 @@ def test_dependency_transformation_replace_interface(frontend):
     driver = Sourcefile.from_source(source="""
 SUBROUTINE driver(a, b, c)
   INTERFACE
-    SUBROUTINE kernel(a, b, c)
+    SUBROUTINE KERNEL(a, b, c)
       INTEGER, INTENT(INOUT) :: a, b, c
-    END SUBROUTINE kernel
+    END SUBROUTINE KERNEL
   END INTERFACE
 
   INTEGER, INTENT(INOUT) :: a, b, c
@@ -429,8 +429,8 @@ END SUBROUTINE kernel
     assert calls[0].name == 'kernel_test'
     imports = FindNodes(Import).visit(driver['driver'].spec)
     assert len(imports) == 1
-    assert imports[0].module == 'kernel_test_mod'
-    assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+    assert imports[0].module == 'KERNEL_test_mod'
+    assert 'KERNEL_test' in [str(s) for s in imports[0].symbols]
 
 @pytest.mark.parametrize('frontend', available_frontends(
                          xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
