@@ -429,8 +429,12 @@ END SUBROUTINE kernel
     assert calls[0].name == 'kernel_test'
     imports = FindNodes(Import).visit(driver['driver'].spec)
     assert len(imports) == 1
-    assert imports[0].module == 'KERNEL_test_mod'
-    assert 'KERNEL_test' in [str(s) for s in imports[0].symbols]
+    if frontend == OMNI:
+        assert imports[0].module == 'kernel_test_mod'
+        assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+    else:
+        assert imports[0].module == 'KERNEL_test_mod'
+        assert 'KERNEL_test' in [str(s) for s in imports[0].symbols]
 
 @pytest.mark.parametrize('frontend', available_frontends(
                          xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
