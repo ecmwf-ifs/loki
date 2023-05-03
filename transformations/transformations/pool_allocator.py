@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki import (
-    as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
+    as_tuple, flatten, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
@@ -105,12 +105,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
     _key = 'TemporariesPoolAllocatorTransformation'
 
-    def __init__(self, block_dim, stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
+    def __init__(self, block_dim, allocation_dims=None,
+                 stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
                  stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}',
                  directive=None, check_bounds=True, key=None, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
+        self.allocation_dims = allocation_dims
         self.stack_module_name = stack_module_name
         self.stack_type_name = stack_type_name
         self.stack_ptr_name = stack_ptr_name
@@ -398,6 +400,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             var for var in routine.variables
             if isinstance(var, Array) and var not in arguments
         ]
+
+        if self.allocation_dims:
+            # Filter out only those that have one of the allocation dimensions in their shape
+            size_exprs = flatten(dim.size_expressions for dim in self.allocation_dims)
+            temporary_arrays = [
+                var for var in temporary_arrays
+                if any(dim in size_exprs for dim in var.shape)
+            ]
 
         # Determine size of temporary arrays
         stack_size = Literal(0)
