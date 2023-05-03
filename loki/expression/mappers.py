@@ -552,57 +552,63 @@ class LokiIdentityMapper(IdentityMapper):
     map_float_literal = map_int_literal
 
     def map_variable_symbol(self, expr, *args, **kwargs):
-        kind = self.rec(expr.type.kind, *args, **kwargs)
-        if kind is not expr.type.kind and expr.scope:
-            # Update symbol table entry for kind directly because with a scope attached
-            # it does not affect the outcome of expr.clone
-            expr.scope.symbol_attrs[expr.name] = expr.type.clone(kind=kind)
+        # When updating declaration attributes, which are stored in the symbol table,
+        # we need to disable `recurse_to_declaration_attributes` to avoid infinite
+        # recursion because of the various ways that Fortran allows to use the declared
+        # symbol also inside the declaration expression
+        recurse_to_declaration_attributes = kwargs['recurse_to_declaration_attributes'] or expr.scope is None
+        kwargs['recurse_to_declaration_attributes'] = False
 
-        if kwargs['recurse_to_declaration_attributes']:
-            _kwargs = kwargs.copy()
-            _kwargs['recurse_to_declaration_attributes'] = False
-            if expr.scope and expr.type.initial and expr.name == expr.type.initial:
+        if recurse_to_declaration_attributes:
+            old_type = expr.type
+            kind = self.rec(old_type.kind, *args, **kwargs)
+
+            if expr.scope and expr.name == old_type.initial:
                 # FIXME: This is a hack to work around situations where a constant
                 # symbol (from a parent scope) with the same name as the declared
                 # variable is used as initializer. This hands down the correct scope
                 # (in case this traversal is part of ``AttachScopesMapper``) and thus
                 # interrupts an otherwise infinite recursion (see LOKI-52).
+                _kwargs = kwargs.copy()
                 _kwargs['scope'] = expr.scope.parent
-                initial = self.rec(expr.type.initial, *args, **_kwargs)
+                initial = self.rec(old_type.initial, *args, **_kwargs)
             else:
-                initial = self.rec(expr.type.initial, *args, **_kwargs)
-        else:
-            initial = expr.type.initial
+                initial = self.rec(old_type.initial, *args, **kwargs)
 
-        if initial is not expr.type.initial and expr.scope:
-            # Update symbol table entry for initial directly because with a scope attached
-            # it does not affect the outcome of expr.clone
-            expr.scope.symbol_attrs[expr.name] = expr.type.clone(initial=initial)
-
-        if kwargs['recurse_to_declaration_attributes']:
-            _kwargs = kwargs.copy()
-            _kwargs['recurse_to_declaration_attributes'] = False
-            if (old_bind_names := expr.type.bind_names):
+            if old_type.bind_names:
                 bind_names = ()
-                for bind_name in old_bind_names:
+                for bind_name in old_type.bind_names:
                     if bind_name == expr.name:
                         # FIXME: This is a hack to work around situations where an
                         # explicit interface is used with the same name as the
                         # type bound procedure. This hands down the correct scope.
-                        __kwargs = _kwargs.copy()
-                        __kwargs['scope'] = expr.scope.parent
-                        bind_names += (self.rec(bind_name, *args, **__kwargs),)
-                    else:
+                        _kwargs = kwargs.copy()
+                        _kwargs['scope'] = expr.scope.parent
                         bind_names += (self.rec(bind_name, *args, **_kwargs),)
-                if bind_names and any(new is not old for new, old in zip_longest(bind_names, expr.type.bind_names)):
-                    # Update symbol table entry for bind_names directly because with a scope attached
-                    # it does not affect the outcome of expr.clone
-                    expr.scope.symbol_attrs[expr.name] = expr.type.clone(bind_names=bind_names)
+                    else:
+                        bind_names += (self.rec(bind_name, *args, **kwargs),)
+            else:
+                bind_names = None
+
+            is_type_changed = (
+                kind is not old_type.kind or initial is not old_type.initial or
+                any(new is not old for new, old in zip_longest(as_tuple(bind_names), as_tuple(old_type.bind_names)))
+            )
+            if is_type_changed:
+                new_type = old_type.clone(kind=kind, initial=initial, bind_names=bind_names)
+                if expr.scope:
+                    # Update symbol table entry
+                    expr.scope.symbol_attrs[expr.name] = new_type
 
         parent = self.rec(expr.parent, *args, **kwargs)
-        if parent is expr.parent and (kind is expr.type.kind or expr.scope):
+        if expr.scope is None:
+            if parent is expr.parent and not is_type_changed:
+                return expr
+            return expr.clone(parent=parent, type=new_type)
+
+        if parent is expr.parent:
             return expr
-        return expr.clone(parent=parent, type=expr.type.clone(kind=kind))
+        return expr.clone(parent=parent)
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol
