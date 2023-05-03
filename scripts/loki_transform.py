@@ -207,8 +207,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         block_dim = scheduler.config.dimensions['block_dim']
         transformation = SingleColumnCoalescedTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive='openacc', hoist_column_arrays='hoist' in mode,
-            demote_local_arrays='stack' not in mode
+            directive='openacc', hoist_column_arrays='hoist' in mode
         )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
@@ -228,11 +227,13 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
     if mode in ['idem-stack', 'scc-stack']:
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
         directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
         transformation = TemporariesPoolAllocatorTransformation(
-            block_dim=block_dim, directive=directive,
-            check_bounds='scc' not in mode
+            block_dim=block_dim, allocation_dims=[horizontal, vertical],
+            directive=directive, check_bounds='scc' not in mode
         )
         scheduler.process(transformation=transformation, reverse=True)
     if mode == 'cuf-parametrise':
