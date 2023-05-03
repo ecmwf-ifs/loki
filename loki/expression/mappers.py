@@ -23,7 +23,6 @@ try:
 except ImportError:
     _intrinsic_fortran_names = ()
 
-from loki.ir import DECLARATION_NODES
 from loki.logging import debug
 from loki.tools import as_tuple, flatten
 from loki.types import SymbolAttributes, BasicType
@@ -521,10 +520,7 @@ class LokiIdentityMapper(IdentityMapper):
     def __call__(self, expr, *args, **kwargs):
         if expr is None:
             return None
-        kwargs.setdefault(
-            'recurse_to_declaration_attributes',
-            'current_node' not in kwargs or isinstance(kwargs['current_node'], DECLARATION_NODES)
-        )
+        kwargs.setdefault('recurse_to_declaration_attributes', False)
         new_expr = super().__call__(expr, *args, **kwargs)
         if getattr(expr, 'source', None):
             if isinstance(new_expr, tuple):

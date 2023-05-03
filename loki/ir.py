@@ -40,8 +40,6 @@ __all__ = [
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
     'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
     'Intrinsic', 'Enumeration', 'RawSource',
-    # List of nodes with specific properties
-    'DECLARATION_NODES'
 ]
 
 # Configuration for validation mechanism via pydantic
@@ -1823,9 +1821,3 @@ class RawSource(LeafNode, _RawSourceBase):
 
     def __repr__(self):
         return f'RawSource:: {truncate_string(self.text.strip())}'
-
-
-DECLARATION_NODES = (Import, VariableDeclaration, ProcedureDeclaration)
-"""
-List of IR nodes that are considered to be the authority on a symbol's attributes
-"""

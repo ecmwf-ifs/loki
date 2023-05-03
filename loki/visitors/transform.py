@@ -246,8 +246,6 @@ class Transformer(Visitor):
         :any:`Node` or tuple
             The rebuilt control flow tree.
         """
-        if isinstance(o, Node):
-            kwargs['current_node'] = o
         obj = super().visit(o, *args, **kwargs)
         if isinstance(o, Node) and obj is not o:
             self.rebuilt[o] = obj
@@ -448,8 +446,6 @@ class MaskedTransformer(Transformer):
             # to make sure that we don't include any following nodes we clear start
             self.start.clear()
             self.active = False
-        if isinstance(o, Node):
-            kwargs['current_node'] = o
         return super().visit(o, *args, **kwargs)
 
     def visit_object(self, o, **kwargs):
