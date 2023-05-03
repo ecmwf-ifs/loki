@@ -19,11 +19,88 @@ __all__ = ['TemporariesPoolAllocatorTransformation']
 
 class TemporariesPoolAllocatorTransformation(Transformation):
     """
+    Transformation to inject a pool allocator that allocates a large scratch space per block
+    on the driver and maps temporary arrays in kernels to this scratch space
+
+    It is built on top of a derived type declared in a separate Fortran module (by default
+    called ``stack_mod``), which should simply be commited to the target code base and included
+    into the list of source files for transformed targets. It should look similar to this:
+
+    .. code-block:: Fortran
+
+        MODULE STACK_MOD
+            IMPLICIT NONE
+            TYPE STACK
+                INTEGER*8 :: L, U
+            END TYPE
+            PRIVATE
+            PUBLIC :: STACK
+        END MODULE
+
+    It provides two integer variables, ``L`` and ``U``, which are used as a stack pointer and
+    stack end pointer, respectively. Naming is flexible and can be changed via options to the transformation.
+
+    The transformation needs to be applied in reverse order, which will do the following for each **kernel**:
+
+    * Import the ``STACK`` derived type
+    * Add an argument to the kernel call signature to pass the stack derived type
+    * Create a local copy of the stack derived type inside the kernel
+    * Determine the combined size of all local arrays that are to be allocated by the pool allocator,
+      taking into account calls to nested kernels. This is reported in :any:`Item`'s ``trafo_data``.
+    * Inject Cray pointer assignments and stack pointer increments for all temporaries
+    * Pass the local copy of the stack derived type as argument to any nested kernel calls
+
+    By default, all local array arguments are allocated by the pool allocator, but this can be restricted
+    to include only those that have at least one dimension matching one of those provided in :data:`allocation_dims`.
+
+    In a **driver** routine, the transformation will:
+
+    * Determine the required scratch space from ``trafo_data``
+    * Allocate the scratch space to that size
+    * Insert data transfers (for OpenACC offloading)
+    * Insert data sharing clauses into OpenMP or OpenACC pragmas
+    * Assign stack base pointer and end pointer for each block (identified via :data:`block_dim`)
+    * Pass the stack argument to kernel calls
+
     Parameters
     ----------
     block_dim : :any:`Dimension`
-        Optional ``Dimension`` object to define the blocking dimension
+        :any:`Dimension` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
+    allocation_dims : list of :any:`Dimension`, optional
+        List of :any:`Dimension` objects to define those dimensions for which
+        temporaries should be allocated by the pool allocator. By default, all
+        local arrays are allocated by the pool allocator.
+    stack_module_name : str, optional
+        Name of the Fortran module containing the derived type definition
+        (default: ``'STACK_MOD'``)
+    stack_type_name : str, optional
+        Name of the derived type for the stack definition (default: ``'STACK'``)
+    stack_ptr_name : str, optional
+        Name of the stack pointer variable inside the derived type (default: ``'L'``)
+    stack_end_name : str, optional
+        Name of the stack end pointer variable inside the derived type (default: ``'U'``)
+    stack_size_name : str, optional
+        Name of the variable that holds the size of the scratch space in the
+        driver (default: ``'ISTSZ'``)
+    stack_storage_name : str, optional
+        Name of the scratch space variable that is allocated in the
+        driver (default: ``'ZSTACK'``)
+    stack_argument_name : str, optional
+        Name of the stack argument that is added to kernels (default: ``'YDSTACK'``)
+    stack_local_var_name : str, optional
+        Name of the local copy of the stack argument (default: ``'YLSTACK'``)
+    local_ptr_var_name_pattern : str, optional
+        Python format string pattern for the name of the Cray pointer variable
+        for each temporary (default: ``'IP_{name}'``)
+    directive : str, optional
+        Can be ``'openmp'`` or ``'openacc'``. If given, insert data sharing clauses for
+        the stack derived type, and insert data transfer statements (for OpenACC only).
+    check_bounds : bool, optional
+        Insert bounds-checks in the kernel to make sure the allocated stack size is not
+        exceeded (default: `True`)
+    key : str, optional
+        Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
 
     _key = 'TemporariesPoolAllocatorTransformation'
