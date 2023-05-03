@@ -355,8 +355,6 @@ class AttachScopes(Visitor):
         Default visitor method that dispatches the node-specific handler
         """
         kwargs.setdefault('scope', None)
-        if isinstance(o, Node):
-            kwargs['current_node'] = o
         return super().visit(o, *args, **kwargs)
 
     def visit_Expression(self, o, **kwargs):
