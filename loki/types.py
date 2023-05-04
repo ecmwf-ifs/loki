@@ -12,7 +12,7 @@ Collection of classes to represent type information for symbols used throughout
 """
 
 import weakref
-from enum import Enum
+from enum import IntEnum
 from loki.tools import flatten, as_tuple, LazyNodeLookup
 
 
@@ -32,7 +32,7 @@ class DataType:
         assert self.__class__ is not DataType
 
 
-class BasicType(DataType, Enum):
+class BasicType(DataType, IntEnum):
     """
     Representation of intrinsic data types, names taken from the FORTRAN convention.
 
