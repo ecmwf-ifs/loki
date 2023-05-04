@@ -75,22 +75,13 @@ jobs:
     #       Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html
     #     edit-mode: replace
 
-    - name: Create comment
+    - uses: actions/github-script@v6
       if: github.ref_name != 'main' && steps.fc.outputs.comment-id == ''
-      uses: peter-evans/create-or-update-comment@v3
       with:
-        issue-number: ${{ github.event.pull_request.number }}
-        body: |
-          Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html
-
-    # Alternative way of creating the comment but without a way to edit it (thus potentially creating many duplicate comments)
-    # - uses: actions/github-script@v6
-    #   if: github.ref_name != 'main'
-    #   with:
-    #     script: |
-    #       github.rest.issues.createComment({
-    #         issue_number: context.issue.number,
-    #         owner: context.repo.owner,
-    #         repo: context.repo.repo,
-    #         body: 'Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.ref_name }}'
-    #       })
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: 'Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html'
+          })
