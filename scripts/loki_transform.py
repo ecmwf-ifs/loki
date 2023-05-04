@@ -328,15 +328,17 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
               help='Path to source files to transform.')
 @click.option('--build', '-b', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
-@click.option('--root', type=click.Path(),
+@click.option('--root', type=click.Path(), default=None,
               help='Root path to which all paths are relative to.')
+@click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--callgraph', '-g', type=click.Path(), default=None,
               help='Generate and display the subroutine callgraph.')
 @click.option('--plan-file', type=click.Path(),
               help='CMake "plan" file to generate.')
-def plan(mode, config, header, source, build, root, frontend, callgraph, plan_file):
+def plan(mode, config, header, source, build, root, cpp, frontend, callgraph, plan_file):
     """
     Create a "plan", a schedule of files to inject and transform for a
     given configuration.
@@ -347,7 +349,7 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
 
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False)
+    scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False, preprocess=cpp)
 
     # Construct the transformation plan as a set of CMake lists of source files
     scheduler.write_cmake_plan(filepath=plan_file, mode=mode, buildpath=build, rootpath=root)
@@ -368,9 +370,11 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
               help='Path to source files to transform.')
 @click.option('--build', '-b', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
+@click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
               help='Frontend parser to use (default FP)')
-def ecphys(mode, config, header, source, build, frontend):
+def ecphys(mode, config, header, source, build, cpp, frontend):
     """
     Physics bulk-processing option that employs a :class:`Scheduler`
     to apply IFS-specific source-to-source transformations, such as
@@ -390,7 +394,7 @@ def ecphys(mode, config, header, source, build, frontend):
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=cpp)
 
     # Backward insert argument shapes (for surface routines)
     scheduler.process(transformation=ArgumentArrayShapeAnalysis())
