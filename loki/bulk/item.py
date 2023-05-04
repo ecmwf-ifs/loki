@@ -537,8 +537,10 @@ class SubroutineItem(Item):
         names = ()
         interfaces = self.routine.interfaces
 
+        # Named interfaces defined in the parent module should not be included to remove
+        # the risk of adding a procedure interface defined in the current scope
         if (scope := self.scope) is not None:
-            interfaces += scope.interfaces
+            interfaces += as_tuple(i for i in scope.interfaces if not i.spec)
 
         names = tuple(
             s.name.lower() for intf in interfaces for s in intf.symbols

@@ -1545,7 +1545,16 @@ module some_mod
     use other_mod
     use MORE_MOD
     implicit none
+
+    interface override
+      module procedure some_random_function
+    end interface ovveride
+
 contains
+
+    function some_random_function
+    end function
+
     subroutine DRIVER
         use YET_another_mod
         call routine
