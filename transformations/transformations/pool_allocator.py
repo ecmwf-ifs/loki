@@ -11,7 +11,7 @@ from loki import (
     SymbolAttributes, BasicType, DerivedType,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
-    Loop, Pragma
+    Loop, Pragma, SubroutineItem
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -306,7 +306,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # Note: we are not using a CaseInsensitiveDict here to be able to search directly with
         # Variable instances in the dict. The StrCompareMixin takes care of case-insensitive
         # comparisons in that case
-        successor_map = {successor.routine.name.lower(): successor for successor in successors}
+        successor_map = {successor.routine.name.lower(): successor for successor in successors
+                                                         if isinstance(successor, SubroutineItem)}
 
         # Collect stack sizes for successors
         # Note that we need to translate the names of variables used in the expressions to the
