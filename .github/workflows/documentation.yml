@@ -65,23 +65,23 @@ jobs:
         comment-author: 'github-actions[bot]'
         body-includes: Documentation for this branch can be viewed at
 
-    # - name: Create or update comment
-    #   if: github.ref_name != 'main'
-    #   with:
-    #   uses: peter-evans/create-or-update-comment@v3
-    #     comment-id: ${{ steps.fc.outputs.comment-id }}
-    #     issue-number: ${{ github.event.pull_request.number }}
-    #     body: |
-    #       Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html
-    #     edit-mode: replace
-
-    - uses: actions/github-script@v6
-      if: github.ref_name != 'main' && steps.fc.outputs.comment-id == ''
+    - name: Create or update comment
+      if: github.ref_name != 'main' && github.event.pull_request.head.repo.full_name == 'ecmwf-ifs/loki'
       with:
-        script: |
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: 'Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html'
-          })
+      uses: peter-evans/create-or-update-comment@v3
+        comment-id: ${{ steps.fc.outputs.comment-id }}
+        issue-number: ${{ github.event.pull_request.number }}
+        body: |
+          Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html
+        edit-mode: replace
+
+    # - uses: actions/github-script@v6
+    #   if: github.ref_name != 'main' && steps.fc.outputs.comment-id == ''
+    #   with:
+    #     script: |
+    #       github.rest.issues.createComment({
+    #         issue_number: context.issue.number,
+    #         owner: context.repo.owner,
+    #         repo: context.repo.repo,
+    #         body: 'Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html'
+    #       })
