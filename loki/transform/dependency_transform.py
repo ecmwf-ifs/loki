@@ -238,7 +238,7 @@ class DependencyTransformation(Transformation):
             new_imports = ()
             for b in i.body:
                 if isinstance(b, Subroutine):
-                    if targets is not None and b.name in targets:
+                    if targets is not None and b.name.lower() in targets:
                         # Create a new module import with explicitly qualified symbol
                         new_module = self.derive_module_name(b.name)
                         new_symbol = Variable(name=f'{b.name}{self.suffix}', scope=source)
