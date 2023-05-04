@@ -57,7 +57,7 @@ jobs:
 
       - name: Install Loki
         run: |
-          ./install --with-claw --with-ofp --with-tests --with-ant
+          ./install --with-claw --with-ofp --with-tests --with-ant --without-dace
 
       - name: Install up-to-date CMake
         run: |

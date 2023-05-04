@@ -83,7 +83,7 @@ jobs:
       - name: Install Loki without DaCe
         if: matrix.python-version == '3.11'
         run: |
-          ./install --with-claw --with-ofp --with-examples --with-tests --with-ant
+          ./install --with-claw --with-ofp --with-examples --with-tests --with-ant --without-dace
 
       - name: Install up-to-date CMake
         run: |
