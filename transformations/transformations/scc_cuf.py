@@ -303,7 +303,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
                     arguments.append(arg.clone(dimensions=None))
                 else:
                     arguments.append(arg)
-            call._update(arguments=arguments)
+            call._update(arguments=as_tuple(arguments))
 
 
 def kernel_demote_private_locals(routine, horizontal, vertical):
@@ -468,7 +468,7 @@ def driver_device_variables(routine, targets=None):
                 arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
             else:
                 arguments.append(arg)
-        call_map[call] = call.clone(arguments=arguments)
+        call_map[call] = call.clone(arguments=as_tuple(arguments))
     routine.body = Transformer(call_map).visit(routine.body)
 
 
