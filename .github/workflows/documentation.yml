@@ -67,8 +67,8 @@ jobs:
 
     - name: Create or update comment
       if: github.ref_name != 'main' && github.event.pull_request.head.repo.full_name == 'ecmwf-ifs/loki'
-      with:
       uses: peter-evans/create-or-update-comment@v3
+      with:
         comment-id: ${{ steps.fc.outputs.comment-id }}
         issue-number: ${{ github.event.pull_request.number }}
         body: |
