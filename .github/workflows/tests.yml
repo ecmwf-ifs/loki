@@ -15,7 +15,7 @@ on:
 
 jobs:
   code_checks:
-    name: Code checks on Python ${{ matrix.python-version }}
+    name: Python ${{ matrix.python-version }} code checks
 
     runs-on: ubuntu-latest
     strategy:
@@ -46,7 +46,7 @@ jobs:
         pylint --rcfile=.pylintrc_ipynb example_converted/*.py
 
   pytest:
-    name: Pytest on Python ${{ matrix.python-version }}
+    name: Python ${{ matrix.python-version }} pytest
 
     runs-on: ubuntu-20.04
     strategy:
@@ -76,8 +76,14 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 install -y byacc flex openjdk-11-jdk cmake
 
       - name: Install Loki
+        if: matrix.python-version != '3.11'
         run: |
           ./install --with-claw --with-ofp --with-examples --with-tests --with-ant --with-dace
+
+      - name: Install Loki without DaCe
+        if: matrix.python-version == '3.11'
+        run: |
+          ./install --with-claw --with-ofp --with-examples --with-tests --with-ant
 
       - name: Install up-to-date CMake
         run: |
