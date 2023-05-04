@@ -65,15 +65,23 @@ jobs:
         comment-author: 'github-actions[bot]'
         body-includes: Documentation for this branch can be viewed at
 
-    - name: Create or update comment
-      if: github.ref_name != 'main'
-      uses: peter-evans/create-or-update-comment@v2
+    # - name: Create or update comment
+    #   if: github.ref_name != 'main'
+    #   with:
+    #   uses: peter-evans/create-or-update-comment@v3
+    #     comment-id: ${{ steps.fc.outputs.comment-id }}
+    #     issue-number: ${{ github.event.pull_request.number }}
+    #     body: |
+    #       Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html
+    #     edit-mode: replace
+
+    - name: Create comment
+      if: github.ref_name != 'main' && steps.fc.outputs.comment-id == ''
+      uses: peter-evans/create-or-update-comment@v3
       with:
-        comment-id: ${{ steps.fc.outputs.comment-id }}
         issue-number: ${{ github.event.pull_request.number }}
         body: |
           Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html
-        edit-mode: replace
 
     # Alternative way of creating the comment but without a way to edit it (thus potentially creating many duplicate comments)
     # - uses: actions/github-script@v6
