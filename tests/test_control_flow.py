@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, clean_test, available_frontends
-from loki import OMNI, Subroutine, FindNodes, Loop, Conditional, Node
+from loki import OMNI, Subroutine, FindNodes, Loop, Conditional, Node, Intrinsic
 
 
 @pytest.fixture(scope='module', name='here')
@@ -455,3 +455,45 @@ end subroutine conditional_body
         c.else_body and isinstance(c.else_body, tuple) and all(isinstance(n, Node) for n in c.else_body)
         for c in conditionals
     )
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_conditional_else_body_return(frontend):
+    fcode = """
+FUNCTION FUNC(PX,KN)
+IMPLICIT NONE
+INTEGER,INTENT(INOUT) :: KN
+REAL,INTENT(IN) :: PX
+REAL :: FUNC
+INTEGER :: J
+REAL :: Z0, Z1, Z2
+Z0= 1.0
+Z1= PX
+IF (KN == 0) THEN
+  FUNC= Z0
+  RETURN
+ELSEIF (KN == 1) THEN
+  FUNC= Z1
+  RETURN
+ELSE
+  DO J=2,KN
+    Z2= Z0+Z1
+    Z0= Z1
+    Z1= Z2
+  ENDDO
+  FUNC= Z2
+  RETURN
+ENDIF
+END FUNCTION FUNC
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    conditionals = FindNodes(Conditional).visit(routine.body)
+    assert len(conditionals) == 2
+    assert isinstance(conditionals[0].body[-1], Intrinsic)
+    assert conditionals[0].body[-1].text.upper() == 'RETURN'
+    assert conditionals[0].else_body == (conditionals[1],)
+    assert isinstance(conditionals[1].body[-1], Intrinsic)
+    assert conditionals[1].body[-1].text.upper() == 'RETURN'
+    assert isinstance(conditionals[1].else_body[-1], Intrinsic)
+    assert conditionals[1].else_body[-1].text.upper() == 'RETURN'

@@ -609,7 +609,7 @@ class OFP2IR(GenericVisitor):
                     type=SymbolAttributes(ProcedureType(interface))
                 )
 
-            _type = interface.type
+            _type = interface.type.clone(bind_names=(interface,))
 
         elif o.attrib['procedureName']:
             # Binding provided (<bindingName> => <procedureName>)

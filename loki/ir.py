@@ -39,7 +39,7 @@ __all__ = [
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
     'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
-    'Intrinsic', 'Enumeration', 'RawSource'
+    'Intrinsic', 'Enumeration', 'RawSource',
 ]
 
 # Configuration for validation mechanism via pydantic

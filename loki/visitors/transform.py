@@ -503,7 +503,6 @@ class NestedMaskedTransformer(MaskedTransformer):
 
     # Handler for leaf nodes
 
-
     def visit_object(self, o, **kwargs):
         """
         Return the object unchanged.

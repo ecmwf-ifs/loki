@@ -1782,7 +1782,8 @@ class FParser2IR(GenericVisitor):
         if return_type is not None:
             routine.symbol_attrs[routine.name] = return_type
             return_var = sym.Variable(name=routine.name, scope=routine)
-            return_var_decl = ir.VariableDeclaration(symbols=(return_var,))
+            decl_source = self.get_source(subroutine_stmt, source=None)
+            return_var_decl = ir.VariableDeclaration(symbols=(return_var,), source=decl_source)
 
             decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
             if not decls:
@@ -2099,8 +2100,17 @@ class FParser2IR(GenericVisitor):
             else_if_stmt_index, else_if_stmts = zip(*else_if_stmts)
         else:
             else_if_stmt_index = ()
-        else_stmt = get_child(o, Fortran2003.Else_Stmt)
-        else_stmt_index = o.children.index(else_stmt) if else_stmt else end_if_stmt_index
+
+        # Note: we need to use here the same method as for else-if because finding Else_Stmt
+        # directly and checking its position via o.children.index may give the wrong result.
+        # This is because Else_Stmt may erronously compare equal to other node types.
+        # See https://github.com/stfc/fparser/issues/400
+        else_stmt = tuple((i, c) for i, c in enumerate(o.children) if isinstance(c, Fortran2003.Else_Stmt))
+        if else_stmt:
+            assert len(else_stmt) == 1
+            else_stmt_index, else_stmt = else_stmt[0]
+        else:
+            else_stmt_index = end_if_stmt_index
         conditions = as_tuple(self.visit(c, **kwargs) for c in (if_then_stmt,) + else_if_stmts)
         bodies = tuple(
             tuple(flatten(as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])))
