@@ -1,4 +1,4 @@
-name: tests
+name: regression-tests
 
 # Controls when the workflow will run
 on:
@@ -15,7 +15,7 @@ on:
 
 jobs:
   regression_tests:
-    name: Python ${{ matrix.python-version }} regression tests
+    name: Python ${{ matrix.python-version }}
 
     runs-on: ubuntu-20.04
     strategy:

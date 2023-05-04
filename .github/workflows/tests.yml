@@ -15,7 +15,7 @@ on:
 
 jobs:
   code_checks:
-    name: Python ${{ matrix.python-version }} code checks
+    name: code checks
 
     runs-on: ubuntu-latest
     strategy:
@@ -46,7 +46,7 @@ jobs:
         pylint --rcfile=.pylintrc_ipynb example_converted/*.py
 
   pytest:
-    name: Python ${{ matrix.python-version }} pytest
+    name: Python ${{ matrix.python-version }}
 
     runs-on: ubuntu-20.04
     strategy:
