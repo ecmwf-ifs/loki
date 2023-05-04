@@ -6,9 +6,6 @@ on:
   pull_request:
     types: [closed]
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
 jobs:
   clean:
     name: Clean-up branch documentation
