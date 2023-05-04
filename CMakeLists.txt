@@ -38,7 +38,7 @@ cmake_minimum_required( VERSION 3.17 FATAL_ERROR )
 find_package( ecbuild 3.4 REQUIRED HINTS ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../ecbuild )
 
 # Specify project and configuration options
-project( loki VERSION 0.0.5 LANGUAGES NONE )
+project( loki LANGUAGES NONE )
 
 # Allow negating ENABLE_NO_INSTALL with a leading '~'
 macro( apply_negation VAR_NAME )
