@@ -50,6 +50,7 @@ jobs:
         make html
 
     - name: Upload documentation to sites
+      if: github.event.pull_request.head.repo.full_name == 'ecmwf-ifs/loki'
       env:
         SITES_TOKEN: ${{ secrets.SITES_TOKEN }}
       working-directory: ./docs
