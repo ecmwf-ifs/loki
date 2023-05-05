@@ -86,6 +86,11 @@ cloudsc_config = {
     ]
 }
 
+ecrad_forced_dependencies = {
+    'radiation_aerosol_optics#add_aerosol_optics': {
+        'radiation_aerosol_optics_data#aerosol_optics_type%calc_rh_index'
+    },
+}
 
 class IdemTransformation(Transformation):
     """
@@ -353,6 +358,7 @@ def plan(mode, config, header, source, build, root, cpp, frontend, callgraph, pl
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False, preprocess=cpp)
+    scheduler.add_dependencies(ecrad_forced_dependencies)
 
     # Construct the transformation plan as a set of CMake lists of source files
     scheduler.write_cmake_plan(filepath=plan_file, mode=mode, buildpath=build, rootpath=root)
@@ -501,7 +507,13 @@ def ecrad(mode, config, header, source, build, cpp, frontend):
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=cpp)
+    scheduler = Scheduler(
+        paths=paths, config=config, frontend=frontend,
+        full_parse=False, definitions=definitions, preprocess=cpp)
+
+    # FIXME: hard-coded dependency
+    scheduler.full_parse = True
+    scheduler.add_dependencies(ecrad_forced_dependencies)
 
     # First, remove pragmas, resolve associates and replace write statements with comments
     scheduler.process(transformation=PragmaTransformation())
