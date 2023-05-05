@@ -1240,10 +1240,11 @@ def test_subroutine_interface(here, frontend):
     Test auto-generation of an interface block for a given subroutine.
     """
     fcode = """
-subroutine test_subroutine_interface (in1, in2, out1, out2)
+subroutine test_subroutine_interface (in1, in2, in3, out1, out2)
   use header, only: jprb
   IMPLICIT NONE
   integer, intent(in) :: in1, in2
+  real(kind=jprb), intent(in) :: in3(in1, in2)
   real(kind=jprb), intent(out) :: out1, out2
   integer :: localvar
   localvar = in1 + in2
@@ -1256,11 +1257,12 @@ end subroutine
     if frontend == OMNI:
         assert fgen(routine.interface).strip() == """
 INTERFACE
-  SUBROUTINE test_subroutine_interface (in1, in2, out1, out2)
+  SUBROUTINE test_subroutine_interface (in1, in2, in3, out1, out2)
     USE header, ONLY: jprb
     IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1
     INTEGER, INTENT(IN) :: in2
+    REAL(KIND=selected_real_kind(13, 300)), INTENT(IN) :: in3(1:in1, 1:in2)
     REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out1
     REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out2
   END SUBROUTINE test_subroutine_interface
@@ -1269,10 +1271,11 @@ END INTERFACE
     else:
         assert fgen(routine.interface).strip() == """
 INTERFACE
-  SUBROUTINE test_subroutine_interface (in1, in2, out1, out2)
+  SUBROUTINE test_subroutine_interface (in1, in2, in3, out1, out2)
     USE header, ONLY: jprb
     IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1, in2
+    REAL(KIND=jprb), INTENT(IN) :: in3(in1, in2)
     REAL(KIND=jprb), INTENT(OUT) :: out1, out2
   END SUBROUTINE test_subroutine_interface
 END INTERFACE
