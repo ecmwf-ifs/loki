@@ -666,12 +666,12 @@ class ProcedureBindingItem(Item):
 
 class GenericImportItem(Item):
     """
-    Implementation of :class:`Item` to represent a generic Fortran module import.
+    Implementation of :class:`Item` to represent a catchall for any Fortran module import.
 
     This does not constitute a work item when applying transformations across the
     call tree in the :any:`Scheduler` and is skipped during the processing phase.
-    However, it is needed to determine whether the import corresponds to a type
-    declaration or a procedure interface.
+    It is needed when the type of the symbol being imported isn't immediately obvious
+    from the `USE` statement and more context is needed.
     """
 
     def __init__(self, name, source, config=None):
@@ -747,8 +747,10 @@ class GenericImportItem(Item):
 
 class GlobalVarImportItem(Item):
     """
-    Implementation of :class:`Item` to represent a global variable import.
-    These only appear at the end of dependency trees and do not have children.
+    Implementation of :class:`Item` to represent a global variable import. These encapsulate variables
+    that store data. Whilst such variables can clearly have dependencies, in the current implementation
+    items of type :class:`GlobalVarImportItem` do not have any children (mainly due to a lack of practical
+    benefit).
     """
 
     def __init__(self, name, source, config=None):
