@@ -676,7 +676,7 @@ class GenericImportItem(Item):
 
     def __init__(self, name, source, config=None):
         name_parts = name.split('#')
-        assert len(name_parts) > 1 #only accept fully-qualified module imports
+        assert len(name_parts) > 1 and all(name_parts) #only accept fully-qualified module imports
         super().__init__(name, source, config)
         assert self.scope
 
@@ -753,7 +753,7 @@ class GlobalVarImportItem(Item):
 
     def __init__(self, name, source, config=None):
         name_parts = name.split('#')
-        assert len(name_parts) > 1 #only accept fully-qualified module imports
+        assert len(name_parts) > 1 and all(name_parts) #only accept fully-qualified module imports
         super().__init__(name, source, config)
         assert self.scope
 
