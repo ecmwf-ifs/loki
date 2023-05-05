@@ -8,7 +8,10 @@
 from shutil import rmtree
 import pytest
 
-from loki import OMNI, Module, Scheduler, FindNodes, FindInlineCalls, CallStatement, gettempdir
+from loki import (
+    OMNI, Sourcefile, Module, Scheduler,
+    FindNodes, FindInlineCalls, CallStatement, gettempdir
+)
 from conftest import available_frontends
 from transformations import (
     DerivedTypeArgumentsTransformation,
@@ -210,10 +213,12 @@ end module typebound_procedure_calls_mod
     fcode2 = """
 module other_typebound_procedure_calls_mod
     use typebound_procedure_calls_mod, only: other_type
+    use function_mod, only: some_type
     implicit none
 
     type third_type
         type(other_type) :: stuff(2)
+        type(some_type) :: some
     contains
         procedure :: init
         procedure :: print => print_content
@@ -243,6 +248,22 @@ end module other_typebound_procedure_calls_mod
     """.strip()
 
     fcode3 = """
+module function_mod
+    implicit none
+    type some_type
+    contains
+        procedure :: some_func
+    end type some_type
+contains
+    function some_func(this)
+        class(some_type) :: this
+        integer some_func
+        some_func = 1
+    end function some_func
+end module function_mod
+    """.strip()
+
+    fcode4 = """
 subroutine driver
     use other_typebound_procedure_calls_mod, only: third_type
     implicit none
@@ -252,6 +273,9 @@ subroutine driver
     call data%init()
     call data%stuff(1)%arr(1)%add(1)
     mysum = data%stuff(1)%total_sum() + data%stuff(2)%total_sum()
+    associate (some => data%some)
+        mysum = mysum + some%some_func()
+    end associate
     call data%print
 end subroutine driver
     """.strip()
@@ -260,16 +284,24 @@ end subroutine driver
     workdir.mkdir(exist_ok=True)
     (workdir/'typebound_procedure_calls_mod.F90').write_text(fcode1)
     (workdir/'other_typebound_procedure_calls_mod.F90').write_text(fcode2)
-    (workdir/'driver.F90').write_text(fcode3)
+    (workdir/'function_mod.F90').write_text(fcode3)
+    (workdir/'driver.F90').write_text(fcode4)
 
-    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['driver'], frontend=frontend)
+    # As long as the scheduler isn't able to find the dependency for inline calls,
+    # we have to provide it manually as a definition
+    function_mod = Sourcefile.from_file(workdir/'function_mod.F90', frontend=frontend)
+
+    scheduler = Scheduler(
+        paths=[workdir], config=config, seed_routines=['driver'],
+        definitions=function_mod.definitions, frontend=frontend
+    )
 
     transformation = TypeboundProcedureCallTransformation()
     scheduler.process(transformation=transformation)
 
     # Verify that new dependencies have been identified correctly...
     assert transformation.inline_call_dependencies == {
-        '#driver': {'typebound_procedure_calls_mod#total_sum'},
+        '#driver': {'typebound_procedure_calls_mod#total_sum', 'function_mod#some_func'},
         'other_typebound_procedure_calls_mod#print_content': {'typebound_procedure_calls_mod#total_sum'}
     }
 
@@ -291,9 +323,9 @@ end subroutine driver
     assert calls[2].arguments == ('data',)
 
     calls = FindInlineCalls().visit(driver.body)
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert {str(call).lower() for call in calls} == {
-        'total_sum(data%stuff(1))', 'total_sum(data%stuff(2))'
+        'total_sum(data%stuff(1))', 'total_sum(data%stuff(2))', 'some_func(some)'
     }
 
     assert 'init' in driver.imported_symbols
