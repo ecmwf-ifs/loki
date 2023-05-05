@@ -14,6 +14,7 @@ physics, including "Single Column" (SCA) and CLAW transformations.
 
 from pathlib import Path
 import click
+from codetiming import Timer
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
@@ -466,17 +467,16 @@ def ecphys(mode, config, header, source, build, cpp, frontend):
               help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
               help='Frontend parser to use (default FP)')
+@Timer(logger=info, text='[Loki] ecrad bulk processing performed in {:.2f}s')
 def ecrad(mode, config, header, source, build, cpp, frontend):
     """
     Bulk-processing option that employs a :class:`Scheduler`
     to apply ecRad-specific source-to-source transformations
     """
 
-    class PragmaTransformation(Transformation):
+    class SanitizerTransformation(Transformation):
 
         def transform_subroutine(self, routine, **kwargs):
-            from loki import Pragma, FindNodes, Transformer
-
             item = kwargs.get('item')
 
             # Bail if this routine is not part of a scheduler traversal
@@ -485,6 +485,18 @@ def ecrad(mode, config, header, source, build, cpp, frontend):
 
             resolve_associates(routine)
 
+    class PragmaTransformation(Transformation):
+
+        def transform_subroutine(self, routine, **kwargs):
+            from loki import Pragma, FindNodes, Transformer
+
+            item = kwargs.get('item')
+            role = kwargs.get('role')
+
+            # Bail if this routine is not part of a scheduler traversal
+            if item and item.local_name != routine.name.lower():
+                return
+
             node_map = {
                 p: None for p in FindNodes(Pragma).visit(routine.body)
                 if p.keyword.lower() == 'omp'
@@ -492,8 +504,8 @@ def ecrad(mode, config, header, source, build, cpp, frontend):
             if node_map:
                 routine.body = Transformer(node_map).visit(routine.body)
 
-            # if role == 'kernel':
-            #     routine.body.prepend(Pragma(keyword='acc', content='routine vector'))
+            if role == 'kernel':
+                routine.spec.append(Pragma(keyword='acc', content='routine seq'))
 
     info('[Loki] Bulk-processing ecRad using config: %s ', config)
     config = SchedulerConfig.from_file(config)
@@ -515,8 +527,12 @@ def ecrad(mode, config, header, source, build, cpp, frontend):
     scheduler.full_parse = True
     scheduler.add_dependencies(ecrad_forced_dependencies)
 
-    # First, remove pragmas, resolve associates and replace write statements with comments
-    scheduler.process(transformation=PragmaTransformation())
+    num_files = len({item.source.path for item in scheduler.items})
+    num_routines = len({item for item in scheduler.items if isinstance(item, SubroutineItem)})
+    info('[Loki] Processing %d routines across %d files', num_routines, num_files)
+
+    # First, sanitize the source code (resolve associates)
+    scheduler.process(transformation=SanitizerTransformation())
 
     # Next, replace typebound procedure calls
     transformation = TypeboundProcedureCallTransformation()
@@ -528,15 +544,18 @@ def ecrad(mode, config, header, source, build, cpp, frontend):
     # Now remove all derived-type arguments; start at the leaves!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation(), reverse=True)
 
+    # Remove calls to utility functions
+    scheduler.process(transformation=RemoveCallsTransformation(
+        routines=['DR_HOOK', 'ABOR1', 'WRITE(', 'radiation_abort'], include_intrinsics=True
+    ))
+
+    # Remove OMP pragmas and insert acc routine statements
+    scheduler.process(transformation=PragmaTransformation())
+
     # # Backward insert argument shapes (for surface routines)
     # scheduler.process(transformation=ArgumentArrayShapeAnalysis())
 
     # scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
-
-    # # Remove calls to utility routines first, so they don't interfere with SCC loop hoisting
-    scheduler.process(transformation=RemoveCallsTransformation(
-        routines=['DR_HOOK', 'ABOR1', 'WRITE('], include_intrinsics=True
-    ))
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
