@@ -21,10 +21,10 @@ try:
 except ImportError:
     _intrinsic_fortran_names = ()
 from loki import (
-    Transformation, FindVariables, FindNodes, Transformer,
+    Transformation, FindVariables, FindNodes, FindInlineCalls, Transformer,
     SubstituteExpressions, SubstituteExpressionsMapper, recursive_expression_map_update,
     Module, Import, CallStatement, ProcedureDeclaration, InlineCall, Variable, RangeIndex,
-    SymbolAttributes, BasicType, as_tuple, warning
+    BasicType, DerivedType, as_tuple, warning, debug, CaseInsensitiveDict
 )
 from transformations.scc_cuf import is_elemental
 
@@ -171,6 +171,17 @@ class DerivedTypeArgumentsTransformation(Transformation):
         # Rebuild the routine's IR tree
         if call_mapper:
             routine.body = Transformer(call_mapper).visit(routine.body)
+
+        call_mapper = {}
+        for call in FindInlineCalls().visit(routine.body):
+            if (call_name := str(call.name)) in successors_data:
+                # Set the new call signature on the expression node
+                arguments, kwarguments, others = self.expand_call_arguments(call, successors_data[call_name])
+                call_mapper[call] = call.clone(parameters=arguments, kw_parameters=kwarguments)
+                other_symbols.update(others)
+
+        if call_mapper:
+            routine.body = SubstituteExpressions(call_mapper).visit(routine.body)
 
         # Add parameter declarations or imports
         if other_symbols:

@@ -219,6 +219,65 @@ end module transform_derived_type_arguments_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_inline_call(frontend):
+    """
+    Verify correct expansion of inline calls to functions
+    """
+    fcode_my_mod = """
+module my_mod
+    implicit none
+    type my_type
+        integer, allocatable :: a(:)
+        integer :: b
+    end type my_type
+contains
+    function kernel(r, s) result(t)
+        type(my_type), intent(in) :: r, s
+        real :: t
+        t = sum(r%a + s%a) + r%b + s%b
+    end function kernel
+end module my_mod
+    """.strip()
+
+    fcode_driver = """
+subroutine driver(arr, n, s, t)
+    use my_mod, only: my_type, kernel
+    implicit none
+    type(my_type), intent(in) :: arr(n), s
+    integer, intent(in) :: n
+    real, intent(inout) :: t(n)
+    integer :: j
+    do j=1,n
+        t(j) = kernel(arr(j), s)
+    end do
+end subroutine driver
+    """.strip()
+
+    source_my_mod = Sourcefile.from_source(fcode_my_mod, frontend=frontend)
+    source_driver = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=source_my_mod.definitions)
+
+    kernel = SubroutineItem('my_mod#kernel', config={'role': 'kernel'}, source=source_my_mod)
+    driver = SubroutineItem('#driver', config={'role': 'driver'}, source=source_driver)
+
+    transformation = DerivedTypeArgumentsTransformation()
+    transformation.apply(kernel.source, item=kernel, role=kernel.role)
+    transformation.apply(driver.source, item=driver, role=driver.role, successors=[kernel])
+
+    assert kernel.trafo_data[transformation._key] == {
+        'orig_argnames': ('r', 's'),
+        'expansion_map': {'r': ('r%a', 'r%b'), 's': ('s%a', 's%b')}
+    }
+
+    assert kernel.routine.arguments == ('r_a(:)', 'r_b', 's_a(:)', 's_b')
+
+    inline_calls = list(FindInlineCalls().visit(driver.routine.body))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].parameters == ('arr(j)%a', 'arr(j)%b', 's%a', 's%b')
+
+    breakpoint()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_derived_type_arguments_multilevel(frontend):
     """
     Verify correct behaviour of the derived type argument flattening when
@@ -627,15 +686,27 @@ contains
         real, intent(in) :: start
         class(some_derived_type), intent(in) :: this
         real :: val
-        val = sum(this%a + sum(this%b + this%c, 1))
+        val = start + sum(this%a + sum(this%b + this%c, 1))
     end function reduce
 end module transform_derived_type_arguments_mod
+    """.strip()
+
+    fcode_driver = """
+subroutine driver(some, result)
+    use transform_derived_type_arguments_mod, only: some_derived_type
+    implicit none
+    type(some_derived_type), intent(in) :: some
+    real, intent(inout) :: result
+    result = some%reduce(result)
+end subroutine driver
     """.strip()
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     kernel_a = SubroutineItem(name='transform_derived_type_arguments_mod#kernel_a', source=source)
     kernel = SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source)
     reduce = SubroutineItem(name='transform_derived_type_arguments_mod#reduce', source=source)
+    source_driver = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=source.definitions)
+    driver = SubroutineItem(name='#driver', source=source_driver)
 
     # Check procedure bindings before the transformation
     typedef = source['some_derived_type']
@@ -653,6 +724,7 @@ end module transform_derived_type_arguments_mod
     source.apply(transformation, role='kernel', item=kernel_a)
     source.apply(transformation, role='kernel', item=kernel)
     source.apply(transformation, role='kernel', item=reduce)
+    source.apply(transformation, role='driver', item=driver)
 
     # Check analysis outcome
     assert 'some_key' in kernel_a.trafo_data
@@ -676,6 +748,11 @@ end module transform_derived_type_arguments_mod
     # Check transformation outcome
     assert kernel_a.routine.arguments == ('this_a(:)', 'out(:)', 'n')
     assert kernel.routine.arguments == ('this_b(:, :)', 'this_c(:, :)', 'other_b(:, :)', 'm', 'n')
+    assert reduce.routine.arguments == ('start', 'this_a(:)', 'this_b(:, :)', 'this_c(:, :)')
+
+    inline_calls = list(FindInlineCalls().visit(driver.routine.body))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].parameters == ('result', 'some%a', 'some%b', 'some%c')
 
     # Check updated procedure bindings
     typedef = source['some_derived_type']
