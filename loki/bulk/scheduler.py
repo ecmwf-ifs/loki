@@ -148,8 +148,8 @@ class Scheduler:
     source_suffixes = ['.f90', '.F90', '.f', '.F']
 
     def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
-                 includes=None, defines=None, definitions=None, xmods=None,
-                 omni_includes=None, full_parse=True, frontend=FP):
+                 includes=None, defines=None, definitions=None, headers=None,
+                 xmods=None, omni_includes=None, full_parse=True, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -162,6 +162,13 @@ class Scheduler:
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
+
+        if headers:
+            if definitions:
+                definitions = flatten(definitions)
+            else:
+                definitions = []
+            definitions = flatten([h.definitions for h in headers]) + definitions
 
         # Accumulate all build arguments to pass to `Sourcefile` constructors
         self.build_args = {
@@ -178,7 +185,7 @@ class Scheduler:
         self.item_graph = nx.DiGraph()
         self.item_map = {}
 
-        self._discover()
+        self._discover(headers)
 
         if not seed_routines:
             seed_routines = self.config.routines.keys()
@@ -199,7 +206,7 @@ class Scheduler:
                 self.depths[item] = i_gen
 
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
-    def _discover(self):
+    def _discover(self, headers=None):
         # Scan all source paths and create light-weight `Sourcefile` objects for each file.
         frontend_args = {
             'preprocess': self.build_args['preprocess'],
@@ -213,8 +220,15 @@ class Scheduler:
         path_list = [path.glob(f'**/*{ext}') for path in self.paths for ext in self.source_suffixes]
         path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
 
+        if headers:
+            header_paths = [h.path for h in headers if h.path]
+            path_list = [p for p in path_list if p not in header_paths]
+            obj_list = headers
+        else:
+            obj_list = []
+
         # Perform the full initial scan of the search space with the REGEX frontend
-        obj_list = [Sourcefile.from_file(filename=f, **frontend_args) for f in path_list]
+        obj_list += [Sourcefile.from_file(filename=f, **frontend_args) for f in path_list]
 
         debug(f'Total number of lines parsed: {sum(obj.source.lines[1] for obj in obj_list)}')
 

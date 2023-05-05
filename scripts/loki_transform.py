@@ -514,14 +514,13 @@ def ecrad(mode, config, header, source, build, cpp, frontend):
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
 
     headers = [Sourcefile.from_file(filename=h, frontend=frontend_type) for h in header]
-    definitions = flatten(h.definitions for h in headers)
 
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(
         paths=paths, config=config, frontend=frontend,
-        full_parse=False, definitions=definitions, preprocess=cpp)
+        full_parse=False, headers=headers, preprocess=cpp)
 
     # FIXME: hard-coded dependency
     scheduler.full_parse = True
