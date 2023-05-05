@@ -5,7 +5,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     OMNI, REGEX, OFP, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen, Assignment, IntLiteral, Module,
-    SubroutineItem
+    SubroutineItem, Intrinsic
 )
 from loki.transform import (
     Transformation, DependencyTransformation, replace_selected_kind,
@@ -382,6 +382,7 @@ def test_dependency_transformation_replace_interface(frontend):
 
     driver = Sourcefile.from_source(source="""
 SUBROUTINE driver(a, b, c)
+  IMPLICIT NONE
   INTERFACE
     SUBROUTINE KERNEL(a, b, c)
       INTEGER, INTENT(INOUT) :: a, b, c
@@ -435,6 +436,12 @@ END SUBROUTINE kernel
     else:
         assert imports[0].module == 'KERNEL_test_mod'
         assert 'KERNEL_test' in [str(s) for s in imports[0].symbols]
+
+    # Check that the newly generated USE statement appears before IMPLICIT NONE
+    nodes = FindNodes((Intrinsic, Import)).visit(driver['driver'].spec)
+    assert len(nodes) == 2
+    assert isinstance(nodes[1], Intrinsic)
+    assert nodes[1].text.lower() == 'implicit none'
 
 @pytest.mark.parametrize('frontend', available_frontends(
                          xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))

@@ -11,7 +11,7 @@ from loki.transform.transformation import Transformation
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.visitors import FindNodes, Transformer
-from loki.ir import CallStatement, Import, Section, Interface
+from loki.ir import CallStatement, Import, Section, Interface, Intrinsic
 from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
 from loki.backend import fgen
 from loki.tools import as_tuple
@@ -104,6 +104,14 @@ class DependencyTransformation(Transformation):
         if role == 'kernel' and self.mode == 'strict':
             # Re-generate C-style interface header
             self.generate_interfaces(routine)
+
+        # Ensure Fortran module imports appear before 'IMPLICIT NONE'
+        intrs = [i for i in FindNodes(Intrinsic).visit(routine.spec) if i.text.lower() == 'implicit none']
+        imports = [i for i in FindNodes(Import).visit(routine.spec) if not i.c_import]
+        if len(intrs) == 1 and imports:
+            mapper = {intrs[0]: None}
+            mapper[imports[-1]] = (imports[-1], Intrinsic(text='implicit none'))
+            routine.spec = Transformer(mapper).visit(routine.spec)
 
     def update_result_var(self, routine):
         """
