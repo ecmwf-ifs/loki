@@ -17,6 +17,8 @@ from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug
 from loki.bulk.item import ProcedureBindingItem, SubroutineItem, GlobalVarImportItem, GenericImportItem
+from loki.subroutine import Subroutine
+from loki.module import Module
 
 
 __all__ = ['Scheduler', 'SchedulerConfig']
@@ -240,20 +242,6 @@ class Scheduler:
             for r in module.interfaces if r.spec
         )
 
-        # Create maps of routines and module variables to help with fast sorting in create_item later
-        self.routine_map = CaseInsensitiveDict(
-            (f'#{r.name}', obj) for obj in obj_list for r in obj.subroutines
-        )
-        self.routine_map.update(
-            (f'{module.name}#{r.name}', obj)
-            for obj in obj_list for module in obj.modules
-            for r in module.subroutines
-        )
-        self.modvars_map = CaseInsensitiveDict(
-            (f'{module.name}#{r.name}', obj) for obj in obj_list for module in obj.modules
-            for r in module.variables
-        )
-
     @property
     def routines(self):
         return as_tuple(item.routine for item in self.item_graph.nodes if item.routine is not None)
@@ -378,10 +366,12 @@ class Scheduler:
         debug(f'[Loki] Scheduler creating Item: {name} => {sourcefile.path}')
         if '%' in name:
             return ProcedureBindingItem(name=name, source=sourcefile, config=item_conf)
-        if self.routine_map.get(name):
+        if isinstance(self.obj_map[name][name.split('#')[-1]], Subroutine):
             return SubroutineItem(name=name, source=sourcefile, config=item_conf)
-        if self.modvars_map.get(name):
-            return GlobalVarImportItem(name=name, source=sourcefile, config=item_conf)
+        module = self.obj_map[name][name.split('#')[0]]
+        if isinstance(module, Module):
+            if name.split('#')[-1] in module.variables:
+                return GlobalVarImportItem(name=name, source=sourcefile, config=item_conf)
         return GenericImportItem(name=name, source=sourcefile, config=item_conf)
 
     def find_routine(self, routine):
