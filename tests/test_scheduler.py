@@ -1645,6 +1645,52 @@ def test_scheduler_import_dependencies(here, config, frontend):
             assert isinstance(i, SubroutineItem)
 
 
+def test_scheduler_globalvarimportitem_children(config):
+    """
+    Test that GlobalVarImportItems don't have any children.
+    """
+
+    fcode_type = """
+module parkind1
+   integer, parameter :: jprb = selected_real_kind(13,300)
+end module parkind1
+    """
+    fcode_mod = """
+module some_mod
+  use parkind1, only: jprb
+
+  real(kind=jprb) :: var
+end module some_mod
+    """
+    fcode_kernel = """
+subroutine some_routine()
+  use parkind1, only: jprb
+  use some_mod, only: var
+
+  real(kind=jprb) :: tmp
+
+  tmp = var
+end subroutine some_routine
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+
+    kernel = Sourcefile.from_source(fcode_kernel, frontend=REGEX)
+    kernel_item = SubroutineItem(name='#some_routine', source=kernel, config=my_config['default'])
+
+    var_mod = Sourcefile.from_source(fcode_mod, frontend=REGEX)
+    var_item = GlobalVarImportItem(name='some_mod#var', source=var_mod, config=my_config['default'])
+
+    type_mod = Sourcefile.from_source(fcode_type, frontend=REGEX)
+    type_item = GenericImportItem(name='parkind1#jprb', source=type_mod, config=my_config['default'])
+
+    assert len(kernel_item.children) == 2
+    assert kernel_item.children[0] != kernel_item.children[1]
+    assert all(item in [i.local_name for i in (var_item, type_item)] for item in kernel_item.children)
+    assert not var_item.children
+
+
 def test_scheduler_successors(config):
     fcode_mod = """
 module some_mod
