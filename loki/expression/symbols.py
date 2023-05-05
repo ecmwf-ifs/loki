@@ -39,9 +39,7 @@ __all__ = [
     'StringSubscript',
 ]
 
-
 # pylint: disable=abstract-method
-
 
 def loki_make_stringifier(self, originating_stringifier=None):  # pylint: disable=unused-argument
     """

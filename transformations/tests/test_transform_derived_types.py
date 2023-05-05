@@ -273,8 +273,6 @@ end subroutine driver
     assert len(inline_calls) == 1
     assert inline_calls[0].parameters == ('arr(j)%a', 'arr(j)%b', 's%a', 's%b')
 
-    breakpoint()
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_derived_type_arguments_multilevel(frontend):
@@ -692,11 +690,11 @@ end module transform_derived_type_arguments_mod
 
     fcode_driver = """
 subroutine driver(some, result)
-    use transform_derived_type_arguments_mod, only: some_derived_type
+    use transform_derived_type_arguments_mod, only: some_derived_type, reduce
     implicit none
     type(some_derived_type), intent(in) :: some
     real, intent(inout) :: result
-    result = some%reduce(result)
+    result = reduce(result, some)
 end subroutine driver
     """.strip()
 
@@ -723,7 +721,7 @@ end subroutine driver
     source.apply(transformation, role='kernel', item=kernel_a)
     source.apply(transformation, role='kernel', item=kernel)
     source.apply(transformation, role='kernel', item=reduce)
-    source.apply(transformation, role='driver', item=driver)
+    source_driver.apply(transformation, role='driver', item=driver, successors=[reduce])
 
     # Check analysis outcome
     assert 'some_key' in kernel_a.trafo_data

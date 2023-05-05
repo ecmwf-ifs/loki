@@ -440,11 +440,12 @@ class DerivedTypeArgumentsTransformation(Transformation):
         def update_var_type(arg, var):
             if is_elemental_routine:
                 return var.type.clone(
-                    intent=arg.type.intent, initial=None,
-                    allocatable=None, target=None, pointer=None, shape=None
+                    intent=arg.type.intent, initial=None, allocatable=None,
+                    target=None, pointer=None, shape=None
                 )
             return var.type.clone(
-                intent=arg.type.intent, initial=None,
+
+                intent=arg.type.intent, initial=None, allocatable=None,
                 target=arg.type.target if not var.type.pointer else None
             )
 
