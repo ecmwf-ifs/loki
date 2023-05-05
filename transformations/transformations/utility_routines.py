@@ -12,7 +12,7 @@ utility routines
 
 from loki import (
     FindNodes, Transformer, Transformation, CallStatement,
-    Conditional, as_tuple, Literal, Intrinsic
+    Conditional, as_tuple, Literal, Intrinsic, Import
 )
 
 
@@ -63,6 +63,17 @@ class DrHookTransformation(Transformation):
                     mapper[cond] = None
 
         routine.body = Transformer(mapper).visit(routine.body)
+
+        #Get rid of unused import and variable
+        if self.remove:
+            for imp in FindNodes(Import).visit(routine.spec):
+                if imp.module.lower() == 'yomhook':
+                    mapper[imp] = None
+
+            routine.spec = Transformer(mapper).visit(routine.spec)
+
+            #Remove unused zhook_handle
+            routine.variables = as_tuple(v for v in routine.variables if v != 'zhook_handle')
 
 
 class RemoveCallsTransformation(Transformation):
