@@ -855,6 +855,8 @@ class OMNI2IR(GenericVisitor):
             prefix += ['PURE']
         if o.attrib.get('is_elemental') == 'true':
             prefix += ['ELEMENTAL']
+        if o.attrib.get('is_recursive') == 'true':
+            prefix += ['RECURSIVE']
         return SymbolAttributes(dtype, prefix=prefix or None)
 
     def visit_FstructType(self, o, **kwargs):

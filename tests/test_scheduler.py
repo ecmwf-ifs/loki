@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 # pylint: disable=too-many-lines
+
 """
 Specialised test that exercises the bulk-processing capabilities and
 source-injection mechanism provided by the `loki.scheduler` and
@@ -59,7 +60,8 @@ from loki import (
     HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
-    ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls
+    ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
+    Import, Variable
 )
 
 
@@ -1594,3 +1596,282 @@ def test_scheduler_inline_call(here, config, frontend):
     for i in scheduler.items:
         if i.name == '#double_real':
             assert isinstance(i, SubroutineItem)
+
+
+def test_scheduler_successors(config):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        real :: a
+    contains
+        procedure :: procedure => some_procedure
+        procedure :: routine
+        procedure :: other
+        generic :: do => procedure, routine
+    end type some_type
+contains
+    subroutine some_procedure(t, i)
+        class(some_type), intent(inout) :: t
+        integer, intent(in) :: i
+        t%a = t%a + real(i)
+    end subroutine some_procedure
+
+    subroutine routine(t, v)
+        class(some_type), intent(inout) :: t
+        real, intent(in) :: v
+        t%a = t%a + v
+        call t%other
+    end subroutine routine
+
+    subroutine other(t)
+        class(some_type), intent(in) :: t
+        print *,t%a
+    end subroutine other
+end module some_mod
+    """.strip()
+
+    fcode = """
+subroutine caller(val)
+    use some_mod, only: some_type
+    implicit none
+    real, intent(inout) :: val
+    type(some_type) :: t
+    t%a = val
+    call t%routine(1)
+    call t%routine(2.0)
+    call t%do(10)
+    call t%do(20.0)
+    val = t%a
+end subroutine caller
+    """.strip()
+
+    class SuccessorTransformation(Transformation):
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.counter = {}
+
+        def transform_subroutine(self, routine, **kwargs):
+            item = kwargs.get('item')
+            if item and item.local_name != routine.name.lower():
+                return
+
+            assert item.local_name in ('caller', 'routine', 'some_procedure', 'other')
+            self.counter[item.local_name] = self.counter.get(item.local_name, 0) + 1
+
+            successors = kwargs.get('successors')
+            assert isinstance(successors, list)
+            if item.local_name == 'caller':
+                expected_successors = {
+                    'some_mod#some_type%routine', 'some_mod#some_type%do',
+                    'some_mod#some_type%procedure', 'some_mod#some_procedure', 'some_mod#routine'
+                }
+            elif item.local_name == 'routine':
+                expected_successors = {'some_mod#some_type%other', 'some_mod#other'}
+            else:
+                expected_successors = set()
+            assert expected_successors == set(successors)
+
+    workdir = gettempdir()/'test_scheduler_successors'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'])
+
+    transformation = SuccessorTransformation()
+    scheduler.process(transformation=transformation)
+
+    assert transformation.counter == {
+        'caller': 1,
+        'routine': 1,
+        'some_procedure': 1,
+        'other': 1,
+    }
+
+    rmtree(workdir)
+
+
+@pytest.mark.parametrize('full_parse', [True, False])
+def test_scheduler_add_dependencies(config, full_parse):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        integer :: a
+    contains
+        procedure :: some_routine
+        procedure :: some_function
+    end type some_type
+contains
+    subroutine some_routine(t)
+        class(some_type), intent(inout) :: t
+        t%a = 5
+    end subroutine some_routine
+
+    integer function some_function(t)
+        class(some_type), intent(in) :: t
+        some_function = t%a
+    end function some_function
+end module some_mod
+    """.strip()
+
+    fcode_caller = """
+subroutine caller(b)
+    use some_mod, only: some_type
+    implicit none
+    integer, intent(inout) :: b
+    type(some_type) :: t
+    t%a = b
+    call t%some_routine()
+    b = t%some_function()
+end subroutine caller
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_add_dependencies'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode_caller)
+
+    def verify_graph(scheduler, expected_items, expected_dependencies):
+        assert len(scheduler.items) == len(expected_items)
+        assert all(n in scheduler.items for n in expected_items)
+        assert len(scheduler.dependencies) == len(expected_dependencies)
+        assert all(e in scheduler.dependencies for e in expected_dependencies)
+
+        assert all(item.source._incomplete is not full_parse for item in scheduler.items)
+
+        # Testing of callgraph visualisation
+        cg_path = workdir/'callgraph'
+        scheduler.callgraph(cg_path)
+
+        vgraph = VisGraphWrapper(cg_path)
+        assert all(n.upper() in vgraph.nodes for n in expected_items)
+        assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
+
+    expected_items = [
+        '#caller', 'some_mod#some_type%some_routine', 'some_mod#some_routine'
+    ]
+    expected_dependencies = [
+        ('#caller', 'some_mod#some_type%some_routine'),
+        ('some_mod#some_type%some_routine', 'some_mod#some_routine')
+    ]
+    verify_graph(scheduler, expected_items, expected_dependencies)
+
+    # Function should be in the obj map already
+    assert 'some_mod#some_function' in scheduler.obj_map
+
+    # Add inline call dependency
+    scheduler.add_dependencies(
+        {'#caller': ['some_mod#some_type%some_function']}
+    )
+
+    # Scheduler should have automatically added further relevant dependencies
+    expected_items += [
+        'some_mod#some_type%some_function', 'some_mod#some_function'
+    ]
+    expected_dependencies += [
+        ('#caller', 'some_mod#some_type%some_function'),
+        ('some_mod#some_type%some_function', 'some_mod#some_function')
+    ]
+    verify_graph(scheduler, expected_items, expected_dependencies)
+
+    rmtree(workdir)
+
+
+def test_scheduler_cached_properties():
+    fcode = """
+subroutine some_routine
+    implicit none
+    integer i
+    i = 1
+end subroutine some_routine
+    """.strip()
+
+    source = Sourcefile.from_source(fcode)
+    item = SubroutineItem('#some_routine', source=source)
+
+    assert not item.imports
+    assert not item.qualified_imports
+
+    # Add a random import...
+    item.routine.spec.prepend(
+        Import(module='some_mod', symbols=(Variable(name='some_var', scope=item.routine),))
+    )
+
+    # ...and see the caching in effect
+    assert not item.imports
+    assert not item.qualified_imports
+
+    # Clear the cache to update the property
+    item.clear_cached_property('imports')
+    assert item.imports and item.imports[0].module == 'some_mod'
+    assert 'some_var' in item.qualified_imports
+
+
+@pytest.mark.parametrize('full_parse', [False, True])
+def test_scheduler_cycle(config, full_parse):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        integer :: a
+    contains
+        procedure :: proc => some_proc
+        procedure :: other => some_other
+    end type some_type
+contains
+    recursive subroutine some_proc(this, val, recurse, fallback)
+        class(some_type), intent(inout) :: this
+        integer, intent(in) :: val
+        logical, intent(in), optional :: recurse
+
+        if (present(recurse)) then
+            if (present(fallback)) then
+                call this%other(val)
+            else
+                call some_proc(this, val, .true., .true.)
+            end if
+        else
+            call this%proc(val, .true.)
+        end if
+    end subroutine some_proc
+
+    subroutine some_other(this, val)
+        class(some_type), intent(inout) :: this
+        integer, intent(in) :: val
+        this%a = val
+    end subroutine some_other
+end module some_mod
+    """.strip()
+
+    fcode_caller = """
+subroutine caller
+    use some_mod, only: some_type
+    implicit none
+    type(some_type) :: t
+
+    call t%proc(1)
+end subroutine caller
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_cycle'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode_caller)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
+
+    # Make sure we the outgoing edges from the recursive routine to the procedure binding
+    # and itself are removed but the other edge still exists
+    assert (scheduler['#caller'], scheduler['some_mod#some_type%proc']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_type%proc'], scheduler['some_mod#some_proc']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_type%proc']) not in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_proc']) not in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_type%other']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_type%other'], scheduler['some_mod#some_other']) in scheduler.dependencies
+
+    rmtree(workdir)

@@ -1403,3 +1403,34 @@ END SUBROUTINE DOT_PROD_SP_2D
     source.make_complete()
     routine = source['dot_product_ecv']
     assert 'dot_product_ecv' in routine.variables
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=(OFP, 'No support for prefix implemented')))
+def test_regex_prefix(frontend):
+    fcode = """
+module some_mod
+    implicit none
+contains
+    pure elemental real function f_elem(a)
+        real, intent(in) :: a
+        f_elem = a
+    end function f_elem
+
+    pure recursive integer function fib(i) result(fib_i)
+        integer, intent(in) :: i
+        if (i <= 0) then
+            fib_i = 0
+        else if (i == 1) then
+            fib_i = 1
+        else
+            fib_i = fib(i-1) + fib(i-2)
+        end if
+    end function fib
+end module some_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert source['f_elem'].prefix == ('pure elemental real',)
+    assert source['fib'].prefix == ('pure recursive integer',)
+    source.make_complete(frontend=frontend)
+    assert tuple(p.lower() for p in source['f_elem'].prefix) == ('pure', 'elemental')
+    assert tuple(p.lower() for p in source['fib'].prefix) == ('pure', 'recursive')
