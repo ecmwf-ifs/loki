@@ -803,9 +803,14 @@ function( loki_transform_target )
         foreach( source ${_target_sources} )
             get_filename_component( _source_name ${source} NAME )
             list( APPEND _target_sources_copy ${CMAKE_CURRENT_BINARY_DIR}/${_source_name} )
-            ecbuild_debug( "[Loki] copy: ${source} -> ${CMAKE_CURRENT_BINARY_DIR}/${_source_name}" )
+            # file( GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_source_name} INPUT ${source} )
+            add_custom_command(
+                TARGET ${_PAR_TARGET} PRE_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${source} ${CMAKE_CURRENT_BINARY_DIR}/${_source_name}
+                BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${_source_name}
+                COMMENT "[Loki] copy: ${source} -> ${CMAKE_CURRENT_BINARY_DIR}/${_source_name}"
+            )
         endforeach()
-        file( COPY ${_target_sources} DESTINATION ${CMAKE_CURRENT_BINARY_DIR} )
 
         # Mark the copied files as build-time generated
         set_source_files_properties( ${_target_sources_copy} PROPERTIES GENERATED TRUE )
