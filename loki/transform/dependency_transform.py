@@ -11,7 +11,7 @@ from loki.transform.transformation import Transformation
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.visitors import FindNodes, Transformer
-from loki.ir import CallStatement, Import, Section, Interface, Intrinsic
+from loki.ir import CallStatement, Import, Section, Interface
 from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
 from loki.backend import fgen
 from loki.tools import as_tuple
@@ -104,14 +104,6 @@ class DependencyTransformation(Transformation):
         if role == 'kernel' and self.mode == 'strict':
             # Re-generate C-style interface header
             self.generate_interfaces(routine)
-
-        # Ensure Fortran module imports appear before 'IMPLICIT NONE'
-        intrs = [i for i in FindNodes(Intrinsic).visit(routine.spec) if i.text.lower() == 'implicit none']
-        imports = [i for i in FindNodes(Import).visit(routine.spec) if not i.c_import]
-        if len(intrs) == 1 and imports:
-            mapper = {intrs[0]: None}
-            mapper[imports[-1]] = (imports[-1], Intrinsic(text='implicit none'))
-            routine.spec = Transformer(mapper).visit(routine.spec)
 
     def update_result_var(self, routine):
         """
@@ -243,7 +235,6 @@ class DependencyTransformation(Transformation):
         removal_map = {}
 
         for i in intfs:
-            new_imports = ()
             for b in i.body:
                 if isinstance(b, Subroutine):
                     if targets is not None and b.name.lower() in targets:
@@ -251,10 +242,10 @@ class DependencyTransformation(Transformation):
                         new_module = self.derive_module_name(b.name)
                         new_symbol = Variable(name=f'{b.name}{self.suffix}', scope=source)
                         new_import = Import(module=new_module, c_import=False, symbols=(new_symbol,))
-                        new_imports += as_tuple(new_import)
+                        source.spec.prepend(new_import)
 
-            if new_imports:
-                removal_map[i] = new_imports
+                        # Mark current import for removal
+                        removal_map[i] = None
 
         # Apply any scheduled interface removals to spec
         if removal_map:
