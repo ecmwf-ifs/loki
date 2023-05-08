@@ -11,7 +11,7 @@ from loki import (
     SymbolAttributes, BasicType, DerivedType,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
-    Loop, Pragma, SubroutineItem
+    Loop, Pragma, SubroutineItem, FindInlineCalls
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -537,5 +537,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     arg_idx = call.routine.arguments.index(self.stack_argument_name)
                     arguments = call.arguments
                     call_map[call] = call.clone(arguments=arguments[:arg_idx] + (stack_var,) + arguments[arg_idx:])
+
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
+
+        # Now repeat the process for InlineCalls
+        call_map = {}
+        for call in FindInlineCalls().visit(routine.body):
+            if call.name.lower() in [t.lower() for t in targets]:
+                parameters = call.parameters
+                call_map[call] = call.clone(parameters=parameters + (stack_var,))
+
+        if call_map:
+            routine.body = SubstituteExpressions(call_map).visit(routine.body)
