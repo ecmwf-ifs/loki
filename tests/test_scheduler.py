@@ -61,7 +61,7 @@ from loki import (
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
-    Import, Variable
+    Import, Variable, GenericImportItem, GlobalVarImportItem
 )
 
 
@@ -1587,8 +1587,10 @@ def test_scheduler_inline_call(here, config, frontend):
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
-    expected_items = {'#driver', '#double_real'}
-    expected_dependencies = {('#driver', '#double_real')}
+    expected_items = {'#driver', '#double_real', 'some_module#some_type%do_something', 'some_module#add_const'}
+    expected_dependencies = {('#driver', '#double_real'),
+                             ('#driver', 'some_module#some_type%do_something'),
+                             ('some_module#some_type%do_something', 'some_module#add_const')}
 
     assert expected_items == {i.name for i in scheduler.items}
     assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
@@ -1596,6 +1598,97 @@ def test_scheduler_inline_call(here, config, frontend):
     for i in scheduler.items:
         if i.name == '#double_real':
             assert isinstance(i, SubroutineItem)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scheduler_import_dependencies(here, config, frontend):
+    """
+    Test that import dependencies are correctly classified.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+    my_config['routine'] = [
+        {
+            'name': 'driver',
+            'role': 'driver'
+        }
+    ]
+
+    scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
+
+    expected_items = {
+        '#driver', '#double_real', 'some_module#return_one', 'some_module#some_var', 'some_module#add_args',
+        'some_module#some_type', 'some_module#add_two_args', 'some_module#add_three_args',
+        'some_module#some_type%do_something', 'some_module#add_const'
+    }
+    expected_dependencies = {
+     ('#driver', '#double_real'), ('#driver', 'some_module#return_one'), ('#driver', 'some_module#some_var'),
+     ('#driver', 'some_module#add_args'), ('#driver', 'some_module#some_type'),
+     ('#driver', 'some_module#some_type%do_something'), ('some_module#some_type%do_something', 'some_module#add_const'),
+     ('some_module#add_args', 'some_module#add_two_args'), ('some_module#add_args', 'some_module#add_three_args'),
+    }
+
+    assert expected_items == {i.name for i in scheduler.items}
+    assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
+
+    for i in scheduler.items:
+        if i.name == 'some_module#add_args':
+            assert isinstance(i, GenericImportItem)
+        if i.name == 'some_module#some_type':
+            assert isinstance(i, GenericImportItem)
+        elif i.name == 'some_module#some_var':
+            assert isinstance(i, GlobalVarImportItem)
+        elif i.name in ('some_module#add_two_args', 'some_module#add_three_args'):
+            assert isinstance(i, SubroutineItem)
+        elif i.name == '#double_real':
+            assert isinstance(i, SubroutineItem)
+
+
+def test_scheduler_globalvarimportitem_children(config):
+    """
+    Test that GlobalVarImportItems don't have any children.
+    """
+
+    fcode_type = """
+module parkind1
+   integer, parameter :: jprb = selected_real_kind(13,300)
+end module parkind1
+    """
+    fcode_mod = """
+module some_mod
+  use parkind1, only: jprb
+
+  real(kind=jprb) :: var
+end module some_mod
+    """
+    fcode_kernel = """
+subroutine some_routine()
+  use parkind1, only: jprb
+  use some_mod, only: var
+
+  real(kind=jprb) :: tmp
+
+  tmp = var
+end subroutine some_routine
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+
+    kernel = Sourcefile.from_source(fcode_kernel, frontend=REGEX)
+    kernel_item = SubroutineItem(name='#some_routine', source=kernel, config=my_config['default'])
+
+    var_mod = Sourcefile.from_source(fcode_mod, frontend=REGEX)
+    var_item = GlobalVarImportItem(name='some_mod#var', source=var_mod, config=my_config['default'])
+
+    type_mod = Sourcefile.from_source(fcode_type, frontend=REGEX)
+    type_item = GenericImportItem(name='parkind1#jprb', source=type_mod, config=my_config['default'])
+
+    assert len(kernel_item.children) == 2
+    assert kernel_item.children[0] != kernel_item.children[1]
+    assert all(item in [i.local_name for i in (var_item, type_item)] for item in kernel_item.children)
+    assert not var_item.children
 
 
 def test_scheduler_successors(config):
@@ -1875,3 +1968,27 @@ end subroutine caller
     assert (scheduler['some_mod#some_type%other'], scheduler['some_mod#some_other']) in scheduler.dependencies
 
     rmtree(workdir)
+
+
+def test_scheduler_unqualified_imports(config):
+    """
+    Test that only qualified imports are added as children.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+
+    kernel = """
+    subroutine kernel()
+       use some_mod
+       use other_mod, only: other_routine
+
+       call other_routine
+    end subroutine kernel
+    """
+
+    source = Sourcefile.from_source(kernel, frontend=REGEX)
+    item = SubroutineItem(name='#kernel', source=source, config=my_config['default'])
+
+    assert item.enable_imports
+    assert item.children == ('other_routine',)

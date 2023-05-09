@@ -16,7 +16,9 @@ from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug
-from loki.bulk.item import ProcedureBindingItem, SubroutineItem
+from loki.bulk.item import ProcedureBindingItem, SubroutineItem, GlobalVarImportItem, GenericImportItem
+from loki.subroutine import Subroutine
+from loki.module import Module
 
 
 __all__ = ['Scheduler', 'SchedulerConfig']
@@ -42,9 +44,12 @@ class SchedulerConfig:
         visualisation. These are intended for utility routines that
         pop up in many routines but can be ignored in terms of program
         control flow, like ``flush`` or ``abort``.
+    enable_imports : bool
+        Disable the inclusion of module imports as scheduler dependencies.
     """
 
-    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None):
+    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None,
+                 enable_imports=False):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
@@ -52,6 +57,8 @@ class SchedulerConfig:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
+        self.enable_imports = enable_imports
+
         if dic2p is not None:
             self.dic2p = dic2p
         else:
@@ -70,6 +77,7 @@ class SchedulerConfig:
             config['routines'] = []
         routines = config['routines']
         disable = default.get('disable', None)
+        enable_imports = default.get('enable_imports', False)
 
         # Add any dimension definitions contained in the config dict
         dimensions = {}
@@ -86,7 +94,7 @@ class SchedulerConfig:
             derived_types = config['derived_types']
 
         return cls(default=default, routines=routines, disable=disable, dimensions=dimensions, dic2p=dic2p,
-                   derived_types=derived_types)
+                   derived_types=derived_types, enable_imports=enable_imports)
 
     @classmethod
     def from_file(cls, path):
@@ -226,7 +234,12 @@ class Scheduler:
         self.obj_map.update(
             (f'{module.name}#{r.name}', obj)
             for obj in obj_list for module in obj.modules
-            for r in module.subroutines + tuple(module.typedefs.values())
+            for r in module.subroutines + tuple(module.typedefs.values()) + module.variables
+        )
+        self.obj_map.update(
+            (f'{module.name}#{r.spec.name}', obj)
+            for obj in obj_list for module in obj.modules
+            for r in module.interfaces if r.spec
         )
 
     @property
@@ -353,7 +366,13 @@ class Scheduler:
         debug(f'[Loki] Scheduler creating Item: {name} => {sourcefile.path}')
         if '%' in name:
             return ProcedureBindingItem(name=name, source=sourcefile, config=item_conf)
-        return SubroutineItem(name=name, source=sourcefile, config=item_conf)
+        if isinstance(self.obj_map[name][name.split('#')[-1]], Subroutine):
+            return SubroutineItem(name=name, source=sourcefile, config=item_conf)
+        module = self.obj_map[name][name.split('#')[0]]
+        if isinstance(module, Module):
+            if name.split('#')[-1] in module.variables:
+                return GlobalVarImportItem(name=name, source=sourcefile, config=item_conf)
+        return GenericImportItem(name=name, source=sourcefile, config=item_conf)
 
     def find_routine(self, routine):
         """
@@ -611,7 +630,6 @@ class Scheduler:
                 for node in traversal:
                     items = graph.nodes[node]['items']
                     transformation.apply(items[0].source, item=items[0], items=items)
-
             else:
                 for item in traversal:
                     if item_filter and not isinstance(item, item_filter):

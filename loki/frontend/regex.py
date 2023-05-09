@@ -867,18 +867,16 @@ class ImportPattern(Pattern):
 
 class VariableDeclarationPattern(Pattern):
     """
-    Pattern to match :any:`VariableDeclaration` nodes
-
-    For the moment, this only matches variable declarations for derived type objects
-    (via ``TYPE`` or ``CLASS`` keywords).
+    Pattern to match :any:`VariableDeclaration` nodes.
     """
 
     parser_class = RegexParserClass.DeclarationClass
 
     def __init__(self):
         super().__init__(
-            r'^(?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\)'  # TYPE or CLASS keyword with typename
-            r'(?:[ \t]*,[ \t]*[a-z]+(?:\(.*?\))?)*'  # Optional attributes
+            r'^(((?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\))|' # TYPE or CLASS keyword with typename
+            r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))(\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
+            r'(?:[ \t]*,[ \t]*[a-z]+(?:\((.(\(.*\))?)*?\))?)*'  # Optional attributes
             r'(?:[ \t]*::)?'  # Optional `::` delimiter
             r'[ \t]*'  # Some white space
             r'(?P<variables>\w+\b.*?)$',  # Variable names
@@ -887,7 +885,7 @@ class VariableDeclarationPattern(Pattern):
 
     def match(self, reader, parser_classes, scope):
         """
-        Match the provided source string against the pattern for a :any:`Import`
+        Match the provided source string against the pattern for a :any:`VariableDeclaration`
 
         Parameters
         ----------
@@ -903,12 +901,17 @@ class VariableDeclarationPattern(Pattern):
         if not match:
             return None
 
-        type_ = SymbolAttributes(DerivedType(match['typename']))
+        if (_typename := match['typename']):
+            type_ = SymbolAttributes(DerivedType(_typename))
+        else:
+            type_ = SymbolAttributes(BasicType.from_str(match['basic_type']))
+        assert type_
+
         variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
+        variables = re.sub(r'[ \t]*=(>)?[ \t]*[-.\w/]+[ \t]*', r'', variables) # Remove initialization
         variables = variables.replace(' ', '').split(',')  # Variable names without white space
         variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
         return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
-
 
 class CallPattern(Pattern):
     """

@@ -19,10 +19,11 @@ from loki.logging import warning
 from loki.tools import as_tuple
 from loki.tools.util import CaseInsensitiveDict
 from loki.visitors import FindNodes
-from loki.ir import CallStatement
+from loki.ir import CallStatement, TypeDef, ProcedureDeclaration
+from loki.subroutine import Subroutine
 
 
-__all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem']
+__all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem', 'GlobalVarImportItem', 'GenericImportItem']
 
 
 class Item:
@@ -34,11 +35,12 @@ class Item:
     sub-trees.
 
     Depending of the nature of the work item, the implementation of :class:`Item` is
-    done in subclasses :class:`SubroutineItem` and :class:`ProcedureBindingItem`.
+    done in subclasses :class:`SubroutineItem`, :class:`ProcedureBindingItem`,
+    :class:`GlobalVarImportItem` and :class:`GenericImportItem`.
 
-    The :attr:`name` of a :class:`Item` refers to the routine name using
+    The :attr:`name` of a :class:`Item` refers to the routine or variable name using
     a fully-qualified name in the format ``<scope_name>#<local_name>``. The
-    ``<scope_name>`` corresponds to a Fortran module that a subroutine is declared
+    ``<scope_name>`` corresponds to a Fortran module that a subroutine or variable is declared
     in, or can be empty if the subroutine is not enclosed in a module (i.e. exists
     in the global scope). This is to enable use of routines with the same name that
     are declared in different modules.
@@ -288,6 +290,14 @@ class Item:
         return self.config.get('enrich', tuple())
 
     @property
+    def enable_imports(self):
+        """
+        Configurable option to enable the addition of module imports as children.
+        """
+
+        return self.config.get('enable_imports', False)
+
+    @property
     def children(self):
         """
         Set of all child routines that this work item has in the call tree
@@ -305,8 +315,14 @@ class Item:
         """
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
-        # Base definition of child is a procedure call (for now)
+        # Base definition of child is a procedure call
         children = self.calls
+
+        if self.enable_imports:
+            if isinstance(self, SubroutineItem):
+                children += tuple(self.qualified_imports.keys())
+            elif isinstance(self, GenericImportItem):
+                children += self.procedure_interface_members
 
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in self.members]
@@ -448,6 +464,12 @@ class Item:
         # Base definition of child is a procedure call
         targets = self.calls
 
+        if self.enable_imports:
+            if isinstance(self, SubroutineItem):
+                targets += tuple(self.qualified_imports.keys())
+            elif isinstance(self, GenericImportItem):
+                targets += self.procedure_interface_members
+
         # Filter out blocked and ignored children
         targets = [c for c in targets if c not in disabled]
         targets = [t for t in targets if t not in blocked]
@@ -556,6 +578,7 @@ class SubroutineItem(Item):
 
         return names
 
+
 class ProcedureBindingItem(Item):
     """
     Implementation of :class:`Item` to represent a Fortran procedure binding
@@ -639,3 +662,143 @@ class ProcedureBindingItem(Item):
             return (type_.bind_names[0].name.lower(),)
         # The name of the procedure is identical to the name of the binding
         return (name_parts[1],)
+
+
+class GenericImportItem(Item):
+    """
+    Implementation of :class:`Item` to represent a catchall for any Fortran module import.
+
+    This does not constitute a work item when applying transformations across the
+    call tree in the :any:`Scheduler` and is skipped during the processing phase.
+    It is needed when the type of the symbol being imported isn't immediately obvious
+    from the `USE` statement and more context is needed.
+    """
+
+    def __init__(self, name, source, config=None):
+        name_parts = name.split('#')
+        assert len(name_parts) > 1 and all(name_parts) #only accept fully-qualified module imports
+        super().__init__(name, source, config)
+        assert self.scope
+
+    @property
+    def routine(self):
+        """
+        Always returns `None` as this is not associated with a :any:`Subroutine`
+        """
+        return None
+
+    @property
+    def members(self):
+        """
+        Empty tuple as generic imports have no member routines
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
+    @property
+    def function_interfaces(self):
+        """
+        Empty tuple as generic import items cannot include interface blocks
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
+    @cached_property
+    def imports(self):
+        """
+        Return modules imported in the parent scope
+        """
+        return self.scope.imports
+
+    @property
+    def calls(self):
+        return ()
+
+    @property
+    def procedure_interface_members(self):
+        """
+        The set of children unique to items of type :class:`GenericImportItem`.
+        Comprises exclusively of function calls bound to a procedure interface.
+        """
+
+        _children = ()
+        intfs = self.scope.interfaces
+        if isinstance(self.source[self.local_name], TypeDef):
+            pass
+        elif self.local_name in [i.spec.name for i in intfs]:
+            for i in intfs:
+                if i.spec.name == self.local_name:
+                    for b in i.body:
+                        if isinstance(b, ProcedureDeclaration):
+                            for s in b.symbols:
+                                _children += as_tuple(s.name)
+                        elif isinstance(b, Subroutine):
+                            if b.is_function:
+                                _children += as_tuple(b.name)
+
+        return _children
+
+
+class GlobalVarImportItem(Item):
+    """
+    Implementation of :class:`Item` to represent a global variable import. These encapsulate variables
+    that store data. Whilst such variables can clearly have dependencies, in the current implementation
+    items of type :class:`GlobalVarImportItem` do not have any children (mainly due to a lack of practical
+    benefit).
+    """
+
+    def __init__(self, name, source, config=None):
+        name_parts = name.split('#')
+        assert len(name_parts) > 1 and all(name_parts) #only accept fully-qualified module imports
+        super().__init__(name, source, config)
+        assert self.scope
+
+    @property
+    def routine(self):
+        """
+        Always returns `None` as this is not associated with a :any:`Subroutine`
+        """
+        return None
+
+    @property
+    def members(self):
+        """
+        Empty tuple as variable imports have no member routines
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
+    @property
+    def function_interfaces(self):
+        """
+        Empty tuple as global variable imports cannot include interface blocks
+
+        Returns
+        -------
+        tuple
+        """
+        return ()
+
+    @cached_property
+    def imports(self):
+        """
+        Return modules imported in the parent scope
+        """
+
+        return self.scope.imports
+
+    @property
+    def calls(self):
+        """
+        Empty tuple as items of type :class:`GlobalVarImportItem` cannot have any children.
+        """
+        return ()
