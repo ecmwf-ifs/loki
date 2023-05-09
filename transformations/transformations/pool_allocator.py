@@ -187,7 +187,15 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         stack_type = SymbolAttributes(dtype=DerivedType(name=self.stack_type_name), intent='inout')
         stack_arg = Variable(name=self.stack_argument_name, type=stack_type, scope=routine)
-        routine.arguments += (stack_arg,)
+
+        # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
+        # in device code
+        arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
+        if arg_pos:
+            routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg,) + routine.arguments[arg_pos[0]:]
+        else:
+            routine.arguments += (stack_arg,)
+
         return stack_arg
 
     def _get_stack_ptr(self, routine):
