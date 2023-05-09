@@ -124,6 +124,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.local_ptr_var_name_pattern = local_ptr_var_name_pattern
         self.directive = directive
         self.check_bounds = check_bounds
+
         if key:
             self._key = key
 
@@ -133,8 +134,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         item = kwargs.get('item', None)
         targets = kwargs.get('targets', None)
 
-        if item and item.local_name != routine.name.lower():
-            return
+        self.stack_type_kind = 'JPRB'
+        if item:
+            if item.local_name != routine.name.lower():
+                return
+            if (real_kind := item.config.get('real_kind', None)):
+                self.stack_type_kind = real_kind
 
         successors = kwargs.get('successors', ())
 
@@ -256,7 +261,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             # allocation/deallocation statements
             stack_type = SymbolAttributes(
                 dtype=BasicType.REAL,
-                kind=Variable(name='JPRB', scope=routine),
+                kind=Variable(name=self.stack_type_kind, scope=routine),
                 shape=(RangeIndex((None, None)), RangeIndex((None, None))),
                 allocatable=True,
             )
