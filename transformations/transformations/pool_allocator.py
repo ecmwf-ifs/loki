@@ -551,7 +551,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                # interface block rather than the Subroutine itself. This means we have to update the interface block
                # accordingly
                 if call.name in [s for i in intfs for s in i.symbols]:
-                    stack_arg = self._get_stack_arg(call.routine)
+                    _ = self._get_stack_arg(call.routine)
 
                 if call.routine != BasicType.DEFERRED and self.stack_argument_name in call.routine.arguments:
                     arg_idx = call.routine.arguments.index(self.stack_argument_name)
