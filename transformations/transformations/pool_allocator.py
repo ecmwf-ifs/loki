@@ -11,7 +11,7 @@ from loki import (
     SymbolAttributes, BasicType, DerivedType,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
-    Loop, Pragma, SubroutineItem, FindInlineCalls
+    Loop, Pragma, SubroutineItem, FindInlineCalls, Interface
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -531,8 +531,15 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         """
         call_map = {}
         stack_var = self._get_local_stack_var(routine)
+        intfs = FindNodes(Interface).visit(routine.spec)
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in targets:
+               # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
+               # interface block rather than the Subroutine itself. This means we have to update the interface block
+               # accordingly
+                if call.name in [s for i in intfs for s in i.symbols]:
+                    stack_arg = self._get_stack_arg(call.routine)
+
                 if call.routine != BasicType.DEFERRED and self.stack_argument_name in call.routine.arguments:
                     arg_idx = call.routine.arguments.index(self.stack_argument_name)
                     arguments = call.arguments
