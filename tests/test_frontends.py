@@ -2,6 +2,9 @@
 Verify correct frontend behaviour and correct parsing of certain Fortran
 language features.
 """
+
+# pylint: disable=too-many-lines
+
 from pathlib import Path
 from time import perf_counter
 import numpy as np
@@ -1440,7 +1443,10 @@ end module my_mod
     assert source['my_mod'] is not None
     assert not source['my_mod'].interfaces
 
-    source.make_complete(frontend=REGEX, parser_class=RegexParserClass.ProgramUnitClass | RegexParserClass.InterfaceClass)
+    source.make_complete(
+        frontend=REGEX,
+        parser_class=RegexParserClass.ProgramUnitClass | RegexParserClass.InterfaceClass
+    )
     assert len(source['my_mod'].interfaces) == 3
     assert source['my_mod'].symbols == (
         'ext1', 'ext2', 'ext3',
