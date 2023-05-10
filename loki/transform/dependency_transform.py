@@ -235,7 +235,6 @@ class DependencyTransformation(Transformation):
         removal_map = {}
 
         for i in intfs:
-            new_imports = ()
             for b in i.body:
                 if isinstance(b, Subroutine):
                     if targets is not None and b.name.lower() in targets:
@@ -243,10 +242,10 @@ class DependencyTransformation(Transformation):
                         new_module = self.derive_module_name(b.name)
                         new_symbol = Variable(name=f'{b.name}{self.suffix}', scope=source)
                         new_import = Import(module=new_module, c_import=False, symbols=(new_symbol,))
-                        new_imports += as_tuple(new_import)
+                        source.spec.prepend(new_import)
 
-            if new_imports:
-                removal_map[i] = new_imports
+                        # Mark current import for removal
+                        removal_map[i] = None
 
         # Apply any scheduled interface removals to spec
         if removal_map:
