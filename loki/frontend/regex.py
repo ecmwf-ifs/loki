@@ -43,11 +43,12 @@ class RegexParserClass(Flag):
     parse time reduced.
     """
     ProgramUnitClass = auto()
+    InterfaceClass = auto()
     ImportClass = auto()
     TypeDefClass = auto()
     DeclarationClass = auto()
     CallClass = auto()
-    AllClasses = ProgramUnitClass | ImportClass | TypeDefClass | DeclarationClass | CallClass  # pylint: disable=unsupported-binary-operation
+    AllClasses = ProgramUnitClass | InterfaceClass | ImportClass | TypeDefClass | DeclarationClass | CallClass  # pylint: disable=unsupported-binary-operation
 
 
 class Pattern:
@@ -446,7 +447,8 @@ class ModulePattern(Pattern):
             contains = None
 
         module.__initialize__(  # pylint: disable=unnecessary-dunder-call
-            name=module.name, spec=spec, contains=contains, source=module.source, incomplete=True
+            name=module.name, spec=spec, contains=contains, source=module.source, incomplete=True,
+            parser_classes=parser_classes
         )
 
         if match.span()[0] > 0:
@@ -537,7 +539,8 @@ class SubroutineFunctionPattern(Pattern):
 
         routine.__initialize__(  # pylint: disable=unnecessary-dunder-call
             name=routine.name, args=routine._dummies, is_function=routine.is_function,
-            prefix=prefix, spec=spec, contains=contains, source=routine.source, incomplete=True
+            prefix=prefix, spec=spec, contains=contains, source=routine.source,
+            incomplete=True, parser_classes=parser_classes
         )
 
         if match.span()[0] > 0:
@@ -552,7 +555,7 @@ class InterfacePattern(Pattern):
     Pattern to match :any:`Interface` objects
     """
 
-    parser_class = RegexParserClass.ProgramUnitClass
+    parser_class = RegexParserClass.InterfaceClass
 
     def __init__(self):
         super().__init__(
@@ -611,7 +614,7 @@ class ProcedureStatementPattern(Pattern):
     Pattern to match procedure statements in interfaces
     """
 
-    parser_class = RegexParserClass.ProgramUnitClass
+    parser_class = RegexParserClass.InterfaceClass
 
     def __init__(self):
         super().__init__(
