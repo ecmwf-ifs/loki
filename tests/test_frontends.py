@@ -1389,6 +1389,68 @@ end module my_mod
     assert source.all_subroutines[0].source.lines == (4, 41)
 
 
+def test_regex_interface_module():
+    fcode = """
+module my_mod
+    implicit none
+    interface
+        subroutine ext1 (x, y, z)
+            real, dimension(100, 100), intent(inout) :: x, y, z
+        end subroutine ext1
+        subroutine ext2 (x, z)
+            real, intent(in) :: x
+            complex(kind = 4), intent(inout) :: z(2000)
+        end subroutine ext2
+        function ext3 (p, q)
+            logical ext3
+            integer, intent(in) :: p(1000)
+            logical, intent(in) :: q(1000)
+        end function ext3
+    end interface
+    interface sub
+        subroutine sub_int (a)
+            integer, intent(in) :: a(:)
+        end subroutine sub_int
+        subroutine sub_real (a)
+            real, intent(in) :: a(:)
+        end subroutine sub_real
+    end interface sub
+    interface func
+        module procedure func_int
+        module procedure func_real
+    end interface func
+contains
+    subroutine sub_int (a)
+        integer, intent(in) :: a(:)
+    end subroutine sub_int
+    subroutine sub_real (a)
+        real, intent(in) :: a(:)
+    end subroutine sub_real
+    integer module function func_int (a)
+        integer, intent(in) :: a(:)
+    end function func_int
+    real module function func_real (a)
+        real, intent(in) :: a(:)
+    end function func_real
+end module my_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+
+    assert len(source.modules) == 1
+    assert source['my_mod'] is not None
+    assert not source['my_mod'].interfaces
+
+    source.make_complete(frontend=REGEX, parser_class=RegexParserClass.ProgramUnitClass | RegexParserClass.InterfaceClass)
+    assert len(source['my_mod'].interfaces) == 3
+    assert source['my_mod'].symbols == (
+        'ext1', 'ext2', 'ext3',
+        'sub', 'sub_int', 'sub_real',
+        'func', 'func_int', 'func_real', 'func_int', 'func_real',
+        'sub_int', 'sub_real',
+        'func_int', 'func_real'
+    )
+
+
 def test_regex_function_inline_return_type():
     fcode = """
 REAL(KIND=JPRB)  FUNCTION  DOT_PRODUCT_ECV()
