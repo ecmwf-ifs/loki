@@ -10,8 +10,9 @@ from shutil import rmtree
 import pytest
 from loki import (
     gettempdir, Scheduler, SchedulerConfig, Dimension, simplify, Sourcefile,
-    FindNodes, FindVariables, normalize_range_indexing, OMNI, FP, get_pragma_parameters,
-    CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall, Pragma
+    FindNodes, FindVariables, normalize_range_indexing, OMNI, FP, OFP, get_pragma_parameters,
+    CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall, Pragma,
+    FindInlineCalls
 )
 from conftest import available_frontends
 
@@ -516,10 +517,10 @@ def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel
     implicit none
-    INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
+    INTEGER, PARAMETER :: JWRB = SELECTED_REAL_KIND(13,300)
     INTEGER, INTENT(IN) :: NLON, NZ, NB
-    real(kind=jprb), intent(inout) :: field1(nlon, nb)
-    real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
+    real(kind=jwrb), intent(inout) :: field1(nlon, nb)
+    real(kind=jwrb), intent(inout) :: field2(nlon, nz, nb)
     integer :: b
     {driver_pragma}
     do b=1,nb
@@ -534,17 +535,17 @@ module kernel_mod
 contains
     subroutine kernel(start, end, klon, klev, field1, field2)
         implicit none
-        integer, parameter :: jprb = selected_real_kind(13,300)
+        integer, parameter :: jwrb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, klon, klev
-        real(kind=jprb), intent(inout) :: field1(klon)
-        real(kind=jprb), intent(inout) :: field2(klon,klev)
-        real(kind=jprb) :: tmp1(klon)
-        real(kind=jprb) :: tmp2(klon, klev)
+        real(kind=jwrb), intent(inout) :: field1(klon)
+        real(kind=jwrb), intent(inout) :: field2(klon,klev)
+        real(kind=jwrb) :: tmp1(klon)
+        real(kind=jwrb) :: tmp2(klon, klev)
         integer :: jk, jl
         {kernel_pragma}
 
         do jk=1,klev
-            tmp1(jl) = 0.0_jprb
+            tmp1(jl) = 0.0_jwrb
             do jl=start,end
                 tmp2(jl, jk) = field2(jl, jk)
                 tmp1(jl) = field2(jl, jk)
@@ -557,17 +558,17 @@ contains
 
     subroutine kernel2(start, end, columns, levels, field2)
         implicit none
-        integer, parameter :: jprb = selected_real_kind(13,300)
+        integer, parameter :: jwrb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, columns, levels
-        real(kind=jprb), intent(inout) :: field2(columns,levels)
-        real(kind=jprb) :: tmp1(columns, levels), tmp2(columns, levels)
+        real(kind=jwrb), intent(inout) :: field2(columns,levels)
+        real(kind=jwrb) :: tmp1(columns, levels), tmp2(columns, levels)
         integer :: jk, jl
         {kernel_pragma}
 
         do jk=1,levels
             do jl=start,end
                 tmp1(jl, jk) = field2(jl, jk)
-                tmp2(jl, jk) = tmp1(jl, jk) + 1._jprb
+                tmp2(jl, jk) = tmp1(jl, jk) + 1._jwrb
                 field2(jl, jk) = tmp2(jl, jk)
             end do
         end do
@@ -591,6 +592,7 @@ end module kernel_mod
         'routine': [{
             'name': 'driver',
             'role': 'driver',
+            'real_kind': 'jwrb',
         }]
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
@@ -623,6 +625,10 @@ end module kernel_mod
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
     check_stack_created_in_driver(driver, 'nlon + 3 * nlon * nz', calls[0], 1)
+
+    # check if stack allocatable in the driver has the correct kind parameter
+    if not frontend == OMNI:
+        assert driver.symbol_map['zstack'].type.kind == 'jwrb'
 
     # Has the data sharing been updated?
     if directive in ['openmp', 'openacc']:
@@ -700,5 +706,91 @@ end module kernel_mod
         # Check for stack size safegurads in generated code
         assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
         assert fcode.lower().count('stop') == 2
+
+    rmtree(basedir)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pool_allocator_more_call_checks(frontend, block_dim):
+    fcode = """
+    module kernel_mod
+    contains
+      real function inline_kernel(jl)
+          integer, intent(in) :: jl
+      end function inline_kernel
+      subroutine optional_arg(klon, temp1, temp2)
+          integer, intent(in) :: klon
+          real, intent(inout) :: temp1
+          real, intent(out), optional :: temp2
+      end subroutine optional_arg
+      subroutine kernel(start, end, klon, field1)
+          implicit none
+
+          interface
+             real function inline_kernel(jl)
+                 integer, intent(in) :: jl
+             end function inline_kernel
+          end interface
+
+          integer, intent(in) :: start, end, klon
+          real, intent(inout) :: field1(klon)
+          real :: temp1(klon)
+          real :: temp2(klon)
+
+          integer :: jl
+
+          do jl=start,end
+              field1(jl) = inline_kernel(jl)
+          end do
+
+          call optional_arg(klon, temp1, temp2)
+      end subroutine kernel
+    end module kernel_mod
+    """.strip()
+
+    basedir = gettempdir()/'test_pool_allocator_inline_call'
+    basedir.mkdir(exist_ok=True)
+    (basedir/'kernel.F90').write_text(fcode)
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True
+        },
+        'routine': [{
+            'name': 'kernel',
+        }]
+    }
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    if frontend == OMNI:
+        for item in scheduler.items:
+            normalize_range_indexing(item.routine)
+
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+    scheduler.process(transformation=transformation, reverse=True)
+    item = scheduler['kernel_mod#kernel']
+    kernel = item.routine
+
+    # Has the stack module been imported?
+    check_stack_module_import(kernel)
+
+    # Has the stack been added to the arguments?
+    assert 'ydstack' in kernel.arguments
+
+    # Is it being assigned to a local variable?
+    assert 'ylstack' in kernel.variables
+
+    # Has the stack been added to the call statement at the correct location?
+    calls = FindNodes(CallStatement).visit(kernel.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == ('klon', 'temp1', 'ylstack', 'temp2')
+
+    if not frontend == OFP:
+        # Now repeat the checks for the inline call
+        calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() == 'size']
+        assert len(calls) == 1
+        assert calls[0].parameters == ('jl', 'ylstack')
 
     rmtree(basedir)
