@@ -11,6 +11,10 @@ macro( _loki_transform_parse_args _func_name )
         ecbuild_critical( "Unknown keywords given to ${_func_name}(): \"${_PAR_UNPARSED_ARGUMENTS}\"" )
     endif()
 
+    if( _PAR_DIRECTIVE )
+        list( APPEND _ARGS --directive ${_PAR_DIRECTIVE} )
+    endif()
+
     if( NOT _PAR_FRONTEND )
         ecbuild_critical( "No FRONTEND specified for ${_func_name}()" )
     endif()
@@ -563,6 +567,7 @@ endfunction()
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       MODE <mode>
 #       CONFIG <config-file>
+#       [DIRECTIVE <directive>]
 #       [CPP]
 #       [FRONTEND <frontend>]
 #       [BUILDDIR <build-path>]
@@ -585,7 +590,7 @@ endfunction()
 function( loki_transform_command )
 
     set( options CPP )
-    set( oneValueArgs COMMAND MODE FRONTEND CONFIG BUILDDIR )
+    set( oneValueArgs COMMAND MODE DIRECTIVE FRONTEND CONFIG BUILDDIR )
     set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
@@ -605,7 +610,7 @@ function( loki_transform_command )
         OUTPUT ${_PAR_OUTPUT}
         COMMAND ${_LOKI_TRANSFORM} ${_PAR_COMMAND} ${_ARGS}
         DEPENDS ${_PAR_DEPENDS} ${_LOKI_TRANSFORM_DEPENDENCY}
-        COMMENT "[Loki] Pre-processing: command=${_PAR_COMMAND} mode=${_PAR_MODE} frontend=${_PAR_FRONTEND}"
+        COMMENT "[Loki] Pre-processing: command=${_PAR_COMMAND} mode=${_PAR_MODE} directive=${_PAR_DIRECTIVE} frontend=${_PAR_FRONTEND}"
     )
 
 endfunction()
@@ -709,7 +714,7 @@ endfunction()
 function( loki_transform_target )
 
     set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN )
-    set( single_value_args TARGET COMMAND MODE FRONTEND CONFIG PLAN )
+    set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS )
 
     cmake_parse_arguments( _PAR "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
@@ -776,6 +781,7 @@ function( loki_transform_target )
             OUTPUT    ${LOKI_SOURCES_TO_APPEND}
             MODE      ${_PAR_MODE}
             CONFIG    ${_PAR_CONFIG}
+	    DIRECTIVE ${_PAR_DIRECTIVE}
             FRONTEND  ${_PAR_FRONTEND}
             BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
             SOURCES   ${_PAR_SOURCES}
