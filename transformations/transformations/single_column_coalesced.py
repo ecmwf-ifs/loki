@@ -15,7 +15,7 @@ from loki import (
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten,
-    demote_variables, info
+    demote_variables, info, Section
 )
 
 
@@ -533,24 +533,28 @@ class SingleColumnCoalescedTransformation(Transformation):
         # Remove all vector loops over the specified dimension
         kernel_remove_vector_loops(routine, self.horizontal)
 
-        # Extract vector-level compute sections from the kernel
-        sections = extract_vector_sections(routine.body.body, self.horizontal)
+        # Replace sections with marked Section node
+        section_mapper = {s: Section(body=s, label='vector_section')
+                          for s in extract_vector_sections(routine.body.body, self.horizontal)}
+        routine.body = NestedTransformer(section_mapper).visit(routine.body)
 
         # Extract the local variables to dome after we wrap the sections in vector loops.
         # We do this, because need the section blocks to determine which local arrays
         # may carry buffered values between them, so that we may not demote those!
-        to_demote = kernel_get_locals_to_demote(routine, sections, self.horizontal)
-
-        if not self.hoist_column_arrays:
-            # Promote vector loops to be the outermost loop dimension in the kernel
-            mapper = dict((s, wrap_vector_section(s, routine, self.horizontal)) for s in sections)
-            routine.body = NestedTransformer(mapper).visit(routine.body)
+        to_demote = kernel_get_locals_to_demote(routine, section_mapper.keys(), self.horizontal)
 
         # Demote all private local variables that do not buffer values between sections
         if demote_locals:
             variables = tuple(v.name for v in to_demote)
             if variables:
                 demote_variables(routine, variable_names=variables, dimensions=self.horizontal.size)
+
+        if not self.hoist_column_arrays:
+            # Promote vector loops to be the outermost loop dimension in the kernel
+            mapper = {s.body: wrap_vector_section(s.body, routine, self.horizontal)
+                              for s in FindNodes(Section).visit(routine.body)
+                              if s.label == 'vector_section'}
+            routine.body = NestedTransformer(mapper).visit(routine.body)
 
         if self.hoist_column_arrays:
             # Promote all local arrays with column dimension to arguments
@@ -566,6 +570,11 @@ class SingleColumnCoalescedTransformation(Transformation):
                 # Remove original variable first, since we need to update declaration
                 routine.variables = as_tuple(v for v in routine.variables if v != v_index)
                 routine.arguments += as_tuple(new_v)
+
+        # Remove section wrappers
+        section_mapper = {s: s.body for s in FindNodes(Section).visit(routine.body) if s.label == 'vector_section'}
+        if section_mapper:
+            routine.body = Transformer(section_mapper).visit(routine.body)
 
         if self.directive == 'openacc':
             # Mark all non-parallel loops as `!$acc loop seq`
