@@ -445,7 +445,7 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
     scc_transform.apply(kernel, role='kernel')
 
     # Ensure routine is anntoated at vector level
-    pragmas = FindNodes(Pragma).visit(kernel.body)
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
     assert len(pragmas) == 5
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine vector'
@@ -457,7 +457,7 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
     # Ensure vector and seq loops are annotated, including
     # privatized variable `b`
     with pragmas_attached(kernel, Loop):
-        kernel_loops = FindNodes(Loop).visit(kernel.body)
+        kernel_loops = FindNodes(Loop).visit(kernel.ir)
         assert len(kernel_loops) == 2
         assert kernel_loops[0].pragma[0].keyword == 'acc'
         assert kernel_loops[0].pragma[0].content == 'loop vector private(b)'
@@ -538,7 +538,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
 
     with pragmas_attached(kernel, Loop):
         # Ensure routine is anntoated at vector level
-        kernel_pragmas = FindNodes(Pragma).visit(kernel.body)
+        kernel_pragmas = FindNodes(Pragma).visit(kernel.ir)
         assert len(kernel_pragmas) == 3
         assert kernel_pragmas[0].keyword == 'acc'
         assert kernel_pragmas[0].content == 'routine seq'
@@ -679,12 +679,14 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert len(FindNodes(CallStatement).visit(outer_kernel.body)) == 1
 
         # Ensure the routine has been marked properly
-        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.body)
-        assert len(outer_kernel_pragmas) == 2
+        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.ir)
+        assert len(outer_kernel_pragmas) == 3
         assert outer_kernel_pragmas[0].keyword == 'acc'
         assert outer_kernel_pragmas[0].content == 'routine vector'
         assert outer_kernel_pragmas[1].keyword == 'acc'
         assert outer_kernel_pragmas[1].content == 'data present(q)'
+        assert outer_kernel_pragmas[2].keyword == 'acc'
+        assert outer_kernel_pragmas[2].content == 'end data'
 
     # Ensure that the leaf kernel contains two nested loops
     with pragmas_attached(inner_kernel, Loop):
@@ -701,12 +703,14 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert inner_kernel_loops[1].pragma[0].content == 'loop seq'
 
         # Ensure the routine has been marked properly
-        inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.body)
-        assert len(inner_kernel_pragmas) == 2
+        inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.ir)
+        assert len(inner_kernel_pragmas) == 3
         assert inner_kernel_pragmas[0].keyword == 'acc'
         assert inner_kernel_pragmas[0].content == 'routine vector'
         assert outer_kernel_pragmas[1].keyword == 'acc'
         assert outer_kernel_pragmas[1].content == 'data present(q)'
+        assert outer_kernel_pragmas[2].keyword == 'acc'
+        assert outer_kernel_pragmas[2].content == 'end data'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -905,7 +909,7 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
     assert kernel_loops[3].variable == 'jl'
 
     # Check acc pragmas of newly created vector loops
-    pragmas = FindNodes(Pragma).visit(kernel.body)
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
     assert len(pragmas) == 7
     assert pragmas[2].keyword == 'acc'
     assert pragmas[2].content == 'loop vector'
@@ -981,3 +985,44 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     assert pragmas[1].content == 'parallel loop gang'
     assert pragmas[2].content == 'end parallel loop'
     assert pragmas[3].content == 'end data'
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_routine_seq_pragma(frontend, horizontal, vertical, blocking):
+    """
+    Test that `!$loki routine seq` pragmas are replaced correctly by `!$acc routine seq` pragmas.
+    """
+
+    fcode = """
+    subroutine some_kernel(work, nang)
+       implicit none
+
+       integer, intent(in) :: nang
+       real, dimension(nang), intent(inout) :: work
+
+!$loki routine seq
+       integer :: k
+
+       do k=1,nang
+          work(k) = 1.
+       enddo
+
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    pragmas = FindNodes(Pragma).visit(routine.spec)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'loki'
+    assert pragmas[0].content == 'routine seq'
+
+    transformation = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, block_dim=blocking, vertical=vertical,
+        directive='openacc', hoist_column_arrays=False )
+
+    transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
+
+    pragmas = FindNodes(Pragma).visit(routine.spec)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[0].content == 'routine seq'
