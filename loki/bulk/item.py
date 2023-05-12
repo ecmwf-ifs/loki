@@ -20,10 +20,15 @@ from loki.tools import as_tuple
 from loki.tools.util import CaseInsensitiveDict
 from loki.visitors import FindNodes
 from loki.ir import CallStatement, TypeDef, ProcedureDeclaration
+from loki.module import Module
+from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 
 
-__all__ = ['Item', 'SubroutineItem', 'ProcedureBindingItem', 'GlobalVarImportItem', 'GenericImportItem']
+__all__ = [
+    'Item', 'FileItem', 'ModuleItem', 'SubroutineItem',
+    'ProcedureBindingItem', 'GlobalVarImportItem', 'GenericImportItem'
+]
 
 
 class Item:
@@ -89,8 +94,24 @@ class Item:
         Dict of item-specific config markers
     """
 
+    @classmethod
+    def create_from_node(cls, node, source):
+        if isinstance(node, Sourcefile):
+            return FileItem(node.path.name.lower(), source)
+        if isinstance(node, Module):
+            return ModuleItem(node.name.lower(), source)
+
+        if node.parent:
+            scope = node.parent.name
+        else:
+            scope = ''
+        if isinstance(node, Subroutine):
+            return SubroutineItem(f'{scope}#{node.name}'.lower(), source)
+        if isinstance(node, TypeDef):
+            return TypeDefItem(f'{scope}#{node.name}'.lower(), source)
+
     def __init__(self, name, source, config=None):
-        assert '#' in name
+        # assert '#' in name or '.' in name
         self.name = name
         self.source = source
         self.config = config or {}
@@ -114,6 +135,21 @@ class Item:
 
     def __hash__(self):
         return hash(self.name)
+
+    @property
+    def definitions(self):
+        return ()
+
+    def get_items(self, only=None):
+        items = tuple(
+            self.create_from_node(node, self.source)
+            for node in self.definitions
+        )
+        if only:
+            items = tuple(
+                item for item in items if isinstance(item, only)
+            )
+        return items
 
     def clear_cached_property(self, property_name):
         """
@@ -475,6 +511,25 @@ class Item:
         targets = [t for t in targets if t not in blocked]
         targets = [t for t in targets if t not in ignored]
         return as_tuple(targets)
+
+
+class FileItem(Item):
+
+    @property
+    def definitions(self):
+        return self.source.definitions
+
+
+class ModuleItem(Item):
+
+    @property
+    def definitions(self):
+        module = self.source[self.name]
+        return module.subroutines + tuple(module.typedefs.values())
+
+
+class TypeDefItem(Item):
+    pass
 
 
 class SubroutineItem(Item):
