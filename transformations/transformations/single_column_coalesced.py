@@ -9,6 +9,7 @@ from more_itertools import split_at
 
 from loki.expression import symbols as sym
 from loki.transform import resolve_associates
+from transformations.scc_base import SCCBaseTransformation
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
@@ -20,26 +21,6 @@ from loki import (
 
 
 __all__ = ['SingleColumnCoalescedTransformation']
-
-
-def get_integer_variable(routine, name):
-    """
-    Find a local variable in the routine, or create an integer-typed one.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to find the variable
-    name : string
-        Name of the variable to find the in the routine.
-    """
-    if name in routine.variable_map:
-        v_index = routine.variable_map[name]
-    else:
-        dtype = SymbolAttributes(BasicType.INTEGER)
-        v_index = sym.Variable(name=name, type=dtype, scope=routine)
-    return v_index
-
 
 def kernel_remove_vector_loops(routine, horizontal):
     """
@@ -76,7 +57,7 @@ def wrap_vector_section(section, routine, horizontal):
     # Create a single loop around the horizontal from a given body
     v_start = routine.variable_map[horizontal.bounds[0]]
     v_end = routine.variable_map[horizontal.bounds[1]]
-    index = get_integer_variable(routine, horizontal.index)
+    index = SCCBaseTransformation.get_integer_variable(routine, horizontal.index)
     bounds = sym.LoopRange((v_start, v_end))
 
     # Ensure we clone all body nodes, to avoid recursion issues
@@ -290,79 +271,6 @@ def kernel_annotate_subroutine_present_openacc(routine):
     routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
 
 
-def resolve_masked_stmts(routine, loop_variable):
-    """
-    Resolve :any:`MaskedStatement` (WHERE statement) objects to an
-    explicit combination of :any:`Loop` and :any:`Conditional` combination.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to resolve masked statements
-    loop_variable : :any:`Scalar`
-        The induction variable for the created loops.
-    """
-    mapper = {}
-    for masked in FindNodes(ir.MaskedStatement).visit(routine.body):
-        # TODO: Currently limited to simple, single-clause WHERE stmts
-        assert len(masked.conditions) == 1 and len(masked.bodies) == 1
-        ranges = [e for e in FindExpressions().visit(masked.conditions[0]) if isinstance(e, sym.RangeIndex)]
-        exprmap = {r: loop_variable for r in ranges}
-        assert len(ranges) > 0
-        assert all(r == ranges[0] for r in ranges)
-        bounds = sym.LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
-        cond = ir.Conditional(condition=masked.conditions[0], body=masked.bodies[0], else_body=masked.default)
-        loop = ir.Loop(variable=loop_variable, bounds=bounds, body=(cond,))
-        # Substitute the loop ranges with the loop index and add to mapper
-        mapper[masked] = SubstituteExpressions(exprmap).visit(loop)
-
-    routine.body = Transformer(mapper).visit(routine.body)
-
-    # if loops have been inserted, check if loop variable is declared
-    if mapper and loop_variable not in routine.variables:
-        routine.variables += as_tuple(loop_variable)
-
-
-def resolve_vector_dimension(routine, loop_variable, bounds):
-    """
-    Resolve vector notation for a given dimension only. The dimension
-    is defined by a loop variable and the bounds of the given range.
-
-    TODO: Consolidate this with the internal
-    `loki.transform.transform_array_indexing.resolve_vector_notation`.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to resolve vector notation usage.
-    loop_variable : :any:`Scalar`
-        The induction variable for the created loops.
-    bounds : tuple of :any:`Scalar`
-        Tuple defining the iteration space of the inserted loops.
-    """
-    bounds_str = f'{bounds[0]}:{bounds[1]}'
-
-    bounds_v = (sym.Variable(name=bounds[0]), sym.Variable(name=bounds[1]))
-
-    mapper = {}
-    for stmt in FindNodes(ir.Assignment).visit(routine.body):
-        ranges = [e for e in FindExpressions().visit(stmt)
-                  if isinstance(e, sym.RangeIndex) and e == bounds_str]
-        if ranges:
-            exprmap = {r: loop_variable for r in ranges}
-            loop = ir.Loop(
-                variable=loop_variable, bounds=sym.LoopRange(bounds_v),
-                body=as_tuple(SubstituteExpressions(exprmap).visit(stmt))
-            )
-            mapper[stmt] = loop
-
-    routine.body = Transformer(mapper).visit(routine.body)
-
-    # if loops have been inserted, check if loop variable is declared
-    if mapper and loop_variable not in routine.variables:
-        routine.variables += as_tuple(loop_variable)
-
-
 def get_column_locals(routine, vertical):
     """
     List of array variables that include a `vertical` dimension and
@@ -486,49 +394,25 @@ class SingleColumnCoalescedTransformation(Transformation):
             Subroutine to apply this transformation to.
         """
 
-        pragmas = FindNodes(ir.Pragma).visit(routine.ir)
-        routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
-        routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
-
-        seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
-        if seq_pragmas:
-            if self.directive == 'openacc':
-                # Mark routine as acc seq
-                mapper = {seq_pragmas[0]: None}
-                routine.spec = Transformer(mapper).visit(routine.spec)
-                routine.body = Transformer(mapper).visit(routine.body)
-
-                # Append the acc pragma to routine.spec, regardless of where the corresponding
-                # loki pragma is found
-                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
-
-            # Bail and leave sequential routines unchanged
+        # Bail if routine is marked as sequential or routine has already been processed
+        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
             return
 
-        vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
-        if vec_pragmas:
-            if self.directive == 'openacc':
-                # Bail routines that have already been marked and this processed
-                # TODO: This is a hack until we can avoid redundant re-application
-                return
-
-        if self.horizontal.bounds[0] not in routine.variable_map:
-            raise RuntimeError(f'No horizontal start variable found in {routine.name}')
-        if self.horizontal.bounds[1] not in routine.variable_map:
-            raise RuntimeError(f'No horizontal end variable found in {routine.name}')
+        # check for horizontal loop bounds in subroutine symbol table
+        SCCBaseTransformation.check_horizontal_var(routine, self.horizontal)
 
         # Find the iteration index variable for the specified horizontal
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
+        v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
         resolve_associates(routine)
 
         # Resolve WHERE clauses
-        resolve_masked_stmts(routine, loop_variable=v_index)
+        SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
 
         # Remove all vector loops over the specified dimension
         kernel_remove_vector_loops(routine, self.horizontal)
@@ -706,7 +590,7 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Create a driver-level buffer variable for all promoted column arrays
         # TODO: Note that this does not recurse into the kernels yet!
-        block_var = get_integer_variable(routine, self.block_dim.size)
+        block_var = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size)
         arg_dims = [v.shape + (block_var,) for v in column_locals]
         # Translate shape variables back to caller's namespace
         routine.variables += as_tuple(v.clone(dimensions=arg_mapper.visit(dims), scope=routine)
@@ -722,7 +606,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
         # Add a block-indexed slice of each column variable to the call
-        idx = get_integer_variable(routine, self.block_dim.index)
+        idx = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.index)
         new_args = [v.clone(
             dimensions=as_tuple([sym.RangeIndex((None, None)) for _ in v.shape]) + (idx,),
             scope=routine
@@ -733,7 +617,7 @@ class SingleColumnCoalescedTransformation(Transformation):
              f'{[v.name for v in column_locals]}')
 
         # Find the iteration index variable for the specified horizontal
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
+        v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
         if v_index.name not in routine.variable_map:
             routine.variables += as_tuple(v_index)
 

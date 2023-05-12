@@ -18,10 +18,8 @@ from loki import (
     CaseInsensitiveDict, as_tuple, flatten, types
 )
 
-from transformations.single_column_coalesced import (
-    resolve_masked_stmts, get_integer_variable, kernel_remove_vector_loops,
-    resolve_vector_dimension
-)
+from transformations.single_column_coalesced import kernel_remove_vector_loops
+from transformations.scc_base import SCCBaseTransformation
 
 __all__ = ['SccCufTransformation', 'HoistTemporaryArraysDeviceAllocatableTransformation']
 
@@ -721,10 +719,10 @@ class SccCufTransformation(Transformation):
             The subroutines depth
         """
 
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
+        v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
         resolve_associates(routine)
-        resolve_masked_stmts(routine, loop_variable=v_index)
-        resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
+        SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
         kernel_remove_vector_loops(routine, self.horizontal)
 
         kernel_cuf(
