@@ -15,6 +15,7 @@ language features.
 # pylint: disable=too-many-lines
 
 from pathlib import Path
+from shutil import rmtree
 from time import perf_counter
 import numpy as np
 import pytest
@@ -25,7 +26,7 @@ from loki import (
     Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
     config, REGEX, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective, config_override, Section, CommentBlock
+    PreprocessorDirective, config_override, Section, CommentBlock, gettempdir
 )
 from loki.expression import symbols as sym
 
@@ -1756,3 +1757,125 @@ end subroutine test_comment_block
     assert len(blocks[1].comments) == 2
     assert blocks[1].comments[0].text == '! Shut up, ...'
     assert blocks[1].comments[1].text == '! Rick!'
+
+
+@pytest.mark.parametrize('from_file', (True, False))
+@pytest.mark.parametrize('preprocess', (True, False))
+def test_source_sanitize_fp_source(from_file, preprocess):
+    """
+    Test that source sanitizing works as expected and postprocessing
+    rules are correctly applied
+    """
+    fcode = """
+subroutine some_routine(input_path)
+    implicit none
+    character(len=255), intent(in) :: input_path
+    integer :: ios, fu
+    write(*,*) "we print CPP value ", MY_VAR
+    ! In the following line the PP definition should be replace by '0'
+    ! or the actual line number
+    write(*,*) "We are in line ",__LINE__
+    open (action='read', file=TRIM(input_path), iostat=ios, newunit=fu)
+end subroutine some_routine
+""".strip()
+
+    if from_file:
+        workdir = gettempdir()/'test_source_sanitize_fp_source'
+        if workdir.exists():
+            rmtree(workdir)
+        workdir.mkdir()
+        filepath = workdir/'some_routine.F90'
+        filepath.write_text(fcode)
+        obj = Sourcefile.from_file(filepath, frontend=FP, preprocess=preprocess, defines=('MY_VAR=5',))
+    else:
+        obj = Sourcefile.from_source(fcode, frontend=FP, preprocess=preprocess, defines=('MY_VAR=5',))
+
+    if preprocess:
+        # CPP takes care of that
+        assert '"We are in line ", 8' in obj.to_fortran()
+        assert '"we print CPP value ", 5' in obj.to_fortran()
+    else:
+        # source sanitisation takes care of that
+        assert '"We are in line ", 0' in obj.to_fortran()
+        assert '"we print CPP value ", MY_VAR' in obj.to_fortran()
+
+    assert 'newunit=fu' in obj.to_fortran()
+
+    if from_file:
+        rmtree(workdir)
+
+
+@pytest.mark.parametrize('preprocess', (True, False))
+def test_source_sanitize_fp_subroutine(preprocess):
+    """
+    Test that source sanitizing works as expected and postprocessing
+    rules are correctly applied
+    """
+    fcode = """
+subroutine some_routine(input_path)
+    implicit none
+    character(len=255), intent(in) :: input_path
+    integer :: ios, fu
+    write(*,*) "we print CPP value ", MY_VAR
+    ! In the following line the PP definition should be replace by '0'
+    ! or the actual line number
+    write(*,*) "We are in line ",__LINE__
+    open (action='read', file=TRIM(input_path), iostat=ios, newunit=fu)
+end subroutine some_routine
+""".strip()
+
+    obj = Subroutine.from_source(fcode, frontend=FP, preprocess=preprocess, defines=('MY_VAR=5',))
+
+    if preprocess:
+        # CPP takes care of that
+        assert '"We are in line ", 8' in obj.to_fortran()
+        assert '"we print CPP value ", 5' in obj.to_fortran()
+    else:
+        # source sanitisation takes care of that
+        assert '"We are in line ", 0' in obj.to_fortran()
+        assert '"we print CPP value ", MY_VAR' in obj.to_fortran()
+
+    assert 'newunit=fu' in obj.to_fortran()
+
+
+@pytest.mark.parametrize('preprocess', (True, False))
+def test_source_sanitize_fp_module(preprocess):
+    """
+    Test that source sanitizing works as expected and postprocessing
+    rules are correctly applied
+    """
+    fcode = """
+module some_mod
+    implicit none
+    integer line = __LINE__ + MY_VAR
+contains
+subroutine some_routine(input_path)
+    implicit none
+    character(len=255), intent(in) :: input_path
+    integer :: ios, fu
+    write(*,*) "we print CPP value ", MY_VAR
+    ! In the following line the PP definition should be replace by '0'
+    ! or the actual line number
+    write(*,*) "We are in line ",__LINE__
+    open (action='read', file=TRIM(input_path), iostat=ios, newunit=fu)
+end subroutine some_routine
+end module some_mod
+""".strip()
+
+    obj = Module.from_source(fcode, frontend=FP, preprocess=preprocess, defines=('MY_VAR=5',))
+
+    if preprocess:
+        # CPP takes care of that
+        assert 'line = 3 + 5' in obj.to_fortran()
+        assert '"We are in line ", 12' in obj.to_fortran()
+        assert '"we print CPP value ", 5' in obj.to_fortran()
+    else:
+        # source sanitisation takes care of that
+        assert 'line = 0 + MY_VAR' in obj.to_fortran()
+        assert '"We are in line ", 0' in obj.to_fortran()
+        assert '"we print CPP value ", MY_VAR' in obj.to_fortran()
+
+    assert 'newunit=fu' in obj.to_fortran()
+
+
+# TODO: Add tests for source sanitizer with other frontends

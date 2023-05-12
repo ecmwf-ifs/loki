@@ -35,25 +35,21 @@ transformation, only one or all of the relevant methods
 :any:`Transformation.transform_module`, or :any:`Transformation.transform_file`
 need to be implemented.
 
-*Example*: A transformation that renames every module and subroutine by
-appending a given suffix:
+*Example*: A transformation that inserts a comment at the beginning of every
+module and subroutine:
 
 .. code-block:: python
 
-    class RenameTransformation(Transformation):
+    class InsertCommentTransformation(Transformation):
 
-        def __init__(self, suffix):
-            super().__init__()
-            self._suffix = suffix
-
-        def _rename(self, item):
-            item.name += self._suffix
+        def _insert_comment(self, program_unit):
+            program_unit.spec.prepend(Comment(text='! Processed by Loki'))
 
         def transform_subroutine(self, routine, **kwargs):
-            self._rename(routine)
+            self._insert_comment(routine)
 
         def transform_module(self, module, **kwargs):
-            self._rename(module)
+            self._insert_comment(module)
 
 The transformation can be applied by calling :meth:`apply` with
 the relevant object.
@@ -61,105 +57,179 @@ the relevant object.
 .. code-block:: python
 
    source = Sourcefile(...)  # may contain modules and subroutines
-   transformation = RenameTransformation(suffix='_example')
+   transformation = InsertCommentTransformation()
+   for module in source.modules:
+       transformation.apply(module)
+   for routine in source.all_subroutines:
+       transformation.apply(routine)
+
+Note that we have to apply the transformation separately for every
+relevant :any:`ProgramUnit`. The transformation can also be modified
+such that it is automatically applied to all program units in a file,
+despite only implementing logic for transforming modules and subroutines:
+
+.. code-block:: python
+
+    class InsertCommentTransformation(Transformation):
+
+        # When called on a Sourcefile, automatically apply this to all modules
+        # in the file
+        recurse_to_modules = True
+
+        # When called on a Sourcefile or Module, automatically apply this to all
+        # Subroutines in the file or module
+        recurse_to_procedures = True
+
+        def _insert_comment(self, program_unit):
+            program_unit.spec.prepend(Comment(text='! Processed by Loki'))
+
+        def transform_subroutine(self, routine, **kwargs):
+            self._insert_comment(routine)
+
+        def transform_module(self, module, **kwargs):
+            self._insert_comment(module)
+
+With these two attributes added, we can now apply the transformation to all
+modules and procedures in a single command:
+
+.. code-block:: python
+
+   source = Sourcefile(...)  # may contain modules and subroutines
+   transformation = InsertCommentTransformation()
    transformation.apply(source)
 
-Note that, despite only implementing logic for transforming modules and
-subroutines, it works also for sourcefiles. While the :any:`Sourcefile`
-object itself is not modified (because we did not implement
-:meth:`transform_file`), the dispatch mechanism in the :any:`Transformation`
-base class takes care of calling the relevant method for each member of the
-given object.
+Most transformations, however, will only require modifying those parts of a file
+that are part of the call tree that is to be transformed to avoid unexpected
+side-effects. For that reason,
 
 Typically, transformations should be implemented by users to encode the
 transformation pipeline for their individual use-case. However, Loki comes
-with a few built-in transformations for common tasks and we expect this list
-to grow in the future:
+with a growing number of built-in transformations that are implemented in
+the :mod:`loki.transform` namespace:
 
 .. autosummary::
 
-   loki.transform.transformation.Transformation
-   loki.transform.build_system_transform.CMakePlanner
-   loki.transform.build_system_transform.FileWriteTransformation
-   loki.transform.dependency_transform.DependencyTransformation
-   loki.transform.dependency_transform.ModuleWrapTransformation
-   loki.transform.fortran_c_transform.FortranCTransformation
-   loki.transform.fortran_max_transform.FortranMaxTransformation
-   loki.transform.fortran_python_transform.FortranPythonTransformation
-   loki.transform.transform_hoist_variables.HoistVariablesAnalysis
-   loki.transform.transform_hoist_variables.HoistVariablesTransformation
-   loki.transform.transform_hoist_variables.HoistTemporaryArraysAnalysis
-   loki.transform.transform_hoist_variables.HoistTemporaryArraysTransformationAllocatable
-   loki.transform.transform_parametrise.ParametriseTransformation
+   loki.transform
 
-Further transformations are defined for specific use-cases but may prove
-useful in a wider context. These are defined in :mod:`transformations`:
-
-.. autosummary::
-
-   transformations.argument_shape.ArgumentArrayShapeAnalysis
-   transformations.argument_shape.ExplicitArgumentArrayShapeTransformation
-   transformations.data_offload.DataOffloadTransformation
-   transformations.derived_types.DerivedTypeArgumentsTransformation
-   transformations.dr_hook.DrHookTransformation
-   transformations.single_column_claw.ExtractSCATransformation
-   transformations.single_column_claw.CLAWTransformation
-   transformations.single_column_coalesced.SingleColumnCoalescedTransformation
-   transformations.scc_cuf.SccCufTransformation
-
-Additionally, a number of tools for common transformation tasks are provided as
-functions that can be readily used in a step of the transformation pipeline:
-
-.. autosummary::
-
-   loki.transform.transform_array_indexing.shift_to_zero_indexing
-   loki.transform.transform_array_indexing.invert_array_indices
-   loki.transform.transform_array_indexing.resolve_vector_notation
-   loki.transform.transform_array_indexing.normalize_range_indexing
-   loki.transform.transform_array_indexing.promote_variables
-   loki.transform.transform_array_indexing.promote_nonmatching_variables
-   loki.transform.transform_array_indexing.promotion_dimensions_from_loop_nest
-   loki.transform.transform_associates.resolve_associates
-   loki.transform.transform_inline.inline_constant_parameters
-   loki.transform.transform_inline.inline_elemental_functions
-   loki.transform.transform_loop.loop_interchange
-   loki.transform.transform_loop.loop_fusion
-   loki.transform.transform_loop.loop_fission
-   loki.transform.transform_region.region_hoist
-   loki.transform.transform_region.region_to_call
-   loki.transform.transform_utilities.convert_to_lower_case
-   loki.transform.transform_utilities.replace_intrinsics
-   loki.transform.transform_utilities.sanitise_imports
-   loki.transform.transform_utilities.replace_selected_kind
-   loki.transform.transform_utilities.single_variable_declaration
-
+This includes also a number of tools for common transformation tasks that
+are provided as functions that can be readily used when implementing new
+transformations.
 
 Bulk processing large source trees
 ==================================
 
 Transformations can be applied over source trees using the :any:`Scheduler`.
 It is a work queue manager that automatically discovers source files in a list
-of paths. Given the name of an entry routine, it allows to build a call graph
-and thus derive the dependencies within this source tree.
+of paths and builds a dependency graph from a given starting point.
+This dependency graph includes all called procedures and imported modules.
 
 Calling :any:`Scheduler.process` on a source tree and providing it with a
-:any:`Transformation` applies this transformation to all modules and routines,
-making sure that routines with the relevant :any:`CallStatement` are always
-processed before their target :class:`Subroutine`.
+:any:`Transformation` applies this transformation to all files, modules, or
+routines that are appear in the dependency graph. The exact traversal
+behaviour can be parameterized in the implementation of the :any:`Transformation`.
+The behaviour modifications include:
+
+* limiting the processing only to specific node types in the dependency graph
+* reversing the traversal direction, i.e., called routines or imported
+  modules are processed before their caller, such that the starting point/root
+  of the dependency is processed last
+* traversing the file graph, i.e., processing full source files rather than
+  individual routines or modules
+* automatic recursion into contained program units, e.g., processing also all
+  procedures in a module after the module has been processed
 
 When applying the transformation to an item in the source tree, the scheduler
 provides certain information about the item to the transformation:
 
 * the transformation mode (provided in the scheduler's config),
-* the item's role (e.g., `'driver'` or `'kernel'`, configurable via the
+* the item's role (e.g., ``'driver'`` or ``'kernel'``, configurable via the
   scheduler's config), and
-* targets (routines that are called from the item and are included in the
-  scheduler's tree, i.e., will be processed afterwards).
+* targets (dependencies that are depended on by the currently processed item,
+  and are included in the scheduler's tree, i.e., are processed, too).
+
+
+The Scheduler's dependency graph
+--------------------------------
+
+The :any:`Scheduler` builds a dependency graph consisting of :any:`Item`
+instances as nodes. Every item corresponds to a specific node in Loki's
+internal representation.
+
+The name of an item refers to a symbol using a fully-qualified name in the
+format: ``<scope_name>#<local_name>``. The ``<scope_name>`` corresponds to
+a Fortran module, in which a subroutine, interface or derived type is
+declared. That declaration's name (e.g., the name of the subroutine)
+constitutes the ``<local_name>`` part. For subroutines that are not embedded
+into a module, the ``<scope_name>`` is empty, i.e., the item's name starts with
+a dash (``#``).
+
+In most cases these IR nodes are scopes and the entry points for transformations:
+
+* :any:`FileItem` corresponds to :any:`Sourcefile`
+* :any:`ModuleItem` corresponds to :any:`Module`
+* :any:`ProcedureItem` corresponds to :any:`Subroutine`
+
+The remaining cases are items corresponding to IR nodes that constitute some
+form of intermediate dependency, which are required to resolve the indirection
+to the scope node:
+
+* :any:`InterfaceItem` corresponding to :any:`Interface`, i.e., providing a
+  callable target that resolves to one or multiple procedures that are defined
+  in the interface.
+* :any:`ProcedureBindingItem` corresponding to the :any:`ProcedureSymbol`
+  that is declared in a :any:`Declaration` in a derived type. Similarly to
+  interfaces, these resolve to one or multiple procedures that are defined in
+  the procedure binding inside the derived type.
+* :any:`TypeDefItem` corresponding to :any:`TypeDef`, which does not introduce
+  a control flow dependency but is crucial to capture as a dependency to enable
+  annotating type information for inter-procedural analysis.
+
+To facilitate the creation of the dependency tree, every :any:`Item`
+provides two key properties:
+
+* :any:`Item.definitions`: A list of all IR nodes that constitute symbols/names
+  that are made available by an item. For a :any:`FileItem`, this typically consists
+  of all modules and procedures in that sourcefile, and for a :any:`ModuleItem` it
+  comprises of procedures, interfaces, global variables and derived type definitions.
+* :any:`Item.dependencies`: A list of all IR nodes that introduce a dependency
+  on other items, e.g., :any:`CallStatement` or :any:`Import`.
+
+This information is used to populate the scheduler's dependency graph, which is
+constructed by the :any:`SGraph` class. Importantly, to improve processing speed
+and limit parsing to the minimum of required files, this relies on incremental
+parsing using the :any:`REGEX` frontend. Starting with only the top-level program
+units in every discovered source file and a specified seed, the dependencies of each
+item are used to determine the next set of items, which are generated on-demand
+from the enclosing scope via partial re-parses. This may incur incremental parsing
+with additional :any:`RegexParserClass` enabled to discover definitions or dependencies
+as required. Only once the full dependency graph has been generated, a full parse
+of the source files in the graph is performed, providing the complete internal
+representation and automatically enriching type information with inter-procedural annotations.
+
+
+Filtering graph traversals
+--------------------------
+
+Often, only specific item types are of interest when traversing the dependency graph.
+For that purpose, the :any:`SFilter` class provides an iterator for an :any:`SGraph`,
+which allows specifying an ``item_filter`` or reversing the direction of traversals.
+Other traversal modes may be added in the future.
+
+
 
 .. autosummary::
 
    loki.bulk.scheduler.Scheduler
-   loki.bulk.scheduler.SchedulerConfig
+   loki.bulk.scheduler.SGraph
+   loki.bulk.scheduler.SFilter
+   loki.bulk.configure.SchedulerConfig
+   loki.bulk.configure.TransformationConfig
+   loki.bulk.configure.ItemConfig
    loki.bulk.item.Item
-   loki.bulk.item.SubroutineItem
+   loki.bulk.item.FileItem
+   loki.bulk.item.ModuleItem
+   loki.bulk.item.ProcedureItem
+   loki.bulk.item.TypeDefItem
    loki.bulk.item.ProcedureBindingItem
+   loki.bulk.item.InterfaceItem
+   loki.bulk.item.ItemFactory

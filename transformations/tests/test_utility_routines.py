@@ -9,7 +9,8 @@ import shutil
 import pytest
 
 from loki import (
-    Scheduler, SchedulerConfig, FindNodes, CallStatement, gettempdir, OMNI, Import, Sourcefile
+    Scheduler, SFilter, ProcedureItem, SchedulerConfig, FindNodes, CallStatement,
+    gettempdir, OMNI, Import, Sourcefile
 )
 
 from conftest import available_frontends
@@ -24,7 +25,7 @@ def fixture_config():
     """
     default_config = {
         'default': {
-            'role': 'kernel', 'expand': True, 'strict': True, 'disable': ['dr_hook', 'abor1']
+            'role': 'kernel', 'expand': True, 'strict': False, 'disable': ['dr_hook', 'abor1']
         },
         'routines': {
             'rick_astley': {'role': 'driver'},
@@ -133,18 +134,18 @@ def test_dr_hook_transformation(frontend, config, source):
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
     scheduler.process(transformation=DrHookTransformation(mode='you_up'))
 
-    for item in scheduler.items:
+    for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
         drhook_calls = [
-            call for call in FindNodes(CallStatement).visit(item.routine.ir)
+            call for call in FindNodes(CallStatement).visit(item.ir.ir)
             if call.name == 'dr_hook'
         ]
         assert len(drhook_calls) == 2
         drhook_imports = [
-            imp for imp in FindNodes(Import).visit(item.routine.ir)
+            imp for imp in FindNodes(Import).visit(item.ir.ir)
             if imp.module == 'yomhook'
         ]
         assert len(drhook_imports) == 1
-        assert 'zhook_handle' in item.routine.variables
+        assert 'zhook_handle' in item.ir.variables
         if item.role == 'driver':
             assert all(
                 str(call.arguments[0]).lower().strip("'") == item.local_name.lower()
@@ -166,28 +167,28 @@ def test_dr_hook_transformation_remove(frontend, config, source):
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
     scheduler.process(transformation=DrHookTransformation(mode='you_up', remove=True))
 
-    for item in scheduler.items:
+    for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
         drhook_calls = [
-            call for call in FindNodes(CallStatement).visit(item.routine.ir)
+            call for call in FindNodes(CallStatement).visit(item.ir.ir)
             if call.name == 'dr_hook'
         ]
         drhook_imports = [
-            imp for imp in FindNodes(Import).visit(item.routine.ir)
+            imp for imp in FindNodes(Import).visit(item.ir.ir)
             if imp.module == 'yomhook'
         ]
-        for r in item.routine.members:
+        for r in item.ir.members:
             drhook_calls += [
                 call for call in FindNodes(CallStatement).visit(r.ir)
                 if call.name == 'dr_hook'
             ]
             drhook_imports += [
-                imp for imp in FindNodes(Import).visit(item.routine.ir)
+                imp for imp in FindNodes(Import).visit(item.ir.ir)
                 if imp.module == 'yomhook'
             ]
         if item.role == 'driver':
             assert len(drhook_calls) == 2
             assert len(drhook_imports) == 1
-            assert 'zhook_handle' in item.routine.variables
+            assert 'zhook_handle' in item.ir.variables
             assert all(
                 str(call.arguments[0]).lower().strip("'") == item.local_name.lower()
                 for call in drhook_calls
@@ -195,7 +196,7 @@ def test_dr_hook_transformation_remove(frontend, config, source):
         elif item.role == 'kernel':
             assert not drhook_calls
             assert not drhook_imports
-            assert 'zhook_handle' not in item.routine.variables
+            assert 'zhook_handle' not in item.ir.variables
 
 
 @pytest.mark.parametrize('include_intrinsics', (True, False))
@@ -216,7 +217,7 @@ def test_utility_routine_removal(frontend, config, source, include_intrinsics, k
         )
     )
 
-    routine = scheduler.item_map['rick_rolled#never_gonna_give'].routine
+    routine = scheduler['rick_rolled#never_gonna_give'].ir
     transformed = routine.to_fortran()
     assert '[SUBROUTINE CALL]' not in transformed
     assert '[INLINE CONDITIONAL]' not in transformed
@@ -235,6 +236,6 @@ def test_utility_routine_removal(frontend, config, source, include_intrinsics, k
     assert 'zhook_handle' in routine.variables
     assert len([call for call in FindNodes(CallStatement).visit(routine.body) if call.name == 'dr_hook']) == 2
 
-    driver = scheduler.item_map['#rick_astley'].routine
+    driver = scheduler['#rick_astley'].ir
     drhook_calls = [call for call in FindNodes(CallStatement).visit(driver.body) if call.name == 'dr_hook']
     assert len(drhook_calls) == (2 if kernel_only else 0)

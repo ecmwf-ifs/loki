@@ -287,7 +287,9 @@ class Sourcefile:
         return cls(path=filepath, ir=ir, source=source, incomplete=True, parser_classes=parser_classes)
 
     @classmethod
-    def from_source(cls, source, xmods=None, definitions=None, parser_classes=None, frontend=FP):
+    def from_source(cls, source, definitions=None, preprocess=False,
+                    includes=None, defines=None, omni_includes=None,
+                    xmods=None, frontend=FP, parser_classes=None):
         """
         Constructor from raw source string that invokes specified frontend parser
 
@@ -295,31 +297,49 @@ class Sourcefile:
         ----------
         source : str
             Fortran source string
-        xmods : str, optional
-            Path to directory to find and store ``.xmod`` files when using the
-            OMNI frontend.
         definitions : list of :any:`Module`, optional
             :any:`Module` object(s) that may supply external type or procedure
             definitions.
+        preprocess : bool, optional
+            Flag to trigger CPP preprocessing (by default `False`).
+
+            .. attention::
+                Please note that, when using the OMNI frontend, C-preprocessing
+                will always be applied, so :data:`includes` and :data:`defines`
+                may have to be defined even when disabling :data:`preprocess`.
+
+        includes : list of str, optional
+            Include paths to pass to the C-preprocessor.
+        defines : list of str, optional
+            Symbol definitions to pass to the C-preprocessor.
+        xmods : str, optional
+            Path to directory to find and store ``.xmod`` files when using the
+            OMNI frontend.
+        omni_includes: list of str, optional
+            Additional include paths to pass to the preprocessor run as part of
+            the OMNI frontend parse. If set, this **replaces** (!)
+            :data:`includes`, otherwise :data:`omni_includes` defaults to the
+            value of :data:`includes`.
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
         """
+        if preprocess:
+            # Trigger CPP-preprocessing explicitly, as includes and
+            # defines can also be used by our OMNI frontend
+            source = preprocess_cpp(source=source, includes=includes, defines=defines)
+
         if frontend == REGEX:
             return cls.from_regex(source, filepath=None, parser_classes=parser_classes)
 
         if frontend == OMNI:
-            ast = parse_omni_source(source, xmods=xmods)
-            typetable = ast.find('typeTable')
-            return cls._from_omni_ast(path=None, ast=ast, raw_source=source,
-                                      definitions=definitions, typetable=typetable)
+            return cls.from_omni(source, filepath=None, definitions=definitions, includes=includes,
+                                 defines=defines, xmods=xmods, omni_includes=omni_includes)
 
         if frontend == OFP:
-            ast = parse_ofp_source(source)
-            return cls._from_ofp_ast(path=None, ast=ast, raw_source=source, definitions=definitions)
+            return cls.from_ofp(source, filepath=None, definitions=definitions)
 
         if frontend == FP:
-            ast = parse_fparser_source(source)
-            return cls._from_fparser_ast(path=None, ast=ast, raw_source=source, definitions=definitions)
+            return cls.from_fparser(source, filepath=None, definitions=definitions)
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 

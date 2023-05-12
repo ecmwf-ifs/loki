@@ -56,14 +56,14 @@ def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name=""):
     Compile the source code and call the driver function in order to test the results for correctness.
     """
     assert is_iterable(a) and all(isinstance(_a, int) for _a in a)
-    items = [scheduler.item_map["transformation_module_hoist#driver"], scheduler.item_map["subroutines_mod#kernel1"]]
+    items = [scheduler["transformation_module_hoist#driver"], scheduler["subroutines_mod#kernel1"]]
     for item in items:
         suffix = '.F90'
         item.source.path = here / 'build' / Path(f"{item.source.path.stem}").with_suffix(suffix=suffix)
     libname = f'lib_{test_name}_{frontend}'
     builder = Builder(source_dirs=here/'build', build_dir=here/'build')
     lib = jit_compile_lib([item.source for item in items], path=here/'build', name=libname, builder=builder)
-    item = scheduler.item_map["transformation_module_hoist#driver"]
+    item = scheduler["transformation_module_hoist#driver"]
     for _a in a:
         parameter_length = 3
         b = np.zeros((_a,), dtype=np.int32, order='F')
@@ -82,40 +82,40 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, include_dev
     Check the subroutine and call arguments of each subroutine.
     """
     # driver
-    item = scheduler.item_map['transformation_module_hoist#driver']
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["driver"]
-    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+    item = scheduler['transformation_module_hoist#driver']
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["driver"]
+    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "kernel1" in call.name:
             assert call.arguments == call_arguments["kernel1"]
         elif "kernel2" in call.name:
             assert call.arguments == call_arguments["kernel2"]
     # another driver
-    item = scheduler.item_map['transformation_module_hoist#another_driver']
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["another_driver"]
-    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+    item = scheduler['transformation_module_hoist#another_driver']
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["another_driver"]
+    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "kernel1" in call.name:
             assert call.arguments == call_arguments["kernel1"]
     # kernel 1
-    item = scheduler.item_map['subroutines_mod#kernel1']
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel1"]
+    item = scheduler['subroutines_mod#kernel1']
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel1"]
     # kernel 2
-    item = scheduler.item_map['subroutines_mod#kernel2']
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel2"]
-    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+    item = scheduler['subroutines_mod#kernel2']
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel2"]
+    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "device1" in call.name:
             assert call.arguments == call_arguments["device1"]
         elif "device2" in call.name:
             assert call.arguments == call_arguments["device2"]
     if include_device_functions:
         # device 1
-        item = scheduler.item_map['subroutines_mod#device1']
-        assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device1"]
-        for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+        item = scheduler['subroutines_mod#device1']
+        assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device1"]
+        for call in FindNodes(ir.CallStatement).visit(item.ir.body):
             if "device2" in call.name:
                 assert call.arguments == call_arguments["device2"]
         # device 2
-        item = scheduler.item_map['subroutines_mod#device2']
-        assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device2"]
+        item = scheduler['subroutines_mod#device2']
+        assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device2"]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -278,9 +278,9 @@ def test_hoist_specific_variables(here, frontend, config):
 
 
 def check_variable_declaration(item, key):
-    declarations = [_.symbols[0].name for _ in FindNodes(ir.VariableDeclaration).visit(item.routine.spec)]
-    allocations = [_.variables[0].name for _ in FindNodes(ir.Allocation).visit(item.routine.body)]
-    de_allocations = [_.variables[0].name for _ in FindNodes(ir.Deallocation).visit(item.routine.body)]
+    declarations = [_.symbols[0].name for _ in FindNodes(ir.VariableDeclaration).visit(item.ir.spec)]
+    allocations = [_.variables[0].name for _ in FindNodes(ir.Allocation).visit(item.ir.body)]
+    de_allocations = [_.variables[0].name for _ in FindNodes(ir.Deallocation).visit(item.ir.body)]
     assert allocations
     assert de_allocations
     to_hoist_vars = [var.name for var in item.trafo_data[key]["to_hoist"]]
@@ -356,7 +356,7 @@ module kernel_mod
     implicit none
 contains
     subroutine kernel(start, end, klon, klev, nclv, field1, field2)
-        use iso_c_binding, only : c_size_t
+        use, intrinsic :: iso_c_binding, only : c_size_t
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
         integer, intent(in) :: nclv
@@ -408,7 +408,7 @@ end module kernel_mod
 
     if frontend == OMNI:
         for item in scheduler.items:
-            normalize_range_indexing(item.routine)
+            normalize_range_indexing(item.ir)
 
     scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('klev',)))
     scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable())
@@ -424,11 +424,11 @@ end module kernel_mod
     )
 
     # Check hoisting and declaration in driver
-    assert scheduler['#driver'].routine.variables == driver_variables
-    assert scheduler['kernel_mod#kernel'].routine.arguments == kernel_arguments
+    assert scheduler['#driver'].ir.variables == driver_variables
+    assert scheduler['kernel_mod#kernel'].ir.arguments == kernel_arguments
 
     # Check updated call signature
-    calls = FindNodes(ir.CallStatement).visit(scheduler['#driver'].routine.body)
+    calls = FindNodes(ir.CallStatement).visit(scheduler['#driver'].ir.body)
     assert len(calls) == 1
     assert calls[0].arguments == (
         '1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)',

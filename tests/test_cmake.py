@@ -216,7 +216,8 @@ def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild, silent
             expected_files = {
                 'driverB_mod', 'kernelB_mod',
                 'compute_l1_mod', 'compute_l2_mod',
-                'ext_driver_mod', 'ext_kernel'
+                'ext_driver_mod', 'ext_kernel',
+                'header_mod'
             }
 
             assert 'LOKI_SOURCES_TO_TRANSFORM' in plan_dict

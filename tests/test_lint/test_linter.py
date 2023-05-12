@@ -434,7 +434,8 @@ def test_linter_lint_files_glob(here, rules, counter, exclude, files, max_worker
         'module/kernelA_mod.F90',
         'module/compute_l1_mod.f90',
         'source/another_l1.F90',
-        'source/another_l2.F90'
+        'source/another_l2.F90',
+        'module/header_mod.f90'
     ]),
     ({
         'another_l1': {'role': 'driver'},
@@ -443,12 +444,14 @@ def test_linter_lint_files_glob(here, rules, counter, exclude, files, max_worker
         'source/another_l1.F90',
         'module/compute_l1_mod.f90',
         'source/another_l2.F90',
+        'module/header_mod.f90'
     ]),
     ({
         'another_l1': {'role': 'driver'}
     }, [
         'source/another_l1.F90',
-        'source/another_l2.F90'
+        'source/another_l2.F90',
+        'module/header_mod.f90'
     ]),
 ])
 def test_linter_lint_files_scheduler(here, rules, routines, files):
