@@ -16,9 +16,8 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info,
-    GlobalVarImportItem, Module
+    Sourcefile, Transformation, Scheduler, SchedulerConfig,
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info
 )
 
 # Get generalized transformations provided by Loki
@@ -45,7 +44,7 @@ from transformations.single_column_coalesced_vector import (
     SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
 )
 from transformations.scc_cuf import (
-    SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
+    HoistTemporaryArraysDeviceAllocatableTransformation
 )
 
 
@@ -161,7 +160,7 @@ def convert(
     # of any imported symbols and functions. Since we cannot yet retro-fit that
     # after creation, we need to make sure that the order of definitions can
     # be used to create a coherent stack of type definitions.
-    # definitions with new scheduler not necessary anymore. However, "source" need to be adjusted 
+    # definitions with new scheduler not necessary anymore. However, "source" need to be adjusted
     #  in order to allow the scheduler to find the dependencies
     definitions = []
     for h in header:

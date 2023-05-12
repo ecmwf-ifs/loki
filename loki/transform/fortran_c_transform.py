@@ -402,13 +402,15 @@ class FortranCTransformation(Transformation):
         header_module.rescope_symbols()
         return header_module
 
-    def generate_c_kernel(self, routine, **kwargs):
+    def generate_c_kernel(self, routine):
         """
         Re-generate the C kernel and insert wrapper-specific peculiarities,
         such as the explicit getter calls for imported module-level variables.
         """
 
-        kernel = routine
+        # Work with a copy of the original routine to not break the
+        # dependency graph of the Scheduler through the rename
+        kernel = routine.clone()
         kernel.name = f'{kernel.name.lower()}_c'
 
         # Clean up Fortran vector notation
@@ -486,7 +488,7 @@ class FortranCTransformation(Transformation):
                     _type = _type.clone(dtype=typedef.dtype)
                 var_map[arg] = Dereference(arg)
                 kernel.symbol_attrs[arg.name] = _type
-        routine.body = SubstituteExpressions(var_map).visit(routine.body)
+        kernel.body = SubstituteExpressions(var_map).visit(kernel.body)
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',

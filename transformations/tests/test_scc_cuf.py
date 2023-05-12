@@ -48,7 +48,7 @@ def fixture_config():
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True,
+            'strict': False,  # cudafor import
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -245,32 +245,32 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
     scheduler.process(transformation=ParametriseTransformation(dic2p=dic2p))
 
     # check for correct CUF transformation
-    check_subroutine_driver(routine=scheduler.item_map["driver_mod#driver"].routine, blocking=blocking)
-    check_subroutine_kernel(routine=scheduler.item_map["kernel_mod#kernel"].routine, horizontal=horizontal,
+    check_subroutine_driver(routine=scheduler["driver_mod#driver"].ir, blocking=blocking)
+    check_subroutine_kernel(routine=scheduler["kernel_mod#kernel"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)
-    check_subroutine_device(routine=scheduler.item_map["kernel_mod#device"].routine, horizontal=horizontal,
+    check_subroutine_device(routine=scheduler["kernel_mod#device"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)
-    check_subroutine_elemental_device(routine=scheduler.item_map["kernel_mod#elemental_device"].routine)
+    check_subroutine_elemental_device(routine=scheduler["kernel_mod#elemental_device"].ir)
 
     # check for parametrised variables
     vars2p = list(dic2p.keys())
-    routine_parameters = [var for var in scheduler.item_map["driver_mod#driver"].routine.variables
+    routine_parameters = [var for var in scheduler["driver_mod#driver"].ir.variables
                           if var.type.parameter]
     assert routine_parameters == vars2p
-    routine_parameters = [var for var in scheduler.item_map["kernel_mod#kernel"].routine.variables
+    routine_parameters = [var for var in scheduler["kernel_mod#kernel"].ir.variables
                           if var.type.parameter]
     assert routine_parameters == vars2p
-    routine_parameters = [var for var in scheduler.item_map["kernel_mod#device"].routine.variables
+    routine_parameters = [var for var in scheduler["kernel_mod#device"].ir.variables
                           if var.type.parameter]
     assert routine_parameters == vars2p
 
     # local arrays
-    routine = scheduler.item_map["kernel_mod#kernel"].routine
+    routine = scheduler["kernel_mod#kernel"].ir
     argument_arrays = [arg for arg in routine.arguments if isinstance(arg, sym.Array)]
     local_arrays = [var for var in routine.variables if isinstance(var, sym.Array) and var not in argument_arrays]
     for local_array in local_arrays:
         assert local_array.type.device
-    routine = scheduler.item_map["kernel_mod#device"].routine
+    routine = scheduler["kernel_mod#device"].ir
     argument_arrays = [arg for arg in routine.arguments if isinstance(arg, sym.Array)]
     local_arrays = [var for var in routine.variables if isinstance(var, sym.Array) and var not in argument_arrays]
     for local_array in local_arrays:
@@ -298,32 +298,32 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
     # Transformation: Synthesis
     scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
 
-    check_subroutine_driver(routine=scheduler.item_map["driver_mod#driver"].routine, blocking=blocking)
-    check_subroutine_kernel(routine=scheduler.item_map["kernel_mod#kernel"].routine, horizontal=horizontal,
+    check_subroutine_driver(routine=scheduler["driver_mod#driver"].ir, blocking=blocking)
+    check_subroutine_kernel(routine=scheduler["kernel_mod#kernel"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)
-    check_subroutine_device(routine=scheduler.item_map["kernel_mod#device"].routine, horizontal=horizontal,
+    check_subroutine_device(routine=scheduler["kernel_mod#device"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)
-    check_subroutine_elemental_device(routine=scheduler.item_map["kernel_mod#elemental_device"].routine)
+    check_subroutine_elemental_device(routine=scheduler["kernel_mod#elemental_device"].ir)
 
     # check driver
-    for call in FindNodes(CallStatement).visit(scheduler.item_map["driver_mod#driver"].routine.body):
+    for call in FindNodes(CallStatement).visit(scheduler["driver_mod#driver"].ir.body):
         argnames = [arg.name.lower() for arg in call.arguments]
         assert 'kernel_local_z' in argnames
         assert 'device_local_x' in argnames
     # check kernel
-    argnames = [arg.name.lower() for arg in scheduler.item_map["kernel_mod#kernel"].routine.arguments]
+    argnames = [arg.name.lower() for arg in scheduler["kernel_mod#kernel"].ir.arguments]
     assert 'local_z' in argnames
     assert 'device_local_x' in argnames
-    calls = [call for call in FindNodes(CallStatement).visit(scheduler.item_map["kernel_mod#kernel"].routine.body)
+    calls = [call for call in FindNodes(CallStatement).visit(scheduler["kernel_mod#kernel"].ir.body)
              if str(call.name) == "DEVICE"]
     for call in calls:
         assert 'DEVICE_local_x' in call.arguments
     # check device
-    assert all(_ in [arg.name for arg in scheduler.item_map["kernel_mod#device"].routine.arguments]
+    assert all(_ in [arg.name for arg in scheduler["kernel_mod#device"].ir.arguments]
                for _ in ['local_x'])
 
     # local arrays
-    routine = scheduler.item_map["kernel_mod#kernel"].routine
+    routine = scheduler["kernel_mod#kernel"].ir
     local_arrays = [routine.variable_map["local_z"]]
     for local_array in local_arrays:
         assert local_array.type.intent == 'inout'
@@ -331,7 +331,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
         assert horizontal.size in dims
         assert vertical.size in dims
         assert blocking.size in dims
-    routine = scheduler.item_map["kernel_mod#device"].routine
+    routine = scheduler["kernel_mod#device"].ir
     local_arrays = [routine.variable_map["local_x"]]
     for local_array in local_arrays:
         assert local_array.type.intent == 'inout'
@@ -357,22 +357,22 @@ def test_scc_cuf_dynamic_memory(here, frontend, config, horizontal, vertical, bl
     )
     scheduler.process(transformation=cuf_transform)
 
-    check_subroutine_driver(routine=scheduler.item_map["driver_mod#driver"].routine, blocking=blocking)
-    check_subroutine_kernel(routine=scheduler.item_map["kernel_mod#kernel"].routine, horizontal=horizontal,
+    check_subroutine_driver(routine=scheduler["driver_mod#driver"].ir, blocking=blocking)
+    check_subroutine_kernel(routine=scheduler["kernel_mod#kernel"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)
-    check_subroutine_device(routine=scheduler.item_map["kernel_mod#device"].routine, horizontal=horizontal,
+    check_subroutine_device(routine=scheduler["kernel_mod#device"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)
-    check_subroutine_elemental_device(routine=scheduler.item_map["kernel_mod#elemental_device"].routine)
+    check_subroutine_elemental_device(routine=scheduler["kernel_mod#elemental_device"].ir)
 
     # kernel
-    routine = scheduler.item_map["kernel_mod#kernel"].routine
+    routine = scheduler["kernel_mod#kernel"].ir
     _allocations = FindNodes(Allocation).visit(routine.body)
     allocations = []
     for allocation in _allocations:
         allocations.extend(allocation.variables)
     assert "local_z" in [_.name for _ in allocations]
     # device
-    routine = scheduler.item_map["kernel_mod#device"].routine
+    routine = scheduler["kernel_mod#device"].ir
     _allocations = FindNodes(Allocation).visit(routine.body)
     allocations = []
     for allocation in _allocations:
@@ -380,14 +380,14 @@ def test_scc_cuf_dynamic_memory(here, frontend, config, horizontal, vertical, bl
     assert "local_x" in [_.name for _ in allocations]
 
     # local arrays
-    routine = scheduler.item_map["kernel_mod#kernel"].routine
+    routine = scheduler["kernel_mod#kernel"].ir
     argument_arrays = [arg for arg in routine.arguments if isinstance(arg, sym.Array)]
     local_arrays = [var for var in routine.variables if isinstance(var, sym.Array) and var not in argument_arrays]
     for local_array in local_arrays:
         assert local_array.type.allocatable
         assert local_array.type.device
         assert len(local_array.dimensions) == 1
-    routine = scheduler.item_map["kernel_mod#device"].routine
+    routine = scheduler["kernel_mod#device"].ir
     argument_arrays = [arg for arg in routine.arguments if isinstance(arg, sym.Array)]
     local_arrays = [var for var in routine.variables if isinstance(var, sym.Array) and var not in argument_arrays]
     for local_array in local_arrays:

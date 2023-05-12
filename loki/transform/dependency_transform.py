@@ -7,14 +7,18 @@
 
 from pathlib import Path
 
-from loki.transform.transformation import Transformation
-from loki.subroutine import Subroutine
-from loki.module import Module
-from loki.visitors import FindNodes, Transformer
-from loki.ir import CallStatement, Import, Section, Interface
-from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
 from loki.backend import fgen
+from loki.bulk import SchedulerConfig
+from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
+from loki.ir import CallStatement, Import, Section, Interface
+from loki.logging import warning
+from loki.module import Module
+from loki.scope import Scope
+from loki.subroutine import Subroutine
+from loki.types import ProcedureType
 from loki.tools import as_tuple
+from loki.transform.transformation import Transformation
+from loki.visitors import FindNodes, Transformer
 
 
 __all__ = ['DependencyTransformation', 'ModuleWrapTransformation']
@@ -65,7 +69,15 @@ class DependencyTransformation(Transformation):
     replace_ignore_items : bool
         Debug flag to toggle the replacement of calls to subroutines
         in the ``ignore``. Default is ``True``.
+    remove_inactive_items : bool
+        Debug flag to toggle the removal of items (modules, subroutines)
+        in the sourcefile that are not part of the scheduler graph.
+        Default is ``True``.
     """
+
+    # item_filter = Item
+
+    reverse_traversal = True
 
     # This transformation is applied over the file graph
     traverse_file_graph = True
@@ -75,19 +87,48 @@ class DependencyTransformation(Transformation):
     recurse_to_procedures = True
     recurse_to_internal_procedures = False
 
-    def __init__(self, suffix, module_suffix=None, include_path=None, replace_ignore_items=True):
+    # This transformation changes the names of items and may create items if original modules
+    # are retained (e.g., when global variable imports exist)
+    renames_items = True
+    creates_items = True
+
+    def __init__(self, suffix, module_suffix=None, include_path=None, replace_ignore_items=True,
+                 remove_inactive_items=True):
         self.suffix = suffix
         self.module_suffix = module_suffix
         self.replace_ignore_items = replace_ignore_items
+        self.remove_inactive_items = remove_inactive_items
         self.include_path = None if include_path is None else Path(include_path)
+
+    def transform_file(self, sourcefile, **kwargs):
+        """
+        Remove non-active scope nodes if :attr:`remove_inactive_items` is true
+        """
+        sourcefile.ir = sourcefile.ir.clone(
+            body=self.remove_inactive_ir_nodes(
+                sourcefile.ir.body, f'file {(sourcefile.path or "")!s}', **kwargs
+            )
+        )
 
     def transform_module(self, module, **kwargs):
         """
         Rename kernel modules and re-point module-level imports.
         """
-        if kwargs.get('role') == 'kernel':
+        role = kwargs.get('role')
+
+        if role == 'kernel':
             # Change the name of kernel modules
             module.name = self.derive_module_name(module.name)
+
+            if (item := kwargs.get('item')) and item.name != module.name.lower():
+                item.name = module.name.lower()
+
+            if module.contains:
+                module.contains = module.contains.clone(
+                    body=self.remove_inactive_ir_nodes(
+                        module.contains.body, f'module {module.name}', **kwargs
+                    ),
+                )
 
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets')))
         if self.replace_ignore_items and (item := kwargs.get('item')):
@@ -102,8 +143,9 @@ class DependencyTransformation(Transformation):
         block.
         """
         role = kwargs.get('role')
+        item = kwargs.get('item')
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets')))
-        if self.replace_ignore_items and (item := kwargs.get('item')):
+        if self.replace_ignore_items and item:
             targets += tuple(str(i).lower() for i in item.ignore)
 
         if role == 'kernel':
@@ -111,12 +153,15 @@ class DependencyTransformation(Transformation):
                 # This is to ensure that the transformation is idempotent if
                 # applied more than once to a routine
                 return
+
             # Change the name of kernel routines
             if routine.is_function and not routine.result_name:
                 self.update_result_var(routine)
             routine.name += self.suffix
+            if item:
+                item.name += self.suffix.lower()
 
-        self.rename_calls(routine, targets=targets)
+        self.rename_calls(routine, targets=targets, item=item)
 
         # Note, C-style imports can be in the body, so use whole IR
         imports = FindNodes(Import).visit(routine.ir)
@@ -126,9 +171,29 @@ class DependencyTransformation(Transformation):
         intfs = FindNodes(Interface).visit(routine.spec)
         self.rename_interfaces(intfs, targets=targets)
 
-        if role == 'kernel' and not routine.parent:
+        if role == 'kernel' and not routine.parent and self.include_path:
             # Re-generate C-style interface header
             self.generate_interfaces(routine)
+
+    def remove_inactive_ir_nodes(self, body, transformed_scope_name, **kwargs):
+        """
+        Utility to filter :any:`Scope` nodes in :data:`body` to include only
+        those given in ``kwargs['items']``.
+        """
+        if self.remove_inactive_items:
+            if kwargs.get('items') is None:
+                msg = (
+                    f'Cannot remove inactive items in {transformed_scope_name}.'
+                    '. No ``items`` given in kwargs.'
+                )
+                warning(msg)
+            else:
+                active_nodes = [item.scope_ir for item in kwargs['items']]
+                body = tuple(
+                    node for node in body
+                    if not isinstance(node, Scope) or node in active_nodes
+                )
+        return body
 
     def derive_module_name(self, modname):
         """
@@ -173,7 +238,7 @@ class DependencyTransformation(Transformation):
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
-    def rename_calls(self, routine, targets=None):
+    def rename_calls(self, routine, targets=None, item=None):
         """
         Update :any:`CallStatement` and :any:`InlineCall` to actively
         transformed procedures
@@ -184,19 +249,40 @@ class DependencyTransformation(Transformation):
             Optional list of subroutine names for which to modify the corresponding
             calls. If not provided, all calls are updated
         """
+        def _update_item(orig_name, new_name):
+            # Update the ignore property if necessary
+            if item and (matched_keys := SchedulerConfig.match_item_keys(orig_name, item.ignore)):
+                # Add the renamed but ignored items to the block list because we won't be able to
+                # find them as dependencies under their new name anymore
+                item.config['block'] = item.block + tuple(
+                    new_name for name in item.ignore if name in matched_keys
+                )
+                item.config['ignore'] = tuple(
+                    new_name if name in matched_keys else name
+                    for name in item.ignore
+                )
+
         members = [r.name for r in routine.subroutines]
 
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in members:
                 continue
             if targets is None or call.name in targets:
-                call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
+                orig_name = str(call.name)
+                new_name = f'{orig_name}{self.suffix}'
+                new_type = call.name.type.clone(dtype=ProcedureType(name=new_name))
+                call._update(name=call.name.clone(name=new_name, type=new_type))
+                _update_item(orig_name, str(call.name))
 
         for call in FindInlineCalls(unique=False).visit(routine.body):
             if call.function in members:
                 continue
             if targets is None or call.function in targets:
-                call.function = call.function.clone(name=f'{call.name}{self.suffix}')
+                orig_name = str(call.name)
+                new_name = f'{orig_name}{self.suffix}'
+                new_type = call.function.type.clone(dtype=ProcedureType(name=new_name))
+                call.function = call.function.clone(name=new_name, type=new_type)
+                _update_item(orig_name, str(call.name))
 
     def rename_imports(self, source, imports, targets=None):
         """
@@ -215,18 +301,20 @@ class DependencyTransformation(Transformation):
         # We don't want to rename module variable imports, so we build
         # a list of calls to further filter the targets
         if isinstance(source, Module):
-            calls = ()
+            calls = set()
             for routine in source.subroutines:
-                calls += tuple(str(c.name).lower() for c in FindNodes(CallStatement).visit(routine.body))
-                calls += tuple(str(c.name).lower() for c in FindInlineCalls().visit(routine.body))
+                calls |= {str(c.name).lower() for c in FindNodes(CallStatement).visit(routine.body)}
+                calls |= {str(c.name).lower() for c in FindInlineCalls().visit(routine.body)}
         else:
-            calls = tuple(str(c.name).lower() for c in FindNodes(CallStatement).visit(source.body))
-            calls += tuple(str(c.name).lower() for c in FindInlineCalls().visit(source.body))
+            calls = {str(c.name).lower() for c in FindNodes(CallStatement).visit(source.body)}
+            calls |= {str(c.name).lower() for c in FindInlineCalls().visit(source.body)}
 
         # Import statements still point to unmodified call names
-        calls = [call.replace(f'{self.suffix.lower()}', '') for call in calls]
+        calls = {call.replace(f'{self.suffix.lower()}', '') for call in calls}
+        call_targets = {call for call in calls if call in targets}
 
         # We go through the IR, as C-imports can be attributed to the body
+        import_map = {}
         for im in imports:
             if im.c_import:
                 target_symbol = im.module.split('.')[0].lower()
@@ -236,15 +324,29 @@ class DependencyTransformation(Transformation):
                     im._update(module=f'{target_symbol}{self.suffix}.{s}')
 
             else:
-                # Modify module import if it imports any targets
-                if targets and any(s in targets and s in calls for s in im.symbols):
-                    # Append suffix to all target symbols
-                    symbols = as_tuple(s.clone(name=f'{s.name}{self.suffix}')
-                                       if s in targets else s for s in im.symbols)
-                    module_name = self.derive_module_name(im.module)
-                    im._update(module=module_name, symbols=symbols)
+                # Modify module import if it imports any call targets
+                if targets and im.symbols and any(s in call_targets for s in im.symbols):
+                    new_module_name = self.derive_module_name(im.module)
+                    if not all(s in call_targets for s in im.symbols):
+                        # Mixed import: We need to split the import, retaining the original name for
+                        # non-target imports and using the new name for target imports
+                        import_map[im] = tuple(
+                            im.clone(module=new_module_name, symbols=(s.clone(name=f'{s.name}{self.suffix}'),))
+                            if s in call_targets else im.clone(symbols=(s,))
+                            for s in im.symbols
+                        )
+                    else:
+                        # Append suffix to all symbols and in-place update the import
+                        symbols = tuple(
+                            s.clone(name=f'{s.name}{self.suffix}')
+                            if s in call_targets else s for s in im.symbols
+                        )
+                        im._update(module=new_module_name, symbols=symbols)
 
                 # TODO: Deal with unqualified blanket imports
+
+        if import_map:
+            source.spec = Transformer(import_map).visit(source.spec)
 
     def rename_interfaces(self, intfs, targets=None):
         """
@@ -300,6 +402,10 @@ class ModuleWrapTransformation(Transformation):
     recurse_to_procedures = True
     recurse_to_internal_procedures = False
 
+    # This transformation changes the names of items and creates new items
+    renames_items = True
+    creates_items = True
+
     def __init__(self, module_suffix, replace_ignore_items=True):
         self.module_suffix = module_suffix
         self.replace_ignore_items = replace_ignore_items
@@ -308,13 +414,14 @@ class ModuleWrapTransformation(Transformation):
         """
         For kernel routines, wrap each subroutine in the current file in a module
         """
-        items = kwargs.get('items')
-        role = kwargs.pop('role')
+        role = kwargs.get('role')
 
-        if not role and items:
+        if items := kwargs.get('items'):
             # We consider the sourcefile to be a "kernel" file if all items are kernels
             if all(item.role == 'kernel' for item in items):
                 role = 'kernel'
+            else:
+                role = 'driver'
 
         if role == 'kernel':
             self.module_wrap(sourcefile)
@@ -329,6 +436,11 @@ class ModuleWrapTransformation(Transformation):
         """
         Update imports of wrapped subroutines
         """
+        if item := kwargs.get('item'):
+            # Rename the item if it has suddenly a parent
+            if routine.parent and routine.parent.name.lower() != item.scope_name:
+                item.name = f'{routine.parent.name.lower()}#{item.local_name}'
+
         # Note, C-style imports can be in the body, so use whole IR
         imports = FindNodes(Import).visit(routine.ir)
         self.update_imports(routine, imports=imports, **kwargs)

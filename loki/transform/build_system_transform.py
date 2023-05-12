@@ -12,7 +12,7 @@ Transformations to be used in build-system level tasks
 from pathlib import Path
 
 from loki.transform.transformation import Transformation
-from loki.bulk.item import SubroutineItem, GlobalVarImportItem
+from loki.bulk.item import ProcedureItem, ModuleItem#, GlobalVariableItem
 
 __all__ = ['FileWriteTransformation']
 
@@ -57,8 +57,8 @@ class FileWriteTransformation(Transformation):
         imports are honoured in the :any:`Scheduler` traversal.
         """
         if self.include_module_var_imports:
-            return (SubroutineItem, GlobalVarImportItem)
-        return SubroutineItem
+            return (ProcedureItem, ModuleItem) #GlobalVariableItem)
+        return ProcedureItem
 
     def transform_file(self, sourcefile, **kwargs):
         item = kwargs.get('item', None)

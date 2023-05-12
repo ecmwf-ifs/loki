@@ -11,7 +11,7 @@ import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-    Subroutine, Module, FortranCTransformation, cgen, OFP
+    Subroutine, Module, FortranCTransformation, OFP
 )
 from loki.build import Builder
 from loki.transform import normalize_range_indexing
@@ -986,7 +986,7 @@ end subroutine transpile_expressions
     fc_function = c_kernel.transpile_expressions_fc_mod.transpile_expressions_fc
 
     # Make sure minus signs are represented correctly in the C code
-    ccode = cgen(routine)
+    ccode = f2c.c_path.read_text()
     # double minus due to index shift to 0
     assert 'vector[i - 1 - 1]' in ccode or 'vector[-1 + i - 1]' in ccode
     assert 'vector[i - 1]' in ccode
