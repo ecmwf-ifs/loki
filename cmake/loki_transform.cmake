@@ -172,6 +172,7 @@ endmacro()
 #       MODE <mode>
 #       FRONTEND <frontend>
 #       [CPP]
+#       [DIRECTIVE <directive>]
 #       [CONFIG <config-file>]
 #       [PATH <path>]
 #       [OUTPATH <outpath>]
@@ -198,7 +199,7 @@ endmacro()
 function( loki_transform_convert )
 
     set( options CPP DATA_OFFLOAD REMOVE_OPENMP )
-    set( oneValueArgs MODE FRONTEND CONFIG PATH OUTPATH )
+    set( oneValueArgs MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH )
     set( multiValueArgs OUTPUT DEPENDS INCLUDES INCLUDE HEADERS HEADER DEFINITIONS DEFINE OMNI_INCLUDE XMOD )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
