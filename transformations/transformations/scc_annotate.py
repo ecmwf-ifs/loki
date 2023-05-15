@@ -12,6 +12,7 @@ from loki import(
            CaseInsensitiveDict, DerivedType, FindVariables, flatten, as_tuple,
            FindScopes
 )
+from transformations.scc_base import SCCBaseTransformation
 
 __all__ = ['SCCAnnotateTransformation']
 
@@ -187,6 +188,10 @@ class SCCAnnotateTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
+
+        # Bail if routine is marked as sequential
+        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
+            return
 
         if self.directive == 'openacc':
             self.insert_annotations(routine, self.horizontal, self.vertical,
