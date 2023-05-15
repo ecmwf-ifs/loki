@@ -21,10 +21,16 @@ class SCCRevectorTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
+    directive : string or None
+        Directives flavour to use for parallelism annotations; either
+        ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal):
+    def __init__(self, horizontal, directive):
         self.horizontal = horizontal
+
+        assert directive in [None, 'openacc']
+        self.directive = directive
 
     @classmethod
     def wrap_vector_section(cls, section, routine, horizontal):
