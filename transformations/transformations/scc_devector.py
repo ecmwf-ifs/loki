@@ -159,6 +159,6 @@ class SCCDevectorTransformation(Transformation):
         self.kernel_remove_vector_loops(routine, self.horizontal)
 
         # Replace sections with marked Section node
-        section_mapper = {s: Section(body=s, label='vector_section')
+        section_mapper = {s: ir.Section(body=s, label='vector_section')
                           for s in self.extract_vector_sections(routine.body.body, self.horizontal)}
         routine.body = NestedTransformer(section_mapper).visit(routine.body)

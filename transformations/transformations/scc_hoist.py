@@ -8,7 +8,7 @@
 from loki.expression import symbols as sym
 from loki import(
           Transformation, CaseInsensitiveDict, as_tuple, BasicType,
-          SubstituteExpressions, info, ir, Transformer
+          SubstituteExpressions, info, ir, Transformer, FindNodes
 )
 from transformations.scc_base import SCCBaseTransformation
 
@@ -23,6 +23,9 @@ class SCCHoistTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
+    vertical : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the vertical dimension, as needed to decide array privatization.
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
@@ -31,8 +34,9 @@ class SCCHoistTransformation(Transformation):
         optimization.
     """
 
-    def __init__(self, horizontal, directive=None, hoist_column_arrays=True):
+    def __init__(self, horizontal, vertical, directive=None, hoist_column_arrays=True):
         self.horizontal = horizontal
+        self.vertical = vertical
         self.hoist_column_arrays = hoist_column_arrays
 
         assert directive in [None, 'openacc']

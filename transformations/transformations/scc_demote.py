@@ -122,7 +122,7 @@ class SCCDemoteTransformation(Transformation):
             return
 
         # Find vector sections marked in the SCCDevectorTransformation
-        sections = [s for s in FindNodes(Section).visit(routine.body) if s.label == 'vector_section']
+        sections = [s for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section']
 
         # Extract the local variables to demote after we wrap the sections in vector loops.
         # We do this, because need the section blocks to determine which local arrays

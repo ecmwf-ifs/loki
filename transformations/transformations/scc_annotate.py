@@ -9,7 +9,8 @@ from loki.transform import resolve_associates
 from loki.expression import symbols as sym
 from loki import(
            Transformation, ir, Transformer, FindNodes, pragmas_attached,
-           CaseInsensitiveDict, DerivedType, FindVariables
+           CaseInsensitiveDict, DerivedType, FindVariables, flatten, as_tuple,
+           FindScopes
 )
 from transformations.scc_base import SCCBaseTransformation
 
@@ -219,7 +220,7 @@ class SCCAnnotateTransformation(Transformation):
                 loop = loops[0]
 
                 # Mark driver loop as "gang parallel".
-                self.annotate_driver(self.directive, self.block_dim, loop)
+                self.annotate_driver(self.directive, loop, self.block_dim)
 
     @classmethod
     def annotate_driver(cls, directive, loop, block_dim):
