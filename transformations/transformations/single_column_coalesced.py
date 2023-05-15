@@ -18,7 +18,7 @@ from loki import (
     FindExpressions, Transformer, NestedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
     pragmas_attached, CaseInsensitiveDict, as_tuple, flatten,
-    demote_variables, info, Section
+    demote_variables, info
 )
 
 __all__ = ['SingleColumnCoalescedTransformation']
@@ -278,12 +278,12 @@ class SingleColumnCoalescedTransformation(Transformation):
         SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)
 
         # Replace sections with marked Section node
-        section_mapper = {s: Section(body=s, label='vector_section')
+        section_mapper = {s: ir.Section(body=s, label='vector_section')
                          for s in SCCDevectorTransformation.extract_vector_sections(routine.body.body, self.horizontal)}
         routine.body = NestedTransformer(section_mapper).visit(routine.body)
 
         # Find vector sections marked in the SCCDevectorTransformation
-        sections = [s for s in FindNodes(Section).visit(routine.body) if s.label == 'vector_section']
+        sections = [s for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section']
 
         # Extract the local variables to demote after we wrap the sections in vector loops.
         # We do this, because need the section blocks to determine which local arrays
@@ -298,7 +298,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         if not self.hoist_column_arrays:
             # Promote vector loops to be the outermost loop dimension in the kernel
             mapper = {s.body: wrap_vector_section(s.body, routine, self.horizontal)
-                              for s in FindNodes(Section).visit(routine.body)
+                              for s in FindNodes(ir.Section).visit(routine.body)
                               if s.label == 'vector_section'}
             routine.body = NestedTransformer(mapper).visit(routine.body)
 
@@ -318,7 +318,7 @@ class SingleColumnCoalescedTransformation(Transformation):
                 routine.arguments += as_tuple(new_v)
 
         # Remove section wrappers
-        section_mapper = {s: s.body for s in FindNodes(Section).visit(routine.body) if s.label == 'vector_section'}
+        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
         if section_mapper:
             routine.body = Transformer(section_mapper).visit(routine.body)
 
