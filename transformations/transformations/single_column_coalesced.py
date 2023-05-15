@@ -14,6 +14,7 @@ from transformations.scc_devector import SCCDevectorTransformation
 from transformations.scc_demote import SCCDemoteTransformation
 from transformations.scc_revector import SCCRevectorTransformation
 from transformations.scc_hoist import SCCHoistTransformation
+from transformations.scc_annotate import SCCAnnotateTransformation
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
@@ -24,86 +25,6 @@ from loki import (
 )
 
 __all__ = ['SingleColumnCoalescedTransformation']
-
-def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
-    """
-    Insert ``!$acc loop vector`` annotations around horizontal vector
-    loops, including the necessary private variable declarations.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
-    horizontal: :any:`Dimension`
-        The dimension object specifying the horizontal vector dimension
-    vertical: :any:`Dimension`
-        The dimension object specifying the vertical loop dimension
-    """
-
-    # Find any local arrays that need explicitly privatization
-    argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-    private_arrays = [v for v in routine.variables if not v.name in argument_map]
-    private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
-    private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
-    private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
-
-    with pragmas_attached(routine, ir.Loop):
-        mapper = {}
-        for loop in FindNodes(ir.Loop).visit(routine.body):
-            if loop.variable == horizontal.index:
-                # Construct pragma and wrap entire body in vector loop
-                private_arrs = ', '.join(v.name for v in private_arrays)
-                pragma = ()
-                private_clause = '' if not private_arrays else f' private({private_arrs})'
-                pragma = ir.Pragma(keyword='acc', content=f'loop vector{private_clause}')
-                mapper[loop] = loop.clone(pragma=(pragma,))
-
-        routine.body = Transformer(mapper).visit(routine.body)
-
-
-def kernel_annotate_sequential_loops_openacc(routine, horizontal):
-    """
-    Insert ``!$acc loop seq`` annotations around all loops that
-    are not horizontal vector loops.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to annotate sequential loops
-    horizontal: :any:`Dimension`
-        The dimension object specifying the horizontal vector dimension
-    """
-    with pragmas_attached(routine, ir.Loop):
-
-        for loop in FindNodes(ir.Loop).visit(routine.body):
-            # Skip loops explicitly marked with `!$loki/claw nodep`
-            if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
-                continue
-
-            if loop.variable != horizontal.index:
-                # Perform pragma addition in place to avoid nested loop replacements
-                loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
-
-
-def kernel_annotate_subroutine_present_openacc(routine):
-    """
-    Insert ``!$acc data present`` annotations around the body of a subroutine.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine to which annotations will be added
-    """
-
-    # Get the names of all array and derived type arguments
-    args = [a for a in routine.arguments if isinstance(a, sym.Array)]
-    args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
-    argnames = [str(a.name) for a in args]
-
-    routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
-    # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
-    routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
-
 
 class SingleColumnCoalescedTransformation(Transformation):
     """
@@ -270,23 +191,8 @@ class SingleColumnCoalescedTransformation(Transformation):
                 SCCHoistTransformation.add_loop_index_to_args(v_index, routine)
 
         if self.directive == 'openacc':
-            # Mark all non-parallel loops as `!$acc loop seq`
-            kernel_annotate_sequential_loops_openacc(routine, self.horizontal)
-
-            # Mark all parallel vector loops as `!$acc loop vector`
-            kernel_annotate_vector_loops_openacc(routine, self.horizontal, self.vertical)
-
-            # Wrap the routine body in `!$acc data present` markers
-            # to ensure device-resident data is used for array and struct arguments.
-            kernel_annotate_subroutine_present_openacc(routine)
-
-            if self.hoist_column_arrays:
-                # Mark routine as `!$acc routine seq` to make it device-callable
-                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
-
-            else:
-                # Mark routine as `!$acc routine vector` to make it device-callable
-                routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
+            SCCAnnotateTransformation.insert_annotations(routine, self.horizontal, self.vertical,
+                                                         self.hoist_column_arrays)
 
     def process_driver(self, routine, targets=None):
         """
