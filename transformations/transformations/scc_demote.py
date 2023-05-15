@@ -26,10 +26,13 @@ class SCCDemoteTransformation(Transformation):
         ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, directive=None):
+    def __init__(self, horizontal, directive=None, demote_local_arrays=True):
         self.horizontal = horizontal
+
         assert directive in [None, 'openacc']
         self.directive = directive
+
+        self.demote_local_arrays = demote_local_arrays
 
     @classmethod
     def kernel_get_locals_to_demote(cls, routine, sections, horizontal):
@@ -104,9 +107,12 @@ class SCCDemoteTransformation(Transformation):
         item = kwargs.get('item', None)
 
         if role == 'kernel':
-            self.process_kernel(routine)
+            demote_locals = self.demote_local_arrays
+            if item:
+                demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
+            self.process_kernel(routine, demote_locals=demote_locals)
 
-    def process_kernel(self, routine):
+    def process_kernel(self, routine, demote_locals=True):
         """
         Applies the SCCDemote utilities to a "kernel" and demotes all suitable local arrays.
 
@@ -128,3 +134,9 @@ class SCCDemoteTransformation(Transformation):
         # We do this, because need the section blocks to determine which local arrays
         # may carry buffered values between them, so that we may not demote those!
         to_demote = self.kernel_get_locals_to_demote(routine, sections, self.horizontal)
+
+        # Demote all private local variables that do not buffer values between sections
+        if demote_locals:
+            variables = tuple(v.name for v in to_demote)
+            if variables:
+                demote_variables(routine, variable_names=variables, dimensions=self.horizontal.size)
