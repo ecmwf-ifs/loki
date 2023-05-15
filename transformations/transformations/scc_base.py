@@ -36,8 +36,8 @@ class SCCBaseTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
-    @staticmethod
-    def check_routine_pragmas(routine, directive):
+    @classmethod
+    def check_routine_pragmas(cls, routine, directive):
         """
         Check if routine is marked as sequential or has already been processed.
 
@@ -76,8 +76,8 @@ class SCCBaseTransformation(Transformation):
 
         return False
 
-    @staticmethod
-    def check_horizontal_var(routine, horizontal):
+    @classmethod
+    def check_horizontal_var(cls, routine, horizontal):
         """
         Check for horizontal loop bounds in a :any:`Subroutine`.
 
@@ -95,8 +95,8 @@ class SCCBaseTransformation(Transformation):
         if horizontal.bounds[1] not in routine.variable_map:
             raise RuntimeError(f'No horizontal end variable found in {routine.name}')
 
-    @staticmethod
-    def get_integer_variable(routine, name):
+    @classmethod
+    def get_integer_variable(cls, routine, name):
         """
         Find a local variable in the routine, or create an integer-typed one.
 
@@ -217,14 +217,14 @@ class SCCBaseTransformation(Transformation):
         """
 
         # Bail if routine is marked as sequential or routine has already been processed
-        if check_routine_pragmas(routine, self.directive):
+        if self.check_routine_pragmas(routine, self.directive):
             return
 
         # check for horizontal loop bounds in subroutine symbol table
-        check_horizontal_var(routine, self.horizontal)
+        self.check_horizontal_var(routine, self.horizontal)
 
         # Find the iteration index variable for the specified horizontal
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
+        v_index = self.get_integer_variable(routine, name=self.horizontal.index)
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
