@@ -26,14 +26,18 @@ class SCCHoistTransformation(Transformation):
     vertical : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the vertical dimension, as needed to decide array privatization.
+    block_dim : :any:`Dimension`
+        Optional ``Dimension`` object to define the blocking dimension
+        to use for hoisted column arrays if hoisting is enabled.
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, vertical, directive=None):
+    def __init__(self, horizontal, vertical, block_dim, directive=None):
         self.horizontal = horizontal
         self.vertical = vertical
+        self.block_dim = block_dim
 
         assert directive in [None, 'openacc']
         self.directive = directive

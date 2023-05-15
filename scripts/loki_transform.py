@@ -216,12 +216,12 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
         transformation = (SCCBaseTransformation(horizontal=horizontal, directive=directive),)
-        transformation += (SCCDevectorTransformation(horizontal=horizontal, directive=directive),)
-        transformation += (SCCDemoteTransformation(horizontal=horizontal, directive=directive),)
-        transformation += (SCCRevectorTransformation(horizontal=horizontal, directive=directive),)
+        transformation += (SCCDevectorTransformation(horizontal=horizontal),)
+        transformation += (SCCDemoteTransformation(horizontal=horizontal),)
+        transformation += (SCCRevectorTransformation(horizontal=horizontal),)
         if 'hoist' in mode:
             transformation += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical,
-                                                      directive=directive),)
+                                                      block_dim=block_dim, directive=directive),)
         transformation += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
                                                      directive=directive, block_dim=block_dim,
                                                      hoist_column_arrays='hoist' in mode),)

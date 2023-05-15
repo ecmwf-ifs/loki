@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki.expression import symbols as sym
-from loki import Transformation, FindNodes, ir, demote_variables, FindVariables, flatten, fgen
+from loki import Transformation, FindNodes, ir, demote_variables, FindVariables, flatten
 
 __all__ = ['SCCDemoteTransformation']
 
@@ -20,16 +20,10 @@ class SCCDemoteTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
-    directive : string or None
-        Directives flavour to use for parallelism annotations; either
-        ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, directive=None, demote_local_arrays=True):
+    def __init__(self, horizontal, demote_local_arrays=True):
         self.horizontal = horizontal
-
-        assert directive in [None, 'openacc']
-        self.directive = directive
 
         self.demote_local_arrays = demote_local_arrays
         self._processed = {}

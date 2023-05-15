@@ -24,16 +24,10 @@ class SCCDevectorTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
-    directive: string or None
-        Directives flavour to use for parallelism annotations; either
-        ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, directive):
+    def __init__(self, horizontal):
         self.horizontal = horizontal
-
-        assert directive in [None, 'openacc']
-        self.directive = directive
 
         self._processed = {}
 
@@ -139,7 +133,6 @@ class SCCDevectorTransformation(Transformation):
             return
 
         role = kwargs['role']
-        item = kwargs.get('item', None)
 
         if role == 'kernel':
             self.process_kernel(routine)

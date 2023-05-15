@@ -207,7 +207,6 @@ class SCCBaseTransformation(Transformation):
             return
 
         role = kwargs['role']
-        item = kwargs.get('item', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
