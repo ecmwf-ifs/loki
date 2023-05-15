@@ -10,6 +10,7 @@ from more_itertools import split_at
 from loki.expression import symbols as sym
 from loki.transform import resolve_associates
 from transformations.scc_base import SCCBaseTransformation
+from transformations.scc_devector import SCCDevectorTransformation
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
@@ -19,26 +20,7 @@ from loki import (
     demote_variables, info, Section
 )
 
-
 __all__ = ['SingleColumnCoalescedTransformation']
-
-def kernel_remove_vector_loops(routine, horizontal):
-    """
-    Remove all vector loops over the specified dimension.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
-    horizontal : :any:`Dimension`
-        The dimension specifying the horizontal vector dimension
-    """
-    loop_map = {}
-    for loop in FindNodes(ir.Loop).visit(routine.body):
-        if loop.variable == horizontal.index:
-            loop_map[loop] = loop.body
-    routine.body = Transformer(loop_map).visit(routine.body)
-
 
 def wrap_vector_section(section, routine, horizontal):
     """
@@ -66,73 +48,6 @@ def wrap_vector_section(section, routine, horizontal):
     # Add a comment before the pragma-annotated loop to ensure
     # we do not overlap with neighbouring pragmas
     return (ir.Comment(''), vector_loop)
-
-
-def extract_vector_sections(section, horizontal):
-    """
-    Extract a contiguous sections of nodes that contains vector-level
-    computations and are not interrupted by recursive subroutine calls
-    or nested control-flow structures.
-
-    Parameters
-    ----------
-    section : tuple of :any:`Node`
-        A section of nodes from which to extract vector-level sub-sections
-    horizontal: :any:`Dimension`
-        The dimension specifying the horizontal vector dimension
-    """
-
-    _scope_note_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
-
-    # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
-    separator_nodes = []
-    calls = FindNodes(ir.CallStatement).visit(section)
-    for call in calls:
-        if call in section:
-            # If the call is at the current section's level, it's a separator
-            separator_nodes.append(call)
-
-        else:
-            # If the call is deeper in the IR tree, it's highest ancestor is used
-            ancestors = flatten(FindScopes(call).visit(section))
-            ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_note_types)]
-            if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
-                separator_nodes.append(ancestor_scopes[0])
-
-    # Extract contiguous node sections between separator nodes
-    assert all(n in section for n in separator_nodes)
-    subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
-
-    # Filter sub-sections that do not use the horizontal loop index variable
-    subsections = [s for s in subsections if horizontal.index in list(FindVariables().visit(s))]
-
-    # Recurse on all separator nodes that might contain further vector sections
-    for separator in separator_nodes:
-
-        if isinstance(separator, ir.Loop):
-            subsec_body = extract_vector_sections(separator.body, horizontal)
-            if subsec_body:
-                subsections += subsec_body
-
-        if isinstance(separator, ir.Conditional):
-            subsec_body = extract_vector_sections(separator.body, horizontal)
-            if subsec_body:
-                subsections += subsec_body
-            subsec_else = extract_vector_sections(separator.else_body, horizontal)
-            if subsec_else:
-                subsections += subsec_else
-
-        if isinstance(separator, ir.MultiConditional):
-            for body in separator.bodies:
-                subsec_body = extract_vector_sections(body, horizontal)
-                if subsec_body:
-                    subsections += subsec_body
-            subsec_else = extract_vector_sections(separator.else_body, horizontal)
-            if subsec_else:
-                subsections += subsec_else
-
-    return subsections
-
 
 def kernel_get_locals_to_demote(routine, sections, horizontal):
 
@@ -415,11 +330,11 @@ class SingleColumnCoalescedTransformation(Transformation):
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
 
         # Remove all vector loops over the specified dimension
-        kernel_remove_vector_loops(routine, self.horizontal)
+        SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)
 
         # Replace sections with marked Section node
         section_mapper = {s: Section(body=s, label='vector_section')
-                          for s in extract_vector_sections(routine.body.body, self.horizontal)}
+                         for s in SCCDevectorTransformation.extract_vector_sections(routine.body.body, self.horizontal)}
         routine.body = NestedTransformer(section_mapper).visit(routine.body)
 
         # Extract the local variables to dome after we wrap the sections in vector loops.

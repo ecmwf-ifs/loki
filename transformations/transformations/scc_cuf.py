@@ -18,8 +18,8 @@ from loki import (
     CaseInsensitiveDict, as_tuple, flatten, types
 )
 
-from transformations.single_column_coalesced import kernel_remove_vector_loops
 from transformations.scc_base import SCCBaseTransformation
+from transformations.scc_devector import SCCDevectorTransformation
 
 __all__ = ['SccCufTransformation', 'HoistTemporaryArraysDeviceAllocatableTransformation']
 
@@ -723,7 +723,7 @@ class SccCufTransformation(Transformation):
         resolve_associates(routine)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
-        kernel_remove_vector_loops(routine, self.horizontal)
+        SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)
 
         kernel_cuf(
             routine, self.horizontal, self.vertical, self.block_dim,
