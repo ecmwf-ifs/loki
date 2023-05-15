@@ -234,29 +234,7 @@ class SingleColumnCoalescedTransformation(Transformation):
                 loop = loops[0]
 
                 # Mark driver loop as "gang parallel".
-                if self.directive == 'openacc':
-                    arrays = FindVariables(unique=True).visit(loop)
-                    arrays = [v for v in arrays if isinstance(v, sym.Array)]
-                    arrays = [v for v in arrays if not v.type.intent]
-                    arrays = [v for v in arrays if not v.type.pointer]
-                    # Filter out arrays that are explicitly allocated with block dimension
-                    sizes = self.block_dim.size_expressions
-                    arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
-                    private_arrays = ', '.join(set(v.name for v in arrays))
-                    private_clause = '' if not private_arrays else f' private({private_arrays})'
-
-                    if loop.pragma is None:
-                        p_content = f'parallel loop gang{private_clause}'
-                        loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
-                        loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
-                    # add acc parallel loop gang if the only existing pragma is acc data
-                    elif len(loop.pragma) == 1:
-                        if (loop.pragma[0].keyword == 'acc' and
-                           loop.pragma[0].content.lower().lstrip().startswith('data ')):
-                            p_content = f'parallel loop gang{private_clause}'
-                            loop._update(pragma=(loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
-                            loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
-                                                      loop.pragma_post[0]))
+                SCCAnnotateTransformation.annotate_driver(self.directive, loop, self.block_dim)
 
         # Apply hoisting of temporary "column arrays"
         for call in FindNodes(ir.CallStatement).visit(routine.body):

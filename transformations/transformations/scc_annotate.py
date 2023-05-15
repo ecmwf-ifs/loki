@@ -5,10 +5,11 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from loki.transform import resolve_associates
 from loki.expression import symbols as sym
 from loki import(
            Transformation, ir, Transformer, FindNodes, pragmas_attached,
-           CaseInsensitiveDict, DerivedType
+           CaseInsensitiveDict, DerivedType, FindVariables
 )
 from transformations.scc_base import SCCBaseTransformation
 
@@ -159,9 +160,12 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         role = kwargs['role']
+        targets = kwargs.get('targets', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
+        if role == 'driver':
+            self.process_driver(routine, targets=targets)
 
     def process_kernel(self, routine):
         """
@@ -182,3 +186,79 @@ class SCCAnnotateTransformation(Transformation):
         if self.directive == 'openacc':
             self.insert_annotations(routine, self.horizontal, self.vertical,
                                     self.hoist_column_arrays)
+
+    def process_driver(self, routine, targets=None):
+        """
+        Apply the relevant ``'openacc'`` annotations to the driver loop.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
+
+        # Resolve associates, since the PGI compiler cannot deal with
+        # implicit derived type component offload by calling device
+        # routines.
+        resolve_associates(routine)
+
+        with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+            for call in FindNodes(ir.CallStatement).visit(routine.body):
+                if not call.name in targets:
+                    continue
+
+                # Find the driver loop by checking the call's heritage
+                ancestors = flatten(FindScopes(call).visit(routine.body))
+                loops = [a for a in ancestors if isinstance(a, ir.Loop)]
+                if not loops:
+                    # Skip if there are no driver loops
+                    continue
+                loop = loops[0]
+
+                # Mark driver loop as "gang parallel".
+                self.annotate_driver(self.directive, self.block_dim, loop)
+
+    @classmethod
+    def annotate_driver(cls, directive, loop, block_dim):
+        """
+        Annotate driver block loop with ``'openacc'`` pragmas.
+
+        Parameters
+        ----------
+        directive : string or None
+            Directives flavour to use for parallelism annotations; either
+            ``'openacc'`` or ``None``.
+        loop : :any:`Loop`
+            ``Loop`` to wrap in ``'opencc'`` pragmas.
+        block_dim : :any:`Dimension`
+            Optional ``Dimension`` object to define the blocking dimension
+            to use for hoisted column arrays if hoisting is enabled.
+        """
+
+        # Mark driver loop as "gang parallel".
+        if directive == 'openacc':
+            arrays = FindVariables(unique=True).visit(loop)
+            arrays = [v for v in arrays if isinstance(v, sym.Array)]
+            arrays = [v for v in arrays if not v.type.intent]
+            arrays = [v for v in arrays if not v.type.pointer]
+            # Filter out arrays that are explicitly allocated with block dimension
+            sizes = block_dim.size_expressions
+            arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
+            private_arrays = ', '.join(set(v.name for v in arrays))
+            private_clause = '' if not private_arrays else f' private({private_arrays})'
+
+            if loop.pragma is None:
+                p_content = f'parallel loop gang{private_clause}'
+                loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
+                loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
+            # add acc parallel loop gang if the only existing pragma is acc data
+            elif len(loop.pragma) == 1:
+                if (loop.pragma[0].keyword == 'acc' and
+                   loop.pragma[0].content.lower().lstrip().startswith('data ')):
+                    p_content = f'parallel loop gang{private_clause}'
+                    loop._update(pragma=(loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
+                    loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
+                                              loop.pragma_post[0]))
