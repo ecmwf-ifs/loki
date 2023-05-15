@@ -286,7 +286,8 @@ def kernel_annotate_subroutine_present_openacc(routine):
     argnames = [str(a.name) for a in args]
 
     routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
-    routine.body.append(ir.Pragma(keyword='acc', content='end data'))
+    # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
+    routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
 
 
 def resolve_masked_stmts(routine, loop_variable):
