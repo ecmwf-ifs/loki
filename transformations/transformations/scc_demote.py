@@ -6,8 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki.expression import symbols as sym
-from loki import Transformation, FindNodes, ir, demote_variables, FindVariables, flatten
-from transformations.scc_base import SCCBaseTransformation
+from loki import Transformation, FindNodes, ir, demote_variables, FindVariables, flatten, fgen
 
 __all__ = ['SCCDemoteTransformation']
 
@@ -33,6 +32,7 @@ class SCCDemoteTransformation(Transformation):
         self.directive = directive
 
         self.demote_local_arrays = demote_local_arrays
+        self._processed = {}
 
     @classmethod
     def kernel_get_locals_to_demote(cls, routine, sections, horizontal):
@@ -103,6 +103,11 @@ class SCCDemoteTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
 
+        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
+        # Bail if routine has already been processed
+        if self._processed.get(routine, None):
+            return
+
         role = kwargs['role']
         item = kwargs.get('item', None)
 
@@ -111,6 +116,9 @@ class SCCDemoteTransformation(Transformation):
             if item:
                 demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
             self.process_kernel(routine, demote_locals=demote_locals)
+
+        # Mark routine as processed
+        self._processed[routine] = True
 
     def process_kernel(self, routine, demote_locals=True):
         """
@@ -121,11 +129,6 @@ class SCCDemoteTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
-
-        # TODO: we only need this here because we cannot mark routines to skip at the scheduler level
-        # Bail if routine is marked as sequential or have already been processed
-        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
-            return
 
         # Find vector sections marked in the SCCDevectorTransformation
         sections = [s for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section']

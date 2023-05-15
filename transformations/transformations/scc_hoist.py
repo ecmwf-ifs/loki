@@ -38,6 +38,8 @@ class SCCHoistTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
+        self._processed = {}
+
     @classmethod
     def get_column_locals(cls, routine, vertical):
         """
@@ -191,6 +193,11 @@ class SCCHoistTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
 
+        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
+        # Bail if routine has already been processed
+        if self._processed.get(routine, None):
+            return
+
         role = kwargs['role']
         targets = kwargs.get('targets', None)
 
@@ -199,6 +206,9 @@ class SCCHoistTransformation(Transformation):
 
         if role == 'driver':
             self.process_driver(routine, targets=targets)
+
+        # Mark routine as processed
+        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """
@@ -210,11 +220,6 @@ class SCCHoistTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
-
-        # TODO: we only need this here because we cannot mark routines to skip at the scheduler level
-        # Bail if routine is marked as sequential or have already been processed
-        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
-            return
 
         # Find the iteration index variable for the specified horizontal
         v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)

@@ -36,6 +36,8 @@ class SCCBaseTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
+        self._processed = {}
+
     @classmethod
     def check_routine_pragmas(cls, routine, directive):
         """
@@ -199,11 +201,19 @@ class SCCBaseTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
 
+        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
+        # Bail if routine has already been processed
+        if self._processed.get(routine, None):
+            return
+
         role = kwargs['role']
         item = kwargs.get('item', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
+
+        # Mark routine as processed
+        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """

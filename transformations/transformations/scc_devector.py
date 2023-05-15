@@ -11,7 +11,6 @@ from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
      NestedTransformer, FindVariables
 )
-from transformations.scc_base import SCCBaseTransformation
 
 __all__ = ['SCCDevectorTransformation']
 
@@ -35,6 +34,8 @@ class SCCDevectorTransformation(Transformation):
 
         assert directive in [None, 'openacc']
         self.directive = directive
+
+        self._processed = {}
 
     @classmethod
     def kernel_remove_vector_loops(cls, routine, horizontal):
@@ -132,11 +133,19 @@ class SCCDevectorTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
 
+        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
+        # Bail if routine has already been processed
+        if self._processed.get(routine, None):
+            return
+
         role = kwargs['role']
         item = kwargs.get('item', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
+
+        # Mark routine as processed
+        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """
@@ -149,11 +158,6 @@ class SCCDevectorTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
-
-        # TODO: we only need this here because we cannot mark routines to skip at the scheduler level
-        # Bail if routine is marked as sequential or have already been processed
-        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
-            return
 
         # Remove all vector loops over the specified dimension
         self.kernel_remove_vector_loops(routine, self.horizontal)

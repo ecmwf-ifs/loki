@@ -32,6 +32,8 @@ class SCCRevectorTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
+        self._processed = {}
+
     @classmethod
     def wrap_vector_section(cls, section, routine, horizontal):
         """
@@ -72,11 +74,19 @@ class SCCRevectorTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
 
+        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
+        # Bail if routine has already been processed
+        if self._processed.get(routine, None):
+            return
+
         role = kwargs['role']
         item = kwargs.get('item', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
+
+        # Mark routine as processed
+        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """
@@ -88,11 +98,6 @@ class SCCRevectorTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
-
-        # TODO: we only need this here because we cannot mark routines to skip at the scheduler level
-        # Bail if routine is marked as sequential or have already been processed
-        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
-            return
 
         # Promote vector loops to be the outermost loop dimension in the kernel
         mapper = {s.body: self.wrap_vector_section(s.body, routine, self.horizontal)

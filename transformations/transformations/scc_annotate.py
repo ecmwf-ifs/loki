@@ -12,7 +12,6 @@ from loki import(
            CaseInsensitiveDict, DerivedType, FindVariables, flatten, as_tuple,
            FindScopes
 )
-from transformations.scc_base import SCCBaseTransformation
 
 __all__ = ['SCCAnnotateTransformation']
 
@@ -46,6 +45,8 @@ class SCCAnnotateTransformation(Transformation):
         self.directive = directive
         self.block_dim = block_dim
         self.hoist_column_arrays = hoist_column_arrays
+
+        self._processed = {}
 
     @classmethod
     def kernel_annotate_vector_loops_openacc(cls, routine, horizontal, vertical):
@@ -160,6 +161,11 @@ class SCCAnnotateTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
 
+        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
+        # Bail if routine has already been processed
+        if self._processed.get(routine, None):
+            return
+
         role = kwargs['role']
         targets = kwargs.get('targets', None)
 
@@ -167,6 +173,9 @@ class SCCAnnotateTransformation(Transformation):
             self.process_kernel(routine)
         if role == 'driver':
             self.process_driver(routine, targets=targets)
+
+        # Mark routine as processed
+        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """
@@ -178,11 +187,6 @@ class SCCAnnotateTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
-
-        # TODO: we only need this here because we cannot mark routines to skip at the scheduler level
-        # Bail if routine is marked as sequential or have already been processed
-        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
-            return
 
         if self.directive == 'openacc':
             self.insert_annotations(routine, self.horizontal, self.vertical,
