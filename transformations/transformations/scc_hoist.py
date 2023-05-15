@@ -29,15 +29,11 @@ class SCCHoistTransformation(Transformation):
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
-    hoist_column_arrays : bool
-        Flag to trigger the more aggressive "column array hoisting"
-        optimization.
     """
 
-    def __init__(self, horizontal, vertical, directive=None, hoist_column_arrays=True):
+    def __init__(self, horizontal, vertical, directive=None):
         self.horizontal = horizontal
         self.vertical = vertical
-        self.hoist_column_arrays = hoist_column_arrays
 
         assert directive in [None, 'openacc']
         self.directive = directive
@@ -235,9 +231,8 @@ class SCCHoistTransformation(Transformation):
         """
         Hoist temporary column arrays.
 
-        Note that if ``hoist_column_arrays`` is set, the driver needs
-        to be processed before any kernels are transformed. This is
-        due to the use of an interprocedural analysis forward pass
+        Note that the driver needs to be processed before any kernels are transformed.
+        This is due to the use of an interprocedural analysis forward pass
         needed to collect the list of "column arrays".
 
         Parameters
@@ -254,6 +249,5 @@ class SCCHoistTransformation(Transformation):
             if not call.name in targets:
                 continue
 
-            if self.hoist_column_arrays:
-                self.hoist_temporary_column_arrays(routine, call, self.horizontal, self.vertical,
-                                                   self.block_dim, self.directive)
+            self.hoist_temporary_column_arrays(routine, call, self.horizontal, self.vertical,
+                                               self.block_dim, self.directive)
