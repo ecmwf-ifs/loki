@@ -15,5 +15,6 @@ from transformations.scc_cuf import * # noqa
 from transformations.pool_allocator import * # noqa
 from transformations.scc_base import * # noqa
 from transformations.scc_devector import * # noqa
+from transformations.scc_demote import * # noqa
 
 __version__ = "0.0.0"

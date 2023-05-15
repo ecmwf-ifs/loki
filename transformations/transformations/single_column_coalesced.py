@@ -11,6 +11,7 @@ from loki.expression import symbols as sym
 from loki.transform import resolve_associates
 from transformations.scc_base import SCCBaseTransformation
 from transformations.scc_devector import SCCDevectorTransformation
+from transformations.scc_demote import SCCDemoteTransformation
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
@@ -48,62 +49,6 @@ def wrap_vector_section(section, routine, horizontal):
     # Add a comment before the pragma-annotated loop to ensure
     # we do not overlap with neighbouring pragmas
     return (ir.Comment(''), vector_loop)
-
-def kernel_get_locals_to_demote(routine, sections, horizontal):
-
-    argument_names = [v.name for v in routine.arguments]
-
-    def _is_constant(d):
-        """Establish if a given dimensions symbol is a compile-time constant"""
-        if isinstance(d, sym.IntLiteral):
-            return True
-
-        if isinstance(d, sym.RangeIndex):
-            if d.lower:
-                return _is_constant(d.lower) and _is_constant(d.upper)
-            return _is_constant(d.upper)
-
-        if isinstance(d, sym.Scalar) and isinstance(d.initial , sym.IntLiteral):
-            return True
-
-        return False
-
-    def _get_local_arrays(section):
-        """
-        Filters out local argument arrays that solely buffer the
-        horizontal vector dimension
-        """
-        arrays = FindVariables(unique=False).visit(section)
-        # Only demote local arrays with the horizontal as fast dimension
-        arrays = [v for v in arrays if isinstance(v, sym.Array)]
-        arrays = [v for v in arrays if v.name not in argument_names]
-        arrays = [v for v in arrays if v.shape and v.shape[0] == horizontal.size]
-
-        # Also demote arrays whose remaning dimensions are known constants
-        arrays = [v for v in arrays if all(_is_constant(d) for d in v.shape[1:])]
-        return arrays
-
-    # Create a list of all local horizontal temporary arrays
-    candidates = _get_local_arrays(routine.body)
-
-    # Create an index into all variable uses per vector-level section
-    vars_per_section = {s: set(v.name.lower() for v in _get_local_arrays(s)) for s in sections}
-
-    # Count in how many sections each temporary is used
-    counts = {}
-    for arr in candidates:
-        counts[arr] = sum(1 if arr.name.lower() in v else 0 for v in vars_per_section.values())
-
-    # Mark temporaries that are only used in one section for demotion
-    to_demote = [k for k, v in counts.items() if v == 1]
-
-    # Filter out variables that we will pass down the call tree
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    call_args = flatten(call.arguments for call in calls)
-    call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
-    to_demote = [v for v in to_demote if v.name not in call_args]
-
-    return set(to_demote)
 
 
 def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
@@ -337,11 +282,13 @@ class SingleColumnCoalescedTransformation(Transformation):
                          for s in SCCDevectorTransformation.extract_vector_sections(routine.body.body, self.horizontal)}
         routine.body = NestedTransformer(section_mapper).visit(routine.body)
 
-        # Extract the local variables to dome after we wrap the sections in vector loops.
+        # Find vector sections marked in the SCCDevectorTransformation
+        sections = [s for s in FindNodes(Section).visit(routine.body) if s.label == 'vector_section']
+
+        # Extract the local variables to demote after we wrap the sections in vector loops.
         # We do this, because need the section blocks to determine which local arrays
         # may carry buffered values between them, so that we may not demote those!
-        to_demote = kernel_get_locals_to_demote(routine, section_mapper.keys(), self.horizontal)
-
+        to_demote = SCCDemoteTransformation.kernel_get_locals_to_demote(routine, sections, self.horizontal)
         # Demote all private local variables that do not buffer values between sections
         if demote_locals:
             variables = tuple(v.name for v in to_demote)
