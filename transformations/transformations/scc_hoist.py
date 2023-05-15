@@ -186,10 +186,13 @@ class SCCHoistTransformation(Transformation):
         """
 
         role = kwargs['role']
-        item = kwargs.get('item', None)
+        targets = kwargs.get('targets', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
+
+        if role == 'driver':
+            self.process_driver(routine, targets=targets)
 
     def process_kernel(self, routine):
         """
@@ -217,3 +220,30 @@ class SCCHoistTransformation(Transformation):
         # Add loop index variable
         if v_index not in routine.arguments:
             self.add_loop_index_to_args(v_index, routine)
+
+    def process_driver(self, routine, targets=None):
+        """
+        Hoist temporary column arrays.
+
+        Note that if ``hoist_column_arrays`` is set, the driver needs
+        to be processed before any kernels are transformed. This is
+        due to the use of an interprocedural analysis forward pass
+        needed to collect the list of "column arrays".
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
+
+        # Apply hoisting of temporary "column arrays"
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if not call.name in targets:
+                continue
+
+            if self.hoist_column_arrays:
+                self.hoist_temporary_column_arrays(routine, call, self.horizontal, self.vertical,
+                                                   self.block_dim, self.directive)
