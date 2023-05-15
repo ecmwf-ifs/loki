@@ -481,7 +481,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             Subroutine to apply this transformation to.
         """
 
-        pragmas = FindNodes(ir.Pragma).visit(routine.body)
+        pragmas = FindNodes(ir.Pragma).visit(routine.spec)
         routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
         routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
 
@@ -490,7 +490,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             if self.directive == 'openacc':
                 # Mark routine as acc seq
                 mapper = {seq_pragmas[0]: ir.Pragma(keyword='acc', content='routine seq')}
-                routine.body = Transformer(mapper).visit(routine.body)
+                routine.spec = Transformer(mapper).visit(routine.spec)
 
             # Bail and leave sequential routines unchanged
             return
@@ -570,11 +570,11 @@ class SingleColumnCoalescedTransformation(Transformation):
 
             if self.hoist_column_arrays:
                 # Mark routine as `!$acc routine seq` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine seq'))
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
 
             else:
                 # Mark routine as `!$acc routine vector` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine vector'))
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
 
     def process_driver(self, routine, targets=None):
         """
