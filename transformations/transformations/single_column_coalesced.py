@@ -12,6 +12,7 @@ from loki.transform import resolve_associates
 from transformations.scc_base import SCCBaseTransformation
 from transformations.scc_devector import SCCDevectorTransformation
 from transformations.scc_demote import SCCDemoteTransformation
+from transformations.scc_revector import SCCRevectorTransformation
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
@@ -22,34 +23,6 @@ from loki import (
 )
 
 __all__ = ['SingleColumnCoalescedTransformation']
-
-def wrap_vector_section(section, routine, horizontal):
-    """
-    Wrap a section of nodes in a vector-level loop across the horizontal.
-
-    Parameters
-    ----------
-    section : tuple of :any:`Node`
-        A section of nodes to be wrapped in a vector-level loop
-    routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
-    horizontal: :any:`Dimension`
-        The dimension specifying the horizontal vector dimension
-    """
-
-    # Create a single loop around the horizontal from a given body
-    v_start = routine.variable_map[horizontal.bounds[0]]
-    v_end = routine.variable_map[horizontal.bounds[1]]
-    index = SCCBaseTransformation.get_integer_variable(routine, horizontal.index)
-    bounds = sym.LoopRange((v_start, v_end))
-
-    # Ensure we clone all body nodes, to avoid recursion issues
-    vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
-
-    # Add a comment before the pragma-annotated loop to ensure
-    # we do not overlap with neighbouring pragmas
-    return (ir.Comment(''), vector_loop)
-
 
 def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
     """
@@ -297,10 +270,15 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         if not self.hoist_column_arrays:
             # Promote vector loops to be the outermost loop dimension in the kernel
-            mapper = {s.body: wrap_vector_section(s.body, routine, self.horizontal)
+            mapper = {s.body: SCCRevectorTransformation.wrap_vector_section(s.body, routine, self.horizontal)
                               for s in FindNodes(ir.Section).visit(routine.body)
                               if s.label == 'vector_section'}
             routine.body = NestedTransformer(mapper).visit(routine.body)
+
+        # Remove section wrappers
+        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
+        if section_mapper:
+            routine.body = Transformer(section_mapper).visit(routine.body)
 
         if self.hoist_column_arrays:
             # Promote all local arrays with column dimension to arguments
@@ -316,11 +294,6 @@ class SingleColumnCoalescedTransformation(Transformation):
                 # Remove original variable first, since we need to update declaration
                 routine.variables = as_tuple(v for v in routine.variables if v != v_index)
                 routine.arguments += as_tuple(new_v)
-
-        # Remove section wrappers
-        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
-        if section_mapper:
-            routine.body = Transformer(section_mapper).visit(routine.body)
 
         if self.directive == 'openacc':
             # Mark all non-parallel loops as `!$acc loop seq`
