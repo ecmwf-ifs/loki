@@ -6,7 +6,10 @@
 # nor does it submit to any jurisdiction.
 
 from loki.expression import symbols as sym
-from loki import Transformation, CaseInsensitiveDict, as_tuple
+from loki import(
+          Transformation, CaseInsensitiveDict, as_tuple, BasicType,
+          SubstituteExpressions, info, ir, Transformer
+)
 from transformations.scc_base import SCCBaseTransformation
 
 __all__ = ['SCCHoistTransformation']
@@ -70,6 +73,105 @@ class SCCHoistTransformation(Transformation):
         # Remove original variable first, since we need to update declaration
         routine.variables = as_tuple(v for v in routine.variables if v != v_index)
         routine.arguments += as_tuple(new_v)
+
+    @classmethod
+    def hoist_temporary_column_arrays(cls, routine, call, horizontal, vertical, block_dim, directive):
+        """
+        Hoist temporary column arrays to the driver level. This
+        includes allocating them as local arrays on the host and on
+        the device via ``!$acc enter create``/ ``!$acc exit delete``
+        directives.
+
+        Note that this employs an interprocedural analysis pass
+        (forward), and thus needs to be executed for the calling
+        routine before any of the callees are processed.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        call : :any:`CallStatement`
+            Call to subroutine from which we hoist the column arrays.
+        horizontal: :any:`Dimension`
+            The dimension object specifying the horizontal vector dimension
+        vertical: :any:`Dimension`
+            The dimension object specifying the vertical loop dimension
+        block_dim : :any:`Dimension`
+            Optional ``Dimension`` object to define the blocking dimension
+            to use for hoisted column arrays if hoisting is enabled.
+        directive : string or None
+            Directives flavour to use for parallelism annotations; either
+            ``'openacc'`` or ``None``.
+        """
+
+        if call.not_active or call.routine is BasicType.DEFERRED:
+            raise RuntimeError(
+                '[Loki] SingleColumnCoalescedTransform: Target kernel is not attached '
+                'to call in driver routine.'
+            )
+
+        if not block_dim:
+            raise RuntimeError(
+                '[Loki] SingleColumnCoalescedTransform: No blocking dimension found '
+                'for column hoisting.'
+            )
+
+        kernel = call.routine
+        call_map = {}
+
+        column_locals = SCCHoistTransformation.get_column_locals(kernel, vertical=vertical)
+        arg_map = dict(call.arg_iter())
+        arg_mapper = SubstituteExpressions(arg_map)
+
+        # Create a driver-level buffer variable for all promoted column arrays
+        # TODO: Note that this does not recurse into the kernels yet!
+        block_var = SCCBaseTransformation.get_integer_variable(routine, block_dim.size)
+        arg_dims = [v.shape + (block_var,) for v in column_locals]
+        # Translate shape variables back to caller's namespace
+        routine.variables += as_tuple(v.clone(dimensions=arg_mapper.visit(dims), scope=routine)
+                                      for v, dims in zip(column_locals, arg_dims))
+
+        # Add explicit OpenACC statements for creating device variables
+        if directive == 'openacc' and column_locals:
+            vnames = ', '.join(v.name for v in column_locals)
+            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+            # Add comments around standalone pragmas to avoid false attachment
+            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+
+        # Add a block-indexed slice of each column variable to the call
+        idx = SCCBaseTransformation.get_integer_variable(routine, block_dim.index)
+        new_args = [v.clone(
+            dimensions=as_tuple([sym.RangeIndex((None, None)) for _ in v.shape]) + (idx,),
+            scope=routine
+        ) for v in column_locals]
+        new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
+
+        info(f'[Loki-SCC] Hoisted variables in call {routine.name} => {call.name}:'
+             f'{[v.name for v in column_locals]}')
+
+        # Find the iteration index variable for the specified horizontal
+        v_index = SCCBaseTransformation.get_integer_variable(routine, name=horizontal.index)
+        if v_index.name not in routine.variable_map:
+            routine.variables += as_tuple(v_index)
+
+        # Append new loop variable to call signature
+        new_call._update(kwarguments=new_call.kwarguments + ((horizontal.index, v_index),))
+
+        # Now create a vector loop around the kernel invocation
+        pragma = ()
+        if directive == 'openacc':
+            pragma = ir.Pragma(keyword='acc', content='loop vector')
+        v_start = arg_map[kernel.variable_map[horizontal.bounds[0]]]
+        v_end = arg_map[kernel.variable_map[horizontal.bounds[1]]]
+        bounds = sym.LoopRange((v_start, v_end))
+        vector_loop = ir.Loop(
+            variable=v_index, bounds=bounds, body=(new_call,), pragma=as_tuple(pragma)
+        )
+        call_map[call] = vector_loop
+
+        routine.body = Transformer(call_map).visit(routine.body)
 
     def transform_subroutine(self, routine, **kwargs):
         """
