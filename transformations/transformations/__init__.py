@@ -17,5 +17,6 @@ from transformations.scc_base import * # noqa
 from transformations.scc_devector import * # noqa
 from transformations.scc_demote import * # noqa
 from transformations.scc_revector import * # noqa
+from transformations.scc_hoist import * # noqa
 
 __version__ = "0.0.0"

@@ -13,6 +13,7 @@ from transformations.scc_base import SCCBaseTransformation
 from transformations.scc_devector import SCCDevectorTransformation
 from transformations.scc_demote import SCCDemoteTransformation
 from transformations.scc_revector import SCCRevectorTransformation
+from transformations.scc_hoist import SCCHoistTransformation
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
@@ -102,30 +103,6 @@ def kernel_annotate_subroutine_present_openacc(routine):
     routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
     # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
     routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
-
-
-def get_column_locals(routine, vertical):
-    """
-    List of array variables that include a `vertical` dimension and
-    thus need to be stored in shared memory.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
-    vertical: :any:`Dimension`
-        The dimension object specifying the vertical dimension
-    """
-    variables = list(routine.variables)
-
-    # Filter out purely local array variables
-    argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-    variables = [v for v in variables if not v.name in argument_map]
-    variables = [v for v in variables if isinstance(v, sym.Array)]
-
-    variables = [v for v in variables if any(vertical.size in d for d in v.shape)]
-
-    return variables
 
 
 class SingleColumnCoalescedTransformation(Transformation):
@@ -284,16 +261,13 @@ class SingleColumnCoalescedTransformation(Transformation):
             # Promote all local arrays with column dimension to arguments
             # TODO: Should really delete and re-insert in spec, to prevent
             # issues with shared declarations.
-            column_locals = get_column_locals(routine, vertical=self.vertical)
+            column_locals = SCCHoistTransformation.get_column_locals(routine, vertical=self.vertical)
             promoted = [v.clone(type=v.type.clone(intent='INOUT')) for v in column_locals]
             routine.arguments += as_tuple(promoted)
 
             # Add loop index variable
             if v_index not in routine.arguments:
-                new_v = v_index.clone(type=v_index.type.clone(intent='in'))
-                # Remove original variable first, since we need to update declaration
-                routine.variables = as_tuple(v for v in routine.variables if v != v_index)
-                routine.arguments += as_tuple(new_v)
+                SCCHoistTransformation.add_loop_index_to_args(v_index, routine)
 
         if self.directive == 'openacc':
             # Mark all non-parallel loops as `!$acc loop seq`
@@ -419,7 +393,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         kernel = call.routine
         call_map = {}
 
-        column_locals = get_column_locals(kernel, vertical=self.vertical)
+        column_locals = SCCHoistTransformation.get_column_locals(kernel, vertical=self.vertical)
         arg_map = dict(call.arg_iter())
         arg_mapper = SubstituteExpressions(arg_map)
 
