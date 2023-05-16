@@ -239,9 +239,9 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     mode = mode.replace('-', '_')  # Sanitize mode string
-    dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
-                                          mode='module', module_suffix='_MOD')
-    scheduler.process(transformation=dependency)
+    #dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
+    #                                      mode='module', module_suffix='_MOD')
+    #scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf=('cuf' in mode)))
