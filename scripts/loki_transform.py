@@ -218,7 +218,8 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
         transformation = (SCCBaseTransformation(horizontal=horizontal, directive=directive),)
         transformation += (SCCDevectorTransformation(horizontal=horizontal),)
         transformation += (SCCDemoteTransformation(horizontal=horizontal),)
-        transformation += (SCCRevectorTransformation(horizontal=horizontal),)
+        if not 'hoist' in mode:
+            transformation += (SCCRevectorTransformation(horizontal=horizontal),)
         if 'hoist' in mode:
             transformation += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical,
                                                       block_dim=block_dim, directive=directive),)
