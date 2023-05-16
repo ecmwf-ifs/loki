@@ -115,6 +115,8 @@ def cli(debug):
               help='Path for additional header file(s).')
 @click.option('--cpp/--no-cpp', default=False,
               help='Trigger C-preprocessing of source files.')
+@click.option('--directive', default='openacc', type=click.Choice(['openacc', 'openmp', 'none']),
+              help='Programming model directives to insert (default openacc)')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
 @click.option('--define', '-D', multiple=True,
@@ -135,7 +137,7 @@ def cli(debug):
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
-def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
+def convert(out_path, path, header, cpp, directive, include, define, omni_include, xmod,
             data_offload, remove_openmp, mode, frontend, config):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
@@ -148,6 +150,8 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         config = SchedulerConfig.from_dict(cloudsc_config)
     else:
         config = SchedulerConfig.from_file(config)
+
+    directive = None if directive is 'none' else directive.lower()
 
     build_args = {
         'preprocess': cpp,
@@ -206,7 +210,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         block_dim = scheduler.config.dimensions['block_dim']
         transformation = SingleColumnCoalescedTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive='openacc', hoist_column_arrays='hoist' in mode
+            directive=directive, hoist_column_arrays='hoist' in mode
         )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
