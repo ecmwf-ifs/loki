@@ -197,6 +197,11 @@ class SCCAnnotateTransformation(Transformation):
             self.insert_annotations(routine, self.horizontal, self.vertical,
                                     self.hoist_column_arrays)
 
+        # Remove section wrappers
+        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
+        if section_mapper:
+            routine.body = Transformer(section_mapper).visit(routine.body)
+
     def process_driver(self, routine, targets=None):
         """
         Apply the relevant ``'openacc'`` annotations to the driver loop.

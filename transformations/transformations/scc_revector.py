@@ -96,8 +96,3 @@ class SCCRevectorTransformation(Transformation):
                           for s in FindNodes(ir.Section).visit(routine.body)
                           if s.label == 'vector_section'}
         routine.body = NestedTransformer(mapper).visit(routine.body)
-
-        # Remove section wrappers
-        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
-        if section_mapper:
-            routine.body = Transformer(section_mapper).visit(routine.body)
