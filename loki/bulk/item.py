@@ -15,6 +15,7 @@ except ImportError:
         def cached_property(func):
             return func
 
+from loki.frontend import REGEX, RegexParserClass
 from loki.logging import warning
 from loki.tools import as_tuple
 from loki.tools.util import CaseInsensitiveDict
@@ -94,8 +95,10 @@ class Item:
         Dict of item-specific config markers
     """
 
+    _parser_classes = None
+
     @classmethod
-    def create_from_node(cls, node, source):
+    def create_from_ir(cls, node, source):
         if isinstance(node, Sourcefile):
             return FileItem(node.path.name.lower(), source)
         if isinstance(node, Module):
@@ -138,11 +141,19 @@ class Item:
 
     @property
     def definitions(self):
-        return ()
+        self.concretize()
+        return self.ir.definitions
+
+    @property
+    def ir(self):
+        return self.source[self.local_name]
+
+    def concretize(self):
+        self.ir.make_complete(frontend=REGEX, parser_classes=self._parser_classes)
 
     def get_items(self, only=None):
         items = tuple(
-            self.create_from_node(node, self.source)
+            self.create_from_ir(node, self.source)
             for node in self.definitions
         )
         if only:
@@ -515,21 +526,42 @@ class Item:
 
 class FileItem(Item):
 
+    _parser_classes = (
+        RegexParserClass.ProgramUnitClass
+    )
+
     @property
-    def definitions(self):
-        return self.source.definitions
+    def ir(self):
+        return self.source
+
+    @property
+    def local_name(self):
+        return self.name
 
 
 class ModuleItem(Item):
 
+    _parser_classes = (
+        RegexParserClass.ProgramUnitClass | RegexParserClass.InterfaceClass |
+        RegexParserClass.ImportClass | RegexParserClass.TypeDefClass |
+        RegexParserClass.DeclarationClass
+    )
+
     @property
-    def definitions(self):
-        module = self.source[self.name]
-        return module.subroutines + tuple(module.typedefs.values())
+    def local_name(self):
+        return self.name
 
 
 class TypeDefItem(Item):
-    pass
+
+    _parser_classes = ()
+
+    def concretize(self):
+        pass
+
+    @property
+    def definitions(self):
+        return ()
 
 
 class SubroutineItem(Item):
@@ -537,9 +569,19 @@ class SubroutineItem(Item):
     Implementation of :class:`Item` to represent a Fortran subroutine work item
     """
 
+    _parser_classes = (
+        RegexParserClass.ProgramUnitClass | RegexParserClass.InterfaceClass |
+        RegexParserClass.ImportClass | RegexParserClass.TypeDefClass |
+        RegexParserClass.DeclarationClass | RegexParserClass.CallClass
+    )
+
     def __init__(self, name, source, config=None):
         assert '%' not in name
         super().__init__(name, source, config)
+
+    @property
+    def definitions(self):
+        return ()
 
     @cached_property
     def routine(self):

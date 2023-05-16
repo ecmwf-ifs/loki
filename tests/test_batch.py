@@ -11,7 +11,7 @@ import pytest
 
 from loki import (
     HAVE_FP, HAVE_OFP, REGEX, RegexParserClass,
-    FileItem,
+    FileItem, ModuleItem, SubroutineItem,
     Sourcefile
 )
 
@@ -37,6 +37,7 @@ def test_file_item(here):
     item = get_item('module/a_mod.F90', RegexParserClass.ProgramUnitClass)
     assert item.name == 'a_mod.f90'
     assert item.definitions == (item.source['a_mod'],)
+    assert item.ir is item.source
     items = item.get_items()
     assert len(items) == 1
     assert items[0].name == 'a_mod'
@@ -50,8 +51,13 @@ def test_file_item(here):
     items = item.get_items()
     assert len(items) == 1
     assert items[0].name == 't_mod'
-    assert items[0].definitions == ()  # No typedefs because not selected in parser classes
+    assert items[0].ir is item.source['t_mod']
+    # No typedefs because not selected in parser classes
+    assert not items[0].ir.typedefs
+    # Calling definitions automatically further completes the source
+    assert items[0].definitions == (items[0].ir.typedefs['t'],)
 
+    # The same file but with typedefs parsed from the get-go
     item = get_item('module/t_mod.F90', RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass)
     assert item.name == 't_mod.f90'
     assert item.definitions == (item.source['t_mod'],)
@@ -59,4 +65,26 @@ def test_file_item(here):
     items = item.get_items()
     assert len(items) == 1
     assert items[0].name == 't_mod'
+    assert len(items[0].ir.typedefs) == 1
     assert items[0].definitions == (item.source['t'],)
+
+    # Filter items when calling get_items()
+    assert not item.get_items(only=SubroutineItem)
+    items = item.get_items(only=ModuleItem)
+    assert len(items) == 1
+    assert items[0].ir == item.source['t_mod']
+
+
+def test_module_item(here):
+    proj = here/'sources/projBatch'
+
+    def get_item(path, name, parser_classes):
+        filepath = proj/path
+        source = Sourcefile.from_file(filepath, frontend=REGEX, parser_classes=parser_classes)
+        return ModuleItem(name, source=source)
+
+    # A file with simple module that contains a single subroutine
+    item = get_item('module/a_mod.F90', 'a_mod', RegexParserClass.ProgramUnitClass)
+    assert item.name == 'a_mod'
+    assert item.ir is item.source['a_mod']
+    assert item.definitions == (item.source['a'],)
