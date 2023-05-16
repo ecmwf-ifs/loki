@@ -5,16 +5,16 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from loki import (
+    Transformation, FindNodes, FindScopes, Transformer, NestedTransformer,
+    pragmas_attached, as_tuple, flatten, demote_variables, ir, resolve_associates
+)
 from transformations.scc_base import SCCBaseTransformation
 from transformations.scc_devector import SCCDevectorTransformation
 from transformations.scc_demote import SCCDemoteTransformation
 from transformations.scc_revector import SCCRevectorTransformation
 from transformations.scc_hoist import SCCHoistTransformation
 from transformations.scc_annotate import SCCAnnotateTransformation
-from loki import (
-    Transformation, FindNodes, FindScopes, Transformer, NestedTransformer,
-    pragmas_attached, as_tuple, flatten, demote_variables, ir, resolve_associates
-)
 
 __all__ = ['SingleColumnCoalescedTransformation']
 
