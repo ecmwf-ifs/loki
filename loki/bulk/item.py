@@ -14,6 +14,8 @@ except ImportError:
     except ImportError:
         def cached_property(func):
             return func
+from functools import reduce
+import sys
 
 from loki.frontend import REGEX, RegexParserClass
 from loki.logging import warning
@@ -27,7 +29,7 @@ from loki.subroutine import Subroutine
 
 
 __all__ = [
-    'Item', 'FileItem', 'ModuleItem', 'SubroutineItem',
+    'Item', 'FileItem', 'ModuleItem', 'SubroutineItem', 'TypeDefItem',
     'ProcedureBindingItem', 'GlobalVarImportItem', 'GenericImportItem'
 ]
 
@@ -95,7 +97,9 @@ class Item:
         Dict of item-specific config markers
     """
 
-    _parser_classes = None
+    _parser_class = None
+    _defines_items = ()
+    _depends_items = ()
 
     @classmethod
     def create_from_ir(cls, node, source):
@@ -141,15 +145,38 @@ class Item:
 
     @property
     def definitions(self):
-        self.concretize()
+        self.concretize_definitions()
         return self.ir.definitions
+
+    @property
+    def dependencies(self):
+        self.concretize_dependencies()
+        return self._dependencies
+
+    @property
+    def _dependencies(self):
+        return ()
 
     @property
     def ir(self):
         return self.source[self.local_name]
 
-    def concretize(self):
-        self.ir.make_complete(frontend=REGEX, parser_classes=self._parser_classes)
+    def _parser_classes_from_item_type_names(self, item_type_names):
+        item_types = [getattr(sys.modules[__name__], name) for name in item_type_names]
+        parser_classes = [p for item_type in item_types if (p := item_type._parser_class) is not None]
+        if parser_classes:
+            return reduce(lambda x, y: x | y, parser_classes)
+        return None
+
+    def concretize_definitions(self):
+        parser_classes = self._parser_classes_from_item_type_names(self._defines_items)
+        if parser_classes:
+            self.ir.make_complete(frontend=REGEX, parser_classes=parser_classes)
+
+    def concretize_dependencies(self):
+        parser_classes = self._parser_classes_from_item_type_names(self._depends_items)
+        if parser_classes:
+            self.ir.make_complete(frontend=REGEX, parser_classes=parser_classes)
 
     def get_items(self, only=None):
         items = tuple(
@@ -526,9 +553,7 @@ class Item:
 
 class FileItem(Item):
 
-    _parser_classes = (
-        RegexParserClass.ProgramUnitClass
-    )
+    _parser_class = None
 
     @property
     def ir(self):
@@ -541,11 +566,8 @@ class FileItem(Item):
 
 class ModuleItem(Item):
 
-    _parser_classes = (
-        RegexParserClass.ProgramUnitClass | RegexParserClass.InterfaceClass |
-        RegexParserClass.ImportClass | RegexParserClass.TypeDefClass |
-        RegexParserClass.DeclarationClass
-    )
+    _parser_class = RegexParserClass.ProgramUnitClass
+    _defines_items = ('SubroutineItem', 'TypeDefItem')
 
     @property
     def local_name(self):
@@ -554,10 +576,7 @@ class ModuleItem(Item):
 
 class TypeDefItem(Item):
 
-    _parser_classes = ()
-
-    def concretize(self):
-        pass
+    _parser_class = RegexParserClass.TypeDefClass
 
     @property
     def definitions(self):
@@ -569,11 +588,7 @@ class SubroutineItem(Item):
     Implementation of :class:`Item` to represent a Fortran subroutine work item
     """
 
-    _parser_classes = (
-        RegexParserClass.ProgramUnitClass | RegexParserClass.InterfaceClass |
-        RegexParserClass.ImportClass | RegexParserClass.TypeDefClass |
-        RegexParserClass.DeclarationClass | RegexParserClass.CallClass
-    )
+    _parser_class = RegexParserClass.ProgramUnitClass
 
     def __init__(self, name, source, config=None):
         assert '%' not in name

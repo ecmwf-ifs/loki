@@ -11,7 +11,7 @@ import pytest
 
 from loki import (
     HAVE_FP, HAVE_OFP, REGEX, RegexParserClass,
-    FileItem, ModuleItem, SubroutineItem,
+    FileItem, ModuleItem, SubroutineItem, TypeDefItem,
     Sourcefile
 )
 
@@ -88,3 +88,33 @@ def test_module_item(here):
     assert item.name == 'a_mod'
     assert item.ir is item.source['a_mod']
     assert item.definitions == (item.source['a'],)
+
+
+def test_subroutine_item(here):
+    proj = here/'sources/projBatch'
+
+    def get_item(path, name, parser_classes):
+        filepath = proj/path
+        source = Sourcefile.from_file(filepath, frontend=REGEX, parser_classes=parser_classes)
+        return SubroutineItem(name, source=source)
+
+    # A file with a single subroutine definition
+    item = get_item('source/comp1.F90', '#comp1', RegexParserClass.ProgramUnitClass)
+    assert item.name == '#comp1'
+    assert item.ir is item.source['comp1']
+    assert item.definitions is ()
+
+
+def test_typedef_item(here):
+    proj = here/'sources/projBatch'
+
+    def get_item(path, name, parser_classes):
+        filepath = proj/path
+        source = Sourcefile.from_file(filepath, frontend=REGEX, parser_classes=parser_classes)
+        return TypeDefItem(name, source=source)
+
+    # A file with a single type definition
+    item = get_item('module/t_mod.F90', 't_mod#t', RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass)
+    assert item.name == 't_mod#t'
+    assert item.ir is item.source['t']
+    assert item.definitions is ()
