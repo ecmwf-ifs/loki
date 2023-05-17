@@ -101,9 +101,6 @@ class DataOffloadTransformation(Transformation):
                 calls = FindNodes(CallStatement).visit(region)
                 calls = [c for c in calls if str(c.name).lower() in targets]
 
-                if len(calls) > 1:
-                    raise RuntimeError('[Loki] Data-offload: Cannot deal with multiple '
-                                       'target calls in loki offload region.')
                 # Collect the three types of device data accesses from calls
                 inargs = ()
                 inoutargs = ()
@@ -123,6 +120,11 @@ class DataOffloadTransformation(Transformation):
                             inoutargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'out':
                             outargs += (str(arg.name).lower(),)
+
+                # Sanitize data access categories to avoid double-counting variables
+                inoutargs += tuple(v for v in inargs if v in outargs)
+                inargs = tuple(v for v in inargs if v not in inoutargs)
+                outargs = tuple(v for v in outargs if v not in inoutargs)
 
                 # Filter for duplicates
                 inargs = tuple(dict.fromkeys(inargs))
