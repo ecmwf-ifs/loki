@@ -104,10 +104,10 @@ class DataOffloadTransformation(Transformation):
                 if len(calls) > 1:
                     raise RuntimeError('[Loki] Data-offload: Cannot deal with multiple '
                                        'target calls in loki offload region.')
-
-                inargs = []
-                inoutargs = []
-                outargs = []
+                # Collect the three types of device data accesses from calls
+                inargs = ()
+                inoutargs = ()
+                outargs = ()
 
                 for call in calls:
                     if call.routine is BasicType.DEFERRED:
@@ -118,16 +118,21 @@ class DataOffloadTransformation(Transformation):
 
                     for param, arg in call.arg_iter():
                         if isinstance(param, Array) and param.type.intent.lower() == 'in':
-                            inargs += [str(arg.name).lower()]
+                            inargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'inout':
-                            inoutargs += [str(arg.name).lower()]
+                            inoutargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'out':
-                            outargs += [str(arg.name).lower()]
+                            outargs += (str(arg.name).lower(),)
+
+                # Filter for duplicates
+                inargs = tuple(dict.fromkeys(inargs))
+                outargs = tuple(dict.fromkeys(outargs))
+                inoutargs = tuple(dict.fromkeys(inoutargs))
 
                 # Now geenerate the pre- and post pragmas (OpenACC)
-                copyin = 'copyin(' + ', '.join(inargs) + ')' if inargs else ''
-                copy = 'copy(' + ', '.join(inoutargs) + ')' if inoutargs else ''
-                copyout = 'copyout(' + ', '.join(outargs) + ')' if outargs else ''
+                copyin = f'copyin( {", ".join(inargs)} )' if inargs else ''
+                copy = f'copy( {", ".join(inoutargs)} )' if inoutargs else ''
+                copyout = f'copyout( {", ".join(outargs)} )' if outargs else ''
                 pragma = Pragma(keyword='acc', content=f'data {copyin} {copy} {copyout}')
                 pragma_post = Pragma(keyword='acc', content='end data')
                 pragma_map[region.pragma] = pragma
