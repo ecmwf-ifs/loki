@@ -482,7 +482,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             Subroutine to apply this transformation to.
         """
 
-        pragmas = FindNodes(ir.Pragma).visit(routine.spec)
+        pragmas = FindNodes(ir.Pragma).visit(routine.ir)
         routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
         routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
 
@@ -490,8 +490,13 @@ class SingleColumnCoalescedTransformation(Transformation):
         if seq_pragmas:
             if self.directive == 'openacc':
                 # Mark routine as acc seq
-                mapper = {seq_pragmas[0]: ir.Pragma(keyword='acc', content='routine seq')}
+                mapper = {seq_pragmas[0]: None}
                 routine.spec = Transformer(mapper).visit(routine.spec)
+                routine.body = Transformer(mapper).visit(routine.body)
+
+                # Append the acc pragma to routine.spec, regardless of where the corresponding
+                # loki pragma is found
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
 
             # Bail and leave sequential routines unchanged
             return
