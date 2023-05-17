@@ -286,7 +286,8 @@ def kernel_annotate_subroutine_present_openacc(routine):
     argnames = [str(a.name) for a in args]
 
     routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
-    routine.body.append(ir.Pragma(keyword='acc', content='end data'))
+    # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
+    routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
 
 
 def resolve_masked_stmts(routine, loop_variable):
@@ -481,7 +482,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             Subroutine to apply this transformation to.
         """
 
-        pragmas = FindNodes(ir.Pragma).visit(routine.body)
+        pragmas = FindNodes(ir.Pragma).visit(routine.ir)
         routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
         routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
 
@@ -489,8 +490,13 @@ class SingleColumnCoalescedTransformation(Transformation):
         if seq_pragmas:
             if self.directive == 'openacc':
                 # Mark routine as acc seq
-                mapper = {seq_pragmas[0]: ir.Pragma(keyword='acc', content='routine seq')}
+                mapper = {seq_pragmas[0]: None}
+                routine.spec = Transformer(mapper).visit(routine.spec)
                 routine.body = Transformer(mapper).visit(routine.body)
+
+                # Append the acc pragma to routine.spec, regardless of where the corresponding
+                # loki pragma is found
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
 
             # Bail and leave sequential routines unchanged
             return
@@ -570,11 +576,11 @@ class SingleColumnCoalescedTransformation(Transformation):
 
             if self.hoist_column_arrays:
                 # Mark routine as `!$acc routine seq` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine seq'))
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
 
             else:
                 # Mark routine as `!$acc routine vector` to make it device-callable
-                routine.body.prepend(ir.Pragma(keyword='acc', content='routine vector'))
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
 
     def process_driver(self, routine, targets=None):
         """
