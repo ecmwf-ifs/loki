@@ -6,31 +6,23 @@
 # nor does it submit to any jurisdiction.
 
 from abc import abstractmethod
-try:
-    from functools import cached_property
-except ImportError:
-    try:
-        from cached_property import cached_property
-    except ImportError:
-        def cached_property(func):
-            return func
-from functools import reduce
+from functools import cached_property, reduce
 import sys
 
 from loki.frontend import REGEX, RegexParserClass
+from loki.expression import TypedSymbol, MetaSymbol, ProcedureSymbol
+from loki.ir import Import, CallStatement, TypeDef, ProcedureDeclaration
 from loki.logging import warning
-from loki.tools import as_tuple
-from loki.tools.util import CaseInsensitiveDict
-from loki.visitors import FindNodes
-from loki.ir import CallStatement, TypeDef, ProcedureDeclaration
 from loki.module import Module
-from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.visitors import FindNodes
 
 
 __all__ = [
-    'Item', 'FileItem', 'ModuleItem', 'SubroutineItem', 'TypeDefItem',
-    'ProcedureBindingItem', 'GlobalVarImportItem', 'GenericImportItem'
+    'Item', 'FileItem', 'ModuleItem', 'ProcedureItem', 'SubroutineItem', 'TypeDefItem',
+    'InterfaceItem', 'ProcedureBindingItem', 'GlobalVariableItem',
+    'GlobalVarImportItem', 'GenericImportItem'
 ]
 
 
@@ -99,23 +91,7 @@ class Item:
 
     _parser_class = None
     _defines_items = ()
-    _depends_items = ()
-
-    @classmethod
-    def create_from_ir(cls, node, source):
-        if isinstance(node, Sourcefile):
-            return FileItem(node.path.name.lower(), source)
-        if isinstance(node, Module):
-            return ModuleItem(node.name.lower(), source)
-
-        if node.parent:
-            scope = node.parent.name
-        else:
-            scope = ''
-        if isinstance(node, Subroutine):
-            return SubroutineItem(f'{scope}#{node.name}'.lower(), source)
-        if isinstance(node, TypeDef):
-            return TypeDefItem(f'{scope}#{node.name}'.lower(), source)
+    _depends_class = None
 
     def __init__(self, name, source, config=None):
         # assert '#' in name or '.' in name
@@ -125,7 +101,7 @@ class Item:
         self.trafo_data = {}
 
     def __repr__(self):
-        return f'loki.bulk.Item<{self.name}>'
+        return f'loki.bulk.{self.__class__.__name__}<{self.name}>'
 
     def __eq__(self, other):
         """
@@ -145,8 +121,7 @@ class Item:
 
     @property
     def definitions(self):
-        self.concretize_definitions()
-        return self.ir.definitions
+        return ()
 
     @property
     def dependencies(self):
@@ -170,23 +145,141 @@ class Item:
 
     def concretize_definitions(self):
         parser_classes = self._parser_classes_from_item_type_names(self._defines_items)
-        if parser_classes:
+        if parser_classes and hasattr(self.ir, 'make_complete'):
             self.ir.make_complete(frontend=REGEX, parser_classes=parser_classes)
 
     def concretize_dependencies(self):
-        parser_classes = self._parser_classes_from_item_type_names(self._depends_items)
-        if parser_classes:
-            self.ir.make_complete(frontend=REGEX, parser_classes=parser_classes)
+        if self._depends_class and hasattr(self.ir, 'make_complete'):
+            ir = self.ir
+            while ir.parent:
+                ir = ir.parent
+            ir.make_complete(frontend=REGEX, parser_classes=self._depends_class)
 
-    def get_items(self, only=None):
-        items = tuple(
-            self.create_from_ir(node, self.source)
-            for node in self.definitions
-        )
+    def create_from_ir(self, node, item_cache):
+        if isinstance(node, Module):
+            item_name = node.name.lower()
+            items = as_tuple(item_cache.get(item_name))
+            if not items:
+                assert node in self.source.modules
+                items = as_tuple(ModuleItem(item_name, source=self.source))
+
+        elif isinstance(node, Subroutine):
+            item_name = f'{getattr(node.parent, "name", "")}#{node.name}'.lower()
+            items = as_tuple(item_cache.get(item_name))
+            if not items:
+                assert node in self.source.all_subroutines
+                items = as_tuple(ProcedureItem(item_name, source=self.source))
+
+        elif isinstance(node, TypeDef):
+            item_name = f'{node.parent.name}#{node.name}'.lower()
+            items = as_tuple(item_cache.get(item_name))
+            if not items:
+                assert node.parent in self.source.modules
+                items = as_tuple(TypeDefItem(item_name, source=self.source))
+
+        elif isinstance(node, Import):
+            # If we have a fully-qualified import (which we hopefully have),
+            # we create a dependency for every imported symbol, otherwise we
+            # depend only on the imported module
+            module_item = item_cache[node.module.lower()]
+            if node.symbols:
+                module_definitions = {
+                    item.local_name: item for item in module_item.create_definition_items(item_cache=item_cache)
+                }
+                items = tuple(module_definitions[str(smbl).lower()] for smbl in node.symbols)
+            else:
+                items = as_tuple(module_item)
+
+        elif isinstance(node, CallStatement):
+            procedure_name = str(node.name)
+            if '%' in procedure_name:
+                # This is a typebound procedure call, we are only resolving
+                # to the type member by mapping the local name to the type name
+                type_name = node.name.parents[0].type.dtype.name.lower()
+                # Find the module where the type is defined
+                if type_name in node.name.scope.imported_symbols:
+                    for imprt in node.name.scope.imports:
+                        if type_name in imprt.symbols:
+                            module_name = imprt.module.lower()
+                            break
+                else:
+                    # TODO: Resolve call to type-bound procedure
+                    raise NotImplementedError()
+                item_name = f'{module_name}#{type_name}%{"%".join(node.name.name_parts[1:])}'.lower()
+                items = as_tuple(item_cache.get(item_name))
+                if not items:
+                    module_item = item_cache[module_name]
+                    items = as_tuple(ProcedureBindingItem(item_name, source=module_item.source))
+            elif procedure_name in self.ir.imported_symbols:
+                # This is a call to a module procedure which has been imported via
+                # a fully qualified import
+                for imprt in self.ir.imports:
+                    if procedure_name in imprt.symbols:
+                        # TODO: Handle renaming
+                        module_name = imprt.module.lower()
+                        break
+                item_name = f'{module_name}#{procedure_name}'.lower()
+                items = as_tuple(item_cache.get(item_name))
+                if not items:
+                    module_item = item_cache[module_name]
+                    items = as_tuple(ProcedureBindingItem(item_name, source=module_item.source))
+            elif procedure_name in (intf_map := self.ir.interface_symbols):
+                # TODO: Handle declaration via interface
+                raise NotImplementedError()
+            else:
+                item_name = f'#{procedure_name}'.lower()
+                items = (item_cache[item_name],)
+
+        elif isinstance(node, ProcedureSymbol):
+            # This is a procedure binding
+            assert '%' in node.name
+            type_name = node.parent.type.dtype.name
+            proc_name = '%'.join(node.name_parts[1:])
+            module = node.scope.parent
+            if type_name in module.typedefs:
+                module_name = module.name.lower()
+            else:
+                for imprt in module.imports:
+                    if type_name in imprt.symbols:
+                        module_name = imprt.module.lower()
+                        break
+            item_name = f'{module_name}#{type_name}%{proc_name}'.lower()
+            items = as_tuple(item_cache.get(item_name))
+            if not items:
+                module_item = item_cache[module_name]
+                items = as_tuple(ProcedureBindingItem(item_name, source=module_item.source))
+
+        elif isinstance(node, (TypedSymbol, MetaSymbol)):
+            # This is a global variable
+            item_name = f'{node.scope.name}#{node.name}'.lower()
+            items = as_tuple(item_cache.get(item_name))
+            if not items:
+                module_item = item_cache[node.scope.name.lower()]
+                items = as_tuple(GlobalVariableItem(item_name, source=module_item.source))
+        else:
+            raise ValueError(f'{node} has an unsupported node type {type(node)}')
+
+        # Insert new items into the cache
+        item_cache.update((item.name, item) for item in items if item.name not in item_cache)
+
+        return items
+
+    def create_definition_items(self, item_cache, only=None):
+        items = tuple(flatten(self.create_from_ir(node, item_cache) for node in self.definitions))
         if only:
-            items = tuple(
-                item for item in items if isinstance(item, only)
-            )
+            items = tuple(item for item in items if isinstance(item, only))
+        return items
+
+    def create_dependency_items(self, item_cache, only=None):
+        if not (dependencies := self.dependencies):
+            return ()
+
+        items = ()
+        for node in dependencies:
+            items += self.create_from_ir(node, item_cache)
+
+        if only:
+            items = tuple(item for item in items if isinstance(item, only))
         return items
 
     def clear_cached_property(self, property_name):
@@ -554,6 +647,12 @@ class Item:
 class FileItem(Item):
 
     _parser_class = None
+    _defines_items = ('ModuleItem', 'SubroutineItem')
+
+    @property
+    def definitions(self):
+        self.concretize_definitions()
+        return self.ir.definitions
 
     @property
     def ir(self):
@@ -566,21 +665,58 @@ class FileItem(Item):
 
 class ModuleItem(Item):
 
-    _parser_class = RegexParserClass.ProgramUnitClass
-    _defines_items = ('SubroutineItem', 'TypeDefItem')
+    _parser_class = RegexParserClass.ProgramUnitClass #| RegexParserClass.ImportClass
+    _defines_items = ('ProcedureItem', 'TypeDefItem', 'GlobalVariableItem')
+    _depends_class = RegexParserClass.ImportClass
+
+    @property
+    def definitions(self):
+        self.concretize_definitions()
+        return self.ir.definitions
+
+    @property
+    def _dependencies(self):
+        return as_tuple(self.ir.imports)
 
     @property
     def local_name(self):
         return self.name
 
 
-class TypeDefItem(Item):
+class ProcedureItem(Item):
 
-    _parser_class = RegexParserClass.TypeDefClass
+    _parser_class = RegexParserClass.ProgramUnitClass
+    _depends_class = (
+        RegexParserClass.ImportClass | RegexParserClass.InterfaceClass |
+        RegexParserClass.DeclarationClass | RegexParserClass.CallClass
+    )
 
     @property
-    def definitions(self):
-        return ()
+    def _dependencies(self):
+        calls = tuple(FindNodes(CallStatement).visit(self.ir.ir))
+        imports = self.ir.imports
+        if self.ir.parent:
+            imports += self.ir.parent.imports
+        return as_tuple(imports) + calls
+
+
+class TypeDefItem(Item):
+
+    _parser_class = RegexParserClass.TypeDefClass #| RegexParserClass.DeclarationClass
+
+    @property
+    def _dependencies(self):
+        return as_tuple(self.ir.parent.imports)
+
+
+class InterfaceItem(Item):
+
+    _parser_class = RegexParserClass.InterfaceClass
+
+
+class GlobalVariableItem(Item):
+
+    _parser_class = RegexParserClass.DeclarationClass
 
 
 class SubroutineItem(Item):
@@ -588,15 +724,9 @@ class SubroutineItem(Item):
     Implementation of :class:`Item` to represent a Fortran subroutine work item
     """
 
-    _parser_class = RegexParserClass.ProgramUnitClass
-
     def __init__(self, name, source, config=None):
         assert '%' not in name
         super().__init__(name, source, config)
-
-    @property
-    def definitions(self):
-        return ()
 
     @cached_property
     def routine(self):
@@ -700,6 +830,38 @@ class ProcedureBindingItem(Item):
     However, it is necessary to provide the dependency link from calls to type bound
     procedures to their implementation in a Fortran routine.
     """
+
+    _parser_class = RegexParserClass.CallClass
+    # _depends_items = ('ProcedureItem',)
+
+    @property
+    def ir(self):
+        name_parts = self.local_name.split('%')
+        typedef = self.source[name_parts[0]]
+        for decl in typedef.declarations:
+            if name_parts[1] in decl.symbols:
+                return decl
+        raise RuntimeError(f'Declaration for {self.name} not found')
+
+    @property
+    def symbol(self):
+        local_name = self.local_name.split('%')[1]
+        decl = self.ir
+        return decl.symbols[decl.symbols.index(local_name)]
+
+    @property
+    def _dependencies(self):
+        symbol = self.symbol
+        name_parts = self.local_name.split('%')
+        if len(name_parts) == 2:
+            # TODO: generic bindings
+            if symbol.type.initial:
+                return as_tuple(symbol.type.initial.type.dtype.procedure)
+            return as_tuple(self.source[symbol.name])
+
+        # This is a typebound procedure on a member
+        proc_name = f'{symbol.name}%{"%".join(name_parts[2:])}'
+        return as_tuple(ProcedureSymbol(name=proc_name, parent=symbol, scope=symbol.scope))
 
     def __init__(self, name, source, config=None):
         assert '%' in name

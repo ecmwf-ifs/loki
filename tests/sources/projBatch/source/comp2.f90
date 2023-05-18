@@ -9,4 +9,5 @@ subroutine comp2 (arg, val)
 
     call a(t%yay%indirection)
     call b(val)
+    call arg%yay%proc()
 end subroutine comp2
