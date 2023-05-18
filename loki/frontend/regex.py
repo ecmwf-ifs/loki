@@ -42,6 +42,7 @@ class RegexParserClass(Flag):
     pattern matching can be switched on and off for some pattern classes, and thus the overall
     parse time reduced.
     """
+    EmptyClass = 0
     ProgramUnitClass = auto()
     InterfaceClass = auto()
     ImportClass = auto()
