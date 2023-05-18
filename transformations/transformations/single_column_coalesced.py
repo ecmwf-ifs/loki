@@ -318,6 +318,10 @@ def resolve_masked_stmts(routine, loop_variable):
 
     routine.body = Transformer(mapper).visit(routine.body)
 
+    # if loops have been inserted, check if loop variable is declared
+    if mapper and loop_variable not in routine.variables:
+        routine.variables += as_tuple(loop_variable)
+
 
 def resolve_vector_dimension(routine, loop_variable, bounds):
     """
@@ -354,7 +358,7 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
 
     routine.body = Transformer(mapper).visit(routine.body)
 
-    #if loops have been inserted, check if loop variable is declared
+    # if loops have been inserted, check if loop variable is declared
     if mapper and loop_variable not in routine.variables:
         routine.variables += as_tuple(loop_variable)
 
