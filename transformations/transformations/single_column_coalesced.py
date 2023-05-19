@@ -700,7 +700,7 @@ class SingleColumnCoalescedTransformation(Transformation):
                                       for v, dims in zip(column_locals, arg_dims))
 
         # Add explicit OpenACC statements for creating device variables
-        if self.directive == 'openacc':
+        if self.directive == 'openacc' and column_locals:
             vnames = ', '.join(v.name for v in column_locals)
             pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
             pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')

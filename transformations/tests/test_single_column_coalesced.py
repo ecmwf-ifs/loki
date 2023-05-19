@@ -572,6 +572,83 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_hoist_empty(frontend, horizontal, vertical, blocking):
+    """
+    Test the correct addition of OpenACC pragmas in SCC code with
+    hoisting, if only one of two kernels contains locals to hoist.
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column1(start, end, nlon, nz, q(:,:,b))
+
+      call compute_column2(start, end, nlon, nz, q(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel1 = """
+  SUBROUTINE compute_column1(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: t(nlon,nz)  ! <= temporary array to be hoisted
+
+    DO jl = start, end
+      t(jl, nz) = q(jl, nz) + 0.2
+      q(jl, nz) = q(jl, nz) * q(jl, nz)
+    END DO
+  END SUBROUTINE compute_column1
+"""
+
+    fcode_kernel2 = """
+  SUBROUTINE compute_column2(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    ! No temporary arrays to be hoisted!
+
+    DO jl = start, end
+      q(jl, nz) = q(jl, nz) * 1.2
+    END DO
+  END SUBROUTINE compute_column2
+"""
+
+    kernel1 = Subroutine.from_source(fcode_kernel1, frontend=frontend)
+    kernel2 = Subroutine.from_source(fcode_kernel2, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(routines=(kernel1, kernel2))  # Attach kernel source to driver call
+
+    # Test OpenACC annotations on non-hoisted version
+    scc_transform = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        hoist_column_arrays=True, directive='openacc'
+    )
+    scc_transform.apply(driver, role='driver', targets=['compute_column1', 'compute_column2'])
+    scc_transform.apply(kernel1, role='kernel')
+    scc_transform.apply(kernel2, role='kernel')
+
+    # Ensure only one of the kernel calls caused device allocations
+    # for hoisted variables
+    with pragmas_attached(driver, Loop):
+
+        # Ensure deviece allocation and teardown via `!$acc enter/exit data`
+        driver_pragmas = FindNodes(Pragma).visit(driver.body)
+        assert len(driver_pragmas) == 2
+        assert driver_pragmas[0].keyword == 'acc'
+        assert driver_pragmas[0].content == 'enter data create(t)'
+        assert driver_pragmas[1].keyword == 'acc'
+        assert driver_pragmas[1].content == 'exit data delete(t)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking):
     """
     Test the correct handling of nested vector-level routines in SCC.
