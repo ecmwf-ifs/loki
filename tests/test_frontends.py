@@ -1180,6 +1180,11 @@ end subroutine test
     calls = FindNodes(CallStatement).visit(source['test'].ir)
     assert [call.name for call in calls] == ['RANDOM_CALL_0', 'random_call_2']
 
+    variable_map_test = source['test'].variable_map
+    v_in_type = variable_map_test['v_in'].type
+    assert v_in_type.dtype is BasicType.REAL
+    assert v_in_type.kind == 'jprb'
+
 
 def test_regex_variable_declaration(here):
     """
@@ -1189,7 +1194,7 @@ def test_regex_variable_declaration(here):
     source = Sourcefile.from_file(filepath, frontend=REGEX)
 
     driver = source['driver']
-    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived', 'x', 'i')
+    assert driver.variables == ('constant', 'obj', 'obj2', 'header', 'other_obj', 'derived', 'x', 'i')
     assert source['module_routine'].variables == ('m',)
     assert source['other_routine'].variables == ('self', 'm', 'j')
     assert source['routine'].variables == ('self',)
