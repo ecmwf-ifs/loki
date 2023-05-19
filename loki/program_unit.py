@@ -329,17 +329,23 @@ class ProgramUnit(Scope):
     @property
     def typedefs(self):
         """
+        Return the :any:`TypeDef` defined in the :attr:`spec` of this unit
+        """
+        return as_tuple(FindNodes(ir.TypeDef).visit(self.spec))
+
+    @property
+    def typedef_map(self):
+        """
         Map of names and :any:`TypeDef` defined in the :attr:`spec` of this unit
         """
-        types = FindNodes(ir.TypeDef).visit(self.spec)
-        return CaseInsensitiveDict((td.name, td) for td in types)
+        return CaseInsensitiveDict((td.name, td) for td in self.typedefs)
 
     @property
     def declarations(self):
         """
         Return the declarations from the :attr:`spec` of this unit
         """
-        return FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(self.spec)
+        return as_tuple(FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(self.spec))
 
     @property
     def variables(self):
@@ -389,7 +395,14 @@ class ProgramUnit(Scope):
         """
         Return the list of :any:`Import` in this unit
         """
-        return FindNodes(ir.Import).visit(self.spec or ())
+        return as_tuple(FindNodes(ir.Import).visit(self.spec or ()))
+
+    @property
+    def import_map(self):
+        """
+        Map of imported symbol names to :any:`Import` objects
+        """
+        return CaseInsensitiveDict((s.name, imprt) for imprt in self.imports for s in imprt.symbols)
 
     @property
     def imported_symbols(self):
@@ -586,7 +599,7 @@ class ProgramUnit(Scope):
         Check if a symbol, type or subroutine with the given name is declared
         inside this unit
         """
-        return name in self.symbols or name in self.typedefs
+        return name in self.symbols or name in self.typedef_map
 
     def __getitem__(self, name):
         """
@@ -598,7 +611,7 @@ class ProgramUnit(Scope):
 
         item = self.subroutine_map.get(name)
         if item is None:
-            item = self.typedefs.get(name)
+            item = self.typedef_map.get(name)
         if item is None:
             item = self.symbol_map[name]
         return item

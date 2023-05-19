@@ -374,7 +374,7 @@ end module frontend_strict_mode
     config['frontend-strict-mode'] = False
     module = Module.from_source(fcode, frontend=frontend)
     assert 'matrix' in module.symbol_attrs
-    assert 'matrix' in module.typedefs
+    assert 'matrix' in module.typedef_map
 
 
 def test_regex_subroutine_from_source():
@@ -694,7 +694,7 @@ def test_regex_sourcefile_from_file_parser_classes(here):
         else:
             assert not sourcefile[unit].imports
 
-    assert sorted(sourcefile['bar'].typedefs) == ['food', 'organic']
+    assert sorted(sourcefile['bar'].typedef_map) == ['food', 'organic']
 
 
 def test_regex_raw_source():
@@ -1003,8 +1003,8 @@ end module typebound_item
 
     module = Module.from_source(fcode, frontend=REGEX)
 
-    assert 'some_type' in module.typedefs
-    some_type = module.typedefs['some_type']
+    assert 'some_type' in module.typedef_map
+    some_type = module.typedef_map['some_type']
 
     proc_bindings = {
         'routine': 'module_routine',
@@ -1056,8 +1056,8 @@ end module typebound_header
 
     module = Module.from_source(fcode, frontend=REGEX)
 
-    assert 'header_type' in module.typedefs
-    header_type = module.typedefs['header_type']
+    assert 'header_type' in module.typedef_map
+    header_type = module.typedef_map['header_type']
 
     proc_bindings = {
         'member_routine': 'header_member_routine',

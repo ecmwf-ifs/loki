@@ -1042,8 +1042,8 @@ def test_scheduler_typebound_item(here):
     available_names = []
     for s in [source, header, other]:
         available_names += [f'#{r.name.lower()}' for r in s.subroutines]
-        available_names += [f'{m.name.lower()}#{r.name.lower()}' for m in s.modules for r in m.subroutines]
-        available_names += [f'{m.name.lower()}#{t.lower()}' for m in s.modules for t in m.typedefs]
+        available_names += [f'{m.name}#{r.name}'.lower() for m in s.modules for r in m.subroutines]
+        available_names += [f'{m.name}#{t.name}'.lower() for m in s.modules for t in m.typedefs]
 
     driver = SubroutineItem(name='#driver', source=source)
 

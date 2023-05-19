@@ -387,7 +387,7 @@ class Item:
                     continue
 
                 # Search for definition of the type in parent scope
-                if scope is not None and type_name in scope.typedefs:
+                if scope is not None and type_name in scope.typedef_map:
                     qualified_names += [f'{self.scope_name}#{name}']
                     continue
             else:

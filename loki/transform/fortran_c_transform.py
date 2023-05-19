@@ -60,7 +60,7 @@ class FortranCTransformation(Transformation):
         path = Path(kwargs.get('path'))
         role = kwargs.get('role', 'kernel')
 
-        for name, td in module.typedefs.items():
+        for name, td in module.typedef_map.items():
             self.c_structs[name.lower()] = self.c_struct_typedef(td)
 
         if role == 'header':
