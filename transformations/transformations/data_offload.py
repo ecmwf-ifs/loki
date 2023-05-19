@@ -132,9 +132,9 @@ class DataOffloadTransformation(Transformation):
                 inoutargs = tuple(dict.fromkeys(inoutargs))
 
                 # Now geenerate the pre- and post pragmas (OpenACC)
-                copyin = f'copyin( {", ".join(inargs)} )' if inargs else ''
-                copy = f'copy( {", ".join(inoutargs)} )' if inoutargs else ''
-                copyout = f'copyout( {", ".join(outargs)} )' if outargs else ''
+                copyin = f'copyin({", ".join(inargs)})' if inargs else ''
+                copy = f'copy({", ".join(inoutargs)})' if inoutargs else ''
+                copyout = f'copyout({", ".join(outargs)})' if outargs else ''
                 pragma = Pragma(keyword='acc', content=f'data {copyin} {copy} {copyout}')
                 pragma_post = Pragma(keyword='acc', content='end data')
                 pragma_map[region.pragma] = pragma
