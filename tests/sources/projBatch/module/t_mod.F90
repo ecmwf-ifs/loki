@@ -21,7 +21,7 @@ contains
         call this%yay%proc()
     end subroutine t_proc
 
-    subroutine my_way(this, recurse)
+    recursive subroutine my_way(this, recurse)
         class(t1), intent(inout) :: this
         logical, intent(in) :: recurse
         if (recurse) call this%way(.false.)

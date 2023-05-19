@@ -21,7 +21,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 
 
-__all__ = ['Scheduler', 'SchedulerConfig']
+__all__ = ['Scheduler', 'SchedulerConfig', 'SGraph']
 
 
 class SchedulerConfig:
@@ -788,3 +788,95 @@ class Scheduler:
 
             s_remove = '\n'.join(f'    {s}' for s in sources_to_remove)
             f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
+
+
+class SGraph:
+
+    def __init__(self, seed, item_cache):
+        self._graph = nx.DiGraph()
+        self.populate(seed, item_cache)
+
+    def populate(self, seed, item_cache):
+        queue = deque()
+
+        # Insert the seed objects
+        for name in as_tuple(seed):
+            if '#' not in name:
+                name = f'#{name}'
+            item = item_cache.get(name)
+
+            if not item:
+                # We may have to create the corresponding module's definitions first
+                module_item = item_cache.get(name[:name.index('#')])
+                if module_item:
+                    module_item.create_definition_items(item_cache)
+                    item = item_cache.get(name)
+
+            if item:
+                self.add_node(item)
+                queue.append(item)
+            else:
+                debug('No item found for seed "%s"', name)
+
+        # Populate the graph
+        while queue:
+            item = queue.popleft()
+            dependencies = item.create_dependency_items(item_cache=item_cache)
+            new_items = [item_ for item_ in dependencies if item_ not in self._graph]
+            if new_items:
+                self.add_nodes(new_items)
+                queue.extend(new_items)
+            self.add_edges((item, item_) for item_ in dependencies)
+
+    @property
+    def items(self):
+        return tuple(self._graph.nodes)
+
+    @property
+    def dependencies(self):
+        return tuple(self._graph.edges)
+
+    def add_node(self, item):
+        self._graph.add_node(item)
+
+    def add_nodes(self, items):
+        self._graph.add_nodes_from(items)
+
+    def add_edge(self, edge):
+        self._graph.add_edge(edge[0], edge[1])
+
+    def add_edges(self, edges):
+        self._graph.add_edges_from(edges)
+
+    def export_to_file(self, dotfile_path):
+        """
+        Generate a dotfile from the current graph
+
+        Parameters
+        ----------
+        dotfile_path : str or pathlib.Path
+            Path to write the callgraph figure to.
+        """
+        try:
+            import graphviz as gviz  # pylint: disable=import-outside-toplevel
+        except ImportError:
+            warning('[Loki] Failed to load graphviz, skipping file export generation...')
+            return
+
+        path = Path(dotfile_path)
+        graph = gviz.Digraph(format='pdf', strict=True, graph_attr=(('rankdir', 'LR'),))
+
+        # Insert all nodes in the graph
+        style = {
+            'color': 'black', 'shape': 'box', 'fillcolor': 'limegreen', 'style': 'filled'
+        }
+        for item in self.items:
+            graph.node(item.name.upper(), **style)
+
+        # Insert all edges in the schedulers graph
+        graph.edges((a.name.upper(), b.name.upper()) for a, b in self.dependencies)
+
+        try:
+            graph.render(path, view=False)
+        except gviz.ExecutableNotFound as e:
+            warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')

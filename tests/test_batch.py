@@ -8,12 +8,14 @@
 
 from collections import deque
 from pathlib import Path
+import re
 import networkx as nx
 import pytest
 
 from loki import (
-    HAVE_FP, HAVE_OFP, REGEX, RegexParserClass, as_tuple, CaseInsensitiveDict,
+    HAVE_FP, HAVE_OFP, REGEX, RegexParserClass, as_tuple, CaseInsensitiveDict, gettempdir,
     FileItem, ModuleItem, ProcedureItem, TypeDefItem, ProcedureBindingItem, GlobalVariableItem,
+    SGraph,
     Sourcefile, Section, RawSource, Import, CallStatement, Scalar
 )
 
@@ -47,6 +49,46 @@ def fixture_comp1_expected_dependencies():
         'header_mod#k': (),
     }
 
+
+@pytest.fixture(scope='module', name='mod_proc_expected_dependencies')
+def fixture_mod_proc_expected_dependencies():
+    return {
+        'other_mod#mod_proc': ('tt_mod#tt', 'tt_mod#tt%proc', 'b_mod#b'),
+        'tt_mod#tt': (),
+        'tt_mod#tt%proc': ('tt_mod#tt_proc',),
+        'tt_mod#tt_proc': ('tt_mod#tt',),
+        'b_mod#b': ()
+    }
+
+
+@pytest.fixture(scope='module', name='expected_dependencies')
+def fixture_expected_dependencies(comp1_expected_dependencies, mod_proc_expected_dependencies):
+    return comp1_expected_dependencies | mod_proc_expected_dependencies
+
+
+@pytest.fixture(scope='module', name='no_expected_dependencies')
+def fixture_no_expected_dependencies():
+    return {}
+
+
+class VisGraphWrapper:
+    """
+    Testing utility to parse the generated callgraph visualisation.
+    """
+
+    _re_nodes = re.compile(r'\s*\"?(?P<node>[\w%#./]+)\"? \[colo', re.IGNORECASE)
+    _re_edges = re.compile(r'\s*\"?(?P<parent>[\w%#./]+)\"? -> \"?(?P<child>[\w%#./]+)\"?', re.IGNORECASE)
+
+    def __init__(self, path):
+        self.text = Path(path).read_text()
+
+    @property
+    def nodes(self):
+        return list(self._re_nodes.findall(self.text))
+
+    @property
+    def edges(self):
+        return list(self._re_edges.findall(self.text))
 
 
 def get_item(cls, path, name, parser_classes):
@@ -488,7 +530,6 @@ def test_item_graph(here, comp1_expected_dependencies):
         full_graph.add_edges_from((item, dependency) for dependency in dependencies)
 
     assert set(full_graph) == set(comp1_expected_dependencies)
-    assert all(key in full_graph for key in comp1_expected_dependencies)
 
     edges = tuple((a.name, b.name) for a, b in full_graph.edges)
     for node, dependencies in comp1_expected_dependencies.items():
@@ -502,3 +543,55 @@ def test_item_graph(here, comp1_expected_dependencies):
     # plt.show()
     # # -or-
     # plt.savefig('test_item_graph.png')
+
+
+@pytest.mark.parametrize('seed,dependencies_fixture', [
+    ('#comp1', 'comp1_expected_dependencies'),
+    ('other_mod#mod_proc', 'mod_proc_expected_dependencies'),
+    (['#comp1', 'other_mod#mod_proc'], 'expected_dependencies'),
+    ('foobar', 'no_expected_dependencies')
+])
+def test_sgraph_from_seed(here, seed, dependencies_fixture, request):
+    expected_dependencies = request.getfixturevalue(dependencies_fixture)
+    proj = here/'sources/projBatch'
+    suffixes = ['.f90', '.F90']
+
+    path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
+    assert len(path_list) == 8
+
+    # Map item names to items
+    item_cache = CaseInsensitiveDict()
+
+    # Instantiate the basic list of items (files, modules, subroutines)
+    for path in path_list:
+        relative_path = str(path.relative_to(proj))
+        file_item = get_item(FileItem, path, relative_path, RegexParserClass.ProgramUnitClass)
+        item_cache[relative_path] = file_item
+        item_cache.update((item.name, item) for item in file_item.create_definition_items(item_cache=item_cache))
+
+    # Create the graph
+    sgraph = SGraph(seed, item_cache)
+
+    # Check the graph
+    assert set(sgraph.items) == set(expected_dependencies)
+    assert set(sgraph.dependencies) == {
+        (node, dependency)
+        for node, dependencies in expected_dependencies.items()
+        for dependency in dependencies
+    }
+
+    # Check the graph visualization
+    graph_file = gettempdir()/'sgraph_from_seed.dot'
+    sgraph.export_to_file(graph_file)
+    assert graph_file.exists()
+    assert graph_file.with_suffix('.dot.pdf').exists()
+
+    vgraph = VisGraphWrapper(graph_file)
+    assert set(vgraph.nodes) == {item.upper() for item in expected_dependencies}
+    assert set(vgraph.edges) == {
+        (node.upper(), dependency.upper())
+        for node, dependencies in expected_dependencies.items()
+        for dependency in dependencies
+    }
+    graph_file.unlink()
+    graph_file.with_suffix('.dot.pdf').unlink()
