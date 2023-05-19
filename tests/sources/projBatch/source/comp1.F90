@@ -7,5 +7,6 @@ subroutine comp1 (arg, val)
 #include "comp2.intfb.h"
     call arg%proc()
     call comp2(arg, val)
-    call arg%no%way()
+    call comp2(arg, val)  ! Twice to check we're not duplicating dependencies
+    call arg%no%way(.true.)
 end subroutine comp1

@@ -10,12 +10,13 @@ from functools import cached_property, reduce
 import sys
 
 from loki.frontend import REGEX, RegexParserClass
-from loki.expression import TypedSymbol, MetaSymbol, ProcedureSymbol
+from loki.expression import TypedSymbol, MetaSymbol, ProcedureSymbol, FindVariables
 from loki.ir import Import, CallStatement, TypeDef, ProcedureDeclaration
 from loki.logging import warning
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.types import DerivedType
 from loki.visitors import FindNodes
 
 
@@ -139,9 +140,7 @@ class Item:
     def _parser_classes_from_item_type_names(self, item_type_names):
         item_types = [getattr(sys.modules[__name__], name) for name in item_type_names]
         parser_classes = [p for item_type in item_types if (p := item_type._parser_class) is not None]
-        if parser_classes:
-            return reduce(lambda x, y: x | y, parser_classes)
-        return None
+        return reduce(lambda x, y: x | y, parser_classes, RegexParserClass.EmptyClass)
 
     def concretize_definitions(self):
         parser_classes = self._parser_classes_from_item_type_names(self._defines_items)
@@ -155,33 +154,43 @@ class Item:
                 ir = ir.parent
             ir.make_complete(frontend=REGEX, parser_classes=self._depends_class)
 
+    @staticmethod
+    def _get_or_create_item(item_cls, item_name, item_cache, source=None, module_name=None):
+        if item_name in item_cache:
+            return item_cache[item_name]
+
+        if not source:
+            if not module_name:
+                raise ValueError('Need to provide source or module_name')
+            if module_name not in item_cache:
+                raise RuntimeError(f'Module {module_name} not found in item_cache')
+            source = item_cache[module_name].source
+
+        item = item_cls(item_name, source=source)
+        item_cache[item_name] = item
+        return item
+
     def create_from_ir(self, node, item_cache):
         if isinstance(node, Module):
             item_name = node.name.lower()
-            items = as_tuple(item_cache.get(item_name))
-            if not items:
-                assert node in self.source.modules
-                items = as_tuple(ModuleItem(item_name, source=self.source))
+            items = as_tuple(self._get_or_create_item(ModuleItem, item_name, item_cache, source=self.source))
 
         elif isinstance(node, Subroutine):
             item_name = f'{getattr(node.parent, "name", "")}#{node.name}'.lower()
-            items = as_tuple(item_cache.get(item_name))
-            if not items:
-                assert node in self.source.all_subroutines
-                items = as_tuple(ProcedureItem(item_name, source=self.source))
+            items = as_tuple(self._get_or_create_item(ProcedureItem, item_name, item_cache, source=self.source))
 
         elif isinstance(node, TypeDef):
             item_name = f'{node.parent.name}#{node.name}'.lower()
-            items = as_tuple(item_cache.get(item_name))
-            if not items:
-                assert node.parent in self.source.modules
-                items = as_tuple(TypeDefItem(item_name, source=self.source))
+            items = as_tuple(self._get_or_create_item(TypeDefItem, item_name, item_cache, source=self.source))
 
         elif isinstance(node, Import):
             # If we have a fully-qualified import (which we hopefully have),
             # we create a dependency for every imported symbol, otherwise we
             # depend only on the imported module
-            module_item = item_cache[node.module.lower()]
+            module_name = node.module.lower()
+            if module_name not in item_cache:
+                raise RuntimeError(f'Module {module_name} not found in item_cache')
+            module_item = item_cache[module_name]
             if node.symbols:
                 module_definitions = {
                     item.local_name: item for item in module_item.create_definition_items(item_cache=item_cache)
@@ -196,66 +205,89 @@ class Item:
                 # This is a typebound procedure call, we are only resolving
                 # to the type member by mapping the local name to the type name
                 type_name = node.name.parents[0].type.dtype.name.lower()
-                # Find the module where the type is defined
-                if type_name in node.name.scope.imported_symbols:
-                    for imprt in node.name.scope.imports:
-                        if type_name in imprt.symbols:
-                            module_name = imprt.module.lower()
-                            break
+                # Find the module where the type is defined:
+                scope = node.name.scope
+                # 1. Import in current scope
+                imprt = scope.import_map.get(type_name)
+                # 2. Import in parent scope
+                if not imprt and scope.parent:
+                    imprt = scope.parent.import_map.get(type_name)
+                if imprt:
+                    module_name = imprt.module
+                # 3. Declared in parent scope
+                elif scope.parent and type_name in scope.parent.typedef_map:
+                    module_name = scope.parent.name
+                # 4. Unknown
                 else:
-                    # TODO: Resolve call to type-bound procedure
-                    raise NotImplementedError()
+                    raise RuntimeError(f'Unable to find the module declaring {type_name}')
+
                 item_name = f'{module_name}#{type_name}%{"%".join(node.name.name_parts[1:])}'.lower()
-                items = as_tuple(item_cache.get(item_name))
-                if not items:
-                    module_item = item_cache[module_name]
-                    items = as_tuple(ProcedureBindingItem(item_name, source=module_item.source))
+                items = as_tuple(self._get_or_create_item(
+                    ProcedureBindingItem, item_name, item_cache, module_name=module_name
+                ))
             elif procedure_name in self.ir.imported_symbols:
                 # This is a call to a module procedure which has been imported via
                 # a fully qualified import
-                for imprt in self.ir.imports:
-                    if procedure_name in imprt.symbols:
-                        # TODO: Handle renaming
-                        module_name = imprt.module.lower()
-                        break
+                module_name = self.ir.import_map.get(procedure_name).module
                 item_name = f'{module_name}#{procedure_name}'.lower()
-                items = as_tuple(item_cache.get(item_name))
-                if not items:
-                    module_item = item_cache[module_name]
-                    items = as_tuple(ProcedureBindingItem(item_name, source=module_item.source))
+                items = as_tuple(self._get_or_create_item(
+                    ProcedureItem, item_name, item_cache, module_name=module_name
+                ))
+            elif self.ir.parent and procedure_name in self.ir.parent.imported_symbols:
+                # This is a call to a module procedure which has been imported via
+                # a fully qualified import in the parent scope
+                module_name = self.ir.parent.import_map.get(procedure_name).module
+                item_name = f'{module_name}#{procedure_name}'.lower()
+                items = as_tuple(self._get_or_create_item(
+                    ProcedureItem, item_name, item_cache, module_name=module_name
+                ))
+
             elif procedure_name in (intf_map := self.ir.interface_symbols):
                 # TODO: Handle declaration via interface
                 raise NotImplementedError()
             else:
+                # This is a call to a subroutine declared via header-included interface
                 item_name = f'#{procedure_name}'.lower()
-                items = (item_cache[item_name],)
+                items = as_tuple(item_cache[item_name])
 
         elif isinstance(node, ProcedureSymbol):
-            # This is a procedure binding
+            # This is a procedure binding, presumably to a routine that is
+            # bound to a derived type that is nested into another derived type
             assert '%' in node.name
-            type_name = node.parent.type.dtype.name
+            type_name = node.parents[0].type.dtype.name.lower()
             proc_name = '%'.join(node.name_parts[1:])
-            module = node.scope.parent
-            if type_name in module.typedefs:
-                module_name = module.name.lower()
+
+            # Find the module where the type is defined:
+            scope = node.scope
+            # 1. Import in current scope
+            if hasattr(scope, 'import_map'):
+                imprt = scope.import_map.get(type_name)
             else:
-                for imprt in module.imports:
-                    if type_name in imprt.symbols:
-                        module_name = imprt.module.lower()
-                        break
+                imprt = None
+            # 2. Import in parent scope
+            if not imprt and scope.parent:
+                imprt = scope.parent.import_map.get(type_name)
+            if imprt:
+                module_name = imprt.module
+            # 3. Declared in parent scope
+            elif scope.parent and type_name in scope.parent.typedef_map:
+                module_name = scope.parent.name
+            # 4. Unknown
+            else:
+                raise RuntimeError(f'Unable to find the module declaring {type_name}')
+
             item_name = f'{module_name}#{type_name}%{proc_name}'.lower()
-            items = as_tuple(item_cache.get(item_name))
-            if not items:
-                module_item = item_cache[module_name]
-                items = as_tuple(ProcedureBindingItem(item_name, source=module_item.source))
+            items = as_tuple(self._get_or_create_item(
+                ProcedureBindingItem, item_name, item_cache, module_name=module_name
+            ))
 
         elif isinstance(node, (TypedSymbol, MetaSymbol)):
             # This is a global variable
             item_name = f'{node.scope.name}#{node.name}'.lower()
-            items = as_tuple(item_cache.get(item_name))
-            if not items:
-                module_item = item_cache[node.scope.name.lower()]
-                items = as_tuple(GlobalVariableItem(item_name, source=module_item.source))
+            items = as_tuple(self._get_or_create_item(
+                GlobalVariableItem, item_name, item_cache, module_name=node.scope.name
+            ))
+
         else:
             raise ValueError(f'{node} has an unsupported node type {type(node)}')
 
@@ -280,7 +312,7 @@ class Item:
 
         if only:
             items = tuple(item for item in items if isinstance(item, only))
-        return items
+        return tuple(dict.fromkeys(items))
 
     def clear_cached_property(self, property_name):
         """
@@ -294,14 +326,17 @@ class Item:
         """
         The name of this item's scope
         """
-        return self.name[:self.name.index('#')] or None
+        pos = self.name.find('#')
+        if pos == -1:
+            return None
+        return self.name[:pos]
 
     @property
     def local_name(self):
         """
         The item name without the scope
         """
-        return self.name[self.name.index('#')+1:]
+        return self.name[self.name.find('#')+1:]
 
     @cached_property
     def scope(self):
@@ -658,14 +693,10 @@ class FileItem(Item):
     def ir(self):
         return self.source
 
-    @property
-    def local_name(self):
-        return self.name
-
 
 class ModuleItem(Item):
 
-    _parser_class = RegexParserClass.ProgramUnitClass #| RegexParserClass.ImportClass
+    _parser_class = RegexParserClass.ProgramUnitClass
     _defines_items = ('ProcedureItem', 'TypeDefItem', 'GlobalVariableItem')
     _depends_class = RegexParserClass.ImportClass
 
@@ -687,26 +718,53 @@ class ProcedureItem(Item):
 
     _parser_class = RegexParserClass.ProgramUnitClass
     _depends_class = (
-        RegexParserClass.ImportClass | RegexParserClass.InterfaceClass |
+        RegexParserClass.ImportClass | RegexParserClass.InterfaceClass | RegexParserClass.TypeDefClass |
         RegexParserClass.DeclarationClass | RegexParserClass.CallClass
     )
 
     @property
     def _dependencies(self):
-        calls = tuple(FindNodes(CallStatement).visit(self.ir.ir))
+        calls = tuple({call.name.name: call for call in FindNodes(CallStatement).visit(self.ir.ir)}.values())
         imports = self.ir.imports
-        if self.ir.parent:
-            imports += self.ir.parent.imports
-        return as_tuple(imports) + calls
+        typedefs = ()
+
+        # Create dependencies on type definitions that may have been declared in or
+        # imported via the module scope
+        if self.scope:
+            type_names = [
+                dtype.name for var in self.ir.variables
+                if isinstance((dtype := var.type.dtype), DerivedType)
+            ]
+            if type_names:
+                typedef_map = self.scope.typedef_map
+                import_map = self.scope.import_map
+                typedefs += tuple(typedef for type_name in type_names if (typedef := typedef_map.get(type_name)))
+                imports += tuple(imprt for type_name in type_names if (imprt := import_map.get(type_name)))
+        return imports + typedefs + calls
 
 
 class TypeDefItem(Item):
 
-    _parser_class = RegexParserClass.TypeDefClass #| RegexParserClass.DeclarationClass
+    _parser_class = RegexParserClass.TypeDefClass
+    _depends_class = RegexParserClass.DeclarationClass
 
     @property
     def _dependencies(self):
-        return as_tuple(self.ir.parent.imports)
+        # We restrict dependencies to derived types used in the typedef
+        imports = ()
+        typedefs = ()
+
+        type_names = [
+            dtype.name for var in self.ir.variables
+            if isinstance((dtype := var.type.dtype), DerivedType)
+        ]
+        if type_names:
+            typedef_map = self.scope.typedef_map
+            import_map = self.scope.import_map
+            typedefs = tuple(typedef for type_name in type_names if (typedef := typedef_map.get(type_name)))
+            imports = tuple(imprt for type_name in type_names if (imprt := import_map.get(type_name)))
+
+        return tuple(dict.fromkeys(imports + typedefs))
 
 
 class InterfaceItem(Item):
@@ -717,6 +775,14 @@ class InterfaceItem(Item):
 class GlobalVariableItem(Item):
 
     _parser_class = RegexParserClass.DeclarationClass
+
+    @property
+    def ir(self):
+        local_name = self.local_name
+        for decl in self.scope.declarations:
+            if local_name in decl.symbols:
+                return decl
+        raise RuntimeError(f'Declaration for {local_name} cannot be found in {self.scope_name}')
 
 
 class SubroutineItem(Item):
@@ -832,7 +898,7 @@ class ProcedureBindingItem(Item):
     """
 
     _parser_class = RegexParserClass.CallClass
-    # _depends_items = ('ProcedureItem',)
+    _depends_class = RegexParserClass.DeclarationClass
 
     @property
     def ir(self):
@@ -840,18 +906,12 @@ class ProcedureBindingItem(Item):
         typedef = self.source[name_parts[0]]
         for decl in typedef.declarations:
             if name_parts[1] in decl.symbols:
-                return decl
+                return decl.symbols[decl.symbols.index(name_parts[1])]
         raise RuntimeError(f'Declaration for {self.name} not found')
 
     @property
-    def symbol(self):
-        local_name = self.local_name.split('%')[1]
-        decl = self.ir
-        return decl.symbols[decl.symbols.index(local_name)]
-
-    @property
     def _dependencies(self):
-        symbol = self.symbol
+        symbol = self.ir
         name_parts = self.local_name.split('%')
         if len(name_parts) == 2:
             # TODO: generic bindings
