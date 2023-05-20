@@ -367,7 +367,14 @@ class Section(InternalNode, _SectionBase):
 
 
 @dataclass_strict(frozen=True)
-class Associate(ScopedNode, Section):
+class _AssociateBase():
+    """ Type definitions for :any:`Associate` node type. """
+
+    associations: Tuple[Tuple[Expression, Expression], ...] = None
+
+
+@dataclass_strict(frozen=True)
+class Associate(ScopedNode, Section, _AssociateBase):
     """
     Internal representation of a code region in which names are associated
     with expressions or variables.
@@ -386,8 +393,6 @@ class Associate(ScopedNode, Section):
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
-
-    associations: Tuple[Tuple[Expression, Expression], ...] = None
 
     _traversable = ['body', 'associations']
 
@@ -1399,7 +1404,20 @@ class StatementFunction(LeafNode, _StatementFunctionBase):
 
 
 @dataclass_strict(frozen=True)
-class TypeDef(ScopedNode, LeafNode):
+class _TypeDefBase():
+    """ Type definitions for :any:`TypeDef` node type. """
+
+    name: str = None
+    body: Tuple[Node, ...] = None
+    abstract: bool = False
+    extends: str = None
+    bind_c: bool = False
+    private: bool = False
+    public: bool = False
+
+
+@dataclass_strict(frozen=True)
+class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
     """
     Internal representation of a derived type definition.
 
@@ -1433,19 +1451,11 @@ class TypeDef(ScopedNode, LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    name: str = None
-    body: Tuple[Node, ...] = None
-    abstract: bool = False
-    extends: str = None
-    bind_c: bool = False
-    private: bool = False
-    public: bool = False
-
     _traversable = ['body']
 
     def __post_init__(self, parent=None):
         super(ScopedNode, self).__post_init__(parent=parent)
-        super(LeafNode, self).__post_init__()
+        super(InternalNode, self).__post_init__()
 
         # Register this typedef in the parent scope
         if self.parent:
