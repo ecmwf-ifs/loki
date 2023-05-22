@@ -258,7 +258,7 @@ class Item:
 
         # This is a call to a subroutine declared via header-included interface
         item_name = f'#{proc_name}'.lower()
-        if config.is_disabled(item_name):
+        if config and config.is_disabled(item_name):
             return None
         return item_cache[item_name]
 

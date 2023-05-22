@@ -108,9 +108,13 @@ class VisGraphWrapper:
         return list(self._re_edges.findall(self.text))
 
 
-def get_item(cls, path, name, parser_classes):
+def get_item(cls, path, name, parser_classes, scheduler_config=None):
     source = Sourcefile.from_file(path, frontend=REGEX, parser_classes=parser_classes)
-    return cls(name, source=source)
+    if scheduler_config:
+        config = scheduler_config.create_item_config(name)
+    else:
+        config = None
+    return cls(name, source=source, config=config)
 
 
 def test_file_item1(here, default_config):
@@ -676,14 +680,13 @@ def test_item_graph(here, comp1_expected_dependencies):
     # plt.savefig('test_item_graph.png')
 
 
-@pytest.mark.parametrize('with_default_config', [False, True])
 @pytest.mark.parametrize('seed,dependencies_fixture', [
     ('#comp1', 'comp1_expected_dependencies'),
     ('other_mod#mod_proc', 'mod_proc_expected_dependencies'),
     (['#comp1', 'other_mod#mod_proc'], 'expected_dependencies'),
     ('foobar', 'no_expected_dependencies')
 ])
-def test_sgraph_from_seed(here, with_default_config, default_config, seed, dependencies_fixture, request):
+def test_sgraph_from_seed(here, default_config, seed, dependencies_fixture, request):
     expected_dependencies = request.getfixturevalue(dependencies_fixture)
     proj = here/'sources/projBatch'
     suffixes = ['.f90', '.F90']
@@ -691,21 +694,26 @@ def test_sgraph_from_seed(here, with_default_config, default_config, seed, depen
     path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
     assert len(path_list) == 8
 
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+
     # Map item names to items
     item_cache = CaseInsensitiveDict()
 
     # Instantiate the basic list of items (files, modules, subroutines)
     for path in path_list:
         relative_path = str(path.relative_to(proj))
-        file_item = get_item(FileItem, path, relative_path, RegexParserClass.ProgramUnitClass)
+        file_item = get_item(
+            FileItem, path, relative_path, RegexParserClass.ProgramUnitClass,
+            scheduler_config
+        )
         item_cache[relative_path] = file_item
-        item_cache.update((item.name, item) for item in file_item.create_definition_items(item_cache=item_cache))
+        item_cache.update(
+            (item.name, item)
+            for item in file_item.create_definition_items(item_cache=item_cache, config=scheduler_config)
+        )
 
     # Create the graph
-    if with_default_config:
-        sgraph = SGraph(seed, item_cache, SchedulerConfig.from_dict(default_config))
-    else:
-        sgraph = SGraph(seed, item_cache)
+    sgraph = SGraph(seed, item_cache, scheduler_config)
 
     # Check the graph
     assert set(sgraph.items) == set(expected_dependencies)
@@ -760,19 +768,91 @@ def test_sgraph_disable(here, default_config, expected_dependencies, seed, disab
     path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
     assert len(path_list) == 8
 
+    default_config['default']['disable'] = disable
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+
     # Map item names to items
     item_cache = CaseInsensitiveDict()
 
     # Instantiate the basic list of items (files, modules, subroutines)
     for path in path_list:
         relative_path = str(path.relative_to(proj))
-        file_item = get_item(FileItem, path, relative_path, RegexParserClass.ProgramUnitClass)
+        file_item = get_item(
+            FileItem, path, relative_path, RegexParserClass.ProgramUnitClass,
+            scheduler_config
+        )
         item_cache[relative_path] = file_item
-        item_cache.update((item.name, item) for item in file_item.create_definition_items(item_cache=item_cache))
+        item_cache.update(
+            (item.name, item)
+            for item in file_item.create_definition_items(item_cache=item_cache, config=scheduler_config)
+        )
 
     # Create the graph
-    default_config['default']['disable'] = disable
-    sgraph = SGraph(seed, item_cache, SchedulerConfig.from_dict(default_config))
+    sgraph = SGraph(seed, item_cache, scheduler_config)
+
+    # Check the graph
+    assert set(sgraph.items) == set(active_nodes)
+    assert set(sgraph.dependencies) == {
+        (node, dependency)
+        for node, dependencies in expected_dependencies.items()
+        for dependency in dependencies
+        if node in active_nodes and dependency in active_nodes
+    }
+
+
+@pytest.mark.parametrize('seed,routines,active_nodes', [
+    (
+        '#comp1', [
+            {'name': '#comp1', 'expand': False}
+        ], (
+            '#comp1',
+        )
+    ),
+    (
+        '#comp2', [
+            {'name': '#comp2', 'block': ['a', 'b']}
+        ], (
+            '#comp2', 't_mod#t', 'header_mod#k', 't_mod#t%yay%proc', 'tt_mod#tt',
+            't_mod#t1', 'tt_mod#tt%proc', 'tt_mod#proc'
+        )
+    ),
+    (
+        '#comp2', [
+            {'name': '#comp2', 'ignore': ['a'], 'block': ['b']}
+        ], (
+            '#comp2', 't_mod#t', 'header_mod#k', 't_mod#t%yay%proc', 'tt_mod#tt',
+            't_mod#t1', 'tt_mod#tt%proc', 'tt_mod#proc'
+        )
+    ),
+])
+def test_sgraph_routines(here, default_config, expected_dependencies, seed, routines, active_nodes):
+    proj = here/'sources/projBatch'
+    suffixes = ['.f90', '.F90']
+
+    path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
+    assert len(path_list) == 8
+
+    default_config['routine'] = routines
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+
+    # Map item names to items
+    item_cache = CaseInsensitiveDict()
+
+    # Instantiate the basic list of items (files, modules, subroutines)
+    for path in path_list:
+        relative_path = str(path.relative_to(proj))
+        file_item = get_item(
+            FileItem, path, relative_path, RegexParserClass.ProgramUnitClass,
+            scheduler_config
+        )
+        item_cache[relative_path] = file_item
+        item_cache.update(
+            (item.name, item)
+            for item in file_item.create_definition_items(item_cache=item_cache, config=scheduler_config)
+        )
+
+    # Create the graph
+    sgraph = SGraph(seed, item_cache, scheduler_config)
 
     # Check the graph
     assert set(sgraph.items) == set(active_nodes)

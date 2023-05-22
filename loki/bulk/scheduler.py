@@ -111,7 +111,8 @@ class SchedulerConfig:
 
         return cls.from_dict(config)
 
-    def _get_item_keys(self, item_name, property_name):
+    @staticmethod
+    def match_item_keys(item_name, keys):
         """
         Helper routine to match a :any:`Item` name, which includes a scope,
         to entries in a config property, where names are allowed to appear
@@ -119,7 +120,7 @@ class SchedulerConfig:
         """
         item_name = item_name.lower()
         item_names = (item_name, item_name[item_name.find('#')+1:])
-        return tuple(key for key in getattr(self, property_name) or () if key in item_names)
+        return tuple(key for key in keys or () if key in item_names)
 
     def create_item_config(self, name):
         """
@@ -128,7 +129,7 @@ class SchedulerConfig:
         The resulting config object contains the :attr:`default`
         values and any item-specific overwrites and additions.
         """
-        keys = self._get_item_keys(name, 'routines')
+        keys = self.match_item_keys(name, self.routines)
         if len(keys) > 1:
             if self.default.get('strict'):
                 raise RuntimeError(f'{name} matches multiple config entries: {", ".join(keys)}')
@@ -142,7 +143,7 @@ class SchedulerConfig:
         """
         Check if the item with the given :data:`name` is marked as `disabled`
         """
-        return len(self._get_item_keys(name, 'disable')) > 0
+        return len(self.match_item_keys(name, self.disable)) > 0
 
 
 class Scheduler:
@@ -860,12 +861,18 @@ class SGraph:
         # Populate the graph
         while queue:
             item = queue.popleft()
-            dependencies = item.create_dependency_items(item_cache=item_cache, config=config)
-            new_items = [item_ for item_ in dependencies if item_ not in self._graph]
-            if new_items:
-                self.add_nodes(new_items)
-                queue.extend(new_items)
-            self.add_edges((item, item_) for item_ in dependencies)
+
+            if item.expand:
+                dependencies = []
+                items_to_ignore = [*item.block, *item.ignore]
+                for dependency in item.create_dependency_items(item_cache=item_cache, config=config):
+                    if not SchedulerConfig.match_item_keys(dependency.name, items_to_ignore):
+                        dependencies += [dependency]
+                new_items = [item_ for item_ in dependencies if item_ not in self._graph]
+                if new_items:
+                    self.add_nodes(new_items)
+                    queue.extend(new_items)
+                self.add_edges((item, item_) for item_ in dependencies)
 
     @property
     def items(self):
