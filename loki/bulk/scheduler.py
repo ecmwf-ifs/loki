@@ -70,7 +70,10 @@ class SchedulerConfig:
 
     @classmethod
     def from_dict(cls, config):
-        default = config['default']
+        """
+        Populate :any:`SchedulerConfig` from the given :any:`dict` :data:`config`
+        """
+        default = config.get('default', {})
         if 'routine' in config:
             config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
         else:
@@ -98,12 +101,48 @@ class SchedulerConfig:
 
     @classmethod
     def from_file(cls, path):
+        """
+        Populate :any:`SchedulerConfig` from a toml file at :data:`path`
+        """
         import toml  # pylint: disable=import-outside-toplevel
         # Load configuration file and process options
         with Path(path).open('r') as f:
             config = toml.load(f)
 
         return cls.from_dict(config)
+
+    def _get_item_keys(self, item_name, property_name):
+        """
+        Helper routine to match a :any:`Item` name, which includes a scope,
+        to entries in a config property, where names are allowed to appear
+        without the relevant scope names
+        """
+        item_name = item_name.lower()
+        item_names = (item_name, item_name[item_name.find('#')+1:])
+        return tuple(key for key in getattr(self, property_name) or () if key in item_names)
+
+    def create_item_config(self, name):
+        """
+        Create the bespoke config `dict` for an :any:`Item`
+
+        The resulting config object contains the :attr:`default`
+        values and any item-specific overwrites and additions.
+        """
+        keys = self._get_item_keys(name, 'routines')
+        if len(keys) > 1:
+            if self.default.get('strict'):
+                raise RuntimeError(f'{name} matches multiple config entries: {", ".join(keys)}')
+            warning(f'{name} matches multiple config entries: {", ".join(keys)}')
+        item_conf = self.default.copy()
+        for key in keys:
+            item_conf.update(self.routines[key])
+        return item_conf
+
+    def is_disabled(self, name):
+        """
+        Check if the item with the given :data:`name` is marked as `disabled`
+        """
+        return len(self._get_item_keys(name, 'disable')) > 0
 
 
 class Scheduler:
