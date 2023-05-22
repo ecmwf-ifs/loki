@@ -123,32 +123,75 @@ class Item:
 
     @property
     def definitions(self):
+        """
+        Return a tuple of the IR nodes this item defines
+
+        By default, this returns an empty tuple and is overwritten by
+        derived classes.
+        """
         return ()
 
     @property
     def dependencies(self):
+        """
+        Return a tuple of IR nodes that constitute dependencies for this item
+
+        This calls :meth:`concretize_dependencies` to trigger a further parse
+        with the :any:`REGEX` frontend, including the :attr:`_depends_class` of
+        the item. The list of actual dependencies is defined via :meth:`_dependencies`,
+        which is overwritten by derived classes.
+        """
         self.concretize_dependencies()
         return self._dependencies
 
     @property
     def _dependencies(self):
+        """
+        Return a tuple of the IR nodes that constitute dependencies for this item
+
+        This method is used by :attr:`dependencies` to determine the actual
+        dependencies after calling :meth:`concretize_dependencies`.
+
+        By default, this returns an empty tuple and is overwritten by
+        derived classes.
+        """
         return ()
 
     @property
     def ir(self):
+        """
+        Return the IR :any:`Node` that the item represents
+        """
         return self.source[self.local_name]
 
     def _parser_classes_from_item_type_names(self, item_type_names):
+        """
+        Helper method that queries the :attr:`Item._parser_class` of all
+        :any:`Item` subclasses listed in :data:`item_type_names`
+        """
         item_types = [getattr(sys.modules[__name__], name) for name in item_type_names]
         parser_classes = [p for item_type in item_types if (p := item_type._parser_class) is not None]
         return reduce(lambda x, y: x | y, parser_classes, RegexParserClass.EmptyClass)
 
     def concretize_definitions(self):
+        """
+        Trigger a re-parse of the source file corresponding to the current item's scope
+
+        This uses :meth:`_parser_classes_from_item_type_names` to determine all
+        :any:`RegexParserClass` that the item's definitions require to be parsed.
+        An item's definition classes are listed in :attr:`_defines_items`.
+        """
         parser_classes = self._parser_classes_from_item_type_names(self._defines_items)
         if parser_classes and hasattr(self.ir, 'make_complete'):
             self.ir.make_complete(frontend=REGEX, parser_classes=parser_classes)
 
     def concretize_dependencies(self):
+        """
+        Trigger a re-parse of the source file corresponding to the current item's scope
+
+        This uses :attr:`_depends_class` to determine all :any:`RegexParserClass` that
+        the are require to be parsed to find the item's dependencies.
+        """
         if not self._depends_class:
             return
         scope = self.ir
@@ -219,9 +262,44 @@ class Item:
             return None
         return item_cache[item_name]
 
-
     @classmethod
     def _get_or_create_item(cls, item_cls, item_name, item_cache, scope_name, config):
+        """
+        Helper method to instantiate the :any:`Item` with name :data:`item_name`
+        of class :data:`item_cls`
+
+        This helper method checks for the presence of :data:`item_name` in the
+        :data:`item_cache` and returns that instance. If none is found, an instance
+        of :data:`item_cls` is created and stored in the item cache.
+
+        The :data:`scope_name` denotes the name of the parent scope, under which a
+        parent :any:`Item` has to exist in :data:`item_cache` to find the source
+        item to use.
+
+        Item names matching one of the entries in the :data:`config` disable list
+        are skipped. If `strict` mode is enabled, this raises a :any:`RuntimeError`
+        if no matching parent item can be found in the item cache.
+
+        Parameters
+        ----------
+        item_cls : subclass of :any:`Item`
+            The class of the item to create
+        item_name : str
+            The name of the item to create
+        item_cache : dict
+            The cache of existing :any:`Item` objects, mapping the item's names to
+            item objects
+        scope_name : str
+            The name under which a parent item can be found in the :data:`item_cache`
+        config : :any:`SchedulerConfig`
+            The config object to use to determine disabled items, and to use when
+            instantiating the new item
+
+        Returns
+        -------
+        :any:`Item` or None
+            The item object or `None` if disabled or impossible to create
+        """
         if config and config.is_disabled(item_name):
             return None
         if item_name in item_cache:
@@ -238,6 +316,17 @@ class Item:
         return item
 
     def _create_from_ir(self, node, item_cache, config):
+        """
+        Helper method to create items for definitions or dependency
+
+        This is a helper method to determine the fully-qualified item names
+        and item type for a given IR :any:`Node`, e.g., when creating the items
+        for definitions (see :meth:`create_definition_items`) or dependencies
+        (see :meth:`create_dependency_items`).
+
+        This routine's responsibility is to determine the item name, and then call
+        :meth:`_get_or_create_item` to look-up an existing items or create it.
+        """
         if isinstance(node, Module):
             # We may create ModuleItem in two situations:
             # 1. as a dependency, when it is likely already present in the item_cache, or
@@ -294,12 +383,50 @@ class Item:
         raise ValueError(f'{node} has an unsupported node type {type(node)}')
 
     def create_definition_items(self, item_cache, config=None, only=None):
+        """
+        Create the :any:`Item` nodes corresponding to the definitions in the
+        current item
+
+        Parameters
+        ----------
+        item_cache : dict
+            The cache of existing :any:`Item` objects, mapping item names to
+            item objects
+        config : :any:`SchedulerConfig`, optional
+            The scheduler config to use when instantiating new items
+        only : list of :any:`Item` classes
+            Filter the generated items to include only those provided in the list
+
+        Returns
+        -------
+        tuple
+            The list of :any:`Item` nodes
+        """
         items = as_tuple(flatten(self._create_from_ir(node, item_cache, config) for node in self.definitions))
         if only:
             items = tuple(item for item in items if isinstance(item, only))
         return items
 
     def create_dependency_items(self, item_cache, config=None, only=None):
+        """
+        Create the :any:`Item` nodes corresponding to the dependencies of the
+        current item
+
+        Parameters
+        ----------
+        item_cache : dict
+            The cache of existing :any:`Item` objects, mapping item names to
+            item objects
+        config : :any:`SchedulerConfig`, optional
+            The scheduler config to use when instantiating new items
+        only : list of :any:`Item` classes
+            Filter the generated items to include only those provided in the list
+
+        Returns
+        -------
+        tuple
+            The list of :any:`Item` nodes
+        """
         if not (dependencies := self.dependencies):
             return ()
 
