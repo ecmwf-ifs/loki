@@ -1160,7 +1160,7 @@ class OFP2IR(GenericVisitor):
             )
         else:
             routine.__initialize__(
-                name=name, args=args, docstring=routine.docstring, spec=routine.spec, 
+                name=name, args=args, docstring=routine.docstring, spec=routine.spec,
                 body=routine.body, contains=routine.contains, prefix=prefix, bind=bind,
                 result_name=result_name, is_function=is_function, ast=o,
                 source=self.get_source(o), incomplete=routine._incomplete

@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 from abc import abstractmethod
-import weakref
 
 from loki import ir
 from loki.frontend import Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source

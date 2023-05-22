@@ -69,12 +69,16 @@ class Module(ProgramUnit):
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, name=None, docstring=None, spec=None, contains=None,
-                 default_access_spec=None, public_access_spec=None, private_access_spec=None,
-                 ast=None, source=None, parent=None, rescope_symbols=False, symbol_attrs=None,
-                 incomplete=False):
-
+    def __init__(
+            self, name=None, docstring=None, spec=None, contains=None,
+            default_access_spec=None, public_access_spec=None, private_access_spec=None,
+            ast=None, source=None, parent=None, symbol_attrs=None, rescope_symbols=False,
+            incomplete=False
+    ):
         super().__init__(parent=parent)
+
+        if symbol_attrs:
+            self.symbol_attrs.update(symbol_attrs)
 
         self.__initialize__(
             name=name, docstring=docstring, spec=spec, contains=contains,
@@ -83,10 +87,11 @@ class Module(ProgramUnit):
             rescope_symbols=rescope_symbols, incomplete=incomplete
         )
 
-    def __initialize__(self, name=None, docstring=None, spec=None, contains=None,
-                       default_access_spec=None, public_access_spec=None, private_access_spec=None,
-                       ast=None, source=None, rescope_symbols=False, incomplete=False):
-
+    def __initialize__(
+            self, name=None, docstring=None, spec=None, contains=None,
+            ast=None, source=None, rescope_symbols=False, incomplete=False,
+            default_access_spec=None, public_access_spec=None, private_access_spec=None
+    ):
         # Apply dimension pragma annotations to declarations
         if spec:
             with pragmas_attached(self, VariableDeclaration):

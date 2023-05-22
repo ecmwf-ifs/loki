@@ -615,7 +615,7 @@ class WeakrefProperty:
     def __set_name__(self, owner, name):
         self._name = "_" + name
 
-    def __get__(self, obj, type):
+    def __get__(self, obj, _type):
         if obj is None:
             return self._default
 

@@ -146,7 +146,7 @@ class Node:
         """
         Arguments used to construct the Node.
         """
-        return {k: v for k, v in self.__dict__.items() if k in self.__dataclass_fields__.keys()}
+        return {k: v for k, v in self.__dict__.items() if k in self.__dataclass_fields__.keys()}  # pylint: disable=no-member
 
     @property
     def args_frozen(self):
@@ -267,7 +267,7 @@ class ScopedNode(Scope):
         Arguments used to construct the :any:`ScopedNode`, excluding
         the symbol table.
         """
-        keys = tuple(k for k in self.__dataclass_fields__.keys() if k not in ('symbol_attrs', ))
+        keys = tuple(k for k in self.__dataclass_fields__.keys() if k not in ('symbol_attrs', ))  # pylint: disable=no-member
         return {k: v for k, v in self.__dict__.items() if k in keys}
 
     def _update(self, *args, **kwargs):
@@ -370,7 +370,7 @@ class Section(InternalNode, _SectionBase):
 class _AssociateBase():
     """ Type definitions for :any:`Associate` node type. """
 
-    associations: Tuple[Tuple[Expression, Expression], ...] = None
+    associations: Tuple[Tuple[Expression, Expression], ...]
 
 
 @dataclass_strict(frozen=True)
@@ -1467,11 +1467,14 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
 
     @property
     def declarations(self):
-        return as_tuple(c for c in self.body if isinstance(c, (VariableDeclaration, ProcedureDeclaration)))
+        return tuple(
+            c for c in as_tuple(self.body)
+            if isinstance(c, (VariableDeclaration, ProcedureDeclaration))
+        )
 
     @property
     def comments(self):
-        return as_tuple(c for c in self.body if isinstance(c, Comment))
+        return tuple(c for c in as_tuple(self.body) if isinstance(c, Comment))
 
     @property
     def variables(self):
@@ -1486,7 +1489,7 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
         """
         Return the symbols imported in this typedef
         """
-        return as_tuple(flatten(c.symbols for c in self.body if isinstance(c, Import)))
+        return tuple(flatten(c.symbols for c in as_tuple(self.body) if isinstance(c, Import)))
 
     @property
     def imported_symbol_map(self):

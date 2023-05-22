@@ -71,12 +71,16 @@ class Subroutine(ProgramUnit):
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 contains=None, prefix=None, bind=None, result_name=None,
-                 is_function=False, ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None, incomplete=False):
-
+    def __init__(
+            self, name, args=None, docstring=None, spec=None, body=None,
+            contains=None, prefix=None, bind=None, result_name=None,
+            is_function=False, ast=None, source=None, parent=None,
+            symbol_attrs=None, rescope_symbols=False, incomplete=False
+    ):
         super().__init__(parent=parent)
+
+        if symbol_attrs:
+            self.symbol_attrs.update(symbol_attrs)
 
         self.__initialize__(
             name=name, args=args, docstring=docstring, spec=spec, body=body,
@@ -86,9 +90,9 @@ class Subroutine(ProgramUnit):
         )
 
     def __initialize__(
-            self, name, args=None, docstring=None, spec=None, contains=None, body=None,
-            prefix=None, bind=None, result_name=None, is_function=False, ast=None,
-            source=None, rescope_symbols=False, incomplete=False
+            self, name, docstring=None, spec=None, contains=None,
+            ast=None, source=None, rescope_symbols=False, incomplete=False,
+            body=None, args=None, prefix=None, bind=None, result_name=None, is_function=False,
     ):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
