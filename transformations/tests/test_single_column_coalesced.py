@@ -9,8 +9,8 @@ import pytest
 
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
-    CallStatement, Scalar, Array, Pragma, pragmas_attached, fgen,
-    Sourcefile
+    CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
+    fgen, Sourcefile
 )
 from conftest import available_frontends
 from transformations import SingleColumnCoalescedTransformation, DataOffloadTransformation
@@ -191,6 +191,81 @@ def test_single_column_coalesced_vector_notation(frontend, horizontal, vertical)
     kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_masked_statement(frontend, horizontal, vertical):
+    """
+    Test resolving of vector notation in kernel and re-insertion of the
+    horizontal loop in the "driver".
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, t, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column(start, end, nlon, nz, q(:,:,b), t(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      WHERE (q(start:end, jk) > 1.234)
+        q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
+      ELSEWHERE
+        q(start:end, jk) = t(start:end, jk)
+      END WHERE
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+
+    scc_transform = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical,
+        hoist_column_arrays=False
+    )
+    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    scc_transform.apply(kernel, role='kernel')
+
+    # Ensure horizontal loop variable has been declared
+    assert 'jl' in kernel.variables
+
+    # Ensure we have two nested loops in the kernel
+    # (the hoisted horizontal and the native vertical)
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 2
+    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[0].variable == 'jl'
+    assert kernel_loops[0].bounds == 'start:end'
+    assert kernel_loops[1].variable == 'jk'
+    assert kernel_loops[1].bounds == '2:nz'
+
+    # Ensure that the respective conditional has been inserted correctly
+    kernel_conds = FindNodes(Conditional).visit(kernel.body)
+    assert len(kernel_conds) == 1
+    assert kernel_conds[0] in FindNodes(Conditional).visit(kernel_loops[1])
+    assert kernel_conds[0].condition == 'q(jl, jk) > 1.234'
+    assert fgen(kernel_conds[0].body) == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+    assert fgen(kernel_conds[0].else_body) == 'q(jl, jk) = t(jl, jk)'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_demote(frontend, horizontal, vertical):

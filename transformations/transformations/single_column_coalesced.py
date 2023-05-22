@@ -312,11 +312,15 @@ def resolve_masked_stmts(routine, loop_variable):
         assert all(r == ranges[0] for r in ranges)
         bounds = sym.LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
         cond = ir.Conditional(condition=masked.conditions[0], body=masked.bodies[0], else_body=masked.default)
-        loop = ir.Loop(variable=loop_variable, bounds=bounds, body=cond)
+        loop = ir.Loop(variable=loop_variable, bounds=bounds, body=(cond,))
         # Substitute the loop ranges with the loop index and add to mapper
         mapper[masked] = SubstituteExpressions(exprmap).visit(loop)
 
     routine.body = Transformer(mapper).visit(routine.body)
+
+    # if loops have been inserted, check if loop variable is declared
+    if mapper and loop_variable not in routine.variables:
+        routine.variables += as_tuple(loop_variable)
 
 
 def resolve_vector_dimension(routine, loop_variable, bounds):
@@ -354,7 +358,7 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
 
     routine.body = Transformer(mapper).visit(routine.body)
 
-    #if loops have been inserted, check if loop variable is declared
+    # if loops have been inserted, check if loop variable is declared
     if mapper and loop_variable not in routine.variables:
         routine.variables += as_tuple(loop_variable)
 
