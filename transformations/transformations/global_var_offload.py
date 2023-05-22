@@ -26,6 +26,72 @@ class GlobalVarOffloadTransformation(Transformation):
     for the imported variables to the relevant modules, and ``process_driver`` which adds
     offload instructions at the driver-layer. ``!$loki update_device`` and ``!$loki update_host``
     pragmas are needed in the ``driver`` source to insert offload and/or copy-back directives.
+    The functionality is illustrated in the example below.
+
+    E.g., the following code:
+
+..    code-block:: fortran
+
+      module moduleB
+         real :: var2
+         real :: var3
+      end module moduleB
+
+      module moduleC
+         real :: var4
+         real :: var5
+      end module moduleC
+
+      subroutine driver()
+      implicit none
+
+      !$loki update_device
+      !$acc serial
+      call kernel()
+      !$acc end serial
+      !$loki update_host
+
+      end subroutine driver
+
+      subroutine kernel()
+      use moduleB, only: var2,var3
+      use moduleC, only: var4,var5
+      implicit none
+      !$acc routine seq
+
+      var4 = var2
+      var5 = var3
+
+      end subroutine kernel
+
+    is transformed to:
+
+..    code-block:: fortran
+
+      module moduleB
+         real :: var2
+         real :: var3
+        !$acc declare create(var2)
+        !$acc declare create(var3)
+      end module moduleB
+
+      module moduleC
+         real :: var4
+         real :: var5
+        !$acc declare create(var4)
+        !$acc declare create(var5)
+      end module moduleC
+
+      subroutine driver()
+      implicit none
+
+      !$acc update device( var2,var3 )
+      !$acc serial
+      call kernel()
+      !$acc end serial
+      !$acc update self( var4,var5 )
+
+      end subroutine driver
 
     Nested Fortran derived-types and arrays of derived-types are not currently supported.
     If such an import is encountered, only the device-side declaration will be added to the
