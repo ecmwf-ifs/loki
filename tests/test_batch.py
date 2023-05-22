@@ -32,7 +32,7 @@ def fixture_default_config():
     """
     Default SchedulerConfig configuration with basic options.
     """
-    return SchedulerConfig.from_dict({
+    return {
         'default': {
             'mode': 'idem',
             'role': 'kernel',
@@ -41,10 +41,10 @@ def fixture_default_config():
             'disable': ['abort']
         },
         'routines': []
-    })
+    }
 
 
-@pytest.fixture(scope='module', name='comp1_expected_dependencies')
+@pytest.fixture(name='comp1_expected_dependencies')
 def fixture_comp1_expected_dependencies():
     return {
         '#comp1': ('header_mod', 't_mod#t', '#comp2', 't_mod#t%proc', 't_mod#t%no%way'),
@@ -67,7 +67,7 @@ def fixture_comp1_expected_dependencies():
     }
 
 
-@pytest.fixture(scope='module', name='mod_proc_expected_dependencies')
+@pytest.fixture(name='mod_proc_expected_dependencies')
 def fixture_mod_proc_expected_dependencies():
     return {
         'other_mod#mod_proc': ('tt_mod#tt', 'tt_mod#tt%proc', 'b_mod#b'),
@@ -78,12 +78,12 @@ def fixture_mod_proc_expected_dependencies():
     }
 
 
-@pytest.fixture(scope='module', name='expected_dependencies')
+@pytest.fixture(name='expected_dependencies')
 def fixture_expected_dependencies(comp1_expected_dependencies, mod_proc_expected_dependencies):
     return comp1_expected_dependencies | mod_proc_expected_dependencies
 
 
-@pytest.fixture(scope='module', name='no_expected_dependencies')
+@pytest.fixture(name='no_expected_dependencies')
 def fixture_no_expected_dependencies():
     return {}
 
@@ -142,7 +142,7 @@ def test_file_item1(here, default_config):
 
     with pytest.raises(RuntimeError):
         # Without the FileItem in the item_cache, we can't create the modules
-        item.create_definition_items(item_cache={}, config=default_config)
+        item.create_definition_items(item_cache={}, config=SchedulerConfig.from_dict(default_config))
 
     # However, without strict parsing it will simply return an empty list
     assert not item.create_definition_items(item_cache={})
@@ -422,7 +422,7 @@ def test_procedure_item_with_config(here, config, expected_dependencies):
 
     # We need to have suitable dependency modules in the cache to spawn the dependency items
     item_cache = {item.name: item}
-    item_cache = {
+    item_cache |= {
         (i := get_item(ModuleItem, proj/path, name, RegexParserClass.ProgramUnitClass)).name: i
         for path, name in [
             ('module/t_mod.F90', 't_mod'), ('module/a_mod.F90', 'a_mod'),
@@ -431,6 +431,24 @@ def test_procedure_item_with_config(here, config, expected_dependencies):
     }
     scheduler_config = SchedulerConfig.from_dict(config)
     assert item.create_dependency_items(item_cache=item_cache, config=scheduler_config) == expected_dependencies
+
+
+@pytest.mark.parametrize('disable', ['#comp2', 'comp2'])
+def test_procedure_item_with_config2(here, disable):
+    proj = here/'sources/projBatch'
+
+    # Similar to the previous test but checking disabling of subroutines without scope
+    item = get_item(ProcedureItem, proj/'source/comp1.f90', '#comp1', RegexParserClass.ProgramUnitClass)
+
+    item_cache = {item.name: item}
+    item_cache['t_mod'] = get_item(ModuleItem, proj/'module/t_mod.F90', 't_mod', RegexParserClass.ProgramUnitClass)
+    item_cache['header_mod'] = get_item(
+        ModuleItem, proj/'headers/header_mod.F90', 'header_mod', RegexParserClass.ProgramUnitClass
+    )
+    scheduler_config = SchedulerConfig.from_dict({'default': {'disable': [disable]}})
+    assert item.create_dependency_items(item_cache=item_cache, config=scheduler_config) == (
+        't_mod#t', 'header_mod', 't_mod#t%proc', 't_mod#t%no%way'
+    )
 
 
 def test_typedef_item(here):
@@ -531,7 +549,7 @@ def test_procedure_binding_item2(here, default_config):
     item_cache = {item.name: item}
     with pytest.raises(RuntimeError):
         # Fails because item_cache does not contain the relevant module
-        item.create_dependency_items(item_cache=item_cache, config=default_config)
+        item.create_dependency_items(item_cache=item_cache, config=SchedulerConfig.from_dict(default_config))
 
     item_cache['t_mod'] = ModuleItem('t_mod', source=item.source)
     items = item.create_dependency_items(item_cache=item_cache)
@@ -658,13 +676,14 @@ def test_item_graph(here, comp1_expected_dependencies):
     # plt.savefig('test_item_graph.png')
 
 
+@pytest.mark.parametrize('with_default_config', [False, True])
 @pytest.mark.parametrize('seed,dependencies_fixture', [
     ('#comp1', 'comp1_expected_dependencies'),
     ('other_mod#mod_proc', 'mod_proc_expected_dependencies'),
     (['#comp1', 'other_mod#mod_proc'], 'expected_dependencies'),
     ('foobar', 'no_expected_dependencies')
 ])
-def test_sgraph_from_seed(here, seed, dependencies_fixture, request):
+def test_sgraph_from_seed(here, with_default_config, default_config, seed, dependencies_fixture, request):
     expected_dependencies = request.getfixturevalue(dependencies_fixture)
     proj = here/'sources/projBatch'
     suffixes = ['.f90', '.F90']
@@ -683,7 +702,10 @@ def test_sgraph_from_seed(here, seed, dependencies_fixture, request):
         item_cache.update((item.name, item) for item in file_item.create_definition_items(item_cache=item_cache))
 
     # Create the graph
-    sgraph = SGraph(seed, item_cache)
+    if with_default_config:
+        sgraph = SGraph(seed, item_cache, SchedulerConfig.from_dict(default_config))
+    else:
+        sgraph = SGraph(seed, item_cache)
 
     # Check the graph
     assert set(sgraph.items) == set(expected_dependencies)
@@ -708,3 +730,55 @@ def test_sgraph_from_seed(here, seed, dependencies_fixture, request):
     }
     graph_file.unlink()
     graph_file.with_suffix('.dot.pdf').unlink()
+
+
+@pytest.mark.parametrize('seed, disable,active_nodes', [
+    ('#comp1', ('comp2', 'a'), (
+        '#comp1', 't_mod#t', 'header_mod', 't_mod#t%proc', 't_mod#t%no%way',
+        't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
+        't_mod#t1%way', 't_mod#my_way', 'tt_mod#tt', 't_mod#t1'
+    )),
+    ('#comp1', ('comp2', 'a', 't_mod#t%no%way'), (
+        '#comp1', 't_mod#t', 'header_mod', 't_mod#t%proc',
+        't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
+        'tt_mod#tt', 't_mod#t1'
+    )),
+    ('#comp1', ('#comp2', 't1%way'), (
+        '#comp1', 't_mod#t', 'header_mod', 't_mod#t%proc', 't_mod#t%no%way',
+        't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
+        'tt_mod#tt', 't_mod#t1', 'a_mod#a', 'header_mod#k'
+    )),
+    ('t_mod#t_proc', ('t_mod#t1', 'proc'), (
+        't_mod#t_proc', 't_mod#t', 'tt_mod#tt', 'a_mod#a', 'header_mod#k',
+        't_mod#t%yay%proc', 'tt_mod#tt%proc'
+    ))
+])
+def test_sgraph_disable(here, default_config, expected_dependencies, seed, disable, active_nodes):
+    proj = here/'sources/projBatch'
+    suffixes = ['.f90', '.F90']
+
+    path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
+    assert len(path_list) == 8
+
+    # Map item names to items
+    item_cache = CaseInsensitiveDict()
+
+    # Instantiate the basic list of items (files, modules, subroutines)
+    for path in path_list:
+        relative_path = str(path.relative_to(proj))
+        file_item = get_item(FileItem, path, relative_path, RegexParserClass.ProgramUnitClass)
+        item_cache[relative_path] = file_item
+        item_cache.update((item.name, item) for item in file_item.create_definition_items(item_cache=item_cache))
+
+    # Create the graph
+    default_config['default']['disable'] = disable
+    sgraph = SGraph(seed, item_cache, SchedulerConfig.from_dict(default_config))
+
+    # Check the graph
+    assert set(sgraph.items) == set(active_nodes)
+    assert set(sgraph.dependencies) == {
+        (node, dependency)
+        for node, dependencies in expected_dependencies.items()
+        for dependency in dependencies
+        if node in active_nodes and dependency in active_nodes
+    }

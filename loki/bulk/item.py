@@ -149,11 +149,15 @@ class Item:
             self.ir.make_complete(frontend=REGEX, parser_classes=parser_classes)
 
     def concretize_dependencies(self):
-        if self._depends_class and hasattr(self.ir, 'make_complete'):
-            ir = self.ir
-            while ir.parent:
-                ir = ir.parent
-            ir.make_complete(frontend=REGEX, parser_classes=self._depends_class)
+        if not self._depends_class:
+            return
+        scope = self.ir
+        if not isinstance(scope, Scope):
+            scope = scope.scope
+        while scope.parent:
+            scope = scope.parent
+        if hasattr(scope, 'make_complete'):
+            scope.make_complete(frontend=REGEX, parser_classes=self._depends_class)
 
     def _get_procedure_item(self, proc_symbol, item_cache, config):
         # A recursive map of all imports
@@ -211,6 +215,8 @@ class Item:
 
         # This is a call to a subroutine declared via header-included interface
         item_name = f'#{proc_name}'.lower()
+        if config.is_disabled(item_name):
+            return None
         return item_cache[item_name]
 
 
