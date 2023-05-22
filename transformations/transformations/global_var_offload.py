@@ -175,18 +175,20 @@ class GlobalVarOffloadTransformation(Transformation):
 
         # replace Loki pragmas with acc data/update pragmas
         pragma_map = {}
-        for pragma in [pragma for pragma in FindNodes(Pragma).visit(routine.body) if pragma.keyword == 'loki']:
-            if 'update_device' in pragma.content:
-                if update_device:
-                    pragma_map.update({pragma: update_device})
-                else:
-                    pragma_map.update({pragma: None})
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            if pragma.keyword == 'loki':
+                if 'update_device' in pragma.content:
+                    if update_device:
+                        pragma_map[pragma] = update_device
+                    else:
+                        pragma_map[pragma] = None
 
-            if 'update_host' in pragma.content:
-                if update_host:
-                    pragma_map.update({pragma: update_host})
-                else:
-                    pragma_map.update({pragma: None})
+                if 'update_host' in pragma.content:
+                    if update_host:
+                        pragma_map[pragma] = update_host
+                    else:
+                        pragma_map[pragma] = None
+
         routine.body = Transformer(pragma_map).visit(routine.body)
 
         # build new imports to add offloaded global vars to driver symbol table
@@ -210,7 +212,7 @@ class GlobalVarOffloadTransformation(Transformation):
             import_pos = routine.spec.body.index(old_imports[-1]) + 1
         if new_imports:
             routine.spec.insert(import_pos, Comment(text=
-                                '!.....Adding global variables to driver symbol table for offload instructions'))
+               '![Loki::GlobalVarOffload].....Adding global variables to driver symbol table for offload instructions'))
         import_pos += 1
         for index, i in enumerate(new_imports):
             routine.spec.insert(import_pos + index, i)
@@ -221,11 +223,10 @@ class GlobalVarOffloadTransformation(Transformation):
         """
 
         # filter out procedure imports
-        imports = FindNodes(Import).visit(routine.spec)
         calls = [c.name for c in FindNodes(CallStatement).visit(routine.body)]
+        calls += FindInlineCalls().visit(routine.body)
 
-        imports = [i for i in imports if i.symbols not in calls]
-        imports = [i for i in imports if i.symbols not in FindInlineCalls().visit(routine.body)]
+        imports = [i for i in FindNodes(Import).visit(routine.spec) if i.symbols not in calls]
 
         # build map of modules corresponding to imports
         import_mod = {s.name.lower(): i.module for i in imports for s in i.symbols}
