@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import re
 from pathlib import Path
 import pytest
 
@@ -152,30 +151,30 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
     assert all(p.keyword.lower() == 'acc' for p in pragmas)
 
     assert 'enter data copyin' in pragmas[0].content
-    assert re.search(r'\bp0%x\b', pragmas[0].content)
-    assert re.search(r'\bp0%y\b', pragmas[0].content)
-    assert re.search(r'\bp0%z\b', pragmas[0].content)
-    assert re.search(r'\bp%n\b', pragmas[0].content)
+    assert 'p0%x' in pragmas[0].content
+    assert 'p0%y' in pragmas[0].content
+    assert 'p0%z' in pragmas[0].content
+    assert 'p%n' in pragmas[0].content
 
     assert 'enter data create' in pragmas[1].content
-    assert re.search(r'\bp%x\b', pragmas[1].content)
-    assert re.search(r'\bp%y\b', pragmas[1].content)
-    assert re.search(r'\bp%z\b', pragmas[1].content)
+    assert 'p%x' in pragmas[1].content
+    assert 'p%y' in pragmas[1].content
+    assert 'p%z' in pragmas[1].content
 
     assert pragmas[2].content == 'serial'
     assert pragmas[3].content == 'end serial'
 
     assert 'exit data copyout' in pragmas[4].content
-    assert re.search(r'\bp%x\b', pragmas[4].content)
-    assert re.search(r'\bp%y\b', pragmas[4].content)
-    assert re.search(r'\bp%z\b', pragmas[4].content)
+    assert 'p%x' in pragmas[4].content
+    assert 'p%y' in pragmas[4].content
+    assert 'p%z' in pragmas[4].content
 
     # check for device-side declarations
     pragmas = FindNodes(Pragma).visit(module.spec)
     assert len(pragmas) == 4
     assert all(p.keyword == 'acc' for p in pragmas)
     assert all('declare create' in p.content for p in pragmas)
-    assert re.search(r'\bp_array\b', pragmas[0].content)
-    assert re.search(r'\bg\b', pragmas[1].content)
-    assert re.search(r'\bp0\b', pragmas[2].content)
-    assert re.search(r'\bp\b', pragmas[3].content)
+    assert 'p_array' in pragmas[0].content
+    assert 'g' in pragmas[1].content
+    assert 'p0' in pragmas[2].content
+    assert 'p' in pragmas[3].content
