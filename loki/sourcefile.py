@@ -273,7 +273,9 @@ class Sourcefile:
         """
         Parse a given source string using the REGEX frontend
         """
-        ir = parse_regex_source(raw_source, parser_classes=parser_classes)
+        source, _ = sanitize_input(source=raw_source, frontend=REGEX)
+
+        ir = parse_regex_source(source, parser_classes=parser_classes)
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=filepath)
         return cls(path=filepath, ir=ir, source=source, incomplete=True)
