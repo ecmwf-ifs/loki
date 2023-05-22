@@ -8,10 +8,10 @@ module tt_mod
         real(kind=k), allocatable :: indirection(:)
         real(kind=k) :: other(nclv)
     contains
-        procedure :: proc => tt_proc
+        procedure :: proc
     end type tt
 contains
-    subroutine tt_proc(this)
+    subroutine proc(this)
         class(tt), intent(inout) :: this
-    end subroutine tt_proc
+    end subroutine proc
 end module tt_mod

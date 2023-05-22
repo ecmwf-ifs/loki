@@ -792,11 +792,11 @@ class Scheduler:
 
 class SGraph:
 
-    def __init__(self, seed, item_cache):
+    def __init__(self, seed, item_cache, config=None):
         self._graph = nx.DiGraph()
-        self.populate(seed, item_cache)
+        self.populate(seed, item_cache, config)
 
-    def populate(self, seed, item_cache):
+    def populate(self, seed, item_cache, config):
         queue = deque()
 
         # Insert the seed objects
@@ -809,7 +809,7 @@ class SGraph:
                 # We may have to create the corresponding module's definitions first
                 module_item = item_cache.get(name[:name.index('#')])
                 if module_item:
-                    module_item.create_definition_items(item_cache)
+                    module_item.create_definition_items(item_cache=item_cache, config=config)
                     item = item_cache.get(name)
 
             if item:
@@ -821,7 +821,7 @@ class SGraph:
         # Populate the graph
         while queue:
             item = queue.popleft()
-            dependencies = item.create_dependency_items(item_cache=item_cache)
+            dependencies = item.create_dependency_items(item_cache=item_cache, config=config)
             new_items = [item_ for item_ in dependencies if item_ not in self._graph]
             if new_items:
                 self.add_nodes(new_items)
@@ -855,7 +855,8 @@ class SGraph:
         Parameters
         ----------
         dotfile_path : str or pathlib.Path
-            Path to write the callgraph figure to.
+            Path to write the dotfile to. A corresponding graphical representation
+            will be created with an additional ``.pdf`` appendix.
         """
         try:
             import graphviz as gviz  # pylint: disable=import-outside-toplevel

@@ -43,8 +43,8 @@ def fixture_comp1_expected_dependencies():
         't_mod#t1%way': ('t_mod#my_way',),
         't_mod#my_way': ('t_mod#t1', 't_mod#t1%way'),
         'tt_mod#tt': (),
-        'tt_mod#tt%proc': ('tt_mod#tt_proc',),
-        'tt_mod#tt_proc': ('tt_mod#tt',),
+        'tt_mod#tt%proc': ('tt_mod#proc',),
+        'tt_mod#proc': ('tt_mod#tt',),
         'header_mod': (),
         'header_mod#k': (),
     }
@@ -55,8 +55,8 @@ def fixture_mod_proc_expected_dependencies():
     return {
         'other_mod#mod_proc': ('tt_mod#tt', 'tt_mod#tt%proc', 'b_mod#b'),
         'tt_mod#tt': (),
-        'tt_mod#tt%proc': ('tt_mod#tt_proc',),
-        'tt_mod#tt_proc': ('tt_mod#tt',),
+        'tt_mod#tt%proc': ('tt_mod#proc',),
+        'tt_mod#proc': ('tt_mod#tt',),
         'b_mod#b': ()
     }
 
@@ -122,17 +122,23 @@ def test_file_item1(here):
     # Querying definitions triggers a round of parsing
     assert item.definitions == (item.source['a_mod'],)
     assert len(item.source.definitions) == 1
-    items = item.create_definition_items(item_cache={})
+
+    with pytest.raises(RuntimeError):
+        # Without the FileItem in the item_cache, we can't create the modules
+        item.create_definition_items(item_cache={})
+
+    items = item.create_definition_items(item_cache={item.name: item})
     assert len(items) == 1
     assert items[0] != None  # pylint: disable=singleton-comparison  # (intentionally trigger __eq__ here)
     assert items[0].name == 'a_mod'
     assert items[0].definitions == (item.source['a'],)
 
+    # The default behavior would be to have the ProgramUnits parsed already
     item = get_item(FileItem, proj/'module/a_mod.F90', 'module/a_mod.F90', RegexParserClass.ProgramUnitClass)
     assert item.name == 'module/a_mod.F90'
     assert item.definitions == (item.source['a_mod'],)
     assert item.ir is item.source
-    items = item.create_definition_items(item_cache={})
+    items = item.create_definition_items(item_cache={item.name: item})
     assert len(items) == 1
     assert items[0].name == 'a_mod'
     assert items[0].definitions == (item.source['a'],)
@@ -146,7 +152,7 @@ def test_file_item2(here):
     assert item.name == 'module/t_mod.F90'
     assert item.definitions == (item.source['t_mod'],)
 
-    items = item.create_definition_items(item_cache={})
+    items = item.create_definition_items(item_cache={item.name: item})
     assert len(items) == 1
     assert items[0].name == 't_mod'
     assert items[0].ir is item.source['t_mod']
@@ -175,7 +181,7 @@ def test_file_item3(here):
     assert item.name == 'module/t_mod.F90'
     assert item.definitions == (item.source['t_mod'],)
 
-    items = item.create_definition_items(item_cache={})
+    items = item.create_definition_items(item_cache={item.name: item})
     assert len(items) == 1
     assert items[0].name == 't_mod'
     assert len(items[0].ir.typedefs) == 2
@@ -187,8 +193,8 @@ def test_file_item3(here):
     )
 
     # Filter items when calling create_definition_items()
-    assert not item.create_definition_items(only=ProcedureItem, item_cache={})
-    items = item.create_definition_items(only=ModuleItem, item_cache={})
+    assert not item.create_definition_items(only=ProcedureItem, item_cache={item.name: item})
+    items = item.create_definition_items(only=ModuleItem, item_cache={item.name: item})
     assert len(items) == 1
     assert isinstance(items[0], ModuleItem)
     assert items[0].ir == item.source['t_mod']
@@ -206,7 +212,7 @@ def test_module_item1(here):
     assert item.ir is item.source['a_mod']
     assert item.definitions == (item.source['a'],)
 
-    items = item.create_definition_items(item_cache={})
+    items = item.create_definition_items(item_cache={item.name: item})
     assert len(items) == 1
     assert isinstance(items[0], ProcedureItem)
     assert items[0].ir == item.source['a']
@@ -224,7 +230,7 @@ def test_module_item2(here):
     assert item.ir is item.source['b_mod']
     assert item.definitions == (item.source['b'],)
 
-    items = item.create_definition_items(item_cache={})
+    items = item.create_definition_items(item_cache={item.name: item})
     assert len(items) == 1
     assert isinstance(items[0], ProcedureItem)
     assert items[0].ir == item.source['b']
@@ -380,6 +386,29 @@ def test_procedure_item4(here):
     assert items == ('t_mod#t1', 't_mod#t1%way')
 
 
+@pytest.mark.skip()
+@pytest.mark.parametrize('config,expected_dependencies', [
+    ({}, ('t_mod#t', 'header_mod#k', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc')),
+    ({'default': {'disable': ['a']}}, ('t_mod#t', 'header_mod#k', 'b_mod#b', 't_mod#t%yay%proc')),
+])
+def test_procedure_item_with_config(here, config, expected_dependencies):
+    proj = here/'sources/projBatch'
+
+    # A file with a single subroutine definition that calls two routines via module imports
+    item = get_item(ProcedureItem, proj/'source/comp2.F90', '#comp2', RegexParserClass.ProgramUnitClass)
+
+    # We need to have suitable dependency modules in the cache to spawn the dependency items
+    item_cache = {item.name: item}
+    item_cache = {
+        (i := get_item(ModuleItem, proj/path, name, RegexParserClass.ProgramUnitClass)).name: i
+        for path, name in [
+            ('module/t_mod.F90', 't_mod'), ('module/a_mod.F90', 'a_mod'),
+            ('module/b_mod.F90', 'b_mod'), ('headers/header_mod.F90', 'header_mod')
+        ]
+    }
+    assert item.create_dependency_items(item_cache=item_cache, config=config) == expected_dependencies
+
+
 def test_typedef_item(here):
     proj = here/'sources/projBatch'
 
@@ -401,7 +430,8 @@ def test_typedef_item(here):
     with pytest.raises(RuntimeError):
         item.create_dependency_items(item_cache=item_cache)
 
-    # Need to add the module of the dependent type
+    # Need to add the modules of the dependent types
+    item_cache['t_mod'] = ModuleItem('t_mod', source=item.source)
     item_cache['tt_mod'] = get_item(
         ModuleItem, proj/'module/tt_mod.F90', 'tt_mod', RegexParserClass.ProgramUnitClass
     )
@@ -452,7 +482,9 @@ def test_procedure_binding_item1(here):
     assert item.definitions is ()
     assert not item.create_definition_items(item_cache={})
     assert item.dependencies == as_tuple(item.source['t_proc'])
-    items = item.create_dependency_items(item_cache={})
+
+    item_cache = {'t_mod': ModuleItem('t_mod', source=item.source)}
+    items = item.create_dependency_items(item_cache=item_cache)
     assert len(items) == 1
     assert isinstance(items[0], ProcedureItem)
     assert items[0].ir is item.source['t_proc']

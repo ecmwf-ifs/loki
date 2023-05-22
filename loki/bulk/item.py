@@ -10,10 +10,11 @@ from functools import cached_property, reduce
 import sys
 
 from loki.frontend import REGEX, RegexParserClass
-from loki.expression import TypedSymbol, MetaSymbol, ProcedureSymbol, FindVariables
+from loki.expression import TypedSymbol, MetaSymbol, ProcedureSymbol
 from loki.ir import Import, CallStatement, TypeDef, ProcedureDeclaration
 from loki.logging import warning
 from loki.module import Module
+from loki.scope import Scope
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import DerivedType
@@ -154,161 +155,142 @@ class Item:
                 ir = ir.parent
             ir.make_complete(frontend=REGEX, parser_classes=self._depends_class)
 
+    def _get_procedure_item(self, proc_symbol, item_cache):
+        # A recursive map of all imports
+        import_map = CaseInsensitiveDict()
+        scope = self.ir
+        if not isinstance(scope, Scope):
+            scope = scope.scope
+        current_module = None
+        while scope:
+            if hasattr(scope, 'import_map'):
+                import_map |= scope.import_map
+            if isinstance(scope, Module):
+                current_module = scope
+            scope = scope.parent
+
+        proc_name = proc_symbol.name
+        if '%' in proc_name:
+            # This is a typebound procedure call: we are only resolving
+            # to the type member by mapping the local name to the type name,
+            # and creating a ProcedureBindingItem. For that we need to find out
+            # the type of the derived type symbol.
+            # NB: For nested derived types, we create multiple such ProcedureBindingItems,
+            #     resolving one type at a time, e.g.
+            #     my_var%member%procedure -> my_type%member%procedure -> member_type%procedure -> procedure
+            type_name = proc_symbol.parents[0].type.dtype.name
+            # Imported in current or parent scopes?
+            imprt = import_map.get(type_name)
+            if imprt:
+                scope_name = imprt.module
+            # Otherwise: must be declared in parent module scope
+            elif current_module and type_name in current_module.typedef_map:
+                scope_name = current_module.name
+            # 4. Unknown: Likely imported via `USE` without `ONLY` list
+            else:
+                # NB: We could now search the item_cache for entries ending in `#{type_name}`,
+                #     hoping the corresponding TypeDefItem has already been created, which it
+                #     will probably not have been. Therefore, we require the underlying Fortran to
+                #     have fully-qualified imports instead
+                raise RuntimeError(
+                    f'Unable to find the module declaring {type_name}. Import via `USE` without `ONLY`?'
+                )
+            item_name = f'{scope_name}#{type_name}%{"%".join(proc_symbol.name_parts[1:])}'.lower()
+            return self._get_or_create_item(ProcedureBindingItem, item_name, item_cache, scope_name)
+
+        if proc_name in import_map:
+            # This is a call to a module procedure which has been imported via
+            # a fully qualified import in the current or parent scope
+            scope_name = import_map.get(proc_name).module
+            item_name = f'{scope_name}#{proc_name}'.lower()
+            return self._get_or_create_item(ProcedureItem, item_name, item_cache, scope_name)
+
+        if proc_name in (intf_map := self.ir.interface_symbols):
+            # TODO: Handle declaration via interface
+            raise NotImplementedError()
+
+        # This is a call to a subroutine declared via header-included interface
+        item_name = f'#{proc_name}'.lower()
+        return item_cache[item_name]
+
+
     @staticmethod
-    def _get_or_create_item(item_cls, item_name, item_cache, source=None, module_name=None):
+    def _get_or_create_item(item_cls, item_name, item_cache, scope_name):
         if item_name in item_cache:
             return item_cache[item_name]
-
-        if not source:
-            if not module_name:
-                raise ValueError('Need to provide source or module_name')
-            if module_name not in item_cache:
-                raise RuntimeError(f'Module {module_name} not found in item_cache')
-            source = item_cache[module_name].source
-
+        if scope_name not in item_cache:
+            raise RuntimeError(f'Module {scope_name} not found in item_cache')
+        source = item_cache[scope_name].source
         item = item_cls(item_name, source=source)
         item_cache[item_name] = item
         return item
 
-    def create_from_ir(self, node, item_cache):
+    def _create_from_ir(self, node, item_cache, config):
         if isinstance(node, Module):
+            # We may create ModuleItem in two situations:
+            # 1. as a dependency, when it is likely already present in the item_cache, or
+            # 2. from a FileItem, e.g. to instantiate it in the item_cache for the first time
+            # Therefore, we pass here both, `source` and `module_name`
+            # For the latter case, we pass current Item's name to perform the lookup via the file item
+            # entry in the item_cache
             item_name = node.name.lower()
-            items = as_tuple(self._get_or_create_item(ModuleItem, item_name, item_cache, source=self.source))
+            scope_name = item_name if item_name in item_cache else self.name
+            return as_tuple(self._get_or_create_item(ModuleItem, item_name, item_cache, scope_name))
 
-        elif isinstance(node, Subroutine):
-            item_name = f'{getattr(node.parent, "name", "")}#{node.name}'.lower()
-            items = as_tuple(self._get_or_create_item(ProcedureItem, item_name, item_cache, source=self.source))
+        if isinstance(node, Subroutine):
+            # Like ModuleItem, this may be a dependency or a first-time instantiation
+            scope_name = getattr(node.parent, 'name', '').lower()
+            item_name = f'{scope_name}#{node.name}'.lower()
+            return as_tuple(self._get_or_create_item(ProcedureItem, item_name, item_cache, scope_name or self.name))
 
-        elif isinstance(node, TypeDef):
-            item_name = f'{node.parent.name}#{node.name}'.lower()
-            items = as_tuple(self._get_or_create_item(TypeDefItem, item_name, item_cache, source=self.source))
+        if isinstance(node, TypeDef):
+            # A typedef always lives in a Module
+            scope_name = node.parent.name.lower()
+            item_name = f'{scope_name}#{node.name}'.lower()
+            return as_tuple(self._get_or_create_item(TypeDefItem, item_name, item_cache, scope_name))
 
-        elif isinstance(node, Import):
+        if isinstance(node, Import):
             # If we have a fully-qualified import (which we hopefully have),
             # we create a dependency for every imported symbol, otherwise we
             # depend only on the imported module
-            module_name = node.module.lower()
-            if module_name not in item_cache:
-                raise RuntimeError(f'Module {module_name} not found in item_cache')
-            module_item = item_cache[module_name]
+            scope_name = node.module.lower()
+            if scope_name not in item_cache:
+                raise RuntimeError(f'Module {scope_name} not found in item_cache')
+            scope_item = item_cache[scope_name]
             if node.symbols:
-                module_definitions = {
-                    item.local_name: item for item in module_item.create_definition_items(item_cache=item_cache)
+                scope_definitions = {
+                    item.local_name: item for item in scope_item.create_definition_items(item_cache=item_cache)
                 }
-                items = tuple(module_definitions[str(smbl).lower()] for smbl in node.symbols)
-            else:
-                items = as_tuple(module_item)
+                return tuple(scope_definitions[str(smbl).lower()] for smbl in node.symbols)
+            return (scope_item,)
 
-        elif isinstance(node, CallStatement):
-            procedure_name = str(node.name)
-            if '%' in procedure_name:
-                # This is a typebound procedure call, we are only resolving
-                # to the type member by mapping the local name to the type name
-                type_name = node.name.parents[0].type.dtype.name.lower()
-                # Find the module where the type is defined:
-                scope = node.name.scope
-                # 1. Import in current scope
-                imprt = scope.import_map.get(type_name)
-                # 2. Import in parent scope
-                if not imprt and scope.parent:
-                    imprt = scope.parent.import_map.get(type_name)
-                if imprt:
-                    module_name = imprt.module
-                # 3. Declared in parent scope
-                elif scope.parent and type_name in scope.parent.typedef_map:
-                    module_name = scope.parent.name
-                # 4. Unknown
-                else:
-                    raise RuntimeError(f'Unable to find the module declaring {type_name}')
+        if isinstance(node, CallStatement):
+            return as_tuple(self._get_procedure_item(node.name, item_cache))
 
-                item_name = f'{module_name}#{type_name}%{"%".join(node.name.name_parts[1:])}'.lower()
-                items = as_tuple(self._get_or_create_item(
-                    ProcedureBindingItem, item_name, item_cache, module_name=module_name
-                ))
-            elif procedure_name in self.ir.imported_symbols:
-                # This is a call to a module procedure which has been imported via
-                # a fully qualified import
-                module_name = self.ir.import_map.get(procedure_name).module
-                item_name = f'{module_name}#{procedure_name}'.lower()
-                items = as_tuple(self._get_or_create_item(
-                    ProcedureItem, item_name, item_cache, module_name=module_name
-                ))
-            elif self.ir.parent and procedure_name in self.ir.parent.imported_symbols:
-                # This is a call to a module procedure which has been imported via
-                # a fully qualified import in the parent scope
-                module_name = self.ir.parent.import_map.get(procedure_name).module
-                item_name = f'{module_name}#{procedure_name}'.lower()
-                items = as_tuple(self._get_or_create_item(
-                    ProcedureItem, item_name, item_cache, module_name=module_name
-                ))
+        if isinstance(node, ProcedureSymbol):
+            return as_tuple(self._get_procedure_item(node, item_cache))
 
-            elif procedure_name in (intf_map := self.ir.interface_symbols):
-                # TODO: Handle declaration via interface
-                raise NotImplementedError()
-            else:
-                # This is a call to a subroutine declared via header-included interface
-                item_name = f'#{procedure_name}'.lower()
-                items = as_tuple(item_cache[item_name])
-
-        elif isinstance(node, ProcedureSymbol):
-            # This is a procedure binding, presumably to a routine that is
-            # bound to a derived type that is nested into another derived type
-            assert '%' in node.name
-            type_name = node.parents[0].type.dtype.name.lower()
-            proc_name = '%'.join(node.name_parts[1:])
-
-            # Find the module where the type is defined:
-            scope = node.scope
-            # 1. Import in current scope
-            if hasattr(scope, 'import_map'):
-                imprt = scope.import_map.get(type_name)
-            else:
-                imprt = None
-            # 2. Import in parent scope
-            if not imprt and scope.parent:
-                imprt = scope.parent.import_map.get(type_name)
-            if imprt:
-                module_name = imprt.module
-            # 3. Declared in parent scope
-            elif scope.parent and type_name in scope.parent.typedef_map:
-                module_name = scope.parent.name
-            # 4. Unknown
-            else:
-                raise RuntimeError(f'Unable to find the module declaring {type_name}')
-
-            item_name = f'{module_name}#{type_name}%{proc_name}'.lower()
-            items = as_tuple(self._get_or_create_item(
-                ProcedureBindingItem, item_name, item_cache, module_name=module_name
-            ))
-
-        elif isinstance(node, (TypedSymbol, MetaSymbol)):
+        if isinstance(node, (TypedSymbol, MetaSymbol)):
             # This is a global variable
-            item_name = f'{node.scope.name}#{node.name}'.lower()
-            items = as_tuple(self._get_or_create_item(
-                GlobalVariableItem, item_name, item_cache, module_name=node.scope.name
-            ))
+            scope_name = node.scope.name.lower()
+            item_name = f'{scope_name}#{node.name}'.lower()
+            return as_tuple(self._get_or_create_item(GlobalVariableItem, item_name, item_cache, scope_name))
 
-        else:
-            raise ValueError(f'{node} has an unsupported node type {type(node)}')
+        raise ValueError(f'{node} has an unsupported node type {type(node)}')
 
-        # Insert new items into the cache
-        item_cache.update((item.name, item) for item in items if item.name not in item_cache)
-
-        return items
-
-    def create_definition_items(self, item_cache, only=None):
-        items = tuple(flatten(self.create_from_ir(node, item_cache) for node in self.definitions))
+    def create_definition_items(self, item_cache, config=None, only=None):
+        items = tuple(flatten(self._create_from_ir(node, item_cache, config) for node in self.definitions))
         if only:
             items = tuple(item for item in items if isinstance(item, only))
         return items
 
-    def create_dependency_items(self, item_cache, only=None):
+    def create_dependency_items(self, item_cache, config=None, only=None):
         if not (dependencies := self.dependencies):
             return ()
 
         items = ()
         for node in dependencies:
-            items += self.create_from_ir(node, item_cache)
+            items += self._create_from_ir(node, item_cache, config)
 
         if only:
             items = tuple(item for item in items if isinstance(item, only))
