@@ -15,7 +15,7 @@ import pytest
 from loki import (
     HAVE_FP, HAVE_OFP, REGEX, RegexParserClass, as_tuple, CaseInsensitiveDict, gettempdir,
     FileItem, ModuleItem, ProcedureItem, TypeDefItem, ProcedureBindingItem, GlobalVariableItem,
-    SGraph,
+    SGraph, SchedulerConfig,
     Sourcefile, Section, RawSource, Import, CallStatement, Scalar
 )
 
@@ -25,6 +25,23 @@ pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser an
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.fixture(name='default_config')
+def fixture_default_config():
+    """
+    Default SchedulerConfig configuration with basic options.
+    """
+    return SchedulerConfig.from_dict({
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'disable': ['abort']
+        },
+        'routines': []
+    })
 
 
 @pytest.fixture(scope='module', name='comp1_expected_dependencies')
@@ -96,7 +113,7 @@ def get_item(cls, path, name, parser_classes):
     return cls(name, source=source)
 
 
-def test_file_item1(here):
+def test_file_item1(here, default_config):
     proj = here/'sources/projBatch'
 
     # A file with simple module that contains a single subroutine
@@ -125,7 +142,10 @@ def test_file_item1(here):
 
     with pytest.raises(RuntimeError):
         # Without the FileItem in the item_cache, we can't create the modules
-        item.create_definition_items(item_cache={})
+        item.create_definition_items(item_cache={}, config=default_config)
+
+    # However, without strict parsing it will simply return an empty list
+    assert not item.create_definition_items(item_cache={})
 
     items = item.create_definition_items(item_cache={item.name: item})
     assert len(items) == 1
@@ -386,16 +406,19 @@ def test_procedure_item4(here):
     assert items == ('t_mod#t1', 't_mod#t1%way')
 
 
-@pytest.mark.skip()
 @pytest.mark.parametrize('config,expected_dependencies', [
     ({}, ('t_mod#t', 'header_mod#k', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc')),
     ({'default': {'disable': ['a']}}, ('t_mod#t', 'header_mod#k', 'b_mod#b', 't_mod#t%yay%proc')),
+    ({'default': {'disable': ['a_mod#a']}}, ('t_mod#t', 'header_mod#k', 'b_mod#b', 't_mod#t%yay%proc')),
+    ({'default': {'disable': ['t_mod#t%yay%proc']}}, ('t_mod#t', 'header_mod#k', 'a_mod#a', 'b_mod#b')),
+    ({'default': {'disable': ['k']}}, ('t_mod#t', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc')),
+    ({'default': {'disable': ['header_mod#k']}}, ('t_mod#t', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc')),
 ])
 def test_procedure_item_with_config(here, config, expected_dependencies):
     proj = here/'sources/projBatch'
 
     # A file with a single subroutine definition that calls two routines via module imports
-    item = get_item(ProcedureItem, proj/'source/comp2.F90', '#comp2', RegexParserClass.ProgramUnitClass)
+    item = get_item(ProcedureItem, proj/'source/comp2.f90', '#comp2', RegexParserClass.ProgramUnitClass)
 
     # We need to have suitable dependency modules in the cache to spawn the dependency items
     item_cache = {item.name: item}
@@ -406,7 +429,8 @@ def test_procedure_item_with_config(here, config, expected_dependencies):
             ('module/b_mod.F90', 'b_mod'), ('headers/header_mod.F90', 'header_mod')
         ]
     }
-    assert item.create_dependency_items(item_cache=item_cache, config=config) == expected_dependencies
+    scheduler_config = SchedulerConfig.from_dict(config)
+    assert item.create_dependency_items(item_cache=item_cache, config=scheduler_config) == expected_dependencies
 
 
 def test_typedef_item(here):
@@ -490,7 +514,7 @@ def test_procedure_binding_item1(here):
     assert items[0].ir is item.source['t_proc']
 
 
-def test_procedure_binding_item2(here):
+def test_procedure_binding_item2(here, default_config):
     proj = here/'sources/projBatch'
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
@@ -507,7 +531,7 @@ def test_procedure_binding_item2(here):
     item_cache = {item.name: item}
     with pytest.raises(RuntimeError):
         # Fails because item_cache does not contain the relevant module
-        item.create_dependency_items(item_cache=item_cache)
+        item.create_dependency_items(item_cache=item_cache, config=default_config)
 
     item_cache['t_mod'] = ModuleItem('t_mod', source=item.source)
     items = item.create_dependency_items(item_cache=item_cache)
@@ -522,6 +546,63 @@ def test_procedure_binding_item2(here):
     assert isinstance(next_items[0], ProcedureItem)
     assert next_items[0].ir is item.source['my_way']
     assert 't_mod#my_way' in item_cache
+
+
+def test_procedure_binding_item3(here):
+    proj = here/'sources/projBatch'
+    parser_classes = (
+        RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
+    )
+
+    # 3. An indirect procedure binding via a nested type member, where the type is declared in a different module
+    item = get_item(ProcedureBindingItem, proj/'module/t_mod.F90', 't_mod#t%yay%proc', parser_classes)
+    assert item.name == 't_mod#t%yay%proc'
+    assert isinstance(item.ir, Scalar)
+    assert item.definitions is ()
+    assert not item.create_definition_items(item_cache={})
+    assert item.dependencies == ('yay%proc',)
+
+    item_cache = {item.name: item}
+    item_cache['tt_mod'] = get_item(ModuleItem, proj/'module/tt_mod.F90', 'tt_mod', parser_classes)
+    items = item.create_dependency_items(item_cache=item_cache)
+    assert len(items) == 1
+    assert isinstance(items[0], ProcedureBindingItem)
+    assert items[0].name == 'tt_mod#tt%proc'
+    assert 'tt_mod#tt%proc' in item_cache
+
+    assert 'tt_mod#proc' not in item_cache
+    next_items = items[0].create_dependency_items(item_cache=item_cache)
+    assert len(next_items) == 1
+    assert isinstance(next_items[0], ProcedureItem)
+    assert next_items[0].ir is items[0].source['proc']
+    assert 'tt_mod#proc' in item_cache
+
+
+@pytest.mark.parametrize('config,expected_dependencies', [
+    ({}, (('tt_mod#tt%proc',), ('tt_mod#proc',))),
+    ({'default': {'disable': ['tt_mod#proc']}}, (('tt_mod#tt%proc',), ())),
+    ({'default': {'disable': ['proc']}}, (('tt_mod#tt%proc',), ())),
+    ({'default': {'disable': ['tt%proc']}}, ((),)),
+    ({'default': {'disable': ['tt_mod#tt%proc']}}, ((),)),
+])
+def test_procedure_binding_with_config(here, config, expected_dependencies):
+    proj = here/'sources/projBatch'
+    parser_classes = (
+        RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
+    )
+
+    item = get_item(ProcedureBindingItem, proj/'module/t_mod.F90', 't_mod#t%yay%proc', parser_classes)
+
+    # We need to have suitable dependency modules in the cache to spawn the dependency items
+    item_cache = {item.name: item}
+    item_cache['tt_mod'] = get_item(ModuleItem, proj/'module/tt_mod.F90', 'tt_mod', RegexParserClass.ProgramUnitClass)
+    scheduler_config = SchedulerConfig.from_dict(config)
+
+    for dependencies in expected_dependencies:
+        items = item.create_dependency_items(item_cache, config=scheduler_config)
+        assert items == dependencies
+        if items:
+            item = items[0]
 
 
 def test_item_graph(here, comp1_expected_dependencies):

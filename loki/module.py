@@ -17,9 +17,8 @@ from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 from loki.program_unit import ProgramUnit
 from loki.scope import Scope
 from loki.subroutine import Subroutine
-from loki.tools import as_tuple, flatten
+from loki.tools import as_tuple
 from loki.types import ModuleType, SymbolAttributes
-from loki.visitors import FindNodes
 
 
 __all__ = ['Module']

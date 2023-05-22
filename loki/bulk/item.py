@@ -155,7 +155,7 @@ class Item:
                 ir = ir.parent
             ir.make_complete(frontend=REGEX, parser_classes=self._depends_class)
 
-    def _get_procedure_item(self, proc_symbol, item_cache):
+    def _get_procedure_item(self, proc_symbol, item_cache, config):
         # A recursive map of all imports
         import_map = CaseInsensitiveDict()
         scope = self.ir
@@ -186,7 +186,7 @@ class Item:
             # Otherwise: must be declared in parent module scope
             elif current_module and type_name in current_module.typedef_map:
                 scope_name = current_module.name
-            # 4. Unknown: Likely imported via `USE` without `ONLY` list
+            # Unknown: Likely imported via `USE` without `ONLY` list
             else:
                 # NB: We could now search the item_cache for entries ending in `#{type_name}`,
                 #     hoping the corresponding TypeDefItem has already been created, which it
@@ -196,14 +196,14 @@ class Item:
                     f'Unable to find the module declaring {type_name}. Import via `USE` without `ONLY`?'
                 )
             item_name = f'{scope_name}#{type_name}%{"%".join(proc_symbol.name_parts[1:])}'.lower()
-            return self._get_or_create_item(ProcedureBindingItem, item_name, item_cache, scope_name)
+            return self._get_or_create_item(ProcedureBindingItem, item_name, item_cache, scope_name, config)
 
         if proc_name in import_map:
             # This is a call to a module procedure which has been imported via
             # a fully qualified import in the current or parent scope
             scope_name = import_map.get(proc_name).module
             item_name = f'{scope_name}#{proc_name}'.lower()
-            return self._get_or_create_item(ProcedureItem, item_name, item_cache, scope_name)
+            return self._get_or_create_item(ProcedureItem, item_name, item_cache, scope_name, config)
 
         if proc_name in (intf_map := self.ir.interface_symbols):
             # TODO: Handle declaration via interface
@@ -214,14 +214,20 @@ class Item:
         return item_cache[item_name]
 
 
-    @staticmethod
-    def _get_or_create_item(item_cls, item_name, item_cache, scope_name):
+    @classmethod
+    def _get_or_create_item(cls, item_cls, item_name, item_cache, scope_name, config):
+        if config and config.is_disabled(item_name):
+            return None
         if item_name in item_cache:
             return item_cache[item_name]
         if scope_name not in item_cache:
-            raise RuntimeError(f'Module {scope_name} not found in item_cache')
+            if config and config.default['strict']:
+                raise RuntimeError(f'Module {scope_name} not found in item_cache')
+            warning(f'Module {scope_name} not found in item_cache')
+            return None
         source = item_cache[scope_name].source
-        item = item_cls(item_name, source=source)
+        item_conf = config.create_item_config(item_name) if config else None
+        item = item_cls(item_name, source=source, config=item_conf)
         item_cache[item_name] = item
         return item
 
@@ -235,19 +241,21 @@ class Item:
             # entry in the item_cache
             item_name = node.name.lower()
             scope_name = item_name if item_name in item_cache else self.name
-            return as_tuple(self._get_or_create_item(ModuleItem, item_name, item_cache, scope_name))
+            return as_tuple(self._get_or_create_item(ModuleItem, item_name, item_cache, scope_name, config))
 
         if isinstance(node, Subroutine):
             # Like ModuleItem, this may be a dependency or a first-time instantiation
             scope_name = getattr(node.parent, 'name', '').lower()
             item_name = f'{scope_name}#{node.name}'.lower()
-            return as_tuple(self._get_or_create_item(ProcedureItem, item_name, item_cache, scope_name or self.name))
+            return as_tuple(
+                self._get_or_create_item(ProcedureItem, item_name, item_cache, scope_name or self.name, config)
+            )
 
         if isinstance(node, TypeDef):
             # A typedef always lives in a Module
             scope_name = node.parent.name.lower()
             item_name = f'{scope_name}#{node.name}'.lower()
-            return as_tuple(self._get_or_create_item(TypeDefItem, item_name, item_cache, scope_name))
+            return as_tuple(self._get_or_create_item(TypeDefItem, item_name, item_cache, scope_name, config))
 
         if isinstance(node, Import):
             # If we have a fully-qualified import (which we hopefully have),
@@ -259,27 +267,28 @@ class Item:
             scope_item = item_cache[scope_name]
             if node.symbols:
                 scope_definitions = {
-                    item.local_name: item for item in scope_item.create_definition_items(item_cache=item_cache)
+                    item.local_name: item
+                    for item in scope_item.create_definition_items(item_cache=item_cache, config=config)
                 }
-                return tuple(scope_definitions[str(smbl).lower()] for smbl in node.symbols)
+                return tuple(it for smbl in node.symbols if (it := scope_definitions.get(str(smbl).lower())))
             return (scope_item,)
 
         if isinstance(node, CallStatement):
-            return as_tuple(self._get_procedure_item(node.name, item_cache))
+            return as_tuple(self._get_procedure_item(node.name, item_cache, config))
 
         if isinstance(node, ProcedureSymbol):
-            return as_tuple(self._get_procedure_item(node, item_cache))
+            return as_tuple(self._get_procedure_item(node, item_cache, config))
 
         if isinstance(node, (TypedSymbol, MetaSymbol)):
             # This is a global variable
             scope_name = node.scope.name.lower()
             item_name = f'{scope_name}#{node.name}'.lower()
-            return as_tuple(self._get_or_create_item(GlobalVariableItem, item_name, item_cache, scope_name))
+            return as_tuple(self._get_or_create_item(GlobalVariableItem, item_name, item_cache, scope_name, config))
 
         raise ValueError(f'{node} has an unsupported node type {type(node)}')
 
     def create_definition_items(self, item_cache, config=None, only=None):
-        items = tuple(flatten(self._create_from_ir(node, item_cache, config) for node in self.definitions))
+        items = as_tuple(flatten(self._create_from_ir(node, item_cache, config) for node in self.definitions))
         if only:
             items = tuple(item for item in items if isinstance(item, only))
         return items
@@ -290,7 +299,7 @@ class Item:
 
         items = ()
         for node in dependencies:
-            items += self._create_from_ir(node, item_cache, config)
+            items += as_tuple(self._create_from_ir(node, item_cache, config))
 
         if only:
             items = tuple(item for item in items if isinstance(item, only))
@@ -879,13 +888,16 @@ class ProcedureBindingItem(Item):
     procedures to their implementation in a Fortran routine.
     """
 
-    _parser_class = RegexParserClass.CallClass
+    _parser_class = RegexParserClass.TypeDefClass | RegexParserClass.CallClass
     _depends_class = RegexParserClass.DeclarationClass
 
     @property
     def ir(self):
         name_parts = self.local_name.split('%')
         typedef = self.source[name_parts[0]]
+        if not typedef:
+            self.scope.make_complete(frontend=REGEX, parser_classes=self._parser_class)
+            typedef = self.source[name_parts[0]]
         for decl in typedef.declarations:
             if name_parts[1] in decl.symbols:
                 return decl.symbols[decl.symbols.index(name_parts[1])]
