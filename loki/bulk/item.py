@@ -239,9 +239,11 @@ class Item:
                 #     hoping the corresponding TypeDefItem has already been created, which it
                 #     will probably not have been. Therefore, we require the underlying Fortran to
                 #     have fully-qualified imports instead
-                raise RuntimeError(
-                    f'Unable to find the module declaring {type_name}. Import via `USE` without `ONLY`?'
-                )
+                msg = f'Unable to find the module declaring {type_name}. Import via `USE` without `ONLY`?'
+                if self.strict:
+                    raise RuntimeError(msg)
+                warning(msg)
+                return None
             item_name = f'{scope_name}#{type_name}%{"%".join(proc_symbol.name_parts[1:])}'.lower()
             return self._get_or_create_item(ProcedureBindingItem, item_name, item_cache, scope_name, config)
 
@@ -259,6 +261,11 @@ class Item:
         # This is a call to a subroutine declared via header-included interface
         item_name = f'#{proc_name}'.lower()
         if config and config.is_disabled(item_name):
+            return None
+        if item_name not in item_cache:
+            if self.strict:
+                raise RuntimeError(f'Procedure {item_name} not found in item_cache.')
+            warning(f'Procedure {item_name} not found in item_cache.')
             return None
         return item_cache[item_name]
 
@@ -358,7 +365,10 @@ class Item:
             # depend only on the imported module
             scope_name = node.module.lower()
             if scope_name not in item_cache:
-                raise RuntimeError(f'Module {scope_name} not found in item_cache')
+                if self.strict:
+                    raise RuntimeError(f'Module {scope_name} not found in item_cache')
+                warning(f'Module {scope_name} not found in item_cache')
+                return None
             scope_item = item_cache[scope_name]
             if node.symbols:
                 scope_definitions = {
