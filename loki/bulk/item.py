@@ -1028,6 +1028,28 @@ class GlobalVariableItem(Item):
                 return decl
         raise RuntimeError(f'Declaration for {local_name} cannot be found in {self.scope_name}')
 
+    # Below properties are only here to appease the Linter and become
+    # redundant once the Item base class has been cleaned up
+    @property
+    def calls(self):
+        pass
+
+    @property
+    def function_interfaces(self):
+        pass
+
+    @property
+    def imports(self):
+        pass
+
+    @property
+    def members(self):
+        pass
+
+    @property
+    def routine(self):
+        pass
+
 
 class SubroutineItem(Item):
     """

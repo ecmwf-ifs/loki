@@ -80,7 +80,10 @@ def fixture_mod_proc_expected_dependencies():
 
 @pytest.fixture(name='expected_dependencies')
 def fixture_expected_dependencies(comp1_expected_dependencies, mod_proc_expected_dependencies):
-    return comp1_expected_dependencies | mod_proc_expected_dependencies
+    dependencies = {}
+    dependencies.update(comp1_expected_dependencies)
+    dependencies.update(mod_proc_expected_dependencies)
+    return dependencies
 
 
 @pytest.fixture(name='no_expected_dependencies')
@@ -426,13 +429,13 @@ def test_procedure_item_with_config(here, config, expected_dependencies):
 
     # We need to have suitable dependency modules in the cache to spawn the dependency items
     item_cache = {item.name: item}
-    item_cache |= {
+    item_cache.update({
         (i := get_item(ModuleItem, proj/path, name, RegexParserClass.ProgramUnitClass)).name: i
         for path, name in [
             ('module/t_mod.F90', 't_mod'), ('module/a_mod.F90', 'a_mod'),
             ('module/b_mod.F90', 'b_mod'), ('headers/header_mod.F90', 'header_mod')
         ]
-    }
+    })
     scheduler_config = SchedulerConfig.from_dict(config)
     assert item.create_dependency_items(item_cache=item_cache, config=scheduler_config) == expected_dependencies
 
