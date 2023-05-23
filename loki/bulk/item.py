@@ -211,7 +211,7 @@ class Item:
         current_module = None
         while scope:
             if hasattr(scope, 'import_map'):
-                import_map |= scope.import_map
+                import_map.update(scope.import_map)
             if isinstance(scope, Module):
                 current_module = scope
             scope = scope.parent
@@ -252,7 +252,7 @@ class Item:
             item_name = f'{scope_name}#{proc_name}'.lower()
             return self._get_or_create_item(ProcedureItem, item_name, item_cache, scope_name, config)
 
-        if proc_name in (intf_map := self.ir.interface_symbols):
+        if proc_name in self.ir.interface_symbols:
             # TODO: Handle declaration via interface
             raise NotImplementedError()
 
@@ -817,6 +817,28 @@ class FileItem(Item):
     def ir(self):
         return self.source
 
+    # Below properties are only here to appease the Linter and become
+    # redundant once the Item base class has been cleaned up
+    @property
+    def calls(self):
+        pass
+
+    @property
+    def function_interfaces(self):
+        pass
+
+    @property
+    def imports(self):
+        pass
+
+    @property
+    def members(self):
+        pass
+
+    @property
+    def routine(self):
+        pass
+
 
 class ModuleItem(Item):
 
@@ -836,6 +858,28 @@ class ModuleItem(Item):
     @property
     def local_name(self):
         return self.name
+
+    # Below properties are only here to appease the Linter and become
+    # redundant once the Item base class has been cleaned up
+    @property
+    def calls(self):
+        pass
+
+    @property
+    def function_interfaces(self):
+        pass
+
+    @property
+    def imports(self):
+        pass
+
+    @property
+    def members(self):
+        pass
+
+    @property
+    def routine(self):
+        pass
 
 
 class ProcedureItem(Item):
@@ -866,6 +910,28 @@ class ProcedureItem(Item):
                 imports += tuple(imprt for type_name in type_names if (imprt := import_map.get(type_name)))
         return imports + typedefs + calls
 
+    # Below properties are only here to appease the Linter and become
+    # redundant once the Item base class has been cleaned up
+    @property
+    def calls(self):
+        pass
+
+    @property
+    def function_interfaces(self):
+        pass
+
+    @property
+    def imports(self):
+        pass
+
+    @property
+    def members(self):
+        pass
+
+    @property
+    def routine(self):
+        pass
+
 
 class TypeDefItem(Item):
 
@@ -890,10 +956,54 @@ class TypeDefItem(Item):
 
         return tuple(dict.fromkeys(imports + typedefs))
 
+    # Below properties are only here to appease the Linter and become
+    # redundant once the Item base class has been cleaned up
+    @property
+    def calls(self):
+        pass
+
+    @property
+    def function_interfaces(self):
+        pass
+
+    @property
+    def imports(self):
+        pass
+
+    @property
+    def members(self):
+        pass
+
+    @property
+    def routine(self):
+        pass
+
 
 class InterfaceItem(Item):
 
     _parser_class = RegexParserClass.InterfaceClass
+
+    # Below properties are only here to appease the Linter and become
+    # redundant once the Item base class has been cleaned up
+    @property
+    def calls(self):
+        pass
+
+    @property
+    def function_interfaces(self):
+        pass
+
+    @property
+    def imports(self):
+        pass
+
+    @property
+    def members(self):
+        pass
+
+    @property
+    def routine(self):
+        pass
 
 
 class GlobalVariableItem(Item):

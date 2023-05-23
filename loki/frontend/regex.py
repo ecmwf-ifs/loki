@@ -900,7 +900,8 @@ class VariableDeclarationPattern(Pattern):
     def __init__(self):
         super().__init__(
             r'^(((?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\))|' # TYPE or CLASS keyword with typename
-            r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))(?P<param>\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
+            r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))'
+            r'(?P<param>\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
             r'(?:[ \t]*,[ \t]*[a-z]+(?:\((.(\(.*\))?)*?\))?)*'  # Optional attributes
             r'(?:[ \t]*::)?'  # Optional `::` delimiter
             r'[ \t]*'  # Some white space

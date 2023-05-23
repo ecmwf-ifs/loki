@@ -305,7 +305,7 @@ def test_procedure_item1(here):
     item_cache = {
         (i := get_item(ModuleItem, proj/path, name, RegexParserClass.ProgramUnitClass)).name: i
         for path, name in [
-            ('module/t_mod.F90', 't_mod'), ('source/comp2.F90', '#comp2'), ('headers/header_mod.F90', 'header_mod')
+            ('module/t_mod.F90', 't_mod'), ('source/comp2.f90', '#comp2'), ('headers/header_mod.F90', 'header_mod')
         ]
     }
 
@@ -327,7 +327,7 @@ def test_procedure_item2(here):
     proj = here/'sources/projBatch'
 
     # A file with a single subroutine definition that calls two routines via module imports
-    item = get_item(ProcedureItem, proj/'source/comp2.F90', '#comp2', RegexParserClass.ProgramUnitClass)
+    item = get_item(ProcedureItem, proj/'source/comp2.f90', '#comp2', RegexParserClass.ProgramUnitClass)
     assert item.name == '#comp2'
     assert item.ir is item.source['comp2']
     assert item.definitions is ()
@@ -442,7 +442,7 @@ def test_procedure_item_with_config2(here, disable):
     proj = here/'sources/projBatch'
 
     # Similar to the previous test but checking disabling of subroutines without scope
-    item = get_item(ProcedureItem, proj/'source/comp1.f90', '#comp1', RegexParserClass.ProgramUnitClass)
+    item = get_item(ProcedureItem, proj/'source/comp1.F90', '#comp1', RegexParserClass.ProgramUnitClass)
 
     item_cache = {item.name: item}
     item_cache['t_mod'] = get_item(ModuleItem, proj/'module/t_mod.F90', 't_mod', RegexParserClass.ProgramUnitClass)
@@ -491,7 +491,7 @@ def test_typedef_item(here):
     assert not items[0].dependencies
 
 
-def test_interface_item(here):
+def test_interface_item():
     pass
 
 
