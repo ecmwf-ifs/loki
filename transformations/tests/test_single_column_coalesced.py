@@ -9,8 +9,8 @@ import pytest
 
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
-    CallStatement, Scalar, Array, Pragma, pragmas_attached, fgen,
-    Sourcefile
+    CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
+    fgen, Sourcefile
 )
 from conftest import available_frontends
 from transformations import SingleColumnCoalescedTransformation, DataOffloadTransformation
@@ -191,6 +191,81 @@ def test_single_column_coalesced_vector_notation(frontend, horizontal, vertical)
     kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_masked_statement(frontend, horizontal, vertical):
+    """
+    Test resolving of vector notation in kernel and re-insertion of the
+    horizontal loop in the "driver".
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, t, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column(start, end, nlon, nz, q(:,:,b), t(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      WHERE (q(start:end, jk) > 1.234)
+        q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
+      ELSEWHERE
+        q(start:end, jk) = t(start:end, jk)
+      END WHERE
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+
+    scc_transform = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical,
+        hoist_column_arrays=False
+    )
+    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    scc_transform.apply(kernel, role='kernel')
+
+    # Ensure horizontal loop variable has been declared
+    assert 'jl' in kernel.variables
+
+    # Ensure we have two nested loops in the kernel
+    # (the hoisted horizontal and the native vertical)
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 2
+    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[0].variable == 'jl'
+    assert kernel_loops[0].bounds == 'start:end'
+    assert kernel_loops[1].variable == 'jk'
+    assert kernel_loops[1].bounds == '2:nz'
+
+    # Ensure that the respective conditional has been inserted correctly
+    kernel_conds = FindNodes(Conditional).visit(kernel.body)
+    assert len(kernel_conds) == 1
+    assert kernel_conds[0] in FindNodes(Conditional).visit(kernel_loops[1])
+    assert kernel_conds[0].condition == 'q(jl, jk) > 1.234'
+    assert fgen(kernel_conds[0].body) == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+    assert fgen(kernel_conds[0].else_body) == 'q(jl, jk) = t(jl, jk)'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_demote(frontend, horizontal, vertical):
@@ -445,7 +520,7 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
     scc_transform.apply(kernel, role='kernel')
 
     # Ensure routine is anntoated at vector level
-    pragmas = FindNodes(Pragma).visit(kernel.body)
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
     assert len(pragmas) == 5
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine vector'
@@ -457,7 +532,7 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
     # Ensure vector and seq loops are annotated, including
     # privatized variable `b`
     with pragmas_attached(kernel, Loop):
-        kernel_loops = FindNodes(Loop).visit(kernel.body)
+        kernel_loops = FindNodes(Loop).visit(kernel.ir)
         assert len(kernel_loops) == 2
         assert kernel_loops[0].pragma[0].keyword == 'acc'
         assert kernel_loops[0].pragma[0].content == 'loop vector private(b)'
@@ -538,7 +613,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
 
     with pragmas_attached(kernel, Loop):
         # Ensure routine is anntoated at vector level
-        kernel_pragmas = FindNodes(Pragma).visit(kernel.body)
+        kernel_pragmas = FindNodes(Pragma).visit(kernel.ir)
         assert len(kernel_pragmas) == 3
         assert kernel_pragmas[0].keyword == 'acc'
         assert kernel_pragmas[0].content == 'routine seq'
@@ -561,6 +636,83 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
         assert driver_loops[0].pragma[0].content == 'parallel loop gang'
         assert driver_loops[1].pragma[0].keyword == 'acc'
         assert driver_loops[1].pragma[0].content == 'loop vector'
+
+        # Ensure deviece allocation and teardown via `!$acc enter/exit data`
+        driver_pragmas = FindNodes(Pragma).visit(driver.body)
+        assert len(driver_pragmas) == 2
+        assert driver_pragmas[0].keyword == 'acc'
+        assert driver_pragmas[0].content == 'enter data create(t)'
+        assert driver_pragmas[1].keyword == 'acc'
+        assert driver_pragmas[1].content == 'exit data delete(t)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_hoist_empty(frontend, horizontal, vertical, blocking):
+    """
+    Test the correct addition of OpenACC pragmas in SCC code with
+    hoisting, if only one of two kernels contains locals to hoist.
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column1(start, end, nlon, nz, q(:,:,b))
+
+      call compute_column2(start, end, nlon, nz, q(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel1 = """
+  SUBROUTINE compute_column1(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: t(nlon,nz)  ! <= temporary array to be hoisted
+
+    DO jl = start, end
+      t(jl, nz) = q(jl, nz) + 0.2
+      q(jl, nz) = q(jl, nz) * q(jl, nz)
+    END DO
+  END SUBROUTINE compute_column1
+"""
+
+    fcode_kernel2 = """
+  SUBROUTINE compute_column2(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    ! No temporary arrays to be hoisted!
+
+    DO jl = start, end
+      q(jl, nz) = q(jl, nz) * 1.2
+    END DO
+  END SUBROUTINE compute_column2
+"""
+
+    kernel1 = Subroutine.from_source(fcode_kernel1, frontend=frontend)
+    kernel2 = Subroutine.from_source(fcode_kernel2, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(routines=(kernel1, kernel2))  # Attach kernel source to driver call
+
+    # Test OpenACC annotations on non-hoisted version
+    scc_transform = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        hoist_column_arrays=True, directive='openacc'
+    )
+    scc_transform.apply(driver, role='driver', targets=['compute_column1', 'compute_column2'])
+    scc_transform.apply(kernel1, role='kernel')
+    scc_transform.apply(kernel2, role='kernel')
+
+    # Ensure only one of the kernel calls caused device allocations
+    # for hoisted variables
+    with pragmas_attached(driver, Loop):
 
         # Ensure deviece allocation and teardown via `!$acc enter/exit data`
         driver_pragmas = FindNodes(Pragma).visit(driver.body)
@@ -679,12 +831,14 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert len(FindNodes(CallStatement).visit(outer_kernel.body)) == 1
 
         # Ensure the routine has been marked properly
-        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.body)
-        assert len(outer_kernel_pragmas) == 2
+        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.ir)
+        assert len(outer_kernel_pragmas) == 3
         assert outer_kernel_pragmas[0].keyword == 'acc'
         assert outer_kernel_pragmas[0].content == 'routine vector'
         assert outer_kernel_pragmas[1].keyword == 'acc'
         assert outer_kernel_pragmas[1].content == 'data present(q)'
+        assert outer_kernel_pragmas[2].keyword == 'acc'
+        assert outer_kernel_pragmas[2].content == 'end data'
 
     # Ensure that the leaf kernel contains two nested loops
     with pragmas_attached(inner_kernel, Loop):
@@ -701,12 +855,14 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert inner_kernel_loops[1].pragma[0].content == 'loop seq'
 
         # Ensure the routine has been marked properly
-        inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.body)
-        assert len(inner_kernel_pragmas) == 2
+        inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.ir)
+        assert len(inner_kernel_pragmas) == 3
         assert inner_kernel_pragmas[0].keyword == 'acc'
         assert inner_kernel_pragmas[0].content == 'routine vector'
         assert outer_kernel_pragmas[1].keyword == 'acc'
         assert outer_kernel_pragmas[1].content == 'data present(q)'
+        assert outer_kernel_pragmas[2].keyword == 'acc'
+        assert outer_kernel_pragmas[2].content == 'end data'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -905,7 +1061,7 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
     assert kernel_loops[3].variable == 'jl'
 
     # Check acc pragmas of newly created vector loops
-    pragmas = FindNodes(Pragma).visit(kernel.body)
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
     assert len(pragmas) == 7
     assert pragmas[2].keyword == 'acc'
     assert pragmas[2].content == 'loop vector'
@@ -968,7 +1124,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     transformation.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
     # Check that both acc pragmas are created
-    pragmas = FindNodes(Pragma).visit(routine.body)
+    pragmas = FindNodes(Pragma).visit(routine.ir)
     assert len(pragmas) == 4
     assert pragmas[0].keyword == 'acc'
     assert pragmas[1].keyword == 'acc'
@@ -981,3 +1137,44 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     assert pragmas[1].content == 'parallel loop gang'
     assert pragmas[2].content == 'end parallel loop'
     assert pragmas[3].content == 'end data'
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_routine_seq_pragma(frontend, horizontal, vertical, blocking):
+    """
+    Test that `!$loki routine seq` pragmas are replaced correctly by `!$acc routine seq` pragmas.
+    """
+
+    fcode = """
+    subroutine some_kernel(work, nang)
+       implicit none
+
+       integer, intent(in) :: nang
+       real, dimension(nang), intent(inout) :: work
+
+!$loki routine seq
+       integer :: k
+
+       do k=1,nang
+          work(k) = 1.
+       enddo
+
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    pragmas = FindNodes(Pragma).visit(routine.spec)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'loki'
+    assert pragmas[0].content == 'routine seq'
+
+    transformation = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, block_dim=blocking, vertical=vertical,
+        directive='openacc', hoist_column_arrays=False )
+
+    transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
+
+    pragmas = FindNodes(Pragma).visit(routine.spec)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[0].content == 'routine seq'

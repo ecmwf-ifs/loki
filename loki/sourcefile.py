@@ -273,7 +273,9 @@ class Sourcefile:
         """
         Parse a given source string using the REGEX frontend
         """
-        ir = parse_regex_source(raw_source, parser_classes=parser_classes)
+        source, _ = sanitize_input(source=raw_source, frontend=REGEX)
+
+        ir = parse_regex_source(source, parser_classes=parser_classes)
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=filepath)
         return cls(path=filepath, ir=ir, source=source, incomplete=True)
@@ -435,9 +437,7 @@ class Sourcefile:
         """
         if self.ir is None:
             return ()
-        return as_tuple(
-            tdef for module in self.modules for tdef in module.typedefs.values()
-        )
+        return as_tuple(flatten(module.typedefs for module in self.modules))
 
     @property
     def all_subroutines(self):
@@ -453,18 +453,19 @@ class Sourcefile:
         return self.modules + self.subroutines + self.typedefs
 
     def __getitem__(self, name):
-        module_map = {m.name.lower(): m for m in self.modules}
-        if name.lower() in module_map:
-            return module_map[name.lower()]
+        name = name.lower()
+        for module in self.modules:
+            if name == module.name.lower():
+                return module
 
-        subroutine_map = {s.name.lower(): s for s in self.all_subroutines}  # pylint: disable=no-member
-        if name.lower() in subroutine_map:
-            return subroutine_map[name.lower()]
+        for routine in self.all_subroutines:
+            if name == routine.name.lower():
+                return routine
 
-        for module in module_map.values():
-            typedef_map = module.typedefs
-            if name in typedef_map:
-                return typedef_map[name]
+        for module in self.modules:
+            for typedef in module.typedefs:
+                if name == typedef.name.lower():
+                    return typedef
 
         return None
 

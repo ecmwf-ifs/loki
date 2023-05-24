@@ -159,7 +159,7 @@ end module types
     source = Sourcefile.from_source(fcode, frontend=frontend)
     pragma_type = source['types'].symbol_attrs['pragma_type'].dtype
 
-    assert pragma_type.typedef is source['types'].typedefs['pragma_type']
+    assert pragma_type.typedef is source['types'].typedef_map['pragma_type']
     assert fsymgen(pragma_type.typedef.variables[0].shape) == '(3, 3)'
     assert fsymgen(pragma_type.typedef.variables[1].shape) == '(klon, klat, 2)'
 
@@ -520,7 +520,7 @@ END MODULE some_mod
             assert 'PROCEDURE(SUB)' in fgen(decl_map[name]).upper()
 
     # Assert procedure pointer component in the derived_type is sane
-    struct_type = module.typedefs['struct_type']
+    struct_type = module.typedef_map['struct_type']
     decls = FindNodes(ProcedureDeclaration).visit(struct_type.body)
     assert len(decls) == 1
     assert decls[0].symbols == ('component',)

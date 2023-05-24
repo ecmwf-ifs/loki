@@ -34,6 +34,7 @@ from transformations.argument_shape import (
 from transformations.data_offload import DataOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
+from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
@@ -115,6 +116,8 @@ def cli(debug):
               help='Path for additional header file(s).')
 @click.option('--cpp/--no-cpp', default=False,
               help='Trigger C-preprocessing of source files.')
+@click.option('--directive', default='openacc', type=click.Choice(['openacc', 'openmp', 'none']),
+              help='Programming model directives to insert (default openacc)')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
 @click.option('--define', '-D', multiple=True,
@@ -128,14 +131,14 @@ def cli(debug):
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist', 'cuf-parametrise',
-                                 'cuf-hoist', 'cuf-dynamic']),
+              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                                 'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
-def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
+def convert(out_path, path, header, cpp, directive, include, define, omni_include, xmod,
             data_offload, remove_openmp, mode, frontend, config):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
@@ -148,6 +151,8 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
         config = SchedulerConfig.from_dict(cloudsc_config)
     else:
         config = SchedulerConfig.from_file(config)
+
+    directive = None if directive is 'none' else directive.lower()
 
     build_args = {
         'preprocess': cpp,
@@ -187,7 +192,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
-    if mode == 'idem':
+    if mode in ['idem', 'idem-stack']:
         transformation = IdemTransformation()
 
     if mode == 'sca':
@@ -200,13 +205,13 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
             horizontal=horizontal, claw_data_offload=use_claw_offload
         )
 
-    if mode in ['scc', 'scc-hoist']:
+    if mode in ['scc', 'scc-hoist', 'scc-stack']:
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
         transformation = SingleColumnCoalescedTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive='openacc', hoist_column_arrays='hoist' in mode
+            directive=directive, hoist_column_arrays='hoist' in mode
         )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
@@ -225,6 +230,16 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
+    if mode in ['idem-stack', 'scc-stack']:
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
+        block_dim = scheduler.config.dimensions['block_dim']
+        directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
+        transformation = TemporariesPoolAllocatorTransformation(
+            block_dim=block_dim, allocation_dims=[horizontal, vertical],
+            directive=directive, check_bounds='scc' not in mode
+        )
+        scheduler.process(transformation=transformation, reverse=True)
     if mode == 'cuf-parametrise':
         dic2p = scheduler.config.dic2p
         disable = scheduler.config.disable
@@ -244,7 +259,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf=('cuf' in mode)))
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode))
 
 
 @cli.command()
@@ -330,6 +345,8 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
               help='Path to build directory for source generation.')
 @click.option('--root', type=click.Path(), default=None,
               help='Root path to which all paths are relative to.')
+@click.option('--directive', default='openacc', type=click.Choice(['openacc', 'openmp', 'none']),
+              help='Programming model directives to insert (default openacc)')
 @click.option('--cpp/--no-cpp', default=False,
               help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
@@ -338,7 +355,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
               help='Generate and display the subroutine callgraph.')
 @click.option('--plan-file', type=click.Path(),
               help='CMake "plan" file to generate.')
-def plan(mode, config, header, source, build, root, cpp, frontend, callgraph, plan_file):
+def plan(mode, config, header, source, build, root, cpp, directive, frontend, callgraph, plan_file):
     """
     Create a "plan", a schedule of files to inject and transform for a
     given configuration.
@@ -370,11 +387,13 @@ def plan(mode, config, header, source, build, root, cpp, frontend, callgraph, pl
               help='Path to source files to transform.')
 @click.option('--build', '-b', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
+@click.option('--directive', default='openacc', type=click.Choice(['openacc', 'openmp', 'none']),
+              help='Programming model directives to insert (default openacc)')
 @click.option('--cpp/--no-cpp', default=False,
               help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
               help='Frontend parser to use (default FP)')
-def ecphys(mode, config, header, source, build, cpp, frontend):
+def ecphys(mode, config, header, source, build, cpp, directive, frontend):
     """
     Physics bulk-processing option that employs a :class:`Scheduler`
     to apply IFS-specific source-to-source transformations, such as
@@ -384,6 +403,8 @@ def ecphys(mode, config, header, source, build, cpp, frontend):
 
     info('[Loki] Bulk-processing physics using config: %s ', config)
     config = SchedulerConfig.from_file(config)
+
+    directive = None if directive is 'none' else directive.lower()
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
@@ -425,7 +446,7 @@ def ecphys(mode, config, header, source, build, cpp, frontend):
         block_dim = scheduler.config.dimensions['block_dim']
         transformation = SingleColumnCoalescedTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive='openacc', hoist_column_arrays='hoist' in mode
+            directive=directive, hoist_column_arrays='hoist' in mode
         )
 
     if transformation:

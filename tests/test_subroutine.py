@@ -1108,12 +1108,12 @@ end subroutine
     # Check that we aren't looking somewhere above anymore
     assert member.parent is None
     assert member.symbol_attrs.parent is None
-    assert member._parent is None
+    assert member.parent is None
     assert member.symbol_attrs._parent is None
     assert other_member.parent is None
     assert other_member.symbol_attrs.parent is None
-    assert other_member._parent is None
-    assert other_member.symbol_attrs._parent is None
+    assert other_member.parent is None
+    assert other_member.symbol_attrs.parent is None
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

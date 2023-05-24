@@ -13,5 +13,6 @@ from transformations.single_column_coalesced import * # noqa
 from transformations.utility_routines import * # noqa
 from transformations.scc_cuf import * # noqa
 from transformations.global_var_offload import * # noqa
+from transformations.pool_allocator import * # noqa
 
 __version__ = "0.0.0"

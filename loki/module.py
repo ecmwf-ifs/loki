@@ -69,10 +69,29 @@ class Module(ProgramUnit):
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, name=None, docstring=None, spec=None, contains=None,
-                 default_access_spec=None, public_access_spec=None, private_access_spec=None,
-                 ast=None, source=None, parent=None, rescope_symbols=False, symbol_attrs=None,
-                 incomplete=False):
+    def __init__(
+            self, name=None, docstring=None, spec=None, contains=None,
+            default_access_spec=None, public_access_spec=None, private_access_spec=None,
+            ast=None, source=None, parent=None, symbol_attrs=None, rescope_symbols=False,
+            incomplete=False
+    ):
+        super().__init__(parent=parent)
+
+        if symbol_attrs:
+            self.symbol_attrs.update(symbol_attrs)
+
+        self.__initialize__(
+            name=name, docstring=docstring, spec=spec, contains=contains,
+            default_access_spec=default_access_spec, public_access_spec=public_access_spec,
+            private_access_spec=private_access_spec, ast=ast, source=source,
+            rescope_symbols=rescope_symbols, incomplete=incomplete
+        )
+
+    def __initialize__(
+            self, name=None, docstring=None, spec=None, contains=None,
+            ast=None, source=None, rescope_symbols=False, incomplete=False,
+            default_access_spec=None, public_access_spec=None, private_access_spec=None
+    ):
         # Apply dimension pragma annotations to declarations
         if spec:
             with pragmas_attached(self, VariableDeclaration):
@@ -89,11 +108,9 @@ class Module(ProgramUnit):
         else:
             self.private_access_spec = tuple(v.lower() for v in as_tuple(private_access_spec))
 
-        # Then call the parent constructor to store all properties
-        super().__init__(
-            name=name, docstring=docstring, spec=spec, contains=contains,
-            ast=ast, source=source, parent=parent, rescope_symbols=rescope_symbols,
-            symbol_attrs=symbol_attrs, incomplete=incomplete
+        super().__initialize__(
+            name=name, docstring=docstring, spec=spec, contains=contains, ast=ast,
+            source=source, rescope_symbols=rescope_symbols, incomplete=incomplete
         )
 
     @classmethod
@@ -265,11 +282,21 @@ class Module(ProgramUnit):
         if self.contains:
             for node in self.contains.body:
                 if isinstance(node, Subroutine):
-                    node.parent = self
+                    node._reset_parent(self)
                     node.register_in_parent_scope()
 
                 if isinstance(node, Scope):
-                    node.parent = self
+                    node._reset_parent(self)
 
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
+
+    @property
+    def definitions(self):
+        """
+        The list of IR nodes defined by this module
+
+        Returns :any:`Subroutine` and :any:`TypeDef` nodes declared
+        in this module
+        """
+        return self.subroutines + self.typedefs + self.variables

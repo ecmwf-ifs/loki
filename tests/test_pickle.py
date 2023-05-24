@@ -96,7 +96,7 @@ end subroutine my_routine
 
     # First, replicate the scope individually, ...
     scope_new = Scope()
-    scope_new.symbol_attrs = loads(dumps(routine.symbol_attrs))
+    scope_new.symbol_attrs.update(loads(dumps(routine.symbol_attrs)))
 
     # Replicate spec and body independently...
     spec_new = loads(dumps(routine.spec))
@@ -161,7 +161,7 @@ end module my_type_mod
 
     # Replicate the scope individually
     scope_new = Scope()
-    scope_new.symbol_attrs = loads(dumps(module.symbol_attrs))
+    scope_new.symbol_attrs.update(loads(dumps(module.symbol_attrs)))
 
     # Replicate the spec independently...
     spec_new = loads(dumps(module.spec))
@@ -210,7 +210,7 @@ end subroutine my_routine
 
     # First, replicate the scope individually, ...
     scope_new = Scope()
-    scope_new.symbol_attrs = loads(dumps(routine.symbol_attrs))
+    scope_new.symbol_attrs.update(loads(dumps(routine.symbol_attrs)))
 
     # Replicate spec and body independently...
     spec_new = loads(dumps(routine.spec))
@@ -267,7 +267,7 @@ end module my_module
 
     # First, replicate the scope individually, ...
     scope_new = Scope()
-    scope_new.symbol_attrs = loads(dumps(module.symbol_attrs))
+    scope_new.symbol_attrs.update(loads(dumps(module.symbol_attrs)))
 
     # Replicate spec and body independently...
     spec_new = loads(dumps(module.spec))
@@ -277,8 +277,8 @@ end module my_module
     contains_new = loads(dumps(module.contains))
     # We need to attach the parent here first, so that the deferred
     # procedure type symbol in the call can be resolved
-    contains_new.body[1].parent = scope_new
-    contains_new.body[-1].parent = scope_new
+    contains_new.body[1]._reset_parent(scope_new)
+    contains_new.body[-1]._reset_parent(scope_new)
     contains_new = AttachScopes().visit(contains_new, scope=scope_new)
     assert contains_new == module.contains
 

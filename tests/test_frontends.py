@@ -374,7 +374,7 @@ end module frontend_strict_mode
     config['frontend-strict-mode'] = False
     module = Module.from_source(fcode, frontend=frontend)
     assert 'matrix' in module.symbol_attrs
-    assert 'matrix' in module.typedefs
+    assert 'matrix' in module.typedef_map
 
 
 def test_regex_subroutine_from_source():
@@ -694,7 +694,7 @@ def test_regex_sourcefile_from_file_parser_classes(here):
         else:
             assert not sourcefile[unit].imports
 
-    assert sorted(sourcefile['bar'].typedefs) == ['food', 'organic']
+    assert sorted(sourcefile['bar'].typedef_map) == ['food', 'organic']
 
 
 def test_regex_raw_source():
@@ -1003,8 +1003,8 @@ end module typebound_item
 
     module = Module.from_source(fcode, frontend=REGEX)
 
-    assert 'some_type' in module.typedefs
-    some_type = module.typedefs['some_type']
+    assert 'some_type' in module.typedef_map
+    some_type = module.typedef_map['some_type']
 
     proc_bindings = {
         'routine': 'module_routine',
@@ -1056,8 +1056,8 @@ end module typebound_header
 
     module = Module.from_source(fcode, frontend=REGEX)
 
-    assert 'header_type' in module.typedefs
-    header_type = module.typedefs['header_type']
+    assert 'header_type' in module.typedef_map
+    header_type = module.typedef_map['header_type']
 
     proc_bindings = {
         'member_routine': 'header_member_routine',
@@ -1438,3 +1438,49 @@ end module some_mod
     source.make_complete(frontend=frontend)
     assert tuple(p.lower() for p in source['f_elem'].prefix) == ('pure', 'elemental')
     assert tuple(p.lower() for p in source['fib'].prefix) == ('pure', 'recursive')
+
+
+def test_regex_fypp():
+    """
+    Test that unexpanded fypp-annotations are handled gracefully in the REGEX frontend.
+    """
+    fcode = """
+module fypp_mod
+! A pre-set array of pre-prcessor variables
+#:mute
+#:set foo  = [2,3,4,5]
+#:endmute
+
+contains
+
+! A non-templated routine
+subroutine first_routine(i, x)
+  integer, intent(in) :: i
+  real, intent(inout) :: x(3)
+end subroutine first_routine
+
+! A fypp-loop with in-place directives for subroutine names
+#:for bar in foo
+#:set rname = 'routine_%s' % (bar,)
+subroutine ${rname}$ (i, x)
+  integer, intent(in) :: i
+  real, intent(inout) :: x(3)
+end subroutine ${rname}$
+#:endfor
+
+! Another non-templated routine
+subroutine last_routine(i, x)
+  integer, intent(in) :: i
+  real, intent(inout) :: x(3)
+end subroutine last_routine
+
+end module fypp_mod
+"""
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    module = source['fypp_mod']
+    assert isinstance(module, Module)
+
+    # Check that only non-templated routines are included
+    assert len(module.routines) == 2
+    assert module.routines[0].name == 'first_routine'
+    assert module.routines[1].name == 'last_routine'

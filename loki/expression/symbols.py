@@ -174,8 +174,8 @@ class TypedSymbol:
 
     @property
     def name(self):
-        if self._parent:
-            return f'{self._parent.name}%{self._name}'
+        if self.parent:
+            return f'{self.parent.name}%{self._name}'
         return self._name
 
     @name.setter
@@ -293,6 +293,22 @@ class TypedSymbol:
     def parent(self, parent):
         assert parent is None or isinstance(parent, (TypedSymbol, MetaSymbol))
         self._parent = parent
+
+    @property
+    def parents(self):
+        """
+        Variables nodes for all parents
+
+        Returns
+        -------
+        tuple
+            The list of parent variables, e.g., for a variable ``a%b%c%d`` this
+            yields the nodes corresponding to ``(a, a%b, a%b%c)``
+        """
+        parent = self.parent
+        if parent:
+            return parent.parents + (parent,)
+        return ()
 
     @property
     def variables(self):
@@ -552,6 +568,13 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         which it belongs
         """
         return self.symbol.parent
+
+    @property
+    def parents(self):
+        """
+        Yield all parent symbols for derived type members
+        """
+        return self.symbol.parents
 
     @property
     def scope(self):
@@ -1287,6 +1310,12 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
     """
+
+    init_arg_names = ('function', 'parameters', 'kw_parameters')
+
+    def __getinitargs__(self):
+        return (self.function, self.parameters, self.kw_parameters)
+
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
         # Unfortunately, have to accept MetaSymbol here for the time being as
