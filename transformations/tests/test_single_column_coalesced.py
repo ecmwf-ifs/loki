@@ -16,7 +16,7 @@ from conftest import available_frontends
 from transformations import (
      SingleColumnCoalescedTransformation, DataOffloadTransformation, SCCBaseTransformation,
      SCCDevectorTransformation, SCCDemoteTransformation, SCCRevectorTransformation,
-     SCCHoistTransformation
+     SCCHoistTransformation, SCCAnnotateTransformation
 )
 
 
@@ -398,7 +398,7 @@ def test_scc_hoist_transformation(frontend, horizontal, vertical, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blocking):
+def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
     """
     Test the correct addition of OpenACC pragmas to SCC format code (no hoisting).
     """
@@ -457,6 +457,17 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
         hoist_column_arrays=False, directive='openacc'
     )
+    scc_transform = SCCDevectorTransformation(horizontal=horizontal)
+    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    scc_transform.apply(kernel, role='kernel')
+    scc_transform = SCCDemoteTransformation(horizontal=horizontal)
+    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    scc_transform.apply(kernel, role='kernel')
+    scc_transform = SCCRevectorTransformation(horizontal=horizontal)
+    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    scc_transform.apply(kernel, role='kernel')
+    scc_transform = SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical, directive='openacc',
+                                              block_dim=blocking)
     scc_transform.apply(driver, role='driver', targets=['compute_column'])
     scc_transform.apply(kernel, role='kernel')
 
