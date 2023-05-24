@@ -30,7 +30,7 @@ from loki.types import SymbolAttributes, BasicType
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper',
-           'LokiIdentityMapper', 'AttachScopesMapper']
+           'LokiIdentityMapper', 'AttachScopesMapper', 'DetachScopesMapper']
 
 
 
@@ -813,6 +813,29 @@ class AttachScopesMapper(LokiIdentityMapper):
             new_expr.type = SymbolAttributes(dtype=BasicType.DEFERRED)
 
         return map_fn(new_expr, *args, **kwargs)
+
+    map_deferred_type_symbol = map_variable_symbol
+    map_procedure_symbol = map_variable_symbol
+
+
+class DetachScopesMapper(LokiIdentityMapper):
+    """
+    A Pymbolic expression mapper (i.e., a visitor for the expression tree)
+    that rebuilds an expression unchanged but with the scope for every
+    :any:`TypedSymbol` detached.
+
+    This will ensure that type information is stored locally on the object
+    itself, which is useful when storing information for inter-procedural
+    analysis passes.
+    """
+
+    def __init__(self):
+        super().__init__(invalidate_source=False)
+
+    def map_variable_symbol(self, expr, *args, **kwargs):
+        new_expr = super().map_variable_symbol(expr, *args, **kwargs)
+        new_expr = new_expr.clone(scope=None)
+        return new_expr
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol

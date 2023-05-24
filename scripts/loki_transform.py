@@ -34,6 +34,7 @@ from transformations.argument_shape import (
 from transformations.data_offload import DataOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
+from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
@@ -130,8 +131,8 @@ def cli(debug):
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist', 'cuf-parametrise',
-                                 'cuf-hoist', 'cuf-dynamic']),
+              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                                 'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
@@ -191,7 +192,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
-    if mode == 'idem':
+    if mode in ['idem', 'idem-stack']:
         transformation = IdemTransformation()
 
     if mode == 'sca':
@@ -204,7 +205,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
             horizontal=horizontal, claw_data_offload=use_claw_offload
         )
 
-    if mode in ['scc', 'scc-hoist']:
+    if mode in ['scc', 'scc-hoist', 'scc-stack']:
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
@@ -229,6 +230,16 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
+    if mode in ['idem-stack', 'scc-stack']:
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
+        block_dim = scheduler.config.dimensions['block_dim']
+        directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
+        transformation = TemporariesPoolAllocatorTransformation(
+            block_dim=block_dim, allocation_dims=[horizontal, vertical],
+            directive=directive, check_bounds='scc' not in mode
+        )
+        scheduler.process(transformation=transformation, reverse=True)
     if mode == 'cuf-parametrise':
         dic2p = scheduler.config.dic2p
         disable = scheduler.config.disable
@@ -248,7 +259,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf=('cuf' in mode)))
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode))
 
 
 @cli.command()
