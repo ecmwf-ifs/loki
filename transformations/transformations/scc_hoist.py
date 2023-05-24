@@ -31,13 +31,14 @@ class SCCHoistTransformation(Transformation):
         to use for hoisted column arrays if hoisting is enabled.
     """
 
+    _key = 'SCCHoistTransformation'
+
     def __init__(self, horizontal, vertical, block_dim):
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
 
         self._processed = {}
-        self._key = 'SCCHoistTransformation'
 
     @classmethod
     def get_column_locals(cls, routine, vertical):
@@ -136,7 +137,7 @@ class SCCHoistTransformation(Transformation):
 
         # Add column_locals to trafo_data for offload annotations in SCCAnnotate
         if item:
-            item.trafo_data[self._key]['column_locals'] = column_locals
+            item.trafo_data[cls._key]['column_locals'] += column_locals
 
         # Add a block-indexed slice of each column variable to the call
         idx = SCCBaseTransformation.get_integer_variable(routine, block_dim.index)
@@ -185,10 +186,7 @@ class SCCHoistTransformation(Transformation):
 
         role = kwargs['role']
         targets = kwargs.get('targets', None)
-
         item = kwargs.get('item', None)
-        if item:
-            item.trafo_data[self._key] = {}
 
         if role == 'kernel':
             self.process_kernel(routine)
@@ -239,6 +237,9 @@ class SCCHoistTransformation(Transformation):
         item : :any:`Item`
             Scheduler work item corresponding to routine.
         """
+
+        if item:
+            item.trafo_data[self._key] = {'column_locals': []}
 
         # Apply hoisting of temporary "column arrays"
         for call in FindNodes(ir.CallStatement).visit(routine.body):
