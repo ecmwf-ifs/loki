@@ -15,7 +15,8 @@ from loki import (
 from conftest import available_frontends
 from transformations import (
      SingleColumnCoalescedTransformation, DataOffloadTransformation, SCCBaseTransformation,
-     SCCDevectorTransformation, SCCDemoteTransformation, SCCRevectorTransformation
+     SCCDevectorTransformation, SCCDemoteTransformation, SCCRevectorTransformation,
+     SCCHoistTransformation
 )
 
 
@@ -294,7 +295,7 @@ def test_scc_demote_transformation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking):
+def test_scc_hoist_transformation(frontend, horizontal, vertical, blocking):
     """
     Test hoisting of column temporaries to "driver" level.
     """
@@ -343,10 +344,11 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        hoist_column_arrays=True
-    )
+    scc_transform = SCCDevectorTransformation(horizontal=horizontal)
+    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    scc_transform.apply(kernel, role='kernel')
+    scc_transform = SCCHoistTransformation(horizontal=horizontal, vertical=vertical,
+                                           block_dim=blocking)
     scc_transform.apply(driver, role='driver', targets=['compute_column'])
     scc_transform.apply(kernel, role='kernel')
 
@@ -389,7 +391,6 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     assert kernel.variable_map['t'].type.intent.lower() == 'inout'
     # TODO: Shape doesn't translate correctly yet.
     assert driver.variable_map['t'].dimensions == ('nlon', 'nz', 'nb')
-    # assert driver.variable_map['t'].shape == ('nlon', 'nz', 'nb')
 
     # Ensure that the loop index variable is correctly promoted
     assert 'jl' in kernel.argnames
