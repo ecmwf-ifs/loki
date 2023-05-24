@@ -271,6 +271,8 @@ class Pattern:
 
     _pattern_opening_parenthesis = re.compile(r'\(')
     _pattern_closing_parenthesis = re.compile(r'\)')
+    _pattern_opening_bracket = re.compile(r'\[')
+    _pattern_closing_bracket = re.compile(r'\]')
     _pattern_quoted_string = re.compile(r'(?:\'.*?\')|(?:".*?")')
 
     @classmethod
@@ -281,6 +283,8 @@ class Pattern:
         string = cls._pattern_quoted_string.sub('', string)
         p_open = [match.start() for match in cls._pattern_opening_parenthesis.finditer(string)]
         p_close = [match.start() for match in cls._pattern_closing_parenthesis.finditer(string)]
+        b_open = [match.start() for match in cls._pattern_opening_bracket.finditer(string)]
+        b_close = [match.start() for match in cls._pattern_closing_bracket.finditer(string)]
         if len(p_open) > len(p_close):
             # Note: fparser's reader has currently problems with opening
             # quotes in comments in combination with line continuation, thus
@@ -291,28 +295,47 @@ class Pattern:
             # See https://github.com/stfc/fparser/issues/264
             return string[:p_open[0]]
         assert len(p_open) == len(p_close)
-        if not p_close:
+        assert len(b_open) == len(b_close)
+        if not p_close and not b_close:
             return string
 
-        # We match pairs of parentheses starting at the end by pushing and popping from a stack.
-        # Whenever the stack runs out, we have fully resolved a set of (nested) parenthesis and
-        # record the corresponding span
+        def _match_spans(open_, close_):
+            # We match pairs of parentheses starting at the end by pushing and popping from a stack.
+            # Whenever the stack runs out, we have fully resolved a set of (nested) parenthesis and
+            # record the corresponding span
+            if not close_:
+                return []
+            spans = []
+            stack = [close_.pop()]
+            while open_:
+                if not close_ or open_[-1] > close_[-1]:
+                    assert stack
+                    start = open_.pop()
+                    end = stack.pop()
+                    if not stack:
+                        spans.append((start, end))
+                else:
+                    stack.append(close_.pop())
+            assert not (stack or open_ or close_)
+            return spans
+
+        p_spans = _match_spans(p_open, p_close)
+        b_spans = _match_spans(b_open, b_close)
+
+        # Merge the span lists (and reverse the order into ascending in the process)
         spans = []
-        stack = [p_close.pop()]
-        while p_open:
-            if not p_close or p_open[-1] > p_close[-1]:
-                assert stack
-                start = p_open.pop()
-                end = stack.pop()
-                if not stack:
-                    spans.append((start, end))
+        while p_spans and b_spans:
+            if p_spans[-1][0] < b_spans[-1][0]:
+                spans.append(p_spans.pop())
             else:
-                stack.append(p_close.pop())
+                spans.append(b_spans.pop())
+        if p_spans:
+            spans += p_spans[::-1]
+        if b_spans:
+            spans += b_spans[::-1]
 
         # We should now be left with no parentheses anymore and can build the new string
         # by using everything between these parenthesis "spans"
-        assert not (stack or p_open or p_close)
-        spans.reverse()
         new_string = string[:spans[0][0]]
         for (_, start), (end, _) in zip(spans[:-1], spans[1:]):
             new_string += string[start+1:end]
@@ -906,7 +929,7 @@ class VariableDeclarationPattern(Pattern):
         assert type_
 
         variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
-        variables = re.sub(r'[ \t]*=(>)?[ \t]*[-.\w/]+[ \t]*', r'', variables) # Remove initialization
+        variables = re.sub(r'=(?:>)?[^,]*(?=,|$)', r'', variables) # Remove initialization
         variables = variables.replace(' ', '').split(',')  # Variable names without white space
         variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
         return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
