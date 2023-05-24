@@ -1795,12 +1795,11 @@ class FParser2IR(GenericVisitor):
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
-        routine.__init__(
-            name=routine.name, args=routine._dummies,
-            docstring=docs, spec=spec, body=body, contains=contains, ast=o,
-            prefix=routine.prefix, bind=routine.bind, result_name=routine.result_name, is_function=routine.is_function,
-            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-            incomplete=False
+        routine.__initialize__(
+            name=routine.name, args=routine._dummies, docstring=docs, spec=spec,
+            body=body, contains=contains, ast=o, prefix=routine.prefix, bind=routine.bind,
+            result_name=routine.result_name, is_function=routine.is_function,
+            rescope_symbols=True, source=source, incomplete=False
         )
 
         # Big, but necessary hack:
@@ -1887,11 +1886,11 @@ class FParser2IR(GenericVisitor):
                 is_function=is_function, parent=kwargs['scope']
             )
         else:
-            routine.__init__(  # pylint: disable=unnecessary-dunder-call
-                name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=prefix, bind=bind, result_name=result, is_function=is_function,
-                ast=routine._ast, source=routine._source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-                incomplete=routine._incomplete
+            routine.__initialize__(
+                name=name, args=args, docstring=routine.docstring, spec=routine.spec,
+                body=routine.body, contains=routine.contains, prefix=prefix, bind=bind,
+                result_name=result, is_function=is_function, ast=routine._ast,
+                source=routine._source, incomplete=routine._incomplete
             )
 
         return (routine, return_type)
@@ -2032,11 +2031,11 @@ class FParser2IR(GenericVisitor):
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
-        module.__init__(
+        module.__initialize__(
             name=module.name, docstring=docs, spec=spec, contains=contains,
             default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
             private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
-            parent=module.parent, symbol_attrs=module.symbol_attrs, incomplete=False
+            incomplete=False
         )
 
         return (*pre, module)

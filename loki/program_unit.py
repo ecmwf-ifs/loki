@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 from abc import abstractmethod
-import weakref
 
 from loki import ir
 from loki.frontend import Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source
@@ -55,9 +54,8 @@ class ProgramUnit(Scope):
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, name, docstring=None, spec=None, contains=None,
-                 ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None, incomplete=False):
+    def __initialize__(self, name, docstring=None, spec=None, contains=None,
+                       ast=None, source=None, rescope_symbols=False, incomplete=False):
         # Common properties
         assert name and isinstance(name, str)
         self.name = name
@@ -83,11 +81,11 @@ class ProgramUnit(Scope):
         self.spec = spec
         self.contains = contains
 
-        # Call the parent constructor to take care of symbol table and rescoping
-        super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
-
         # Finally, register this object in the parent scope
         self.register_in_parent_scope()
+
+        if rescope_symbols:
+            self.rescope_symbols()
 
     @classmethod
     def from_source(cls, source, definitions=None, xmods=None, parser_classes=None, frontend=Frontend.FP, parent=None):
@@ -244,8 +242,8 @@ class ProgramUnit(Scope):
         # object is re-used while converting the parse tree to Loki-IR.
         has_parent = self.parent is not None
         if not has_parent:
-            parent_scope = Scope()
-            self._parent = weakref.ref(parent_scope)
+            parent_scope = Scope(parent=None)
+            self._reset_parent(parent_scope)
         if self.name not in self.parent.symbol_attrs:
             self.register_in_parent_scope()
 
@@ -256,7 +254,7 @@ class ProgramUnit(Scope):
         assert ir_ is self
 
         if not has_parent:
-            self._parent = None
+            self._reset_parent(None)
 
     def clone(self, **kwargs):
         """
@@ -319,8 +317,11 @@ class ProgramUnit(Scope):
             else:
                 for node in obj.contains.body:
                     if isinstance(node, ProgramUnit):
-                        node.parent = obj
+                        node._reset_parent(obj)
                         node.register_in_parent_scope()
+
+            # Rescope to ensure that symbol references are up to date
+            obj.rescope_symbols()
 
         obj.register_in_parent_scope()
 

@@ -101,7 +101,7 @@ class FortranCTransformation(Transformation):
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
         typename = f'{derived.name if isinstance(derived, TypeDef) else derived.dtype.name}_c'
-        typedef = TypeDef(name=typename.lower(), body=(), bind_c=True)
+        typedef = TypeDef(name=typename.lower(), body=(), bind_c=True)  # pylint: disable=unexpected-keyword-arg
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:
@@ -314,7 +314,7 @@ class FortranCTransformation(Transformation):
 
         # Re-create type definitions with range indices (``:``) replaced by pointers
         for td in FindNodes(TypeDef).visit(module.spec):
-            header_td = TypeDef(td.name.lower(), body=(), parent=header_module)
+            header_td = TypeDef(name=td.name.lower(), body=(), parent=header_module)  # pylint: disable=unexpected-keyword-arg
             declarations = []
             for decl in td.declarations:
                 variables = []

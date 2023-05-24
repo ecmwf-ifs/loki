@@ -174,8 +174,8 @@ class TypedSymbol:
 
     @property
     def name(self):
-        if self._parent:
-            return f'{self._parent.name}%{self._name}'
+        if self.parent:
+            return f'{self.parent.name}%{self._name}'
         return self._name
 
     @name.setter
@@ -1310,6 +1310,12 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
     """
+
+    init_arg_names = ('function', 'parameters', 'kw_parameters')
+
+    def __getinitargs__(self):
+        return (self.function, self.parameters, self.kw_parameters)
+
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
         # Unfortunately, have to accept MetaSymbol here for the time being as
