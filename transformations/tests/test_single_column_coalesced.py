@@ -10,11 +10,12 @@ import pytest
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
-    fgen, Sourcefile
+    fgen, Sourcefile, Section
 )
 from conftest import available_frontends
 from transformations import (
-     SingleColumnCoalescedTransformation, DataOffloadTransformation, SCCBaseTransformation
+     SingleColumnCoalescedTransformation, DataOffloadTransformation, SCCBaseTransformation,
+     SCCDevectorTransformation
 )
 
 
@@ -909,6 +910,82 @@ def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, bloc
         assert len(FindNodes(CallStatement).visit(kernel_loops[3])) == 0
         assert len(FindNodes(CallStatement).visit(kernel_loops[4])) == 0
         assert len(FindNodes(CallStatement).visit(kernel.body)) == 4
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_devector_transformation(frontend, horizontal):
+    """
+    Test the correct identification of vector sections and removal of vector loops.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jl, jk, niter
+    LOGICAL :: maybe
+    REAL :: c
+
+    if (maybe)  call logger()
+
+    c = 5.345
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) + 3.0
+    END DO
+
+    DO niter = 1, 3
+
+      DO JL = START, END
+        Q(JL, NZ) = Q(JL, NZ) + 1.0
+      END DO
+
+      call update_q(start, end, nlon, nz, q, c)
+
+    END DO
+
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+
+    IF (.not. maybe) THEN
+      call update_q(start, end, nlon, nz, q, c)
+    END IF
+
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) + C * 3.
+    END DO
+
+    IF (maybe)  call logger()
+
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    # Check number of horizontal loops prior to transformation
+    loops = [l for l in FindNodes(Loop).visit(kernel.body) if l.variable == 'jl']
+    assert len(loops) == 4
+
+    # Test SCCDevector transform for kernel with scope-splitting outer loop
+    scc_transform = SCCDevectorTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel')
+
+    # Check removal of horizontal loops
+    loops = [l for l in FindNodes(Loop).visit(kernel.body) if l.variable == 'jl']
+    assert not loops
+
+    # Check number and content of vector sections
+    sections = [s for s in FindNodes(Section).visit(kernel.body) if s.label == 'vector_section']
+    assert len(sections) == 4
+
+    assigns = FindNodes(Assignment).visit(sections[0])
+    assert len(assigns) == 2
+    assigns = FindNodes(Assignment).visit(sections[1])
+    assert len(assigns) == 1
+    assigns = FindNodes(Assignment).visit(sections[2])
+    assert len(assigns) == 1
+    assigns = FindNodes(Assignment).visit(sections[3])
+    assert len(assigns) == 1
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
