@@ -15,7 +15,7 @@ from loki import (
 from conftest import available_frontends
 from transformations import (
      SingleColumnCoalescedTransformation, DataOffloadTransformation, SCCBaseTransformation,
-     SCCDevectorTransformation, SCCDemoteTransformation
+     SCCDevectorTransformation, SCCDemoteTransformation, SCCRevectorTransformation
 )
 
 
@@ -35,10 +35,10 @@ def fixture_blocking():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_simple(frontend, horizontal, vertical):
+def test_scc_revector_transformation(frontend, horizontal):
     """
-    Test removal of vector loops in kernel and re-insertion of the
-    horizontal loop in the "driver".
+    Test removal of vector loops in kernel and re-insertion of a single
+    hoisted horizontal loop in the kernel.
     """
 
     fcode_driver = """
@@ -81,13 +81,16 @@ def test_single_column_coalesced_simple(frontend, horizontal, vertical):
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical,
-        hoist_column_arrays=False
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    # Ensure we have three loops in the kernel prior to transformation
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 3
+
+    scc_transform = SCCDevectorTransformation(horizontal=horizontal)
+    scc_transform.apply(driver, role='driver')
+    scc_transform.apply(kernel, role='kernel')
+    scc_transform = SCCRevectorTransformation(horizontal=horizontal)
+    scc_transform.apply(driver, role='driver')
     scc_transform.apply(kernel, role='kernel')
 
     # Ensure we have two nested loops in the kernel
@@ -106,13 +109,12 @@ def test_single_column_coalesced_simple(frontend, horizontal, vertical):
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
-    # Ensure only one loop in the driver
+    # Ensure driver remains unaffected
     driver_loops = FindNodes(Loop).visit(driver.body)
     assert len(driver_loops) == 1
     assert driver_loops[0].variable == 'b'
     assert driver_loops[0].bounds == '1:nb'
 
-    # Ensure we have a kernel call in the driver loop
     kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
