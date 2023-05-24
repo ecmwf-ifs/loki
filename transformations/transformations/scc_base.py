@@ -59,8 +59,8 @@ class SCCBaseTransformation(Transformation):
         seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
         if seq_pragmas:
             loki_seq_pragmas = [r for r in routine_pragmas if 'loki' == r.keyword.lower()]
-            if directive == 'openacc':
-                if loki_seq_pragmas:
+            if loki_seq_pragmas:
+                if directive == 'openacc':
                     # Mark routine as acc seq
                     mapper = {seq_pragmas[0]: None}
                     routine.spec = Transformer(mapper).visit(routine.spec)
