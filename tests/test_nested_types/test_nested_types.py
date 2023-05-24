@@ -21,13 +21,13 @@ def test_nested_types(frontend):
 
     # First, get the sub_type and check that the dimension annotation is honoured
     subtypes = Sourcefile.from_file(here/'sub_types.f90', frontend=frontend)['sub_types']
-    child = subtypes.typedefs['sub_type']
+    child = subtypes.typedef_map['sub_type']
     assert fexprgen(child.variables[0].shape) == '(size,)'
 
     # Check that dimension in sub_type has propagated to parent_type
     types = Sourcefile.from_file(here/'types.f90', definitions=subtypes,
                                  frontend=frontend)['types']
-    parent = types.typedefs['parent_type']
+    parent = types.typedef_map['parent_type']
     x = parent.variables[1].variable_map['x']
     assert fexprgen(x.shape) == '(size,)'
 

@@ -234,7 +234,7 @@ class Scheduler:
         self.obj_map.update(
             (f'{module.name}#{r.name}', obj)
             for obj in obj_list for module in obj.modules
-            for r in module.subroutines + tuple(module.typedefs.values()) + module.variables
+            for r in module.subroutines + module.typedefs + module.variables
         )
         self.obj_map.update(
             (f'{module.name}#{r.spec.name}', obj)
@@ -248,7 +248,7 @@ class Scheduler:
 
     @property
     def typedefs(self):
-        return as_tuple(flatten(module.typedefs.values() for obj in self.obj_map.values() for module in obj.modules))
+        return as_tuple(flatten(module.typedefs for obj in self.obj_map.values() for module in obj.modules))
 
     @property
     def items(self):

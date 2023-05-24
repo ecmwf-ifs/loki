@@ -290,3 +290,13 @@ class Module(ProgramUnit):
 
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
+
+    @property
+    def definitions(self):
+        """
+        The list of IR nodes defined by this module
+
+        Returns :any:`Subroutine` and :any:`TypeDef` nodes declared
+        in this module
+        """
+        return self.subroutines + self.typedefs + self.variables
