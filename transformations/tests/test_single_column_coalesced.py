@@ -15,7 +15,7 @@ from loki import (
 from conftest import available_frontends
 from transformations import (
      SingleColumnCoalescedTransformation, DataOffloadTransformation, SCCBaseTransformation,
-     SCCDevectorTransformation
+     SCCDevectorTransformation, SCCDemoteTransformation
 )
 
 
@@ -221,25 +221,12 @@ def test_scc_base_masked_statement(frontend, horizontal, vertical):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_demote(frontend, horizontal, vertical):
+def test_scc_demote_transformation(frontend, horizontal):
     """
-    Test that local array variables that do not contain the
-    vertical dimension are demoted and privativised.
+    Test that local array variables that do not buffer values
+    between vector sections and whose size is known at compile-time
+    are demoted.
     """
-
-    fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, nb, q)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Array dimensions
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
-    INTEGER :: b, start, end
-
-    start = 1
-    end = nlon
-    do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b))
-    end do
-  END SUBROUTINE column_driver
-"""
 
     fcode_kernel = """
   SUBROUTINE compute_column(start, end, nlon, nz, q)
@@ -273,14 +260,12 @@ def test_single_column_coalesced_demote(frontend, horizontal, vertical):
   END SUBROUTINE compute_column
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical,
-        hoist_column_arrays=False
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    # Must run SCCDevector first because demotion relies on knowledge
+    # of vector sections
+    scc_transform = SCCDevectorTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel')
+    scc_transform = SCCDemoteTransformation(horizontal=horizontal)
     scc_transform.apply(kernel, role='kernel')
 
     # Ensure correct array variables shapes
