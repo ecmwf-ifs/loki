@@ -13,7 +13,9 @@ from loki import (
     fgen, Sourcefile
 )
 from conftest import available_frontends
-from transformations import SingleColumnCoalescedTransformation, DataOffloadTransformation
+from transformations import (
+     SingleColumnCoalescedTransformation, DataOffloadTransformation, SCCBaseTransformation
+)
 
 
 @pytest.fixture(scope='module', name='horizontal')
@@ -114,27 +116,12 @@ def test_single_column_coalesced_simple(frontend, horizontal, vertical):
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_vector_notation(frontend, horizontal, vertical):
+def test_scc_base_resolve_vector_notation(frontend, horizontal, vertical):
     """
-    Test resolving of vector notation in kernel and re-insertion of the
-    horizontal loop in the "driver".
+    Test resolving of vector notation in kernel.
     """
-
-    fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, t, nb)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
-    INTEGER :: b, start, end
-
-    start = 1
-    end = nlon
-    do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b), t(:,:,b))
-    end do
-  END SUBROUTINE column_driver
-"""
 
     fcode_kernel = """
   SUBROUTINE compute_column(start, end, nlon, nz, q, t)
@@ -152,68 +139,39 @@ def test_single_column_coalesced_vector_notation(frontend, horizontal, vertical)
     END DO
   END SUBROUTINE compute_column
 """
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical,
-        hoist_column_arrays=False
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
     scc_transform.apply(kernel, role='kernel')
 
     # Ensure horizontal loop variable has been declared
     assert 'jl' in kernel.variables
 
-    # Ensure we have two nested loops in the kernel
-    # (the hoisted horizontal and the native vertical)
+    # Ensure we have three loops in the kernel,
+    # horizontal loops should be nested within vertical
     kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 2
+    assert len(kernel_loops) == 3
     assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
-    assert kernel_loops[0].variable == 'jl'
-    assert kernel_loops[0].bounds == 'start:end'
-    assert kernel_loops[1].variable == 'jk'
-    assert kernel_loops[1].bounds == '2:nz'
+    assert kernel_loops[2] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[1].variable == 'jl'
+    assert kernel_loops[1].bounds == 'start:end'
+    assert kernel_loops[2].variable == 'jl'
+    assert kernel_loops[2].bounds == 'start:end'
+    assert kernel_loops[0].variable == 'jk'
+    assert kernel_loops[0].bounds == '2:nz'
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
     assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
 
-    # Ensure only one loop in the driver
-    driver_loops = FindNodes(Loop).visit(driver.body)
-    assert len(driver_loops) == 1
-    assert driver_loops[0].variable == 'b'
-    assert driver_loops[0].bounds == '1:nb'
-
-    # Ensure we have a kernel call in the driver loop
-    kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
-    assert len(kernel_calls) == 1
-    assert kernel_calls[0].name == 'compute_column'
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_masked_statement(frontend, horizontal, vertical):
+def test_scc_base_masked_statement(frontend, horizontal, vertical):
     """
-    Test resolving of vector notation in kernel and re-insertion of the
-    horizontal loop in the "driver".
+    Test resolving of masked statements in kernel.
     """
-
-    fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, t, nb)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
-    INTEGER :: b, start, end
-
-    start = 1
-    end = nlon
-    do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b), t(:,:,b))
-    end do
-  END SUBROUTINE column_driver
-"""
 
     fcode_kernel = """
   SUBROUTINE compute_column(start, end, nlon, nz, q, t)
@@ -235,28 +193,22 @@ def test_single_column_coalesced_masked_statement(frontend, horizontal, vertical
   END SUBROUTINE compute_column
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical,
-        hoist_column_arrays=False
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
     scc_transform.apply(kernel, role='kernel')
 
     # Ensure horizontal loop variable has been declared
     assert 'jl' in kernel.variables
 
-    # Ensure we have two nested loops in the kernel
-    # (the hoisted horizontal and the native vertical)
+    # Ensure we have three loops in the kernel,
+    # horizontal loops should be nested within vertical
     kernel_loops = FindNodes(Loop).visit(kernel.body)
     assert len(kernel_loops) == 2
     assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
-    assert kernel_loops[0].variable == 'jl'
-    assert kernel_loops[0].bounds == 'start:end'
-    assert kernel_loops[1].variable == 'jk'
-    assert kernel_loops[1].bounds == '2:nz'
+    assert kernel_loops[1].variable == 'jl'
+    assert kernel_loops[1].bounds == 'start:end'
+    assert kernel_loops[0].variable == 'jk'
+    assert kernel_loops[0].bounds == '2:nz'
 
     # Ensure that the respective conditional has been inserted correctly
     kernel_conds = FindNodes(Conditional).visit(kernel.body)
@@ -1139,7 +1091,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     assert pragmas[3].content == 'end data'
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_routine_seq_pragma(frontend, horizontal, vertical, blocking):
+def test_scc_base_routine_seq_pragma(frontend, horizontal):
     """
     Test that `!$loki routine seq` pragmas are replaced correctly by `!$acc routine seq` pragmas.
     """
@@ -1150,7 +1102,6 @@ def test_single_column_coalesced_routine_seq_pragma(frontend, horizontal, vertic
 
        integer, intent(in) :: nang
        real, dimension(nang), intent(inout) :: work
-
 !$loki routine seq
        integer :: k
 
@@ -1168,10 +1119,7 @@ def test_single_column_coalesced_routine_seq_pragma(frontend, horizontal, vertic
     assert pragmas[0].keyword == 'loki'
     assert pragmas[0].content == 'routine seq'
 
-    transformation = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, block_dim=blocking, vertical=vertical,
-        directive='openacc', hoist_column_arrays=False )
-
+    transformation = SCCBaseTransformation(horizontal=horizontal, directive='openacc')
     transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.spec)
