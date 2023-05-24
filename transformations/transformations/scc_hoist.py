@@ -29,20 +29,15 @@ class SCCHoistTransformation(Transformation):
     block_dim : :any:`Dimension`
         Optional ``Dimension`` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
-    directive : string or None
-        Directives flavour to use for parallelism annotations; either
-        ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, vertical, block_dim, directive=None):
+    def __init__(self, horizontal, vertical, block_dim):
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
 
-        assert directive in [None, 'openacc']
-        self.directive = directive
-
         self._processed = {}
+        self._key = 'SCCHoistTransformation'
 
     @classmethod
     def get_column_locals(cls, routine, vertical):
@@ -87,16 +82,13 @@ class SCCHoistTransformation(Transformation):
         routine.arguments += as_tuple(new_v)
 
     @classmethod
-    def hoist_temporary_column_arrays(cls, routine, call, horizontal, vertical, block_dim, directive):
+    def hoist_temporary_column_arrays(cls, routine, call, horizontal, vertical, block_dim, item=None):
         """
-        Hoist temporary column arrays to the driver level. This
-        includes allocating them as local arrays on the host and on
-        the device via ``!$acc enter create``/ ``!$acc exit delete``
-        directives.
+        Hoist temporary column arrays to the driver level.
 
         Note that this employs an interprocedural analysis pass
         (forward), and thus needs to be executed for the calling
-        routine before any of the callees are processed.
+        driver routine before any of the kernels are processed.
 
         Parameters
         ----------
@@ -109,11 +101,10 @@ class SCCHoistTransformation(Transformation):
         vertical: :any:`Dimension`
             The dimension object specifying the vertical loop dimension
         block_dim : :any:`Dimension`
-            Optional ``Dimension`` object to define the blocking dimension
+            ``Dimension`` object to define the blocking dimension
             to use for hoisted column arrays if hoisting is enabled.
-        directive : string or None
-            Directives flavour to use for parallelism annotations; either
-            ``'openacc'`` or ``None``.
+        item : :any:`Item`
+            Scheduler work item corresponding to routine.
         """
 
         if call.not_active or call.routine is BasicType.DEFERRED:
@@ -131,7 +122,7 @@ class SCCHoistTransformation(Transformation):
         kernel = call.routine
         call_map = {}
 
-        column_locals = SCCHoistTransformation.get_column_locals(kernel, vertical=vertical)
+        column_locals = cls.get_column_locals(kernel, vertical=vertical)
         arg_map = dict(call.arg_iter())
         arg_mapper = SubstituteExpressions(arg_map)
 
@@ -143,14 +134,9 @@ class SCCHoistTransformation(Transformation):
         routine.variables += as_tuple(v.clone(dimensions=arg_mapper.visit(dims), scope=routine)
                                       for v, dims in zip(column_locals, arg_dims))
 
-        # Add explicit OpenACC statements for creating device variables
-        if directive == 'openacc' and column_locals:
-            vnames = ', '.join(v.name for v in column_locals)
-            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
-            # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+        # Add column_locals to trafo_data for offload annotations in SCCAnnotate
+        if item:
+            item.trafo_data[self._key]['column_locals'] = column_locals
 
         # Add a block-indexed slice of each column variable to the call
         idx = SCCBaseTransformation.get_integer_variable(routine, block_dim.index)
@@ -172,15 +158,10 @@ class SCCHoistTransformation(Transformation):
         new_call._update(kwarguments=new_call.kwarguments + ((horizontal.index, v_index),))
 
         # Now create a vector loop around the kernel invocation
-        pragma = ()
-        if directive == 'openacc':
-            pragma = ir.Pragma(keyword='acc', content='loop vector')
         v_start = arg_map[kernel.variable_map[horizontal.bounds[0]]]
         v_end = arg_map[kernel.variable_map[horizontal.bounds[1]]]
         bounds = sym.LoopRange((v_start, v_end))
-        vector_loop = ir.Loop(
-            variable=v_index, bounds=bounds, body=(new_call,), pragma=as_tuple(pragma)
-        )
+        vector_loop = ir.Loop(variable=v_index, bounds=bounds, body=(new_call,))
         call_map[call] = vector_loop
 
         routine.body = Transformer(call_map).visit(routine.body)
@@ -205,11 +186,15 @@ class SCCHoistTransformation(Transformation):
         role = kwargs['role']
         targets = kwargs.get('targets', None)
 
+        item = kwargs.get('item', None)
+        if item:
+            item.trafo_data[self._key] = {}
+
         if role == 'kernel':
             self.process_kernel(routine)
 
         if role == 'driver':
-            self.process_driver(routine, targets=targets)
+            self.process_driver(routine, targets=targets, item=item)
 
         # Mark routine as processed
         self._processed[routine] = True
@@ -236,7 +221,7 @@ class SCCHoistTransformation(Transformation):
         if v_index not in routine.arguments:
             self.add_loop_index_to_args(v_index, routine)
 
-    def process_driver(self, routine, targets=None):
+    def process_driver(self, routine, targets=None, item=None):
         """
         Hoist temporary column arrays.
 
@@ -251,6 +236,8 @@ class SCCHoistTransformation(Transformation):
         targets : list or string
             List of subroutines that are to be considered as part of
             the transformation call tree.
+        item : :any:`Item`
+            Scheduler work item corresponding to routine.
         """
 
         # Apply hoisting of temporary "column arrays"
@@ -259,4 +246,4 @@ class SCCHoistTransformation(Transformation):
                 continue
 
             self.hoist_temporary_column_arrays(routine, call, self.horizontal, self.vertical,
-                                               self.block_dim, self.directive)
+                                               self.block_dim, item=item)

@@ -169,11 +169,12 @@ class SCCAnnotateTransformation(Transformation):
 
         role = kwargs['role']
         targets = kwargs.get('targets', None)
+        item = kwargs.get('item', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
         if role == 'driver':
-            self.process_driver(routine, targets=targets)
+            self.process_driver(routine, targets=targets, item=item)
 
         # Mark routine as processed
         self._processed[routine] = True
@@ -202,7 +203,7 @@ class SCCAnnotateTransformation(Transformation):
         if section_mapper:
             routine.body = Transformer(section_mapper).visit(routine.body)
 
-    def process_driver(self, routine, targets=None):
+    def process_driver(self, routine, targets=None, item=None):
         """
         Apply the relevant ``'openacc'`` annotations to the driver loop.
 
@@ -213,6 +214,8 @@ class SCCAnnotateTransformation(Transformation):
         targets : list or string
             List of subroutines that are to be considered as part of
             the transformation call tree.
+        item : :any:`Item`
+            Scheduler work item corresponding to routine.
         """
 
         # Resolve associates, since the PGI compiler cannot deal with
@@ -233,13 +236,20 @@ class SCCAnnotateTransformation(Transformation):
                     continue
                 loop = loops[0]
 
+                # Find vector loops if hoisting is enabled
+                vector_loops = []
+                if self.hoist_column_arrays:
+                    vector_loops = [l for l in FindNodes(ir.Loop).visit(loop)
+                                    if l.variable == self.horizontal.variable]
+
                 # Mark driver loop as "gang parallel".
-                self.annotate_driver(self.directive, loop, self.block_dim)
+                self.annotate_driver(self.directive, loop, self.block_dim, item=item, vector_loops=vector_loops)
 
     @classmethod
-    def annotate_driver(cls, directive, loop, block_dim):
+    def annotate_driver(cls, directive, loop, block_dim, item=None, vector_loops=None):
         """
-        Annotate driver block loop with ``'openacc'`` pragmas.
+        Annotate driver block loop with ``'openacc'`` pragmas, and add offload directives
+        for hoisted column locals.
 
         Parameters
         ----------
@@ -247,10 +257,14 @@ class SCCAnnotateTransformation(Transformation):
             Directives flavour to use for parallelism annotations; either
             ``'openacc'`` or ``None``.
         loop : :any:`Loop`
-            ``Loop`` to wrap in ``'opencc'`` pragmas.
+            Driver ``Loop`` to wrap in ``'opencc'`` pragmas.
         block_dim : :any:`Dimension`
             Optional ``Dimension`` object to define the blocking dimension
             to use for hoisted column arrays if hoisting is enabled.
+        item : :any:`Item`
+            Scheduler work item corresponding to routine.
+        vector_loops : List of :any:`Loop`
+            Optional vector ``Loop`` to wrap in ``'opencc'`` pragmas.
         """
 
         # Mark driver loop as "gang parallel".
@@ -264,6 +278,20 @@ class SCCAnnotateTransformation(Transformation):
             arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
             private_arrays = ', '.join(set(v.name for v in arrays))
             private_clause = '' if not private_arrays else f' private({private_arrays})'
+
+            # Annotate vector loops with OpenACC pragmas
+            for v in vector_loops:
+                v._update(pragma=ir.Pragma(keyword='acc', content='loop vector'))
+
+            # Add explicit OpenACC statements for creating device variables for hoisted column locals
+            if item:
+                if (column_locals := item.trafo_data['SCCHoistTransformation']['column_locals']):
+                    vnames = ', '.join(v.name for v in column_locals)
+                    pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+                    pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+                    # Add comments around standalone pragmas to avoid false attachment
+                    routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+                    routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
             if loop.pragma is None:
                 p_content = f'parallel loop gang{private_clause}'

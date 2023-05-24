@@ -221,8 +221,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
         if not 'hoist' in mode:
             transformation += (SCCRevectorTransformation(horizontal=horizontal),)
         if 'hoist' in mode:
-            transformation += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical,
-                                                      block_dim=block_dim, directive=directive),)
+            transformation += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim),)
         transformation += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
                                                      directive=directive, block_dim=block_dim,
                                                      hoist_column_arrays='hoist' in mode),)
