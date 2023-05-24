@@ -223,6 +223,15 @@ class SCCAnnotateTransformation(Transformation):
         # routines.
         resolve_associates(routine)
 
+        column_locals = []
+        # Insert device side allocations for hoisted column locals
+        if self.hoist_column_arrays:
+            # Get list of hoisted column locals
+            if item:
+                column_locals = item.trafo_data['SCCHoistTransformation'].get('column_locals', None)
+            if self.directive == 'openacc':
+                self.device_alloc_column_locals(routine, column_locals)
+
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if not call.name in targets:
@@ -234,19 +243,39 @@ class SCCAnnotateTransformation(Transformation):
                 if not loops:
                     # Skip if there are no driver loops
                     continue
-                loop = loops[0]
+                driver_loop = loops[0]
+                kernel_loop = [l for l in loops if l.variable == self.horizontal.index]
+                if kernel_loop:
+                    kernel_loop = kernel_loop[0]
 
-                # Find vector loops if hoisting is enabled
-                vector_loops = []
-                if self.hoist_column_arrays:
-                    vector_loops = [l for l in FindNodes(ir.Loop).visit(loop)
-                                    if l.variable == self.horizontal.variable]
+                assert not driver_loop == kernel_loop
 
                 # Mark driver loop as "gang parallel".
-                self.annotate_driver(self.directive, loop, self.block_dim, item=item, vector_loops=vector_loops)
+                self.annotate_driver(self.directive, driver_loop, kernel_loop, self.block_dim, column_locals)
 
     @classmethod
-    def annotate_driver(cls, directive, loop, block_dim, item=None, vector_loops=None):
+    def device_alloc_column_locals(cls, routine, column_locals):
+        """
+        Add explicit OpenACC statements for creating device variables for hoisted column locals.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        column_locals : list
+            List of column locals to be hoisted to driver layer
+        """
+
+        if column_locals:
+            vnames = ', '.join(v.name for v in column_locals)
+            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+            # Add comments around standalone pragmas to avoid false attachment
+            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+
+    @classmethod
+    def annotate_driver(cls, directive, driver_loop, kernel_loop, block_dim, column_locals):
         """
         Annotate driver block loop with ``'openacc'`` pragmas, and add offload directives
         for hoisted column locals.
@@ -256,23 +285,25 @@ class SCCAnnotateTransformation(Transformation):
         directive : string or None
             Directives flavour to use for parallelism annotations; either
             ``'openacc'`` or ``None``.
-        loop : :any:`Loop`
+        driver_loop : :any:`Loop`
             Driver ``Loop`` to wrap in ``'opencc'`` pragmas.
+        kernel_loop : :any:`Loop`
+            Vector ``Loop`` to wrap in ``'opencc'`` pragmas if hoisting is enabled.
         block_dim : :any:`Dimension`
             Optional ``Dimension`` object to define the blocking dimension
             to use for hoisted column arrays if hoisting is enabled.
-        item : :any:`Item`
-            Scheduler work item corresponding to routine.
-        vector_loops : List of :any:`Loop`
-            Optional vector ``Loop`` to wrap in ``'opencc'`` pragmas.
+        column_locals : list
+            List of column locals to be hoisted to driver layer
         """
 
         # Mark driver loop as "gang parallel".
         if directive == 'openacc':
-            arrays = FindVariables(unique=True).visit(loop)
+            arrays = FindVariables(unique=True).visit(driver_loop)
             arrays = [v for v in arrays if isinstance(v, sym.Array)]
             arrays = [v for v in arrays if not v.type.intent]
             arrays = [v for v in arrays if not v.type.pointer]
+            arrays = [v for v in arrays if not v.name in [c.name for c in column_locals]]
+
             # Filter out arrays that are explicitly allocated with block dimension
             sizes = block_dim.size_expressions
             arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
@@ -280,28 +311,19 @@ class SCCAnnotateTransformation(Transformation):
             private_clause = '' if not private_arrays else f' private({private_arrays})'
 
             # Annotate vector loops with OpenACC pragmas
-            for v in vector_loops:
-                v._update(pragma=ir.Pragma(keyword='acc', content='loop vector'))
+            if kernel_loop:
+                kernel_loop._update(pragma=ir.Pragma(keyword='acc', content='loop vector'))
 
-            # Add explicit OpenACC statements for creating device variables for hoisted column locals
-            if item:
-                if (column_locals := item.trafo_data['SCCHoistTransformation']['column_locals']):
-                    vnames = ', '.join(v.name for v in column_locals)
-                    pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-                    pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
-                    # Add comments around standalone pragmas to avoid false attachment
-                    routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-                    routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
-
-            if loop.pragma is None:
+            if driver_loop.pragma is None:
                 p_content = f'parallel loop gang{private_clause}'
-                loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
-                loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
+                driver_loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
+                driver_loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
+
             # add acc parallel loop gang if the only existing pragma is acc data
-            elif len(loop.pragma) == 1:
-                if (loop.pragma[0].keyword == 'acc' and
-                   loop.pragma[0].content.lower().lstrip().startswith('data ')):
+            elif len(driver_loop.pragma) == 1:
+                if (driver_loop.pragma[0].keyword == 'acc' and
+                    driver_loop.pragma[0].content.lower().lstrip().startswith('data ')):
                     p_content = f'parallel loop gang{private_clause}'
-                    loop._update(pragma=(loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
-                    loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
-                                              loop.pragma_post[0]))
+                    driver_loop._update(pragma=(driver_loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
+                    driver_loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
+                                              driver_loop.pragma_post[0]))
