@@ -508,7 +508,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 assign_pos = -1
 
             # Check for existing pointer assignment
-            if any(a.lhs == stack_ptr.name for a in FindNodes(Assignment).visit(loop.body)):  # pylint: disable=no-member
+            if any(a.lhs == stack_ptr.name for a in assignments):  # pylint: disable=no-member
                 break
 
             ptr_assignment = Assignment(
