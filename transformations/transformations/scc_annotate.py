@@ -40,7 +40,7 @@ class SCCAnnotateTransformation(Transformation):
         optimization.
     """
 
-    def __init__(self, horizontal, vertical, directive, block_dim, hoist_column_arrays):
+    def __init__(self, horizontal, vertical, directive, block_dim, hoist_column_arrays=False):
         self.horizontal = horizontal
         self.vertical = vertical
         self.directive = directive
