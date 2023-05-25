@@ -218,11 +218,6 @@ class SCCAnnotateTransformation(Transformation):
             Scheduler work item corresponding to routine.
         """
 
-        # Resolve associates, since the PGI compiler cannot deal with
-        # implicit derived type component offload by calling device
-        # routines.
-        resolve_associates(routine)
-
         column_locals = []
         # Insert device side allocations for hoisted column locals
         if self.hoist_column_arrays:

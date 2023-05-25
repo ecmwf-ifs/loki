@@ -210,6 +210,8 @@ class SCCBaseTransformation(Transformation):
 
         if role == 'kernel':
             self.process_kernel(routine)
+        if role == 'driver':
+            self.process_driver(routine)
 
         # Mark routine as processed
         self._processed[routine] = True
@@ -244,3 +246,19 @@ class SCCBaseTransformation(Transformation):
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
         self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+
+    def process_driver(self, routine):
+        """
+        Applies the SCCBase utilities to a "driver". This consists simply
+        of resolving associations.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        """
+
+        # Resolve associates, since the PGI compiler cannot deal with
+        # implicit derived type component offload by calling device
+        # routines.
+        resolve_associates(routine)
