@@ -74,20 +74,32 @@ def test_data_offload_region_complex_remove_openmp(frontend):
     """
 
     fcode_driver = """
-  SUBROUTINE driver_routine(nlon, nlev, a, b, c)
+  SUBROUTINE driver_routine(nlon, nlev, a, b, c, flag)
     INTEGER, INTENT(IN)   :: nlon, nlev
     REAL, INTENT(INOUT)   :: a(nlon,nlev)
     REAL, INTENT(INOUT)   :: b(nlon,nlev)
     REAL, INTENT(INOUT)   :: c(nlon,nlev)
+    logical, intent(in) :: flag
     INTEGER :: j
 
     !$loki data
     call my_custom_timer()
 
-    !$omp parallel do private(j)
-    do j=1, nlev
-      call kernel_routine(nlon, j, a(:,j), b(:,j), c(:,j))
-    end do
+    if(flag)then
+       !$omp parallel do private(j)
+       do j=1, nlev
+         call kernel_routine(nlon, j, a(:,j), b(:,j), c(:,j))
+       end do
+       !$omp end parallel do
+    else
+       !$omp parallel do private(j)
+       do j=1, nlev
+          a(:,j) = 0.
+          b(:,j) = 0.
+          c(:,j) = 0.
+       end do
+       !$omp end parallel do
+    endif
     call my_custom_timer()
 
     !$loki end data
@@ -121,7 +133,7 @@ def test_data_offload_region_complex_remove_openmp(frontend):
         # Ensure that loops in the region are preserved
         regions = FindNodes(PragmaRegion).visit(driver.body)
         assert len(regions) == 1
-        assert len(FindNodes(Loop).visit(regions[0])) == 1
+        assert len(FindNodes(Loop).visit(regions[0])) == 2
 
         # Ensure all activa and inactive calls are there
         calls = FindNodes(CallStatement).visit(regions[0])
