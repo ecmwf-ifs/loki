@@ -69,7 +69,7 @@ class SCCBaseTransformation(Transformation):
                     # Append the acc pragma to routine.spec, regardless of where the corresponding
                     # loki pragma is found
                     routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
-                return True
+            return True
 
         vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
         if vec_pragmas:
