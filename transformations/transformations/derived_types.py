@@ -22,7 +22,7 @@ except ImportError:
     _intrinsic_fortran_names = ()
 from loki import (
     Transformation, FindVariables, FindNodes, FindInlineCalls, Transformer,
-    SubstituteExpressions, SubstituteExpressionsMapper, recursive_expression_map_update,
+    SubstituteExpressions, SubstituteExpressionsMapper, ExpressionRetriever, recursive_expression_map_update,
     Module, Import, CallStatement, ProcedureDeclaration, InlineCall, Variable, RangeIndex,
     BasicType, DerivedType, as_tuple, warning, debug, CaseInsensitiveDict
 )
@@ -108,7 +108,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 s.type.use_name.lower(): s.name.lower()
                 for s in import_.symbols if s.type.use_name
             }
-            for import_ in routine.imports + getattr(routine.parent, 'imports', [])
+            for import_ in routine.imports + getattr(routine.parent, 'imports', ())
         }
         successors_data = CaseInsensitiveDict(
             (
