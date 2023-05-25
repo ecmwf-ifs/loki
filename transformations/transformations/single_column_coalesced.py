@@ -91,7 +91,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         targets = kwargs.get('targets', None)
 
         if role == 'driver':
-            self.process_driver(routine, targets=targets)
+            self.process_driver(routine, targets=targets, item=item)
 
         if role == 'kernel':
             demote_locals = self.demote_local_arrays
@@ -186,7 +186,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             SCCAnnotateTransformation.insert_annotations(routine, self.horizontal, self.vertical,
                                                          self.hoist_column_arrays)
 
-    def process_driver(self, routine, targets=None):
+    def process_driver(self, routine, targets=None, item=None):
         """
         Process the "driver" routine by inserting the other level
         parallel loops, and optionally hoisting temporary column
@@ -204,12 +204,33 @@ class SingleColumnCoalescedTransformation(Transformation):
         targets : list or string
             List of subroutines that are to be considered as part of
             the transformation call tree.
+        item : :any:`Item`
+            Scheduler work item corresponding to routine.
         """
 
         # Resolve associates, since the PGI compiler cannot deal with
         # implicit derived type component offload by calling device
         # routines.
         resolve_associates(routine)
+
+        column_locals = []
+        if item:
+            item.trafo_data['SCCHoistTransformation'] = {'column_locals': []}
+
+        # Apply hoisting of temporary "column arrays"
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if not call.name in targets:
+                continue
+
+            if self.hoist_column_arrays:
+                SCCHoistTransformation.hoist_temporary_column_arrays(routine, call, self.horizontal,
+                                                                     self.vertical, self.block_dim,
+                                                                     item=item)
+                # Get list of hoisted column locals
+                if item:
+                    column_locals = item.trafo_data['SCCHoistTransformation'].get('column_locals', None)
+                if self.directive == 'openacc':
+                    SCCAnnotateTransformation.device_alloc_column_locals(routine, column_locals)
 
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
 
@@ -223,17 +244,13 @@ class SingleColumnCoalescedTransformation(Transformation):
                 if not loops:
                     # Skip if there are no driver loops
                     continue
-                loop = loops[0]
+                driver_loop = loops[0]
+                kernel_loop = [l for l in loops if l.variable == self.horizontal.index]
+                if kernel_loop:
+                    kernel_loop = kernel_loop[0]
+
+                assert not driver_loop == kernel_loop
 
                 # Mark driver loop as "gang parallel".
-                SCCAnnotateTransformation.annotate_driver(self.directive, loop, self.block_dim)
-
-        # Apply hoisting of temporary "column arrays"
-        for call in FindNodes(ir.CallStatement).visit(routine.body):
-            if not call.name in targets:
-                continue
-
-            if self.hoist_column_arrays:
-                SCCHoistTransformation.hoist_temporary_column_arrays(routine, call, self.horizontal,
-                                                                     self.vertical, self.block_dim,
-                                                                     self.directive)
+                SCCAnnotateTransformation.annotate_driver(self.directive, driver_loop, kernel_loop,
+                                                          self.block_dim, column_locals)
