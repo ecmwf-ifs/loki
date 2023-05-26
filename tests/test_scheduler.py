@@ -1578,19 +1578,24 @@ def test_scheduler_inline_call(here, config, frontend):
     """
 
     my_config = config.copy()
+    my_config['default']['enable_imports'] = True
     my_config['routine'] = [
         {
             'name': 'driver',
-            'role': 'driver'
+            'role': 'driver',
+            'disable': ['return_one', 'some_var', 'add_args', 'some_type']
         }
     ]
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
-    expected_items = {'#driver', '#double_real', 'some_module#some_type%do_something', 'some_module#add_const'}
+    expected_items = {'#driver', '#double_real', 'some_module#some_type%do_something',
+                      'some_module#add_const', 'vars_module#vara', 'vars_module#varb'}
     expected_dependencies = {('#driver', '#double_real'),
                              ('#driver', 'some_module#some_type%do_something'),
-                             ('some_module#some_type%do_something', 'some_module#add_const')}
+                             ('some_module#some_type%do_something', 'some_module#add_const'),
+                             ('#driver', 'vars_module#vara'), ('#driver', 'vars_module#varb'),
+                             ('#double_real', 'vars_module#vara'), ('#double_real', 'vars_module#varb')}
 
     assert expected_items == {i.name for i in scheduler.items}
     assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
