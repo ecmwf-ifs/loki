@@ -112,12 +112,6 @@ class GlobalVarOffloadTransformation(Transformation):
     _key = 'GlobalVarOffloadTransformation'
 
     def __init__(self, key=None):
-        self._enter_data_copyin = set()
-        self._enter_data_create = set()
-        self._exit_data = set()
-        self._acc_copyin = set()
-        self._acc_copyout = set()
-
         if key:
             self._key = key
 
@@ -165,11 +159,16 @@ class GlobalVarOffloadTransformation(Transformation):
         if item and not item.local_name == routine.name.lower():
             return
 
-        # Initialize sets to store analysis
         if not item.trafo_data.get(self._key, None):
             item.trafo_data[self._key] = {}
 
+        # Initialize sets/maps to store analysis
         item.trafo_data[self._key]['modules'] = {}
+        item.trafo_data[self._key]['enter_data_copyin'] = set()
+        item.trafo_data[self._key]['enter_data_create'] = set()
+        item.trafo_data[self._key]['exit_data'] = set()
+        item.trafo_data[self._key]['acc_copyin'] = set()
+        item.trafo_data[self._key]['acc_copyout'] = set()
 
         successors = kwargs.get('successors', ())
         if role == 'driver':
@@ -186,20 +185,30 @@ class GlobalVarOffloadTransformation(Transformation):
         update_host = ()
 
         # build offload pragmas
-        if self._acc_copyin:
+        _acc_copyin = reduce(operator.or_, [s.trafo_data[self._key]['acc_copyin']
+                             for s in successors if isinstance(s, SubroutineItem)], set())
+        if _acc_copyin:
             update_device += as_tuple(Pragma(keyword='acc',
-                                             content='update device(' + ','.join(self._acc_copyin) + ')'),)
-        if self._enter_data_copyin:
+                                             content='update device(' + ','.join(_acc_copyin) + ')'),)
+        _enter_data_copyin = reduce(operator.or_, [s.trafo_data[self._key]['enter_data_copyin']
+                             for s in successors if isinstance(s, SubroutineItem)], set())
+        if _enter_data_copyin:
             update_device += as_tuple(Pragma(keyword='acc',
-                                             content='enter data copyin(' + ','.join(self._enter_data_copyin) + ')'),)
-        if self._enter_data_create:
+                                             content='enter data copyin(' + ','.join(_enter_data_copyin) + ')'),)
+        _enter_data_create = reduce(operator.or_, [s.trafo_data[self._key]['enter_data_create']
+                             for s in successors if isinstance(s, SubroutineItem)], set())
+        if _enter_data_create:
             update_device += as_tuple(Pragma(keyword='acc',
-                                             content='enter data create(' + ','.join(self._enter_data_create) + ')'),)
-        if self._exit_data:
+                                             content='enter data create(' + ','.join(_enter_data_create) + ')'),)
+        _exit_data = reduce(operator.or_, [s.trafo_data[self._key]['exit_data']
+                            for s in successors if isinstance(s, SubroutineItem)], set())
+        if _exit_data:
             update_host += as_tuple(Pragma(keyword='acc',
-                                           content='exit data copyout(' + ','.join(self._exit_data) + ')'),)
-        if self._acc_copyout:
-            update_host += as_tuple(Pragma(keyword='acc', content='update self(' + ','.join(self._acc_copyout) + ')'),)
+                                           content='exit data copyout(' + ','.join(_exit_data) + ')'),)
+        _acc_copyout = reduce(operator.or_, [s.trafo_data[self._key]['acc_copyout']
+                            for s in successors if isinstance(s, SubroutineItem)], set())
+        if _acc_copyout:
+            update_host += as_tuple(Pragma(keyword='acc', content='update self(' + ','.join(_acc_copyout) + ')'),)
 
         # replace Loki pragmas with acc data/update pragmas
         pragma_map = {}
@@ -282,15 +291,32 @@ class GlobalVarOffloadTransformation(Transformation):
                        if isinstance(s.type.dtype, DerivedType)
                        and s.name.lower() in item.trafo_data[self._key]['var_set']]
 
+        # accumulate contents of acc directives
+        item.trafo_data[self._key]['enter_data_copyin'] = reduce(operator.or_,
+                                                       [s.trafo_data[self._key]['enter_data_copyin']
+                                                       for s in successors if isinstance(s, SubroutineItem)], set())
+        item.trafo_data[self._key]['enter_data_create'] = reduce(operator.or_,
+                                                       [s.trafo_data[self._key]['enter_data_create']
+                                                       for s in successors if isinstance(s, SubroutineItem)], set())
+        item.trafo_data[self._key]['exit_data'] = reduce(operator.or_,
+                                                       [s.trafo_data[self._key]['exit_data']
+                                                       for s in successors if isinstance(s, SubroutineItem)], set())
+        item.trafo_data[self._key]['acc_copyin'] = reduce(operator.or_,
+                                                          [s.trafo_data[self._key]['acc_copyin']
+                                                          for s in successors if isinstance(s, SubroutineItem)], set())
+        item.trafo_data[self._key]['acc_copyout'] = reduce(operator.or_,
+                                                           [s.trafo_data[self._key]['acc_copyout']
+                                                           for s in successors if isinstance(s, SubroutineItem)], set())
+
         with dataflow_analysis_attached(routine):
 
             # collect symbols to add to acc update pragmas in driver layer
             for basic in basic_types:
                 if basic in routine.body.uses_symbols:
-                    self._acc_copyin.add(basic)
+                    item.trafo_data[self._key]['acc_copyin'].add(basic)
                     item.trafo_data[self._key]['modules'].update({basic: import_mod[basic]})
                 if basic in routine.body.defines_symbols:
-                    self._acc_copyout.add(basic)
+                    item.trafo_data[self._key]['acc_copyout'].add(basic)
                     item.trafo_data[self._key]['modules'].update({basic: import_mod[basic]})
 
             # collect symbols to add to acc enter/exit data pragmas in driver layer
@@ -309,12 +335,12 @@ class GlobalVarOffloadTransformation(Transformation):
                         symbol = f'{deriv.name.lower()}%{var.name.lower()}'
 
                         if symbol in routine.body.uses_symbols:
-                            self._enter_data_copyin.add(symbol)
+                            item.trafo_data[self._key]['enter_data_copyin'].add(symbol)
                             item.trafo_data[self._key]['modules'].update({deriv: import_mod[deriv.name.lower()]})
 
                         if symbol in routine.body.defines_symbols:
-                            self._exit_data.add(symbol)
+                            item.trafo_data[self._key]['exit_data'].add(symbol)
 
-                            if not symbol in self._enter_data_copyin and var.type.allocatable:
-                                self._enter_data_create.add(symbol)
+                            if not symbol in item.trafo_data[self._key]['enter_data_copyin'] and var.type.allocatable:
+                                item.trafo_data[self._key]['enter_data_create'].add(symbol)
                                 item.trafo_data[self._key]['modules'].update({deriv: import_mod[deriv.name.lower()]})
