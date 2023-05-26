@@ -1,5 +1,3 @@
-import re
-
 from loki.transform.transformation import Transformation
 from loki.bulk.item import GlobalVarImportItem
 from loki.analyse import dataflow_analysis_attached
@@ -8,9 +6,10 @@ from loki.visitors.find import FindNodes
 from loki.visitors.transform import Transformer
 from loki.expression.expr_visitors import FindInlineCalls
 from loki.expression.symbols import Variable, Array
-from loki.tools.util import as_tuple
+from loki.tools.util import as_tuple, flatten
 from loki.types import DerivedType, BasicType
 from loki.logging import warning
+from loki.pragma_utils import get_pragma_parameters
 
 __all__ = ['GlobalVarOffloadTransformation']
 
@@ -123,7 +122,7 @@ class GlobalVarOffloadTransformation(Transformation):
             return
 
         # confirm that var to be offloaded is declared in module
-        symbol = item.name.split('#')[-1].lower()
+        symbol = item.local_name
         assert symbol in [s.name.lower() for s in module.variables]
 
         # do nothing if var is a parameter
@@ -132,8 +131,9 @@ class GlobalVarOffloadTransformation(Transformation):
 
         # check if var is already declared
         pragmas = [p for p in FindNodes(Pragma).visit(module.spec) if p.keyword.lower() == 'acc']
-        for p in pragmas:
-            if re.search(fr'\b{symbol}\b', p.content.lower()):
+        acc_pragma_parameters = get_pragma_parameters(pragmas, starts_with='declare', only_loki_pragmas=False)
+        if acc_pragma_parameters:
+            if symbol in flatten([v.replace(' ','').lower().split(',') for v in acc_pragma_parameters['create']]):
                 return
 
         # Update the set of variables to be offloaded
@@ -213,9 +213,8 @@ class GlobalVarOffloadTransformation(Transformation):
         if new_imports:
             routine.spec.insert(import_pos, Comment(text=
                '![Loki::GlobalVarOffload].....Adding global variables to driver symbol table for offload instructions'))
-        import_pos += 1
-        for index, i in enumerate(new_imports):
-            routine.spec.insert(import_pos + index, i)
+            import_pos += 1
+            routine.spec.insert(import_pos, new_imports)
 
     def process_kernel(self, routine, **kwargs):
         """
@@ -240,36 +239,36 @@ class GlobalVarOffloadTransformation(Transformation):
         with dataflow_analysis_attached(routine):
 
             # collect symbols to add to acc update pragmas in driver layer
-            for item in basic_types:
-                if item in routine.body.uses_symbols:
-                    self._acc_copyin.add(item)
-                    self._modules.update({item: import_mod[item]})
-                if item in routine.body.defines_symbols:
-                    self._acc_copyout.add(item)
-                    self._modules.update({item: import_mod[item]})
+            for basic in basic_types:
+                if basic in routine.body.uses_symbols:
+                    self._acc_copyin.add(basic)
+                    self._modules.update({basic: import_mod[basic]})
+                if basic in routine.body.defines_symbols:
+                    self._acc_copyout.add(basic)
+                    self._modules.update({basic: import_mod[basic]})
 
             # collect symbols to add to acc enter/exit data pragmas in driver layer
-            for item in deriv_types:
-                item_vars = item.type.dtype.typedef.variables
-                if isinstance(item, Array):
+            for deriv in deriv_types:
+                deriv_vars = deriv.type.dtype.typedef.variables
+                if isinstance(deriv, Array):
                     # pylint: disable-next=line-too-long
-                    warning(f'[Loki::GlobalVarOffload] Arrays of derived-types must be offloaded manually - {item} in {routine}')
-                    self._var_set.remove(item.name.lower())
-                elif any(isinstance(v.type.dtype, DerivedType) for v in item_vars):
+                    warning(f'[Loki::GlobalVarOffload] Arrays of derived-types must be offloaded manually - {deriv} in {routine}')
+                    self._var_set.remove(deriv.name.lower())
+                elif any(isinstance(v.type.dtype, DerivedType) for v in deriv_vars):
                     # pylint: disable-next=line-too-long
-                    warning(f'[Loki::GlobalVarOffload] Nested derived-types must be offloaded manually - {item} in {routine}')
-                    self._var_set.remove(item.name.lower())
+                    warning(f'[Loki::GlobalVarOffload] Nested derived-types must be offloaded manually - {deriv} in {routine}')
+                    self._var_set.remove(deriv.name.lower())
                 else:
-                    for var in item_vars:
-                        symbol = f'{item.name.lower()}%{var.name.lower()}'
+                    for var in deriv_vars:
+                        symbol = f'{deriv.name.lower()}%{var.name.lower()}'
 
                         if symbol in routine.body.uses_symbols:
                             self._enter_data_copyin.add(symbol)
-                            self._modules.update({item: import_mod[item.name.lower()]})
+                            self._modules.update({deriv: import_mod[deriv.name.lower()]})
 
                         if symbol in routine.body.defines_symbols:
                             self._exit_data.add(symbol)
 
                             if not symbol in self._enter_data_copyin and var.type.allocatable:
                                 self._enter_data_create.add(symbol)
-                            self._modules.update({item: import_mod[item.name.lower()]})
+                            self._modules.update({deriv: import_mod[deriv.name.lower()]})
