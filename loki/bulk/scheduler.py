@@ -593,10 +593,10 @@ class Scheduler:
         """
         successors = []
         for child in self.item_graph.successors(item):
-            if isinstance(child, SubroutineItem):
-                successors += [child]
+            if isinstance(child, (SubroutineItem, GlobalVarImportItem)):
+                successors += [self.item_map[child.name]]
             else:
-                successors += [child] + self.item_successors(child)
+                successors += [self.item_map[child.name]] + self.item_successors(child)
         return successors
 
     def process(self, transformation, reverse=False, item_filter=SubroutineItem, use_file_graph=False):
@@ -635,11 +635,14 @@ class Scheduler:
                     if item_filter and not isinstance(item, item_filter):
                         continue
 
+                    # Use entry from item_map to ensure the original item is used in transformation
+                    _item = self.item_map[item.name]
+
                     # Process work item with appropriate kernel
                     transformation.apply(
-                        item.source, role=item.role, mode=item.mode,
-                        item=item, targets=item.targets, successors=self.item_successors(item),
-                        depths=self.depths
+                        _item.source, role=_item.role, mode=_item.mode,
+                        item=_item, targets=_item.targets,
+                        successors=self.item_successors(_item), depths=self.depths
                     )
 
     def callgraph(self, path, with_file_graph=False):

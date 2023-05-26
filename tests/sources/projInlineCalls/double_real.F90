@@ -1,4 +1,5 @@
 real function double_real(i)
+  use vars_module, only: varA, varB
   implicit none
   integer, intent(in) :: i
 

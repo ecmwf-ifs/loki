@@ -1,5 +1,6 @@
 subroutine driver(n, work)
   use some_module, only: return_one, some_var, add_args, some_type
+  use vars_module, only: varA, varB
   implicit none
 
   interface
