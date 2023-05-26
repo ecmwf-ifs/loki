@@ -1,3 +1,6 @@
+from functools import reduce
+import operator
+
 from loki.transform.transformation import Transformation
 from loki.bulk.item import GlobalVarImportItem
 from loki.analyse import dataflow_analysis_attached
@@ -99,16 +102,25 @@ class GlobalVarOffloadTransformation(Transformation):
     NB: This transformation should only be used as part of a :any:`Scheduler` traversal, and
     **must** be run in reverse, e.g.:
     scheduler.process(transformation=GlobalVarOffloadTransformation(), reverse=True)
+
+    Parameters
+    ----------
+    key : str, optional
+        Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
 
-    def __init__(self):
+    _key = 'GlobalVarOffloadTransformation'
+
+    def __init__(self, key=None):
         self._enter_data_copyin = set()
         self._enter_data_create = set()
         self._exit_data = set()
         self._acc_copyin = set()
         self._acc_copyout = set()
-        self._var_set = set()
         self._modules = {}
+
+        if key:
+            self._key = key
 
     def transform_module(self, module, **kwargs):
         """
@@ -125,6 +137,9 @@ class GlobalVarOffloadTransformation(Transformation):
         symbol = item.local_name
         assert symbol in [s.name.lower() for s in module.variables]
 
+        if not item.trafo_data.get(self._key, None):
+            item.trafo_data[self._key] = {'var_set': set()}
+
         # do nothing if var is a parameter
         if module.symbol_map[symbol].type.parameter:
             return
@@ -137,19 +152,32 @@ class GlobalVarOffloadTransformation(Transformation):
                 return
 
         # Update the set of variables to be offloaded
-        self._var_set.add(symbol)
+        item.trafo_data[self._key]['var_set'].add(symbol)
 
         # Write ACC declare pragma
         module.spec.append(Pragma(keyword='acc', content=f'declare create({symbol})'))
 
     def transform_subroutine(self, routine, **kwargs):
-        role = kwargs.get('role')
-        if role == 'driver':
-            self.process_driver(routine)
-        elif role == 'kernel':
-            self.process_kernel(routine, **kwargs)
 
-    def process_driver(self, routine):
+        role = kwargs.get('role')
+        item = kwargs['item']
+
+        # Bail if this routine is not part of a scheduler traversal
+        if item and not item.local_name == routine.name.lower():
+            return
+
+        # Initialize sets to store analysis
+        if not item.trafo_data.get(self._key, None):
+            item.trafo_data[self._key] = {}
+
+        successors = kwargs.get('successors', ())
+
+        if role == 'driver':
+            self.process_driver(routine, successors)
+        if role == 'kernel':
+            self.process_kernel(routine, successors, item, kwargs['targets'])
+
+    def process_driver(self, routine, successors):
         """
         Add offload and/or copy-back directives for the imported variables.
         """
@@ -191,9 +219,13 @@ class GlobalVarOffloadTransformation(Transformation):
 
         routine.body = Transformer(pragma_map).visit(routine.body)
 
+        # build set of symbols to be offloaded
+        _var_set = reduce(operator.or_, [s.trafo_data[self._key]['var_set']
+                          for s in successors], set())
+
         # build new imports to add offloaded global vars to driver symbol table
         new_import_map = {}
-        for s in self._var_set:
+        for s in _var_set:
             if s in routine.symbol_map:
                 continue
 
@@ -216,7 +248,7 @@ class GlobalVarOffloadTransformation(Transformation):
             import_pos += 1
             routine.spec.insert(import_pos, new_imports)
 
-    def process_kernel(self, routine, **kwargs):
+    def process_kernel(self, routine, successors, item, targets):
         """
         Collect the set of module variables to be offloaded.
         """
@@ -230,11 +262,17 @@ class GlobalVarOffloadTransformation(Transformation):
         # build map of modules corresponding to imports
         import_mod = {s.name.lower(): i.module for i in imports for s in i.symbols}
 
+        #build set of offloaded symbols
+        item.trafo_data[self._key]['var_set'] = reduce(operator.or_,
+                                                       [s.trafo_data[self._key]['var_set'] for s in successors], set())
+
         # separate out derived and basic types
-        basic_types = [s.name.lower() for i in imports for s in i.symbols if s in kwargs['targets']
-                       if isinstance(s.type.dtype, BasicType) and s.name.lower() in self._var_set]
-        deriv_types = [s for i in imports for s in i.symbols if s in kwargs['targets']
-                       if isinstance(s.type.dtype, DerivedType) and s.name.lower() in self._var_set]
+        basic_types = [s.name.lower() for i in imports for s in i.symbols if s in targets
+                       if isinstance(s.type.dtype, BasicType)
+                       and s.name.lower() in item.trafo_data[self._key]['var_set']]
+        deriv_types = [s for i in imports for s in i.symbols if s in targets
+                       if isinstance(s.type.dtype, DerivedType)
+                       and s.name.lower() in item.trafo_data[self._key]['var_set']]
 
         with dataflow_analysis_attached(routine):
 
@@ -253,11 +291,11 @@ class GlobalVarOffloadTransformation(Transformation):
                 if isinstance(deriv, Array):
                     # pylint: disable-next=line-too-long
                     warning(f'[Loki::GlobalVarOffload] Arrays of derived-types must be offloaded manually - {deriv} in {routine}')
-                    self._var_set.remove(deriv.name.lower())
+                    item.trafo_data[self._key]['var_set'].remove(deriv.name.lower())
                 elif any(isinstance(v.type.dtype, DerivedType) for v in deriv_vars):
                     # pylint: disable-next=line-too-long
                     warning(f'[Loki::GlobalVarOffload] Nested derived-types must be offloaded manually - {deriv} in {routine}')
-                    self._var_set.remove(deriv.name.lower())
+                    item.trafo_data[self._key]['var_set'].remove(deriv.name.lower())
                 else:
                     for var in deriv_vars:
                         symbol = f'{deriv.name.lower()}%{var.name.lower()}'
