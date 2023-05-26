@@ -9,7 +9,7 @@ import pytest
 
 from conftest import available_frontends
 from loki.frontend import OMNI
-from loki.ir import Assignment, Associate, CallStatement
+from loki.ir import Assignment, Associate, CallStatement, Conditional
 
 from loki.transform import resolve_associates
 from loki import (
@@ -139,3 +139,60 @@ end subroutine transform_associates_simple
     assert call.kwarguments[0][1] == 'some_obj%some_array(i)%n'
     assert call.kwarguments[0][1].scope == routine
     assert call.kwarguments[0][1].type.dtype == BasicType.DEFERRED
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_associates_nested_conditional(frontend):
+    """
+    Test association resolver when associate is nested into a conditional.
+    """
+    fcode = """
+subroutine transform_associates_nested_conditional
+    use some_module, only: some_obj, some_flag
+    implicit none
+
+    real :: local_var
+
+    if (some_flag) then
+        local_var = 0.
+    else
+        ! Other nodes before the associate
+        ! This one, too
+
+        ! And this one
+        associate (a => some_obj%a)
+            local_var = a
+            ! And a conditional which may inject a tuple nesting in the IR
+            if (local_var > 10.) then
+                local_var = 10.
+            end if
+        end associate
+        ! And nodes after it
+
+        ! like this
+    end if
+end subroutine transform_associates_nested_conditional
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(Conditional).visit(routine.body)) == 2
+    assert len(FindNodes(Associate).visit(routine.body)) == 1
+    assert len(FindNodes(Assignment).visit(routine.body)) == 3
+    assign = FindNodes(Assignment).visit(routine.body)[1]
+    assert assign.rhs == 'a' and 'some_obj' not in assign.rhs
+    assert assign.rhs.type.dtype == BasicType.DEFERRED
+
+    # Now apply the association resolver
+    resolve_associates(routine)
+
+    assert len(FindNodes(Conditional).visit(routine.body)) == 2
+    assert len(FindNodes(Associate).visit(routine.body)) == 0
+    assert len(FindNodes(Assignment).visit(routine.body)) == 3
+    assign = FindNodes(Assignment).visit(routine.body)[1]
+    assert assign.rhs == 'some_obj%a'
+    assert assign.rhs.parent == 'some_obj'
+    assert assign.rhs.type.dtype == BasicType.DEFERRED
+    assert assign.rhs.scope == routine
+    assert assign.rhs.parent.scope == routine
