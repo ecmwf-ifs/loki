@@ -2,7 +2,7 @@ from functools import reduce
 import operator
 
 from loki.transform.transformation import Transformation
-from loki.bulk.item import GlobalVarImportItem
+from loki.bulk.item import GlobalVarImportItem, SubroutineItem
 from loki.analyse import dataflow_analysis_attached
 from loki.ir import Pragma, CallStatement, Import, Comment
 from loki.visitors.find import FindNodes
@@ -117,7 +117,6 @@ class GlobalVarOffloadTransformation(Transformation):
         self._exit_data = set()
         self._acc_copyin = set()
         self._acc_copyout = set()
-        self._modules = {}
 
         if key:
             self._key = key
@@ -170,8 +169,9 @@ class GlobalVarOffloadTransformation(Transformation):
         if not item.trafo_data.get(self._key, None):
             item.trafo_data[self._key] = {}
 
-        successors = kwargs.get('successors', ())
+        item.trafo_data[self._key]['modules'] = {}
 
+        successors = kwargs.get('successors', ())
         if role == 'driver':
             self.process_driver(routine, successors)
         if role == 'kernel':
@@ -222,6 +222,9 @@ class GlobalVarOffloadTransformation(Transformation):
         # build set of symbols to be offloaded
         _var_set = reduce(operator.or_, [s.trafo_data[self._key]['var_set']
                           for s in successors], set())
+        #build map of module imports corresponding to offloaded symbols
+        _modules = reduce(operator.or_,
+                          [s.trafo_data[self._key]['modules'] for s in successors if isinstance(s, SubroutineItem)], {})
 
         # build new imports to add offloaded global vars to driver symbol table
         new_import_map = {}
@@ -229,10 +232,10 @@ class GlobalVarOffloadTransformation(Transformation):
             if s in routine.symbol_map:
                 continue
 
-            if new_import_map.get(self._modules[s], None):
-                new_import_map[self._modules[s]] += as_tuple(s)
+            if new_import_map.get(_modules[s], None):
+                new_import_map[_modules[s]] += as_tuple(s)
             else:
-                new_import_map.update({self._modules[s]: as_tuple(s)})
+                new_import_map.update({_modules[s]: as_tuple(s)})
 
         new_imports = ()
         for k, v in new_import_map.items():
@@ -266,6 +269,11 @@ class GlobalVarOffloadTransformation(Transformation):
         item.trafo_data[self._key]['var_set'] = reduce(operator.or_,
                                                        [s.trafo_data[self._key]['var_set'] for s in successors], set())
 
+        #build map of module imports corresponding to offloaded symbols
+        item.trafo_data[self._key]['modules'] = reduce(operator.or_,
+                                                       [s.trafo_data[self._key]['modules']
+                                                       for s in successors if isinstance(s, SubroutineItem)], {})
+
         # separate out derived and basic types
         basic_types = [s.name.lower() for i in imports for s in i.symbols if s in targets
                        if isinstance(s.type.dtype, BasicType)
@@ -280,10 +288,10 @@ class GlobalVarOffloadTransformation(Transformation):
             for basic in basic_types:
                 if basic in routine.body.uses_symbols:
                     self._acc_copyin.add(basic)
-                    self._modules.update({basic: import_mod[basic]})
+                    item.trafo_data[self._key]['modules'].update({basic: import_mod[basic]})
                 if basic in routine.body.defines_symbols:
                     self._acc_copyout.add(basic)
-                    self._modules.update({basic: import_mod[basic]})
+                    item.trafo_data[self._key]['modules'].update({basic: import_mod[basic]})
 
             # collect symbols to add to acc enter/exit data pragmas in driver layer
             for deriv in deriv_types:
@@ -302,11 +310,11 @@ class GlobalVarOffloadTransformation(Transformation):
 
                         if symbol in routine.body.uses_symbols:
                             self._enter_data_copyin.add(symbol)
-                            self._modules.update({deriv: import_mod[deriv.name.lower()]})
+                            item.trafo_data[self._key]['modules'].update({deriv: import_mod[deriv.name.lower()]})
 
                         if symbol in routine.body.defines_symbols:
                             self._exit_data.add(symbol)
 
                             if not symbol in self._enter_data_copyin and var.type.allocatable:
                                 self._enter_data_create.add(symbol)
-                            self._modules.update({deriv: import_mod[deriv.name.lower()]})
+                                item.trafo_data[self._key]['modules'].update({deriv: import_mod[deriv.name.lower()]})
