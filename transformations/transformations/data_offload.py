@@ -399,8 +399,10 @@ class GlobalVarOffloadTransformation(Transformation):
         _var_set = reduce(operator.or_, [s.trafo_data[self._key]['var_set']
                           for s in successors], set())
         #build map of module imports corresponding to offloaded symbols
-        _modules = reduce(operator.or_,
-                          [s.trafo_data[self._key]['modules'] for s in successors if isinstance(s, SubroutineItem)], {})
+        _modules = {}
+        _modules.update({k: v
+                         for s in successors if isinstance(s, SubroutineItem)
+                         for k, v in s.trafo_data[self._key]['modules'].items()})
 
         # build new imports to add offloaded global vars to driver symbol table
         new_import_map = {}
@@ -446,9 +448,9 @@ class GlobalVarOffloadTransformation(Transformation):
                                                        [s.trafo_data[self._key]['var_set'] for s in successors], set())
 
         #build map of module imports corresponding to offloaded symbols
-        item.trafo_data[self._key]['modules'] = reduce(operator.or_,
-                                                       [s.trafo_data[self._key]['modules']
-                                                       for s in successors if isinstance(s, SubroutineItem)], {})
+        item.trafo_data[self._key]['modules'].update({k: v
+                                                     for s in successors if isinstance(s, SubroutineItem)
+                                                     for k, v in s.trafo_data[self._key]['modules'].items()})
 
         # separate out derived and basic types
         basic_types = [s.name.lower() for i in imports for s in i.symbols if s in targets
