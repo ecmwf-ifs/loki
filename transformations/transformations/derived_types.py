@@ -24,7 +24,7 @@ from loki import (
     Transformation, FindVariables, FindNodes, FindInlineCalls, Transformer,
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionRetriever, recursive_expression_map_update,
     Module, Import, CallStatement, ProcedureDeclaration, InlineCall, Variable, RangeIndex,
-    BasicType, DerivedType, as_tuple, warning, debug, CaseInsensitiveDict
+    BasicType, DerivedType, as_tuple, warning, debug, CaseInsensitiveDict, ProcedureType
 )
 from transformations.scc_cuf import is_elemental
 
@@ -754,8 +754,12 @@ class TypeboundProcedureCallTransformation(Transformation):
 
     Parameters
     ----------
+    duplicate_typebound_kernels : bool
+        Optionally, create a copy of unchanged routines before flattening calls to
+        typebound procedures, and update the procedure binding to point to the
+        unchanged copy.
     fix_intent : bool
-        Supply ``INOUT`` as intent on polymorphic dummy arguments missing an intent
+        Update intent on polymorphic dummy arguments missing an intent as ``INOUT``.
 
     Attributes
     ----------
@@ -764,8 +768,9 @@ class TypeboundProcedureCallTransformation(Transformation):
         be registered in the :any:`Scheduler` via :any:`Scheduler.add_dependencies`.
     """
 
-    def __init__(self, fix_intent=True, **kwargs):
+    def __init__(self, duplicate_typebound_kernels=False, fix_intent=True, **kwargs):
         super().__init__(**kwargs)
+        self.duplicate_typebound_kernels = duplicate_typebound_kernels
         self.fix_intent = fix_intent
         self.inline_call_dependencies = defaultdict(set)
 
@@ -796,6 +801,7 @@ class TypeboundProcedureCallTransformation(Transformation):
         Apply the transformation of calls to the given :data:`routine`
         """
         item = kwargs.get('item')
+        role = kwargs.get('role')
 
         # Fix any wrong intents on polymorphic arguments
         # (sadly, it's not uncommon to omit the intent specification on the CLASS declaration,
@@ -808,6 +814,36 @@ class TypeboundProcedureCallTransformation(Transformation):
         else:
             current_module = None
 
+        # Check if this routine is a typebound routine and, if it is, create a duplicate of
+        # the original routine before applying the transformation
+        is_duplicate_kernels = (
+            self.duplicate_typebound_kernels and role == 'kernel' and isinstance(routine.parent, Module)
+        )
+        if is_duplicate_kernels:
+            typedefs = routine.parent.typedefs
+            proc_binding_update_maps = {}
+            for tdef in typedefs:
+                proc_binding_update_maps[tdef.name] = {}
+                for var in tdef.variables:
+                    if not isinstance(var.type.dtype, ProcedureType):
+                        continue
+                    if (
+                        (var.type.bind_names and routine.name in var.type.bind_names) or
+                        (not var.type.bind_names and var == routine.name)
+                    ):
+                        # Create a duplicate routine
+                        new_routine = routine.clone(
+                            name=f'{routine.name}_', rescope_symbols=True,
+                            result_name=routine.name if routine.is_function and not routine.result_name else None
+                        )
+                        # Update result name if this is a function
+                        routine.parent.contains.append(new_routine)
+                        # Update the procedure binding
+                        new_type = var.type.clone(bind_names=(new_routine.procedure_symbol,))
+                        proc_binding_update_maps[tdef.name][var.name] = new_type
+
+        # Traverse the routine's body and replace all calls to typebound procedures by
+        # direct calls to the procedures they refer to
         transformer = TypeboundProcedureCallTransformer(routine.name, current_module)
         routine.body = transformer.visit(routine.body, scope=routine)
         new_procedure_imports = transformer.new_procedure_imports
@@ -828,3 +864,9 @@ class TypeboundProcedureCallTransformation(Transformation):
             routine.spec.prepend(as_tuple(new_imports))
             if item:
                 item.clear_cached_property('imports')
+
+        # Update the procedure bindings in the typedefs
+        if is_duplicate_kernels:
+            for tdef in typedefs:
+                for var_name, new_type in proc_binding_update_maps[tdef.name].items():
+                    tdef.symbol_attrs[var_name] = new_type

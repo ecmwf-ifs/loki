@@ -1160,8 +1160,9 @@ end module some_mod
     assert source['kernel'].arguments == ('s', 'a_a(:)', 'n_s_i')
 
 
+@pytest.mark.parametrize('duplicate', [False,True])
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_typebound_procedure_calls(frontend, config):
+def test_transform_typebound_procedure_calls(frontend, config, duplicate):
     fcode1 = """
 module typebound_procedure_calls_mod
     implicit none
@@ -1301,7 +1302,7 @@ end subroutine driver
         definitions=function_mod.definitions, frontend=frontend
     )
 
-    transformation = TypeboundProcedureCallTransformation()
+    transformation = TypeboundProcedureCallTransformation(duplicate_typebound_kernels=duplicate)
     scheduler.process(transformation=transformation)
 
     # Verify that new dependencies have been identified correctly...
@@ -1361,5 +1362,34 @@ end subroutine driver
     calls = list(FindInlineCalls().visit(print_content.body))
     assert len(calls) == 1
     assert str(calls[0]).lower() == 'total_sum(this%stuff(1))'
+
+    if duplicate:
+        mod = scheduler['typebound_procedure_calls_mod#add_other_type'].routine.parent
+
+        assert [r.name.lower() for r in mod.subroutines] == [
+            'reset', 'add_my_type', 'add_other_type', 'total_sum',
+            'add_other_type_', 'reset_', 'add_my_type_',
+        ]
+
+        my_type = mod['my_type']
+        assert my_type.variable_map['reset'].type.bind_names == ('reset_',)
+        assert my_type.variable_map['add'].type.bind_names == ('add_my_type_',)
+        other_type = mod['other_type']
+        assert other_type.variable_map['add'].type.bind_names == ('add_other_type_',)
+        # NB: total_sum is not duplicated because it is not part of the Scheduler graph
+
+        other_mod = scheduler['other_typebound_procedure_calls_mod#init'].routine.parent
+
+        assert [r.name.lower() for r in other_mod.subroutines] == [
+            'init', 'print_content', 'init_', 'print_content_'
+        ]
+
+        third_type = other_mod['third_type']
+        assert third_type.variable_map['init'].type.bind_names == ('init_',)
+        assert third_type.variable_map['print'].type.bind_names == ('print_content_',)
+
+        assert [
+            str(call.name) for call in FindNodes(CallStatement).visit(other_mod['init_'].ir)
+        ] == ['this%stuff(i)%arr(j)%reset', 'this%stuff(i)%arr(j)%add']
 
     rmtree(workdir)
