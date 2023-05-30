@@ -5,13 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import pdb
 from loki import (
     as_tuple, flatten, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
-    SymbolAttributes, BasicType, DerivedType,
+    SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, IntrinsicLiteral, LogicLiteral,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
-    Loop, Pragma, SubroutineItem, FindInlineCalls, Interface
+    Loop, Pragma, SubroutineItem, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -99,6 +100,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     check_bounds : bool, optional
         Insert bounds-checks in the kernel to make sure the allocated stack size is not
         exceeded (default: `True`)
+    alignment_boundary : str, optional
+        n-byte boundary to which stack allocations should be aligned
     key : str, optional
         Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
@@ -109,7 +112,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                  stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
                  stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}',
-                 directive=None, check_bounds=True, key=None, **kwargs):
+                 directive=None, check_bounds=True, key=None, alignment_boundary='32', **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
         self.allocation_dims = allocation_dims
@@ -124,6 +127,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.local_ptr_var_name_pattern = local_ptr_var_name_pattern
         self.directive = directive
         self.check_bounds = check_bounds
+        self.alignment_boundary = alignment_boundary
 
         if key:
             self._key = key
@@ -141,6 +145,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if (real_kind := item.config.get('real_kind', None)):
                 self.stack_type_kind = real_kind
 
+        # add iso_c_binding import if necessary
+        self.import_iso_c_binding(routine)
+
         successors = kwargs.get('successors', ())
 
         self.inject_pool_allocator_import(routine)
@@ -156,6 +163,24 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             self.create_pool_allocator(routine, stack_size)
 
         self.inject_pool_allocator_into_calls(routine, targets)
+
+    def import_iso_c_binding(self, routine):
+        """
+        Add the iso_c_binding import if necesssary.
+        """
+
+        imports = FindNodes(Import).visit(routine.spec)
+        for imp in imports:
+            if imp.module.lower() == 'iso_c_binding':
+                if 'c_sizeof' in [s for s in imp.symbols] or not imp.symbols:
+                    return
+
+                # Update iso_c_binding import
+                imp._update(symbols=as_tuple(imp.symbols + ProcedureSymbol('C_SIZEOF', scope=routine)))
+
+        # add qualified iso_c_binding import
+        imp = Import(module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)))
+        routine.spec.prepend(imp)
 
     def inject_pool_allocator_import(self, routine):
         """
@@ -361,7 +386,31 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
         return stack_size
 
-    def _create_stack_allocation(self, stack_ptr, stack_end, ptr_var, arr):
+    def _get_c_sizeof_arg(self, arr):
+        """
+        Return an inline declaration of an intrinsic type, to be used as an argument to
+        `C_SIZEOF`.
+        """
+
+        kind = getattr(arr.type, 'kind', None)
+        if arr.type.dtype == BasicType.REAL:
+            param = InlineCall(Variable(name='REAL'), parameters=as_tuple(Literal(1)))
+        elif arr.type.dtype == BasicType.INTEGER:
+            param = InlineCall(Variable(name='INT'), parameters=as_tuple(Literal(1)))
+        elif arr.type.dtype == BasicType.LOGICAL:
+            param = InlineCall(Variable(name='LOGICAL'), parameters=as_tuple(LogicLiteral('.TRUE.')))
+        elif arr.type.dtype == BasicType.COMPLEX:
+            param = InlineCall(Variable(name='CMPLX'), parameters=as_tuple(Literal(1), Literal(1)))
+        elif arr.type.dtype == BasicType.CHARACTER:
+            warning(f'[Loki::PoolAllocator] {arr} - CHARACTER type var not supported in pool allocator')
+            return Literal('')
+
+        if kind:
+            param.parameters = param.parameters + as_tuple(IntrinsicLiteral(f'kind={kind}'))
+
+        return param
+
+    def _create_stack_allocation(self, stack_ptr, stack_end, ptr_var, arr, stack_size):
         """
         Utility routine to "allocate" a temporary array on the pool allocator's "stack"
 
@@ -377,6 +426,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             The pointer variable to use for the temporary array
         arr : :any:`Variable`
             The temporary array to allocate on the pool allocator's "stack"
+        stack_size : :any:`Variable`
+            The size in bytes of the pool allocator's "stack"
 
         Returns
         -------
@@ -386,16 +437,49 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             :any:`Conditional` that verifies that the stack is big enough
         """
         ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
-        kind_bytes = Literal(8)  # TODO: Use c_sizeof
-        arr_size = InlineCall(Variable(name='SIZE'), parameters=(arr.clone(dimensions=None),))
-        ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, Product((kind_bytes, arr_size)))))
+
+        if isinstance(arr.type.dtype, DerivedType):
+            warning(f'[Loki::PoolAllocator] {arr} - Derived type var not supported in pool allocator')
+            return ([], stack_size)
+
+        # Determine c_sizeof argument
+        _sizeof_arg = self._get_c_sizeof_arg(arr)
+
+        # Pad individual array assignments
+        dim = arr.dimensions[0]
+        for d in arr.dimensions[1:]:
+            dim = Product((dim, d))
+        _sizeof = Product((dim, InlineCall(Variable(name='C_SIZEOF'), parameters=as_tuple(_sizeof_arg))))
+
+        _padding = InlineCall(Variable(name='MOD'), parameters=(_sizeof, IntLiteral(f'{self.alignment_boundary}')))
+        _padding = Product((Literal(-1), _padding))
+        _padding = simplify(Sum((IntLiteral(f'{self.alignment_boundary}'), _padding)))
+
+        _padding_switch = Quotient(InlineCall(Variable(name='MOD'),
+                                   parameters=(_sizeof, IntLiteral(f'{self.alignment_boundary}'))),
+                                   IntLiteral(f'{self.alignment_boundary}'))
+        _padding_switch = Product((Literal(-1), _padding_switch))
+        _padding_switch = simplify(Sum((Literal(1), _padding_switch)))
+
+        arr_size = Sum((_sizeof, Product((_padding, _padding_switch))))
+
+        # Increment stack size
+        stack_size = simplify(Sum((stack_size, arr_size)))
+
+        ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, arr_size)))
         if self.check_bounds:
-            stack_size_check = Conditional(
+            stack_size_check = as_tuple(Conditional(
                 condition=Comparison(stack_ptr, '>', stack_end), inline=True,
                 body=(Intrinsic('STOP'),), else_body=None
-            )
-            return [ptr_assignment, ptr_increment, stack_size_check]
-        return [ptr_assignment, ptr_increment]
+            ))
+            stack_size_check += as_tuple(Conditional(
+                condition=LogicalNot(Comparison(InlineCall(Variable(name='MOD'),
+                                    parameters=(stack_ptr, IntLiteral(f'{self.alignment_boundary}'))),
+                                    '==', Literal(0))), inline=True,
+                body=(Intrinsic('STOP'),), else_body=None
+            ))
+            return ([ptr_assignment, ptr_increment, stack_size_check], stack_size)
+        return ([ptr_assignment, ptr_increment], stack_size)
 
     def apply_pool_allocator_to_temporaries(self, routine):
         """
@@ -423,18 +507,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 if any(dim in size_exprs for dim in var.shape)
             ]
 
-        # Determine size of temporary arrays
-        stack_size = Literal(0)
-        for array in temporary_arrays:
-            dim = array.dimensions[0]
-            for d in array.dimensions[1:]:
-                dim = Product((dim, d))
-            stack_size = Sum((stack_size, dim))
-
         # Create stack argument and local stack var
         stack_var = self._get_local_stack_var(routine)
         stack_arg = self._get_stack_arg(routine)
         allocations = [Assignment(lhs=stack_var, rhs=stack_arg)]
+
+        # Determine size of temporary arrays
+        stack_size = Literal(0)
 
         # Create Cray pointer declarations and "stack allocations"
         declarations = []
@@ -443,7 +522,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         for arr in temporary_arrays:
             ptr_var = Variable(name=self.local_ptr_var_name_pattern.format(name=arr.name), scope=routine)
             declarations += [Intrinsic(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
-            allocations += self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr)
+            allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr, stack_size)
+            allocations += allocation
 
         routine.spec.append(declarations)
         routine.body.prepend(allocations)
