@@ -24,7 +24,7 @@ from loki import (
 # Get generalized transformations provided by Loki
 from loki.transform import (
     DependencyTransformation, FortranCTransformation, FileWriteTransformation,
-    ParametriseTransformation, HoistTemporaryArraysAnalysis
+    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing
 )
 
 # pylint: disable=wrong-import-order
@@ -231,6 +231,17 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
     if mode in ['idem-stack', 'scc-stack']:
+        if frontend == Frontend.OMNI:
+            # To make the pool allocator size derivation work correctly, we need
+            # to normalize the 1:end-style index ranges that OMNI introduces
+            class NormalizeRangeIndexingTransformation(Transformation):
+                def transform_subroutine(self, routine, **kwargs):
+                    if 'item' in kwargs and kwargs['item'].local_name != routine.name:
+                        return
+                    normalize_range_indexing(routine)
+
+            scheduler.process(transformation=NormalizeRangeIndexingTransformation())
+
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
