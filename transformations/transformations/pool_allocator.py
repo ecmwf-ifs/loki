@@ -10,7 +10,7 @@ from loki import (
     as_tuple, flatten, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, IntrinsicLiteral, LogicLiteral,
-    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
+    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Scalar,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
     Loop, Pragma, SubroutineItem, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot
 )
@@ -68,10 +68,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     block_dim : :any:`Dimension`
         :any:`Dimension` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
-    allocation_dims : list of :any:`Dimension`, optional
-        List of :any:`Dimension` objects to define those dimensions for which
-        temporaries should be allocated by the pool allocator. By default, all
-        local arrays are allocated by the pool allocator.
     stack_module_name : str, optional
         Name of the Fortran module containing the derived type definition
         (default: ``'STACK_MOD'``)
@@ -108,14 +104,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
     _key = 'TemporariesPoolAllocatorTransformation'
 
-    def __init__(self, block_dim, allocation_dims=None,
+    def __init__(self, block_dim,
                  stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
                  stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}',
                  directive=None, check_bounds=True, key=None, alignment_boundary='32', **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
-        self.allocation_dims = allocation_dims
         self.stack_module_name = stack_module_name
         self.stack_type_name = stack_type_name
         self.stack_ptr_name = stack_ptr_name
@@ -507,6 +502,22 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         The cumulative size of all temporary arrays is determined and returned.
         """
+
+        def _is_constant(d):
+            """Establish if a given dimensions symbol is a compile-time constant"""
+            if isinstance(d, IntLiteral):
+                return True
+
+            if isinstance(d, RangeIndex):
+                if d.lower:
+                    return _is_constant(d.lower) and _is_constant(d.upper)
+                return _is_constant(d.upper)
+
+            if isinstance(d, Scalar) and isinstance(d.initial , IntLiteral):
+                return True
+
+            return False
+
         # Find all temporary arrays
         arguments = routine.arguments
         temporary_arrays = [
@@ -514,13 +525,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if isinstance(var, Array) and var not in arguments
         ]
 
-        if self.allocation_dims:
-            # Filter out only those that have one of the allocation dimensions in their shape
-            size_exprs = flatten(dim.size_expressions for dim in self.allocation_dims)
-            temporary_arrays = [
-                var for var in temporary_arrays
-                if any(dim in size_exprs for dim in var.shape)
-            ]
+        # Filter out variables whose size is known at compile-time
+        temporary_arrays = [
+            var for var in temporary_arrays
+            if not all(_is_constant(d) for d in var.shape)
+        ]
 
         # Create stack argument and local stack var
         stack_var = self._get_local_stack_var(routine)

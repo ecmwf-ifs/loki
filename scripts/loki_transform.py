@@ -260,8 +260,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
         block_dim = scheduler.config.dimensions['block_dim']
         directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
         transformation = TemporariesPoolAllocatorTransformation(
-            block_dim=block_dim, allocation_dims=[horizontal, vertical],
-            directive=directive, check_bounds='scc' not in mode
+            block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
         )
         scheduler.process(transformation=transformation, reverse=True)
     if mode == 'cuf-parametrise':
