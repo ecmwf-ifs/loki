@@ -24,7 +24,7 @@ from loki import (
 # Get generalized transformations provided by Loki
 from loki.transform import (
     DependencyTransformation, FortranCTransformation, FileWriteTransformation,
-    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing
+    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing, resolve_associates
 )
 
 # pylint: disable=wrong-import-order
@@ -32,7 +32,7 @@ from transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
 from transformations.data_offload import DataOffloadTransformation
-from transformations.derived_types import DerivedTypeArgumentsTransformation
+from transformations.derived_types import DerivedTypeArgumentsTransformation, TypeboundProcedureCallTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
@@ -158,7 +158,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     else:
         config = SchedulerConfig.from_file(config)
 
-    directive = None if directive is 'none' else directive.lower()
+    directive = None if directive == 'none' else directive.lower()
 
     build_args = {
         'preprocess': cpp,
@@ -430,7 +430,7 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
     info('[Loki] Bulk-processing physics using config: %s ', config)
     config = SchedulerConfig.from_file(config)
 
-    directive = None if directive is 'none' else directive.lower()
+    directive = None if directive == 'none' else directive.lower()
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
@@ -487,6 +487,116 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode))
+
+
+@cli.command('ecrad')
+@click.option('--mode', '-m', default='sca',
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
+@click.option('--config', '-c', type=click.Path(),
+              help='Path to configuration file.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path of additional header file(s).')
+@click.option('--source', '-s', type=click.Path(), multiple=True,
+              help='Path to source files to transform.')
+@click.option('--build', '-b', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+@click.option('--directive', default='openacc', type=click.Choice(['openacc', 'openmp', 'none']),
+              help='Programming model directives to insert (default openacc)')
+@click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
+@click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
+              help='Frontend parser to use (default FP)')
+def ecrad(mode, config, header, source, build, cpp, directive, frontend):
+    """
+    ecRad bulk-processing option that employs a :class:`Scheduler`
+    to apply IFS-specific source-to-source transformations, such as
+    the SCC ("Single Column Coalesced") transformations, to large sets
+    of interdependent subroutines.
+    """
+
+    class SanitizerTransformation(Transformation):
+
+        def transform_subroutine(self, routine, **kwargs):
+            item = kwargs.get('item')
+
+            # Bail if this routine is not part of a scheduler traversal
+            if item and item.local_name != routine.name.lower():
+                return
+
+            resolve_associates(routine)
+
+    info('[Loki] Bulk-processing ecRad using config: %s ', config)
+    config = SchedulerConfig.from_file(config)
+
+    directive = None if directive == 'none' else directive.lower()
+    frontend = Frontend[frontend.upper()]
+
+    # Create and setup the scheduler for bulk-processing
+    paths = [Path(s).resolve() for s in source]
+    paths += [Path(h).resolve().parent for h in header]
+    scheduler = Scheduler(paths=paths, config=config, headers=header, frontend=frontend, preprocess=cpp)
+
+    num_files = len({item.source.path for item in scheduler.items})
+    num_routines = len({item for item in scheduler.items if isinstance(item, SubroutineItem)})
+    info('[Loki] Processing %d routines across %d files', num_routines, num_files)
+
+    # First, sanitize the source code (resolve associates)
+    scheduler.process(transformation=SanitizerTransformation())
+
+    # Next, replace typebound procedure calls
+    transformation = TypeboundProcedureCallTransformation(fix_intent=False, duplicate_typebound_kernels=True)
+    scheduler.process(transformation=transformation)
+    if transformation.inline_call_dependencies:
+        scheduler.add_dependencies(transformation.inline_call_dependencies)
+        scheduler.callgraph('updated_callgraph')
+
+    # Backward insert argument shapes (for surface routines)
+    # scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+
+    # scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
+
+    # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
+    scheduler.process(transformation=RemoveCallsTransformation(
+        routines=[
+            'DR_HOOK', 'ABOR1', 'WRITE(', 'assert_units_gas', 'radiation_abort',
+        ],
+        include_intrinsics=True
+    ))
+
+    # Now remove all derived-type arguments; start at the leaves!
+    scheduler.process(transformation=DerivedTypeArgumentsTransformation(), reverse=True)
+
+    # Now we instantiate our transformation pipeline and apply the main changes
+    transformation = None
+    if mode == 'idem':
+        transformation = IdemTransformation()
+
+    if mode == 'sca':
+        # Define the target dimension to strip from kernel and caller
+        horizontal = scheduler.config.dimensions['horizontal']
+        transformation = ExtractSCATransformation(horizontal=horizontal)
+
+    if mode in ['scc', 'scc-hoist']:
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
+        block_dim = scheduler.config.dimensions['block_dim']
+        transformation = SingleColumnCoalescedTransformation(
+            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+            directive=directive, hoist_column_arrays='hoist' in mode
+        )
+
+    if transformation:
+        scheduler.process(transformation=transformation)
+    else:
+        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+
+    # Apply the dependency-injection transformation
+    # dependency = DependencyTransformation(mode='module', #module_suffix='_MOD',
+    #                                       suffix=f'_{mode.upper()}')
+    # scheduler.process(transformation=dependency)
+
+    # Write out all modified source files into the build directory
+    scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode), use_file_graph=True)
 
 
 if __name__ == "__main__":
