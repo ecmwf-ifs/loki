@@ -46,10 +46,14 @@ class SchedulerConfig:
         control flow, like ``flush`` or ``abort``.
     enable_imports : bool
         Disable the inclusion of module imports as scheduler dependencies.
+    force_dependencies : dict, optional
+        Provide additional dependencies as a mapping of ``{item_name: [other_item, ...]}``
+        to force inclusion in the scheduler graph, e.g., as a workaround when scheduler
+        population fails to discover dependencies.
     """
 
     def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None,
-                 enable_imports=False):
+                 enable_imports=False, force_dependencies=None):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
@@ -58,6 +62,10 @@ class SchedulerConfig:
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
         self.enable_imports = enable_imports
+        if isinstance(force_dependencies, dict):
+            self.force_dependencies = CaseInsensitiveDict(force_dependencies)
+        else:
+            self.force_dependencies = CaseInsensitiveDict((k, v) for k, v in (force_dependencies or {}).items())
 
         if dic2p is not None:
             self.dic2p = dic2p
@@ -78,6 +86,7 @@ class SchedulerConfig:
         routines = config['routines']
         disable = default.get('disable', None)
         enable_imports = default.get('enable_imports', False)
+        force_dependencies = default.get('force_dependencies', None)
 
         # Add any dimension definitions contained in the config dict
         dimensions = {}
@@ -94,7 +103,7 @@ class SchedulerConfig:
             derived_types = config['derived_types']
 
         return cls(default=default, routines=routines, disable=disable, dimensions=dimensions, dic2p=dic2p,
-                   derived_types=derived_types, enable_imports=enable_imports)
+                   derived_types=derived_types, enable_imports=enable_imports, force_dependencies=force_dependencies)
 
     @classmethod
     def from_file(cls, path):
@@ -195,7 +204,11 @@ class Scheduler:
 
         self._break_cycles()
 
-        if self.full_parse:
+        if self.config.force_dependencies:
+            # Add manual dependency overwrites
+            # Note: this triggers a full parse
+            self.add_dependencies(self.config.force_dependencies)
+        elif self.full_parse:
             self._parse_items()
 
             # Attach interprocedural call-tree information

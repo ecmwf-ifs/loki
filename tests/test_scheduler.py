@@ -1897,8 +1897,9 @@ end subroutine caller
     rmtree(workdir)
 
 
+@pytest.mark.parametrize('force_dependencies', [None, {'#caller': ['some_mod#some_type%some_function']}])
 @pytest.mark.parametrize('full_parse', [True, False])
-def test_scheduler_add_dependencies(config, full_parse):
+def test_scheduler_add_dependencies(config, full_parse, force_dependencies):
     fcode_mod = """
 module some_mod
     implicit none
@@ -1954,6 +1955,9 @@ end subroutine caller
         assert all(n.upper() in vgraph.nodes for n in expected_items)
         assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
 
+    if force_dependencies:
+        config['default']['force_dependencies'] = force_dependencies
+
     scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
 
     expected_items = [
@@ -1963,17 +1967,22 @@ end subroutine caller
         ('#caller', 'some_mod#some_type%some_routine'),
         ('some_mod#some_type%some_routine', 'some_mod#some_routine')
     ]
-    verify_graph(scheduler, expected_items, expected_dependencies)
 
-    # Function should be in the obj map already
-    assert 'some_mod#some_function' in scheduler.obj_map
+    if not force_dependencies:
+        # Without the forced dependencies, we don't pick up the inline call
+        # dependency initially
 
-    # Add inline call dependency
-    scheduler.add_dependencies(
-        {'#caller': ['some_mod#some_type%some_function']}
-    )
+        verify_graph(scheduler, expected_items, expected_dependencies)
 
-    # Scheduler should have automatically added further relevant dependencies
+        # Function should be in the obj map already
+        assert 'some_mod#some_function' in scheduler.obj_map
+
+        # Add inline call dependency
+        scheduler.add_dependencies(
+            {'#caller': ['some_mod#some_type%some_function']}
+        )
+
+    # Scheduler should now have automatically added relevant dependencies
     expected_items += [
         'some_mod#some_type%some_function', 'some_mod#some_function'
     ]
