@@ -274,9 +274,24 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         else:
             # Create a variable for the stack size and assign the size
             stack_size_var = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER))
-            stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
-            variables_append += [stack_size_var]
+
+            # Convert stack_size from bytes to integer
+            stack_type_bytes = InlineCall(Variable(name='REAL'), parameters=(
+                                         Literal(1), IntrinsicLiteral(f'kind={self.stack_type_kind}')))
+            stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
+                                          parameters=as_tuple(stack_type_bytes))
+            stack_size_assign = Assignment(lhs=stack_size_var, rhs=Quotient(stack_size, stack_type_bytes))
             body_prepend += [stack_size_assign]
+            if self.check_bounds:
+                stack_size_check = Conditional(
+                                     condition=LogicalNot(Comparison(InlineCall(Variable(name='MOD'),
+                                     parameters=(stack_size_var, stack_type_bytes)),
+                                     '==', Literal(0))), inline=True, body=(Intrinsic('STOP'),),
+                                     else_body=None
+                )
+                body_prepend += [stack_size_check]
+
+            variables_append += [stack_size_var]
 
         if self.stack_storage_name in variable_map:
             # Use an existing stack storage array
