@@ -108,6 +108,8 @@ def test_cloudsc(here, frontend):
         ('dwarf-cloudsc-loki-scc', '1', '16000', '32'),
         ('dwarf-cloudsc-loki-scc-hoist', '1', '16000', '32'),
         ('dwarf-cloudsc-loki-c', '2', '16000', '32'),
+        ('dwarf-cloudsc-loki-idem-stack', '2', '16000', '32'),
+        ('dwarf-cloudsc-loki-scc-stack', '1', '16000', '32'),
     ]
 
     if HAVE_OMNI:
