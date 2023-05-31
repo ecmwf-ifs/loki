@@ -477,7 +477,7 @@ def detach_pragma_regions(ir):
     All replacements are performed in-place, without rebuilding any IR
     nodes.
     """
-    mapper = {region: (region.pragma, region.body, region.pragma_post)
+    mapper = {region: as_tuple(region.pragma) + region.body + as_tuple(region.pragma_post)
               for region in FindNodes(PragmaRegion).visit(ir)}
     return Transformer(mapper, inplace=True).visit(ir)
 
