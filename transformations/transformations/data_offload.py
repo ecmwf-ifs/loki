@@ -5,9 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from functools import reduce
-import operator
-
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
     CallStatement, Pragma, Array, as_tuple, Transformer, warning, BasicType,
@@ -353,27 +350,27 @@ class GlobalVarOffloadTransformation(Transformation):
         update_host = ()
 
         # build offload pragmas
-        _acc_copyin = reduce(operator.or_, [s.trafo_data[self._key]['acc_copyin']
+        _acc_copyin = set.union(*[s.trafo_data[self._key]['acc_copyin']
                              for s in successors if isinstance(s, SubroutineItem)], set())
         if _acc_copyin:
             update_device += as_tuple(Pragma(keyword='acc',
                                              content='update device(' + ','.join(_acc_copyin) + ')'),)
-        _enter_data_copyin = reduce(operator.or_, [s.trafo_data[self._key]['enter_data_copyin']
+        _enter_data_copyin = set.union(*[s.trafo_data[self._key]['enter_data_copyin']
                              for s in successors if isinstance(s, SubroutineItem)], set())
         if _enter_data_copyin:
             update_device += as_tuple(Pragma(keyword='acc',
                                              content='enter data copyin(' + ','.join(_enter_data_copyin) + ')'),)
-        _enter_data_create = reduce(operator.or_, [s.trafo_data[self._key]['enter_data_create']
+        _enter_data_create = set.union(*[s.trafo_data[self._key]['enter_data_create']
                              for s in successors if isinstance(s, SubroutineItem)], set())
         if _enter_data_create:
             update_device += as_tuple(Pragma(keyword='acc',
                                              content='enter data create(' + ','.join(_enter_data_create) + ')'),)
-        _exit_data = reduce(operator.or_, [s.trafo_data[self._key]['exit_data']
+        _exit_data = set.union(*[s.trafo_data[self._key]['exit_data']
                             for s in successors if isinstance(s, SubroutineItem)], set())
         if _exit_data:
             update_host += as_tuple(Pragma(keyword='acc',
                                            content='exit data copyout(' + ','.join(_exit_data) + ')'),)
-        _acc_copyout = reduce(operator.or_, [s.trafo_data[self._key]['acc_copyout']
+        _acc_copyout = set.union(*[s.trafo_data[self._key]['acc_copyout']
                             for s in successors if isinstance(s, SubroutineItem)], set())
         if _acc_copyout:
             update_host += as_tuple(Pragma(keyword='acc', content='update self(' + ','.join(_acc_copyout) + ')'),)
@@ -397,8 +394,7 @@ class GlobalVarOffloadTransformation(Transformation):
         routine.body = Transformer(pragma_map).visit(routine.body)
 
         # build set of symbols to be offloaded
-        _var_set = reduce(operator.or_, [s.trafo_data[self._key]['var_set']
-                          for s in successors], set())
+        _var_set = set.union(*[s.trafo_data[self._key]['var_set'] for s in successors], set())
         #build map of module imports corresponding to offloaded symbols
         _modules = {}
         _modules.update({k: v
@@ -439,8 +435,7 @@ class GlobalVarOffloadTransformation(Transformation):
         import_mod = CaseInsensitiveDict((s.name, i.module) for i in routine.imports for s in i.symbols)
 
         #build set of offloaded symbols
-        item.trafo_data[self._key]['var_set'] = reduce(operator.or_,
-                                                       [s.trafo_data[self._key]['var_set'] for s in successors], set())
+        item.trafo_data[self._key]['var_set'] = set.union(*[s.trafo_data[self._key]['var_set'] for s in successors], set())
 
         #build map of module imports corresponding to offloaded symbols
         item.trafo_data[self._key]['modules'].update({k: v
@@ -453,21 +448,21 @@ class GlobalVarOffloadTransformation(Transformation):
         deriv_types = [var              for var in imported_vars if isinstance(var.type.dtype, DerivedType)]
 
         # accumulate contents of acc directives
-        item.trafo_data[self._key]['enter_data_copyin'] = reduce(operator.or_,
-                                                       [s.trafo_data[self._key]['enter_data_copyin']
-                                                       for s in successors if isinstance(s, SubroutineItem)], set())
-        item.trafo_data[self._key]['enter_data_create'] = reduce(operator.or_,
-                                                       [s.trafo_data[self._key]['enter_data_create']
-                                                       for s in successors if isinstance(s, SubroutineItem)], set())
-        item.trafo_data[self._key]['exit_data'] = reduce(operator.or_,
-                                                       [s.trafo_data[self._key]['exit_data']
-                                                       for s in successors if isinstance(s, SubroutineItem)], set())
-        item.trafo_data[self._key]['acc_copyin'] = reduce(operator.or_,
-                                                          [s.trafo_data[self._key]['acc_copyin']
-                                                          for s in successors if isinstance(s, SubroutineItem)], set())
-        item.trafo_data[self._key]['acc_copyout'] = reduce(operator.or_,
-                                                           [s.trafo_data[self._key]['acc_copyout']
+        item.trafo_data[self._key]['enter_data_copyin'] = set.union(
+                                                       *[s.trafo_data[self._key]['enter_data_copyin']
+                                                        for s in successors if isinstance(s, SubroutineItem)], set())
+        item.trafo_data[self._key]['enter_data_create'] = set.union(
+                                                       *[s.trafo_data[self._key]['enter_data_create']
+                                                        for s in successors if isinstance(s, SubroutineItem)], set())
+        item.trafo_data[self._key]['exit_data'] = set.union(
+                                                       *[s.trafo_data[self._key]['exit_data']
+                                                        for s in successors if isinstance(s, SubroutineItem)], set())
+        item.trafo_data[self._key]['acc_copyin'] = set.union(
+                                                          *[s.trafo_data[self._key]['acc_copyin']
                                                            for s in successors if isinstance(s, SubroutineItem)], set())
+        item.trafo_data[self._key]['acc_copyout'] = set.union(
+                                                            *[s.trafo_data[self._key]['acc_copyout']
+                                                            for s in successors if isinstance(s, SubroutineItem)], set())
 
         with dataflow_analysis_attached(routine):
 
