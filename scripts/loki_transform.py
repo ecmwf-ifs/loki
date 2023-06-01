@@ -24,7 +24,8 @@ from loki import (
 # Get generalized transformations provided by Loki
 from loki.transform import (
     DependencyTransformation, FortranCTransformation, FileWriteTransformation,
-    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing
+    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing, loop_fission,
+    resolve_associates
 )
 
 # pylint: disable=wrong-import-order
@@ -38,7 +39,6 @@ from transformations.pool_allocator import TemporariesPoolAllocatorTransformatio
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
-
 
 """
 Scheduler configuration for the CLOUDSC ESCAPE dwarf.
@@ -131,7 +131,7 @@ def cli(debug):
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+              type=click.Choice(['idem', 'fission', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
                                  'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
@@ -180,95 +180,109 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend,
                           definitions=definitions, **build_args)
 
-    # First, remove all derived-type arguments; caller first!
-    scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+    if not mode == 'fission':
 
-    # Insert data offload regions for GPUs and remove OpenMP threading directives
-    use_claw_offload = True
-    if data_offload:
-        offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp)
-        scheduler.process(transformation=offload_transform)
-        use_claw_offload = not offload_transform.has_data_regions
+        # First, remove all derived-type arguments; caller first!
+        scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
-    # Now we instantiate our transformation pipeline and apply the main changes
-    transformation = None
-    if mode in ['idem', 'idem-stack']:
-        transformation = IdemTransformation()
+        # Insert data offload regions for GPUs and remove OpenMP threading directives
+        use_claw_offload = True
+        if data_offload:
+            offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp)
+            scheduler.process(transformation=offload_transform)
+            use_claw_offload = not offload_transform.has_data_regions
 
-    if mode == 'sca':
-        horizontal = scheduler.config.dimensions['horizontal']
-        transformation = ExtractSCATransformation(horizontal=horizontal)
+        # Now we instantiate our transformation pipeline and apply the main changes
+        transformation = None
+        if mode in ['idem', 'idem-stack']:
+            transformation = IdemTransformation()
 
-    if mode == 'claw':
-        horizontal = scheduler.config.dimensions['horizontal']
-        transformation = CLAWTransformation(
-            horizontal=horizontal, claw_data_offload=use_claw_offload
-        )
+        if mode == 'sca':
+            horizontal = scheduler.config.dimensions['horizontal']
+            transformation = ExtractSCATransformation(horizontal=horizontal)
 
-    if mode in ['scc', 'scc-hoist', 'scc-stack']:
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
-        transformation = SingleColumnCoalescedTransformation(
-            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive=directive, hoist_column_arrays='hoist' in mode
-        )
+        if mode == 'claw':
+            horizontal = scheduler.config.dimensions['horizontal']
+            transformation = CLAWTransformation(
+                horizontal=horizontal, claw_data_offload=use_claw_offload
+            )
 
-    if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
-        derived_types = scheduler.config.derived_types
-        transformation = SccCufTransformation(
-            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            transformation_type=mode.replace('cuf-', ''),
-            derived_types=derived_types
-        )
+        if mode in ['scc', 'scc-hoist', 'scc-stack']:
+            horizontal = scheduler.config.dimensions['horizontal']
+            vertical = scheduler.config.dimensions['vertical']
+            block_dim = scheduler.config.dimensions['block_dim']
+            transformation = SingleColumnCoalescedTransformation(
+                horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+                directive=directive, hoist_column_arrays='hoist' in mode
+            )
 
-    if transformation:
-        scheduler.process(transformation=transformation)
+        if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
+            horizontal = scheduler.config.dimensions['horizontal']
+            vertical = scheduler.config.dimensions['vertical']
+            block_dim = scheduler.config.dimensions['block_dim']
+            derived_types = scheduler.config.derived_types
+            transformation = SccCufTransformation(
+                horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+                transformation_type=mode.replace('cuf-', ''),
+                derived_types=derived_types
+            )
+
+        if transformation:
+            scheduler.process(transformation=transformation)
+        else:
+            raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+
+        if mode in ['idem-stack', 'scc-stack']:
+            if frontend == Frontend.OMNI:
+                # To make the pool allocator size derivation work correctly, we need
+                # to normalize the 1:end-style index ranges that OMNI introduces
+                class NormalizeRangeIndexingTransformation(Transformation):
+                    def transform_subroutine(self, routine, **kwargs):
+                        if 'item' in kwargs and kwargs['item'].local_name != routine.name:
+                            return
+                        normalize_range_indexing(routine)
+
+                scheduler.process(transformation=NormalizeRangeIndexingTransformation())
+
+            horizontal = scheduler.config.dimensions['horizontal']
+            vertical = scheduler.config.dimensions['vertical']
+            block_dim = scheduler.config.dimensions['block_dim']
+            directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
+            transformation = TemporariesPoolAllocatorTransformation(
+                block_dim=block_dim, allocation_dims=[horizontal, vertical],
+                directive=directive, check_bounds='scc' not in mode
+            )
+            scheduler.process(transformation=transformation, reverse=True)
+        if mode == 'cuf-parametrise':
+            dic2p = scheduler.config.dic2p
+            disable = scheduler.config.disable
+            transformation = ParametriseTransformation(dic2p=dic2p, disable=disable)
+            scheduler.process(transformation=transformation)
+        if mode == "cuf-hoist":
+            disable = scheduler.config.disable
+            vertical = scheduler.config.dimensions['vertical']
+            scheduler.process(transformation=HoistTemporaryArraysAnalysis(disable=disable, dim_vars=(vertical.size,)),
+                              reverse=True)
+            scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(disable=disable))
+
+        # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+        # mode = mode.replace('-', '_')  # Sanitize mode string
+        # dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
+        #                                       mode='module', module_suffix='_MOD')
+        # scheduler.process(transformation=dependency)
     else:
-        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+        print("executing fission trafo ...")
+        resolve_assocs = type("ResolveAssociatesTransformation", (Transformation, object), {
+            "transform_subroutine": lambda self, routine, **kwargs: resolve_associates(routine)})()
+        fission = type("LoopFissionTransformation", (Transformation, object), {
+            "transform_subroutine": lambda self, routine, **kwargs: loop_fission(routine, True, True)})()
+        scheduler.process(transformation=resolve_assocs)
+        scheduler.process(transformation=fission)
 
-    if mode in ['idem-stack', 'scc-stack']:
-        if frontend == Frontend.OMNI:
-            # To make the pool allocator size derivation work correctly, we need
-            # to normalize the 1:end-style index ranges that OMNI introduces
-            class NormalizeRangeIndexingTransformation(Transformation):
-                def transform_subroutine(self, routine, **kwargs):
-                    if 'item' in kwargs and kwargs['item'].local_name != routine.name:
-                        return
-                    normalize_range_indexing(routine)
-
-            scheduler.process(transformation=NormalizeRangeIndexingTransformation())
-
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
-        directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
-        transformation = TemporariesPoolAllocatorTransformation(
-            block_dim=block_dim, allocation_dims=[horizontal, vertical],
-            directive=directive, check_bounds='scc' not in mode
-        )
-        scheduler.process(transformation=transformation, reverse=True)
-    if mode == 'cuf-parametrise':
-        dic2p = scheduler.config.dic2p
-        disable = scheduler.config.disable
-        transformation = ParametriseTransformation(dic2p=dic2p, disable=disable)
-        scheduler.process(transformation=transformation)
-    if mode == "cuf-hoist":
-        disable = scheduler.config.disable
-        vertical = scheduler.config.dimensions['vertical']
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(disable=disable, dim_vars=(vertical.size,)),
-                          reverse=True)
-        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(disable=disable))
-
-    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
-    mode = mode.replace('-', '_')  # Sanitize mode string
+    mode = mode.replace('-', '_')
     dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
                                           mode='module', module_suffix='_MOD')
     scheduler.process(transformation=dependency)
-
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode))
 
@@ -389,7 +403,7 @@ def plan(mode, config, header, source, build, root, cpp, directive, frontend, ca
 
 @cli.command('ecphys')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
+              type=click.Choice(['idem', 'fission', 'sca', 'claw', 'scc', 'scc-hoist']))
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
@@ -428,42 +442,53 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=cpp)
 
-    # Backward insert argument shapes (for surface routines)
-    scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+    if mode != "fission":
 
-    scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
+        # Backward insert argument shapes (for surface routines)
+        scheduler.process(transformation=ArgumentArrayShapeAnalysis())
 
-    # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
-    if 'scc' in mode:
-        scheduler.process(transformation=RemoveCallsTransformation(
-            routines=['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'], include_intrinsics=True
-        ))
+        scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
+
+        # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
+        if 'scc' in mode:
+            scheduler.process(transformation=RemoveCallsTransformation(
+                routines=['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'], include_intrinsics=True
+            ))
+        else:
+            scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
+
+        # Now we instantiate our transformation pipeline and apply the main changes
+        transformation = None
+        if mode == 'idem':
+            transformation = IdemTransformation()
+
+        if mode == 'sca':
+            # Define the target dimension to strip from kernel and caller
+            horizontal = scheduler.config.dimensions['horizontal']
+            transformation = ExtractSCATransformation(horizontal=horizontal)
+
+        if mode in ['scc', 'scc-hoist']:
+            horizontal = scheduler.config.dimensions['horizontal']
+            vertical = scheduler.config.dimensions['vertical']
+            block_dim = scheduler.config.dimensions['block_dim']
+            transformation = SingleColumnCoalescedTransformation(
+                horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+                directive=directive, hoist_column_arrays='hoist' in mode
+            )
+
+        if transformation:
+            scheduler.process(transformation=transformation)
+        else:
+            raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+
     else:
-        scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
-
-    # Now we instantiate our transformation pipeline and apply the main changes
-    transformation = None
-    if mode == 'idem':
-        transformation = IdemTransformation()
-
-    if mode == 'sca':
-        # Define the target dimension to strip from kernel and caller
-        horizontal = scheduler.config.dimensions['horizontal']
-        transformation = ExtractSCATransformation(horizontal=horizontal)
-
-    if mode in ['scc', 'scc-hoist']:
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
-        transformation = SingleColumnCoalescedTransformation(
-            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive=directive, hoist_column_arrays='hoist' in mode
-        )
-
-    if transformation:
-        scheduler.process(transformation=transformation)
-    else:
-        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+        print("executing fission trafo ...")
+        resolve_assocs = type("ResolveAssociatesTransformation", (Transformation, object), {
+            "transform_subroutine": lambda self, routine, **kwargs: resolve_associates(routine)})()
+        fission = type("LoopFissionTransformation", (Transformation, object), {
+            "transform_subroutine": lambda self, routine, **kwargs: loop_fission(routine, True, True)})()
+        scheduler.process(transformation=resolve_assocs)
+        scheduler.process(transformation=fission)
 
     # Apply the dependency-injection transformation
     dependency = DependencyTransformation(mode='module', module_suffix='_MOD',

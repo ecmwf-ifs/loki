@@ -179,8 +179,9 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if self.__dict__['_live_symbols'] is None:
-            raise RuntimeError('Need to run dataflow analysis on the IR first.')
+        if not hasattr(self.__dict__, '_live_symbols') or self.__dict__['_live_symbols'] is None:
+            # raise RuntimeError('Need to run dataflow analysis on the IR first.')
+            return set()
         return self.__dict__['_live_symbols']
 
     @property
@@ -194,8 +195,9 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if self.__dict__['_defines_symbols'] is None:
-            raise RuntimeError('Need to run dataflow analysis on the IR first.')
+        if not hasattr(self.__dict__, '_live_symbols') or self.__dict__['_defines_symbols'] is None:
+            # raise RuntimeError('Need to run dataflow analysis on the IR first.')
+            return set()
         return self.__dict__['_defines_symbols']
 
     @property
@@ -210,8 +212,9 @@ class Node:
         :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if self.__dict__['_uses_symbols'] is None:
-            raise RuntimeError('Need to run dataflow analysis on the IR first.')
+        if not hasattr(self.__dict__, '_live_symbols') or self.__dict__['_uses_symbols'] is None:
+            # raise RuntimeError('Need to run dataflow analysis on the IR first.')
+            return set()
         return self.__dict__['_uses_symbols']
 
 

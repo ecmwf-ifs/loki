@@ -15,7 +15,7 @@ from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.visitors import Visitor, Transformer
 from loki.subroutine import Subroutine
-
+# from loki import ir
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
     'loop_carried_dependencies'
@@ -50,6 +50,7 @@ class DataflowAnalysisAttacher(Transformer):
         visited = []
         for i in flatten(body):
             visited += [self.visit(i, live_symbols=live|defines, **kwargs)]
+            #print(f"visited[-1]: {visited[-1]}, type(): {type(visited[-1])}, uses_symbols: {visited[-1].uses_symbols}")
             uses |= visited[-1].uses_symbols.copy() - defines
             defines |= visited[-1].defines_symbols.copy()
         return as_tuple(visited), defines, uses
@@ -87,6 +88,7 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_Node(self, o, **kwargs):
         # Live symbols are determined on InternalNode handler levels and
         # get passed down to all child nodes
+        #print(f"visit node for {o} | {type(o)}")
         o._update(_live_symbols=kwargs.get('live_symbols', set()))
 
         # Symbols defined or used by this node are determined by their individual
@@ -96,6 +98,14 @@ class DataflowAnalysisAttacher(Transformer):
         return o
 
     # Internal nodes
+
+    #def visit_Associate(self, o, **kwargs):
+    #    print("dataflow visit Associate ...")
+    #    return self.visit_Node(o, defines_symbols=set(), uses_symbols=set(), **kwargs)
+   
+    visit_Associate = visit_Node
+    visit_Comment = visit_Node
+    visit_CommentBlock = visit_Node
 
     def visit_Interface(self, o, **kwargs):
         # Subroutines/functions calls defined in an explicit interface
@@ -182,6 +192,7 @@ class DataflowAnalysisAttacher(Transformer):
     # Leaf nodes
 
     def visit_Assignment(self, o, **kwargs):
+        # print("dataflow visit assignment ...")
         # exclude arguments to functions that just check the memory attributes of a variable
         mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.rhs) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
@@ -506,7 +517,8 @@ class FindWrites(Visitor):
         pass
 
     def visit_LeafNode(self, o, **kwargs):  # pylint: disable=unused-argument
-        if self.active:
+        #print(f"o: {o}, type(o): {type(o)}")
+        if self.active: # and not isinstance(o, ir.Comment):
             self._register_writes(o.defines_symbols)
 
     def visit_Loop(self, o, **kwargs):
