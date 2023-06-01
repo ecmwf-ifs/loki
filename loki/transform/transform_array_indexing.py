@@ -28,9 +28,24 @@ __all__ = [
     'shift_to_zero_indexing', 'invert_array_indices',
     'resolve_vector_notation', 'normalize_range_indexing',
     'promote_variables', 'promote_nonmatching_variables',
-    'promotion_dimensions_from_loop_nest', 'demote_variables'
+    'promotion_dimensions_from_loop_nest', 'demote_variables',
+    'is_dimension_constant'
 ]
 
+def is_dimension_constant(d):
+    """Establish if a given dimension symbol is a compile-time constant"""
+    if isinstance(d, sym.IntLiteral):
+        return True
+
+    if isinstance(d, sym.RangeIndex):
+        if d.lower:
+            return is_dimension_constant(d.lower) and is_dimension_constant(d.upper)
+        return is_dimension_constant(d.upper)
+
+    if isinstance(d, sym.Scalar) and isinstance(d.initial , sym.IntLiteral):
+        return True
+
+    return False
 
 def shift_to_zero_indexing(routine):
     """
