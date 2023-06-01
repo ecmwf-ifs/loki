@@ -96,8 +96,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     check_bounds : bool, optional
         Insert bounds-checks in the kernel to make sure the allocated stack size is not
         exceeded (default: `True`)
-    alignment_boundary : str, optional
-        n-byte boundary to which stack allocations should be aligned
     key : str, optional
         Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
@@ -108,7 +106,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                  stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
                  stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}',
-                 directive=None, check_bounds=True, key=None, alignment_boundary='32', **kwargs):
+                 directive=None, check_bounds=True, key=None, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
         self.stack_module_name = stack_module_name
@@ -122,7 +120,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.local_ptr_var_name_pattern = local_ptr_var_name_pattern
         self.directive = directive
         self.check_bounds = check_bounds
-        self.alignment_boundary = alignment_boundary
 
         if key:
             self._key = key
@@ -402,20 +399,21 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         `C_SIZEOF`.
         """
 
-        kind = getattr(arr.type, 'kind', None)
         if arr.type.dtype == BasicType.REAL:
-            param = InlineCall(Variable(name='REAL'), parameters=as_tuple(Literal(1)))
+            param = InlineCall(Variable(name='REAL'), parameters=as_tuple(IntLiteral(1)))
         elif arr.type.dtype == BasicType.INTEGER:
-            param = InlineCall(Variable(name='INT'), parameters=as_tuple(Literal(1)))
+            param = InlineCall(Variable(name='INT'), parameters=as_tuple(IntLiteral(1)))
+        elif arr.type.dtype == BasicType.CHARACTER:
+            param = InlineCall(Variable(name='CHAR'), parameters=as_tuple(IntLiteral(1)))
         elif arr.type.dtype == BasicType.LOGICAL:
             param = InlineCall(Variable(name='LOGICAL'), parameters=as_tuple(LogicLiteral('.TRUE.')))
         elif arr.type.dtype == BasicType.COMPLEX:
-            param = InlineCall(Variable(name='CMPLX'), parameters=as_tuple(Literal(1), Literal(1)))
-        elif arr.type.dtype == BasicType.CHARACTER:
-            warning(f'[Loki::PoolAllocator] {arr} - CHARACTER type var not supported in pool allocator')
-            return Literal('')
+            param = InlineCall(Variable(name='CMPLX'), parameters=as_tuple(IntLiteral(1), IntLiteral(1)))
+        elif arr.type.dtype == BasicType.DEFERRED:
+            param = InlineCall(Variable(name='REAL'), parameters=as_tuple(IntLiteral(1)))
+            warning(f"[Loki::PoolAllocator] {arr} - DeferredType var assumed to be size of 'REAL'")
 
-        if kind:
+        if (kind := getattr(arr.type, 'kind', None)):
             param.parameters = param.parameters + as_tuple(IntrinsicLiteral(f'kind={kind}'))
 
         return param
@@ -446,48 +444,31 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             association, an :any:`Assignment` for the stack pointer increment, and a
             :any:`Conditional` that verifies that the stack is big enough
         """
-        ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
 
+        # Bail if 'arr' is a derived-type object. Partly because the possibility of derived-type
+        # nesting increases the complexity of determing allocation size, and partly because `C_SIZEOF`
+        # doesn't account for the size of allocatable/pointer members of derived-types.
         if isinstance(arr.type.dtype, DerivedType):
             warning(f'[Loki::PoolAllocator] {arr} - Derived type var not supported in pool allocator')
             return ([], stack_size)
 
-        # Determine c_sizeof argument
-        _sizeof_arg = self._get_c_sizeof_arg(arr)
+        ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
 
-        # Pad individual array assignments
+        # Build expression for array size in bytes
         dim = arr.dimensions[0]
         for d in arr.dimensions[1:]:
             dim = Product((dim, d))
-        _sizeof = Product((dim, InlineCall(Variable(name='C_SIZEOF'), parameters=as_tuple(_sizeof_arg))))
-
-        _padding = InlineCall(Variable(name='MOD'), parameters=(_sizeof, IntLiteral(f'{self.alignment_boundary}')))
-        _padding = Product((Literal(-1), _padding))
-        _padding = simplify(Sum((IntLiteral(f'{self.alignment_boundary}'), _padding)))
-
-        _padding_switch = Quotient(InlineCall(Variable(name='MOD'),
-                                   parameters=(_sizeof, IntLiteral(f'{self.alignment_boundary}'))),
-                                   IntLiteral(f'{self.alignment_boundary}'))
-        _padding_switch = Product((Literal(-1), _padding_switch))
-        _padding_switch = simplify(Sum((Literal(1), _padding_switch)))
-
-        arr_size = Sum((_sizeof, Product((_padding, _padding_switch))))
+        arr_size = Product((dim, InlineCall(Variable(name='C_SIZEOF'), parameters=as_tuple(self._get_c_sizeof_arg(arr)))))
 
         # Increment stack size
         stack_size = simplify(Sum((stack_size, arr_size)))
 
         ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, arr_size)))
         if self.check_bounds:
-            stack_size_check = as_tuple(Conditional(
+            stack_size_check = Conditional(
                 condition=Comparison(stack_ptr, '>', stack_end), inline=True,
                 body=(Intrinsic('STOP'),), else_body=None
-            ))
-            stack_size_check += as_tuple(Conditional(
-                condition=LogicalNot(Comparison(InlineCall(Variable(name='MOD'),
-                                    parameters=(stack_ptr, IntLiteral(f'{self.alignment_boundary}'))),
-                                    '==', Literal(0))), inline=True,
-                body=(Intrinsic('STOP'),), else_body=None
-            ))
+            )
             return ([ptr_assignment, ptr_increment, stack_size_check], stack_size)
         return ([ptr_assignment, ptr_increment], stack_size)
 
