@@ -9,8 +9,7 @@ from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
     CallStatement, Pragma, Array, as_tuple, Transformer, warning, BasicType,
     GlobalVarImportItem, SubroutineItem, dataflow_analysis_attached, Import,
-    Comment, FindInlineCalls, Variable, flatten, DerivedType, get_pragma_parameters,
-    CaseInsensitiveDict
+    Comment, Variable, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict
 )
 
 
@@ -339,7 +338,7 @@ class GlobalVarOffloadTransformation(Transformation):
         if role == 'driver':
             self.process_driver(routine, successors)
         if role == 'kernel':
-            self.process_kernel(routine, successors, item, kwargs['targets'])
+            self.process_kernel(routine, successors, item)
 
     def process_driver(self, routine, successors):
         """
@@ -426,7 +425,7 @@ class GlobalVarOffloadTransformation(Transformation):
             import_pos += 1
             routine.spec.insert(import_pos, new_imports)
 
-    def process_kernel(self, routine, successors, item, targets):
+    def process_kernel(self, routine, successors, item):
         """
         Collect the set of module variables to be offloaded.
         """
@@ -435,7 +434,8 @@ class GlobalVarOffloadTransformation(Transformation):
         import_mod = CaseInsensitiveDict((s.name, i.module) for i in routine.imports for s in i.symbols)
 
         #build set of offloaded symbols
-        item.trafo_data[self._key]['var_set'] = set.union(*[s.trafo_data[self._key]['var_set'] for s in successors], set())
+        item.trafo_data[self._key]['var_set'] = set.union(*[s.trafo_data[self._key]['var_set'] for s in successors],
+                                                          set())
 
         #build map of module imports corresponding to offloaded symbols
         item.trafo_data[self._key]['modules'].update({k: v
@@ -461,8 +461,8 @@ class GlobalVarOffloadTransformation(Transformation):
                                                           *[s.trafo_data[self._key]['acc_copyin']
                                                            for s in successors if isinstance(s, SubroutineItem)], set())
         item.trafo_data[self._key]['acc_copyout'] = set.union(
-                                                            *[s.trafo_data[self._key]['acc_copyout']
-                                                            for s in successors if isinstance(s, SubroutineItem)], set())
+                                                           *[s.trafo_data[self._key]['acc_copyout']
+                                                           for s in successors if isinstance(s, SubroutineItem)], set())
 
         with dataflow_analysis_attached(routine):
 
