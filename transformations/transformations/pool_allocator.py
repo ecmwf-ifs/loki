@@ -12,7 +12,7 @@ from loki import (
     SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, IntrinsicLiteral, LogicLiteral,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Scalar,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
-    Loop, Pragma, SubroutineItem, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot
+    Loop, Pragma, SubroutineItem, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -505,6 +505,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             var for var in routine.variables
             if isinstance(var, Array) and var not in arguments
         ]
+
+        # Filter out unused vars
+        with dataflow_analysis_attached(routine):
+            temporary_arrays = [
+                var for var in temporary_arrays
+                if var.name.lower() in routine.body.defines_symbols
+            ]
 
         # Filter out variables whose size is known at compile-time
         temporary_arrays = [
