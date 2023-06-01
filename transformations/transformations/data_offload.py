@@ -12,7 +12,8 @@ from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
     CallStatement, Pragma, Array, as_tuple, Transformer, warning, BasicType,
     GlobalVarImportItem, SubroutineItem, dataflow_analysis_attached, Import,
-    Comment, FindInlineCalls, Variable, flatten, DerivedType, get_pragma_parameters
+    Comment, FindInlineCalls, Variable, flatten, DerivedType, get_pragma_parameters,
+    CaseInsensitiveDict
 )
 
 
@@ -434,14 +435,8 @@ class GlobalVarOffloadTransformation(Transformation):
         Collect the set of module variables to be offloaded.
         """
 
-        # filter out procedure imports
-        calls = [c.name for c in FindNodes(CallStatement).visit(routine.body)]
-        calls += FindInlineCalls().visit(routine.body)
-
-        imports = [i for i in FindNodes(Import).visit(routine.spec) if i.symbols not in calls]
-
-        # build map of modules corresponding to imports
-        import_mod = {s.name.lower(): i.module for i in imports for s in i.symbols}
+        # build map of modules corresponding to imported symbols
+        import_mod = CaseInsensitiveDict((s.name, i.module) for i in routine.imports for s in i.symbols)
 
         #build set of offloaded symbols
         item.trafo_data[self._key]['var_set'] = reduce(operator.or_,
@@ -453,12 +448,9 @@ class GlobalVarOffloadTransformation(Transformation):
                                                      for k, v in s.trafo_data[self._key]['modules'].items()})
 
         # separate out derived and basic types
-        basic_types = [s.name.lower() for i in imports for s in i.symbols if s in targets
-                       if isinstance(s.type.dtype, BasicType)
-                       and s.name.lower() in item.trafo_data[self._key]['var_set']]
-        deriv_types = [s for i in imports for s in i.symbols if s in targets
-                       if isinstance(s.type.dtype, DerivedType)
-                       and s.name.lower() in item.trafo_data[self._key]['var_set']]
+        imported_vars = [var for var in routine.imported_symbols if var in item.trafo_data[self._key]['var_set']]
+        basic_types = [var.name.lower() for var in imported_vars if isinstance(var.type.dtype, BasicType)]
+        deriv_types = [var              for var in imported_vars if isinstance(var.type.dtype, DerivedType)]
 
         # accumulate contents of acc directives
         item.trafo_data[self._key]['enter_data_copyin'] = reduce(operator.or_,

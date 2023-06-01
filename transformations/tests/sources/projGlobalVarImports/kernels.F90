@@ -8,11 +8,11 @@ implicit none
 end subroutine kernel0
 
 subroutine kernel1()
-use moduleA, only: var0,var1
+use moduleA, only: var0,var1,some_func
 implicit none
 real :: tmp
 
-tmp = var0 + var1
+tmp = var0 + var1 + some_func()
 
 end subroutine kernel1
 
