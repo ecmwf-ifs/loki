@@ -10,7 +10,8 @@ import pytest
 from conftest import available_frontends
 from loki import (
     Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
-    CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol, WhileLoop
+    CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol, WhileLoop,
+    Associate
 )
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
@@ -538,3 +539,45 @@ end subroutine while_loop
         assert len(loop.defines_symbols) == 2
         assert 'ij' in loop.uses_symbols
         assert all(v in loop.defines_symbols for v in ('ij', 'a'))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_analyse_associate(frontend):
+
+    fcode = """
+subroutine associate_test(a, b, c, in_var)
+   implicit none
+
+   real, intent(in) :: in_var
+   real, intent(inout) :: a, b, c
+
+   associate(d=>a, e=>b, f=>c)
+     e = in_var
+     f = in_var
+     associate(d0=>d)
+       d0 = in_var
+     end associate
+   end associate
+
+end subroutine associate_test
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    associates = FindNodes(Associate).visit(routine.body)
+    assigns = FindNodes(Assignment).visit(routine.body)
+    with dataflow_analysis_attached(routine):
+        # check that associates use variables names in outer scope
+        assert associates[0].uses_symbols == {'in_var'}
+        assert associates[0].defines_symbols == {'a', 'b', 'c'}
+
+        assert associates[1].uses_symbols == {'in_var'}
+        assert associates[1].defines_symbols == {'d'}
+
+        # check that assignments use associated symbols
+        assert assigns[0].uses_symbols == {'in_var'}
+        assert assigns[1].uses_symbols == {'in_var'}
+        assert assigns[2].uses_symbols == {'in_var'}
+
+        assert assigns[0].defines_symbols == {'e'}
+        assert assigns[1].defines_symbols == {'f'}
+        assert assigns[2].defines_symbols == {'d0'}
