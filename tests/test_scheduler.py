@@ -1578,19 +1578,24 @@ def test_scheduler_inline_call(here, config, frontend):
     """
 
     my_config = config.copy()
+    my_config['default']['enable_imports'] = True
     my_config['routine'] = [
         {
             'name': 'driver',
-            'role': 'driver'
+            'role': 'driver',
+            'disable': ['return_one', 'some_var', 'add_args', 'some_type']
         }
     ]
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
-    expected_items = {'#driver', '#double_real', 'some_module#some_type%do_something', 'some_module#add_const'}
+    expected_items = {'#driver', '#double_real', 'some_module#some_type%do_something',
+                      'some_module#add_const', 'vars_module#vara', 'vars_module#varb'}
     expected_dependencies = {('#driver', '#double_real'),
                              ('#driver', 'some_module#some_type%do_something'),
-                             ('some_module#some_type%do_something', 'some_module#add_const')}
+                             ('some_module#some_type%do_something', 'some_module#add_const'),
+                             ('#driver', 'vars_module#vara'), ('#driver', 'vars_module#varb'),
+                             ('#double_real', 'vars_module#vara'), ('#double_real', 'vars_module#varb')}
 
     assert expected_items == {i.name for i in scheduler.items}
     assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
@@ -1620,11 +1625,13 @@ def test_scheduler_import_dependencies(here, config, frontend):
     expected_items = {
         '#driver', '#double_real', 'some_module#return_one', 'some_module#some_var', 'some_module#add_args',
         'some_module#some_type', 'some_module#add_two_args', 'some_module#add_three_args',
-        'some_module#some_type%do_something', 'some_module#add_const'
+        'some_module#some_type%do_something', 'some_module#add_const', 'vars_module#vara', 'vars_module#varb'
     }
     expected_dependencies = {
      ('#driver', '#double_real'), ('#driver', 'some_module#return_one'), ('#driver', 'some_module#some_var'),
      ('#driver', 'some_module#add_args'), ('#driver', 'some_module#some_type'),
+     ('#driver', 'vars_module#vara'), ('#driver', 'vars_module#varb'),
+     ('#double_real', 'vars_module#vara'), ('#double_real', 'vars_module#varb'),
      ('#driver', 'some_module#some_type%do_something'), ('some_module#some_type%do_something', 'some_module#add_const'),
      ('some_module#add_args', 'some_module#add_two_args'), ('some_module#add_args', 'some_module#add_three_args'),
     }
@@ -1644,6 +1651,39 @@ def test_scheduler_import_dependencies(here, config, frontend):
         elif i.name == '#double_real':
             assert isinstance(i, SubroutineItem)
 
+def test_scheduler_globalvarimportitem_id(here, config, frontend):
+    """
+    Test that scheduler.item_successors always returns the original item.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+    my_config['routine'] = [
+        {
+            'name': 'driver',
+            'role': 'driver'
+        }
+    ]
+
+    scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
+    importA_item = scheduler.item_map['vars_module#vara']
+    importB_item = scheduler.item_map['vars_module#varb']
+    driver_item = scheduler.item_map['#driver']
+    kernel_item = scheduler.item_map['#double_real']
+
+    idA = id(importA_item)
+    idB = id(importB_item)
+
+    for successor in scheduler.item_successors(driver_item):
+        if successor.name == importA_item.name:
+            assert id(successor) == idA
+        if successor.name == importB_item.name:
+            assert id(successor) == idB
+    for successor in scheduler.item_successors(kernel_item):
+        if successor.name == importA_item.name:
+            assert id(successor) == idA
+        if successor.name == importB_item.name:
+            assert id(successor) == idB
 
 def test_scheduler_globalvarimportitem_children(config):
     """
@@ -1735,6 +1775,7 @@ subroutine caller(val)
     call t%routine(2.0)
     call t%do(10)
     call t%do(20.0)
+    call t%other
     val = t%a
 end subroutine caller
     """.strip()
@@ -1758,7 +1799,8 @@ end subroutine caller
             if item.local_name == 'caller':
                 expected_successors = {
                     'some_mod#some_type%routine', 'some_mod#some_type%do',
-                    'some_mod#some_type%procedure', 'some_mod#some_procedure', 'some_mod#routine'
+                    'some_mod#some_type%procedure', 'some_mod#some_procedure', 'some_mod#routine',
+                    'some_mod#some_type%other', 'some_mod#other'
                 }
             elif item.local_name == 'routine':
                 expected_successors = {'some_mod#some_type%other', 'some_mod#other'}
