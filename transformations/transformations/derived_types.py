@@ -131,11 +131,16 @@ class DerivedTypeArgumentsTransformation(Transformation):
             # Expand derived type arguments in kernel
             orig_argnames = tuple(arg.lower() for arg in routine.argnames)
             expansion_map = self.expand_derived_args_kernel(routine)
+            trafo_data = {
+                'orig_argnames': orig_argnames,
+                'expansion_map': expansion_map,
+            }
             if item:
-                item.trafo_data[self._key] = {
-                    'orig_argnames': orig_argnames,
-                    'expansion_map': expansion_map,
-                }
+                item.trafo_data[self._key] = trafo_data
+
+            if any('recursive' in prefix.lower() for prefix in routine.prefix or ()):
+                self.expand_derived_args_recursion(routine, trafo_data)
+
 
     def expand_derived_args_caller(self, routine, successors_data):
         """
@@ -370,6 +375,22 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
         return var.clone(name=new_name, parent=None, **kwargs)
 
+    @staticmethod
+    def _get_expanded_kernel_var_type(arg, var, is_elemental_routine=False):
+        """
+        Utility routine that yields the variable type for an expanded kernel variable
+        """
+        if is_elemental_routine:
+            return var.type.clone(
+                intent=arg.type.intent, initial=None, allocatable=None,
+                target=None, pointer=None, shape=None
+            )
+        return var.type.clone(
+            intent=arg.type.intent, initial=None, allocatable=None,
+            target=arg.type.target if not var.type.pointer else None
+        )
+
+
     def expand_derived_args_kernel(self, routine):
         """
         Find the use of member variables for derived type arguments of
@@ -392,9 +413,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
         candidates = []
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                arg_variables = as_tuple(arg.variables)
                 if any(v.type.pointer or v.type.allocatable or
-                       isinstance(v.type.dtype, DerivedType) for v in arg_variables):
+                       isinstance(v.type.dtype, DerivedType) for v in as_tuple(arg.variables)):
                     # Only include derived types with array members or nested derived types
                     candidates += [arg]
 
@@ -435,25 +455,14 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 return None
             return tuple(RangeIndex((None, None)) for _ in shape)
 
-        def update_var_type(arg, var):
-            if is_elemental_routine:
-                return var.type.clone(
-                    intent=arg.type.intent, initial=None, allocatable=None,
-                    target=None, pointer=None, shape=None
-                )
-            return var.type.clone(
-                intent=arg.type.intent, initial=None, allocatable=None,
-                target=arg.type.target if not var.type.pointer else None
-            )
-
         # Build the arguments map to update the call signature
         arguments_map = {}
         for arg in routine.arguments:
             if arg in expansion_map:
                 arguments_map[arg] = [
                     self._expand_kernel_variable(
-                        var, type=update_var_type(arg, var), dimensions=shape_to_assumed_dim(var.type.shape),
-                        scope=routine, var_cache=var_cache
+                        var, type=self._get_expanded_kernel_var_type(arg, var, is_elemental_routine),
+                        dimensions=shape_to_assumed_dim(var.type.shape), scope=routine, var_cache=var_cache
                     )
                     for var in expansion_map[arg]
                 ]
@@ -478,6 +487,53 @@ class DerivedTypeArgumentsTransformation(Transformation):
                             proc.type = proc.type.clone(pass_attr=False)
 
         return expansion_map
+
+    def expand_derived_args_recursion(self, routine, trafo_data):
+        """
+        Find recursive calls to itself and apply the derived args flattening
+        to these calls
+        """
+        if is_elemental(routine):
+            raise NotImplementedError('Support for recursive elemental routines not implemented')
+
+        def _update_call(call):
+            # Expand the call signature first
+            arguments, kwarguments, _ = self.expand_call_arguments(call, trafo_data)
+            # And expand the derived type members in the new call signature next
+            expansion_map = {}
+            for var in FindVariables(recurse_to_parent=False).visit((arguments, kwarguments)):
+                if var.parent:
+                    orig_arg = var.parents[0]
+                    expanded_var = self._expand_kernel_variable(
+                        var, type=self._get_expanded_kernel_var_type(orig_arg, var), scope=routine, dimensions=None
+                    )
+                    expansion_map[var] = expanded_var
+            expansion_mapper = SubstituteExpressionsMapper(recursive_expression_map_update(expansion_map))
+            arguments = tuple(expansion_mapper(arg) for arg in arguments)
+            kwarguments = tuple((k, expansion_mapper(v)) for k, v in kwarguments)
+            return arguments, kwarguments
+
+        # Deal with subroutine calls first
+        call_mapper = {}
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if str(call.name).lower() == routine.name.lower():
+                arguments, kwarguments = _update_call(call)
+                call_mapper[call] = call.clone(arguments=arguments, kwarguments=kwarguments)
+
+        # Rebuild the routine's IR tree
+        if call_mapper:
+            routine.body = Transformer(call_mapper).visit(routine.body)
+
+        # Deal with inline calls next
+        call_mapper = {}
+        for call in FindInlineCalls().visit(routine.body):
+            if str(call.name).lower() == routine.name.lower():
+                arguments, kwarguments = _update_call(call)
+                call_mapper[call] = call.clone(parameters=arguments, kw_parameters=kwarguments)
+
+        # Rebuild the routine's IR tree with expression substitution
+        if call_mapper:
+            routine.body = SubstituteExpressions(call_mapper).visit(routine.body)
 
     @classmethod
     def expand_derived_type_member(cls, var, is_elemental_routine, var_cache=None):

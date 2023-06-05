@@ -1018,6 +1018,126 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_recursive(frontend):
+    fcode = """
+module some_mod
+    implicit none
+    type some_type
+        integer, allocatable :: arr(:)
+    end type some_type
+contains
+    recursive subroutine callee(t, val, opt1, opt2, recurse)
+        type(some_type), intent(inout) :: t
+        integer, intent(in) :: val
+        integer, intent(in), optional :: opt1
+        integer, intent(in), optional :: opt2
+        logical, intent(in), optional :: recurse
+
+        if (present(recurse)) then
+            if (recurse) then
+                call callee(t, val, opt1, opt2, recurse=.false.)
+            endif
+        endif
+
+        t%arr(:) = val
+
+        if (present(opt1)) then
+            t%arr(:) = t%arr(:) + opt1
+        endif
+        if (present(opt2)) then
+            t%arr(:) = t%arr(:) + opt2
+        endif
+    end subroutine callee
+
+    recursive function plus(t, val, idx, stop_recurse) result(retval)
+        type(some_type), intent(in) :: t
+        integer, intent(in) :: val, idx
+        logical, intent(in), optional :: stop_recurse
+        integer :: retval
+
+        if (present(stop_recurse)) then
+            if (stop_recurse) then
+                retval = t%arr(idx)
+                return
+            end if
+        endif
+
+        if (val == 2) then
+            retval = plus(t, 1, idx)
+        elseif (val < 2) then
+            retval = plus(t, 0, idx, stop_recurse=.true.)
+        else
+            retval = plus(t, val-1, idx)
+        endif
+
+        retval = retval + 1
+
+    end function plus
+
+    subroutine caller(t)
+        type(some_type), intent(inout) :: t
+        call callee(t, 1, opt2=2)
+        call callee(t, 1, 1)
+        t%arr(1) = plus(t, 32, 1)
+    end subroutine caller
+end module some_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+
+    callee = SubroutineItem(name='some_mod#callee', source=source)
+    caller = SubroutineItem(name='some_mod#caller', source=source)
+    plus = SubroutineItem(name='some_mod#plus', source=source)
+
+    transformation = DerivedTypeArgumentsTransformation()
+    source.apply(transformation, item=callee, role='kernel', successors=())
+    source.apply(transformation, item=plus, role='kernel', successors=())
+    source.apply(transformation, item=caller, role='driver', successors=(callee, plus))
+
+    assert not caller.trafo_data[transformation._key]
+    assert callee.trafo_data[transformation._key]['expansion_map'] == {
+        't': ('t%arr',)
+    }
+    assert plus.trafo_data[transformation._key]['expansion_map'] == {
+        't': ('t%arr',)
+    }
+
+    calls = FindNodes(CallStatement).visit(caller.routine.body)
+    assert len(calls) == 2
+    assert calls[0].arguments == ('t%arr', '1')
+    assert calls[0].kwarguments == (('opt2', '2'),)
+    assert calls[1].arguments == ('t%arr', '1', '1')
+    assert not calls[1].kwarguments
+
+    inline_calls = list(FindInlineCalls().visit(caller.routine.body))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].parameters == ('t%arr', '32', '1')
+    assert not inline_calls[0].kw_parameters
+
+    assert callee.routine.arguments == ('t_arr(:)', 'val', 'opt1', 'opt2', 'recurse')
+    assert callee.routine.arguments[0].type.intent == 'inout'
+
+    calls = FindNodes(CallStatement).visit(callee.routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == ('t_arr', 'val', 'opt1', 'opt2')
+    assert calls[0].kwarguments == (('recurse', 'False'),)
+
+    inline_calls = list(FindInlineCalls().visit(plus.routine.body))
+    inline_calls = [call for call in inline_calls if call.name == 'plus']
+    assert len(inline_calls) == 3
+    for call in inline_calls:
+        if call.kwarguments:
+            assert call.parameters == ('t_arr', '0', 'idx')
+            assert call.kwarguments == (('stop_recurse', 'True'),)
+        else:
+            assert call.parameters in [
+                ('t_arr', '1', 'idx'), ('t_arr', 'val - 1', 'idx')
+            ]
+
+    assert plus.routine.arguments == ('t_arr(:)', 'val', 'idx', 'stop_recurse')
+    assert plus.routine.arguments[0].type.intent == 'in'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_derived_type_arguments_renamed_calls(frontend):
     fcode_header = """
 module header_mod
