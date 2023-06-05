@@ -675,6 +675,10 @@ class Scheduler:
             }
             if isinstance(item, ProcedureBindingItem):
                 style['fillcolor'] = 'palegreen'
+            elif isinstance(item, GlobalVarImportItem):
+                style['fillcolor'] = 'lightgoldenrod1'
+            elif isinstance(item, GenericImportItem):
+                style['fillcolor'] = 'lightgoldenrodyellow'
             if item.replicate:
                 style['shape'] = 'diamond'
                 style['style'] += ',rounded'
