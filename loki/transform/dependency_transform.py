@@ -18,7 +18,7 @@ from loki.tools import as_tuple
 from loki.bulk.item import GlobalVarImportItem
 
 
-__all__ = ['DependencyTransformation']
+__all__ = ['DependencyTransformation', 'GenerateInterfaceHeadersTransformation']
 
 
 class DependencyTransformation(Transformation):
@@ -326,3 +326,38 @@ class DependencyTransformation(Transformation):
                 sourcefile.ir._update(body=as_tuple(
                     module if c is routine else c for c in sourcefile.ir.body
                 ))
+
+
+class GenerateInterfaceHeadersTransformation(Transformation):
+    """
+    Transformation class that generates header files with subroutine interfaces
+
+    This transformation generates the interface block for subroutines
+    that are not members of another routine or a module. The interface blocks
+    are written to header files in the provided :data:`include_path` into
+    files with the name ``<routine_name>.intfb.h``.
+
+    Parameters
+    ----------
+    include_path : str or :any:`pathlib.Path`
+        The directory where generated header files should be written to.
+        The directory is created if it doesn't exist, yet (but not any parent
+        directories).
+    """
+
+    def __init__(self, include_path, **kwargs):
+        super().__init__(**kwargs)
+        self.include_path = Path(include_path)
+        self.include_path.mkdir(exist_ok=True)
+
+    def transform_subroutine(self, routine, **kwargs):
+        if 'item' in kwargs and kwargs['item'].local_name != routine.name.lower():
+            return
+
+        if routine.parent:
+            # Do not generate interfaces for subroutines that are member routines
+            # or contained in a module
+            return
+
+        intfb_path = self.include_path/f'{routine.name.lower()}.intfb.h'
+        intfb_path.write_text(fgen(routine.interface))
