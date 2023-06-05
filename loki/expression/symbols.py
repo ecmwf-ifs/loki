@@ -1365,7 +1365,7 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
         """
         Alias for :attr:`kw_parameters`
         """
-        return self.kw_parameters
+        return as_tuple(self.kw_parameters.items())
 
     @property
     def routine(self):
