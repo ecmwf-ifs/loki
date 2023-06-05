@@ -615,8 +615,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 )
             )
             # Stack increment
+            _real_size_bytes = InlineCall(Variable(name='REAL'), parameters=(
+                                         Literal(1), IntrinsicLiteral(f'kind={self.stack_type_kind}')))
+            _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
+                                          parameters=as_tuple(_real_size_bytes))
             stack_incr = Assignment(
-                lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, Literal(8)))))
+                lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
             )
             loop_map[loop] = loop.clone(
                 body=loop.body[:assign_pos + 1] + (ptr_assignment, stack_incr) + loop.body[assign_pos + 1:]
