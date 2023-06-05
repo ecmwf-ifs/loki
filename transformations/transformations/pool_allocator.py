@@ -5,9 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import pdb
 from loki import (
-    as_tuple, flatten, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
+    as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, IntrinsicLiteral, LogicLiteral,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Scalar,
@@ -164,7 +163,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         imports = FindNodes(Import).visit(routine.spec)
         for imp in imports:
             if imp.module.lower() == 'iso_c_binding':
-                if 'c_sizeof' in [s for s in imp.symbols] or not imp.symbols:
+                if 'c_sizeof' in imp.symbols or not imp.symbols:
                     return
 
                 # Update iso_c_binding import
@@ -458,7 +457,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         dim = arr.dimensions[0]
         for d in arr.dimensions[1:]:
             dim = Product((dim, d))
-        arr_size = Product((dim, InlineCall(Variable(name='C_SIZEOF'), parameters=as_tuple(self._get_c_sizeof_arg(arr)))))
+        arr_size = Product((dim, InlineCall(Variable(name='C_SIZEOF'),
+                                            parameters=as_tuple(self._get_c_sizeof_arg(arr)))))
 
         # Increment stack size
         stack_size = simplify(Sum((stack_size, arr_size)))
