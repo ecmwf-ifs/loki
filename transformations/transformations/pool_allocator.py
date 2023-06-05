@@ -167,7 +167,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     return
 
                 # Update iso_c_binding import
-                imp._update(symbols=as_tuple(imp.symbols + ProcedureSymbol('C_SIZEOF', scope=routine)))
+                imp._update(symbols=imp.symbols + as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)))
 
         # add qualified iso_c_binding import
         imp = Import(module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)))

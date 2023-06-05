@@ -29,6 +29,11 @@ def check_stack_module_import(routine):
     assert 'stack' in routine.imported_symbols
 
 
+def check_c_sizeof_import(routine):
+    assert any(import_.module.lower() == 'iso_c_binding' for import_ in routine.imports)
+    assert 'c_sizeof' in routine.imported_symbols
+
+
 def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_block_loops, generate_driver_stack=True,
                                   real_kind='jprb'):
     # Are stack size, storage and stack derived type declared?
@@ -126,6 +131,7 @@ module kernel_mod
     implicit none
 contains
     subroutine kernel(start, end, klon, klev, {'nclv, ' if not nclv_param else ''} field1, field2)
+        use iso_c_binding, only : c_size_t
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
         {fcode_nclv_param if nclv_param else 'integer, intent(in) :: nclv'}
@@ -232,6 +238,9 @@ end module kernel_mod
     # Has the stack module been imported?
     check_stack_module_import(driver)
 
+    # Has c_sizeof procedure been imported?
+    check_c_sizeof_import(driver)
+
     # Has the stack been added to the call statement?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
@@ -249,6 +258,9 @@ end module kernel_mod
 
     # Has the stack module been imported?
     check_stack_module_import(kernel)
+
+    # Has c_sizeof procedure been imported?
+    check_c_sizeof_import(kernel)
 
     # Has the stack been added to the arguments?
     assert 'ydstack' in kernel.arguments
