@@ -393,7 +393,10 @@ class GlobalVarOffloadTransformation(Transformation):
         routine.body = Transformer(pragma_map).visit(routine.body)
 
         # build set of symbols to be offloaded
-        _var_set = set.union(*[s.trafo_data[self._key]['var_set'] for s in successors], set())
+        _var_set = set.union(
+            *[s.trafo_data.get(self._key, {}).get('var_set', set()) for s in successors],
+            set()
+        )
         #build map of module imports corresponding to offloaded symbols
         _modules = {}
         _modules.update({k: v
@@ -434,8 +437,10 @@ class GlobalVarOffloadTransformation(Transformation):
         import_mod = CaseInsensitiveDict((s.name, i.module) for i in routine.imports for s in i.symbols)
 
         #build set of offloaded symbols
-        item.trafo_data[self._key]['var_set'] = set.union(*[s.trafo_data[self._key]['var_set'] for s in successors],
-                                                          set())
+        item.trafo_data[self._key]['var_set'] = set.union(
+            *[s.trafo_data.get(self._key, {}).get('var_set', set()) for s in successors],
+            set()
+        )
 
         #build map of module imports corresponding to offloaded symbols
         item.trafo_data[self._key]['modules'].update({k: v
