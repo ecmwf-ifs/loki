@@ -72,7 +72,8 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
 @pytest.mark.parametrize('frontend', available_frontends(
                          xfail=[(OMNI, 'OMNI replaces parameters with initialisation value.')]))
 @pytest.mark.parametrize('check_bounds', [False, True])
-def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds):
+@pytest.mark.parametrize('nclv_param', [False, True])
+def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds, nclv_param):
     fcode_stack_mod = """
 MODULE STACK_MOD
 IMPLICIT NONE
@@ -86,12 +87,13 @@ END MODULE
 
     fcode_stack_import = "use stack_mod, only: stack"
     fcode_iso_c_binding = "use iso_c_binding, only: c_sizeof"
-    fcode_stack_decl = """
+    fcode_nclv_param = 'integer, parameter :: nclv = 2'
+    fcode_stack_decl = f"""
     integer :: istsz
     REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
     type(stack) :: ylstack
 
-    istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))
+    {'istsz = c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nclv*nlon/c_sizeof(real(1,kind=jprb))' if nclv_param else 'istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+2*c_sizeof(real(1,kind=jprb))/c_sizeof(real(1,kind=jprb))'}
     ALLOCATE(ZSTACK(ISTSZ, nb))
     """
     fcode_stack_assign = """
@@ -114,19 +116,20 @@ subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     {fcode_stack_decl if not generate_driver_stack else ''}
     do b=1,nb
         {fcode_stack_assign if not generate_driver_stack else ''}
-        call KERNEL(1, nlon, nlon, nz, 2, field1(:,b), field2(:,:,b))
+        call KERNEL(1, nlon, nlon, nz, {'2, ' if not nclv_param else ''} field1(:,b), field2(:,:,b))
     end do
     {fcode_stack_dealloc if not generate_driver_stack else ''}
 end subroutine driver
     """.strip()
-    fcode_kernel = """
+    fcode_kernel = f"""
 module kernel_mod
     implicit none
 contains
-    subroutine kernel(start, end, klon, klev, nclv, field1, field2)
+    subroutine kernel(start, end, klon, klev, {'nclv, ' if not nclv_param else ''} field1, field2)
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
-        integer, intent(in) :: start, end, klon, klev, nclv
+        {fcode_nclv_param if nclv_param else 'integer, intent(in) :: nclv'}
+        integer, intent(in) :: start, end, klon, klev
         real(kind=jprb), intent(inout) :: field1(klon)
         real(kind=jprb), intent(inout) :: field2(klon,klev)
         real(kind=jprb) :: tmp1(klon)
@@ -144,6 +147,7 @@ contains
         end do
 
         do jm=1,nclv
+           tmp3(jm) = 0._jprb
            do jl=start,end
              tmp5(jl, jm) = field1(jl)
            enddo
@@ -202,13 +206,22 @@ end module kernel_mod
 
     assert transformation._key in kernel_item.trafo_data
 
-    trafo_data_compare = 'c_sizeof(real(1, kind=jprb)) * klon + c_sizeof(real(1, kind=jprb)) * klev * klon'
-    trafo_data_compare += '+ c_sizeof(real(1, kind=jprb)) * klon * nclv'
+    if nclv_param:
+        trafo_data_compare = 'c_sizeof(real(1, kind=jprb)) * klon + c_sizeof(real(1, kind=jprb)) * klev * klon'
+        trafo_data_compare += '+ c_sizeof(real(1, kind=jprb)) * klon * nclv'
 
-    stack_size = '3 * c_sizeof(real(1, kind=jprb)) * nlon / c_sizeof(real(1, kind=jprb))'
-    stack_size += '+ c_sizeof(real(1, kind=jprb)) * nlon * nz / c_sizeof(real(1, kind=jprb))'
+        stack_size = 'c_sizeof(real(1, kind=jprb)) * nlon / c_sizeof(real(1, kind=jprb))'
+        stack_size += '+ c_sizeof(real(1, kind=jprb)) * nlon * nz / c_sizeof(real(1, kind=jprb))'
+        stack_size += '+ c_sizeof(real(1, kind=jprb)) * nclv * nlon / c_sizeof(real(1, kind=jprb))'
+    else:
+        trafo_data_compare = 'c_sizeof(real(1, kind=jprb)) * klon + c_sizeof(real(1, kind=jprb)) * klev * klon'
+        trafo_data_compare += '+ c_sizeof(real(1, kind=jprb)) * nclv + c_sizeof(real(1, kind=jprb)) * klon * nclv'
 
-    assert kernel_item.trafo_data[transformation._key] == trafo_data_compare.strip()
+        stack_size = '3 * c_sizeof(real(1, kind=jprb)) * nlon / c_sizeof(real(1, kind=jprb))'
+        stack_size += '+ c_sizeof(real(1, kind=jprb)) * nlon * nz / c_sizeof(real(1, kind=jprb))'
+        stack_size += '+ 2 * c_sizeof(real(1, kind=jprb)) / c_sizeof(real(1, kind=jprb))'
+
+    assert kernel_item.trafo_data[transformation._key] == trafo_data_compare
     assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
 
     #
@@ -222,9 +235,12 @@ end module kernel_mod
     # Has the stack been added to the call statement?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
+    if nclv_param:
+        assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
+    else:
+        assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
-    check_stack_created_in_driver(driver, stack_size.strip(), calls[0], 1, generate_driver_stack)
+    check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack)
 
     #
     # A few checks on the kernel
@@ -241,7 +257,10 @@ end module kernel_mod
     assert 'ylstack' in kernel.variables
 
     # Let's check for the relevant "allocations" happening in the right order
-    tmp_indices = (1, 2, 5)
+    if nclv_param:
+        tmp_indices = (1, 2, 5)
+    else:
+        tmp_indices = (1, 2, 3, 5)
     assign_idx = {}
     for idx, assign in enumerate(FindNodes(Assignment).visit(kernel.body)):
         if assign.lhs == 'ylstack' and assign.rhs == 'ydstack':
