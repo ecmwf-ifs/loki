@@ -29,7 +29,8 @@ def check_stack_module_import(routine):
     assert 'stack' in routine.imported_symbols
 
 
-def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_block_loops, generate_driver_stack=True):
+def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_block_loops, generate_driver_stack=True,
+                                  real_kind='jprb'):
     # Are stack size, storage and stack derived type declared?
     assert 'istsz' in driver.variables
     assert 'zstack(:,:)' in driver.variables
@@ -57,19 +58,21 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
     assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
     assert 'zstack(1, b)' in assignments[0].rhs.parameters
     if generate_driver_stack:
-        assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + istsz * 8'
+        assert assignments[1].lhs == 'ylstack%u' and (
+               assignments[1].rhs == f'ylstack%l + istsz * c_sizeof(real(1, kind={real_kind}))')
     else:
-        assert assignments[1].lhs == 'ylstack%u' and assignments[1].rhs == 'ylstack%l + 8 * istsz'
+        assert assignments[1].lhs == 'ylstack%u' and (
+               assignments[1].rhs == f'ylstack%l + c_sizeof(real(1, kind={real_kind})) * istsz')
 
     # Check that stack assignment happens before kernel call
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
 
 
 @pytest.mark.parametrize('generate_driver_stack', [False, True])
-@pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('check_bounds', [False,True])
-@pytest.mark.parametrize('provide_alloc_dims', [False, True])
-def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds, provide_alloc_dims):
+@pytest.mark.parametrize('frontend', available_frontends(
+                         xfail=[(OMNI, 'OMNI replaces parameters with initialisation value.')]))
+@pytest.mark.parametrize('check_bounds', [False, True])
+def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds):
     fcode_stack_mod = """
 MODULE STACK_MOD
 IMPLICIT NONE
@@ -82,23 +85,25 @@ END MODULE
     """.strip()
 
     fcode_stack_import = "use stack_mod, only: stack"
-    fcode_stack_decl = f"""
+    fcode_iso_c_binding = "use iso_c_binding, only: c_sizeof"
+    fcode_stack_decl = """
     integer :: istsz
     REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
     type(stack) :: ylstack
 
-    istsz = {'(nz+3) * nlon' if provide_alloc_dims else '4 + (nz+3) * nlon'}
+    istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))
     ALLOCATE(ZSTACK(ISTSZ, nb))
     """
     fcode_stack_assign = """
         ylstack%l = loc(zstack(1, b))
-        ylstack%u = ylstack%l + 8 * istsz
+        ylstack%u = ylstack%l + c_sizeof(real(1, kind=jprb)) * istsz
     """
     fcode_stack_dealloc = "DEALLOCATE(ZSTACK)"
 
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     {fcode_stack_import if not generate_driver_stack else ''}
+    {fcode_iso_c_binding if not generate_driver_stack else ''}
     use kernel_mod, only: kernel
     implicit none
     INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
@@ -127,7 +132,7 @@ contains
         real(kind=jprb) :: tmp1(klon)
         real(kind=jprb) :: tmp2(klon, klev)
         real(kind=jprb) :: tmp3(nclv), tmp4(2), tmp5(klon, nclv)
-        integer :: jk, jl
+        integer :: jk, jl, jm
 
         do jk=1,klev
             tmp1(jl) = 0.0_jprb
@@ -137,6 +142,12 @@ contains
             end do
             field1(jl) = tmp1(jl)
         end do
+
+        do jm=1,nclv
+           do jl=start,end
+             tmp5(jl, jm) = field1(jl)
+           enddo
+        enddo
     end subroutine kernel
 end module kernel_mod
     """.strip()
@@ -183,25 +194,21 @@ end module kernel_mod
         for item in scheduler.items:
             normalize_range_indexing(item.routine)
 
-    if provide_alloc_dims:
-        alloc_dims = [
-            Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'), aliases=('klon',)),
-            Dimension(name='vertical', size='nz', index='jk', aliases=('klev',))
-        ]
-    else:
-        alloc_dims = None
-
     transformation = TemporariesPoolAllocatorTransformation(
-        block_dim=block_dim, check_bounds=check_bounds, allocation_dims=alloc_dims
+        block_dim=block_dim, check_bounds=check_bounds
     )
     scheduler.process(transformation=transformation, reverse=True)
     kernel_item = scheduler['kernel_mod#kernel']
 
     assert transformation._key in kernel_item.trafo_data
-    if provide_alloc_dims:
-        assert kernel_item.trafo_data[transformation._key] == 'klon + klev * klon + klon * nclv'
-    else:
-        assert kernel_item.trafo_data[transformation._key] == '2 + klon + klev * klon + nclv + klon * nclv'
+
+    trafo_data_compare = 'c_sizeof(real(1, kind=jprb)) * klon + c_sizeof(real(1, kind=jprb)) * klev * klon'
+    trafo_data_compare += '+ c_sizeof(real(1, kind=jprb)) * klon * nclv'
+
+    stack_size = '3 * c_sizeof(real(1, kind=jprb)) * nlon / c_sizeof(real(1, kind=jprb))'
+    stack_size += '+ c_sizeof(real(1, kind=jprb)) * nlon * nz / c_sizeof(real(1, kind=jprb))'
+
+    assert kernel_item.trafo_data[transformation._key] == trafo_data_compare.strip()
     assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
 
     #
@@ -217,10 +224,7 @@ end module kernel_mod
     assert len(calls) == 1
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
-    if provide_alloc_dims:
-        check_stack_created_in_driver(driver, '3 * nlon + nlon * nz', calls[0], 1, generate_driver_stack)
-    else:
-        check_stack_created_in_driver(driver, '4 + 3 * nlon + nlon * nz', calls[0], 1, generate_driver_stack)
+    check_stack_created_in_driver(driver, stack_size.strip(), calls[0], 1, generate_driver_stack)
 
     #
     # A few checks on the kernel
@@ -237,10 +241,7 @@ end module kernel_mod
     assert 'ylstack' in kernel.variables
 
     # Let's check for the relevant "allocations" happening in the right order
-    if provide_alloc_dims:
-        tmp_indices = (1, 2, 5)
-    else:
-        tmp_indices = (1, 2, 3, 4, 5)
+    tmp_indices = (1, 2, 5)
     assign_idx = {}
     for idx, assign in enumerate(FindNodes(Assignment).visit(kernel.body)):
         if assign.lhs == 'ylstack' and assign.rhs == 'ydstack':
@@ -251,10 +252,18 @@ end module kernel_mod
             for tmp_index in tmp_indices:
                 if f'ip_tmp{tmp_index}' == assign.lhs:
                     assign_idx[f'tmp{tmp_index}_ptr_assign'] = idx
-        elif assign.lhs == 'ylstack%l' and 'ylstack%l' in assign.rhs and 'size' in assign.rhs:
+        elif assign.lhs == 'ylstack%l' and 'ylstack%l' in assign.rhs and 'c_sizeof' in assign.rhs:
+            _size = str(assign.rhs).lower().replace('*c_sizeof(real(1, kind=jprb))', '')
+            _size = _size.replace('ylstack%l + ', '')
+
             # Stack increment for tmp1, tmp2, tmp5 (and tmp3, tmp4 if no alloc_dims provided)
             for tmp_index in tmp_indices:
-                if f'tmp{tmp_index}' in assign.rhs:
+
+                dim = f"{kernel.variable_map[f'tmp{tmp_index}'].shape[0]}"
+                for v in kernel.variable_map[f'tmp{tmp_index}'].shape[1:]:
+                    dim += f'*{v}'
+
+                if dim == _size:
                     assign_idx[f'tmp{tmp_index}_stack_incr'] = idx
 
     expected_assign_in_order = ['stack_assign']
@@ -281,7 +290,8 @@ end module kernel_mod
     rmtree(basedir)
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+                         xfail=[(OMNI, 'OMNI replaces parameters with initialisation value.')]))
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directive):
     if directive == 'openmp':
@@ -357,12 +367,13 @@ contains
         integer, parameter :: jprb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, klon, klev
         real(kind=jprb), intent(inout) :: field2(klon,klev)
-        real(kind=jprb) :: tmp1(klon, klev), tmp2(klon, klev)
+        real(kind=jprb) :: tmp1(2*klon, klev), tmp2(klon, klev)
         integer :: jk, jl
 
         do jk=1,klev
             do jl=start,end
                 tmp1(jl, jk) = field2(jl, jk)
+                tmp1(jl+klon, jk) = field2(jl, jk)*2._jprb
                 tmp2(jl, jk) = tmp1(jl, jk) + 1._jprb
                 field2(jl, jk) = tmp2(jl, jk)
             end do
@@ -400,8 +411,9 @@ end module kernel_mod
     kernel2_item = scheduler['kernel_mod#kernel2']
 
     assert transformation._key in kernel_item.trafo_data
-    assert kernel_item.trafo_data[transformation._key] == 'klon + klev * klon'
-    assert kernel2_item.trafo_data[transformation._key] == '2 * klev * klon'
+    assert kernel_item.trafo_data[transformation._key] == (
+           'c_sizeof(real(1, kind=jprb))*klon + c_sizeof(real(1, kind=jprb))*klev*klon')
+    assert kernel2_item.trafo_data[transformation._key] == '3*c_sizeof(real(1, kind=jprb))*klev*klon'
     assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
     assert all(v.scope is None for v in FindVariables().visit(kernel2_item.trafo_data[transformation._key]))
 
@@ -419,7 +431,9 @@ end module kernel_mod
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
     assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)', 'ylstack')
 
-    check_stack_created_in_driver(driver, 'max(nlon + nlon * nz, 2 * nz * nlon)', calls[0], 2)
+    stack_size = 'max(c_sizeof(real(1, kind=jprb))*nlon + c_sizeof(real(1, kind=jprb))*nlon*nz,'
+    stack_size += '3*c_sizeof(real(1, kind=jprb))*nz*nlon)/c_sizeof(real(1, kind=jprb))'
+    check_stack_created_in_driver(driver, stack_size, calls[0], 2)
 
     # Has the data sharing been updated?
     if directive in ['openmp', 'openacc']:
@@ -458,9 +472,19 @@ end module kernel_mod
         # Is it being assigned to a local variable?
         assert 'ylstack' in kernel.variables
 
+        dim1 = f"{kernel.variable_map['tmp1'].shape[0]}"
+        for v in kernel.variable_map['tmp1'].shape[1:]:
+            dim1 += f'*{v}'
+        dim2 = f"{kernel.variable_map['tmp2'].shape[0]}"
+        for v in kernel.variable_map['tmp2'].shape[1:]:
+            dim2 += f'*{v}'
+
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
+            _size = str(ass.rhs).lower().replace('*c_sizeof(real(1, kind=jprb))', '')
+            _size = _size.replace('ylstack%l + ', '')
+
             if ass.lhs == 'ylstack' and ass.rhs == 'ydstack':
                 # Local copy of stack status
                 assign_idx['stack_assign'] = idx
@@ -470,10 +494,10 @@ end module kernel_mod
             elif ass.lhs == 'ip_tmp2' and ass.rhs == 'ylstack%l':
                 # ass Cray pointer for tmp2
                 assign_idx['tmp2_ptr_assign'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'size' in ass.rhs and 'tmp1' in ass.rhs:
+            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
                 # Stack increment for tmp1
                 assign_idx['tmp1_stack_incr'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'tmp2' in ass.rhs and 'tmp2' in ass.rhs:
+            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim2 == _size:
                 # Stack increment for tmp2
                 assign_idx['tmp2_stack_incr'] = idx
 
@@ -497,7 +521,8 @@ end module kernel_mod
     rmtree(basedir)
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+                         xfail=[(OMNI, 'OMNI replaces parameters with initialisation value.')]))
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive):
     if directive == 'openmp':
@@ -561,13 +586,14 @@ contains
         integer, parameter :: jwrb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, columns, levels
         real(kind=jwrb), intent(inout) :: field2(columns,levels)
-        real(kind=jwrb) :: tmp1(columns, levels), tmp2(columns, levels)
+        real(kind=jwrb) :: tmp1(2*columns, levels), tmp2(columns, levels)
         integer :: jk, jl
         {kernel_pragma}
 
         do jk=1,levels
             do jl=start,end
                 tmp1(jl, jk) = field2(jl, jk)
+                tmp1(jl+columns, jk) = field2(jl, jk)*2._jwrb
                 tmp2(jl, jk) = tmp1(jl, jk) + 1._jwrb
                 field2(jl, jk) = tmp2(jl, jk)
             end do
@@ -606,8 +632,9 @@ end module kernel_mod
     kernel2_item = scheduler['kernel_mod#kernel2']
 
     assert transformation._key in kernel_item.trafo_data
-    assert kernel_item.trafo_data[transformation._key] == 'klon + 3 * klev * klon'
-    assert kernel2_item.trafo_data[transformation._key] == '2 * columns * levels'
+    assert kernel_item.trafo_data[transformation._key] == (
+           'c_sizeof(real(1, kind=jwrb))*klon + 4*c_sizeof(real(1, kind=jwrb))*klev*klon')
+    assert kernel2_item.trafo_data[transformation._key] == '3*c_sizeof(real(1, kind=jwrb))*columns*levels'
     assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
     assert all(v.scope is None for v in FindVariables().visit(kernel2_item.trafo_data[transformation._key]))
 
@@ -624,7 +651,9 @@ end module kernel_mod
     assert len(calls) == 1
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
-    check_stack_created_in_driver(driver, 'nlon + 3 * nlon * nz', calls[0], 1)
+    stack_size = 'c_sizeof(real(1, kind=jwrb))*nlon/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += '4*c_sizeof(real(1, kind=jwrb))*nlon*nz/c_sizeof(real(1, kind=jwrb))'
+    check_stack_created_in_driver(driver, stack_size, calls[0], 1, real_kind='jwrb')
 
     # check if stack allocatable in the driver has the correct kind parameter
     if not frontend == OMNI:
@@ -671,9 +700,19 @@ end module kernel_mod
         # Is it being assigned to a local variable?
         assert 'ylstack' in kernel.variables
 
+        dim1 = f"{kernel.variable_map['tmp1'].shape[0]}"
+        for v in kernel.variable_map['tmp1'].shape[1:]:
+            dim1 += f'*{v}'
+        dim2 = f"{kernel.variable_map['tmp2'].shape[0]}"
+        for v in kernel.variable_map['tmp2'].shape[1:]:
+            dim2 += f'*{v}'
+
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
+            _size = str(ass.rhs).lower().replace('*c_sizeof(real(1, kind=jwrb))', '')
+            _size = _size.replace('ylstack%l + ', '')
+
             if ass.lhs == 'ylstack' and ass.rhs == 'ydstack':
                 # Local copy of stack status
                 assign_idx['stack_assign'] = idx
@@ -683,10 +722,10 @@ end module kernel_mod
             elif ass.lhs == 'ip_tmp2' and ass.rhs == 'ylstack%l':
                 # ass Cray pointer for tmp2
                 assign_idx['tmp2_ptr_assign'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'size' in ass.rhs and 'tmp1' in ass.rhs:
+            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
                 # Stack increment for tmp1
                 assign_idx['tmp1_stack_incr'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'tmp2' in ass.rhs and 'tmp2' in ass.rhs:
+            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim2 == _size:
                 # Stack increment for tmp2
                 assign_idx['tmp2_stack_incr'] = idx
 
@@ -789,7 +828,7 @@ def test_pool_allocator_more_call_checks(frontend, block_dim):
 
     if not frontend == OFP:
         # Now repeat the checks for the inline call
-        calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() == 'size']
+        calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() in ('c_sizeof', 'real')]
         assert len(calls) == 1
         assert calls[0].parameters == ('jl', 'ylstack')
 
