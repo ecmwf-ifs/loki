@@ -11,8 +11,9 @@ A selection of tests for symbolic computations using expression tree nodes.
 import operator as op
 import pytest
 
+from conftest import available_frontends
 import pymbolic.primitives as pmbl
-from loki import parse_fparser_expression, Scope, HAVE_FP
+from loki import parse_fparser_expression, Scope, HAVE_FP, is_dimension_constant, Subroutine
 from loki.expression import symbols as sym, simplify, Simplification, symbolic_op
 
 
@@ -207,3 +208,25 @@ def test_simplify(source,ref):
     expr = parse_fparser_expression(source, scope)
     expr = simplify(expr)
     assert str(expr) == ref
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_is_dimension_constant(frontend):
+    fcode = """
+    subroutine kernel(a, n)
+    implicit none
+    integer, parameter :: m = 2
+    integer :: k = 3
+    integer, intent(in) :: n
+    real, intent(inout) :: a(n,m,2:5,n+1:n+5,k)
+    end subroutine kernel
+    """
+
+    routine = Subroutine.from_source(fcode, frontend)
+    is_const = [is_dimension_constant(d) for d in routine.variable_map['a'].shape]
+
+    assert is_const[1]
+    assert is_const[2]
+    assert is_const[4]
+    assert not is_const[0]
+    assert not is_const[3]
