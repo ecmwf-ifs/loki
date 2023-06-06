@@ -38,8 +38,6 @@ class SCCBaseTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
-        self._processed = {}
-
     @classmethod
     def check_routine_pragmas(cls, routine, directive):
         """
@@ -205,7 +203,7 @@ class SCCBaseTransformation(Transformation):
 
         # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
         # Bail if routine has already been processed
-        if self._processed.get(routine, None):
+        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
             return
 
         role = kwargs['role']
@@ -214,9 +212,6 @@ class SCCBaseTransformation(Transformation):
             self.process_kernel(routine)
         if role == 'driver':
             self.process_driver(routine)
-
-        # Mark routine as processed
-        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """
@@ -296,8 +291,6 @@ class SCCAnnotateTransformation(Transformation):
         self.directive = directive
         self.block_dim = block_dim
         self.hoist_column_arrays = hoist_column_arrays
-
-        self._processed = {}
 
     @classmethod
     def kernel_annotate_vector_loops_openacc(cls, routine, horizontal, vertical):
@@ -414,20 +407,16 @@ class SCCAnnotateTransformation(Transformation):
 
         # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
         # Bail if routine has already been processed
-        if self._processed.get(routine, None):
+        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
             return
 
         role = kwargs['role']
         targets = kwargs.get('targets', None)
-        item = kwargs.get('item', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
         if role == 'driver':
             self.process_driver(routine, targets=targets, item=item)
-
-        # Mark routine as processed
-        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """
@@ -598,8 +587,6 @@ class SCCHoistTransformation(Transformation):
         self.vertical = vertical
         self.block_dim = block_dim
 
-        self._processed = {}
-
     @classmethod
     def get_column_locals(cls, routine, vertical):
         """
@@ -741,21 +728,17 @@ class SCCHoistTransformation(Transformation):
 
         # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
         # Bail if routine has already been processed
-        if self._processed.get(routine, None):
+        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
             return
 
         role = kwargs['role']
         targets = kwargs.get('targets', None)
-        item = kwargs.get('item', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
 
         if role == 'driver':
             self.process_driver(routine, targets=targets, item=item)
-
-        # Mark routine as processed
-        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """

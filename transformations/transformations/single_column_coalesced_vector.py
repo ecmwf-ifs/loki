@@ -32,8 +32,6 @@ class SCCDevectorTransformation(Transformation):
     def __init__(self, horizontal):
         self.horizontal = horizontal
 
-        self._processed = {}
-
     @classmethod
     def kernel_remove_vector_loops(cls, routine, horizontal):
         """
@@ -132,16 +130,13 @@ class SCCDevectorTransformation(Transformation):
 
         # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
         # Bail if routine has already been processed
-        if self._processed.get(routine, None):
+        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
             return
 
         role = kwargs['role']
 
         if role == 'kernel':
             self.process_kernel(routine)
-
-        # Mark routine as processed
-        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """
@@ -178,7 +173,6 @@ class SCCRevectorTransformation(Transformation):
 
     def __init__(self, horizontal):
         self.horizontal = horizontal
-        self._processed = {}
 
     @classmethod
     def wrap_vector_section(cls, section, routine, horizontal):
@@ -222,16 +216,13 @@ class SCCRevectorTransformation(Transformation):
 
         # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
         # Bail if routine has already been processed
-        if self._processed.get(routine, None):
+        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
             return
 
         role = kwargs['role']
 
         if role == 'kernel':
             self.process_kernel(routine)
-
-        # Mark routine as processed
-        self._processed[routine] = True
 
     def process_kernel(self, routine):
         """
@@ -267,7 +258,6 @@ class SCCDemoteTransformation(Transformation):
         self.horizontal = horizontal
 
         self.demote_local_arrays = demote_local_arrays
-        self._processed = {}
 
     @classmethod
     def kernel_get_locals_to_demote(cls, routine, sections, horizontal):
@@ -325,20 +315,16 @@ class SCCDemoteTransformation(Transformation):
 
         # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
         # Bail if routine has already been processed
-        if self._processed.get(routine, None):
+        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
             return
 
         role = kwargs['role']
-        item = kwargs.get('item', None)
 
         if role == 'kernel':
             demote_locals = self.demote_local_arrays
             if item:
                 demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
             self.process_kernel(routine, demote_locals=demote_locals)
-
-        # Mark routine as processed
-        self._processed[routine] = True
 
     def process_kernel(self, routine, demote_locals=True):
         """

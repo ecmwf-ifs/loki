@@ -321,7 +321,6 @@ def test_scc_demote_transformation(frontend, horizontal):
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     for transform in scc_transform:
         transform.apply(kernel, role='kernel')
-        transform.apply(kernel, role='kernel')
 
     # Ensure correct array variables shapes
     assert isinstance(kernel.variable_map['a'], Scalar)
@@ -694,7 +693,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
   END SUBROUTINE compute_column
 """
 
-    item_driver = SubroutineItem(name='#column_driver', source=fcode_driver)
+    driver_item = SubroutineItem(name='#column_driver', source=fcode_driver)
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
@@ -706,7 +705,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical, directive='openacc',
                                               block_dim=blocking, hoist_column_arrays=True),)
     for transform in scc_transform:
-        transform.apply(driver, role='driver', targets=['compute_column'], item=item_driver)
+        transform.apply(driver, role='driver', targets=['compute_column'], item=driver_item)
         transform.apply(kernel, role='kernel')
 
     with pragmas_attached(kernel, Loop):
@@ -797,7 +796,7 @@ def test_scc_wrapper_hoist_openacc(frontend, horizontal, vertical, blocking):
   END SUBROUTINE compute_column
 """
 
-    item_driver = SubroutineItem(name='#column_driver', source=fcode_driver)
+    driver_item = SubroutineItem(name='#column_driver', source=fcode_driver)
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
@@ -807,7 +806,7 @@ def test_scc_wrapper_hoist_openacc(frontend, horizontal, vertical, blocking):
                                                          block_dim=blocking, directive='openacc',
                                                          hoist_column_arrays=True),)
     for transform in scc_transform:
-        transform.apply(driver, role='driver', targets=['compute_column'], item=item_driver)
+        transform.apply(driver, role='driver', targets=['compute_column'], item=driver_item)
         transform.apply(kernel, role='kernel')
 
     with pragmas_attached(kernel, Loop):
@@ -895,7 +894,7 @@ def test_single_column_coalesced_hoist_empty(frontend, horizontal, vertical, blo
   END SUBROUTINE compute_column2
 """
 
-    item_driver = SubroutineItem(name='#column_driver', source=fcode_driver)
+    driver_item = SubroutineItem(name='#column_driver', source=fcode_driver)
     kernel1 = Subroutine.from_source(fcode_kernel1, frontend=frontend)
     kernel2 = Subroutine.from_source(fcode_kernel2, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
@@ -909,7 +908,7 @@ def test_single_column_coalesced_hoist_empty(frontend, horizontal, vertical, blo
                                               block_dim=blocking, hoist_column_arrays=True),)
 
     for transform in scc_transform:
-        transform.apply(driver, role='driver', targets=['compute_column1', 'compute_column2'], item=item_driver)
+        transform.apply(driver, role='driver', targets=['compute_column1', 'compute_column2'], item=driver_item)
         transform.apply(kernel1, role='kernel')
         transform.apply(kernel2, role='kernel')
 
