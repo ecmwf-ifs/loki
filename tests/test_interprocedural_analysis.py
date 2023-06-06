@@ -14,7 +14,7 @@ import pytest
 from conftest import available_frontends
 from loki import (
     Sourcefile, FindNodes, FindInlineCalls,
-    CallStatement, InlineCall, IntLiteral
+    CallStatement, IntLiteral
 )
 
 
