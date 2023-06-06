@@ -17,18 +17,22 @@ from transformations import (
      DataOffloadTransformation, SCCBaseTransformation, SCCDevectorTransformation, SCCDemoteTransformation,
      SCCRevectorTransformation, SCCHoistTransformation, SCCAnnotateTransformation, SingleColumnCoalescedTransformation
 )
+#pylint: disable=too-many-lines
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
     return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'))
 
+
 @pytest.fixture(scope='module', name='vertical')
 def fixture_vertical():
     return Dimension(name='vertical', size='nz', index='jk')
 
+
 @pytest.fixture(scope='module', name='blocking')
 def fixture_blocking():
     return Dimension(name='blocking', size='nb', index='b')
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_revector_transformation(frontend, horizontal):
@@ -114,6 +118,7 @@ def test_scc_revector_transformation(frontend, horizontal):
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_base_resolve_vector_notation(frontend, horizontal):
     """
@@ -162,6 +167,7 @@ def test_scc_base_resolve_vector_notation(frontend, horizontal):
     assigns = FindNodes(Assignment).visit(kernel.body)
     assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_base_masked_statement(frontend, horizontal):
@@ -214,6 +220,7 @@ def test_scc_base_masked_statement(frontend, horizontal):
     assert fgen(kernel_conds[0].body) == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(kernel_conds[0].else_body) == 'q(jl, jk) = t(jl, jk)'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_wrapper_masked_statement(frontend, horizontal, vertical):
     """
@@ -265,6 +272,7 @@ def test_scc_wrapper_masked_statement(frontend, horizontal, vertical):
     assert kernel_conds[0].condition == 'q(jl, jk) > 1.234'
     assert fgen(kernel_conds[0].body) == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(kernel_conds[0].else_body) == 'q(jl, jk) = t(jl, jk)'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_demote_transformation(frontend, horizontal):
@@ -336,6 +344,7 @@ def test_scc_demote_transformation(frontend, horizontal):
     assert fgen(assigns[5]).lower() == 'b(2) = q(jl, 3)'
     assert fgen(assigns[6]).lower() == 'b(3) = a*(b(1) + b(2))'
     assert fgen(assigns[7]).lower() == 'q(jl, nz) = q(jl, nz)*c + b(3)'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
@@ -438,6 +447,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     assert 'jl' in kernel.argnames
     assert kernel.variable_map['jl'].type.intent.lower() == 'in'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_wrapper_multiple_kernels(frontend, horizontal, vertical, blocking):
     """
@@ -538,6 +548,7 @@ def test_scc_wrapper_multiple_kernels(frontend, horizontal, vertical, blocking):
     assert 'jl' in kernel.argnames
     assert kernel.variable_map['jl'].type.intent.lower() == 'in'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
     """
@@ -628,6 +639,7 @@ def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
         assert len(driver_loops) == 1
         assert driver_loops[0].pragma[0].keyword == 'acc'
         assert driver_loops[0].pragma[0].content == 'parallel loop gang'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, blocking):
@@ -731,6 +743,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
         assert driver_pragmas[1].keyword == 'acc'
         assert driver_pragmas[1].content == 'exit data delete(t)'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_wrapper_hoist_openacc(frontend, horizontal, vertical, blocking):
     """
@@ -831,6 +844,7 @@ def test_scc_wrapper_hoist_openacc(frontend, horizontal, vertical, blocking):
         assert driver_pragmas[1].keyword == 'acc'
         assert driver_pragmas[1].content == 'exit data delete(t)'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_hoist_empty(frontend, horizontal, vertical, blocking):
     """
@@ -909,6 +923,7 @@ def test_single_column_coalesced_hoist_empty(frontend, horizontal, vertical, blo
         assert driver_pragmas[0].content == 'enter data create(t)'
         assert driver_pragmas[1].keyword == 'acc'
         assert driver_pragmas[1].content == 'exit data delete(t)'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking):
@@ -1051,6 +1066,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert outer_kernel_pragmas[2].keyword == 'acc'
         assert outer_kernel_pragmas[2].content == 'end data'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, blocking):
     """
@@ -1144,6 +1160,7 @@ def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, bloc
         assert len(FindNodes(CallStatement).visit(kernel_loops[4])) == 0
         assert len(FindNodes(CallStatement).visit(kernel.body)) == 4
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_devector_transformation(frontend, horizontal):
     """
@@ -1219,6 +1236,7 @@ def test_scc_devector_transformation(frontend, horizontal):
     assigns = FindNodes(Assignment).visit(sections[3])
     assert len(assigns) == 1
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_variable_demotion(frontend, horizontal):
     """
@@ -1266,6 +1284,7 @@ def test_single_column_coalesced_variable_demotion(frontend, horizontal):
     assert isinstance(kernel.variable_map['a'], Array)
     assert isinstance(kernel.variable_map['b'], Scalar)
     assert isinstance(kernel.variable_map['c'], Scalar)
+
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP,
                          'OFP fails to parse multiconditional with embedded call.')]))
@@ -1332,6 +1351,7 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
     assert pragmas[5].keyword == 'acc'
     assert pragmas[5].content == 'loop vector'
 
+
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP,
                          'OFP fails to parse multiconditional with embedded call.')]))
 def test_scc_wrapper_multicond(frontend, horizontal, vertical, blocking):
@@ -1393,6 +1413,7 @@ def test_scc_wrapper_multicond(frontend, horizontal, vertical, blocking):
     assert pragmas[4].content == 'loop vector'
     assert pragmas[5].keyword == 'acc'
     assert pragmas[5].content == 'loop vector'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vertical, blocking):
@@ -1461,6 +1482,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     assert pragmas[1].content == 'parallel loop gang'
     assert pragmas[2].content == 'end parallel loop'
     assert pragmas[3].content == 'end data'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_base_routine_seq_pragma(frontend, horizontal):
