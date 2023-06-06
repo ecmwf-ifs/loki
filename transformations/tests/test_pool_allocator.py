@@ -34,8 +34,8 @@ def check_c_sizeof_import(routine):
     assert 'c_sizeof' in routine.imported_symbols
 
 
-def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_block_loops, generate_driver_stack=True,
-                                  real_kind='jprb'):
+def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_block_loops,
+                                  generate_driver_stack=True, kind_real='jprb'):
     # Are stack size, storage and stack derived type declared?
     assert 'istsz' in driver.variables
     assert 'zstack(:,:)' in driver.variables
@@ -64,18 +64,17 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
     assert 'zstack(1, b)' in assignments[0].rhs.parameters
     if generate_driver_stack:
         assert assignments[1].lhs == 'ylstack%u' and (
-               assignments[1].rhs == f'ylstack%l + istsz * c_sizeof(real(1, kind={real_kind}))')
+               assignments[1].rhs == f'ylstack%l + istsz * c_sizeof(real(1, kind={kind_real}))')
     else:
         assert assignments[1].lhs == 'ylstack%u' and (
-               assignments[1].rhs == f'ylstack%l + c_sizeof(real(1, kind={real_kind})) * istsz')
+               assignments[1].rhs == f'ylstack%l + c_sizeof(real(1, kind={kind_real}))*istsz')
 
     # Check that stack assignment happens before kernel call
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
 
 
 @pytest.mark.parametrize('generate_driver_stack', [False, True])
-@pytest.mark.parametrize('frontend', available_frontends(
-                         xfail=[(OMNI, 'OMNI replaces parameters with initialisation value.')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('check_bounds', [False, True])
 @pytest.mark.parametrize('nclv_param', [False, True])
 def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds, nclv_param):
@@ -93,14 +92,25 @@ END MODULE
     fcode_stack_import = "use stack_mod, only: stack"
     fcode_iso_c_binding = "use iso_c_binding, only: c_sizeof"
     fcode_nclv_param = 'integer, parameter :: nclv = 2'
-    fcode_stack_decl = f"""
-    integer :: istsz
-    REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-    type(stack) :: ylstack
+    if frontend == OMNI:
+        fcode_stack_decl = f"""
+        integer :: istsz
+        REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
+        type(stack) :: ylstack
 
-    {'istsz = c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nclv*nlon/c_sizeof(real(1,kind=jprb))' if nclv_param else 'istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+2*c_sizeof(real(1,kind=jprb))/c_sizeof(real(1,kind=jprb))'}
-    ALLOCATE(ZSTACK(ISTSZ, nb))
-    """
+        {'istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))' if nclv_param else 'istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+2*c_sizeof(real(1,kind=jprb))/c_sizeof(real(1,kind=jprb))'}
+        ALLOCATE(ZSTACK(ISTSZ, nb))
+        """
+    else:
+        fcode_stack_decl = f"""
+        integer :: istsz
+        REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
+        type(stack) :: ylstack
+
+        {'istsz = c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nclv*nlon/c_sizeof(real(1,kind=jprb))' if nclv_param else 'istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+2*c_sizeof(real(1,kind=jprb))/c_sizeof(real(1,kind=jprb))'}
+        ALLOCATE(ZSTACK(ISTSZ, nb))
+        """
+
     fcode_stack_assign = """
         ylstack%l = loc(zstack(1, b))
         ylstack%u = ylstack%l + c_sizeof(real(1, kind=jprb)) * istsz
@@ -212,20 +222,46 @@ end module kernel_mod
 
     assert transformation._key in kernel_item.trafo_data
 
-    if nclv_param:
-        trafo_data_compare = 'c_sizeof(real(1, kind=jprb)) * klon + c_sizeof(real(1, kind=jprb)) * klev * klon'
-        trafo_data_compare += '+ c_sizeof(real(1, kind=jprb)) * klon * nclv'
-
-        stack_size = 'c_sizeof(real(1, kind=jprb)) * nlon / c_sizeof(real(1, kind=jprb))'
-        stack_size += '+ c_sizeof(real(1, kind=jprb)) * nlon * nz / c_sizeof(real(1, kind=jprb))'
-        stack_size += '+ c_sizeof(real(1, kind=jprb)) * nclv * nlon / c_sizeof(real(1, kind=jprb))'
+    # set kind comaprison string
+    if frontend == OMNI:
+        kind_real = 'selected_real_kind(13, 300)'
     else:
-        trafo_data_compare = 'c_sizeof(real(1, kind=jprb)) * klon + c_sizeof(real(1, kind=jprb)) * klev * klon'
-        trafo_data_compare += '+ c_sizeof(real(1, kind=jprb)) * nclv + c_sizeof(real(1, kind=jprb)) * klon * nclv'
+        kind_real = 'jprb'
 
-        stack_size = '3 * c_sizeof(real(1, kind=jprb)) * nlon / c_sizeof(real(1, kind=jprb))'
-        stack_size += '+ c_sizeof(real(1, kind=jprb)) * nlon * nz / c_sizeof(real(1, kind=jprb))'
-        stack_size += '+ 2 * c_sizeof(real(1, kind=jprb)) / c_sizeof(real(1, kind=jprb))'
+    if nclv_param:
+        if frontend == OMNI:
+            # pylint: disable-next=line-too-long
+            trafo_data_compare = f'3 * c_sizeof(real(1, kind={kind_real})) * klon + c_sizeof(real(1, kind={kind_real})) * klev * klon'
+
+            if generate_driver_stack:
+                stack_size = f'3 * c_sizeof(real(1, kind={kind_real})) * nlon / c_sizeof(real(1, kind=jprb))'
+                stack_size += f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / c_sizeof(real(1, kind=jprb))'
+            else:
+                stack_size = f'3 * c_sizeof(real(1, kind={kind_real})) * nlon / c_sizeof(real(1, kind={kind_real}))'
+                stack_size += f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / c_sizeof(real(1, kind={kind_real}))'
+        else:
+            # pylint: disable-next=line-too-long
+            trafo_data_compare = f'c_sizeof(real(1, kind={kind_real})) * klon + c_sizeof(real(1, kind={kind_real})) * klev * klon'
+            trafo_data_compare += f'+ c_sizeof(real(1, kind={kind_real})) * klon * nclv'
+
+            stack_size = f'c_sizeof(real(1, kind={kind_real})) * nlon / c_sizeof(real(1, kind=jprb))'
+            stack_size += f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / c_sizeof(real(1, kind=jprb))'
+            stack_size += f'+ c_sizeof(real(1, kind={kind_real})) * nclv * nlon / c_sizeof(real(1, kind=jprb))'
+
+    else:
+        # pylint: disable-next=line-too-long
+        trafo_data_compare = f'c_sizeof(real(1, kind={kind_real})) * klon + c_sizeof(real(1, kind={kind_real})) * klev * klon'
+        # pylint: disable-next=line-too-long
+        trafo_data_compare += f'+ c_sizeof(real(1, kind={kind_real})) * nclv + c_sizeof(real(1, kind={kind_real})) * klon * nclv'
+
+        if generate_driver_stack:
+            stack_size = f'3 * c_sizeof(real(1, kind={kind_real})) * nlon / c_sizeof(real(1, kind=jprb))'
+            stack_size += f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / c_sizeof(real(1, kind=jprb))'
+            stack_size += f'+ 2 * c_sizeof(real(1, kind={kind_real})) / c_sizeof(real(1, kind=jprb))'
+        else:
+            stack_size = f'3 * c_sizeof(real(1, kind={kind_real})) * nlon / c_sizeof(real(1, kind={kind_real}))'
+            stack_size += f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / c_sizeof(real(1, kind={kind_real}))'
+            stack_size += f'+ 2 * c_sizeof(real(1, kind={kind_real})) / c_sizeof(real(1, kind={kind_real}))'
 
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == trafo_data_compare
     assert all(v.scope is None for v in
@@ -250,7 +286,10 @@ end module kernel_mod
     else:
         assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
-    check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack)
+    if generate_driver_stack:
+        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack)
+    else:
+        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, kind_real=kind_real)
 
     #
     # A few checks on the kernel
@@ -285,7 +324,7 @@ end module kernel_mod
                 if f'ip_tmp{tmp_index}' == assign.lhs:
                     assign_idx[f'tmp{tmp_index}_ptr_assign'] = idx
         elif assign.lhs == 'ylstack%l' and 'ylstack%l' in assign.rhs and 'c_sizeof' in assign.rhs:
-            _size = str(assign.rhs).lower().replace('*c_sizeof(real(1, kind=jprb))', '')
+            _size = str(assign.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
             _size = _size.replace('ylstack%l + ', '')
 
             # Stack increment for tmp1, tmp2, tmp5 (and tmp3, tmp4 if no alloc_dims provided)
@@ -322,8 +361,7 @@ end module kernel_mod
     rmtree(basedir)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-                         xfail=[(OMNI, 'OMNI replaces parameters with initialisation value.')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directive):
     if directive == 'openmp':
@@ -344,6 +382,15 @@ def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directi
         driver_loop_pragma2 = ''
         driver_end_loop_pragma2 = ''
         kernel_pragma = ''
+
+    fcode_parkind_mod = """
+module parkind1
+implicit none
+integer, parameter :: jprb = selected_real_kind(13,300)
+integer, parameter :: jpim = selected_int_kind(9)
+integer, parameter :: jplm = jpim
+end module parkind1
+    """.strip()
 
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
@@ -429,6 +476,13 @@ end module kernel_mod
     (basedir/'driver.F90').write_text(fcode_driver)
     (basedir/'kernel_mod.F90').write_text(fcode_kernel)
 
+    if frontend == OMNI:
+        (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
+        parkind_mod = Sourcefile.from_file(basedir/'parkind_mod.F90', frontend=frontend)
+        definitions = parkind_mod.definitions
+    else:
+        definitions = ()
+
     config = {
         'default': {
             'mode': 'idem',
@@ -441,7 +495,8 @@ end module kernel_mod
             'role': 'driver',
         }]
     }
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend,
+                          definitions=definitions)
     if frontend == OMNI:
         for item in scheduler.items:
             normalize_range_indexing(item.routine)
@@ -451,10 +506,21 @@ end module kernel_mod
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
 
+    # set kind comaprison string
+    if frontend == OMNI:
+        kind_real = 'selected_real_kind(13, 300)'
+        kind_int = '4'
+        kind_log = '4'
+    else:
+        kind_real = 'jprb'
+        kind_int = 'jpim'
+        kind_log = 'jplm'
+
     assert transformation._key in kernel_item.trafo_data
     # pylint: disable-next=line-too-long
-    assert kernel_item.trafo_data[transformation._key]['stack_size'] == 'c_sizeof(real(1, kind=jprb))*klon + c_sizeof(real(1, kind=jprb))*klev*klon + 2*c_sizeof(int(1, kind=jpim))*klon + c_sizeof(logical(true, kind=jplm))*klev'
-    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == '3*c_sizeof(real(1, kind=jprb))*klev*klon'
+    assert kernel_item.trafo_data[transformation._key]['stack_size'] == f'c_sizeof(real(1, kind={kind_real}))*klon + c_sizeof(real(1, kind={kind_real}))*klev*klon + 2*c_sizeof(int(1, kind={kind_int}))*klon + c_sizeof(logical(true, kind={kind_log}))*klev'
+    # pylint: disable-next=line-too-long
+    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == f'3*c_sizeof(real(1, kind={kind_real}))*klev*klon'
     assert all(v.scope is None for v in
                                FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size']))
     assert all(v.scope is None for v in
@@ -469,9 +535,10 @@ end module kernel_mod
     check_stack_module_import(driver)
 
     # Check if allocation type symbols have been imported
-    assert Variable(name='jpim') in driver.imported_symbols
-    assert Variable(name='jplm') in driver.imported_symbols
-    assert driver.import_map['jpim'] == driver.import_map['jplm']
+    if frontend != OMNI:
+        assert Variable(name='jpim') in driver.imported_symbols
+        assert Variable(name='jplm') in driver.imported_symbols
+        assert driver.import_map['jpim'] == driver.import_map['jplm']
 
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
@@ -479,9 +546,9 @@ end module kernel_mod
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
     assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)', 'ylstack')
 
-    stack_size = 'max(c_sizeof(real(1, kind=jprb))*nlon + c_sizeof(real(1, kind=jprb))*nlon*nz + '
-    stack_size += '2*c_sizeof(int(1, kind=jpim))*nlon + c_sizeof(logical(true, kind=jplm))*nz,'
-    stack_size += '3*c_sizeof(real(1, kind=jprb))*nz*nlon)/c_sizeof(real(1, kind=jprb))'
+    stack_size = f'max(c_sizeof(real(1, kind={kind_real}))*nlon + c_sizeof(real(1, kind={kind_real}))*nlon*nz + '
+    stack_size += f'2*c_sizeof(int(1, kind={kind_int}))*nlon + c_sizeof(logical(true, kind={kind_log}))*nz,'
+    stack_size += f'3*c_sizeof(real(1, kind={kind_real}))*nz*nlon)/c_sizeof(real(1, kind=jprb))'
     check_stack_created_in_driver(driver, stack_size, calls[0], 2)
 
     # Has the data sharing been updated?
@@ -531,9 +598,9 @@ end module kernel_mod
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
-            _size = str(ass.rhs).lower().replace('*c_sizeof(real(1, kind=jprb))', '')
-            _size = _size.lower().replace('*c_sizeof(int(1, kind=jpim))', '')
-            _size = _size.lower().replace('*c_sizeof(logical(.true., kind=jplm))', '')
+            _size = str(ass.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
+            _size = _size.replace(f'*c_sizeof(int(1, kind={kind_int}))', '')
+            _size = _size.replace(f'*c_sizeof(logical(.true., kind={kind_log}))', '')
             _size = _size.replace('ylstack%l + ', '')
 
             if ass.lhs == 'ylstack' and ass.rhs == 'ydstack':
@@ -576,8 +643,7 @@ end module kernel_mod
     rmtree(basedir)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-                         xfail=[(OMNI, 'OMNI replaces parameters with initialisation value.')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive):
     if directive == 'openmp':
@@ -592,6 +658,15 @@ def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive
         driver_pragma = ''
         driver_end_pragma = ''
         kernel_pragma = ''
+
+    fcode_parkind_mod = """
+module parkind1
+implicit none
+integer, parameter :: jwrb = selected_real_kind(13,300)
+integer, parameter :: jpim = selected_int_kind(9)
+integer, parameter :: jplm = jpim
+end module parkind1
+    """.strip()
 
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
@@ -673,6 +748,13 @@ end module kernel_mod
     (basedir/'driver.F90').write_text(fcode_driver)
     (basedir/'kernel_mod.F90').write_text(fcode_kernel)
 
+    if frontend == OMNI:
+        (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
+        parkind_mod = Sourcefile.from_file(basedir/'parkind_mod.F90', frontend=frontend)
+        definitions = parkind_mod.definitions
+    else:
+        definitions = ()
+
     config = {
         'default': {
             'mode': 'idem',
@@ -686,7 +768,9 @@ end module kernel_mod
             'real_kind': 'jwrb',
         }]
     }
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend,
+                          definitions=definitions)
     if frontend == OMNI:
         for item in scheduler.items:
             normalize_range_indexing(item.routine)
@@ -696,10 +780,21 @@ end module kernel_mod
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
 
+    # set kind comaprison string
+    if frontend == OMNI:
+        kind_real = 'selected_real_kind(13, 300)'
+        kind_int = '4'
+        kind_log = '4'
+    else:
+        kind_real = 'jwrb'
+        kind_int = 'jpim'
+        kind_log = 'jplm'
+
     assert transformation._key in kernel_item.trafo_data
     # pylint: disable-next=line-too-long
-    assert kernel_item.trafo_data[transformation._key]['stack_size'] == 'c_sizeof(real(1, kind=jwrb))*klon + 4*c_sizeof(real(1, kind=jwrb))*klev*klon + 2*c_sizeof(int(1, kind=jpim))*klon + c_sizeof(logical(true, kind=jplm))*klev'
-    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == '3*c_sizeof(real(1, kind=jwrb))*columns*levels'
+    assert kernel_item.trafo_data[transformation._key]['stack_size'] == f'c_sizeof(real(1, kind={kind_real}))*klon + 4*c_sizeof(real(1, kind={kind_real}))*klev*klon + 2*c_sizeof(int(1, kind={kind_int}))*klon + c_sizeof(logical(true, kind={kind_log}))*klev'
+    # pylint: disable-next=line-too-long
+    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == f'3*c_sizeof(real(1, kind={kind_real}))*columns*levels'
     assert all(v.scope is None for v in
                                FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size']))
     assert all(v.scope is None for v in
@@ -714,20 +809,21 @@ end module kernel_mod
     check_stack_module_import(driver)
 
     # Check if allocation type symbols have been imported
-    assert Variable(name='jpim') in driver.imported_symbols
-    assert Variable(name='jplm') in driver.imported_symbols
-    assert driver.import_map['jpim'] == driver.import_map['jplm']
+    if frontend != OMNI:
+        assert Variable(name='jpim') in driver.imported_symbols
+        assert Variable(name='jplm') in driver.imported_symbols
+        assert driver.import_map['jpim'] == driver.import_map['jplm']
 
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
-    stack_size = 'c_sizeof(real(1, kind=jwrb))*nlon/c_sizeof(real(1, kind=jwrb)) +'
-    stack_size += '4*c_sizeof(real(1, kind=jwrb))*nlon*nz/c_sizeof(real(1, kind=jwrb)) +'
-    stack_size += '2*c_sizeof(int(1, kind=jpim))*nlon/c_sizeof(real(1, kind=jwrb)) +'
-    stack_size += 'c_sizeof(logical(true, kind=jplm))*nz/c_sizeof(real(1, kind=jwrb))'
-    check_stack_created_in_driver(driver, stack_size, calls[0], 1, real_kind='jwrb')
+    stack_size = f'c_sizeof(real(1, kind={kind_real}))*nlon/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += f'4*c_sizeof(real(1, kind={kind_real}))*nlon*nz/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += f'2*c_sizeof(int(1, kind={kind_int}))*nlon/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += f'c_sizeof(logical(true, kind={kind_log}))*nz/c_sizeof(real(1, kind=jwrb))'
+    check_stack_created_in_driver(driver, stack_size, calls[0], 1, kind_real='jwrb')
 
     # check if stack allocatable in the driver has the correct kind parameter
     if not frontend == OMNI:
@@ -784,9 +880,9 @@ end module kernel_mod
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
-            _size = str(ass.rhs).lower().replace('*c_sizeof(real(1, kind=jwrb))', '')
-            _size = _size.lower().replace('*c_sizeof(int(1, kind=jpim))', '')
-            _size = _size.lower().replace('*c_sizeof(logical(.true., kind=jplm))', '')
+            _size = str(ass.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
+            _size = _size.replace(f'*c_sizeof(int(1, kind={kind_int}))', '')
+            _size = _size.replace(f'*c_sizeof(logical(.true., kind={kind_log}))', '')
             _size = _size.replace('ylstack%l + ', '')
 
             if ass.lhs == 'ylstack' and ass.rhs == 'ydstack':
