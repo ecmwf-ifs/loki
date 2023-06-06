@@ -17,21 +17,21 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info
+    Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem, GlobalVarImportItem,
 )
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
     DependencyTransformation, FortranCTransformation, FileWriteTransformation,
-    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing, resolve_associates
+    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing, resolve_associates,
+    GenerateInterfaceHeadersTransformation
 )
 
 # pylint: disable=wrong-import-order
 from transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
-from transformations.data_offload import DataOffloadTransformation
+from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation, TypeboundProcedureCallTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
@@ -590,10 +590,16 @@ def ecrad(mode, config, header, source, build, cpp, directive, frontend):
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
+    scheduler.process(
+        transformation=GlobalVarOffloadTransformation(),
+        item_filter=(SubroutineItem, GlobalVarImportItem),
+        reverse=True)
+
     # Apply the dependency-injection transformation
     # dependency = DependencyTransformation(mode='module', #module_suffix='_MOD',
     #                                       suffix=f'_{mode.upper()}')
     # scheduler.process(transformation=dependency)
+    scheduler.process(transformation=GenerateInterfaceHeadersTransformation(include_path=Path(build)/'include'))
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode), use_file_graph=True)
