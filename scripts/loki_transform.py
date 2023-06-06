@@ -36,7 +36,13 @@ from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
-from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
+from transformations.single_column_coalesced_wrapper import SingleColumnCoalescedTransformation
+from transformations.single_column_coalesced import (
+     SCCBaseTransformation, SCCAnnotateTransformation, SCCHoistTransformation
+)
+from transformations.single_column_coalesced_vector import (
+     SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
+)
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
 
 
@@ -193,40 +199,47 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
     if mode in ['idem', 'idem-stack']:
-        transformation = IdemTransformation()
+        transformation = (IdemTransformation(),)
 
     if mode == 'sca':
         horizontal = scheduler.config.dimensions['horizontal']
-        transformation = ExtractSCATransformation(horizontal=horizontal)
+        transformation = (ExtractSCATransformation(horizontal=horizontal),)
 
     if mode == 'claw':
         horizontal = scheduler.config.dimensions['horizontal']
-        transformation = CLAWTransformation(
+        transformation = (CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
-        )
+        ),)
 
     if mode in ['scc', 'scc-hoist', 'scc-stack']:
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
-        transformation = SingleColumnCoalescedTransformation(
-            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive=directive, hoist_column_arrays='hoist' in mode
-        )
+        transformation = (SCCBaseTransformation(horizontal=horizontal, directive=directive),)
+        transformation += (SCCDevectorTransformation(horizontal=horizontal),)
+        transformation += (SCCDemoteTransformation(horizontal=horizontal),)
+        if not 'hoist' in mode:
+            transformation += (SCCRevectorTransformation(horizontal=horizontal),)
+        if 'hoist' in mode:
+            transformation += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim),)
+        transformation += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                     directive=directive, block_dim=block_dim,
+                                                     hoist_column_arrays='hoist' in mode),)
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
         derived_types = scheduler.config.derived_types
-        transformation = SccCufTransformation(
+        transformation = (SccCufTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
             transformation_type=mode.replace('cuf-', ''),
             derived_types=derived_types
-        )
+        ),)
 
     if transformation:
-        scheduler.process(transformation=transformation)
+        for transform in transformation:
+            scheduler.process(transformation=transform)
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
