@@ -9,7 +9,7 @@ from loki import (
     as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, IntrinsicLiteral, LogicLiteral,
-    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Scalar,
+    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation, is_dimension_constant,
     Loop, Pragma, SubroutineItem, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
 )
@@ -136,6 +136,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if (real_kind := item.config.get('real_kind', None)):
                 self.stack_type_kind = real_kind
 
+            # Initialize set to store kind imports
+            item.trafo_data[self._key] = {'kind_imports': {}}
+
         # add iso_c_binding import if necessary
         self.import_iso_c_binding(routine)
 
@@ -144,13 +147,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.inject_pool_allocator_import(routine)
 
         if role == 'kernel':
-            stack_size = self.apply_pool_allocator_to_temporaries(routine)
+            stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
             if item:
-                stack_size = self._determine_stack_size(routine, successors, stack_size)
-                item.trafo_data[self._key] = stack_size
+                stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
+                item.trafo_data[self._key]['stack_size'] = stack_size
 
         elif role == 'driver':
-            stack_size = self._determine_stack_size(routine, successors)
+            stack_size = self._determine_stack_size(routine, successors, item=item)
+            if item:
+                # import variable type specifiers used in stack allocations
+                self.import_allocation_types(routine, item)
             self.create_pool_allocator(routine, stack_size)
 
         self.inject_pool_allocator_into_calls(routine, targets)
@@ -172,6 +178,26 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # add qualified iso_c_binding import
         imp = Import(module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)))
         routine.spec.prepend(imp)
+
+    def import_allocation_types(self, routine, item):
+        """
+        Import all the variable types used in allocations.
+        """
+
+        new_imports = {}
+        for s, m in item.trafo_data[self._key]['kind_imports'].items():
+            if m in new_imports:
+                new_imports[m] |= set(as_tuple(s))
+            else:
+                new_imports[m] = set(as_tuple(s))
+
+        import_map = {i.module.lower(): i for i in routine.imports}
+        for mod, symbs in new_imports.items():
+            if mod in import_map:
+                import_map[mod]._update(symbols=as_tuple(set(import_map[mod].symbols + as_tuple(symbs))))
+            else:
+                imp = Import(module=mod, symbols=as_tuple(symbs))
+                routine.spec.prepend(imp)
 
     def inject_pool_allocator_import(self, routine):
         """
@@ -328,7 +354,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         return stack_storage, stack_size_var
 
-    def _determine_stack_size(self, routine, successors, local_stack_size=None):
+    def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):
         """
         Utility routine to determine the stack size required for the given :data:`routine`,
         including calls to subroutines
@@ -341,12 +367,21 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             The items corresponding to successor routines called from :data:`routine`
         local_stack_size : :any:`Expression`, optional
             The stack size required for temporaries in :data:`routine`
+        item : :any:`Item`
+            Scheduler work item corresponding to routine.
 
         Returns
         -------
         :any:`Expression` :
             The expression representing the required stack size.
         """
+
+        # Collect variable kind imports from successors
+        if item:
+            item.trafo_data[self._key]['kind_imports'].update({k: v
+                                                           for s in successors if isinstance(s, SubroutineItem)
+                                                           for k, v in s.trafo_data[self._key]['kind_imports'].items()})
+
         # Note: we are not using a CaseInsensitiveDict here to be able to search directly with
         # Variable instances in the dict. The StrCompareMixin takes care of case-insensitive
         # comparisons in that case
@@ -359,7 +394,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_sizes = []
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
-                successor_stack_size = successor_map[call.name].trafo_data[self._key]
+                successor_stack_size = successor_map[call.name].trafo_data[self._key]['stack_size']
                 # Replace any occurence of routine arguments in the stack size expression
                 arg_map = dict(call.arg_iter())
                 expr_map = {
@@ -472,7 +507,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return ([ptr_assignment, ptr_increment, stack_size_check], stack_size)
         return ([ptr_assignment, ptr_increment], stack_size)
 
-    def apply_pool_allocator_to_temporaries(self, routine):
+    def apply_pool_allocator_to_temporaries(self, routine, item=None):
         """
         Apply pool allocator to local temporary arrays
 
@@ -521,6 +556,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             declarations += [Intrinsic(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
             allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr, stack_size)
             allocations += allocation
+
+            # Store type information of temporary allocation
+            if item and (_kind := arr.type.kind):
+                if _kind in routine.imported_symbols:
+                    item.trafo_data[self._key]['kind_imports'].update(
+                     {_kind: routine.import_map[_kind.name].module.lower()}
+                    )
 
         routine.spec.append(declarations)
         routine.body.prepend(allocations)

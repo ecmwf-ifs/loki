@@ -12,7 +12,7 @@ from loki import (
     gettempdir, Scheduler, SchedulerConfig, Dimension, simplify, Sourcefile,
     FindNodes, FindVariables, normalize_range_indexing, OMNI, FP, OFP, get_pragma_parameters,
     CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall, Pragma,
-    FindInlineCalls
+    FindInlineCalls, Variable
 )
 from conftest import available_frontends
 
@@ -227,8 +227,9 @@ end module kernel_mod
         stack_size += '+ c_sizeof(real(1, kind=jprb)) * nlon * nz / c_sizeof(real(1, kind=jprb))'
         stack_size += '+ 2 * c_sizeof(real(1, kind=jprb)) / c_sizeof(real(1, kind=jprb))'
 
-    assert kernel_item.trafo_data[transformation._key] == trafo_data_compare
-    assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
+    assert kernel_item.trafo_data[transformation._key]['stack_size'] == trafo_data_compare
+    assert all(v.scope is None for v in
+                               FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size']))
 
     #
     # A few checks on the driver
@@ -373,6 +374,7 @@ module kernel_mod
     implicit none
 contains
     subroutine kernel(start, end, klon, klev, field1, field2)
+        use parkind1, only: jpim, jplm
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, klon, klev
@@ -380,6 +382,8 @@ contains
         real(kind=jprb), intent(inout) :: field2(klon,klev)
         real(kind=jprb) :: tmp1(klon)
         real(kind=jprb) :: tmp2(klon, klev)
+        integer(kind=jpim) :: tmp3(klon*2)
+        logical(kind=jplm) :: tmp4(klev)
         integer :: jk, jl
         {kernel_pragma}
 
@@ -390,7 +394,13 @@ contains
                 tmp1(jl) = field2(jl, jk)
             end do
             field1(jl) = tmp1(jl)
+            tmp4(jk) = .true.
         end do
+
+        do jl=start,end
+           tmp3(jl) = 1_jpim
+           tmp3(jl+klon) = 1_jpim
+        enddo
     end subroutine kernel
 
     subroutine kernel2(start, end, klon, klev, field2)
@@ -442,11 +452,13 @@ end module kernel_mod
     kernel2_item = scheduler['kernel_mod#kernel2']
 
     assert transformation._key in kernel_item.trafo_data
-    assert kernel_item.trafo_data[transformation._key] == (
-           'c_sizeof(real(1, kind=jprb))*klon + c_sizeof(real(1, kind=jprb))*klev*klon')
-    assert kernel2_item.trafo_data[transformation._key] == '3*c_sizeof(real(1, kind=jprb))*klev*klon'
-    assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
-    assert all(v.scope is None for v in FindVariables().visit(kernel2_item.trafo_data[transformation._key]))
+    # pylint: disable-next=line-too-long
+    assert kernel_item.trafo_data[transformation._key]['stack_size'] == 'c_sizeof(real(1, kind=jprb))*klon + c_sizeof(real(1, kind=jprb))*klev*klon + 2*c_sizeof(int(1, kind=jpim))*klon + c_sizeof(logical(true, kind=jplm))*klev'
+    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == '3*c_sizeof(real(1, kind=jprb))*klev*klon'
+    assert all(v.scope is None for v in
+                               FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size']))
+    assert all(v.scope is None for v in
+                               FindVariables().visit(kernel2_item.trafo_data[transformation._key]['stack_size']))
 
     #
     # A few checks on the driver
@@ -456,13 +468,19 @@ end module kernel_mod
     # Has the stack module been imported?
     check_stack_module_import(driver)
 
+    # Check if allocation type symbols have been imported
+    assert Variable(name='jpim') in driver.imported_symbols
+    assert Variable(name='jplm') in driver.imported_symbols
+    assert driver.import_map['jpim'] == driver.import_map['jplm']
+
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 2
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
     assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)', 'ylstack')
 
-    stack_size = 'max(c_sizeof(real(1, kind=jprb))*nlon + c_sizeof(real(1, kind=jprb))*nlon*nz,'
+    stack_size = 'max(c_sizeof(real(1, kind=jprb))*nlon + c_sizeof(real(1, kind=jprb))*nlon*nz + '
+    stack_size += '2*c_sizeof(int(1, kind=jpim))*nlon + c_sizeof(logical(true, kind=jplm))*nz,'
     stack_size += '3*c_sizeof(real(1, kind=jprb))*nz*nlon)/c_sizeof(real(1, kind=jprb))'
     check_stack_created_in_driver(driver, stack_size, calls[0], 2)
 
@@ -491,7 +509,7 @@ end module kernel_mod
     #
     # A few checks on the kernel
     #
-    for item in [kernel_item, kernel2_item]:
+    for count, item in enumerate([kernel_item, kernel2_item]):
         kernel = item.routine
 
         # Has the stack module been imported?
@@ -514,6 +532,8 @@ end module kernel_mod
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
             _size = str(ass.rhs).lower().replace('*c_sizeof(real(1, kind=jprb))', '')
+            _size = _size.lower().replace('*c_sizeof(int(1, kind=jpim))', '')
+            _size = _size.lower().replace('*c_sizeof(logical(.true., kind=jplm))', '')
             _size = _size.replace('ylstack%l + ', '')
 
             if ass.lhs == 'ylstack' and ass.rhs == 'ydstack':
@@ -546,8 +566,12 @@ end module kernel_mod
         assert 'pointer(ip_tmp2, tmp2)' in fcode.lower()
 
         # Check for stack size safegurads in generated code
-        assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
-        assert fcode.lower().count('stop') == 2
+        if count == 0:
+            assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 4
+            assert fcode.lower().count('stop') == 4
+        else:
+            assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
+            assert fcode.lower().count('stop') == 2
 
     rmtree(basedir)
 
@@ -572,6 +596,7 @@ def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel
+    use parkind1, only : jpim
     implicit none
     INTEGER, PARAMETER :: JWRB = SELECTED_REAL_KIND(13,300)
     INTEGER, INTENT(IN) :: NLON, NZ, NB
@@ -590,6 +615,7 @@ module kernel_mod
     implicit none
 contains
     subroutine kernel(start, end, klon, klev, field1, field2)
+        use parkind1, only : jpim, jplm
         implicit none
         integer, parameter :: jwrb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, klon, klev
@@ -597,6 +623,8 @@ contains
         real(kind=jwrb), intent(inout) :: field2(klon,klev)
         real(kind=jwrb) :: tmp1(klon)
         real(kind=jwrb) :: tmp2(klon, klev)
+        integer(kind=jpim) :: tmp3(klon*2)
+        logical(kind=jplm) :: tmp4(klev)
         integer :: jk, jl
         {kernel_pragma}
 
@@ -607,7 +635,13 @@ contains
                 tmp1(jl) = field2(jl, jk)
             end do
             field1(jl) = tmp1(jl)
+            tmp4(jk) = .true.
         end do
+
+        do jl=start,end
+           tmp3(jl) = 1_jpim
+           tmp3(jl+klon) = 1_jpim
+        enddo
 
         call kernel2(start, end, klon, klev, field2)
     end subroutine kernel
@@ -663,11 +697,13 @@ end module kernel_mod
     kernel2_item = scheduler['kernel_mod#kernel2']
 
     assert transformation._key in kernel_item.trafo_data
-    assert kernel_item.trafo_data[transformation._key] == (
-           'c_sizeof(real(1, kind=jwrb))*klon + 4*c_sizeof(real(1, kind=jwrb))*klev*klon')
-    assert kernel2_item.trafo_data[transformation._key] == '3*c_sizeof(real(1, kind=jwrb))*columns*levels'
-    assert all(v.scope is None for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]))
-    assert all(v.scope is None for v in FindVariables().visit(kernel2_item.trafo_data[transformation._key]))
+    # pylint: disable-next=line-too-long
+    assert kernel_item.trafo_data[transformation._key]['stack_size'] == 'c_sizeof(real(1, kind=jwrb))*klon + 4*c_sizeof(real(1, kind=jwrb))*klev*klon + 2*c_sizeof(int(1, kind=jpim))*klon + c_sizeof(logical(true, kind=jplm))*klev'
+    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == '3*c_sizeof(real(1, kind=jwrb))*columns*levels'
+    assert all(v.scope is None for v in
+                               FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size']))
+    assert all(v.scope is None for v in
+                               FindVariables().visit(kernel2_item.trafo_data[transformation._key]['stack_size']))
 
     #
     # A few checks on the driver
@@ -677,13 +713,20 @@ end module kernel_mod
     # Has the stack module been imported?
     check_stack_module_import(driver)
 
+    # Check if allocation type symbols have been imported
+    assert Variable(name='jpim') in driver.imported_symbols
+    assert Variable(name='jplm') in driver.imported_symbols
+    assert driver.import_map['jpim'] == driver.import_map['jplm']
+
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
 
     stack_size = 'c_sizeof(real(1, kind=jwrb))*nlon/c_sizeof(real(1, kind=jwrb)) +'
-    stack_size += '4*c_sizeof(real(1, kind=jwrb))*nlon*nz/c_sizeof(real(1, kind=jwrb))'
+    stack_size += '4*c_sizeof(real(1, kind=jwrb))*nlon*nz/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += '2*c_sizeof(int(1, kind=jpim))*nlon/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += 'c_sizeof(logical(true, kind=jplm))*nz/c_sizeof(real(1, kind=jwrb))'
     check_stack_created_in_driver(driver, stack_size, calls[0], 1, real_kind='jwrb')
 
     # check if stack allocatable in the driver has the correct kind parameter
@@ -719,7 +762,7 @@ end module kernel_mod
     assert len(calls) == 1
     assert calls[0].arguments == ('start', 'end', 'klon', 'klev', 'field2', 'ylstack')
 
-    for item in [kernel_item, kernel2_item]:
+    for count, item in enumerate([kernel_item, kernel2_item]):
         kernel = item.routine
 
         # Has the stack module been imported?
@@ -742,6 +785,8 @@ end module kernel_mod
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
             _size = str(ass.rhs).lower().replace('*c_sizeof(real(1, kind=jwrb))', '')
+            _size = _size.lower().replace('*c_sizeof(int(1, kind=jpim))', '')
+            _size = _size.lower().replace('*c_sizeof(logical(.true., kind=jplm))', '')
             _size = _size.replace('ylstack%l + ', '')
 
             if ass.lhs == 'ylstack' and ass.rhs == 'ydstack':
@@ -774,8 +819,12 @@ end module kernel_mod
         assert 'pointer(ip_tmp2, tmp2)' in fcode.lower()
 
         # Check for stack size safegurads in generated code
-        assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
-        assert fcode.lower().count('stop') == 2
+        if count == 0:
+            assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 4
+            assert fcode.lower().count('stop') == 4
+        else:
+            assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
+            assert fcode.lower().count('stop') == 2
 
     rmtree(basedir)
 
