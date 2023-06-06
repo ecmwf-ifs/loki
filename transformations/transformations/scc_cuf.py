@@ -18,8 +18,8 @@ from loki import (
     CaseInsensitiveDict, as_tuple, flatten, types
 )
 
-from transformations.scc_base import SCCBaseTransformation
-from transformations.scc_devector import SCCDevectorTransformation
+from transformations.single_column_coalesced import SCCBaseTransformation
+from transformations.single_column_coalesced_vector import SCCDevectorTransformation
 
 __all__ = ['SccCufTransformation', 'HoistTemporaryArraysDeviceAllocatableTransformation']
 

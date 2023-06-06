@@ -36,14 +36,14 @@ from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
-from transformations.single_column_coalesced import SingleColumnCoalescedTransformation
+from transformations.single_column_coalesced_wrapper import SingleColumnCoalescedTransformation
+from transformations.single_column_coalesced import (
+     SCCBaseTransformation, SCCAnnotateTransformation, SCCHoistTransformation
+)
+from transformations.single_column_coalesced_vector import (
+     SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
+)
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
-from transformations.scc_base import SCCBaseTransformation
-from transformations.scc_devector import SCCDevectorTransformation
-from transformations.scc_demote import SCCDemoteTransformation
-from transformations.scc_revector import SCCRevectorTransformation
-from transformations.scc_hoist import SCCHoistTransformation
-from transformations.scc_annotate import SCCAnnotateTransformation
 
 
 """
