@@ -10,7 +10,7 @@ from loki import (
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, IntrinsicLiteral, LogicLiteral,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Scalar,
-    Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation,
+    Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation, is_dimension_constant,
     Loop, Pragma, SubroutineItem, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
 )
 
@@ -484,21 +484,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         The cumulative size of all temporary arrays is determined and returned.
         """
 
-        def _is_constant(d):
-            """Establish if a given dimensions symbol is a compile-time constant"""
-            if isinstance(d, IntLiteral):
-                return True
-
-            if isinstance(d, RangeIndex):
-                if d.lower:
-                    return _is_constant(d.lower) and _is_constant(d.upper)
-                return _is_constant(d.upper)
-
-            if isinstance(d, Scalar) and isinstance(d.initial , IntLiteral):
-                return True
-
-            return False
-
         # Find all temporary arrays
         arguments = routine.arguments
         temporary_arrays = [
@@ -516,7 +501,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # Filter out variables whose size is known at compile-time
         temporary_arrays = [
             var for var in temporary_arrays
-            if not all(_is_constant(d) for d in var.shape)
+            if not all(is_dimension_constant(d) for d in var.shape)
         ]
 
         # Create stack argument and local stack var
