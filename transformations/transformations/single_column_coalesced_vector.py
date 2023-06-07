@@ -11,7 +11,7 @@ from loki.expression import symbols as sym
 from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
      NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
-     pragmas_attached, is_loki_pragma
+     pragmas_attached, is_loki_pragma, dataflow_analysis_attached
 )
 from transformations.single_column_coalesced import SCCBaseTransformation
 
@@ -28,10 +28,14 @@ class SCCDevectorTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
+    trim_vector_sections : bool
+        Flag to trigger trimming of extracted vector sections to remove
+        nodes that are not assignments involving vector parallel arrays.
     """
 
-    def __init__(self, horizontal):
+    def __init__(self, horizontal, trim_vector_sections=False):
         self.horizontal = horizontal
+        self.trim_vector_sections = trim_vector_sections
 
     @classmethod
     def kernel_remove_vector_loops(cls, routine, horizontal):
@@ -130,6 +134,24 @@ class SCCDevectorTransformation(Transformation):
 
         return subsections
 
+    @classmethod
+    def get_trimmed_sections(cls, routine, horizontal, sections):
+        """
+        Trim extracted vector sections to remove nodes that are not assignments
+        involving vector parallel arrays.
+        """
+
+        trimmed_sections = ()
+        with dataflow_analysis_attached(routine):
+            for sec in sections:
+                vec_nodes = [node for node in sec if horizontal.index.lower() in node.uses_symbols]
+                start = sec.index(vec_nodes[0])
+                end = sec.index(vec_nodes[-1])
+
+                trimmed_sections += (sec[start:end+1],)
+
+        return trimmed_sections
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply SCCDevector utilities to a :any:`Subroutine`.
@@ -164,6 +186,9 @@ class SCCDevectorTransformation(Transformation):
         # Extract vector-level compute sections from the kernel
         with pragmas_attached(routine, ir.CallStatement):
             sections = self.extract_vector_sections(routine.body.body, self.horizontal)
+
+        if self.trim_vector_sections:
+            sections = self.get_trimmed_sections(routine, self.horizontal, sections)
 
         # Replace sections with marked Section node
         section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}

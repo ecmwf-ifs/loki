@@ -144,8 +144,10 @@ def cli(debug):
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
+@click.option('--trim-vector-sections', is_flag=True, default=False,
+              help='Trim vector loops in SCC transform to exclude scalar assignments.')
 def convert(out_path, path, header, cpp, directive, include, define, omni_include, xmod,
-            data_offload, remove_openmp, mode, frontend, config):
+            data_offload, remove_openmp, mode, frontend, config, trim_vector_sections):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -225,7 +227,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
         transformation = (SCCBaseTransformation(horizontal=horizontal, directive=directive),)
-        transformation += (SCCDevectorTransformation(horizontal=horizontal),)
+        transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
         transformation += (SCCDemoteTransformation(horizontal=horizontal),)
         if not 'hoist' in mode:
             transformation += (SCCRevectorTransformation(horizontal=horizontal),)

@@ -11,7 +11,7 @@ from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
     fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
-    is_loki_pragma, Pragma, IntLiteral, RangeIndex
+    is_loki_pragma, Pragma, IntLiteral, RangeIndex, Comment
 )
 from conftest import available_frontends
 from transformations import (
@@ -1671,3 +1671,169 @@ def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
                                                     IntLiteral(2))
     else:
         assert routine.symbol_map['work'].shape == ('nang_param', IntLiteral(2))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_simple(frontend, horizontal, trim_vector_sections):
+    """
+    Test the trimming of vector-sections to exclude scalar assignments.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical :: flag0
+       real, dimension(nlon) :: work
+       integer :: jl
+
+       flag0 = .true.
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+       ! random comment
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assign = FindNodes(Assignment).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+    comment = [c for c in FindNodes(Comment).visit(routine.body) if c.text == '! random comment'][0]
+
+    # check we found the right assignment
+    assert assign.lhs.name.lower() == 'flag0'
+
+    # check we found the right comment
+    assert comment.text == '! random comment'
+
+    if trim_vector_sections:
+        assert assign not in loop.body
+        assert assign in routine.body.body
+
+        assert comment not in loop.body
+        assert comment in routine.body.body
+    else:
+        assert assign in loop.body
+        assert assign not in routine.body.body
+
+        assert comment in loop.body
+        assert comment not in routine.body.body
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_nested(frontend, horizontal, trim_vector_sections):
+    """
+    Test the trimming of vector-sections to exclude nested scalar assignments.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, flag0)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical, intent(in) :: flag0
+       logical :: flag1, flag2
+       real, dimension(nlon) :: work
+
+       integer :: jl
+
+       if(flag0)then
+         flag1 = .true.
+         flag2 = .false.
+       else
+         flag1 = .false.
+         flag2 = .true.
+       endif
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    cond = FindNodes(Conditional).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+
+    if trim_vector_sections:
+        assert cond not in loop.body
+        assert cond in routine.body.body
+    else:
+        assert cond in loop.body
+        assert cond not in routine.body.body
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_complex(frontend, horizontal, trim_vector_sections):
+    """
+    Test to highlight the limitations of vector-section trimming.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, flag0)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical, intent(in) :: flag0
+       logical :: flag1, flag2
+       real, dimension(nlon) :: work, work1
+
+       integer :: jl
+
+       flag1 = .true.
+       if(flag0)then
+         flag2 = .false.
+       else
+         work1(start:end) = 1.
+       endif
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assign = FindNodes(Assignment).visit(routine.body)[0]
+
+    # check we found the right assignment
+    assert assign.lhs.name.lower() == 'flag1'
+
+    cond = FindNodes(Conditional).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+
+    assert cond in loop.body
+    assert cond not in routine.body.body
+    if trim_vector_sections:
+        assert assign not in loop.body
+        assert(len(FindNodes(Assignment).visit(loop.body)) == 3)
+    else:
+        assert assign in loop.body
+        assert(len(FindNodes(Assignment).visit(loop.body)) == 4)
