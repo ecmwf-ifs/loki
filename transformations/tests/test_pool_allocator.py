@@ -501,7 +501,7 @@ end module kernel_mod
         for item in scheduler.items:
             normalize_range_indexing(item.routine)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive, key='some_key')
     scheduler.process(transformation=transformation, reverse=True)
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
@@ -516,6 +516,7 @@ end module kernel_mod
         kind_int = 'jpim'
         kind_log = 'jplm'
 
+    assert transformation._key == 'some_key'
     assert transformation._key in kernel_item.trafo_data
     # pylint: disable-next=line-too-long
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == f'c_sizeof(real(1, kind={kind_real}))*klon + c_sizeof(real(1, kind={kind_real}))*klev*klon + 2*c_sizeof(int(1, kind={kind_int}))*klon + c_sizeof(logical(true, kind={kind_log}))*klev'

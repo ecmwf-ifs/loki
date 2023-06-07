@@ -445,9 +445,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             param = InlineCall(Variable(name='LOGICAL'), parameters=as_tuple(LogicLiteral('.TRUE.')))
         elif arr.type.dtype == BasicType.COMPLEX:
             param = InlineCall(Variable(name='CMPLX'), parameters=as_tuple(IntLiteral(1), IntLiteral(1)))
-        elif arr.type.dtype == BasicType.DEFERRED:
-            param = InlineCall(Variable(name='REAL'), parameters=as_tuple(IntLiteral(1)))
-            warning(f"[Loki::PoolAllocator] {arr} - DeferredType var assumed to be size of 'REAL'")
 
         if (kind := getattr(arr.type, 'kind', None)):
             param.parameters = param.parameters + as_tuple(IntrinsicLiteral(f'kind={kind}'))
