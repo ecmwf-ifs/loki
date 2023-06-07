@@ -56,7 +56,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
     _key = 'DerivedTypeArgumentsTransformation'
 
-
     def __init__(self, key=None, **kwargs):
         if key is not None:
             self._key = key

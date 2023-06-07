@@ -10,7 +10,7 @@ from shutil import rmtree
 import pytest
 
 from loki import (
-    OMNI, Sourcefile, Scheduler, SubroutineItem, as_tuple, gettempdir,
+    OMNI, OFP, Sourcefile, Scheduler, SubroutineItem, as_tuple, gettempdir,
     CallStatement, ProcedureDeclaration, Scalar, Array,
     FindNodes, FindVariables, FindInlineCalls, BasicType,
     CaseInsensitiveDict, resolve_associates
@@ -869,7 +869,7 @@ end module some_mod
     assert not calls[1].kwarguments
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for recursive prefix')]))
 def test_transform_derived_type_arguments_recursive(frontend):
     fcode = """
 module some_mod
