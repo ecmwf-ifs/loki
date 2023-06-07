@@ -1519,3 +1519,56 @@ def test_scc_base_routine_seq_pragma(frontend, horizontal):
     assert len(pragmas) == 1
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine seq'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
+    """
+    Test that calls targeted for inlining inside a vector region are not treated as separators
+    """
+
+    fcode = """
+    subroutine some_inlined_kernel(work)
+       real, intent(inout) :: work
+
+       work = work*2.
+    end subroutine some_inlined_kernel
+
+    subroutine some_kernel(start, end, nlon, work, cond)
+       logical, intent(in) :: cond
+       integer, intent(in) :: nlon, start, end
+       real, dimension(nlon), intent(inout) :: work
+
+       integer :: jl
+
+       do jl=start,end
+          if(cond)then
+             !$loki inline
+             call some_inlined_kernel(work(jl))
+          endif
+          work(jl) = work(jl) + 1.
+       enddo
+
+       call some_other_kernel()
+
+    end subroutine some_kernel
+    """
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['some_kernel']
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel', 'some_inlined_kernel'])
+
+    # Check loki pragma has been removed
+    assert not FindNodes(Pragma).visit(routine.body)
+
+    # Check that 'some_inlined_kernel' remains within vector-parallel region
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    calls = FindNodes(CallStatement).visit(loops[0].body)
+    assert len(calls) == 1
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 2

@@ -10,7 +10,8 @@ from more_itertools import split_at
 from loki.expression import symbols as sym
 from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
-     NestedTransformer, FindVariables, demote_variables, is_dimension_constant
+     NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
+     pragmas_attached, is_loki_pragma
 )
 from transformations.single_column_coalesced import SCCBaseTransformation
 
@@ -65,12 +66,19 @@ class SCCDevectorTransformation(Transformation):
             The dimension specifying the horizontal vector dimension
         """
 
-        _scope_note_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
+        _scope_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
 
         # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
         separator_nodes = []
         calls = FindNodes(ir.CallStatement).visit(section)
         for call in calls:
+            if is_loki_pragma(call.pragma, starts_with='inline'):
+                # Because extract_vector_sections was called within pragmas_attached, the pragma node
+                # will not be a part of the returned subsections. Therefore we remove it here to prevent
+                # problems later on
+                call._update(pragma=None)
+                continue
+
             if call in section:
                 # If the call is at the current section's level, it's a separator
                 separator_nodes.append(call)
@@ -78,7 +86,7 @@ class SCCDevectorTransformation(Transformation):
             else:
                 # If the call is deeper in the IR tree, it's highest ancestor is used
                 ancestors = flatten(FindScopes(call).visit(section))
-                ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_note_types)]
+                ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_node_types)]
                 if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
                     separator_nodes.append(ancestor_scopes[0])
 
@@ -147,9 +155,12 @@ class SCCDevectorTransformation(Transformation):
         # Remove all vector loops over the specified dimension
         self.kernel_remove_vector_loops(routine, self.horizontal)
 
+        # Extract vector-level compute sections from the kernel
+        with pragmas_attached(routine, ir.CallStatement):
+            sections = self.extract_vector_sections(routine.body.body, self.horizontal)
+
         # Replace sections with marked Section node
-        section_mapper = {s: ir.Section(body=s, label='vector_section')
-                          for s in self.extract_vector_sections(routine.body.body, self.horizontal)}
+        section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
         routine.body = NestedTransformer(section_mapper).visit(routine.body)
 
 
