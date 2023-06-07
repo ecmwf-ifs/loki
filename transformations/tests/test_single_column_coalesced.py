@@ -11,7 +11,7 @@ from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
     fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
-    is_loki_pragma, Pragma
+    is_loki_pragma, Pragma, IntLiteral, RangeIndex
 )
 from conftest import available_frontends
 from transformations import (
@@ -1622,3 +1622,52 @@ def test_single_column_coalesced_vector_reduction(frontend, horizontal, vertical
         loops = FindNodes(Loop).visit(routine.body)
         assert len(loops) == 1
         assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
+    """
+    Test that temporary arrays with compile-time constants are marked for demotion.
+    """
+
+    fcode_mod = """
+    module YOWPARAM
+       integer, parameter :: nang_param = 36
+    end module YOWPARAM
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, nang)
+       use yowparam, only: nang_param
+       implicit none
+
+       integer, intent(in) :: nlon, start, end, nang
+       real, dimension(nlon, nang_param, 2) :: work
+
+       integer :: jl, k
+
+       do jl=start,end
+          do k=1,nang
+             work(jl,k,1) = 1.
+             work(jl,k,2) = 1.
+          enddo
+       enddo
+
+    end subroutine some_kernel
+    """
+
+    source = Sourcefile.from_source(fcode_mod, frontend=frontend)
+    routine = Subroutine.from_source(fcode_kernel, definitions=source.definitions,
+                                     frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assert len(routine.symbol_map['work'].shape) == 2
+    if frontend == OMNI:
+        assert routine.symbol_map['work'].shape == (RangeIndex(children=(IntLiteral(1), IntLiteral(36))),
+                                                    IntLiteral(2))
+    else:
+        assert routine.symbol_map['work'].shape == ('nang_param', IntLiteral(2))
