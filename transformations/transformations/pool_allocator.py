@@ -299,14 +299,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                                           parameters=as_tuple(stack_type_bytes))
             stack_size_assign = Assignment(lhs=stack_size_var, rhs=Quotient(stack_size, stack_type_bytes))
             body_prepend += [stack_size_assign]
-            if self.check_bounds:
-                stack_size_check = Conditional(
-                                     condition=LogicalNot(Comparison(InlineCall(Variable(name='MOD'),
-                                     parameters=(stack_size_var, stack_type_bytes)),
-                                     '==', Literal(0))), inline=True, body=(Intrinsic('STOP'),),
-                                     else_body=None
-                )
-                body_prepend += [stack_size_check]
+
+            # Stack-size no longer guaranteed to be a multiple of 8-bytes, so we have to check here
+            padding = Assignment(lhs=stack_size_var, rhs=Sum((stack_size_var, Literal(1))))
+            stack_size_check = Conditional(
+                                 condition=LogicalNot(Comparison(InlineCall(Variable(name='MOD'),
+                                 parameters=(stack_size, stack_type_bytes)),
+                                 '==', Literal(0))), inline=True, body=(padding,),
+                                 else_body=None
+            )
+            body_prepend += [stack_size_check]
 
             variables_append += [stack_size_var]
 
