@@ -11,7 +11,7 @@ from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
     fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
-    is_loki_pragma, Pragma, IntLiteral, RangeIndex, Comment
+    is_loki_pragma, IntLiteral, RangeIndex, Comment
 )
 from conftest import available_frontends
 from transformations import (

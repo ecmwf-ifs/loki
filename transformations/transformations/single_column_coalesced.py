@@ -316,12 +316,12 @@ class SCCAnnotateTransformation(Transformation):
                 if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
                     if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
 
-                       loops = FindNodes(ir.Loop).visit(region)
-                       assert len(loops) == 1
-                       pragma = ir.Pragma(keyword='acc', content=f'loop vector {reduction_clause[0]}')
-                       mapper[loops[0]] = loops[0].clone(pragma=(pragma,))
-                       mapper[region.pragma] = None
-                       mapper[region.pragma_post] = None
+                        loops = FindNodes(ir.Loop).visit(region)
+                        assert len(loops) == 1
+                        pragma = ir.Pragma(keyword='acc', content=f'loop vector {reduction_clause[0]}')
+                        mapper[loops[0]] = loops[0].clone(pragma=(pragma,))
+                        mapper[region.pragma] = None
+                        mapper[region.pragma_post] = None
 
         with pragmas_attached(routine, ir.Loop):
             for loop in FindNodes(ir.Loop).visit(routine.body):
