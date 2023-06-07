@@ -481,13 +481,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             :any:`Conditional` that verifies that the stack is big enough
         """
 
-        # Bail if 'arr' is a derived-type object. Partly because the possibility of derived-type
-        # nesting increases the complexity of determing allocation size, and partly because `C_SIZEOF`
-        # doesn't account for the size of allocatable/pointer members of derived-types.
-        if isinstance(arr.type.dtype, DerivedType):
-            warning(f'[Loki::PoolAllocator] {arr} - Derived type var not supported in pool allocator')
-            return ([], stack_size)
-
         ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
 
         # Build expression for array size in bytes
@@ -526,6 +519,15 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         temporary_arrays = [
             var for var in routine.variables
             if isinstance(var, Array) and var not in arguments
+        ]
+
+        # Filter out derived-type objects. Partly because the possibility of derived-type
+        # nesting increases the complexity of determing allocation size, and partly because `C_SIZEOF`
+        # doesn't account for the size of allocatable/pointer members of derived-types.
+        if any(isinstance(var.type.dtype, DerivedType) for var in temporary_arrays):
+            warning(f'[Loki::PoolAllocator] Derived-type vars in {routine} not supported in pool allocator')
+        temporary_arrays = [
+            var for var in temporary_arrays if not isinstance(var.type.dtype, DerivedType)
         ]
 
         # Filter out unused vars

@@ -926,9 +926,14 @@ end module kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pool_allocator_more_call_checks(frontend, block_dim):
+def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
     fcode = """
     module kernel_mod
+      type point
+         real :: x
+         real :: y
+         real :: z
+      end type point
     contains
       real function inline_kernel(jl)
           integer, intent(in) :: jl
@@ -951,11 +956,15 @@ def test_pool_allocator_more_call_checks(frontend, block_dim):
           real, intent(inout) :: field1(klon)
           real :: temp1(klon)
           real :: temp2(klon)
+          type(point) :: p(klon)
 
           integer :: jl
 
           do jl=start,end
               field1(jl) = inline_kernel(jl)
+              p(jl)%x = 0.
+              p(jl)%y = 0.
+              p(jl)%z = 0.
           end do
 
           call optional_arg(klon, temp1, temp2)
@@ -1008,4 +1017,5 @@ def test_pool_allocator_more_call_checks(frontend, block_dim):
         assert len(calls) == 1
         assert calls[0].parameters == ('jl', 'ylstack')
 
+    assert 'Derived-type vars in Subroutine:: kernel not supported in pool allocator' in caplog.text
     rmtree(basedir)
