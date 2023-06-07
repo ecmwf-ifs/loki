@@ -10,7 +10,8 @@ import pytest
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
-    fgen, Sourcefile, Section, SubroutineItem
+    fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
+    is_loki_pragma, Pragma
 )
 from conftest import available_frontends
 from transformations import (
@@ -1572,3 +1573,52 @@ def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
     assert len(calls) == 1
     calls = FindNodes(CallStatement).visit(routine.body)
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_vector_reduction(frontend, horizontal, vertical, blocking):
+    """
+    Test for the insertion of OpenACC vector reduction directives.
+    """
+
+    fcode = """
+    subroutine some_kernel(start, end, nlon, mij)
+       integer, intent(in) :: nlon, start, end
+       integer, dimension(nlon), intent(in) :: mij
+
+       integer :: jl, maxij
+
+       maxij = -1
+       !$loki vector-reduction( mAx:maXij )
+       do jl=start,end
+          maxij = max(maxij, mij(jl))
+       enddo
+       !$loki end vector-reduction( mAx:maXij )
+
+    end subroutine some_kernel
+    """
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['some_kernel']
+
+    with pragma_regions_attached(routine):
+        region = FindNodes(PragmaRegion).visit(routine.body)
+        assert is_loki_pragma(region[0].pragma, starts_with = 'vector-reduction')
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    assert len(pragmas) == 3
+    assert all(p.keyword == 'acc' for p in pragmas)
+
+    # Check OpenACC directives have been inserted
+    with pragmas_attached(routine, Loop):
+        loops = FindNodes(Loop).visit(routine.body)
+        assert len(loops) == 1
+        assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'

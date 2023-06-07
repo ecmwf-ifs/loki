@@ -90,6 +90,12 @@ class SCCDevectorTransformation(Transformation):
                 if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
                     separator_nodes.append(ancestor_scopes[0])
 
+        for pragma in FindNodes(ir.Pragma).visit(section):
+            # Reductions over thread-parallel regions should be marked as a separator node
+            if (is_loki_pragma(pragma, starts_with='vector-reduction') or
+                is_loki_pragma(pragma, starts_with='end vector-reduction')):
+                separator_nodes.append(pragma)
+
         # Extract contiguous node sections between separator nodes
         assert all(n in section for n in separator_nodes)
         subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
@@ -203,9 +209,9 @@ class SCCRevectorTransformation(Transformation):
         # Ensure we clone all body nodes, to avoid recursion issues
         vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
 
-        # Add a comment before the pragma-annotated loop to ensure
+        # Add a comment before and after the pragma-annotated loop to ensure
         # we do not overlap with neighbouring pragmas
-        return (ir.Comment(''), vector_loop)
+        return (ir.Comment(''), vector_loop, ir.Comment(''))
 
     def transform_subroutine(self, routine, **kwargs):
         """
