@@ -26,7 +26,6 @@ from loki import (
     Module, Import, CallStatement, ProcedureDeclaration, InlineCall, Variable, RangeIndex,
     BasicType, DerivedType, as_tuple, warning, debug, CaseInsensitiveDict, ProcedureType
 )
-from transformations.scc_cuf import is_elemental
 
 
 __all__ = ['DerivedTypeArgumentsTransformation', 'TypeboundProcedureCallTransformation']
@@ -46,11 +45,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
     instead of the original derived type argument. This uses information
     from previous application of this transformation to the called
     procedure.
-    For calls to elemental routines, this may include the hoisting of
-    a dimension expression to the caller. Where this dimension
-    expression requires additional module variable imports, these
-    imports are added on the caller side and the ``imports``
-    cached property on the callers :any:`Item` is invalidated.
 
     On the callee side, this identifies derived type member variable
     usage, builds an expansion mapping, updates the procedure's
@@ -61,27 +55,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
     """
 
     _key = 'DerivedTypeArgumentsTransformation'
-
-    class _VariableCache:
-
-        def __init__(self):
-            self._var_cache = {}
-            self._var_counter = defaultdict(int)
-
-        def __getitem__(self, var):
-            return self._var_cache[var]
-
-        def __setitem__(self, var, value):
-            self._var_cache[var] = value
-
-        def __contains__(self, var):
-            return var in self._var_cache
-
-        def incr(self, var):
-            self._var_counter[var.name.lower()] += 1
-
-        def count(self, var):
-            return self._var_counter[var.name.lower()]
 
 
     def __init__(self, key=None, **kwargs):
@@ -349,42 +322,19 @@ class DerivedTypeArgumentsTransformation(Transformation):
         return as_tuple(arguments), as_tuple(kwarguments), other_symbols
 
     @staticmethod
-    def _expand_kernel_variable(var, var_cache=None, **kwargs):
+    def _expand_kernel_variable(var, **kwargs):
         """
         Utility routine that yields the expanded variable in the
         kernel for a given derived type variable member use :data:`var`
         """
-        if var_cache is not None and var in var_cache:
-            # If we have a variable cache with var already in there,
-            # we can directly return that
-            if kwargs:
-                return var_cache[var].clone(**kwargs)
-            return var_cache[var]
-
         new_name = var.name.replace('%', '_')
-
-        if var_cache is not None and getattr(var, 'dimensions', None):
-            # For elemental routines we use a variable cache, since we
-            # have to expand every use of array values as separate
-            # arguments
-            var_cache.incr(var)
-            new_name += f'_{var_cache.count(var)!s}'
-            new_var = var.clone(name=new_name, parent=None, **kwargs)
-            var_cache[var] = new_var
-            return new_var
-
         return var.clone(name=new_name, parent=None, **kwargs)
 
     @staticmethod
-    def _get_expanded_kernel_var_type(arg, var, is_elemental_routine=False):
+    def _get_expanded_kernel_var_type(arg, var):
         """
         Utility routine that yields the variable type for an expanded kernel variable
         """
-        if is_elemental_routine:
-            return var.type.clone(
-                intent=arg.type.intent, initial=None, allocatable=None,
-                target=None, pointer=None, shape=None
-            )
         return var.type.clone(
             intent=arg.type.intent, initial=None, allocatable=None,
             target=arg.type.target if not var.type.pointer else None
@@ -403,12 +353,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
         See :meth:`expand_derived_type_member` for more details on how
         the expansion is performed.
         """
-        is_elemental_routine = is_elemental(routine)
-        if is_elemental_routine:
-            var_cache = self._VariableCache()
-        else:
-            var_cache = None
-
         # All derived type arguments are candidates for expansion
         candidates = []
         for arg in routine.arguments:
@@ -424,9 +368,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         vmap = {}
         for var in FindVariables(recurse_to_parent=False).visit(routine.ir):
             if var.parent:
-                declared_var, expansion, local_use = self.expand_derived_type_member(
-                    var, is_elemental_routine, var_cache
-                )
+                declared_var, expansion, local_use = self.expand_derived_type_member(var)
                 if expansion and declared_var in candidates:
                     # Mark this derived type member for expansion
                     expansion_map[declared_var].add(expansion)
@@ -437,10 +379,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
         # Update the expansion map by re-adding the derived type argument when
         # there are non-expanded members left
         # Here, we determine the ordering in the updated call signature
-        #   Note: the _local_ name for expanded arguments in elemental routines is not
-        #   always the same, because the order in which variable names are created in the
-        #   var cache is random (hash sorting of set), however, the order in which they
-        #   appear in the updated routine signature is always the same
         expansion_map = dict(expansion_map)
         for arg in candidates:
             if arg in expansion_map:
@@ -450,8 +388,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 else:
                     expansion_map[arg] = tuple(sorted_expansion)
 
-        def shape_to_assumed_dim(shape):
-            if is_elemental_routine or not shape:
+        def assumed_dim_or_none(shape):
+            if not shape:
                 return None
             return tuple(RangeIndex((None, None)) for _ in shape)
 
@@ -461,8 +399,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
             if arg in expansion_map:
                 arguments_map[arg] = [
                     self._expand_kernel_variable(
-                        var, type=self._get_expanded_kernel_var_type(arg, var, is_elemental_routine),
-                        dimensions=shape_to_assumed_dim(var.type.shape), scope=routine, var_cache=var_cache
+                        var, type=self._get_expanded_kernel_var_type(arg, var),
+                        dimensions=assumed_dim_or_none(var.type.shape), scope=routine
                     )
                     for var in expansion_map[arg]
                 ]
@@ -493,9 +431,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
         Find recursive calls to itself and apply the derived args flattening
         to these calls
         """
-        if is_elemental(routine):
-            raise NotImplementedError('Support for recursive elemental routines not implemented')
-
         def _update_call(call):
             # Expand the call signature first
             arguments, kwarguments, _ = self.expand_call_arguments(call, trafo_data)
@@ -536,7 +471,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
             routine.body = SubstituteExpressions(call_mapper).visit(routine.body)
 
     @classmethod
-    def expand_derived_type_member(cls, var, is_elemental_routine, var_cache=None):
+    def expand_derived_type_member(cls, var):
         """
         Determine the member expansion for a derived type member variable
 
@@ -556,25 +491,10 @@ class DerivedTypeArgumentsTransformation(Transformation):
             SOME%NESTED%VAR     | ('some', 'some%nested%var', 'some_nested_var)    |
             NESTED%ARRAY(I)%VAR | ('nested', 'nested%array', 'nested_array(i)%var')| Partial expansion
 
-        For elemental routines, we may need to hoist subscript expressions to the caller side,
-        in which case the corresponding index expression is included in the expansion field,
-        for example:
-
-        .. code-block::
-            var name            | return value (parent_name, expansion, new_use)
-           ---------------------+-----------------------------------------------
-            SOME%VAR(IDX)       | ('some', 'some%var(idx)', 'some_var')
-
-        Note, that this currently supports only index expressions where another argument,
-        a constant (i.e. parameter), or global module variables that can be imported from
-        elsewhere, are used.
-
         Parameters
         ----------
         var : :any:`MetaSymbol`
             The use of a derived type member
-        is_elemental_routine : bool
-            Flag to indicate that the current routine is an ``ELEMENTAL`` routine
 
         Returns
         -------
@@ -584,40 +504,29 @@ class DerivedTypeArgumentsTransformation(Transformation):
         if not parents:
             return var, None, None
 
-        if is_elemental_routine:
-            # In elemental routines, we can have scalar derived type arguments with
-            # array members, where the subscript operation is performed inside the elemental
-            # routine. Because Fortran mandates (for good reasons!) scalar arguments in
-            # elemental routines, we have to include the dimensions in the
-            # argument expansion and hoist them to the caller side.
-            expansion = var.clone(scope=None)
-            local_use = cls._expand_kernel_variable(
-                var, dimensions=None, type=var.type.clone(shape=None), var_cache=var_cache
-            )
-        else:
-            # We unroll the derived type member as far as possible, stopping at
-            # the occurence of an intermediate derived type array.
-            # Note that we set scope=None, which detaches the symbol from the current
-            # scope and stores the type information locally on the symbol. This makes
-            # them available later on without risking losing this information due to
-            # intermediate rescoping operations
-            for idx, parent in enumerate(parents):
-                if hasattr(parent, 'dimensions'):
-                    expansion = parent.clone(scope=None, dimensions=None)
-                    if parent is parents[0]:
-                        debug(f'Array of derived types {var!s}. Cannot expand argument.')
-                        local_use = var
-                    else:
-                        debug(f'Array of derived types {var!s}. '
-                            f'Can only partially expand argument as {expansion!s}.')
-                        local_use = cls._expand_kernel_variable(parent)
-                        local_use = cls._expand_relative_to_local_var(local_use, [*parents[idx+1:], var])
-                    break
-            else:
-                # None of the parents had a dimensions attribute, which means we can
-                # completely expand
-                expansion = var.clone(scope=None, dimensions=None)
-                local_use = cls._expand_kernel_variable(var)
+        # We unroll the derived type member as far as possible, stopping at
+        # the occurence of an intermediate derived type array.
+        # Note that we set scope=None, which detaches the symbol from the current
+        # scope and stores the type information locally on the symbol. This makes
+        # them available later on without risking losing this information due to
+        # intermediate rescoping operations
+        for idx, parent in enumerate(parents):
+            if hasattr(parent, 'dimensions'):
+                expansion = parent.clone(scope=None, dimensions=None)
+                if parent is parents[0]:
+                    debug(f'Array of derived types {var!s}. Cannot expand argument.')
+                    local_use = var
+                else:
+                    debug(f'Array of derived types {var!s}. '
+                        f'Can only partially expand argument as {expansion!s}.')
+                    local_use = cls._expand_kernel_variable(parent)
+                    local_use = cls._expand_relative_to_local_var(local_use, [*parents[idx+1:], var])
+                return parents[0], expansion, local_use
+
+        # None of the parents had a dimensions attribute, which means we can
+        # completely expand
+        expansion = var.clone(scope=None, dimensions=None)
+        local_use = cls._expand_kernel_variable(var)
 
         return parents[0], expansion, local_use
 
