@@ -11,8 +11,8 @@ import pytest
 
 from loki import (
     OMNI, Sourcefile, Scheduler, SubroutineItem, as_tuple, gettempdir,
-    CallStatement, ProcedureDeclaration, Assignment, Scalar, Array,
-    FindNodes, FindVariables, FindInlineCalls, fgen, BasicType,
+    CallStatement, ProcedureDeclaration, Scalar, Array,
+    FindNodes, FindVariables, FindInlineCalls, BasicType,
     CaseInsensitiveDict, resolve_associates
 )
 from conftest import available_frontends
