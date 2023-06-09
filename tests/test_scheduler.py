@@ -413,6 +413,61 @@ def test_scheduler_process(here, config, frontend):
     assert scheduler.item_map['#another_l2'].routine.name == 'another_l2_kernel'
 
 
+def test_scheduler_process_filter(here, config, frontend):
+    """
+    Applies simple kernels over complex callgraphs to check that we
+    only apply to the entities requested and only once!
+
+    projA: driverA -> kernelA -> compute_l1 -> compute_l2
+                           |      <driver>      <kernel>
+                           |
+                           | --> another_l1 -> another_l2
+                                  <driver>      <kernel>
+    """
+    projA = here/'sources/projA'
+    projB = here/'sources/projB'
+
+    config['routine'] = [
+        {'name': 'driverE_single', 'role': 'driver', 'expand': True,},
+    ]
+
+
+    scheduler = Scheduler(
+        paths=[projA, projB], includes=projA/'include', config=config, frontend=frontend
+    )
+
+    class XMarksTheSpot(Transformation):
+        """
+        Append 'X' to a given :any:`Subroutine`
+        """
+        def transform_subroutine(self, routine, **kwargs):
+            routine.name += '_X'
+
+    # Apply re-naming transformation and check result
+    scheduler.process(transformation=XMarksTheSpot())
+
+    # Check that the targeted subroutines have been renamed
+    assert 'drivere_mod#drivere_single' in scheduler.items
+    assert scheduler.item_map['drivere_mod#drivere_single'].routine.name == 'driverE_single_X'
+
+    # Check that the second call-tree is excluded
+    assert 'drivere_mod#drivere_multiple' not in scheduler.items
+    # Get the source from the scheduler and check for side-effects
+    drivere_source =  scheduler.item_map['drivere_mod#drivere_single'].source
+    assert drivere_source.all_subroutines[0].name == 'driverE_single_X'
+    assert drivere_source.all_subroutines[1].name == 'driverE_multiple'
+
+    # Check that the kernel files have been renamed appropriately
+    assert 'kernele_mod#kernele' in scheduler.items
+    assert scheduler.item_map['kernele_mod#kernele'].routine.name == 'kernelE_X'
+
+    # Check that excluded kernel has not been altered
+    assert 'kernele_mod#kernelet' not in scheduler.items
+    kernele_source =  scheduler.item_map['kernele_mod#kernele'].source
+    assert kernele_source.all_subroutines[0].name == 'kernelE_X'
+    assert kernele_source.all_subroutines[1].name == 'kernelET'
+
+
 @pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
 def test_scheduler_graph_multiple_combined(here, config, frontend):
     """
