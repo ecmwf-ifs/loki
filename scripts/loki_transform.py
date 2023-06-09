@@ -18,7 +18,8 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info,
+    GlobalVarImportItem
 )
 
 # Get generalized transformations provided by Loki
@@ -31,7 +32,7 @@ from loki.transform import (
 from transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
-from transformations.data_offload import DataOffloadTransformation
+from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
@@ -146,8 +147,10 @@ def cli(debug):
               help='Path to custom scheduler configuration file')
 @click.option('--trim-vector-sections', is_flag=True, default=False,
               help='Trim vector loops in SCC transform to exclude scalar assignments.')
+@click.option('--global-var-offload', is_flag=True, default=False,
+              help="Generate offload instructions for global vars imported via 'USE' statements.")
 def convert(out_path, path, header, cpp, directive, include, define, omni_include, xmod,
-            data_offload, remove_openmp, mode, frontend, config, trim_vector_sections):
+            data_offload, remove_openmp, mode, frontend, config, trim_vector_sections, global_var_offload):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -254,6 +257,10 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
+    if global_var_offload:
+        scheduler.process(transformation=GlobalVarOffloadTransformation(),
+                          item_filter=(SubroutineItem, GlobalVarImportItem), reverse=True)
+
     if mode in ['idem-stack', 'scc-stack']:
         if frontend == Frontend.OMNI:
             # To make the pool allocator size derivation work correctly, we need
@@ -291,7 +298,8 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode))
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode),
+                      item_filter=(SubroutineItem, GlobalVarImportItem))
 
 
 @cli.command()

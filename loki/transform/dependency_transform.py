@@ -15,7 +15,6 @@ from loki.ir import CallStatement, Import, Section, Interface
 from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
 from loki.backend import fgen
 from loki.tools import as_tuple
-from loki.bulk.item import GlobalVarImportItem
 
 
 __all__ = ['DependencyTransformation']
@@ -122,11 +121,6 @@ class DependencyTransformation(Transformation):
         """
         role = kwargs.get('role')
         item = kwargs.get('item', None)
-
-        # bail if module contains global variables as these are potentially used
-        # in non-offloaded CPU code
-        if isinstance(item, GlobalVarImportItem):
-            return
 
         if role == 'kernel':
             # Change the name of kernel modules
