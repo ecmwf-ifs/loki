@@ -648,7 +648,7 @@ end module kernel_mod
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive):
     if directive == 'openmp':
-        driver_pragma = '!$omp parallel do'
+        driver_pragma = '!$omp PARALLEL do PRIVATE(b)'
         driver_end_pragma = '!$omp end parallel do'
         kernel_pragma = ''
     elif directive == 'openacc':
@@ -841,6 +841,8 @@ end module kernel_mod
         for pragma in pragmas:
             parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
             assert 'private' in parameters and 'ylstack' in parameters['private'].lower()
+            if directive == 'openmp':
+                assert 'b' in parameters['private']
 
     # Are there data regions for the stack?
     if directive == ['openacc']:

@@ -585,10 +585,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             # Find OpenACC loop statements
             acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
             for pragma in acc_pragmas:
-                if pragma.content.startswith('parallel') and 'gang' in pragma.content.lower():
+                if pragma.content.lower().startswith('parallel') and 'gang' in pragma.content.lower():
                     parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
-                    if 'private' in parameters:
-                        content = pragma.content.replace('private(', f'private({stack_var.name}, ')
+                    if 'private' in [p.lower() for p in parameters]:
+                        content = pragma.content.lower().replace('private(', f'private({stack_var.name}, ')
                     else:
                         content = pragma.content + f' private({stack_var.name})'
                     pragma_map[pragma] = pragma.clone(content=content)
@@ -597,10 +597,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             # Find OpenMP parallel statements
             omp_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'omp']
             for pragma in omp_pragmas:
-                if pragma.content.startswith('parallel'):
+                if pragma.content.lower().startswith('parallel'):
                     parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
-                    if 'private' in parameters:
-                        content = pragma.content.replace('private(', f'private({stack_var.name}, ')
+                    if 'private' in [p.lower() for p in parameters]:
+                        content = pragma.content.lower().replace('private(', f'private({stack_var.name}, ')
                     else:
                         content = pragma.content + f' private({stack_var.name})'
                     pragma_map[pragma] = pragma.clone(content=content)
