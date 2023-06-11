@@ -77,10 +77,6 @@ class CMakePlanner(Transformation):
         item = kwargs['item']
         role = kwargs.get('role')
 
-        # Back out, if this Subroutine is not part of the plan
-        if not item.local_name == routine.name.lower():
-            return
-
         sourcepath = item.path.resolve()
         newsource = sourcepath.with_suffix(f'.{self.mode.lower()}.F90')
         if self.build is not None:

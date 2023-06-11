@@ -681,9 +681,6 @@ class SccCufTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):
 
         item = kwargs.get('item', None)
-        if item and not item.local_name == routine.name.lower():
-            return
-
         role = kwargs.get('role')
         depths = kwargs.get('depths', None)
         targets = kwargs.get('targets', None)

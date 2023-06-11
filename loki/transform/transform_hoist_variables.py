@@ -139,9 +139,6 @@ class HoistVariablesAnalysis(Transformation):
         successors = [_ for _ in _successors if _.local_name.lower()
                       not in self.disable and _.name.lower() not in self.disable]
 
-        if item and not item.local_name == routine.name.lower() or item.local_name.lower() in self.disable:
-            return
-
         item.trafo_data[self._key] = {}
 
         if role != 'driver':
@@ -240,7 +237,7 @@ class HoistVariablesTransformation(Transformation):
                       not in self.disable and _.name.lower() not in self.disable]
         successor_map = {successor.routine.name: successor for successor in successors}
 
-        if item and not item.local_name == routine.name.lower() or item.local_name.lower() in self.disable:
+        if item.local_name.lower() in self.disable:
             return
 
         if self._key not in item.trafo_data:

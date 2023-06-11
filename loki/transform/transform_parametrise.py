@@ -187,9 +187,6 @@ class ParametriseTransformation(Transformation):
         item = kwargs.get('item', None)
         role = kwargs.get('role', None)
 
-        if item and not item.local_name == routine.name.lower():
-            return
-
         _successors = kwargs.get('successors', None)
         successors = []
         for successor in _successors:
