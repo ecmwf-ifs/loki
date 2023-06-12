@@ -8,8 +8,8 @@
 from loki import (
     as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
-    SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, IntrinsicLiteral, LogicLiteral,
-    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex,
+    SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, LogicLiteral,
+    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Cast,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation, is_dimension_constant,
     Loop, Pragma, SubroutineItem, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
 )
@@ -292,9 +292,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             # Create a variable for the stack size and assign the size
             stack_size_var = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER))
 
+            # Retrieve kind parameter of stack storage
+            _kind = (routine.imported_symbol_map.get(f'{self.stack_type_kind}', None) or
+                     routine.variable_map.get(f'{self.stack_type_kind}', None) or
+                     Variable(name=self.stack_type_kind))
+
             # Convert stack_size from bytes to integer
-            stack_type_bytes = InlineCall(Variable(name='REAL'), parameters=(
-                                         Literal(1), IntrinsicLiteral(f'kind={self.stack_type_kind}')))
+            stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
             stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(stack_type_bytes))
             stack_size_assign = Assignment(lhs=stack_size_var, rhs=Quotient(stack_size, stack_type_bytes))
@@ -436,18 +440,17 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         """
 
         if arr.type.dtype == BasicType.REAL:
-            param = InlineCall(Variable(name='REAL'), parameters=as_tuple(IntLiteral(1)))
+            param = Cast(name='REAL', expression=IntLiteral(1))
         elif arr.type.dtype == BasicType.INTEGER:
-            param = InlineCall(Variable(name='INT'), parameters=as_tuple(IntLiteral(1)))
+            param = Cast(name='INT', expression=IntLiteral(1))
         elif arr.type.dtype == BasicType.CHARACTER:
-            param = InlineCall(Variable(name='CHAR'), parameters=as_tuple(IntLiteral(1)))
+            param = Cast(name='CHAR', expression=IntLiteral(1))
         elif arr.type.dtype == BasicType.LOGICAL:
-            param = InlineCall(Variable(name='LOGICAL'), parameters=as_tuple(LogicLiteral('.TRUE.')))
+            param = Cast(name='LOGICAL', expression=LogicLiteral('.TRUE.'))
         elif arr.type.dtype == BasicType.COMPLEX:
-            param = InlineCall(Variable(name='CMPLX'), parameters=as_tuple(IntLiteral(1), IntLiteral(1)))
+            param = Cast(name='CMPLX', expression=(IntLiteral(1), IntLiteral(1)))
 
-        if (kind := getattr(arr.type, 'kind', None)):
-            param.parameters = param.parameters + as_tuple(IntrinsicLiteral(f'kind={kind}'))
+        param.kind = getattr(arr.type, 'kind', None)
 
         return param
 
@@ -642,9 +645,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     kw_parameters=None
                 )
             )
+
+            # Retrieve kind parameter of stack storage
+            _kind = (routine.imported_symbol_map.get(f'{self.stack_type_kind}', None) or
+                     routine.variable_map.get(f'{self.stack_type_kind}', None) or
+                     Variable(name=self.stack_type_kind))
+
             # Stack increment
-            _real_size_bytes = InlineCall(Variable(name='REAL'), parameters=(
-                                         Literal(1), IntrinsicLiteral(f'kind={self.stack_type_kind}')))
+            _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
             _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(_real_size_bytes))
             stack_incr = Assignment(
