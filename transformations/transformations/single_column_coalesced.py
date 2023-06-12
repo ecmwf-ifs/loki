@@ -466,6 +466,15 @@ class SCCAnnotateTransformation(Transformation):
             if self.directive == 'openacc':
                 self.device_alloc_column_locals(routine, column_locals)
 
+        # For the thread block size, find the horizontal size variable that is available in
+        # the driver
+        num_threads = None
+        symbol_map = routine.symbol_map
+        for size_expr in self.horizontal.size_expressions:
+            if size_expr in symbol_map:
+                num_threads = size_expr
+                break
+
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if not call.name in targets:
@@ -485,7 +494,10 @@ class SCCAnnotateTransformation(Transformation):
                 assert not driver_loop == kernel_loop
 
                 # Mark driver loop as "gang parallel".
-                self.annotate_driver(self.directive, driver_loop, kernel_loop, self.block_dim, column_locals)
+                self.annotate_driver(
+                    self.directive, driver_loop, kernel_loop,
+                    self.block_dim, column_locals, num_threads
+                )
 
     @classmethod
     def device_alloc_column_locals(cls, routine, column_locals):
@@ -509,7 +521,7 @@ class SCCAnnotateTransformation(Transformation):
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
     @classmethod
-    def annotate_driver(cls, directive, driver_loop, kernel_loop, block_dim, column_locals):
+    def annotate_driver(cls, directive, driver_loop, kernel_loop, block_dim, column_locals, num_threads):
         """
         Annotate driver block loop with ``'openacc'`` pragmas, and add offload directives
         for hoisted column locals.
@@ -528,6 +540,8 @@ class SCCAnnotateTransformation(Transformation):
             to use for hoisted column arrays if hoisting is enabled.
         column_locals : list
             List of column locals to be hoisted to driver layer
+        num_threads : str
+            The size expression that determines the number of threads per thread block
         """
 
         # Mark driver loop as "gang parallel".
@@ -543,13 +557,14 @@ class SCCAnnotateTransformation(Transformation):
             arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
             private_arrays = ', '.join(set(v.name for v in arrays))
             private_clause = '' if not private_arrays else f' private({private_arrays})'
+            vector_length_clause = '' if not num_threads else f' vector_length({num_threads})'
 
             # Annotate vector loops with OpenACC pragmas
             if kernel_loop:
                 kernel_loop._update(pragma=ir.Pragma(keyword='acc', content='loop vector'))
 
             if driver_loop.pragma is None:
-                p_content = f'parallel loop gang{private_clause}'
+                p_content = f'parallel loop gang{private_clause}{vector_length_clause}'
                 driver_loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
                 driver_loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
 
@@ -557,7 +572,7 @@ class SCCAnnotateTransformation(Transformation):
             elif len(driver_loop.pragma) == 1:
                 if (driver_loop.pragma[0].keyword == 'acc' and
                     driver_loop.pragma[0].content.lower().lstrip().startswith('data ')):
-                    p_content = f'parallel loop gang{private_clause}'
+                    p_content = f'parallel loop gang{private_clause}{vector_length_clause}'
                     driver_loop._update(pragma=(driver_loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
                     driver_loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
                                               driver_loop.pragma_post[0]))

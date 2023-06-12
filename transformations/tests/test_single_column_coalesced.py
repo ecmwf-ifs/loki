@@ -21,7 +21,7 @@ from transformations import (
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
-    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'))
+    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'), aliases=('nproma',))
 
 
 @pytest.fixture(scope='module', name='vertical')
@@ -637,7 +637,7 @@ def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
         driver_loops = FindNodes(Loop).visit(driver.body)
         assert len(driver_loops) == 1
         assert driver_loops[0].pragma[0].keyword == 'acc'
-        assert driver_loops[0].pragma[0].content == 'parallel loop gang'
+        assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -730,7 +730,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
         driver_loops = FindNodes(Loop).visit(driver.body)
         assert len(driver_loops) == 2
         assert driver_loops[0].pragma[0].keyword == 'acc'
-        assert driver_loops[0].pragma[0].content == 'parallel loop gang'
+        assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
         assert driver_loops[1].pragma[0].keyword == 'acc'
         assert driver_loops[1].pragma[0].content == 'loop vector'
 
@@ -743,23 +743,24 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
         assert driver_pragmas[1].content == 'exit data delete(t)'
 
 
+@pytest.mark.parametrize('block_size', ['nlon','nproma'])
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_wrapper_hoist_openacc(frontend, horizontal, vertical, blocking):
+def test_scc_wrapper_hoist_openacc(frontend, horizontal, vertical, blocking, block_size):
     """
     Test the correct addition of OpenACC pragmas to SCC format code
     when hoisting column array temporaries to driver.
     """
 
-    fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, nb)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    fcode_driver = f"""
+  SUBROUTINE column_driver({block_size}, nz, q, nb)
+    INTEGER, INTENT(IN)   :: {block_size}, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: q({block_size},nz,nb)
     INTEGER :: b, start, end
 
     start = 1
-    end = nlon
+    end = {block_size}
     do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b))
+      call compute_column(start, end, {block_size}, nz, q(:,:,b))
     end do
   END SUBROUTINE column_driver
 """
@@ -831,7 +832,7 @@ def test_scc_wrapper_hoist_openacc(frontend, horizontal, vertical, blocking):
         driver_loops = FindNodes(Loop).visit(driver.body)
         assert len(driver_loops) == 2
         assert driver_loops[0].pragma[0].keyword == 'acc'
-        assert driver_loops[0].pragma[0].content == 'parallel loop gang'
+        assert driver_loops[0].pragma[0].content == f'parallel loop gang vector_length({block_size})'
         assert driver_loops[1].pragma[0].keyword == 'acc'
         assert driver_loops[1].pragma[0].content == 'loop vector'
 
@@ -1006,7 +1007,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert driver_loops[0].variable == 'b'
         assert driver_loops[0].bounds == '1:nb'
         assert driver_loops[0].pragma[0].keyword == 'acc'
-        assert driver_loops[0].pragma[0].content == 'parallel loop gang'
+        assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
 
         # Ensure we have a kernel call in the driver loop
         kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
@@ -1478,7 +1479,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     assert 'data' in pragmas[0].content
     assert 'copy' in pragmas[0].content
     assert '(work)' in pragmas[0].content
-    assert pragmas[1].content == 'parallel loop gang'
+    assert pragmas[1].content == 'parallel loop gang vector_length(nlon)'
     assert pragmas[2].content == 'end parallel loop'
     assert pragmas[3].content == 'end data'
 
