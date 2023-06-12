@@ -120,7 +120,6 @@ class DependencyTransformation(Transformation):
         Rename kernel modules and re-point module-level imports.
         """
         role = kwargs.get('role')
-        item = kwargs.get('item', None)
 
         if role == 'kernel':
             # Change the name of kernel modules

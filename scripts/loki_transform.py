@@ -197,7 +197,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
     if 'scc' in mode:
         scheduler.process(transformation=RemoveCallsTransformation(
-            routines=config.default['utility_routines'] or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
+            routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
             include_intrinsics=True
         ))
     else:
