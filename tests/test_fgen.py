@@ -117,3 +117,32 @@ end subroutine data_stmt
         # OMNI seems to evaluate constant expressions, replacing 31*0 by 0,
         # although it's not a product here but a repeat specifier (great job, Fortran!)
         assert '31*0' in spec_code
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki likes only valid code')]))
+def test_multiline_inline_conditional(frontend):
+    """
+    Test correct formatting of an inline :any:`Conditional` that
+    contains a multi-line :any:`CallStatement`.
+    """
+    fcode = """
+subroutine test_fgen(DIMS, ZSURF_LOCAL)
+contains
+subroutine test_inline_multiline(KDIMS, LBUD23)
+
+  DO JKGLO=1,NGPTOT,NPROMA
+    ! Add saturation adjustment tendencies to cloud scheme (LBUD23)
+    IF (LBUD23) CALL UPDATE_FIELDS(YDPHY2,1,DIMS%KIDIA,DIMS%KFDIA,DIMS%KLON,DIMS%KLEV,&
+     & PTA1=TENDENCY_LOC%T, PO1=ZSURF_LOCAL%GSD_XA%PGROUP(:,:,19),&
+     & PTA2=TENDENCY_LOC%Q, PO2=ZSURF_LOCAL%GSD_XA%PGROUP(:,:,20),&
+     & LDV3=YGFL%YL%LT1, PTA3=TENDENCY_LOC%CLD(:,:,NCLDQL), PO3=ZSURF_LOCAL%GSD_XA%PGROUP(:,:,21),&
+     & LDV4=YGFL%YI%LT1, PTA4=TENDENCY_LOC%CLD(:,:,NCLDQI), PO4=ZSURF_LOCAL%GSD_XA%PGROUP(:,:,22))
+  ENDDO
+end subroutine test_inline_multiline
+end subroutine test_fgen
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    out = fgen(routine, linewidth=132)
+    for line in out.splitlines():
+        assert line.count('&') <= 2

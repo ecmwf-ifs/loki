@@ -601,7 +601,9 @@ class FortranCodegen(Stringifier):
             # No indentation and only a single body node
             cond = self.visit(o.condition, **kwargs)
             body = self.visit(o.body, **kwargs)
-            return self.format_line('IF (', cond, ') ', body)
+            line = self.format_line(f'IF ({cond}) ') + body.lstrip()
+            # Ensure we run multi-line formatter, in case the body is complex
+            return self.join_lines(line)
 
         name = kwargs.pop('name', f' {o.name}' if o.name else '')
         is_elseif = kwargs.pop('is_elseif', False)
