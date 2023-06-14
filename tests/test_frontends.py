@@ -1216,6 +1216,7 @@ type(tfpdata), intent(in) :: ydfpdata
 type(tfpofn) :: ylofn(size(ydfpdata%yfpos%yfpgeometry%yfpusergeo))
 real, dimension(nproma, max(nang, 1), max(nfre, 1)) :: not_an_annoying_ecwam_var
 character(len=511) :: cloud_type_name(NMaxCloudTypes) = ["","","","","","","","","","","",""], other_name = "", names(3) = (/ "", "", "" /)
+character(len=511) :: more_names(2) = (/ "What", " is" /), naaaames(2) = [ " going ", "on?" ]
 end subroutine definitely_not_allfpos
     """.strip()
 
@@ -1223,7 +1224,7 @@ end subroutine definitely_not_allfpos
     routine = source['definitely_not_allfpos']
     assert routine.variables == (
         'nmaxcloudtypes', 'ydfpdata', 'ylofn', 'not_an_annoying_ecwam_var',
-        'cloud_type_name', 'other_name', 'names'
+        'cloud_type_name', 'other_name', 'names', 'more_names', 'naaaames'
     )
     assert routine.symbol_map['not_an_annoying_ecwam_var'].type.dtype is BasicType.REAL
     assert routine.symbol_map['cloud_type_name'].type.dtype is BasicType.CHARACTER

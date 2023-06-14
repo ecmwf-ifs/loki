@@ -1651,6 +1651,19 @@ def test_scheduler_import_dependencies(here, config, frontend):
         elif i.name == '#double_real':
             assert isinstance(i, SubroutineItem)
 
+    # Testing of callgraph visualisation with imports
+    workdir = gettempdir()/'test_scheduler_import_dependencies'
+    workdir.mkdir(exist_ok=True)
+    cg_path = workdir/'callgraph'
+    scheduler.callgraph(cg_path)
+
+    vgraph = VisGraphWrapper(cg_path)
+    assert all(n.upper() in vgraph.nodes for n in expected_items)
+    assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
+
+    rmtree(workdir)
+
+
 def test_scheduler_globalvarimportitem_id(here, config, frontend):
     """
     Test that scheduler.item_successors always returns the original item.
@@ -1684,6 +1697,7 @@ def test_scheduler_globalvarimportitem_id(here, config, frontend):
             assert id(successor) == idA
         if successor.name == importB_item.name:
             assert id(successor) == idB
+
 
 def test_scheduler_globalvarimportitem_children(config):
     """
