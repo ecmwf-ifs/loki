@@ -24,7 +24,7 @@ from loki import (
     Transformation, FindVariables, FindNodes, FindInlineCalls, Transformer,
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionRetriever, recursive_expression_map_update,
     Module, Import, CallStatement, ProcedureDeclaration, InlineCall, Variable, RangeIndex,
-    BasicType, DerivedType, as_tuple, warning, debug, CaseInsensitiveDict, ProcedureType
+    BasicType, DerivedType, as_tuple, flatten, warning, debug, CaseInsensitiveDict, ProcedureType
 )
 
 
@@ -91,25 +91,24 @@ class DerivedTypeArgumentsTransformation(Transformation):
         )
 
         # Apply caller transformation first to update calls to successors...
-        dependencies_updated = self.expand_derived_args_caller(routine, successors_data)
-
-        # ...and invalidate cached properties if dependencies have changed...
-        if dependencies_updated and item:
-            item.clear_cached_property('imports')
+        self.expand_derived_args_caller(routine, successors_data)
 
         # ...before updating the routine's signature and replacing
         # use of members in the body
         if role == 'kernel':
-            # Expand derived type arguments in kernel
-            orig_argnames = tuple(arg.lower() for arg in routine.argnames)
-            expansion_map = self.expand_derived_args_kernel(routine)
-            trafo_data = {
-                'orig_argnames': orig_argnames,
-                'expansion_map': expansion_map,
-            }
+            # Expand derived type arguments in kernel...
+            trafo_data = self.expand_derived_args_kernel(routine)
             if item:
                 item.trafo_data[self._key] = trafo_data
 
+            # ...and make sure missing symbols are importen...
+            dependencies_updated = self.add_new_imports_kernel(routine, trafo_data)
+
+            # ...before invalidating cached properties if dependencies have changed
+            if dependencies_updated and item:
+                item.clear_cached_property('imports')
+
+            # For recursive routines, we have to update calls to itself
             if any('recursive' in prefix.lower() for prefix in routine.prefix or ()):
                 self.expand_derived_args_recursion(routine, trafo_data)
 
@@ -134,16 +133,14 @@ class DerivedTypeArgumentsTransformation(Transformation):
         bool
             Flag to indicate that dependencies have been changed (e.g. via new imports)
         """
-        other_symbols = set()
         call_mapper = {}
         for call in FindNodes(CallStatement).visit(routine.body):
             if not call.not_active:
                 call_name = str(call.name)
                 if call_name in successors_data:
                     # Set the new call signature on the IR node
-                    arguments, kwarguments, others = self.expand_call_arguments(call, successors_data[call_name])
+                    arguments, kwarguments  = self.expand_call_arguments(call, successors_data[call_name])
                     call_mapper[call] = call.clone(arguments=arguments, kwarguments=kwarguments)
-                    other_symbols.update(others)
 
         # Rebuild the routine's IR tree
         if call_mapper:
@@ -153,33 +150,11 @@ class DerivedTypeArgumentsTransformation(Transformation):
         for call in FindInlineCalls().visit(routine.body):
             if (call_name := str(call.name)) in successors_data:
                 # Set the new call signature on the expression node
-                arguments, kwarguments, others = self.expand_call_arguments(call, successors_data[call_name])
+                arguments, kwarguments = self.expand_call_arguments(call, successors_data[call_name])
                 call_mapper[call] = call.clone(parameters=arguments, kw_parameters=kwarguments)
-                other_symbols.update(others)
 
         if call_mapper:
             routine.body = SubstituteExpressions(call_mapper).visit(routine.body)
-
-        # Add parameter declarations or imports
-        if other_symbols:
-            new_symbols = []
-            new_imports = []
-            for s in other_symbols:
-                if s.type.imported:
-                    if not s.type.module:
-                        raise RuntimeError(
-                            f'Incomplete type information available for {s!s}'
-                        )
-                    new_imports += [Import(module=s.type.module.name, symbols=(s.rescope(routine),))]
-                else:
-                    new_symbols += [s.rescope(routine)]
-            if new_symbols:
-                routine.variables += as_tuple(new_symbols)
-            if new_imports:
-                routine.spec.prepend(as_tuple(new_imports))
-                return True
-
-        return False
 
     @staticmethod
     def _expand_relative_to_local_var(local_var, expansion_components):
@@ -213,20 +188,13 @@ class DerivedTypeArgumentsTransformation(Transformation):
         according to the provided :data:`expansion_list` and original arguments of the
         call target, as given in :data:`orig_argnames
 
-        It returns a 2-tuple consisting of a list of new arguments and other symbols
-        that become relevant on the caller side as a consequence of expanding a
-        dimension expression, needing either a matching parameter declaration or module
-        import.
+        It returns a list of new arguments.
         """
-        other_symbols = set()
-
-        # Found derived-type argument, unroll according to candidate map
-        arguments = []
-        for member in expansion_list:
-            arg_member = cls._expand_relative_to_local_var(caller_arg, [*member.parents[1:], member])
-            arguments += [arg_member]
-
-        return arguments, other_symbols
+        arguments = [
+            cls._expand_relative_to_local_var(caller_arg, [*member.parents[1:], member])
+            for member in expansion_list
+        ]
+        return arguments
 
     @classmethod
     def expand_call_arguments(cls, call, successor_data):
@@ -243,35 +211,28 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
         Returns
         -------
-        (tuple, tuple, set) :
-            The argument and keyword argument list with derived type arguments expanded,
-            and a set of additional symbols to cater for (either import them or replicate
-            the parameter definition)
+        (tuple, tuple) :
+            The argument and keyword argument list with derived type arguments expanded
         """
         expansion_map = successor_data['expansion_map']
         orig_argnames = successor_data['orig_argnames']
 
-        other_symbols = set()
-
         arguments = []
         for kernel_argname, caller_arg in zip(orig_argnames, call.arguments):
             if kernel_argname in expansion_map:
-                new_arguments, others = cls._expand_call_argument(caller_arg, expansion_map[kernel_argname])
-                arguments += new_arguments
-                other_symbols.update(others)
+                arguments += cls._expand_call_argument(caller_arg, expansion_map[kernel_argname])
             else:
                 arguments += [caller_arg]
 
         kwarguments = []
         for kernel_argname, caller_arg in call.kwarguments:
             if kernel_argname in expansion_map:
-                new_arguments, others = cls._expand_call_argument(caller_arg, expansion_map[kernel_argname])
-                kwarguments += list(zip(expansion_map[kernel_argname], new_arguments))
-                other_symbols.update(others)
+                expanded_arguments = cls._expand_call_argument(caller_arg, expansion_map[kernel_argname])
+                kwarguments += list(zip(expansion_map[kernel_argname], expanded_arguments))
             else:
                 kwarguments += [(kernel_argname, caller_arg)]
 
-        return as_tuple(arguments), as_tuple(kwarguments), other_symbols
+        return as_tuple(arguments), as_tuple(kwarguments)
 
     @staticmethod
     def _expand_kernel_variable(var, **kwargs):
@@ -304,6 +265,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
         See :meth:`expand_derived_type_member` for more details on how
         the expansion is performed.
         """
+        trafo_data = {'orig_argnames': tuple(arg.lower() for arg in routine.argnames)}
+
         # All derived type arguments are candidates for expansion
         candidates = []
         for arg in routine.arguments:
@@ -375,23 +338,107 @@ class DerivedTypeArgumentsTransformation(Transformation):
                         if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
                             proc.type = proc.type.clone(pass_attr=False)
 
-        return expansion_map
+        trafo_data['expansion_map'] = expansion_map
+        return trafo_data
 
-    def expand_derived_args_recursion(self, routine, trafo_data):
+    @staticmethod
+    def _get_imports(expr, scope, symbol_map):
         """
-        Find recursive calls to itself and apply the derived args flattening
+        Helper utility to build the list of symbols per module in an expression :data:`expr` that do
+        not exist in the current :data:`scope`
+        """
+        def _warn(symbol):
+            warning((
+                '[Loki::DerivedTypeArgumentsTransformation] '
+                f'Cannot insert import for symbol "{symbol.name}" in {scope.name}. No type information available.'
+            ))
+
+        new_imports = defaultdict(set)
+        for symbol in FindVariables().visit(expr):
+            if symbol.name in symbol_map:
+                continue
+
+            if symbol.type.imported:
+                # This new symbol had been imported for use in the typedef
+                if not symbol.type.module:
+                    _warn(symbol)
+                else:
+                    new_imports[symbol.type.module.name.lower()].add(symbol.clone(scope=scope))
+
+            elif (symbol_scope := symbol.scope):
+                # This new symbol has been declared in the symbol_scope we inherited it from
+                while symbol_scope.parent:
+                    symbol_scope = symbol_scope.parent
+                new_imports[symbol_scope.name.lower()].add(
+                    symbol.clone(scope=scope, type=symbol.type.clone(imported=True))
+                )
+
+            else:
+                _warn(symbol)
+
+        return new_imports
+
+    @classmethod
+    def add_new_imports_kernel(cls, routine, trafo_data):
+        """
+        Inspect the expansion map in :data:`trafo_data` for new symbols that need to be imported
+        as a result of flattening a derived type and add the corresponding imports
+        """
+        new_arguments = flatten(trafo_data['expansion_map'].values())
+        symbol_map = routine.parent.symbol_map if routine.parent else {}
+        symbol_map.update(routine.symbol_map)
+
+        # Check for derived types, kind, or shape dimensions declared via parameters among new arguments
+        new_imports = defaultdict(set)
+        for arg in new_arguments:
+            type_ = arg.type
+            if isinstance(type_.dtype, DerivedType) and type_.dtype.name not in symbol_map:
+                typedef = type_.dtype.typedef
+                if typedef is BasicType.DEFERRED:
+                    warning((
+                        '[Loki::DerivedTypeArgumentsTransformation] '
+                        f'Cannot insert import for derived type "{type_.dtype.name}" in {routine.name}. '
+                        'No type information available.'
+                    ))
+                elif typedef.parent is not routine.parent:
+                    # Derived type needs to be imported
+                    new_imports[typedef.parent.name.lower()].add(
+                        Variable(name=type_.dtype.name, scope=routine, type=type_.clone(imported=True))
+                    )
+
+            if type_.kind:
+                for module, symbols in cls._get_imports(type_.kind, routine, symbol_map).items():
+                    new_imports[module] |= symbols
+
+            if getattr(arg, 'dimensions', None):
+                for module, symbols in cls._get_imports(arg.dimensions, routine, symbol_map).items():
+                    new_imports[module] |= symbols
+
+        if new_imports:
+            new_imports = tuple(
+                Import(module=module, symbols=as_tuple(symbols))
+                for module, symbols in new_imports.items()
+            )
+            routine.spec.prepend(new_imports)
+            return True
+        return False
+
+    @classmethod
+    def expand_derived_args_recursion(cls, routine, trafo_data):
+        """
+        Find recursive calls to itcls and apply the derived args flattening
         to these calls
         """
         def _update_call(call):
             # Expand the call signature first
-            arguments, kwarguments, _ = self.expand_call_arguments(call, trafo_data)
+            arguments, kwarguments = cls.expand_call_arguments(call, trafo_data)
             # And expand the derived type members in the new call signature next
             expansion_map = {}
             for var in FindVariables(recurse_to_parent=False).visit((arguments, kwarguments)):
                 if var.parent:
                     orig_arg = var.parents[0]
-                    expanded_var = self._expand_kernel_variable(
-                        var, type=self._get_expanded_kernel_var_type(orig_arg, var), scope=routine, dimensions=None
+                    expanded_var = cls._expand_kernel_variable(
+                        var, type=cls._get_expanded_kernel_var_type(orig_arg, var), scope=routine, dimensions=None
                     )
                     expansion_map[var] = expanded_var
             expansion_mapper = SubstituteExpressionsMapper(recursive_expression_map_update(expansion_map))

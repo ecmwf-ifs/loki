@@ -371,87 +371,39 @@ end module transform_derived_type_arguments_multilevel
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_derived_type_arguments_expansion_nested(frontend):
-    fcode = f"""
-module transform_derived_type_arguments_mod
-
+    fcode_header = f"""
+module header_mod
     implicit none
+    integer, parameter :: jprb = selected_real_kind(13, 300)
+    integer, parameter :: NUMBER_TWO = 2
 
     type some_derived_type
 {'!$loki dimension(n)' if frontend is not OMNI else ''}
-        real, allocatable :: a(:)
+        real(kind=jprb), allocatable :: a(:)
 {'!$loki dimension(m, n)' if frontend is not OMNI else ''}
-        real, allocatable :: b(:,:)
+        real(kind=jprb), allocatable :: b(:,:)
     end type some_derived_type
+
+    type constants_type
+        real(kind=jprb) :: c
+        real(kind=jprb), allocatable :: other(:)
+    end type constants_type
+end module header_mod
+    """.strip()
+
+    fcode_bucket = """
+module bucket_mod
+    use header_mod, only: some_derived_type, constants_type, number_two
+    implicit none
+    integer, parameter :: NUMBER_FIVE = 5
 
     type bucket_type
         type(some_derived_type) :: a
-        type(some_derived_type) :: b(5)
+        type(some_derived_type) :: b(NUMBER_FIVE)
+        type(constants_type) :: constants(number_two)
     end type bucket_type
 
 contains
-
-    subroutine caller(z)
-        integer, intent(in) :: z
-        type(bucket_type) :: t_io
-        type(bucket_type), allocatable :: t_in(:), t_out(:)
-        integer :: m, n
-        integer :: i, j, k
-
-        m = 100
-        n = 10
-
-        call setup(t_io%a, m, n)
-        call init(t_io%a, m, n)
-        do k=1,5
-            call setup(t_io%b(k), m, n)
-            call init(t_io%b(k), m, n)
-        end do
-
-        allocate(t_in(z), t_out(z))
-
-        do i=1,z
-            call setup(t_in(i)%a, m, n)
-            call setup(t_out(i)%a, m, n)
-
-            do j=1,n
-                t_in(i)%a%a(j) = real(i-1)
-                t_in(i)%a%b(:, j) = real(i-1)
-            end do
-
-            do k=1,5
-                call setup(t_in(i)%b(k), m, n)
-                call setup(t_out(i)%b(k), m, n)
-
-                do j=1,n
-                    t_in(i)%b(k)%a(j) = real(i-1)
-                    t_in(i)%b(k)%b(:, j) = real(i-1)
-                end do
-            end do
-        end do
-
-        do i=1,z
-            call layer(m, n, t_io%a, t_io%b, t_in(i), t_out(i))
-        end do
-
-        do i=1,z
-            call teardown(t_in(i)%a)
-            call teardown(t_out(i)%a)
-
-            do k=1,5
-                call teardown(t_in(i)%b(k))
-                call teardown(t_out(i)%b(k))
-            end do
-        end do
-
-        deallocate(t_in)
-        deallocate(t_out)
-
-        do k=1,5
-            call teardown(t_io%b(k))
-            call teardown(t_io%b(k))
-        end do
-        call teardown(t_io%a)
-    end subroutine caller
 
     subroutine setup(t, m, n)
         type(some_derived_type), intent(inout) :: t
@@ -468,66 +420,149 @@ contains
     end subroutine teardown
 
     subroutine init(t, m, n)
+        use header_mod, only: jprb
         type(some_derived_type), intent(inout) :: t
         integer, intent(in) :: m, n
         integer j
 
         do j=1,n
-            t%a(j) = real(j)
-            t%b(:, j) = real(j)
+            t%a(j) = real(j, kind=jprb)
+            t%b(:, j) = real(j, kind=jprb)
         end do
     end subroutine init
 
+    subroutine kernel(m, n, P_a, P_b, Q, R, c)
+        use header_mod, only: jprb
+        integer                , intent(in)    :: m, n
+        real(kind=jprb), intent(in)            :: P_a(n), P_b(m, n), c
+        type(some_derived_type), intent(in)    :: Q
+        type(some_derived_type), intent(out)   :: R
+        integer :: j, k
+
+        do j=1,n
+            R%a(j) = P_a(j) + Q%a(j) + c
+            do k=1,m
+                R%b(k, j) = P_b(k, j) - Q%b(k, j) + c
+            end do
+        end do
+    end subroutine kernel
+end module bucket_mod
+    """.strip()
+
+    fcode_layer = """
+module layer_mod
+contains
     subroutine layer(m, n, P_a, P_b, Q, R)
+        use bucket_mod, only: bucket_type
+        use header_mod, only: some_derived_type
+        implicit none
         integer                , intent(in) :: m, n
         type(some_derived_type), intent(in) :: P_a, P_b(5)
         type(bucket_type), intent(in)       :: Q
         type(bucket_type), intent(out)      :: R
         integer :: k
 
-        call kernel(m, n, P_a%a, P_a%b, Q%a, R%a)
+        call kernel(m, n, P_a%a, P_a%b, Q%a, R%a, Q%constants(1)%c)
         do k=1,5
-            call kernel(m, n, P_b(k)%a, P_b(k)%b, Q%b(k), R%b(k))
+            call kernel(m, n, P_b(k)%a, P_b(k)%b, Q%b(k), R%b(k), Q%constants(2)%c)
         end do
     end subroutine layer
-
-    subroutine kernel(m, n, P_a, P_b, Q, R)
-        integer                , intent(in)    :: m, n
-        real, intent(in)                       :: P_a(n), P_b(m, n)
-        type(some_derived_type), intent(in)    :: Q
-        type(some_derived_type), intent(out)   :: R
-        integer :: j, k
-
-        do j=1,n
-            R%a(j) = P_a(j) + Q%a(j)
-            do k=1,m
-                R%b(k, j) = P_b(k, j) - Q%b(k, j)
-            end do
-        end do
-    end subroutine kernel
-end module transform_derived_type_arguments_mod
+end module layer_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    fcode_caller = """
+subroutine caller(z)
+    use bucket_mod, only: bucket_type, setup, init, teardown
+    use layer_mod, only: layer
+    implicit none
+
+    integer, intent(in) :: z
+    type(bucket_type) :: t_io
+    type(bucket_type), allocatable :: t_in(:), t_out(:)
+    integer :: m, n
+    integer :: i, j, k
+
+    m = 100
+    n = 10
+
+    call setup(t_io%a, m, n)
+    call init(t_io%a, m, n)
+    do k=1,5
+        call setup(t_io%b(k), m, n)
+        call init(t_io%b(k), m, n)
+    end do
+
+    allocate(t_in(z), t_out(z))
+
+    do i=1,z
+        call setup(t_in(i)%a, m, n)
+        call setup(t_out(i)%a, m, n)
+
+        do j=1,n
+            t_in(i)%a%a(j) = real(i-1)
+            t_in(i)%a%b(:, j) = real(i-1)
+        end do
+
+        do k=1,5
+            call setup(t_in(i)%b(k), m, n)
+            call setup(t_out(i)%b(k), m, n)
+
+            do j=1,n
+                t_in(i)%b(k)%a(j) = real(i-1)
+                t_in(i)%b(k)%b(:, j) = real(i-1)
+            end do
+        end do
+    end do
+
+    do i=1,z
+        call layer(m, n, t_io%a, t_io%b, t_in(i), t_out(i))
+    end do
+
+    do i=1,z
+        call teardown(t_in(i)%a)
+        call teardown(t_out(i)%a)
+
+        do k=1,5
+            call teardown(t_in(i)%b(k))
+            call teardown(t_out(i)%b(k))
+        end do
+    end do
+
+    deallocate(t_in)
+    deallocate(t_out)
+
+    do k=1,5
+        call teardown(t_io%b(k))
+        call teardown(t_io%b(k))
+    end do
+    call teardown(t_io%a)
+end subroutine caller
+    """.strip()
+
+    header = Sourcefile.from_source(fcode_header, frontend=frontend)
+    bucket = Sourcefile.from_source(fcode_bucket, frontend=frontend, definitions=header.definitions)
+    layer = Sourcefile.from_source(fcode_layer, frontend=frontend, definitions=header.definitions + bucket.definitions)
+    source = Sourcefile.from_source(fcode_caller, frontend=frontend,
+                                    definitions=header.definitions + bucket.definitions + layer.definitions)
 
     items = {
         'caller': SubroutineItem(
-            name='transform_derived_type_arguments_mod#caller', source=source, config={'role': 'driver'}
-        ),
-        'setup': SubroutineItem(
-            name='transform_derived_type_arguments_mod#setup', source=source, config={'role': 'kernel'}
-        ),
-        'init': SubroutineItem(
-            name='transform_derived_type_arguments_mod#init', source=source, config={'role': 'kernel'}
+            name='#caller', source=source, config={'role': 'driver'}
         ),
         'layer': SubroutineItem(
-            name='transform_derived_type_arguments_mod#layer', source=source, config={'role': 'kernel'}
+            name='layer_mod#layer', source=layer, config={'role': 'kernel'}
+        ),
+        'setup': SubroutineItem(
+            name='bucket_mod#setup', source=bucket, config={'role': 'kernel'}
+        ),
+        'init': SubroutineItem(
+            name='bucket_mod#init', source=bucket, config={'role': 'kernel'}
         ),
         'kernel': SubroutineItem(
-            name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}
+            name='bucket_mod#kernel', source=bucket, config={'role': 'kernel'}
         ),
         'teardown': SubroutineItem(
-            name='transform_derived_type_arguments_mod#teardown', source=source, config={'role': 'kernel'}
+            name='bucket_mod#teardown', source=bucket, config={'role': 'kernel'}
         ),
     }
 
@@ -539,6 +574,8 @@ end module transform_derived_type_arguments_mod
         ('kernel', []),
         ('teardown', [])
     ]
+
+    assert len(items['layer'].imports) == 2
 
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
@@ -556,14 +593,14 @@ end module transform_derived_type_arguments_mod
         'r': ('r%a', 'r%b'),
     }
     assert items['kernel'].trafo_data[key]['orig_argnames'] == (
-        'm', 'n', 'p_a', 'p_b', 'q', 'r'
+        'm', 'n', 'p_a', 'p_b', 'q', 'r', 'c'
     )
 
     # Check analysis result in layer
     assert key in items['layer'].trafo_data
     assert items['layer'].trafo_data[key]['expansion_map'] == {
         'p_a': ('p_a%a', 'p_a%b'),
-        'q': ('q%a%a', 'q%a%b', 'q%b'),
+        'q': ('q%a%a', 'q%a%b', 'q%b', 'q%constants'),
         'r': ('r%a%a', 'r%a%b', 'r%b')
     }
     assert items['layer'].trafo_data[key]['orig_argnames'] == (
@@ -588,11 +625,11 @@ end module transform_derived_type_arguments_mod
     # Check arguments of kernel
     if frontend == OMNI:
         assert items['kernel'].routine.arguments == (
-            'm', 'n', 'p_a(1:n)', 'p_b(1:m, 1:n)', 'q_a(:)', 'q_b(:, :)', 'r_a(:)', 'r_b(:, :)'
+            'm', 'n', 'p_a(1:n)', 'p_b(1:m, 1:n)', 'q_a(:)', 'q_b(:, :)', 'r_a(:)', 'r_b(:, :)', 'c'
         )
     else:
         assert items['kernel'].routine.arguments == (
-            'm', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(:)', 'Q_b(:, :)', 'R_a(:)', 'R_b(:, :)'
+            'm', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(:)', 'Q_b(:, :)', 'R_a(:)', 'R_b(:, :)', 'c'
         )
 
     # Check call arguments in layer
@@ -600,23 +637,38 @@ end module transform_derived_type_arguments_mod
     assert len(calls) == 2
 
     assert calls[0].arguments == (
-        'm', 'n', 'p_a_a', 'p_a_b', 'q_a_a', 'q_a_b', 'r_a_a', 'r_a_b'
+        'm', 'n', 'p_a_a', 'p_a_b', 'q_a_a', 'q_a_b', 'r_a_a', 'r_a_b', 'q_constants(1)%c'
     )
     assert calls[1].arguments == (
-        'm', 'n', 'p_b(k)%a', 'p_b(k)%b', 'q_b(k)%a', 'q_b(k)%b', 'r_b(k)%a', 'r_b(k)%b'
+        'm', 'n', 'p_b(k)%a', 'p_b(k)%b', 'q_b(k)%a', 'q_b(k)%b', 'r_b(k)%a', 'r_b(k)%b', 'q_constants(2)%c'
     )
 
     # Check arguments of layer
     if frontend == OMNI:
         assert items['layer'].routine.arguments == (
-            'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(1:5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)',
+            'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(1:5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)', 'q_constants(:)',
             'r_a_a(:)', 'r_a_b(:, :)', 'r_b(:)'
         )
     else:
         assert items['layer'].routine.arguments == (
-            'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)',
+            'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)', 'q_constants(:)',
             'r_a_a(:)', 'r_a_b(:, :)', 'r_b(:)'
         )
+
+    # Check imports
+    assert 'constants_type' in items['layer'].routine.imported_symbols
+    if frontend != OMNI:
+        # OMNI inlines parameters
+        assert 'jprb' in items['layer'].routine.imported_symbols
+        assert 'jprb' in items['setup'].routine.imported_symbols
+        assert 'jprb' in items['teardown'].routine.imported_symbols
+
+    # No additional imports added for init and kernel
+    assert len(items['init'].routine.imports) == 1
+    assert len(items['kernel'].routine.imports) == 1
+
+    # Cached property updated?
+    assert len(items['layer'].imports) == 3
 
     # Check call arguments in caller
     for call in FindNodes(CallStatement).visit(items['caller'].routine.body):
@@ -627,8 +679,8 @@ end module transform_derived_type_arguments_mod
         elif call.name == 'layer':
             assert call.arguments == (
                 'm', 'n', 't_io%a%a', 't_io%a%b', 't_io%b',
-                't_in(i)%a%a', 't_in(i)%a%b', 't_in(i)%b',
-                't_out(i)%a%a', 't_out(i)%a%b', 't_out(i)%b'
+                't_in(i)%a%a', 't_in(i)%a%b', 't_in(i)%b', 't_in(i)%constants',
+                't_out(i)%a%a', 't_out(i)%a%b', 't_out(i)%b',
             )
         else:
             pytest.xfail('Unknown call name')
