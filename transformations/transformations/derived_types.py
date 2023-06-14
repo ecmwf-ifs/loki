@@ -15,11 +15,6 @@ derived-type arguments in complex calling structures.
 """
 
 from collections import defaultdict
-try:
-    from fparser.two.Fortran2003 import Intrinsic_Name
-    _intrinsic_fortran_names = Intrinsic_Name.function_names
-except ImportError:
-    _intrinsic_fortran_names = ()
 from loki import (
     Transformation, FindVariables, FindNodes, FindInlineCalls, Transformer,
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionRetriever, recursive_expression_map_update,
@@ -75,6 +70,10 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
         # Extract expansion maps and argument re-mapping for successors
         successors = [child for child in kwargs.get('successors', []) if self._key in child.trafo_data]
+
+        # Create a map that accounts for potential renaming of successors upon import,
+        # which can lead to calls having a different name than the successor item they
+        # correspond to
         renamed_import_map = {
             import_.module.lower(): {
                 s.type.use_name.lower(): s.name.lower()
@@ -101,7 +100,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
             if item:
                 item.trafo_data[self._key] = trafo_data
 
-            # ...and make sure missing symbols are importen...
+            # ...and make sure missing symbols are imported...
             dependencies_updated = self.add_new_imports_kernel(routine, trafo_data)
 
             # ...before invalidating cached properties if dependencies have changed
@@ -135,12 +134,13 @@ class DerivedTypeArgumentsTransformation(Transformation):
         """
         call_mapper = {}
         for call in FindNodes(CallStatement).visit(routine.body):
-            if not call.not_active:
-                call_name = str(call.name)
-                if call_name in successors_data:
-                    # Set the new call signature on the IR node
-                    arguments, kwarguments  = self.expand_call_arguments(call, successors_data[call_name])
-                    call_mapper[call] = call.clone(arguments=arguments, kwarguments=kwarguments)
+            if call.not_active:
+                continue
+            call_name = str(call.name)
+            if call_name in successors_data:
+                # Set the new call signature on the IR node
+                arguments, kwarguments  = self.expand_call_arguments(call, successors_data[call_name])
+                call_mapper[call] = call.clone(arguments=arguments, kwarguments=kwarguments)
 
         # Rebuild the routine's IR tree
         if call_mapper:
@@ -341,8 +341,68 @@ class DerivedTypeArgumentsTransformation(Transformation):
         trafo_data['expansion_map'] = expansion_map
         return trafo_data
 
+    @classmethod
+    def expand_derived_type_member(cls, var):
+        """
+        Determine the member expansion for a derived type member variable
+
+        For a derived type member variable, provided as :data:`var`, this determines
+        the name of the root parent and the member expansion.
+
+        A few examples to illustrate the behaviour, with the Fortran variable use
+        that :data:`var` represents in the left column and corresponding return value
+        of this routine on the right:
+
+        .. code-block::
+            var name            | return value (parent_name, expansion, new use)   | remarks
+           ---------------------+--------------------------------------------------+------------------------------------
+            SOME_VAR            | ('some_var', None, None)                         | No expansion
+            SOME%VAR            | ('some', 'some%var', 'some_var')                 |
+            ARRAY(5)%VAR        | ('array', None, None)                            | Can't expand array of derived types
+            SOME%NESTED%VAR     | ('some', 'some%nested%var', 'some_nested_var)    |
+            NESTED%ARRAY(I)%VAR | ('nested', 'nested%array', 'nested_array(i)%var')| Partial expansion
+
+        Parameters
+        ----------
+        var : :any:`MetaSymbol`
+            The use of a derived type member
+
+        Returns
+        -------
+        (:any:`Variable`, :any:`Variable` or None, :any:`Variable` or None)
+        """
+        parents = var.parents
+        if not parents:
+            return var, None, None
+
+        # We unroll the derived type member as far as possible, stopping at
+        # the occurence of an intermediate derived type array.
+        # Note that we set scope=None, which detaches the symbol from the current
+        # scope and stores the type information locally on the symbol. This makes
+        # them available later on without risking losing this information due to
+        # intermediate rescoping operations
+        for idx, parent in enumerate(parents):
+            if hasattr(parent, 'dimensions'):
+                expansion = parent.clone(scope=None, dimensions=None)
+                if parent is parents[0]:
+                    debug(f'Array of derived types {var!s}. Cannot expand argument.')
+                    local_use = var
+                else:
+                    debug(f'Array of derived types {var!s}. '
+                        f'Can only partially expand argument as {expansion!s}.')
+                    local_use = cls._expand_kernel_variable(parent)
+                    local_use = cls._expand_relative_to_local_var(local_use, [*parents[idx+1:], var])
+                return parents[0], expansion, local_use
+
+        # None of the parents had a dimensions attribute, which means we can
+        # completely expand
+        expansion = var.clone(scope=None, dimensions=None)
+        local_use = cls._expand_kernel_variable(var)
+
+        return parents[0], expansion, local_use
+
     @staticmethod
-    def _get_imports(expr, scope, symbol_map):
+    def _get_imports_for_expr(expr, scope, symbol_map):
         """
         Helper utility to build the list of symbols per module in an expression :data:`expr` that do
         not exist in the current :data:`scope`
@@ -407,11 +467,11 @@ class DerivedTypeArgumentsTransformation(Transformation):
                     )
 
             if type_.kind:
-                for module, symbols in cls._get_imports(type_.kind, routine, symbol_map).items():
+                for module, symbols in cls._get_imports_for_expr(type_.kind, routine, symbol_map).items():
                     new_imports[module] |= symbols
 
             if getattr(arg, 'dimensions', None):
-                for module, symbols in cls._get_imports(arg.dimensions, routine, symbol_map).items():
+                for module, symbols in cls._get_imports_for_expr(arg.dimensions, routine, symbol_map).items():
                     new_imports[module] |= symbols
 
         if new_imports:
@@ -467,66 +527,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
         # Rebuild the routine's IR tree with expression substitution
         if call_mapper:
             routine.body = SubstituteExpressions(call_mapper).visit(routine.body)
-
-    @classmethod
-    def expand_derived_type_member(cls, var):
-        """
-        Determine the member expansion for a derived type member variable
-
-        For a derived type member variable, provided as :data:`var`, this determines
-        the name of the root parent and the member expansion.
-
-        A few examples to illustrate the behaviour, with the Fortran variable use
-        that :data:`var` represents in the left column and corresponding return value
-        of this routine on the right:
-
-        .. code-block::
-            var name            | return value (parent_name, expansion, new use)   | remarks
-           ---------------------+--------------------------------------------------+------------------------------------
-            SOME_VAR            | ('some_var', None, None)                         | No expansion
-            SOME%VAR            | ('some', 'some%var', 'some_var')                 |
-            ARRAY(5)%VAR        | ('array', None, None)                            | Can't expand array of derived types
-            SOME%NESTED%VAR     | ('some', 'some%nested%var', 'some_nested_var)    |
-            NESTED%ARRAY(I)%VAR | ('nested', 'nested%array', 'nested_array(i)%var')| Partial expansion
-
-        Parameters
-        ----------
-        var : :any:`MetaSymbol`
-            The use of a derived type member
-
-        Returns
-        -------
-        (:any:`Variable`, :any:`Variable` or None, :any:`Variable` or None)
-        """
-        parents = var.parents
-        if not parents:
-            return var, None, None
-
-        # We unroll the derived type member as far as possible, stopping at
-        # the occurence of an intermediate derived type array.
-        # Note that we set scope=None, which detaches the symbol from the current
-        # scope and stores the type information locally on the symbol. This makes
-        # them available later on without risking losing this information due to
-        # intermediate rescoping operations
-        for idx, parent in enumerate(parents):
-            if hasattr(parent, 'dimensions'):
-                expansion = parent.clone(scope=None, dimensions=None)
-                if parent is parents[0]:
-                    debug(f'Array of derived types {var!s}. Cannot expand argument.')
-                    local_use = var
-                else:
-                    debug(f'Array of derived types {var!s}. '
-                        f'Can only partially expand argument as {expansion!s}.')
-                    local_use = cls._expand_kernel_variable(parent)
-                    local_use = cls._expand_relative_to_local_var(local_use, [*parents[idx+1:], var])
-                return parents[0], expansion, local_use
-
-        # None of the parents had a dimensions attribute, which means we can
-        # completely expand
-        expansion = var.clone(scope=None, dimensions=None)
-        local_use = cls._expand_kernel_variable(var)
-
-        return parents[0], expansion, local_use
 
 
 def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_name):
