@@ -228,7 +228,10 @@ class DerivedTypeArgumentsTransformation(Transformation):
         for kernel_argname, caller_arg in call.kwarguments:
             if kernel_argname in expansion_map:
                 expanded_arguments = cls._expand_call_argument(caller_arg, expansion_map[kernel_argname])
-                kwarguments += list(zip(expansion_map[kernel_argname], expanded_arguments))
+                kwarguments += [
+                    (cls._expand_kernel_variable(kernel_arg).name, caller_arg)
+                    for kernel_arg, caller_arg in zip(expansion_map[kernel_argname], expanded_arguments)
+                ]
             else:
                 kwarguments += [(kernel_argname, caller_arg)]
 
