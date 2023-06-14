@@ -144,7 +144,7 @@ def test_lazy_textfile():
 
 
 @pytest.mark.parametrize('max_workers', [None, 1])
-@pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',3)])
+@pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',4)])
 def test_linter_junitxml(here, max_workers, fail_on, failures):
     class RandomFailingRule(GenericRule):
         type = RuleType.WARN
@@ -169,12 +169,12 @@ def test_linter_junitxml(here, max_workers, fail_on, failures):
 
     checked = lint_files([RandomFailingRule], config)
 
-    assert checked == 13
+    assert checked == 15
 
     # Just a few sanity checks on the XML
     xml = ET.parse(junitxml_file).getroot()
     assert xml.tag == 'testsuites'
-    assert xml.attrib['tests'] == '13'
+    assert xml.attrib['tests'] == '15'
     assert xml.attrib['failures'] == str(failures)
 
     junitxml_file.unlink(missing_ok=True)
@@ -182,7 +182,7 @@ def test_linter_junitxml(here, max_workers, fail_on, failures):
 
 @pytest.mark.skipif(not HAVE_YAML, reason='Pyyaml not installed')
 @pytest.mark.parametrize('max_workers', [None, 1])
-@pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',3)])
+@pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',4)])
 @pytest.mark.parametrize('use_line_hashes', [None, False, True])
 def test_linter_violation_file(here, rules, max_workers, fail_on, failures, use_line_hashes):
     class RandomFailingRule(GenericRule):
@@ -210,7 +210,7 @@ def test_linter_violation_file(here, rules, max_workers, fail_on, failures, use_
 
     checked = lint_files([RandomFailingRule, rules.DummyRule], config)
 
-    assert checked == 13
+    assert checked == 15
 
     # Just a few sanity checks on the yaml
     yaml_report = yaml.safe_load(violations_file.read_text())
@@ -228,13 +228,16 @@ def test_linter_violation_file(here, rules, max_workers, fail_on, failures, use_
                 assert 'filehash' not in report
                 assert len(report['rules']) == 1
                 assert 'RandomFailingRule' in report['rules'][0]
-                assert len(report['rules'][0]['RandomFailingRule']) == 1
+                if file.endswith('kernelE_mod.f90'):
+                    assert len(report['rules'][0]['RandomFailingRule']) == 2
+                else:
+                    assert len(report['rules'][0]['RandomFailingRule']) == 1
 
     # Plug the violations file into the config and see if we don't have
     # violations in another linter pass
     config['disable'] = yaml_report
     checked = lint_files([RandomFailingRule, rules.DummyRule], config)
-    assert checked == 13
+    assert checked == 15
     assert yaml.safe_load(violations_file.read_text()) is None
 
     violations_file.unlink(missing_ok=True)

@@ -345,33 +345,37 @@ class PicklableTestHandler(GenericHandler):
 
 @pytest.mark.parametrize('max_workers', [None, 1, 4])
 @pytest.mark.parametrize('counter,exclude,files', [
-    (13, None, [
+    (15, None, [
         'projA/module/compute_l1_mod.f90',
         'projA/module/compute_l2_mod.f90',
         'projA/module/driverA_mod.f90',
         'projA/module/driverB_mod.f90',
         'projA/module/driverC_mod.f90',
         'projA/module/driverD_mod.f90',
+        'projA/module/driverE_mod.f90',
         'projA/module/header_mod.f90',
         'projA/module/kernelA_mod.F90',
         'projA/module/kernelB_mod.F90',
         'projA/module/kernelC_mod.f90',
         'projA/module/kernelD_mod.f90',
+        'projA/module/kernelE_mod.f90',
         'projA/source/another_l1.F90',
         'projA/source/another_l2.F90'
     ]),
-    (13, [], [
+    (15, [], [
         'projA/module/compute_l1_mod.f90',
         'projA/module/compute_l2_mod.f90',
         'projA/module/driverA_mod.f90',
         'projA/module/driverB_mod.f90',
         'projA/module/driverC_mod.f90',
         'projA/module/driverD_mod.f90',
+        'projA/module/driverE_mod.f90',
         'projA/module/header_mod.f90',
         'projA/module/kernelA_mod.F90',
         'projA/module/kernelB_mod.F90',
         'projA/module/kernelC_mod.f90',
         'projA/module/kernelD_mod.f90',
+        'projA/module/kernelE_mod.f90',
         'projA/source/another_l1.F90',
         'projA/source/another_l2.F90'
     ]),
