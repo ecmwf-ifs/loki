@@ -207,45 +207,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         return local_var
 
     @classmethod
-    def _expand_call_argument_dimensions(cls, call, expanded_arg, orig_argnames):
-        """
-        Utility routine that expands the dimension expression in a derived type
-        argument expansion by matching symbols in the expression against other
-        procedure arguments. Imported module level symbols or parameters that
-        are used in the expression are identified and returned.
-
-        The return value is a 2-tuple consisting of the dimension expression,
-        where arguments are substituted with their caller-side expressions, and
-        a set that contains parameters and module variables.
-        """
-        if not getattr(expanded_arg, 'dimensions', None):
-            return None, set()
-
-        # Extract all variables used in the index expression, and try
-        # to match them to arguments in the call signature
-        vmap = {}
-        other_symbols = set()
-        for var in FindVariables().visit(expanded_arg.dimensions):
-            components = [*var.parents, var]
-
-            try:
-                arg_index = orig_argnames.index(components[0])
-            except ValueError as exc:
-                if var.type.imported or var.type.parameter:
-                    other_symbols.add(var)
-                elif var not in _intrinsic_fortran_names:
-                    raise NotImplementedError(
-                        f'Unsupported variable {var} in index expression of {expanded_arg}'
-                    ) from exc
-                continue
-
-            vmap[var] = cls._expand_relative_to_local_var(call.arguments[arg_index], components[1:])
-
-        vmap = recursive_expression_map_update(vmap)
-        return SubstituteExpressions(vmap).visit(expanded_arg.dimensions), other_symbols
-
-    @classmethod
-    def _expand_call_argument(cls, call, caller_arg, expansion_list, orig_argnames):
+    def _expand_call_argument(cls, caller_arg, expansion_list):
         """
         Utility routine to expand :data:`caller_arg` in a subroutine call :data:`call`
         according to the provided :data:`expansion_list` and original arguments of the
@@ -262,10 +224,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         arguments = []
         for member in expansion_list:
             arg_member = cls._expand_relative_to_local_var(caller_arg, [*member.parents[1:], member])
-            dimensions, others = cls._expand_call_argument_dimensions(call, member, orig_argnames)
-            other_symbols.update(others)
-
-            arguments += [arg_member.clone(dimensions=dimensions)]
+            arguments += [arg_member]
 
         return arguments, other_symbols
 
@@ -297,10 +256,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         arguments = []
         for kernel_argname, caller_arg in zip(orig_argnames, call.arguments):
             if kernel_argname in expansion_map:
-                new_arguments, others = cls._expand_call_argument(
-                    call, caller_arg,
-                    expansion_map[kernel_argname], orig_argnames
-                )
+                new_arguments, others = cls._expand_call_argument(caller_arg, expansion_map[kernel_argname])
                 arguments += new_arguments
                 other_symbols.update(others)
             else:
@@ -309,10 +265,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         kwarguments = []
         for kernel_argname, caller_arg in call.kwarguments:
             if kernel_argname in expansion_map:
-                new_arguments, others = cls._expand_call_argument(
-                    call, caller_arg,
-                    expansion_map[kernel_argname], orig_argnames
-                )
+                new_arguments, others = cls._expand_call_argument(caller_arg, expansion_map[kernel_argname])
                 kwarguments += list(zip(expansion_map[kernel_argname], new_arguments))
                 other_symbols.update(others)
             else:
@@ -339,7 +292,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
             target=arg.type.target if not var.type.pointer else None
         )
 
-
     def expand_derived_args_kernel(self, routine):
         """
         Find the use of member variables for derived type arguments of
@@ -365,7 +317,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         expansion_map = defaultdict(set)
         non_expansion_map = defaultdict(set)
         vmap = {}
-        for var in FindVariables(recurse_to_parent=False).visit(routine.ir):
+        for var in FindVariables(recurse_to_parent=False, unique=False).visit(routine.ir):
             if var.parent:
                 declared_var, expansion, local_use = self.expand_derived_type_member(var)
                 if expansion and declared_var in candidates:
