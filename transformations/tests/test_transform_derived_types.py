@@ -896,6 +896,7 @@ contains
         type(some_type), intent(inout) :: t
         call callee(t, 1, opt2=2)
         call callee(t, 1, 1)
+        call callee(opt1=1, val=1, t=t, opt2=2)
     end subroutine caller
 end module some_mod
     """.strip()
@@ -914,11 +915,13 @@ end module some_mod
     }
 
     calls = FindNodes(CallStatement).visit(caller.routine.body)
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert calls[0].arguments == ('t%arr', '1')
     assert calls[0].kwarguments == (('opt2', '2'),)
     assert calls[1].arguments == ('t%arr', '1', '1')
     assert not calls[1].kwarguments
+    assert not calls[2].arguments
+    assert calls[2].kwarguments == (('opt1', '1'), ('val', '1'), ('t_arr', 't%arr'), ('opt2', '2'))
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for recursive prefix')]))
