@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import  defaultdict
 from loki import (
     as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
@@ -140,7 +141,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             item.trafo_data[self._key] = {'kind_imports': {}}
 
         # add iso_c_binding import if necessary
-        self.import_iso_c_binding(routine)
+        self.import_c_sizeof(routine)
 
         successors = kwargs.get('successors', ())
 
@@ -161,43 +162,36 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         self.inject_pool_allocator_into_calls(routine, targets)
 
-    def import_iso_c_binding(self, routine):
+    @staticmethod
+    def import_c_sizeof(routine):
         """
-        Add the iso_c_binding import if necesssary.
+        Import the c_sizeof symbol if necesssary.
         """
-
-        imports = FindNodes(Import).visit(routine.spec)
-        for imp in imports:
-            if imp.module.lower() == 'iso_c_binding':
-                if 'c_sizeof' in imp.symbols or not imp.symbols:
-                    return
-
-                # Update iso_c_binding import
-                imp._update(symbols=imp.symbols + as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)))
 
         # add qualified iso_c_binding import
-        imp = Import(module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)))
-        routine.spec.prepend(imp)
+        if not 'C_SIZEOF' in routine.imported_symbols:
+            imp = Import(module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)))
+            routine.spec.prepend(imp)
 
     def import_allocation_types(self, routine, item):
         """
         Import all the variable types used in allocations.
         """
 
-        new_imports = {}
+        new_imports = defaultdict(set)
         for s, m in item.trafo_data[self._key]['kind_imports'].items():
-            if m in new_imports:
-                new_imports[m] |= set(as_tuple(s))
-            else:
-                new_imports[m] = set(as_tuple(s))
+            new_imports[m] |= set(as_tuple(s))
 
         import_map = {i.module.lower(): i for i in routine.imports}
         for mod, symbs in new_imports.items():
             if mod in import_map:
                 import_map[mod]._update(symbols=as_tuple(set(import_map[mod].symbols + as_tuple(symbs))))
             else:
-                imp = Import(module=mod, symbols=as_tuple(symbs))
-                routine.spec.prepend(imp)
+                _symbs = [s for s in symbs if not (s.name.lower() in routine.variable_map or
+                                                   s.name.lower() in routine.imported_symbol_map)]
+                if _symbs:
+                    imp = Import(module=mod, symbols=as_tuple(_symbs))
+                    routine.spec.prepend(imp)
 
     def inject_pool_allocator_import(self, routine):
         """
@@ -293,9 +287,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_size_var = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER))
 
             # Retrieve kind parameter of stack storage
-            _kind = (routine.imported_symbol_map.get(f'{self.stack_type_kind}', None) or
-                     routine.variable_map.get(f'{self.stack_type_kind}', None) or
-                     Variable(name=self.stack_type_kind))
+            _kind = routine.symbol_map.get(f'{self.stack_type_kind}', None) or Variable(name=self.stack_type_kind)
 
             # Convert stack_size from bytes to integer
             stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
@@ -564,9 +556,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             # Store type information of temporary allocation
             if item and (_kind := arr.type.kind):
                 if _kind in routine.imported_symbols:
-                    item.trafo_data[self._key]['kind_imports'].update(
-                     {_kind: routine.import_map[_kind.name].module.lower()}
-                    )
+                    item.trafo_data[self._key]['kind_imports'][_kind] = routine.import_map[_kind.name].module.lower()
 
         routine.spec.append(declarations)
         routine.body.prepend(allocations)

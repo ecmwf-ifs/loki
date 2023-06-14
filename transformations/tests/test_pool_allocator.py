@@ -421,9 +421,8 @@ module kernel_mod
     implicit none
 contains
     subroutine kernel(start, end, klon, klev, field1, field2)
-        use parkind1, only: jpim, jplm
+        use parkind1, only: jprb, jpim, jplm
         implicit none
-        integer, parameter :: jprb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, klon, klev
         real(kind=jprb), intent(inout) :: field1(klon)
         real(kind=jprb), intent(inout) :: field2(klon,klev)
@@ -540,6 +539,7 @@ end module kernel_mod
         assert Variable(name='jpim') in driver.imported_symbols
         assert Variable(name='jplm') in driver.imported_symbols
         assert driver.import_map['jpim'] == driver.import_map['jplm']
+        assert 'jprb' not in driver.import_map['jpim'].symbols
 
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
