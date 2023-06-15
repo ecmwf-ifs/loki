@@ -907,7 +907,7 @@ class CallStatement(LeafNode, _CallStatementBase):
         """
         routine = self.routine
         assert routine is not BasicType.DEFERRED
-        r_args = {arg.name: arg for arg in routine.arguments}
+        r_args = CaseInsensitiveDict((arg.name, arg) for arg in routine.arguments)
         args = zip(routine.arguments, self.arguments)
         kwargs = ((r_args[kw], arg) for kw, arg in as_tuple(self.kwarguments))
         return chain(args, kwargs)

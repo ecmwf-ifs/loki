@@ -8,7 +8,7 @@
 from loki.expression import FindVariables, SubstituteExpressions
 from loki.tools import CaseInsensitiveDict
 from loki.transform.transform_utilities import recursive_expression_map_update
-from loki.visitors import Transformer
+from loki.visitors import NestedTransformer
 
 
 __all__ = ['resolve_associates', 'ResolveAssociatesTransformer']
@@ -31,7 +31,7 @@ def resolve_associates(routine):
     routine.rescope_symbols()
 
 
-class ResolveAssociatesTransformer(Transformer):
+class ResolveAssociatesTransformer(NestedTransformer):
     """
     :any:`Transformer` class to resolve :any:`Associate` nodes in IR trees
 
@@ -40,9 +40,9 @@ class ResolveAssociatesTransformer(Transformer):
     corresponding `selector` expression defined in ``associations``.
     """
 
-    def visit_Associate(self, o, **kwargs):  # pylint: disable=unused-argument
+    def visit_Associate(self, o, **kwargs):
         # First head-recurse, so that all associate blocks beneath are resolved
-        body = self.visit(o.body)
+        body = self.visit(o.body, **kwargs)
 
         # Create an inverse association map to look up replacements
         invert_assoc = CaseInsensitiveDict({v.name: k for k, v in o.associations})
@@ -58,5 +58,9 @@ class ResolveAssociatesTransformer(Transformer):
         # Apply the expression substitution map to itself to handle nested expressions
         vmap = recursive_expression_map_update(vmap)
 
-        # Return the body of the associate block with all expressions replaced
-        return SubstituteExpressions(vmap).visit(body)
+        # Mark the associate block for replacement with its body, with all expressions replaced
+        self.mapper[o] = SubstituteExpressions(vmap).visit(body)
+
+        # Return the original object unchanged and let the tuple injection mechanism take care
+        # of replacing it by its body - otherwise we would end up with nested tuples
+        return o

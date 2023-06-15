@@ -5,10 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
+
 """
 Expression tree node classes for
 :ref:`internal_representation:Expression tree`.
 """
+
+from itertools import chain
 import weakref
 from sys import intern
 import pymbolic.primitives as pmbl
@@ -1350,6 +1354,57 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
         ``BasicType.DEFFERED`` otherwise.
         """
         return self.function.type.dtype
+
+    @property
+    def arguments(self):
+        """
+        Alias for :attr:`parameters`
+        """
+        return self.parameters
+
+    @property
+    def kwarguments(self):
+        """
+        Alias for :attr:`kw_parameters`
+        """
+        return as_tuple(self.kw_parameters.items())
+
+    @property
+    def routine(self):
+        """
+        The :any:`Subroutine` object of the called routine
+
+        Shorthand for ``call.function.type.dtype.procedure``
+
+        Returns
+        -------
+        :any:`Subroutine` or :any:`BasicType.DEFERRED`
+            If the :any:`ProcedureType` object of the :any:`ProcedureSymbol`
+            in :attr:`function` is linked up to the target routine, this returns
+            the corresponding :any:`Subroutine` object, otherwise `None`.
+        """
+        procedure_type = self.procedure_type
+        if procedure_type is BasicType.DEFERRED:
+            return BasicType.DEFERRED
+        return procedure_type.procedure
+
+    def arg_iter(self):
+        """
+        Iterator that maps argument definitions in the target :any:`Subroutine`
+        to arguments and keyword arguments in the call.
+
+        Returns
+        -------
+        iterator
+            An iterator that traverses the mapping ``(arg name, call arg)`` for
+            all positional and then keyword arguments.
+        """
+        routine = self.routine
+        assert routine is not BasicType.DEFERRED
+        r_args = CaseInsensitiveDict((arg.name, arg) for arg in routine.arguments)
+        args = zip(routine.arguments, self.arguments)
+        kwargs = ((r_args[kw], arg) for kw, arg in as_tuple(self.kwarguments))
+        return chain(args, kwargs)
 
     def clone(self, **kwargs):
         """

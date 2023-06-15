@@ -1477,7 +1477,7 @@ class FParser2IR(GenericVisitor):
         associations = as_tuple(rescoped_associations)
 
         # The body
-        body = as_tuple(self.visit(c, **kwargs) for c in o.children[assoc_stmt_index+1:end_assoc_stmt_index])
+        body = as_tuple(flatten(self.visit(c, **kwargs) for c in o.children[assoc_stmt_index+1:end_assoc_stmt_index]))
         associate._update(associations=associations, body=body)
 
         # Everything past the END ASSOCIATE (should be empty)
