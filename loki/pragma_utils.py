@@ -81,7 +81,7 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
             continue
         content = p.content or ''
         if starts_with is not None:
-            if not content.startswith(starts_with):
+            if not content.lower().startswith(starts_with.lower()):
                 continue
             content = content[len(starts_with):]
         for match in re.finditer(_get_pragma_parameters_re, content):
