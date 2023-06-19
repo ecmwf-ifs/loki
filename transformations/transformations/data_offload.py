@@ -319,10 +319,6 @@ class GlobalVarOffloadTransformation(Transformation):
         role = kwargs.get('role')
         item = kwargs['item']
 
-        # Bail if this routine is not part of a scheduler traversal
-        if item and not item.local_name == routine.name.lower():
-            return
-
         if not item.trafo_data.get(self._key, None):
             item.trafo_data[self._key] = {}
 

@@ -132,8 +132,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         self.stack_type_kind = 'JPRB'
         if item:
-            if item.local_name != routine.name.lower():
-                return
             if (real_kind := item.config.get('real_kind', None)):
                 self.stack_type_kind = real_kind
 

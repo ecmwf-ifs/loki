@@ -402,10 +402,6 @@ class TypeboundProcedureCallTransformation(Transformation):
         """
         item = kwargs.get('item')
 
-        # Bail out if the current subroutine is not part of the call tree
-        if item and item.local_name != routine.name.lower():
-            return
-
         # Fix any wrong intents on polymorphic arguments
         # (sadly, it's not uncommon to omit the intent specification on the CLASS declaration,
         # so we set them to `inout` here for any missing intents)

@@ -127,12 +127,6 @@ class SCCDevectorTransformation(Transformation):
         role : string
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
-
-        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
-        # Bail if routine has already been processed
-        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
-            return
-
         role = kwargs['role']
 
         if role == 'kernel':
@@ -213,12 +207,6 @@ class SCCRevectorTransformation(Transformation):
         role : string
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
-
-        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
-        # Bail if routine has already been processed
-        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
-            return
-
         role = kwargs['role']
 
         if role == 'kernel':
@@ -312,13 +300,8 @@ class SCCDemoteTransformation(Transformation):
         role : string
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
-
-        # TODO: we only need this here until the scheduler can combine multiple transformations into single pass
-        # Bail if routine has already been processed
-        if (item := kwargs.get('item', None)) and item.local_name != routine.name.lower():
-            return
-
         role = kwargs['role']
+        item = kwargs.get('item', None)
 
         if role == 'kernel':
             demote_locals = self.demote_local_arrays

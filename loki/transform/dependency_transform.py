@@ -79,11 +79,6 @@ class DependencyTransformation(Transformation):
         'strict' mode, also  re-generate the kernel interface headers.
         """
         role = kwargs.get('role')
-        item = kwargs.get('item', None)
-
-        # Bail if this routine is not part of a scheduler traversal
-        if item and not item.local_name == routine.name.lower():
-            return
 
         if role == 'kernel':
             # Change the name of kernel routines
