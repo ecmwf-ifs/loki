@@ -60,10 +60,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
         role = kwargs.get('role')
         item = kwargs.get('item')
 
-        # Bail out if the current subroutine is not part of the call tree
-        if item and item.local_name != routine.name.lower():
-            return
-
         # Initialize the transformation data dictionary
         if item:
             item.trafo_data[self._key] = {}

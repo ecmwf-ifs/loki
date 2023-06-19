@@ -249,8 +249,6 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
             # to normalize the 1:end-style index ranges that OMNI introduces
             class NormalizeRangeIndexingTransformation(Transformation):
                 def transform_subroutine(self, routine, **kwargs):
-                    if 'item' in kwargs and kwargs['item'].local_name != routine.name:
-                        return
                     normalize_range_indexing(routine)
 
             scheduler.process(transformation=NormalizeRangeIndexingTransformation())
