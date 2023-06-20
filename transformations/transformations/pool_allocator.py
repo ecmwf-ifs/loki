@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import re
 from collections import  defaultdict
 from loki import (
     as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
@@ -579,7 +580,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 if pragma.content.lower().startswith('parallel') and 'gang' in pragma.content.lower():
                     parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
                     if 'private' in [p.lower() for p in parameters]:
-                        content = pragma.content.lower().replace('private(', f'private({stack_var.name}, ')
+                        content = re.sub(r'\bprivate\(', f'private({stack_var.name}, ', pragma.content.lower())
                     else:
                         content = pragma.content + f' private({stack_var.name})'
                     pragma_map[pragma] = pragma.clone(content=content)
@@ -591,7 +592,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 if pragma.content.lower().startswith('parallel'):
                     parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
                     if 'private' in [p.lower() for p in parameters]:
-                        content = pragma.content.lower().replace('private(', f'private({stack_var.name}, ')
+                        content = re.sub(r'\bprivate\(', f'private({stack_var.name}, ', pragma.content.lower())
                     else:
                         content = pragma.content + f' private({stack_var.name})'
                     pragma_map[pragma] = pragma.clone(content=content)

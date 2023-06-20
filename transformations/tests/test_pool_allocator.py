@@ -365,15 +365,15 @@ end module kernel_mod
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directive):
     if directive == 'openmp':
-        driver_loop_pragma1 = '!$omp parallel default(shared) private(b)\n    !$omp do'
+        driver_loop_pragma1 = '!$omp parallel default(shared) private(b) firstprivate(a)\n    !$omp do'
         driver_end_loop_pragma1 = '!$omp end do\n    !$omp end parallel'
-        driver_loop_pragma2 = '!$omp parallel do'
+        driver_loop_pragma2 = '!$omp parallel do firstprivate(a)'
         driver_end_loop_pragma2 = '!$omp end parallel do'
         kernel_pragma = ''
     elif directive == 'openacc':
-        driver_loop_pragma1 = '!$acc parallel loop gang private(b)'
+        driver_loop_pragma1 = '!$acc parallel loop gang private(b) firstprivate(a)'
         driver_end_loop_pragma1 = '!$acc end parallel loop'
-        driver_loop_pragma2 = '!$acc parallel loop gang'
+        driver_loop_pragma2 = '!$acc parallel loop gang firstprivate(a)'
         driver_end_loop_pragma2 = '!$acc end parallel loop'
         kernel_pragma = '!$acc routine vector'
     else:
@@ -400,7 +400,7 @@ subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     INTEGER, INTENT(IN) :: NLON, NZ, NB
     real(kind=jprb), intent(inout) :: field1(nlon, nb)
     real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
-    integer :: b
+    integer :: a,b
 
     {driver_loop_pragma1}
     do b=1,nb
@@ -563,6 +563,7 @@ end module kernel_mod
         for pragma in pragmas:
             parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
             assert 'private' in parameters and 'ylstack' in parameters['private'].lower()
+            assert not 'ylstack' in parameters['firstprivate'].lower()
 
     # Are there data regions for the stack?
     if directive == ['openacc']:
