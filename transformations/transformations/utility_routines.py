@@ -100,9 +100,6 @@ class RemoveCallsTransformation(Transformation):
         """
         Apply transformation to subroutine object
         """
-        if 'item' in kwargs and kwargs['item'].local_name != routine.name.lower():
-            return
-
         mapper = {}
 
         # First remove inline conditionals with calls to specified routines or intrinsics

@@ -1857,9 +1857,6 @@ end subroutine caller
 
         def transform_subroutine(self, routine, **kwargs):
             item = kwargs.get('item')
-            if item and item.local_name != routine.name.lower():
-                return
-
             assert item.local_name in ('caller', 'routine', 'some_procedure', 'other')
             self.counter[item.local_name] = self.counter.get(item.local_name, 0) + 1
 
