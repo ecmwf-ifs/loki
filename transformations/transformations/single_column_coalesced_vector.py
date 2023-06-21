@@ -11,7 +11,7 @@ from loki.expression import symbols as sym
 from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
      NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
-     pragmas_attached, is_loki_pragma, dataflow_analysis_attached
+     is_loki_pragma, dataflow_analysis_attached, BasicType
 )
 from transformations.single_column_coalesced import SCCBaseTransformation
 
@@ -76,12 +76,11 @@ class SCCDevectorTransformation(Transformation):
         separator_nodes = []
         calls = FindNodes(ir.CallStatement).visit(section)
         for call in calls:
-            if is_loki_pragma(call.pragma, starts_with='inline'):
-                # Because extract_vector_sections was called within pragmas_attached, the pragma node
-                # will not be a part of the returned subsections. Therefore we remove it here to prevent
-                # problems later on
-                call._update(pragma=None)
-                continue
+
+            # check if calls have been enriched
+            if not call.routine is BasicType.DEFERRED:
+                if not horizontal.size in call.routine.symbol_map:
+                    continue
 
             if call in section:
                 # If the call is at the current section's level, it's a separator
@@ -184,8 +183,7 @@ class SCCDevectorTransformation(Transformation):
         self.kernel_remove_vector_loops(routine, self.horizontal)
 
         # Extract vector-level compute sections from the kernel
-        with pragmas_attached(routine, ir.CallStatement):
-            sections = self.extract_vector_sections(routine.body.body, self.horizontal)
+        sections = self.extract_vector_sections(routine.body.body, self.horizontal)
 
         if self.trim_vector_sections:
             sections = self.get_trimmed_sections(routine, self.horizontal, sections)

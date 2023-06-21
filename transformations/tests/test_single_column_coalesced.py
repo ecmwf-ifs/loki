@@ -1544,7 +1544,6 @@ def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
 
        do jl=start,end
           if(cond)then
-             !$loki inline
              call some_inlined_kernel(work(jl))
           endif
           work(jl) = work(jl) + 1.
@@ -1557,6 +1556,8 @@ def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['some_kernel']
+    inlined_routine = source['some_inlined_kernel']
+    routine.enrich_calls((inlined_routine,))
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
