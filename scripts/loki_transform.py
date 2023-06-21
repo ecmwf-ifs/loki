@@ -18,7 +18,8 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info,
+    GlobalVarImportItem
 )
 
 # Get generalized transformations provided by Loki
@@ -31,7 +32,7 @@ from loki.transform import (
 from transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
-from transformations.data_offload import DataOffloadTransformation
+from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
@@ -144,8 +145,12 @@ def cli(debug):
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
+@click.option('--trim-vector-sections', is_flag=True, default=False,
+              help='Trim vector loops in SCC transform to exclude scalar assignments.')
+@click.option('--global-var-offload', is_flag=True, default=False,
+              help="Generate offload instructions for global vars imported via 'USE' statements.")
 def convert(out_path, path, header, cpp, directive, include, define, omni_include, xmod,
-            data_offload, remove_openmp, mode, frontend, config):
+            data_offload, remove_openmp, mode, frontend, config, trim_vector_sections, global_var_offload):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -189,6 +194,15 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
+    # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
+    if 'scc' in mode:
+        scheduler.process(transformation=RemoveCallsTransformation(
+            routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
+            include_intrinsics=True
+        ))
+    else:
+        scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
+
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
     if data_offload:
@@ -216,7 +230,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
         transformation = (SCCBaseTransformation(horizontal=horizontal, directive=directive),)
-        transformation += (SCCDevectorTransformation(horizontal=horizontal),)
+        transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
         transformation += (SCCDemoteTransformation(horizontal=horizontal),)
         if not 'hoist' in mode:
             transformation += (SCCRevectorTransformation(horizontal=horizontal),)
@@ -242,6 +256,10 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
             scheduler.process(transformation=transform)
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+
+    if global_var_offload:
+        scheduler.process(transformation=GlobalVarOffloadTransformation(),
+                          item_filter=(SubroutineItem, GlobalVarImportItem), reverse=True)
 
     if mode in ['idem-stack', 'scc-stack']:
         if frontend == Frontend.OMNI:
@@ -280,7 +298,8 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode))
+    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode),
+                      use_file_graph=True)
 
 
 @cli.command()

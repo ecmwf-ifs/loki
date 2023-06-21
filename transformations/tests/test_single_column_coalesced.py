@@ -10,7 +10,8 @@ import pytest
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
-    fgen, Sourcefile, Section, SubroutineItem
+    fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
+    is_loki_pragma, IntLiteral, RangeIndex, Comment
 )
 from conftest import available_frontends
 from transformations import (
@@ -938,9 +939,11 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
     start = 1
     end = nlon
+    associate(x => q)
     do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b))
+      call compute_column(start, end, nlon, nz, x(:,:,b))
     end do
+    end associate
   END SUBROUTINE column_driver
 """
 
@@ -990,10 +993,17 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
     driver.enrich_calls(outer_kernel)  # Attach kernel source to driver call
 
     # Test SCC transform for plain nested kernel
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
                                                 directive='openacc', block_dim=blocking),)
+
+    # Apply annotate twice to test bailing out mechanism
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+
+
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=['compute_column'])
         transform.apply(outer_kernel, role='kernel', targets=['compute_q'])
@@ -1519,3 +1529,354 @@ def test_scc_base_routine_seq_pragma(frontend, horizontal):
     assert len(pragmas) == 1
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine seq'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
+    """
+    Test that calls targeted for inlining inside a vector region are not treated as separators
+    """
+
+    fcode = """
+    subroutine some_inlined_kernel(work)
+    !$loki routine seq
+       real, intent(inout) :: work
+
+       work = work*2.
+    end subroutine some_inlined_kernel
+
+    subroutine some_kernel(start, end, nlon, work, cond)
+       logical, intent(in) :: cond
+       integer, intent(in) :: nlon, start, end
+       real, dimension(nlon), intent(inout) :: work
+
+       integer :: jl
+
+       do jl=start,end
+          if(cond)then
+             call some_inlined_kernel(work(jl))
+          endif
+          work(jl) = work(jl) + 1.
+       enddo
+
+       call some_other_kernel()
+
+    end subroutine some_kernel
+    """
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['some_kernel']
+    inlined_routine = source['some_inlined_kernel']
+    routine.enrich_calls((inlined_routine,))
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel', 'some_inlined_kernel'])
+
+    # Check loki pragma has been removed
+    assert not FindNodes(Pragma).visit(routine.body)
+
+    # Check that 'some_inlined_kernel' remains within vector-parallel region
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    calls = FindNodes(CallStatement).visit(loops[0].body)
+    assert len(calls) == 1
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_vector_reduction(frontend, horizontal, vertical, blocking):
+    """
+    Test for the insertion of OpenACC vector reduction directives.
+    """
+
+    fcode = """
+    subroutine some_kernel(start, end, nlon, mij)
+       integer, intent(in) :: nlon, start, end
+       integer, dimension(nlon), intent(in) :: mij
+
+       integer :: jl, maxij
+
+       maxij = -1
+       !$loki vector-reduction( mAx:maXij )
+       do jl=start,end
+          maxij = max(maxij, mij(jl))
+       enddo
+       !$loki end vector-reduction( mAx:maXij )
+
+    end subroutine some_kernel
+    """
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['some_kernel']
+
+    with pragma_regions_attached(routine):
+        region = FindNodes(PragmaRegion).visit(routine.body)
+        assert is_loki_pragma(region[0].pragma, starts_with = 'vector-reduction')
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    assert len(pragmas) == 3
+    assert all(p.keyword == 'acc' for p in pragmas)
+
+    # Check OpenACC directives have been inserted
+    with pragmas_attached(routine, Loop):
+        loops = FindNodes(Loop).visit(routine.body)
+        assert len(loops) == 1
+        assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
+    """
+    Test that temporary arrays with compile-time constants are marked for demotion.
+    """
+
+    fcode_mod = """
+    module YOWPARAM
+       integer, parameter :: nang_param = 36
+    end module YOWPARAM
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, nang)
+       use yowparam, only: nang_param
+       implicit none
+
+       integer, intent(in) :: nlon, start, end, nang
+       real, dimension(nlon, nang_param, 2) :: work
+
+       integer :: jl, k
+
+       do jl=start,end
+          do k=1,nang
+             work(jl,k,1) = 1.
+             work(jl,k,2) = 1.
+          enddo
+       enddo
+
+    end subroutine some_kernel
+    """
+
+    source = Sourcefile.from_source(fcode_mod, frontend=frontend)
+    routine = Subroutine.from_source(fcode_kernel, definitions=source.definitions,
+                                     frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assert len(routine.symbol_map['work'].shape) == 2
+    if frontend == OMNI:
+        assert routine.symbol_map['work'].shape == (RangeIndex(children=(IntLiteral(1), IntLiteral(36))),
+                                                    IntLiteral(2))
+    else:
+        assert routine.symbol_map['work'].shape == ('nang_param', IntLiteral(2))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_horizontal_bounds_checks(frontend, horizontal):
+    """
+    Test the SCCBaseTransformation checks for horizontal loop bounds.
+    """
+
+    fcode_no_start = """
+    subroutine kernel(end, work)
+      real, intent(inout) :: work
+      integer, intent(in) :: end
+
+    end subroutine kernel
+"""
+
+    fcode_no_end = """
+    subroutine kernel(start, work)
+      real, intent(inout) :: work
+      integer, intent(in) :: start
+
+    end subroutine kernel
+"""
+
+    no_start = Subroutine.from_source(fcode_no_start, frontend=frontend)
+    no_end = Subroutine.from_source(fcode_no_end, frontend=frontend)
+
+    transform = SCCBaseTransformation(horizontal=horizontal)
+    with pytest.raises(RuntimeError):
+        transform.apply(no_start, role='kernel')
+    with pytest.raises(RuntimeError):
+        transform.apply(no_end, role='kernel')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_simple(frontend, horizontal, trim_vector_sections):
+    """
+    Test the trimming of vector-sections to exclude scalar assignments.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical :: flag0
+       real, dimension(nlon) :: work
+       integer :: jl
+
+       flag0 = .true.
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+       ! random comment
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assign = FindNodes(Assignment).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+    comment = [c for c in FindNodes(Comment).visit(routine.body) if c.text == '! random comment'][0]
+
+    # check we found the right assignment
+    assert assign.lhs.name.lower() == 'flag0'
+
+    # check we found the right comment
+    assert comment.text == '! random comment'
+
+    if trim_vector_sections:
+        assert assign not in loop.body
+        assert assign in routine.body.body
+
+        assert comment not in loop.body
+        assert comment in routine.body.body
+    else:
+        assert assign in loop.body
+        assert assign not in routine.body.body
+
+        assert comment in loop.body
+        assert comment not in routine.body.body
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_nested(frontend, horizontal, trim_vector_sections):
+    """
+    Test the trimming of vector-sections to exclude nested scalar assignments.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, flag0)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical, intent(in) :: flag0
+       logical :: flag1, flag2
+       real, dimension(nlon) :: work
+
+       integer :: jl
+
+       if(flag0)then
+         flag1 = .true.
+         flag2 = .false.
+       else
+         flag1 = .false.
+         flag2 = .true.
+       endif
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    cond = FindNodes(Conditional).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+
+    if trim_vector_sections:
+        assert cond not in loop.body
+        assert cond in routine.body.body
+    else:
+        assert cond in loop.body
+        assert cond not in routine.body.body
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_complex(frontend, horizontal, trim_vector_sections):
+    """
+    Test to highlight the limitations of vector-section trimming.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, flag0)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical, intent(in) :: flag0
+       logical :: flag1, flag2
+       real, dimension(nlon) :: work, work1
+
+       integer :: jl
+
+       flag1 = .true.
+       if(flag0)then
+         flag2 = .false.
+       else
+         work1(start:end) = 1.
+       endif
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assign = FindNodes(Assignment).visit(routine.body)[0]
+
+    # check we found the right assignment
+    assert assign.lhs.name.lower() == 'flag1'
+
+    cond = FindNodes(Conditional).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+
+    assert cond in loop.body
+    assert cond not in routine.body.body
+    if trim_vector_sections:
+        assert assign not in loop.body
+        assert(len(FindNodes(Assignment).visit(loop.body)) == 3)
+    else:
+        assert assign in loop.body
+        assert(len(FindNodes(Assignment).visit(loop.body)) == 4)

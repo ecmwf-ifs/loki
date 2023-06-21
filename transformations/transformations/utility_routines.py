@@ -18,6 +18,26 @@ from loki import (
 
 __all__ = ['DrHookTransformation', 'RemoveCallsTransformation']
 
+def remove_unused_drhook_import(routine):
+    """
+    Remove unsed DRHOOK imports and corresponding handle.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine from which to remove DRHOOK import/handle.
+    """
+
+    mapper = {}
+    for imp in FindNodes(Import).visit(routine.spec):
+        if imp.module.lower() == 'yomhook':
+            mapper[imp] = None
+
+    if mapper:
+        routine.spec = Transformer(mapper).visit(routine.spec)
+
+    #Remove unused zhook_handle
+    routine.variables = as_tuple(v for v in routine.variables if v != 'zhook_handle')
 
 class DrHookTransformation(Transformation):
     """
@@ -66,14 +86,7 @@ class DrHookTransformation(Transformation):
 
         #Get rid of unused import and variable
         if self.remove:
-            for imp in FindNodes(Import).visit(routine.spec):
-                if imp.module.lower() == 'yomhook':
-                    mapper[imp] = None
-
-            routine.spec = Transformer(mapper).visit(routine.spec)
-
-            #Remove unused zhook_handle
-            routine.variables = as_tuple(v for v in routine.variables if v != 'zhook_handle')
+            remove_unused_drhook_import(routine)
 
 
 class RemoveCallsTransformation(Transformation):
@@ -129,3 +142,7 @@ class RemoveCallsTransformation(Transformation):
                     mapper[intr] = None
 
         routine.body = Transformer(mapper).visit(routine.body)
+
+        #Get rid of unused DRHOOK import and handle
+        if 'dr_hook' in [r.lower() for r in self.routines]:
+            remove_unused_drhook_import(routine)

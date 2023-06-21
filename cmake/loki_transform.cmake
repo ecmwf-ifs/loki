@@ -181,7 +181,8 @@ endmacro()
 #       [DEFINITIONS <define1> [<define2> ...]]
 #       [OMNI_INCLUDE <omni-inc1> [<omni-inc2> ...]]
 #       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
-#       [REMOVE_OPENMP] [DATA_OFFLOAD]
+#       [REMOVE_OPENMP] [DATA_OFFLOAD] [GLOBAL_VAR_OFFLOAD]
+#       [TRIM_VECTOR_SECTIONS]
 #   )
 #
 # Call ``loki-transform.py convert ...`` with the provided arguments.
@@ -198,7 +199,7 @@ endmacro()
 
 function( loki_transform_convert )
 
-    set( options CPP DATA_OFFLOAD REMOVE_OPENMP )
+    set( options CPP DATA_OFFLOAD REMOVE_OPENMP GLOBAL_VAR_OFFLOAD TRIM_VECTOR_SECTIONS )
     set( oneValueArgs MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH )
     set( multiValueArgs OUTPUT DEPENDS INCLUDES INCLUDE HEADERS HEADER DEFINITIONS DEFINE OMNI_INCLUDE XMOD )
 
@@ -233,6 +234,14 @@ function( loki_transform_convert )
 
     if( ${_PAR_REMOVE_OPENMP} )
         list( APPEND _ARGS --remove-openmp )
+    endif()
+
+    if( ${_PAR_GLOBAL_VAR_OFFLOAD} )
+        list( APPEND _ARGS --global-var-offload )
+    endif()
+
+    if( ${_PAR_TRIM_VECTOR_SECTIONS} )
+        list( APPEND _ARGS --trim-vector-sections )
     endif()
 
     _loki_transform_env_setup()

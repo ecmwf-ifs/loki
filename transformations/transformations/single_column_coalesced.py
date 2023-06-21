@@ -5,12 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import re
 from loki.expression import symbols as sym
 from loki import (
     Transformation, FindNodes, FindScopes, Transformer, info,
     pragmas_attached, as_tuple, flatten, ir, resolve_associates,
     FindExpressions, SymbolAttributes, BasicType, SubstituteExpressions, DerivedType,
-    FindVariables, CaseInsensitiveDict
+    FindVariables, CaseInsensitiveDict, pragma_regions_attached, PragmaRegion, is_loki_pragma
 )
 
 __all__ = ['SCCBaseTransformation', 'SCCAnnotateTransformation', 'SCCHoistTransformation']
@@ -309,10 +310,22 @@ class SCCAnnotateTransformation(Transformation):
         private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
         private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
 
+        mapper = {}
+        with pragma_regions_attached(routine):
+            for region in FindNodes(PragmaRegion).visit(routine.body):
+                if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
+                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
+
+                        loops = FindNodes(ir.Loop).visit(region)
+                        assert len(loops) == 1
+                        pragma = ir.Pragma(keyword='acc', content=f'loop vector {reduction_clause[0]}')
+                        mapper[loops[0]] = loops[0].clone(pragma=(pragma,))
+                        mapper[region.pragma] = None
+                        mapper[region.pragma_post] = None
+
         with pragmas_attached(routine, ir.Loop):
-            mapper = {}
             for loop in FindNodes(ir.Loop).visit(routine.body):
-                if loop.variable == horizontal.index:
+                if loop.variable == horizontal.index and not loop in mapper:
                     # Construct pragma and wrap entire body in vector loop
                     private_arrs = ', '.join(v.name for v in private_arrays)
                     pragma = ()

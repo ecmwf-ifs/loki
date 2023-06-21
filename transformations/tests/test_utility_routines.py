@@ -9,7 +9,7 @@ import shutil
 import pytest
 
 from loki import (
-    Scheduler, SchedulerConfig, FindNodes, CallStatement, gettempdir, OMNI, Import
+    Scheduler, SchedulerConfig, FindNodes, CallStatement, gettempdir, OMNI, Import, Sourcefile
 )
 
 from conftest import available_frontends
@@ -55,6 +55,7 @@ def fixture_source(srcdir):
 subroutine rick_astley
     use parkind1, only: jprb
     use yomhook, only : lhook, dr_hook
+    use rick_rolled, only : never_gonna_give
     implicit none
 
     real(kind=jprb) :: zhook_handle
@@ -65,6 +66,8 @@ end subroutine
     """.strip()
 
     fcode_kernel = """
+module rick_rolled
+contains
 subroutine never_gonna_give
     use parkind1, only: jprb
     use yomhook, only : lhook, dr_hook
@@ -84,6 +87,13 @@ subroutine never_gonna_give
 
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
 end subroutine
+subroutine i_hope_you_havent_let_me_down
+    real(kind=jprb) :: zhook_handle
+    if (lhook) call dr_hook('i_hope_you_havent_let_me_down',0,zhook_handle)
+
+    if (lhook) call dr_hook('i_hope_you_havent_let_me_down',1,zhook_handle)
+end subroutine i_hope_you_havent_let_me_down
+end module rick_rolled
     """.strip()
 
     (srcdir/'rick_astley.F90').write_text(fcode_driver)
@@ -172,13 +182,18 @@ def test_utility_routine_removal(frontend, config, source, include_intrinsics):
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
     scheduler.process(
         transformation=RemoveCallsTransformation(
-            routines=['ABOR1', 'WRITE(NULOUT'], include_intrinsics=include_intrinsics
+            routines=['ABOR1', 'WRITE(NULOUT', 'DR_HOOK'], include_intrinsics=include_intrinsics
         )
     )
 
-    driver = scheduler.item_map['#never_gonna_give'].routine
-    transformed = driver.to_fortran()
+    routine = scheduler.item_map['rick_rolled#never_gonna_give'].routine
+    transformed = routine.to_fortran()
     assert '[SUBROUTINE CALL]' not in transformed
     assert '[INLINE CONDITIONAL]' not in transformed
     assert ('dave' not in transformed) == include_intrinsics
     assert ('[WRITE INTRINSIC]' not in transformed) == include_intrinsics
+    assert 'zhook_handle' not in routine.variables
+
+    routine = Sourcefile.from_file(source/'never_gonna_give.F90', frontend=frontend)['i_hope_you_havent_let_me_down']
+    assert 'zhook_handle' in routine.variables
+    assert len([call for call in FindNodes(CallStatement).visit(routine.body) if call.name == 'dr_hook']) == 2

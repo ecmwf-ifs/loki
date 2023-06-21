@@ -10,7 +10,8 @@ from more_itertools import split_at
 from loki.expression import symbols as sym
 from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
-     NestedTransformer, FindVariables, demote_variables, is_dimension_constant
+     NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
+     is_loki_pragma, dataflow_analysis_attached, BasicType
 )
 from transformations.single_column_coalesced import SCCBaseTransformation
 
@@ -27,10 +28,14 @@ class SCCDevectorTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
+    trim_vector_sections : bool
+        Flag to trigger trimming of extracted vector sections to remove
+        nodes that are not assignments involving vector parallel arrays.
     """
 
-    def __init__(self, horizontal):
+    def __init__(self, horizontal, trim_vector_sections=False):
         self.horizontal = horizontal
+        self.trim_vector_sections = trim_vector_sections
 
     @classmethod
     def kernel_remove_vector_loops(cls, routine, horizontal):
@@ -65,12 +70,19 @@ class SCCDevectorTransformation(Transformation):
             The dimension specifying the horizontal vector dimension
         """
 
-        _scope_note_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
+        _scope_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
 
         # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
         separator_nodes = []
         calls = FindNodes(ir.CallStatement).visit(section)
         for call in calls:
+
+            # check if calls have been enriched
+            if not call.routine is BasicType.DEFERRED:
+                # check if called routine is marked as sequential
+                if SCCBaseTransformation.check_routine_pragmas(routine=call.routine, directive=None):
+                    continue
+
             if call in section:
                 # If the call is at the current section's level, it's a separator
                 separator_nodes.append(call)
@@ -78,9 +90,15 @@ class SCCDevectorTransformation(Transformation):
             else:
                 # If the call is deeper in the IR tree, it's highest ancestor is used
                 ancestors = flatten(FindScopes(call).visit(section))
-                ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_note_types)]
+                ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_node_types)]
                 if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
                     separator_nodes.append(ancestor_scopes[0])
+
+        for pragma in FindNodes(ir.Pragma).visit(section):
+            # Reductions over thread-parallel regions should be marked as a separator node
+            if (is_loki_pragma(pragma, starts_with='vector-reduction') or
+                is_loki_pragma(pragma, starts_with='end vector-reduction')):
+                separator_nodes.append(pragma)
 
         # Extract contiguous node sections between separator nodes
         assert all(n in section for n in separator_nodes)
@@ -116,6 +134,24 @@ class SCCDevectorTransformation(Transformation):
 
         return subsections
 
+    @classmethod
+    def get_trimmed_sections(cls, routine, horizontal, sections):
+        """
+        Trim extracted vector sections to remove nodes that are not assignments
+        involving vector parallel arrays.
+        """
+
+        trimmed_sections = ()
+        with dataflow_analysis_attached(routine):
+            for sec in sections:
+                vec_nodes = [node for node in sec if horizontal.index.lower() in node.uses_symbols]
+                start = sec.index(vec_nodes[0])
+                end = sec.index(vec_nodes[-1])
+
+                trimmed_sections += (sec[start:end+1],)
+
+        return trimmed_sections
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply SCCDevector utilities to a :any:`Subroutine`.
@@ -147,9 +183,14 @@ class SCCDevectorTransformation(Transformation):
         # Remove all vector loops over the specified dimension
         self.kernel_remove_vector_loops(routine, self.horizontal)
 
+        # Extract vector-level compute sections from the kernel
+        sections = self.extract_vector_sections(routine.body.body, self.horizontal)
+
+        if self.trim_vector_sections:
+            sections = self.get_trimmed_sections(routine, self.horizontal, sections)
+
         # Replace sections with marked Section node
-        section_mapper = {s: ir.Section(body=s, label='vector_section')
-                          for s in self.extract_vector_sections(routine.body.body, self.horizontal)}
+        section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
         routine.body = NestedTransformer(section_mapper).visit(routine.body)
 
 
@@ -192,9 +233,9 @@ class SCCRevectorTransformation(Transformation):
         # Ensure we clone all body nodes, to avoid recursion issues
         vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
 
-        # Add a comment before the pragma-annotated loop to ensure
+        # Add a comment before and after the pragma-annotated loop to ensure
         # we do not overlap with neighbouring pragmas
-        return (ir.Comment(''), vector_loop)
+        return (ir.Comment(''), vector_loop, ir.Comment(''))
 
     def transform_subroutine(self, routine, **kwargs):
         """

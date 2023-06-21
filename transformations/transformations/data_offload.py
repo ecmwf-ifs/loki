@@ -305,7 +305,8 @@ class GlobalVarOffloadTransformation(Transformation):
         pragmas = [p for p in FindNodes(Pragma).visit(module.spec) if p.keyword.lower() == 'acc']
         acc_pragma_parameters = get_pragma_parameters(pragmas, starts_with='declare', only_loki_pragmas=False)
         if acc_pragma_parameters:
-            if symbol in flatten([v.replace(' ','').lower().split(',') for v in acc_pragma_parameters['create']]):
+            if symbol in flatten([v.replace(' ','').lower().split(',')
+                                 for v in as_tuple(acc_pragma_parameters['create'])]):
                 return
 
         # Update the set of variables to be offloaded
