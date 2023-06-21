@@ -939,9 +939,11 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
     start = 1
     end = nlon
+    associate(x => q)
     do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b))
+      call compute_column(start, end, nlon, nz, x(:,:,b))
     end do
+    end associate
   END SUBROUTINE column_driver
 """
 
@@ -991,10 +993,17 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
     driver.enrich_calls(outer_kernel)  # Attach kernel source to driver call
 
     # Test SCC transform for plain nested kernel
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
                                                 directive='openacc', block_dim=blocking),)
+
+    # Apply annotate twice to test bailing out mechanism
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+
+
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=['compute_column'])
         transform.apply(outer_kernel, role='kernel', targets=['compute_q'])
@@ -1672,6 +1681,38 @@ def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
                                                     IntLiteral(2))
     else:
         assert routine.symbol_map['work'].shape == ('nang_param', IntLiteral(2))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_horizontal_bounds_checks(frontend, horizontal):
+    """
+    Test the SCCBaseTransformation checks for horizontal loop bounds.
+    """
+
+    fcode_no_start = """
+    subroutine kernel(end, work)
+      real, intent(inout) :: work
+      integer, intent(in) :: end
+
+    end subroutine kernel
+"""
+
+    fcode_no_end = """
+    subroutine kernel(start, work)
+      real, intent(inout) :: work
+      integer, intent(in) :: start
+
+    end subroutine kernel
+"""
+
+    no_start = Subroutine.from_source(fcode_no_start, frontend=frontend)
+    no_end = Subroutine.from_source(fcode_no_end, frontend=frontend)
+
+    transform = SCCBaseTransformation(horizontal=horizontal)
+    with pytest.raises(RuntimeError):
+        transform.apply(no_start, role='kernel')
+    with pytest.raises(RuntimeError):
+        transform.apply(no_end, role='kernel')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
