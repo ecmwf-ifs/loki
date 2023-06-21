@@ -299,7 +299,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode),
-                      item_filter=(SubroutineItem, GlobalVarImportItem))
+                      use_file_graph=True)
 
 
 @cli.command()
