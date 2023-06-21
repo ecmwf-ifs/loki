@@ -233,6 +233,15 @@ class SingleColumnCoalescedTransformation(Transformation):
                 if self.directive == 'openacc':
                     SCCAnnotateTransformation.device_alloc_column_locals(routine, column_locals)
 
+        # For the thread block size, find the horizontal size variable that is available in
+        # the driver
+        num_threads = None
+        symbol_map = routine.symbol_map
+        for size_expr in self.horizontal.size_expressions:
+            if size_expr in symbol_map:
+                num_threads = size_expr
+                break
+
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
 
             for call in FindNodes(ir.CallStatement).visit(routine.body):
@@ -254,4 +263,4 @@ class SingleColumnCoalescedTransformation(Transformation):
 
                 # Mark driver loop as "gang parallel".
                 SCCAnnotateTransformation.annotate_driver(self.directive, driver_loop, kernel_loop,
-                                                          self.block_dim, column_locals)
+                                                          self.block_dim, column_locals, num_threads)

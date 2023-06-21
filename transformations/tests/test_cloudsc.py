@@ -96,7 +96,7 @@ def test_cloudsc(here, frontend):
     # Raise stack limit
     resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
     env = os.environ.copy()
-    env.update({'OMP_STACKSIZE': '2G'})
+    env.update({'OMP_STACKSIZE': '2G', 'NVCOMPILER_ACC_CUDA_HEAPSIZE': '2G'})
 
     # For some reason, the 'data' dir symlink is not created???
     os.symlink(here/'data', here/'build/data')
