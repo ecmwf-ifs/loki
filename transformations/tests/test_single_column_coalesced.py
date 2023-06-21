@@ -1539,6 +1539,7 @@ def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
 
     fcode = """
     subroutine some_inlined_kernel(work)
+    !$loki routine seq
        real, intent(inout) :: work
 
        work = work*2.

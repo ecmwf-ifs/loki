@@ -79,7 +79,8 @@ class SCCDevectorTransformation(Transformation):
 
             # check if calls have been enriched
             if not call.routine is BasicType.DEFERRED:
-                if not horizontal.size in call.routine.symbol_map:
+                # check if called routine is marked as sequential
+                if SCCBaseTransformation.check_routine_pragmas(routine=call.routine, directive=None):
                     continue
 
             if call in section:
