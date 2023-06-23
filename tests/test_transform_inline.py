@@ -357,3 +357,56 @@ end subroutine member_routines
 
     assert (a == [6., 7., 8.]).all()
     assert (b == [3., 3., 3.]).all()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines_arg_dimensions(frontend):
+    """
+    Test inlining of member subroutines when sub-arrays of rank less
+    than the formal argument are passed.
+    """
+    fcode = """
+subroutine member_routines_arg_dimensions(matrix, tensor)
+  real(kind=8), intent(inout) :: matrix(3, 3), tensor(3, 3, 4)
+  integer :: i
+  do i=1, 3
+    call add_one(3, matrix(:,i), tensor(1:3,i,:))
+  end do
+  contains
+    subroutine add_one(n, a, b)
+      integer, intent(in) :: n
+      real(kind=8), intent(inout) :: a(3), b(3,1:n)
+      integer :: j
+      do j=1, n
+        a(j) = a(j) + 1
+        b(j,:) = 66.6
+      end do
+    end subroutine
+end subroutine member_routines_arg_dimensions
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Ensure initial member arguments
+    assert len(routine.routines) == 1
+    assert routine.routines[0].name == 'add_one'
+    assert len(routine.routines[0].arguments) == 3
+    assert routine.routines[0].arguments[0].name == 'n'
+    assert routine.routines[0].arguments[1].name == 'a'
+    assert routine.routines[0].arguments[2].name == 'b'
+
+    # Now inline the member routines and check again
+    inline_member_procedures(routine=routine)
+
+    # Ensure member has been inlined and arguments adapated
+    assert len(routine.routines) == 0
+    assert len([v for v in FindVariables().visit(routine.body) if v.name == 'a']) == 0
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'matrix(j, i)' and assigns[0].rhs =='matrix(j, i) + 1'
+    assert assigns[1].lhs == 'tensor(j, i, :)'
+
+    # Ensure the `n` in the inner loop bound has been substituted too
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert loops[0].bounds == '1:3'
+    assert loops[1].bounds == '1:3'
