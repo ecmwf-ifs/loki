@@ -12,7 +12,7 @@ Collection of classes to represent type information for symbols used throughout
 """
 
 import weakref
-from enum import IntEnum
+from enum import Enum
 from loki.tools import flatten, as_tuple, LazyNodeLookup
 
 
@@ -25,7 +25,7 @@ class DataType:
     """
 
 
-class BasicType(DataType, IntEnum):
+class BasicType(DataType, int, Enum):
     """
     Representation of intrinsic data types, names taken from the FORTRAN convention.
 
