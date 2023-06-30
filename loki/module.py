@@ -275,7 +275,8 @@ class Module(ProgramUnit):
         s = self.__dict__.copy()
         # TODO: We need to remove the AST, as certain AST types
         # (eg. FParser) are not pickle-safe.
-        del s['_ast']
+        if '_ast' in s:
+            del s['_ast']
         return s
 
     def __setstate__(self, s):
