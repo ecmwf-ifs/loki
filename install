@@ -284,6 +284,7 @@ else
   pip_opts=[${pip_opts:1}]
 fi
 
+pip install $PIPPROXYOPTIONS --upgrade pip
 pip install $PIPPROXYOPTIONS -e .$pip_opts  # Installs Loki dev copy in editable mode
 pip install $PIPPROXYOPTIONS -e ./transformations
 pip install $PIPPROXYOPTIONS -e ./lint_rules

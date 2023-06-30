@@ -206,7 +206,11 @@ git clone https://github.com/ecmwf-ifs/loki
 ```bash
 python3 -m venv loki_env
 source loki_env/bin/activate
+pip install --upgrade pip
 ```
+
+Note that we need to make sure that we use a recent pip version (21.3 or newer)
+that has support for editable installs using `pyproject.toml`.
 
 ### 3.  Install Loki and Python dependencies
 
