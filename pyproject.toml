@@ -1,12 +1,90 @@
 # Make sure we use setuptools and have all required dependencies for that
 [build-system]
 requires = [
-  "setuptools >= 45",
+  "setuptools >= 61",
   "wheel",
-  "setuptools_scm >= 6.2",
-  "numpy"
+  "setuptools_scm[toml] >= 6.2",
+  "numpy<1.24"
 ]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "loki"
+authors = [
+  {name = "ECMWF", email = "user_support_section@ecmwf.int"},
+]
+description = "Experimental Fortran IR to facilitate source-to-source transformations"
+requires-python = ">=3.8,<3.12"
+license = {text = "Apache-2.0"}
+dynamic = ["version", "readme"]
+dependencies = [
+  "numpy<1.24",  # essential for tests, loop transformations and other dependencies
+  "pymbolic>=2022.1",  # essential for expression tree
+  "PyYAML",  # essential for loki-lint
+  "pcpp",  # essential for preprocessing
+  "more-itertools",  # essential for SCC transformation
+  "click",  # essential for CLI scripts
+  "toml",  # essential for scheduler configuration
+  "networkx",  # essential for scheduler and build utilities
+  "fparser>=0.0.15",  # (almost) essential as frontend
+  "graphviz",  # optional for scheduler callgraph
+  "tqdm",  # optional for build utilities
+  "coloredlogs",  # optional for loki-build utility
+  "junit_xml",  # optional for JunitXML output in loki-lint
+  "codetiming",  # essential for scheduler and sourcefile timings
+  "pydantic",
+]
+
+[project.optional-dependencies]
+tests = [
+  "pytest",
+  "pytest-cov",
+  "coverage2clover",
+  "pylint!=2.11.0,!=2.11.1",
+  "pandas",
+  "f90wrap>=0.2.3",
+  "nbconvert",
+]
+ofp = [
+  "open-fortran-parser @ git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser",
+]
+dace = [
+  "dace>=0.11.2",
+]
+docs = [
+  "sphinx",  # to build documentation
+  "recommonmark",  # to allow parsing markdown
+  "sphinx-rtd-theme",  # ReadTheDocs theme
+  "myst-parser",  # Markdown parser for sphinx
+  "nbsphinx",  # Jupyter notebook parser for sphinx
+  "sphinx-design",  # Add panels, cards and dropdowns for sphinx
+]
+examples = [
+  "jupyter",
+  "ipyparams",
+]
+
+[project.scripts]
+"loki-transform.py" = "scripts.loki_transform:cli"
+"loki-lint.py" = "scripts.loki_lint:cli"
+
+[tool.setuptools]
+license-files = ["LICENSE", "AUTHORS.md"]
+packages = ["loki", "scripts"]
+
+[tool.setuptools.dynamic]
+# version = {attr = "loki.__version__"}
+readme = {file = ["README.md", "INSTALL.md"], content-type = "test/markdown"}
+
+# [tool.setuptools.packages.find]
+# where = ["."]
+# include = ["loki", "scripts"]
+# exclude = ["tests", "transformations", "lint_rules"]
+
 # Enable SCM versioning
 [tool.setuptools_scm]
+
+[tool.pytest.ini_options]
+testpaths = [
+  "tests"
+]

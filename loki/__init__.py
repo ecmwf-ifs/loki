@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pkg_resources import get_distribution, DistributionNotFound
+from importlib.metadata import version, PackageNotFoundError
 
 # Import the global configuration map
 from loki.config import *  # noqa
@@ -31,9 +31,10 @@ from loki.pragma_utils import *  # noqa
 from loki.analyse import *  # noqa
 from loki.dimension import *  # noqa
 
+
 try:
-    __version__ = get_distribution(__name__).version
-except DistributionNotFound:
+    __version__ = version("loki")
+except PackageNotFoundError:
     # package is not installed
     pass
 
