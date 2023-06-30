@@ -10,6 +10,7 @@ from pathlib import Path
 from collections import deque, OrderedDict, defaultdict
 import networkx as nx
 from codetiming import Timer
+from concurrent.futures import ProcessPoolExecutor
 
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.sourcefile import Sourcefile
@@ -158,7 +159,7 @@ class Scheduler:
 
     def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
                  includes=None, defines=None, definitions=None, xmods=None,
-                 omni_includes=None, full_parse=True, frontend=FP):
+                 omni_includes=None, full_parse=True, num_workers=1, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -168,6 +169,7 @@ class Scheduler:
             self.config = SchedulerConfig.from_dict(config)
 
         self.full_parse = full_parse
+        self.num_workers = num_workers
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
@@ -223,7 +225,11 @@ class Scheduler:
         path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
 
         # Perform the full initial scan of the search space with the REGEX frontend
-        obj_list = [Sourcefile.from_file(filename=f, **frontend_args) for f in path_list]
+        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+            obj_futures = [
+                executor.submit(Sourcefile.from_file, f, **frontend_args) for f in path_list
+            ]
+        obj_list = [obj.result() for obj in obj_futures]
 
         debug(f'Total number of lines parsed: {sum(obj.source.lines[1] for obj in obj_list)}')
 
