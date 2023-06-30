@@ -24,13 +24,6 @@ class DataType:
     Base class for data types a symbol may have
     """
 
-    def __init__(self, *args): # pylint:disable=unused-argument
-        # Make sure we always instantiate one of the subclasses
-        # Note that we cannot use ABC for that as this would cause a
-        # metaclass clash with IntEnum, which is used to represent
-        # intrinsic types in BasicType
-        assert self.__class__ is not DataType
-
 
 class BasicType(DataType, IntEnum):
     """
