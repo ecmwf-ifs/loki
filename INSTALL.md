@@ -222,7 +222,7 @@ pip install -e ./lint_rules
 popd
 ```
 
-### 4.  Install CLAW with OMNI compiler
+### 4.  Install CLAW with OMNI compiler -- optional
 
 ```bash
 git clone --recursive --single-branch --branch=mlange-dev https://github.com/mlange05/claw-compiler.git claw-compiler
@@ -237,7 +237,7 @@ popd
 popd
 ```
 
-### 5.  Install OpenFortranParser (OFP)
+### 5.  Install OpenFortranParser (OFP) -- optional
 
 ```bash
 pip install -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
@@ -256,6 +256,8 @@ popd
 
 ```bash
 pushd loki
-py.test
+py.test transformations lint_rules .
 popd
 ```
+
+Note that the order is important to avoid clashes with conftest utilities.
