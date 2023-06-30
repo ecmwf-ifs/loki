@@ -159,7 +159,8 @@ class Scheduler:
 
     def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
                  includes=None, defines=None, definitions=None, xmods=None,
-                 omni_includes=None, full_parse=True, num_workers=1, frontend=FP):
+                 omni_includes=None, full_parse=True, num_workers=1,
+                 timeout=20, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -170,6 +171,7 @@ class Scheduler:
 
         self.full_parse = full_parse
         self.num_workers = num_workers
+        self.timeout = timeout
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
@@ -229,7 +231,7 @@ class Scheduler:
             obj_futures = [
                 executor.submit(Sourcefile.from_file, f, **frontend_args) for f in path_list
             ]
-        obj_list = [obj.result() for obj in obj_futures]
+        obj_list = [obj.result(timeout=self.timeout) for obj in obj_futures]
 
         debug(f'Total number of lines parsed: {sum(obj.source.lines[1] for obj in obj_list)}')
 
@@ -548,9 +550,18 @@ class Scheduler:
         # Force the parsing of the routines
         build_args = self.build_args.copy()
         build_args['definitions'] = as_tuple(build_args['definitions'])
-        for item in reversed(list(nx.topological_sort(self.item_graph))):
-            item.source.make_complete(**build_args)
-            build_args['definitions'] += item.source.definitions
+
+        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+            parse_futures = [
+                executor.submit(item.source.make_complete, **build_args)
+                for item in reversed(list(nx.topological_sort(self.item_graph)))
+            ]
+        _ = [parse.result() for parse in parse_futures]
+
+        # TODO: The below effectively forces sequential execution
+        # on an otherwise parallel process. We disable this, until
+        # we have either dependency handling, or we can retro-fit this.
+        # build_args['definitions'] += item.source.definitions
 
     @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
