@@ -104,15 +104,22 @@ class RemoveCallsTransformation(Transformation):
         Option to extend searches to :any:`Intrinsic` nodes to
         capture print/write statements
     """
-    def __init__(self, routines, include_intrinsics=False, **kwargs):
+    def __init__(self, routines, include_intrinsics=False, kernel_only=False, **kwargs):
         self.routines = as_tuple(routines)
         self.include_intrinsics = include_intrinsics
+        self.kernel_only = kernel_only
         super().__init__(**kwargs)
 
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply transformation to subroutine object
         """
+
+        # Skip driver layer if requested
+        role = kwargs.get('role', None)
+        if role and role == 'driver' and self.kernel_only:
+            return
+
         mapper = {}
 
         # First remove inline conditionals with calls to specified routines or intrinsics

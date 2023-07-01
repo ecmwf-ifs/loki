@@ -468,7 +468,7 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
     if 'scc' in mode:
         scheduler.process(transformation=RemoveCallsTransformation(
-            routines=['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'], include_intrinsics=True
+            routines=['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'], include_intrinsics=True, kernel_only=True
         ))
     else:
         scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
