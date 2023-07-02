@@ -307,3 +307,30 @@ def test_pickle_scheduler_item(here, frontend):
     assert loads(dumps(item_a.source.ir)) == item_a.source.ir
     assert loads(dumps(item_a.source)) == item_a.source
     assert loads(dumps(item_a)) == item_a
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pickle_expressions(here, frontend):
+
+    fcode = """
+  subroutine my_routine(n, a, b, c)
+    integer, intent(in) :: n
+    real, intent(in) :: a(n), b(n), c(n)
+    real :: x, y, z
+    integer :: i, j
+
+    a(:) = b(:) + c(:) ! Test arrays
+    x = max(x, a(1))   ! Test scalar and intrinsic
+
+    i = real(x, 4)  ! Test casts
+  end subroutine my_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Ensure equivalence after pickle-cyle with scope-level replication
+    routine_new = loads(dumps(routine))
+    assert routine_new.spec == routine.spec
+    assert routine_new.body == routine.body
+    assert routine_new.contains == routine.contains
+    assert routine_new.symbol_attrs == routine.symbol_attrs
+    assert routine_new == routine
