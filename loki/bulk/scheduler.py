@@ -553,10 +553,13 @@ class Scheduler:
 
         with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
             parse_futures = [
-                executor.submit(item.source.make_complete, **build_args)
+                (item, executor.submit(item.source.make_complete, **build_args))
                 for item in reversed(list(nx.topological_sort(self.item_graph)))
             ]
-        _ = [parse.result() for parse in parse_futures]
+
+            for item, future in parse_futures:
+                item.source = future.result()
+        # _ = [parse.result() for parse in parse_futures]
 
         # TODO: The below effectively forces sequential execution
         # on an otherwise parallel process. We disable this, until

@@ -397,6 +397,8 @@ class Sourcefile:
             self.ir._update(body=as_tuple(body))
             self._incomplete = frontend == REGEX
 
+        return self
+
     @property
     def source(self):
         return self._source
