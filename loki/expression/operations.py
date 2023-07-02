@@ -134,15 +134,17 @@ class Cast(StrCompareMixin, pmbl.Call):
     Internal representation of a data type cast.
     """
 
-    init_arg_names = ('name', 'expression', 'kind')
-
-    def __init__(self, name, expression, kind=None, **kwargs):
-        assert kind is None or isinstance(kind, pmbl.Expression)
-        self.kind = kind
-        super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
+    init_arg_names = ('function', 'expression', 'kind')
 
     def __getinitargs__(self):
-        return (self.name, self.expression, self.kind)
+        return (self.function, self.expression, self.kind)
+
+    def __init__(self, function, expression, kind=None, **kwargs):
+        if not isinstance(function, pmbl.Expression):
+            function = pmbl.make_variable(function)
+        assert kind is None or isinstance(kind, pmbl.Expression)
+        self.kind = kind
+        super().__init__(function, as_tuple(expression), **kwargs)
 
     mapper_method = intern('map_cast')
 
@@ -153,6 +155,10 @@ class Cast(StrCompareMixin, pmbl.Call):
     @property
     def expression(self):
         return self.parameters
+
+    @expression.setter
+    def expression(self, expr):
+        self.parameters = expr
 
 
 class Reference(StrCompareMixin, pmbl.Expression):
