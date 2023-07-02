@@ -1424,10 +1424,17 @@ class Cast(pmbl.Call):
     Internal representation of a data type cast.
     """
 
-    def __init__(self, name, expression, kind=None, **kwargs):
+    init_arg_names = ('function', 'parameters', 'kind')
+
+    def __getinitargs__(self):
+        return (self.function, self.parameters, self.kind)
+
+    def __init__(self, function, expression, kind=None, **kwargs):
+        if not isinstance(function, pmbl.Expression):
+            function = pmbl.make_variable(function)
         assert kind is None or isinstance(kind, pmbl.Expression)
         self.kind = kind
-        super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
+        super().__init__(function, as_tuple(expression), **kwargs)
 
     mapper_method = intern('map_cast')
 
