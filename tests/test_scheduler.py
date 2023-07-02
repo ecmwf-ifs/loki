@@ -125,7 +125,8 @@ class VisGraphWrapper:
 
 @pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
 @pytest.mark.parametrize('with_file_graph', [True, False, 'filegraph_simple'])
-def test_scheduler_graph_simple(here, config, frontend, with_file_graph):
+@pytest.mark.parametrize('num_workers', [1, 3])
+def test_scheduler_graph_simple(here, config, frontend, with_file_graph, num_workers):
     """
     Create a simple task graph from a single sub-project:
 
@@ -137,7 +138,8 @@ def test_scheduler_graph_simple(here, config, frontend, with_file_graph):
 
     scheduler = Scheduler(
         paths=projA, includes=projA/'include', config=config,
-        seed_routines=['driverA'], frontend=frontend
+        seed_routines=['driverA'], frontend=frontend,
+        num_workers=num_workers
     )
 
     expected_items = [
