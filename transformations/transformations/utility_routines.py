@@ -103,6 +103,8 @@ class RemoveCallsTransformation(Transformation):
     include_intrinsics : bool
         Option to extend searches to :any:`Intrinsic` nodes to
         capture print/write statements
+    kernel_only : bool
+        Option to only remove calls in routines marked as "kernel"; default: ``False``
     """
     def __init__(self, routines, include_intrinsics=False, kernel_only=False, **kwargs):
         self.routines = as_tuple(routines)
