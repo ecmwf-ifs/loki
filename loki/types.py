@@ -12,7 +12,7 @@ Collection of classes to represent type information for symbols used throughout
 """
 
 import weakref
-from enum import IntEnum
+from enum import Enum
 from loki.tools import flatten, as_tuple, LazyNodeLookup
 
 
@@ -24,15 +24,8 @@ class DataType:
     Base class for data types a symbol may have
     """
 
-    def __init__(self, *args): # pylint:disable=unused-argument
-        # Make sure we always instantiate one of the subclasses
-        # Note that we cannot use ABC for that as this would cause a
-        # metaclass clash with IntEnum, which is used to represent
-        # intrinsic types in BasicType
-        assert self.__class__ is not DataType
 
-
-class BasicType(DataType, IntEnum):
+class BasicType(DataType, int, Enum):
     """
     Representation of intrinsic data types, names taken from the FORTRAN convention.
 

@@ -1,6 +1,7 @@
 # Loki: Freely programmable source-to-source translation
 
 [![license](https://img.shields.io/github/license/ecmwf-ifs/loki)](https://www.apache.org/licenses/LICENSE-2.0.html)
+[![code-checks](https://github.com/ecmwf-ifs/loki/actions/workflows/code_checks.yml/badge.svg)](https://github.com/ecmwf-ifs/loki/actions/workflows/code_checks.yml)
 [![tests](https://github.com/ecmwf-ifs/loki/actions/workflows/tests.yml/badge.svg)](https://github.com/ecmwf-ifs/loki/actions/workflows/tests.yml)
 [![regression-tests](https://github.com/ecmwf-ifs/loki/actions/workflows/regression_tests.yml/badge.svg)](https://github.com/ecmwf-ifs/loki/actions/workflows/regression_tests.yml)
 [![codecov](https://codecov.io/gh/ecmwf-ifs/loki/branch/main/graph/badge.svg?token=9ZDS95SFWI)](https://codecov.io/gh/ecmwf-ifs/loki)
