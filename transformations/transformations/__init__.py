@@ -17,6 +17,7 @@ from transformations.single_column_coalesced_vector import * # noqa
 from transformations.utility_routines import * # noqa
 from transformations.scc_cuf import * # noqa
 from transformations.pool_allocator import * # noqa
+from transformations.idem_debug import * # noqa
 
 try:
     __version__ = version("transformations")
