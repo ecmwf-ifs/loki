@@ -13,8 +13,8 @@ set -euo pipefail
 loki_ant_version=1.10.13
 
 hpc2020_java_version=11.0.6
-hpc2020_python_version=3.8.8-01
-hpc2020_cmake_version=3.20.2
+hpc2020_python_version=3.10.10-01
+hpc2020_cmake_version=3.25.2
 
 # Determine base path for loki
 # Either take the root of the current git tree or, if not inside a git repository, then
@@ -284,6 +284,7 @@ else
   pip_opts=[${pip_opts:1}]
 fi
 
+pip install $PIPPROXYOPTIONS --upgrade pip
 pip install $PIPPROXYOPTIONS -e .$pip_opts  # Installs Loki dev copy in editable mode
 pip install $PIPPROXYOPTIONS -e ./transformations
 pip install $PIPPROXYOPTIONS -e ./lint_rules
@@ -507,5 +508,5 @@ echo "Activate the Loki environment with"
 echo
 echo "    source loki-activate"
 echo
-echo "You can test the installation then by calling 'py.test'"
+echo "You can test the Loki installation by running 'py.test transformations lint_rules .'"
 echo

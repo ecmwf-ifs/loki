@@ -1,5 +1,31 @@
 [build-system]
 requires = [
-  "setuptools >= 45",
+  "setuptools >= 61",
+  "setuptools_scm[toml] >= 6.2",
 ]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "lint_rules"
+authors = [
+  {name = "ECMWF", email = "user_support_section@ecmwf.int"},
+]
+description = "Linter rule implementations for loki-lint"
+requires-python = ">=3.8"
+license = {text = "Apache-2.0"}
+dynamic = ["version"]
+dependencies = ["loki"]
+
+[tool.setuptools]
+license-files = ["../LICENSE", "../AUTHORS.md"]
+packages = ["lint_rules"]
+
+# Enable SCM versioning
+[tool.setuptools_scm]
+root = ".."
+relative_to = "__file__"
+
+[tool.pytest.ini_options]
+testpaths = [
+  "tests"
+]

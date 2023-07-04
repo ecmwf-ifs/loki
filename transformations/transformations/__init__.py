@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from importlib.metadata import version, PackageNotFoundError
+
 from transformations.derived_types import * # noqa
 from transformations.argument_shape import * # noqa
 from transformations.data_offload import * # noqa
@@ -16,4 +18,8 @@ from transformations.utility_routines import * # noqa
 from transformations.scc_cuf import * # noqa
 from transformations.pool_allocator import * # noqa
 
-__version__ = "0.0.0"
+try:
+    __version__ = version("transformations")
+except PackageNotFoundError:
+    # package is not installed
+    pass

@@ -153,6 +153,8 @@ if( NOT HAVE_NO_INSTALL )
         # Less verbose output
         list ( APPEND PIP_OPTIONS "-q" )
     endif()
+    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install --upgrade ${PIP_OPTIONS} pip )
+
     if( HAVE_EDITABLE )
         # Use checked-out source instead of installing into venv
         list( APPEND PIP_OPTIONS "-e" )
@@ -166,6 +168,7 @@ if( NOT HAVE_NO_INSTALL )
 
     # We install Loki at configure time (for now), since bulk-transformation planning
     # requires configure time execution to allow injection with CMake targets.
+
     message( STATUS "Install Loki in virtual environment" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
     message( STATUS "Install Loki in virtual environment - done" )
