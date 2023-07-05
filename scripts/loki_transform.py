@@ -163,7 +163,7 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
     else:
         config = SchedulerConfig.from_file(config)
 
-    directive = None if directive is 'none' else directive.lower()
+    directive = None if directive.lower() == 'none' else directive.lower()
 
     build_args = {
         'preprocess': cpp,
@@ -447,7 +447,7 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
     info('[Loki] Bulk-processing physics using config: %s ', config)
     config = SchedulerConfig.from_file(config)
 
-    directive = None if directive is 'none' else directive.lower()
+    directive = None if directive.lower() == 'none' else directive.lower()
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
