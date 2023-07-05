@@ -5,56 +5,56 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import pdb
 import operator as _op
 from loki import (
      Transformation, FindNodes, CallStatement, Assignment, Scalar, RangeIndex,
      simplify, Sum, Product, IntLiteral, DeferredTypeSymbol, as_tuple, SubstituteExpressions,
-     symbolic_op, warning
+     symbolic_op
 )
+from loki.lint import GenericRule, RuleType
 
-__all__ = ['IdemDebugTransformation']
+class ArgSizeMismatchRule(GenericRule):
+    """
+    Rule to check for argument size mismatch in subroutine/function calls
+    """
 
-class IdemDebugTransformation(Transformation):
-
-    @staticmethod
-    def _resolve_range(dim, arg, count):
-        if not dim.upper:
-            if isinstance(arg.shape[count], RangeIndex):
-                upper = arg.shape[count].upper
-            else:
-                upper = arg.shape[count]
-        else:
-            upper = dim.upper
-
-        if not dim.lower:
-            if isinstance(arg.shape[count], RangeIndex):
-                lower = arg.shape[count].lower
-            else:
-                lower = IntLiteral(1)
-        else:
-            lower = dim.lower
-
-        return lower, upper
+    type = RuleType.WARN
 
     @staticmethod
     def range_to_sum(lower, upper):
+        """
+        Method to convert lower and upper bounds of a :any:`RangeIndex` to a
+        :any:`Sum` expression.
+        """
+
         return Sum((IntLiteral(1), upper, Product((IntLiteral(-1), lower))))
 
-    def get_explicit_arg_size(self, arg, dims):
+    @classmethod
+    def get_explicit_arg_size(cls, arg, dims):
+        """
+        Method to return the size of a subroutine argument whose bounds are
+        explicitly declared.
+        """
+
         if isinstance(arg, Scalar):
             size = as_tuple(IntLiteral(1))
         else:
             size = ()
             for dim in dims:
                 if isinstance(dim, RangeIndex):
-                    size += as_tuple(simplify(self.range_to_sum(dim.lower, dim.upper)))
+                    size += as_tuple(simplify(cls.range_to_sum(dim.lower, dim.upper)))
                 else:
                     size += as_tuple(dim)
 
         return size
 
-    def get_implicit_arg_size(self, arg, dims):
+    @classmethod
+    def get_implicit_arg_size(cls, arg, dims):
+        """
+        Method to return the size of a subroutine argument whose bounds are
+        potentially implicitly declared.
+        """
+
         size = ()
         for count, dim in enumerate(dims):
             if isinstance(dim, RangeIndex):
@@ -73,18 +73,26 @@ class IdemDebugTransformation(Transformation):
                 else:
                     lower = dim.lower
 
-                size += as_tuple(self.range_to_sum(lower, upper))
+                size += as_tuple(cls.range_to_sum(lower, upper))
             else:
                 size += as_tuple(dim)
 
         return size
 
-    def argument_size_mismatch(self, routine, **kwargs):
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
+        """
+        Method to check for argument size mismatches across subroutine calls.
+        It requires all :any:`CallStatement` nodes to be enriched, and requires
+        all subroutine arguments *to not be* of type :any:`DeferredTypeSymbol`.
+        Therefore relevant modules should be parsed before parsing the current
+        :any:`Subroutine`.
+        """
 
-        assign_map = {a.lhs: a.rhs for a in FindNodes(Assignment).visit(routine.body)}
+        assign_map = {a.lhs: a.rhs for a in FindNodes(Assignment).visit(subroutine.body)}
 
         targets = as_tuple(kwargs.get('targets', None))
-        calls = FindNodes(CallStatement).visit(routine.body)
+        calls = FindNodes(CallStatement).visit(subroutine.body)
         calls = [c for c in calls if c.name.name.lower() in targets]
 
         for call in calls:
@@ -104,7 +112,7 @@ class IdemDebugTransformation(Transformation):
                     if any(None in (dim.lower, dim.upper)
                            for dim in arg_map_f[arg].shape if isinstance(dim, RangeIndex)):
                         continue
-                    dummy_arg_size = self.get_explicit_arg_size(arg_map_f[arg], arg_map_f[arg].shape)
+                    dummy_arg_size = cls.get_explicit_arg_size(arg_map_f[arg], arg_map_f[arg].shape)
 
                 dummy_arg_size = SubstituteExpressions(arg_map_r).visit(dummy_arg_size)
                 dummy_arg_size = SubstituteExpressions(assign_map).visit(dummy_arg_size)
@@ -130,24 +138,24 @@ class IdemDebugTransformation(Transformation):
                         if any(None in (dim.lower, dim.upper) for dim in arg.dimensions):
                             continue
 
-                        arg_size = self.get_explicit_arg_size(arg, arg.dimensions)
+                        arg_size = cls.get_explicit_arg_size(arg, arg.dimensions)
                         alt_arg_size = arg_size
                     else:
                         # compute dim sizes assuming single element
                         if arg.dimensions:
-                            arg_size = self.get_implicit_arg_size(arg, arg.dimensions)
+                            arg_size = cls.get_implicit_arg_size(arg, arg.dimensions)
                             arg_size = as_tuple([IntLiteral(1) if not isinstance(a, Sum) else simplify(a)
                                                  for a in arg_size])
                         else:
-                            arg_size = self.get_explicit_arg_size(arg, arg.shape)
+                            arg_size = cls.get_explicit_arg_size(arg, arg.shape)
 
-                        # compute dim sizes assuming element reference
-                        alt_arg_size = self.get_implicit_arg_size(arg, arg.dimensions)
+                        # compute dim sizes assuming array sequence
+                        alt_arg_size = cls.get_implicit_arg_size(arg, arg.dimensions)
                         alt_arg_size = as_tuple([simplify(Sum((Product((IntLiteral(-1), a)),
                                                                a.shape[i], IntLiteral(1))))
                                                  if not isinstance(a, Sum) else simplify(a)
                                                  for i, a in enumerate(alt_arg_size)])
-                        alt_arg_size += self.get_explicit_arg_size(arg, arg.shape[len(arg.dimensions):])
+                        alt_arg_size += cls.get_explicit_arg_size(arg, arg.shape[len(arg.dimensions):])
 
                 stat = False
                 for i in range(len(arg_size)):
@@ -163,11 +171,9 @@ class IdemDebugTransformation(Transformation):
                         stat = True
 
                 if not stat:
-                    warn = f'[Loki::IdemDebug] Size mismatch:: arg: {arg}, dummy_arg: {arg_map_f[arg]} '
-                    warn += f'in {call} in {routine}'
-                    warning(warn)
+                    msg = f'[Loki::IdemDebug] Size mismatch:: arg: {arg}, dummy_arg: {arg_map_f[arg]} '
+                    msg += f'in {call} in {subroutine}'
+                    rule_report.add(msg, call)
 
-    def transform_subroutine(self, routine, **kwargs):
-
-        # check for argument size mismatch across subroutine calls
-        self.argument_size_mismatch(routine, **kwargs)
+# Create the __all__ property of the module to contain only the rule names
+__all__ = tuple(name for name in dir() if name.endswith('Rule') and name != 'GenericRule')
