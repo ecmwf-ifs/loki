@@ -7,9 +7,9 @@
 
 import operator as _op
 from loki import (
-     Transformation, FindNodes, CallStatement, Assignment, Scalar, RangeIndex,
-     simplify, Sum, Product, IntLiteral, DeferredTypeSymbol, as_tuple, SubstituteExpressions,
-     symbolic_op
+     FindNodes, CallStatement, Assignment, Scalar, RangeIndex,
+     simplify, Sum, Product, IntLiteral, as_tuple, SubstituteExpressions,
+     symbolic_op, StringLiteral, is_constant, LogicLiteral, VariableDeclaration, flatten
 )
 from loki.lint import GenericRule, RuleType
 
@@ -90,10 +90,12 @@ class ArgSizeMismatchRule(GenericRule):
         """
 
         assign_map = {a.lhs: a.rhs for a in FindNodes(Assignment).visit(subroutine.body)}
+        decl_symbols = flatten([decl.symbols for decl in FindNodes(VariableDeclaration).visit(subroutine.spec)])
+        decl_symbols = [sym for sym in decl_symbols if sym.type.initial]
+        assign_map.update({sym: sym.initial for sym in decl_symbols})
 
         targets = as_tuple(kwargs.get('targets', None))
-        calls = FindNodes(CallStatement).visit(subroutine.body)
-        calls = [c for c in calls if c.name.name.lower() in targets]
+        calls = [c for c in FindNodes(CallStatement).visit(subroutine.body) if c.name in targets]
 
         for call in calls:
 
@@ -102,13 +104,18 @@ class ArgSizeMismatchRule(GenericRule):
                 continue
 
             arg_map_f = {carg: rarg for rarg, carg in call.arg_iter()}
-            arg_map_r = {rarg: carg for rarg, carg in call.arg_iter()}
-            for arg in call.arguments:
+            arg_map_r = dict(call.arg_iter())
 
-                # we can't proceed if dummy arg has assumed shape component
+            # combine args and kwargs into single iterable
+            arguments = call.arguments
+            arguments += as_tuple([arg for kw, arg in call.kwarguments])
+
+            for arg in arguments:
+
                 if isinstance(arg_map_f[arg], Scalar):
                     dummy_arg_size = as_tuple(IntLiteral(1))
                 else:
+                    # we can't proceed if dummy arg has assumed shape component
                     if any(None in (dim.lower, dim.upper)
                            for dim in arg_map_f[arg].shape if isinstance(dim, RangeIndex)):
                         continue
@@ -118,11 +125,14 @@ class ArgSizeMismatchRule(GenericRule):
                 dummy_arg_size = SubstituteExpressions(assign_map).visit(dummy_arg_size)
                 dummy_arg_size = Product(dummy_arg_size)
 
+                # TODO: skip string literal args
+                if isinstance(arg, StringLiteral):
+                    continue
 
                 arg_size = ()
                 alt_arg_size = ()
                 # check if argument is scalar
-                if isinstance(arg, Scalar):
+                if isinstance(arg, (Scalar, LogicLiteral)) or is_constant(arg):
                     arg_size += as_tuple(IntLiteral(1))
                     alt_arg_size += as_tuple(IntLiteral(1))
                 else:
@@ -151,27 +161,26 @@ class ArgSizeMismatchRule(GenericRule):
 
                         # compute dim sizes assuming array sequence
                         alt_arg_size = cls.get_implicit_arg_size(arg, arg.dimensions)
+                        ubounds = [dim.upper if isinstance(dim, RangeIndex) else dim for dim in arg.shape]
                         alt_arg_size = as_tuple([simplify(Sum((Product((IntLiteral(-1), a)),
-                                                               a.shape[i], IntLiteral(1))))
+                                                               ubounds[i], IntLiteral(1))))
                                                  if not isinstance(a, Sum) else simplify(a)
                                                  for i, a in enumerate(alt_arg_size)])
                         alt_arg_size += cls.get_explicit_arg_size(arg, arg.shape[len(arg.dimensions):])
 
                 stat = False
-                for i in range(len(arg_size)):
-                    dims = ()
-                    for a in alt_arg_size[:i]:
-                        dims += as_tuple(a)
-                    for a in arg_size[i:]:
-                        dims += as_tuple(a)
+                for i in range(len(arg_size) + 1):
+                    dims = tuple(alt_arg_size[:i])
+                    dims += tuple(arg_size[i:])
 
                     dims = Product(dims)
 
                     if symbolic_op(dims, _op.eq, dummy_arg_size):
                         stat = True
+                        break
 
                 if not stat:
-                    msg = f'[Loki::IdemDebug] Size mismatch:: arg: {arg}, dummy_arg: {arg_map_f[arg]} '
+                    msg = f'Size mismatch:: arg: {arg}, dummy_arg: {arg_map_f[arg]} '
                     msg += f'in {call} in {subroutine}'
                     rule_report.add(msg, call)
 
