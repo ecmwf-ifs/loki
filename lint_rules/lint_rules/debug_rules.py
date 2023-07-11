@@ -7,7 +7,7 @@
 
 import operator as _op
 from loki import (
-     FindNodes, CallStatement, Assignment, Scalar, RangeIndex,
+     FindNodes, CallStatement, Assignment, Scalar, RangeIndex, resolve_associates,
      simplify, Sum, Product, IntLiteral, as_tuple, SubstituteExpressions,
      symbolic_op, StringLiteral, is_constant, LogicLiteral, VariableDeclaration, flatten
 )
@@ -28,6 +28,22 @@ class ArgSizeMismatchRule(GenericRule):
         """
 
         return Sum((IntLiteral(1), upper, Product((IntLiteral(-1), lower))))
+
+    @staticmethod
+    def compare_sizes(arg_size, alt_arg_size, dummy_arg_size):
+        """
+        Compare all possible argument size candidates with dummy arg size.
+        """
+        for i in range(len(arg_size) + 1):
+            dims = tuple(alt_arg_size[:i])
+            dims += tuple(arg_size[i:])
+
+            dims = Product(dims)
+
+            if symbolic_op(dims, _op.eq, dummy_arg_size):
+                return True
+
+        return False
 
     @classmethod
     def get_explicit_arg_size(cls, arg, dims):
@@ -89,6 +105,9 @@ class ArgSizeMismatchRule(GenericRule):
         :any:`Subroutine`.
         """
 
+        # first resolve associates
+        resolve_associates(subroutine)
+
         assign_map = {a.lhs: a.rhs for a in FindNodes(Assignment).visit(subroutine.body)}
         decl_symbols = flatten([decl.symbols for decl in FindNodes(VariableDeclaration).visit(subroutine.spec)])
         decl_symbols = [sym for sym in decl_symbols if sym.type.initial]
@@ -103,8 +122,7 @@ class ArgSizeMismatchRule(GenericRule):
             if not call.routine:
                 continue
 
-            arg_map_f = {carg: rarg for rarg, carg in call.arg_iter()}
-            arg_map_r = dict(call.arg_iter())
+            arg_map = {carg: rarg for rarg, carg in call.arg_iter()}
 
             # combine args and kwargs into single iterable
             arguments = call.arguments
@@ -112,18 +130,16 @@ class ArgSizeMismatchRule(GenericRule):
 
             for arg in arguments:
 
-                if isinstance(arg_map_f[arg], Scalar):
+                if isinstance(arg_map[arg], Scalar):
                     dummy_arg_size = as_tuple(IntLiteral(1))
                 else:
                     # we can't proceed if dummy arg has assumed shape component
                     if any(None in (dim.lower, dim.upper)
-                           for dim in arg_map_f[arg].shape if isinstance(dim, RangeIndex)):
+                           for dim in arg_map[arg].shape if isinstance(dim, RangeIndex)):
                         continue
-                    dummy_arg_size = cls.get_explicit_arg_size(arg_map_f[arg], arg_map_f[arg].shape)
+                    dummy_arg_size = cls.get_explicit_arg_size(arg_map[arg], arg_map[arg].shape)
 
-                dummy_arg_size = SubstituteExpressions(arg_map_r).visit(dummy_arg_size)
-                dummy_arg_size = SubstituteExpressions(assign_map).visit(dummy_arg_size)
-                dummy_arg_size = Product(dummy_arg_size)
+                dummy_arg_size = SubstituteExpressions(dict(call.arg_iter())).visit(dummy_arg_size)
 
                 # TODO: skip string literal args
                 if isinstance(arg, StringLiteral):
@@ -168,19 +184,17 @@ class ArgSizeMismatchRule(GenericRule):
                                                  for i, a in enumerate(alt_arg_size)])
                         alt_arg_size += cls.get_explicit_arg_size(arg, arg.shape[len(arg.dimensions):])
 
-                stat = False
-                for i in range(len(arg_size) + 1):
-                    dims = tuple(alt_arg_size[:i])
-                    dims += tuple(arg_size[i:])
+                # first check using unmodified dimension names
+                dummy_size = Product(dummy_arg_size)
+                stat = cls.compare_sizes(arg_size, alt_arg_size, dummy_size)
 
-                    dims = Product(dims)
-
-                    if symbolic_op(dims, _op.eq, dummy_arg_size):
-                        stat = True
-                        break
+                # if necessary, update dimension names and check
+                if not stat:
+                    dummy_size = Product(SubstituteExpressions(assign_map).visit(dummy_arg_size))
+                    stat = cls.compare_sizes(arg_size, alt_arg_size, dummy_size)
 
                 if not stat:
-                    msg = f'Size mismatch:: arg: {arg}, dummy_arg: {arg_map_f[arg]} '
+                    msg = f'Size mismatch:: arg: {arg}, dummy_arg: {arg_map[arg]} '
                     msg += f'in {call} in {subroutine}'
                     rule_report.add(msg, call)
 

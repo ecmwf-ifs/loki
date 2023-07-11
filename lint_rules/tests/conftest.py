@@ -19,11 +19,11 @@ def available_frontends():
     return []
 
 
-def run_linter(sourcefile, rule_list, config=None, handlers=None):
+def run_linter(sourcefile, rule_list, config=None, handlers=None, targets=None):
     """
     Run the linter for the given source file with the specified list of rules.
     """
     reporter = Reporter(handlers)
     linter = Linter(reporter, rules=rule_list, config=config)
-    linter.check(sourcefile)
+    linter.check(sourcefile, targets=targets)
     return linter
