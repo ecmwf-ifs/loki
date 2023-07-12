@@ -25,5 +25,8 @@ def run_linter(sourcefile, rule_list, config=None, handlers=None, targets=None):
     """
     reporter = Reporter(handlers)
     linter = Linter(reporter, rules=rule_list, config=config)
-    linter.check(sourcefile, targets=targets)
+    report = linter.check(sourcefile, targets=targets)
+    if config:
+        if config.get('fix', None):
+            linter.fix(sourcefile, report)
     return linter

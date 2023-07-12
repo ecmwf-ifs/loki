@@ -5,11 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import os
 import importlib
+from pathlib import Path
 import pytest
 
 from conftest import run_linter, available_frontends
-from loki import Sourcefile
+from loki import Sourcefile, FindInlineCalls
 from loki.lint import DefaultHandler
 
 
@@ -84,8 +86,6 @@ end subroutine kernel
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(driver_source, [rules.ArgSizeMismatchRule], handlers=[handler], targets=['kernel',])
 
-    for msg in messages:
-        print(msg)
     assert len(messages) == 3
     keyword = 'ArgSizeMismatchRule'
     assert all(keyword in msg for msg in messages)
@@ -164,3 +164,69 @@ end subroutine kernel
     for msg, ref_arg in zip(messages, args):
         assert f'arg: {ref_arg}' in msg
         assert f'dummy_arg: {ref_arg}_d' in msg
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dynamic_ubound_checks(rules, frontend):
+    """
+    Test the run-time UBOUND checking linter rule
+    """
+
+    fcode = """
+subroutine kernel(klon, klev, nblk, var0, var1, var2)
+use abort_mod
+implicit none
+integer, intent(in) :: klon, klev, nblk
+real, dimension(:,:,:), intent(inout) :: var0, var1
+real, dimension(:,:,:), intent(inout) :: var2
+
+if(ubound(var0, 1) < klon)then
+  call abort('kernel: first dimension of var0 too short')
+endif
+if(ubound(VAR0, 2) < klev)then
+  call abort('kernel: second dimension of var0 too short')
+endif
+if(nblk > UBoUND(vAr0, 3))then
+  call abort('kernel: third dimension of var0 too short')
+endif
+
+if(nblk > UBOUND(var1, 3))then
+  call abort('kernel: third dimension of var1 too short')
+endif
+
+if(ubound(var2, 1) < klon .and. ubound(var2, 2) < klev .and. ubound(var2, 3) < nblk)then
+  call abort('kernel: dimensions of var2 too short')
+endif
+
+call some_other_kernel(klon, klen, nblk, var0, var1, var2)
+
+end subroutine kernel
+    """.strip()
+
+    kernel = Sourcefile.from_source(fcode, frontend=frontend)
+    kernel.path = Path(__file__).parent / 'dynamic_ubound_test.F90'
+
+    messages = []
+    handler = DefaultHandler(target=messages.append)
+    _ = run_linter(kernel, [rules.DynamicUboundCheckRule], config={'fix': True}, handlers=[handler])
+
+    # check rule violations
+    assert len(messages) == 2
+    assert all('DynamicUboundCheckRule' in msg for msg in messages)
+
+    assert 'var0' in messages[0]
+    assert 'var2' in messages[1]
+
+    # check fixed subroutine
+    routine = kernel['kernel']
+    icalls = [call for call in FindInlineCalls(unique=False).visit(routine.body)
+              if call.function == 'ubound']
+
+    assert len(icalls) == 1
+
+    shape = ('klon', 'klev', 'nblk')
+
+    assert all(s.name == d for s, d in zip(routine.variable_map['var0'].shape, shape))
+    assert all(s.name == d for s, d in zip(routine.variable_map['var2'].shape, shape))
+
+    os.remove(kernel.path)
