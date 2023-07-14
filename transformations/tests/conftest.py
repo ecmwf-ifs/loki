@@ -5,11 +5,15 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import shutil
 import pytest
+import yaml
+from pathlib import Path
 
 from loki import as_tuple, Frontend
 import loki.frontend
 
+__all__ = ['available_frontends', '_write_script', '_local_loki_bundle']
 
 def available_frontends(xfail=None, skip=None):
     """
@@ -68,3 +72,50 @@ def available_frontends(xfail=None, skip=None):
             params += [f]
 
     return params
+
+
+def _write_script(here, binary, args):
+    # Write a script to source env.sh and launch the binary
+    script = Path(here/f'build/run_{binary}.sh')
+    script.write_text(f"""
+#!/bin/bash
+
+source env.sh >&2
+bin/{binary} {' '.join(args)}
+exit $?
+    """.strip())
+    script.chmod(0o750)
+
+    return script
+
+
+def _local_loki_bundle(here):
+    lokidir = Path(__file__).parent.parent.parent
+    target = here/'source/loki'
+    backup = here/'source/loki.bak'
+    bundlefile = here/'bundle.yml'
+    local_loki_bundlefile = here/'__bundle_loki.yml'
+
+    # Do not overwrite any existing Loki copy
+    if target.exists():
+        if backup.exists():
+            shutil.rmtree(backup)
+        shutil.move(target, backup)
+
+    # Change bundle to symlink for Loki
+    bundle = yaml.safe_load(bundlefile.read_text())
+    loki_index = [i for i, p in enumerate(bundle['projects']) if 'loki' in p]
+    assert len(loki_index) == 1
+    if 'git' in bundle['projects'][loki_index[0]]['loki']:
+        del bundle['projects'][loki_index[0]]['loki']['git']
+    bundle['projects'][loki_index[0]]['loki']['dir'] = str(lokidir.resolve())
+    local_loki_bundlefile.write_text(yaml.dump(bundle))
+
+    yield local_loki_bundlefile
+
+    if local_loki_bundlefile.exists():
+        local_loki_bundlefile.unlink()
+    if target.is_symlink():
+        target.unlink()
+    if not target.exists() and backup.exists():
+        shutil.move(backup, target)
