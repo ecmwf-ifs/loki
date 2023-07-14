@@ -105,7 +105,7 @@ def test_ecwam(here, write_script, frontend=FP):
         try:
             execute([str(script)], cwd=here/'build', silent=False, env=env)
             with open(here/"build/wamrun_48/logs/model/stdout.log") as reader:
-                lines = [line for line in reader]
+                lines = list(reader)
 
             if 'Validation FAILED' in lines[-1]:
                 failures[binary] = 'Validation failed'

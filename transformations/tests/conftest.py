@@ -5,10 +5,10 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from pathlib import Path
 import shutil
 import pytest
 import yaml
-from pathlib import Path
 
 from loki import as_tuple, Frontend
 import loki.frontend
