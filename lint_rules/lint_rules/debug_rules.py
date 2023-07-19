@@ -124,12 +124,7 @@ class ArgSizeMismatchRule(GenericRule):
                 continue
 
             arg_map = {carg: rarg for rarg, carg in call.arg_iter()}
-
-            # combine args and kwargs into single iterable
-            arguments = call.arguments
-            arguments += as_tuple([arg for kw, arg in call.kwarguments])
-
-            for arg in arguments:
+            for arg in arg_map:
 
                 if isinstance(arg_map[arg], Scalar):
                     dummy_arg_size = as_tuple(IntLiteral(1))
@@ -139,8 +134,7 @@ class ArgSizeMismatchRule(GenericRule):
                            for dim in arg_map[arg].shape if isinstance(dim, RangeIndex)):
                         continue
                     dummy_arg_size = cls.get_explicit_arg_size(arg_map[arg], arg_map[arg].shape)
-
-                dummy_arg_size = SubstituteExpressions(dict(call.arg_iter())).visit(dummy_arg_size)
+                    dummy_arg_size = SubstituteExpressions(dict(call.arg_iter())).visit(dummy_arg_size)
 
                 # TODO: skip string literal args
                 if isinstance(arg, StringLiteral):

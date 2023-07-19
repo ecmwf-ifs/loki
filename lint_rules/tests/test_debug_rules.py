@@ -16,7 +16,7 @@ from loki.lint import DefaultHandler
 
 
 pytestmark = pytest.mark.skipif(not available_frontends(),
-                                reason='Suitable frontend not available')
+                                reason='Supported frontend not available')
 
 
 @pytest.fixture(scope='module', name='rules')
