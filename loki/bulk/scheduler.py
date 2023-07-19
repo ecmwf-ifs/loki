@@ -629,8 +629,7 @@ class Scheduler:
             if use_file_graph:
                 for node in traversal:
                     items = graph.nodes[node]['items']
-                    transformation.apply(items[0].source, item=items[0], items=items,
-                                         targets=items[0].targets)
+                    transformation.apply(items[0].source, item=items[0], items=items)
             else:
                 for item in traversal:
                     if item_filter and not isinstance(item, item_filter):

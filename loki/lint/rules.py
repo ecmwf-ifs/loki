@@ -132,6 +132,7 @@ class GenericRule:
             The rule configuration, filled with externally provided
             configuration values or the rule's default configuration.
         """
+
         # Perform checks on source file level
         if isinstance(ast, Sourcefile):
             cls.check_file(ast, rule_report, config)
@@ -161,7 +162,12 @@ class GenericRule:
             if is_rule_disabled(ast.ir, cls.identifiers()):
                 return
 
-            cls.check_subroutine(ast, rule_report, config, **kwargs)
+            if not (targets := kwargs.pop('targets', None)):
+                items = kwargs.get('items', ())
+                item = [item for item in items if item.local_name.lower() == ast.name.lower()]
+                if len(item) > 0:
+                    targets = item[0].targets
+            cls.check_subroutine(ast, rule_report, config, targets=targets, **kwargs)
 
             # Recurse for any procedures contained in a subroutine
             if hasattr(ast, 'members') and ast.members is not None:
