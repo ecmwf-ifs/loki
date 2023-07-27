@@ -275,8 +275,8 @@ class OMNI2IR(GenericVisitor):
                 name = f'OPERATOR({name})'
 
         if o.attrib.get('local_name'):
-            return (name, sym.Variable(name=o.attrib['local_name'], source=kwargs['source']))
-        return sym.Variable(name=name, source=kwargs['source'])
+            return (name, sym.Variable(name=o.attrib['local_name']))
+        return sym.Variable(name=name)
 
     visit_rename = visit_renamable
 
@@ -1014,7 +1014,7 @@ class OMNI2IR(GenericVisitor):
         step = self.visit(o.find('indexRange/step'), **kwargs)
         # Drop OMNI's `:1` step counting for ranges in the name of consistency
         step = None if step == '1' else step
-        bounds = sym.LoopRange((lower, upper, step), source=kwargs['source'])
+        bounds = sym.LoopRange((lower, upper, step))
         return ir.Loop(variable=variable, body=body, bounds=bounds, source=kwargs['source'])
 
     def visit_FdoLoop(self, o, **kwargs):
@@ -1024,9 +1024,9 @@ class OMNI2IR(GenericVisitor):
         step = self.visit(o.find('indexRange/step'), **kwargs)
         # Drop OMNI's `:1` step counting for ranges in the name of consistency
         step = None if step == '1' else step
-        bounds = sym.LoopRange((lower, upper, step), source=kwargs['source'])
+        bounds = sym.LoopRange((lower, upper, step))
         values = as_tuple(self.visit(o.find('value'), **kwargs))
-        return sym.InlineDo(values, variable, bounds, source=kwargs['source'])
+        return sym.InlineDo(values, variable, bounds)
 
     def visit_FifStatement(self, o, **kwargs):
         condition = self.visit(o.find('condition'), **kwargs)
@@ -1097,7 +1097,7 @@ class OMNI2IR(GenericVisitor):
         return variable
 
     def visit_name(self, o, **kwargs):
-        return sym.Variable(name=o.text, source=kwargs.get('source'))
+        return sym.Variable(name=o.text)
 
     visit_Var = visit_name
 
@@ -1122,7 +1122,7 @@ class OMNI2IR(GenericVisitor):
         step = self.visit(st, **kwargs) if st is not None else None
         # Drop OMNI's `:1` step counting for ranges in the name of consistency
         step = None if step == '1' else step
-        return sym.RangeIndex((lower, upper, step), source=kwargs['source'])
+        return sym.RangeIndex((lower, upper, step))
 
     def visit_FcharacterRef(self, o, **kwargs):
         var = self.visit(o.find('varRef'), **kwargs)
@@ -1138,24 +1138,24 @@ class OMNI2IR(GenericVisitor):
     def visit_FrealConstant(self, o, **kwargs):
         if 'kind' in o.attrib and not 'd' in o.text.lower():
             _type = self.visit(self.type_map[o.attrib.get('type')], **kwargs)
-            return sym.Literal(value=o.text, type=BasicType.REAL, kind=_type.kind, source=kwargs['source'])
-        return sym.Literal(value=o.text, type=BasicType.REAL, source=kwargs['source'])
+            return sym.Literal(value=o.text, type=BasicType.REAL, kind=_type.kind)
+        return sym.Literal(value=o.text, type=BasicType.REAL)
 
     def visit_FlogicalConstant(self, o, **kwargs):
-        return sym.Literal(value=o.text, type=BasicType.LOGICAL, source=kwargs['source'])
+        return sym.Literal(value=o.text, type=BasicType.LOGICAL)
 
     def visit_FcharacterConstant(self, o, **kwargs):
-        return sym.Literal(value=f'"{o.text}"', type=BasicType.CHARACTER, source=kwargs['source'])
+        return sym.Literal(value=f'"{o.text}"', type=BasicType.CHARACTER)
 
     def visit_FintConstant(self, o, **kwargs):
         if 'kind' in o.attrib:
             _type = self.visit(self.type_map[o.attrib.get('type')], **kwargs)
-            return sym.Literal(value=int(o.text), type=BasicType.INTEGER, kind=_type.kind, source=kwargs['source'])
-        return sym.Literal(value=int(o.text), type=BasicType.INTEGER, source=kwargs['source'])
+            return sym.Literal(value=int(o.text), type=BasicType.INTEGER, kind=_type.kind)
+        return sym.Literal(value=int(o.text), type=BasicType.INTEGER)
 
     def visit_FcomplexConstant(self, o, **kwargs):
         value = ', '.join(f'{self.visit(v, **kwargs)}' for v in list(o))
-        return sym.IntrinsicLiteral(value=f'({value})', source=kwargs['source'])
+        return sym.IntrinsicLiteral(value=f'({value})')
 
     def visit_FarrayConstructor(self, o, **kwargs):
         values = as_tuple(self.visit(v, **kwargs) for v in o)
@@ -1195,9 +1195,9 @@ class OMNI2IR(GenericVisitor):
                 kind = kw_args[0][1]
             else:
                 kind = args[1] if len(args) > 1 else None
-            return sym.Cast(name, expr, kind=kind, source=kwargs['source'])
+            return sym.Cast(name, expr, kind=kind)
 
-        return sym.InlineCall(name, parameters=args, kw_parameters=kw_args, source=kwargs['source'])
+        return sym.InlineCall(name, parameters=args, kw_parameters=kw_args)
 
     def visit_FstructConstructor(self, o, **kwargs):
         _type = self.type_from_type_attrib(o.attrib['type'], **kwargs)
@@ -1210,7 +1210,7 @@ class OMNI2IR(GenericVisitor):
         kw_args = as_tuple(arg for arg in args if isinstance(arg, tuple))
         args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
 
-        return sym.InlineCall(name, parameters=args, kw_parameters=kw_args, source=kwargs['source'])
+        return sym.InlineCall(name, parameters=args, kw_parameters=kw_args)
 
     def visit_FcycleStatement(self, o, **kwargs):
         # TODO: do-construct-name is not preserved
@@ -1273,104 +1273,104 @@ class OMNI2IR(GenericVisitor):
         # Note: this will result in an abundance of trivial/unnecessary parenthesis!
         if enclosing_cls in (sym.Product, sym.Quotient):
             if isinstance(expr, sym.Product):
-                return op.ParenthesisedMul(expr.children, source=expr.source)
+                return op.ParenthesisedMul(expr.children)
             if isinstance(expr, sym.Quotient):
-                return op.ParenthesisedDiv(expr.numerator, expr.denominator, source=expr.source)
+                return op.ParenthesisedDiv(expr.numerator, expr.denominator)
             if isinstance(expr, sym.Sum):
-                return op.ParenthesisedAdd(expr.children, source=expr.source)
+                return op.ParenthesisedAdd(expr.children)
             if isinstance(expr, sym.Power):
-                return op.ParenthesisedPow(expr.base, expr.exponent, source=expr.source)
+                return op.ParenthesisedPow(expr.base, expr.exponent)
         return expr
 
     def visit_plusExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Sum(exprs, source=kwargs['source'])
+        return sym.Sum(exprs)
 
     def visit_minusExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Sum((exprs[0], sym.Product((-1, exprs[1]))), source=kwargs['source'])
+        return sym.Sum((exprs[0], sym.Product((-1, exprs[1]))))
 
     def visit_mulExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
         exprs = tuple(self.parenthesize_if_needed(c, sym.Product) for c in exprs)
-        return sym.Product(exprs, source=kwargs['source'])
+        return sym.Product(exprs)
 
     def visit_divExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
         exprs = tuple(self.parenthesize_if_needed(c, sym.Quotient) for c in exprs)
-        return sym.Quotient(*exprs, source=kwargs['source'])
+        return sym.Quotient(*exprs)
 
     def visit_FpowerExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Power(base=exprs[0], exponent=exprs[1], source=kwargs['source'])
+        return sym.Power(base=exprs[0], exponent=exprs[1])
 
     def visit_unaryMinusExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 1
-        return sym.Product((-1, exprs[0]), source=kwargs['source'])
+        return sym.Product((-1, exprs[0]))
 
     def visit_logOrExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
-        return sym.LogicalOr(exprs, source=kwargs['source'])
+        return sym.LogicalOr(exprs)
 
     def visit_logAndExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
-        return sym.LogicalAnd(exprs, source=kwargs['source'])
+        return sym.LogicalAnd(exprs)
 
     def visit_logNotExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 1
-        return sym.LogicalNot(exprs[0], source=kwargs['source'])
+        return sym.LogicalNot(exprs[0])
 
     def visit_logLTExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Comparison(exprs[0], '<', exprs[1], source=kwargs['source'])
+        return sym.Comparison(exprs[0], '<', exprs[1])
 
     def visit_logLEExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Comparison(exprs[0], '<=', exprs[1], source=kwargs['source'])
+        return sym.Comparison(exprs[0], '<=', exprs[1])
 
     def visit_logGTExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Comparison(exprs[0], '>', exprs[1], source=kwargs['source'])
+        return sym.Comparison(exprs[0], '>', exprs[1])
 
     def visit_logGEExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Comparison(exprs[0], '>=', exprs[1], source=kwargs['source'])
+        return sym.Comparison(exprs[0], '>=', exprs[1])
 
     def visit_logEQExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Comparison(exprs[0], '==', exprs[1], source=kwargs['source'])
+        return sym.Comparison(exprs[0], '==', exprs[1])
 
     def visit_logNEQExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.Comparison(exprs[0], '!=', exprs[1], source=kwargs['source'])
+        return sym.Comparison(exprs[0], '!=', exprs[1])
 
     def visit_logEQVExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.LogicalOr((sym.LogicalAnd(exprs), sym.LogicalNot(sym.LogicalOr(exprs))), source=kwargs['source'])
+        return sym.LogicalOr((sym.LogicalAnd(exprs), sym.LogicalNot(sym.LogicalOr(exprs))))
 
     def visit_logNEQVExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return sym.LogicalAnd((sym.LogicalNot(sym.LogicalAnd(exprs)), sym.LogicalOr(exprs)), source=kwargs['source'])
+        return sym.LogicalAnd((sym.LogicalNot(sym.LogicalAnd(exprs)), sym.LogicalOr(exprs)))
 
     def visit_FconcatExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
-        return StringConcat(exprs, source=kwargs['source'])
+        return StringConcat(exprs)
 
     def visit_gotoStatement(self, o, **kwargs):
         label = int(o.attrib['label_name'])
