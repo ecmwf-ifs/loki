@@ -72,7 +72,7 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
             return too_deep
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check the code body: Nesting of conditional blocks.'''
         too_deep = cls.NestingDepthVisitor(config['max_nesting_depth']).visit(subroutine.body)
         msg = f'Nesting of conditionals exceeds limit of {config["max_nesting_depth"]}'
@@ -175,7 +175,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
                 rule_report.add(msg, call)
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check that first and last executable statements in the subroutine
         are conditionals with calls to DR_HOOK in their body and that the
         correct arguments are given to the call.'''
@@ -220,7 +220,7 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
     match_non_exec_intrinsic_node = re.compile(r'\s*(?:PRINT|FORMAT)', re.I)
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Count the number of nodes in the subroutine and check if they exceed
         a given maximum number.
         '''
@@ -252,7 +252,7 @@ class MaxDummyArgsRule(GenericRule):  # Coding standards 3.6
     }
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         """
         Count the number of dummy arguments and report if given
         maximum number exceeded.
@@ -274,7 +274,7 @@ class MplCdstringRule(GenericRule):  # Coding standards 3.12
     }
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check all calls to MPL subroutines for a CDSTRING.'''
         for call in FindNodes(ir.CallStatement).visit(subroutine.ir):
             if str(call.name).upper().startswith('MPL_'):
@@ -310,7 +310,7 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
         return True
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         """
         Check for IMPLICIT NONE in the subroutine's spec or any enclosing
         scope.
@@ -390,7 +390,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                         rule_report.add(msg, node)
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check for explicit kind information in constants and
         variable declarations.
         '''
@@ -440,7 +440,7 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
     }
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check for banned statements in intrinsic nodes.'''
         for intr in FindNodes(ir.Intrinsic).visit(subroutine.ir):
             for keyword in config['banned']:
@@ -473,7 +473,7 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
     }
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check for the use of Fortran 90 comparison operators.'''
         # We extract all `Comparison` expression nodes, grouped by the IR node they are in.
         # Then we run through all such pairs and check the symbol used in the source string.

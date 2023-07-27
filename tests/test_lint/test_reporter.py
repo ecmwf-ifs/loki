@@ -152,7 +152,7 @@ def test_linter_junitxml(here, max_workers, fail_on, failures):
         config = {'dummy_key': 'dummy value'}
 
         @classmethod
-        def check_subroutine(cls, subroutine, rule_report, config):
+        def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
             if fail_on and fail_on in subroutine.name:
                 rule_report.add(cls.__name__, subroutine)
 
@@ -191,7 +191,7 @@ def test_linter_violation_file(here, rules, max_workers, fail_on, failures, use_
         config = {'dummy_key': 'dummy value'}
 
         @classmethod
-        def check_subroutine(cls, subroutine, rule_report, config):
+        def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
             if fail_on and fail_on in subroutine.name:
                 rule_report.add(cls.__name__, subroutine)
 

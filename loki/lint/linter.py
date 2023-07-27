@@ -120,7 +120,7 @@ class Linter:
             else:
                 self.config[key] = val
 
-    def check(self, sourcefile, overwrite_rules=None, overwrite_config=None):
+    def check(self, sourcefile, overwrite_rules=None, overwrite_config=None, **kwargs):
         """
         Check the given :data:`sourcefile` and compile a :any:`FileReport`.
 
@@ -180,7 +180,7 @@ class Linter:
         for rule in rules:
             timer.start()
             rule_report = RuleReport(rule, disabled=disabled_rules.get(rule.__name__))
-            rule.check(sourcefile, rule_report, config[rule.__name__])
+            rule.check(sourcefile, rule_report, config[rule.__name__], **kwargs)
             rule_report.elapsed_sec = timer.stop()
             file_report.add(rule_report)
 
@@ -257,7 +257,7 @@ class LinterTransformation(Transformation):
 
     def transform_file(self, sourcefile, **kwargs):
         item = kwargs.get('item')
-        report = self.linter.check(sourcefile)
+        report = self.linter.check(sourcefile, **kwargs)
         self.counter += 1
         if item:
             item.trafo_data[self._key] = report

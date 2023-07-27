@@ -191,14 +191,29 @@ This default configuration can then be used as a template for creating an
 individual configuration file. Any options not specified explicitly in the
 configuration file are chosen to be default values.
 
+Rules-module
+------------
+
+The rules against which Loki-lint performs checks can be configured as follows:
+
+.. code-block:: bash
+
+   loki-lint.py --rules-module <modulename> check [options/arguments]
+
+If a rules-module is not specified, then the default :mod:`lint_rules.ifs_coding_standards_2011`
+is used.
 
 Implementing own rules
 ======================
 
-All rules are implemented in :mod:`lint_rules`. Currently, this includes
-only one module (:mod:`lint_rules.ifs_coding_standards_2011`) that
-contains (a small subset of) the rules defined in the IFS coding standards
-document. To be able to write own rules a rudimentary understanding of
+All rules are implemented in :mod:`lint_rules`. Currently, this includes:
+
+#. :mod:`lint_rules.ifs_coding_standards_2011` - A (small) subset of the rules defined in the IFS coding standards document.
+#. :mod:`lint_rules.debug_rules` - A set of rules to identify common mistakes/anti-patterns:
+    * :any:`ArgSizeMismatchRule` - Check for argument/dummy-argument size consistency
+    * :any:`DynamicUboundCheckRule` - Check if run-time bounds checking is used rather than compile-time bounds checking.
+
+To be able to write own rules a rudimentary understanding of
 :doc:`internal_representation` is helpful.
 
 Each rule is represented by a subclass of :any:`GenericRule` with the
