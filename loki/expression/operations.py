@@ -15,7 +15,7 @@ from sys import intern
 import pymbolic.primitives as pmbl
 
 from loki.expression.symbols import (
-    StringLiteral, ExprMetadataMixin, Sum, Product, Quotient, Power,
+    StringLiteral, Sum, Product, Quotient, Power,
     loki_make_stringifier
 )
 
@@ -60,7 +60,7 @@ class ParenthesisedPow(Power):
     make_stringifier = loki_make_stringifier
 
 
-class StringConcat(ExprMetadataMixin, pmbl._MultiChildExpression):
+class StringConcat(pmbl._MultiChildExpression):
     """
     Implements string concatenation in a way similar to :class:`Sum`.
     """
