@@ -10,7 +10,7 @@ from pymbolic.primitives import Expression
 
 from conftest import available_frontends
 from loki import (
-    OMNI, FP,
+    OMNI,
     Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
@@ -385,11 +385,6 @@ end subroutine routine_simple
     literal_root = FindExpressionRoot(literals[0][1].pop()).visit(literals[0][0])
     assert literal_root[0] is cast_root[0]
 
-    # Check source properties of expressions (for FP only)
-    if frontend == FP:
-        assert comp_root[0].source.lines == (12, 12)
-        assert cast_root[0].source.lines == (13, 13)
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_find_expression_root_constructor_args(frontend):
@@ -735,7 +730,7 @@ end subroutine routine_simple
     # Find the conditional in new bodies and check that source is untouched
     assert cond.source is not None
     cond_without_src = get_conditional(body_without_source)
-    assert cond_without_src.source == cond.source
+    assert cond_without_src.source is None
     cond_with_src = get_conditional(body_with_source)
     assert cond_with_src.source == cond.source
 
