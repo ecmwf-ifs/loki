@@ -15,7 +15,6 @@ from conftest import _write_script, _local_loki_bundle
 from loki import execute, HAVE_FP, FP
 
 pytestmark = pytest.mark.skipif('ECWAM_DIR' not in os.environ, reason='ECWAM_DIR not set')
-pytestmark = pytest.mark.skipif(not HAVE_FP, reason='ecWam only compatible with Fparser')
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
@@ -45,6 +44,7 @@ def fixture_write_script():
 
 
 @pytest.mark.usefixtures('bundle_create')
+@pytest.mark.skipif(not HAVE_FP, reason="FP needed for ECWAM parsing")
 def test_ecwam(here, write_script, frontend=FP):
     build_cmd = [
         './ecwam-bundle', 'build', '--clean',
