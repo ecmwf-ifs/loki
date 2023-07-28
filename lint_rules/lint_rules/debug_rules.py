@@ -10,7 +10,7 @@ from loki import (
      FindNodes, CallStatement, Assignment, Scalar, RangeIndex, resolve_associates,
      simplify, Sum, Product, IntLiteral, as_tuple, SubstituteExpressions, Array,
      symbolic_op, StringLiteral, is_constant, LogicLiteral, VariableDeclaration, flatten,
-     FindInlineCalls, Conditional, Transformer, FindExpressions, Comparison
+     FindInlineCalls, Conditional, FindExpressions, Comparison
 )
 from loki.lint import GenericRule, RuleType
 
@@ -288,9 +288,9 @@ class DynamicUboundCheckRule(GenericRule):
         # to enable case-insensitive search here
         new_var_names = [v.name.lower() for v in new_vars]
         subroutine.variables = [var for var in subroutine.variables if not var.name.lower() in new_var_names]
-
-        subroutine.body = Transformer(node_map).visit(subroutine.body)
         subroutine.variables += new_vars
+
+        return node_map
 
 # Create the __all__ property of the module to contain only the rule names
 __all__ = tuple(name for name in dir() if name.endswith('Rule') and name != 'GenericRule')
