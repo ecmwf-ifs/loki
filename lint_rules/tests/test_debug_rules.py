@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from conftest import run_linter, available_frontends
-from loki import Sourcefile, FindInlineCalls
+from loki import Sourcefile, FindInlineCalls, FindNodes, VariableDeclaration
 from loki.lint import DefaultHandler
 
 
@@ -228,5 +228,13 @@ end subroutine kernel
 
     assert all(s.name == d for s, d in zip(routine.variable_map['var0'].shape, shape))
     assert all(s.name == d for s, d in zip(routine.variable_map['var2'].shape, shape))
+
+    arg_names = ['klon', 'klev', 'nblk', 'var0', 'var1', 'var2']
+    assert [arg.name.lower() for arg in routine.arguments] == arg_names
+
+    # check that variable declarations have not been duplicated
+    symbols = [s.name.lower() for decl in FindNodes(VariableDeclaration).visit(routine.spec) for s in decl.symbols]
+    assert len(symbols) == 6
+    assert set(symbols) == {'klon', 'klev', 'nblk', 'var0', 'var1', 'var2'}
 
     os.remove(kernel.path)

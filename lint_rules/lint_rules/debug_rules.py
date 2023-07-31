@@ -10,7 +10,7 @@ from loki import (
      FindNodes, CallStatement, Assignment, Scalar, RangeIndex, resolve_associates,
      simplify, Sum, Product, IntLiteral, as_tuple, SubstituteExpressions, Array,
      symbolic_op, StringLiteral, is_constant, LogicLiteral, VariableDeclaration, flatten,
-     FindInlineCalls, Conditional, FindExpressions, Comparison
+     FindInlineCalls, Conditional, FindExpressions, Comparison, single_variable_declaration
 )
 from loki.lint import GenericRule, RuleType
 
@@ -284,11 +284,22 @@ class DynamicUboundCheckRule(GenericRule):
                 vtype = arg.type.clone(shape=new_shape, scope=subroutine)
                 new_vars += as_tuple(arg.clone(type=vtype, dimensions=new_shape, scope=subroutine))
 
-        #TODO: add 'VariableDeclaration.symbols' should be of type 'Variable' rather than 'Expression'
+        # simplify variable declarations
+        single_variable_declaration(subroutine)
+
+        #TODO: 'VariableDeclaration.symbols' should be of type 'Variable' rather than 'Expression'
         # to enable case-insensitive search here
         new_var_names = [v.name.lower() for v in new_vars]
-        subroutine.variables = [var for var in subroutine.variables if not var.name.lower() in new_var_names]
-        subroutine.variables += new_vars
+
+        routine = subroutine.clone()
+        routine.variables = [var for var in routine.variables if not var.name.lower() in new_var_names]
+        routine.variables += new_vars
+
+        old_decls = as_tuple([decl for decl in FindNodes(VariableDeclaration).visit(subroutine.spec)
+                     if decl.symbols[0].name.lower() in new_var_names])
+        new_decls = as_tuple([decl for decl in FindNodes(VariableDeclaration).visit(routine.spec)
+                     if decl.symbols[0].name.lower() in new_var_names])
+        node_map.update({old_decls: new_decls})
 
         return node_map
 
