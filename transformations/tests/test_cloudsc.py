@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from conftest import (
-    available_frontends, write_env_launch_script, inject_local_loki_into_bundle, restore_original_bundle
+    available_frontends, write_env_launch_script, local_loki_setup, local_loki_cleanup
 )
 from loki import execute, OMNI, HAVE_FP, HAVE_OMNI, warning
 
@@ -28,19 +28,21 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='local_loki_bundle')
 def fixture_local_loki_bundle(here):
-    """Inject ourselves into the CLOUDSC bundle"""
-    local_loki_bundlefile, target, backup = inject_local_loki_into_bundle(here)
-    yield local_loki_bundlefile
-    restore_original_bundle(local_loki_bundlefile, target, backup)
+    """Call setup utilities for injecting ourselves into the CLOUDSC bundle"""
+    lokidir, target, backup = local_loki_setup(here)
+    yield lokidir
+    local_loki_cleanup(target, backup)
 
 
 @pytest.fixture(scope='module', name='bundle_create')
 def fixture_bundle_create(here, local_loki_bundle):
+    """Inject ourselves into the CLOUDSC bundle"""
+    os.environ['CLOUDSC_BUNDLE_LOKI_DIR'] = local_loki_bundle
+    env = os.environ.copy()
+
     # Run ecbundle to fetch dependencies
     execute(
-        ['./cloudsc-bundle', 'create', '--bundle', str(local_loki_bundle)],
-        cwd=here,
-        silent=False
+        ['./cloudsc-bundle', 'create'], cwd=here, silent=False, env=env
     )
 
 

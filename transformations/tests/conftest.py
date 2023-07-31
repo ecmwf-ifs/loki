@@ -13,7 +13,7 @@ import yaml
 from loki import as_tuple, Frontend
 import loki.frontend
 
-__all__ = ['available_frontends', '_write_script', '_local_loki_bundle']
+__all__ = ['available_frontends', 'local_loki_setup', 'local_loki_cleanup']
 
 def available_frontends(xfail=None, skip=None):
     """
@@ -89,12 +89,11 @@ exit $?
     return script
 
 
-def inject_local_loki_into_bundle(here):
+def local_loki_setup(here):
     lokidir = Path(__file__).parent.parent.parent
     target = here/'source/loki'
     backup = here/'source/loki.bak'
     bundlefile = here/'bundle.yml'
-    local_loki_bundlefile = here/'__bundle_loki.yml'
 
     # Do not overwrite any existing Loki copy
     if target.exists():
@@ -106,17 +105,11 @@ def inject_local_loki_into_bundle(here):
     bundle = yaml.safe_load(bundlefile.read_text())
     loki_index = [i for i, p in enumerate(bundle['projects']) if 'loki' in p]
     assert len(loki_index) == 1
-    if 'git' in bundle['projects'][loki_index[0]]['loki']:
-        del bundle['projects'][loki_index[0]]['loki']['git']
-    bundle['projects'][loki_index[0]]['loki']['dir'] = str(lokidir.resolve())
-    local_loki_bundlefile.write_text(yaml.dump(bundle))
 
-    return local_loki_bundlefile, target, backup
+    return str(lokidir.resolve()), target, backup
 
 
-def restore_original_bundle(local_loki_bundlefile, target, backup):
-    if local_loki_bundlefile.exists():
-        local_loki_bundlefile.unlink()
+def local_loki_cleanup(target, backup):
     if target.is_symlink():
         target.unlink()
     if not target.exists() and backup.exists():

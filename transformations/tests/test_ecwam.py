@@ -11,7 +11,7 @@ from subprocess import CalledProcessError
 from pathlib import Path
 import pytest
 
-from conftest import write_env_launch_script, inject_local_loki_into_bundle, restore_original_bundle
+from conftest import write_env_launch_script, local_loki_setup, local_loki_cleanup
 from loki import execute, HAVE_FP, FP
 
 pytestmark = pytest.mark.skipif('ECWAM_DIR' not in os.environ, reason='ECWAM_DIR not set')
@@ -23,19 +23,23 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='local_loki_bundle')
 def fixture_local_loki_bundle(here):
-    """Inject ourselves into the ECWAM bundle"""
-    local_loki_bundlefile, target, backup = inject_local_loki_into_bundle(here)
-    yield local_loki_bundlefile
-    restore_original_bundle(local_loki_bundlefile, target, backup)
+    """Call setup utilities for injecting ourselves into the ECWAM bundle"""
+    lokidir, target, backup = local_loki_setup(here)
+    yield lokidir
+    local_loki_cleanup(target, backup)
 
 
 @pytest.fixture(scope='module', name='bundle_create')
 def fixture_bundle_create(here, local_loki_bundle):
+    """Inject ourselves into the ECWAM bundle"""
+    os.environ['ECWAM_CONCEPT_BUNDLE_LOKI_DIR'] = local_loki_bundle
+    env = os.environ.copy()
+
     # Run ecbundle to fetch dependencies
     execute(
-        ['./ecwam-bundle', 'create', '--bundle', str(local_loki_bundle)],
+        ['./ecwam-bundle', 'create'],
         cwd=here,
-        silent=False
+        silent=False, env=env
     )
 
 
