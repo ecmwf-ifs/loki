@@ -13,7 +13,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from conftest import available_frontends, _write_script, _local_loki_bundle
+from conftest import (
+    available_frontends, write_env_launch_script, inject_local_loki_into_bundle, restore_original_bundle
+)
 from loki import execute, OMNI, HAVE_FP, HAVE_OMNI, warning
 
 pytestmark = pytest.mark.skipif('CLOUDSC_DIR' not in os.environ, reason='CLOUDSC_DIR not set')
@@ -25,32 +27,28 @@ def fixture_here():
 
 
 @pytest.fixture(scope='module', name='local_loki_bundle')
-def fixture_local_loki_bundle():
+def fixture_local_loki_bundle(here):
     """Inject ourselves into the CLOUDSC bundle"""
-    return _local_loki_bundle
+    local_loki_bundlefile, target, backup = inject_local_loki_into_bundle(here)
+    yield local_loki_bundlefile
+    restore_original_bundle(local_loki_bundlefile, target, backup)
 
 
 @pytest.fixture(scope='module', name='bundle_create')
 def fixture_bundle_create(here, local_loki_bundle):
     # Run ecbundle to fetch dependencies
-    bundle = str(next(local_loki_bundle(here)))
     execute(
-        ['./cloudsc-bundle', 'create', '--bundle', bundle],
+        ['./cloudsc-bundle', 'create', '--bundle', str(local_loki_bundle)],
         cwd=here,
         silent=False
     )
-
-
-@pytest.fixture(scope='module', name='write_script')
-def fixture_write_script():
-    return _write_script
 
 
 @pytest.mark.usefixtures('bundle_create')
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs FParser for parsing dependencies')] if not HAVE_FP else None
 ))
-def test_cloudsc(here, write_script, frontend):
+def test_cloudsc(here, frontend):
     build_cmd = [
         './cloudsc-bundle', 'build', '--retry-verbose', '--clean',
         '--with-loki', '--loki-frontend=' + str(frontend), '--without-loki-install',
@@ -98,7 +96,7 @@ def test_cloudsc(here, write_script, frontend):
     failures, warnings = {}, {}
     for binary, *args in binaries:
         # Write a script to source env.sh and launch the binary
-        script = write_script(here, binary, args)
+        script = write_env_launch_script(here, binary, args)
 
         # Run the script and verify error norms
         try:

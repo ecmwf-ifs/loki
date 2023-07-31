@@ -11,7 +11,7 @@ from subprocess import CalledProcessError
 from pathlib import Path
 import pytest
 
-from conftest import _write_script, _local_loki_bundle
+from conftest import write_env_launch_script, inject_local_loki_into_bundle, restore_original_bundle
 from loki import execute, HAVE_FP, FP
 
 pytestmark = pytest.mark.skipif('ECWAM_DIR' not in os.environ, reason='ECWAM_DIR not set')
@@ -22,30 +22,26 @@ def fixture_here():
 
 
 @pytest.fixture(scope='module', name='local_loki_bundle')
-def fixture_local_loki_bundle():
-    """Inject ourselves into the ecWam bundle"""
-    return _local_loki_bundle
+def fixture_local_loki_bundle(here):
+    """Inject ourselves into the ECWAM bundle"""
+    local_loki_bundlefile, target, backup = inject_local_loki_into_bundle(here)
+    yield local_loki_bundlefile
+    restore_original_bundle(local_loki_bundlefile, target, backup)
 
 
 @pytest.fixture(scope='module', name='bundle_create')
 def fixture_bundle_create(here, local_loki_bundle):
     # Run ecbundle to fetch dependencies
-    bundle = str(next(local_loki_bundle(here)))
     execute(
-        ['./ecwam-bundle', 'create', '--bundle', bundle],
+        ['./ecwam-bundle', 'create', '--bundle', str(local_loki_bundle)],
         cwd=here,
         silent=False
     )
 
 
-@pytest.fixture(scope='module', name='write_script')
-def fixture_write_script():
-    return _write_script
-
-
 @pytest.mark.usefixtures('bundle_create')
 @pytest.mark.skipif(not HAVE_FP, reason="FP needed for ECWAM parsing")
-def test_ecwam(here, write_script, frontend=FP):
+def test_ecwam(here, frontend=FP):
     build_cmd = [
         './ecwam-bundle', 'build', '--clean',
         '--with-loki', '--loki-frontend=' + str(frontend), '--without-loki-install'
@@ -76,7 +72,7 @@ def test_ecwam(here, write_script, frontend=FP):
 
     failures = {}
     for preproc, *args in preprocs:
-        script = write_script(here, preproc, args)
+        script = write_env_launch_script(here, preproc, args)
 
         # Run the script and verify error norms
         try:
@@ -99,7 +95,7 @@ def test_ecwam(here, write_script, frontend=FP):
     failures = {}
     for binary, *args in binaries:
         # Write a script to source env.sh and launch the binary
-        script = write_script(here, binary, args)
+        script = write_env_launch_script(here, binary, args)
 
         # Run the script and verify error norms
         try:

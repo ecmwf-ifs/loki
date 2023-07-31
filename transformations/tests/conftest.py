@@ -74,7 +74,7 @@ def available_frontends(xfail=None, skip=None):
     return params
 
 
-def _write_script(here, binary, args):
+def write_env_launch_script(here, binary, args):
     # Write a script to source env.sh and launch the binary
     script = Path(here/f'build/run_{binary}.sh')
     script.write_text(f"""
@@ -89,7 +89,7 @@ exit $?
     return script
 
 
-def _local_loki_bundle(here):
+def inject_local_loki_into_bundle(here):
     lokidir = Path(__file__).parent.parent.parent
     target = here/'source/loki'
     backup = here/'source/loki.bak'
@@ -111,8 +111,10 @@ def _local_loki_bundle(here):
     bundle['projects'][loki_index[0]]['loki']['dir'] = str(lokidir.resolve())
     local_loki_bundlefile.write_text(yaml.dump(bundle))
 
-    yield local_loki_bundlefile
+    return local_loki_bundlefile, target, backup
 
+
+def restore_original_bundle(local_loki_bundlefile, target, backup):
     if local_loki_bundlefile.exists():
         local_loki_bundlefile.unlink()
     if target.is_symlink():
