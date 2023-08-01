@@ -8,7 +8,6 @@
 from pathlib import Path
 import shutil
 import pytest
-import yaml
 
 from loki import as_tuple, Frontend
 import loki.frontend
@@ -93,18 +92,12 @@ def local_loki_setup(here):
     lokidir = Path(__file__).parent.parent.parent
     target = here/'source/loki'
     backup = here/'source/loki.bak'
-    bundlefile = here/'bundle.yml'
 
     # Do not overwrite any existing Loki copy
     if target.exists():
         if backup.exists():
             shutil.rmtree(backup)
         shutil.move(target, backup)
-
-    # Change bundle to symlink for Loki
-    bundle = yaml.safe_load(bundlefile.read_text())
-    loki_index = [i for i, p in enumerate(bundle['projects']) if 'loki' in p]
-    assert len(loki_index) == 1
 
     return str(lokidir.resolve()), target, backup
 

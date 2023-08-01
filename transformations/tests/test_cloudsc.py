@@ -37,8 +37,8 @@ def fixture_local_loki_bundle(here):
 @pytest.fixture(scope='module', name='bundle_create')
 def fixture_bundle_create(here, local_loki_bundle):
     """Inject ourselves into the CLOUDSC bundle"""
-    os.environ['CLOUDSC_BUNDLE_LOKI_DIR'] = local_loki_bundle
     env = os.environ.copy()
+    env['CLOUDSC_BUNDLE_LOKI_DIR'] = local_loki_bundle
 
     # Run ecbundle to fetch dependencies
     execute(
