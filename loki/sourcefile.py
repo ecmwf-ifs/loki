@@ -448,9 +448,9 @@ class Sourcefile:
     @property
     def definitions(self):
         """
-        List of all definitions made in this sourcefile, i.e. modules, subroutines and types
+        List of all definitions made in this sourcefile, i.e. modules and subroutines
         """
-        return self.modules + self.subroutines + self.typedefs
+        return self.modules + self.subroutines
 
     def __getitem__(self, name):
         name = name.lower()
