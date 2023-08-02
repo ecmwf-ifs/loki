@@ -628,9 +628,22 @@ def test_regex_sourcefile_from_file_parser_classes(here):
     assert not sourcefile.modules
     assert FindNodes(RawSource).visit(sourcefile.ir)
     assert sourcefile._incomplete
+    assert sourcefile._parser_classes == RegexParserClass.TypeDefClass
 
     # Incremental addition of program unit objects
     sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+    assert sourcefile._incomplete
+    assert sourcefile._parser_classes == RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass
+    # Note that the program unit objects don't include the TypeDefClass because it's lower in the hierarchy
+    # and was not matched previously
+    assert all(
+        module._parser_classes == RegexParserClass.ProgramUnitClass
+        for module in sourcefile.modules
+    )
+    assert all(
+        routine._parser_classes == RegexParserClass.ProgramUnitClass
+        for routine in sourcefile.routines
+    )
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
     assert {routine.name.lower() for routine in sourcefile.routines} == routine_names
@@ -651,6 +664,21 @@ def test_regex_sourcefile_from_file_parser_classes(here):
     sourcefile.make_complete(
         frontend=REGEX,
         parser_classes=RegexParserClass.ProgramUnitClass | RegexParserClass.ImportClass
+    )
+    assert sourcefile._parser_classes == (
+        RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.ImportClass
+    )
+    # Note that the program unit objects don't include the TypeDefClass because it's lower in the hierarchy
+    # and was not matched previously
+    assert all(
+        module._parser_classes == (
+            RegexParserClass.ProgramUnitClass | RegexParserClass.ImportClass
+        ) for module in sourcefile.modules
+    )
+    assert all(
+        routine._parser_classes == (
+            RegexParserClass.ProgramUnitClass | RegexParserClass.ImportClass
+        ) for routine in sourcefile.routines
     )
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
@@ -676,6 +704,15 @@ def test_regex_sourcefile_from_file_parser_classes(here):
 
     # Parse the rest
     sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.AllClasses)
+    assert sourcefile._parser_classes == RegexParserClass.AllClasses
+    assert all(
+        module._parser_classes == RegexParserClass.AllClasses
+        for module in sourcefile.modules
+    )
+    assert all(
+        routine._parser_classes == RegexParserClass.AllClasses
+        for routine in sourcefile.routines
+    )
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
     assert {routine.name.lower() for routine in sourcefile.routines} == routine_names

@@ -69,13 +69,15 @@ class Subroutine(ProgramUnit):
         Mark the object as incomplete, i.e. only partially parsed. This is
         typically the case when it was instantiated using the :any:`Frontend.REGEX`
         frontend and a full parse using one of the other frontends is pending.
+    parser_classes : :any:`RegexParserClass`, optional
+        Provide the list of parser classes used during incomplete regex parsing
     """
 
     def __init__(
             self, name, args=None, docstring=None, spec=None, body=None,
             contains=None, prefix=None, bind=None, result_name=None,
             is_function=False, ast=None, source=None, parent=None,
-            symbol_attrs=None, rescope_symbols=False, incomplete=False
+            symbol_attrs=None, rescope_symbols=False, incomplete=False, parser_classes=None
     ):
         super().__init__(parent=parent)
 
@@ -86,13 +88,13 @@ class Subroutine(ProgramUnit):
             name=name, args=args, docstring=docstring, spec=spec, body=body,
             contains=contains,  prefix=prefix, bind=bind, result_name=result_name,
             is_function=is_function, ast=ast, source=source,
-            rescope_symbols=rescope_symbols, incomplete=incomplete
+            rescope_symbols=rescope_symbols, incomplete=incomplete, parser_classes=parser_classes
         )
 
     def __initialize__(
             self, name, docstring=None, spec=None, contains=None,
-            ast=None, source=None, rescope_symbols=False, incomplete=False,
-            body=None, args=None, prefix=None, bind=None, result_name=None, is_function=False,
+            ast=None, source=None, rescope_symbols=False, incomplete=False, parser_classes=None,
+            body=None, args=None, prefix=None, bind=None, result_name=None, is_function=False
     ):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
@@ -108,7 +110,8 @@ class Subroutine(ProgramUnit):
 
         super().__initialize__(
             name=name, docstring=docstring, spec=spec, contains=contains,
-            ast=ast, source=source, rescope_symbols=rescope_symbols, incomplete=incomplete
+            ast=ast, source=source, rescope_symbols=rescope_symbols,
+            incomplete=incomplete, parser_classes=parser_classes
         )
 
     def __getstate__(self):

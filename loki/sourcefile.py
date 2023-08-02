@@ -17,7 +17,8 @@ from loki.backend.cufgen import cufgen
 from loki.frontend import (
     OMNI, OFP, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
-    parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source
+    parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source,
+    RegexParserClass
 
 )
 from loki.ir import Section, RawSource, Comment, PreprocessorDirective
@@ -54,9 +55,11 @@ class Sourcefile:
         Mark the object as incomplete, i.e. only partially parsed. This is
         typically the case when it was instantiated using the :any:`Frontend.REGEX`
         frontend and a full parse using one of the other frontends is pending.
+    parser_classes : :any:`RegexParserClass`, optional
+        Provide the list of parser classes used during incomplete regex parsing
     """
 
-    def __init__(self, path, ir=None, ast=None, source=None, incomplete=False):
+    def __init__(self, path, ir=None, ast=None, source=None, incomplete=False, parser_classes=None):
         self.path = Path(path) if path is not None else path
         if ir is not None and not isinstance(ir, Section):
             ir = Section(body=ir)
@@ -64,6 +67,7 @@ class Sourcefile:
         self._ast = ast
         self._source = source
         self._incomplete = incomplete
+        self._parser_classes = parser_classes
 
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
@@ -275,10 +279,12 @@ class Sourcefile:
         """
         source, _ = sanitize_input(source=raw_source, frontend=REGEX)
 
+        if parser_classes is None:
+            parser_classes = RegexParserClass.AllClasses
         ir = parse_regex_source(source, parser_classes=parser_classes)
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=filepath)
-        return cls(path=filepath, ir=ir, source=source, incomplete=True)
+        return cls(path=filepath, ir=ir, source=source, incomplete=True, parser_classes=parser_classes)
 
     @classmethod
     def from_source(cls, source, xmods=None, definitions=None, parser_classes=None, frontend=FP):
@@ -396,6 +402,11 @@ class Sourcefile:
 
             self.ir._update(body=as_tuple(body))
             self._incomplete = frontend == REGEX
+            if frontend == REGEX:
+                parser_classes = frontend_args.get('parser_classes', RegexParserClass.AllClasses)
+                if self._parser_classes:
+                    parser_classes = self._parser_classes | parser_classes
+                self._parser_classes = parser_classes
 
     @property
     def source(self):
