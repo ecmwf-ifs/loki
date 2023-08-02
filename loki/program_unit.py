@@ -472,6 +472,15 @@ class ProgramUnit(Scope):
         return as_tuple(flatten(enum.symbols for enum in FindNodes(ir.Enumeration).visit(self.spec or ())))
 
     @property
+    def definitions(self):
+        """
+        The list of IR nodes defined by this program unit.
+
+        Returns an empty tuple by default and can be overwritten by derived nodes.
+        """
+        return ()
+
+    @property
     def symbols(self):
         """
         Return list of all symbols declared or imported in this module scope
