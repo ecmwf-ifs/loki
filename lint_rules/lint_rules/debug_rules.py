@@ -21,6 +21,10 @@ class ArgSizeMismatchRule(GenericRule):
 
     type = RuleType.WARN
 
+    config = {
+        'max_indirections': 2,
+    }
+
     @staticmethod
     def range_to_sum(lower, upper):
         """
@@ -106,6 +110,8 @@ class ArgSizeMismatchRule(GenericRule):
         :any:`Subroutine`.
         """
 
+        max_indirections = config['max_indirections']
+
         # first resolve associates
         resolve_associates(subroutine)
 
@@ -183,9 +189,22 @@ class ArgSizeMismatchRule(GenericRule):
                 dummy_size = Product(dummy_arg_size)
                 stat = cls.compare_sizes(arg_size, alt_arg_size, dummy_size)
 
-                # if necessary, update dimension names and check
-                if not stat:
-                    dummy_size = Product(SubstituteExpressions(assign_map).visit(dummy_arg_size))
+                # we check for a configurable number of indirections for the dummy and arg dimension names
+                for _ in range(max_indirections):
+                    if stat:
+                        break
+
+                    # if necessary, update dummy arg dimension names and check
+                    dummy_arg_size = SubstituteExpressions(assign_map).visit(dummy_arg_size)
+                    dummy_size = Product(dummy_arg_size)
+                    stat = cls.compare_sizes(arg_size, alt_arg_size, dummy_size)
+
+                    if stat:
+                        break
+
+                    # if necessary, update arg dimension names and check
+                    arg_size = SubstituteExpressions(assign_map).visit(arg_size)
+                    alt_arg_size = SubstituteExpressions(assign_map).visit(alt_arg_size)
                     stat = cls.compare_sizes(arg_size, alt_arg_size, dummy_size)
 
                 if not stat:

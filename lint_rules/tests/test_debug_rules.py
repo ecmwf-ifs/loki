@@ -42,14 +42,16 @@ real, intent(in) :: var2(:,:), var4(:,:), var5(:,:), var3(klon, 137), var5(klon,
 real, intent(in) :: var6(:,:), var7(:,:)
 real, intent(inout) :: var0(klon, nblk), var1(klon, 138, nblk)
 real(kind=jphook) :: zhook_handle
-integer :: klev, ibl
+integer :: klev, ibl, iproma, iend
 
 if(lhook) call dr_hook('driver', 0, zhook_handle)
 
 associate(nlev => klev)
 nlev = 137
 do ibl = 1, nblk
-   call kernel(klon, nlev, var0(:,ibl), var1(:,:,ibl), var2(1:klon, 1:nlev), &
+   iproma = klon
+   iend = iproma
+   call kernel(klon, nlev, var0(:,ibl), var1(:,:,ibl), var2(1:iend, 1:nlev), &
                var3, var4(1:klon, 1:nlev+1), var5(:, 1:nlev+1), &
                var6_d=var6, var7_d=var7(:,1:nlev))
 enddo
@@ -84,7 +86,8 @@ end subroutine kernel
 
     messages = []
     handler = DefaultHandler(target=messages.append)
-    _ = run_linter(driver_source, [rules.ArgSizeMismatchRule], handlers=[handler], targets=['kernel',])
+    _ = run_linter(driver_source, [rules.ArgSizeMismatchRule], config={'ArgSizeMismatchRule': {'max_indirections': 3}},
+                   handlers=[handler], targets=['kernel',])
 
     assert len(messages) == 3
     keyword = 'ArgSizeMismatchRule'
@@ -113,13 +116,15 @@ real, intent(in) ::  var2(klon, 137), var3(klon*137)
 real(kind=jphook) :: zhook_handle
 real, dimension(klon, 137) :: var4, var5
 real :: var6
-integer :: klev, ibl
+integer :: klev, ibl, iproma, iend
 
 if(lhook) call dr_hook('driver', 0, zhook_handle)
 
 klev = 137
 do ibl = 1, nblk
-   call kernel(klon, klev, var0(1,ibl), var1(1,1,ibl), var2(1, 1), var3(1), &
+   iproma = klon
+   iend = iproma
+   call kernel(klon, klev, var0(1,ibl), var1(1,1,ibl), var2(1:iend, 1), var3(1), &
                var4(1, 1), var5, var6, 1, .true.)
 enddo
 
