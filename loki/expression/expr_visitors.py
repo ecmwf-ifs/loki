@@ -256,7 +256,10 @@ class FindExpressionRoot(ExpressionFinder):
     """
     def __init__(self, expr, recurse_to_parent=True, **kwargs):
         self._retriever = ExpressionRetriever(lambda e: e is expr, recurse_to_parent=recurse_to_parent)
-        super().__init__(unique=False, retrieve=lambda e: e if self._retriever.retrieve(e) else (), **kwargs)
+        if kwargs.get('unique'):
+            raise ValueError('FindExpressionRoot requires unique=False')
+        kwargs['unique'] = False
+        super().__init__(retrieve=lambda e: e if self._retriever.retrieve(e) else (), **kwargs)
 
 
 class SubstituteExpressions(Transformer):

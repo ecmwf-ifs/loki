@@ -392,6 +392,30 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_find_expression_root_constructor_args(frontend):
+    """
+    Test correct handling for various constructor arguments
+    """
+    fcode = """
+subroutine my_routine
+    implicit none
+    integer :: i
+    i = 1 + 1
+end subroutine my_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    exprs = FindExpressions().visit(routine.body)
+    some_expr = [expr for expr in exprs if isinstance(expr, IntLiteral)][0]
+
+    with pytest.raises(ValueError):
+        FindExpressionRoot(some_expr, unique=True).visit(routine.body)
+
+    expr_root = FindExpressionRoot(some_expr, unique=False).visit(routine.body)
+    assert expr_root == (routine.body.body[0].rhs,)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_find_variables_associates(frontend):
     """
     Test correct discovery of variables in associates.
