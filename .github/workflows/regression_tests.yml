@@ -34,15 +34,11 @@ jobs:
           ref: develop
 
       - name: Clone ECWAM
-        run: |
-          mkdir ${{ github.workspace }}/ecwam
-          mkdir -p ~/.ssh/ && touch ~/.ssh/known_hosts
-          cat << 'EOF' > ~/.ssh/known_hosts
-          ${{ secrets.BITBUCKET_HOSTKEY }}
-          EOF
-          eval `ssh-agent -s`
-          ssh-add - <<< '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}'
-          git clone --branch naan-phys-gpu ssh://git@git.ecmwf.int/~nawd/ecwam-bundle.git ${{ github.workspace }}/ecwam
+        uses: actions/checkout@v3
+        with:
+          repository: ecmwf-ifs/ecwam
+          path: ecwam
+          ref: naan-phys-gpu
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
