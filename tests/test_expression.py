@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import defaultdict
 from pathlib import Path
 import math
 import sys
@@ -1360,3 +1361,47 @@ end module some_mod
     for i, dim in enumerate(shape):
         assert isinstance(dim, symbols.InlineCall)
         assert str(dim).lower() == f'size(levels(jscale - 1)%data, {i+1})'
+
+
+def test_expression_container_matching():
+    """
+    Tests how different expression types match as keys in different
+    containers, with use of raw expressions and string equivalence.
+    """
+    scope = Scope()
+    t_real = SymbolAttributes(BasicType.REAL)
+    t_int = SymbolAttributes(BasicType.INTEGER)
+
+    i = symbols.Variable(name='i', scope=scope, type=t_int)
+    a = symbols.Variable(name='a', scope=scope, type=t_real)
+    b = symbols.Variable(name='b', scope=scope, type=t_real, dimensions=(i,))
+
+    # Test for simple containment of scalars
+    assert a in (a, b)
+    assert a in [a, b]
+    assert a in {a, b}
+    assert a in {a: b}
+    assert a in defaultdict(list, ((a, [b]),))
+
+    # Test for simple containment of scalars against strings
+    assert a == 'a'
+    assert a in ('a', 'b(i)')
+    assert a in ['a', 'b(i)']
+    assert a in {'a', 'b(i)'}
+    assert a in {'a': 'b(i)'}
+    assert a in defaultdict(list, (('a', ['b(i)']),))
+
+    # Test for simple containment of arrays against strings
+    assert b == 'b(i)'
+    assert b in ('b(i)', 'a')
+    assert b in ['b(i)', 'a']
+    assert b in {'b(i)', 'a'}
+    assert b in {'b(i)': 'a'}
+    assert b in defaultdict(list, (('b(i)', ['a']),))
+
+    # Test for simple containment of strings indices against arrays
+    assert 'b(i)' in (b, a)
+    assert 'b(i)' in [b, a]
+    assert 'b(i)' in {b, a}
+    assert 'b(i)' in {b: a}
+    assert 'b(i)' in defaultdict(list, ((b, [a]),))
