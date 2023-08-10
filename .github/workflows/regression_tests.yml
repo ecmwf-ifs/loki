@@ -33,6 +33,13 @@ jobs:
           path: cloudsc
           ref: develop
 
+      - name: Clone ECWAM
+        uses: actions/checkout@v3
+        with:
+          repository: ecmwf-ifs/ecwam
+          path: ecwam
+          ref: naan-phys-gpu
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
@@ -64,11 +71,25 @@ jobs:
           source loki-activate
           pip install cmake
 
-      - name: Run CLOUDSC regression tests
+      - name: Install ECWAM dependencies
+        run: |
+          sudo apt-get -o Acquire::Retries=3 install -y libopenmpi-dev
+          source loki-activate
+          pip install fypp
+
+      - name: Run CLOUDSC and ECWAM regression tests
         env:
           CLOUDSC_DIR: ${{ github.workspace }}/cloudsc
           CLOUDSC_ARCH: ${{ github.workspace }}/cloudsc/arch/github/ubuntu/gnu/9.4.0
+          ECWAM_DIR: ${{ github.workspace }}/ecwam
+          ECWAM_ARCH: ${{ github.workspace }}/ecwam/arch/github/ubuntu/gnu/9.4.0
           OMP_STACKSIZE: 4G
         run: |
+          mkdir -p ~/.ssh/ && touch ~/.ssh/known_hosts
+          cat << 'EOF' > ~/.ssh/known_hosts
+          ${{ secrets.BITBUCKET_HOSTKEY }}
+          EOF
+          eval `ssh-agent -s`
+          ssh-add - <<< '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}'
           source loki-activate
-          pytest --cov=transformations/transformations transformations/tests -k cloudsc
+          pytest --cov=transformations/transformations transformations/tests -k 'cloudsc or ecwam'
