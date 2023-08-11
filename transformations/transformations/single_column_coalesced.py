@@ -725,8 +725,8 @@ class SCCHoistTransformation(Transformation):
         ) for v in column_locals]
         new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
 
-        info(f'[Loki-SCC] Hoisted variables in call {routine.name} => {call.name}:'
-             f'{[v.name for v in column_locals]}')
+        info(f'[Loki-SCC::Hoist] Hoisted variables in call {routine.name} => {call.name}:'
+             f'{", ".join(v.name for v in column_locals)}')
 
         # Find the iteration index variable for the specified horizontal
         v_index = SCCBaseTransformation.get_integer_variable(routine, name=horizontal.index)
