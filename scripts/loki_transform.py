@@ -37,7 +37,6 @@ from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
-from transformations.single_column_coalesced_wrapper import SingleColumnCoalescedTransformation
 from transformations.single_column_coalesced import (
      SCCBaseTransformation, SCCAnnotateTransformation, SCCHoistTransformation
 )
@@ -458,7 +457,15 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend, preprocess=cpp)
+    scheduler = Scheduler(
+        paths=paths, config=config, definitions=definitions,
+        frontend=frontend, preprocess=cpp
+    )
+
+    # Pick the model dimensions out of the config file
+    horizontal = scheduler.config.dimensions.get('horizontal', None)
+    vertical = scheduler.config.dimensions.get('vertical', None)
+    block_dim = scheduler.config.dimensions.get('block_dim', None)
 
     # Backward insert argument shapes (for surface routines)
     scheduler.process(transformation=ArgumentArrayShapeAnalysis())
@@ -467,39 +474,63 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
     if 'scc' in mode:
-        scheduler.process(transformation=RemoveCallsTransformation(
+        utility_call_trafo = RemoveCallsTransformation(
             routines=['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'], include_intrinsics=True, kernel_only=True
-        ))
+        )
     else:
-        scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
+        utility_call_trafo = DrHookTransformation(mode=mode, remove=False)
+    scheduler.process(transformation=utility_call_trafo)
 
-    # Now we instantiate our transformation pipeline and apply the main changes
+    # Instantiate transformation pipeline and apply the main changes
     transformation = None
     if mode == 'idem':
         transformation = IdemTransformation()
 
     if mode == 'sca':
         # Define the target dimension to strip from kernel and caller
-        horizontal = scheduler.config.dimensions['horizontal']
         transformation = ExtractSCATransformation(horizontal=horizontal)
 
     if mode in ['scc', 'scc-hoist']:
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
-        transformation = SingleColumnCoalescedTransformation(
-            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive=directive, hoist_column_arrays='hoist' in mode
+        # Compose the main SCC transformation from core components based on config
+        transformation = (
+            SCCBaseTransformation(horizontal=horizontal, directive=directive),
+        )
+
+        # Devectorise the single-column kernels by removing the horizotnal vector loops
+        transformation += (
+            SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=False),
+        )
+
+        # Demote vector temporaries to scalars where possible
+        transformation += (SCCDemoteTransformation(horizontal=horizontal),)
+
+        # Either hoist the vector loops to the driver or re-vectorise the kernels
+        if 'hoist' in mode:
+            transformation += (
+                SCCHoistTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim),
+            )
+        else:
+            transformation += (SCCRevectorTransformation(horizontal=horizontal),)
+
+        # Add offload annotations depending on the desired programming model directives
+        transformation += (
+            SCCAnnotateTransformation(
+                horizontal=horizontal, vertical=vertical, directive=directive,
+                block_dim=block_dim, hoist_column_arrays='hoist' in mode
+            ),
         )
 
     if transformation:
-        scheduler.process(transformation=transformation)
+        # Apply the set of trnasformations over the full depency tree in turn
+        for transform in transformation:
+            scheduler.process(transformation=transform)
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
     # Apply the dependency-injection transformation
-    dependency = DependencyTransformation(mode='module', module_suffix='_MOD',
-                                          suffix=f'_{mode.upper()}')
+    dependency = DependencyTransformation(
+        mode='module', module_suffix='_MOD', suffix=f'_{mode.upper()}'
+    )
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
