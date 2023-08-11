@@ -33,7 +33,7 @@ class DataflowAnalysisAttacher(Transformer):
     _mem_property_queries = ('size', 'lbound', 'ubound', 'present')
 
     def __init__(self, **kwargs):
-        super().__init__(inplace=True, **kwargs)
+        super().__init__(inplace=True, invalidate_source=False, **kwargs)
 
     # Utility routines
 
@@ -277,7 +277,7 @@ class DataflowAnalysisDetacher(Transformer):
     """
 
     def __init__(self, **kwargs):
-        super().__init__(inplace=True, **kwargs)
+        super().__init__(inplace=True, invalidate_source=False, **kwargs)
 
     def visit_Node(self, o, **kwargs):
         o._update(_live_symbols=None, _defines_symbols=None, _uses_symbols=None)
