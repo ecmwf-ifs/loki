@@ -310,6 +310,13 @@ class SCCAnnotateTransformation(Transformation):
         private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
         private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
 
+        if private_arrays:
+            # Log private arrays in vector regions, as these can impact performance
+            info(
+                f'[Loki-SCC::Annotate] Marking private arrays in {routine.name}: '
+                f'{[a.name for a in private_arrays]}'
+            )
+
         mapper = {}
         with pragma_regions_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
