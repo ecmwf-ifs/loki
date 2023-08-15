@@ -559,6 +559,7 @@ class LokiIdentityMapper(IdentityMapper):
         recurse_to_declaration_attributes = kwargs['recurse_to_declaration_attributes'] or expr.scope is None
         kwargs['recurse_to_declaration_attributes'] = False
 
+        new_type = expr.type
         if recurse_to_declaration_attributes:
             old_type = expr.type
             kind = self.rec(old_type.kind, *args, **kwargs)

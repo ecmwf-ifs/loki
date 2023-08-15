@@ -55,6 +55,13 @@ class SchedulerConfig:
             self.routines = CaseInsensitiveDict(routines)
         else:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
+        for routine in self.routines:
+            if 'trafo' in self.routines[routine]:
+                if isinstance(self.routines[routine]['trafo'], list):
+                    self.routines[routine]['trafo'] = self.routines[routine]['trafo'][0]
+                for key in self.routines[routine]['trafo']:
+                    if isinstance(self.routines[routine]['trafo'][key], list):
+                        self.routines[routine]['trafo'][key] = self.routines[routine]['trafo'][key][0]
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
         self.enable_imports = enable_imports

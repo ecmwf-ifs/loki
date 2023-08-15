@@ -376,7 +376,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 
 @cli.command('plan')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack']))
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
@@ -410,6 +410,7 @@ def plan(mode, config, header, source, build, root, cpp, directive, frontend, ca
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False, preprocess=cpp)
 
+    mode = mode.replace("-", "_")
     # Construct the transformation plan as a set of CMake lists of source files
     scheduler.write_cmake_plan(filepath=plan_file, mode=mode, buildpath=build, rootpath=root)
 
@@ -420,7 +421,7 @@ def plan(mode, config, header, source, build, root, cpp, directive, frontend, ca
 
 @cli.command('ecphys')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack']))
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
@@ -443,6 +444,7 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
     of interdependent subroutines.
     """
 
+    # TODO: still problem with '-' within "scc-stack"??
     info('[Loki] Bulk-processing physics using config: %s ', config)
     config = SchedulerConfig.from_file(config)
 
@@ -490,7 +492,7 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
         # Define the target dimension to strip from kernel and caller
         transformation = ExtractSCATransformation(horizontal=horizontal)
 
-    if mode in ['scc', 'scc-hoist']:
+    if mode in ['scc', 'scc-hoist', 'scc-stack']:
         # Compose the main SCC transformation from core components based on config
         transformation = (
             SCCBaseTransformation(horizontal=horizontal, directive=directive),
@@ -526,6 +528,26 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
             scheduler.process(transformation=transform)
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+
+    if mode in ['scc-stack']:
+        if frontend == Frontend.OMNI:
+            # To make the pool allocator size derivation work correctly, we need
+            # to normalize the 1:end-style index ranges that OMNI introduces
+            class NormalizeRangeIndexingTransformation(Transformation):
+                def transform_subroutine(self, routine, **kwargs):
+                    normalize_range_indexing(routine)
+
+            scheduler.process(transformation=NormalizeRangeIndexingTransformation())
+
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
+        block_dim = scheduler.config.dimensions['block_dim']
+        transformation = TemporariesPoolAllocatorTransformation(
+            block_dim=block_dim, directive='openacc', check_bounds=False
+        )
+        scheduler.process(transformation=transformation, reverse=True)
+
+    mode = mode.replace("-", "_")
 
     # Apply the dependency-injection transformation
     dependency = DependencyTransformation(
