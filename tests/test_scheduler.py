@@ -48,7 +48,6 @@ Test directory structure
        * routine_two
 """
 
-import importlib
 import re
 from pathlib import Path
 from shutil import rmtree
@@ -110,7 +109,7 @@ def graphviz_present():
         import graphviz as gviz
         callgraph = gviz.Graph()
         callgraph.pipe()
-    except:
+    except ImportError:
         return False
     return True
 
