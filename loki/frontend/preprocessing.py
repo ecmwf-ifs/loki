@@ -226,7 +226,10 @@ class PPRule:
 
 
 sanitize_registry = {
-    REGEX: {},
+    REGEX: {
+        # Strip line annotations from Fypp preprocessor
+        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
+    },
     OMNI: {},
     OFP: {
         # Remove various IBM directives

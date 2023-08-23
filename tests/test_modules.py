@@ -46,7 +46,7 @@ end module a_module
     module = Module.from_source(fcode, frontend=frontend)
     assert len([o for o in module.spec.body if isinstance(o, VariableDeclaration)]) == 2
     assert len([o for o in module.spec.body if isinstance(o, TypeDef)]) == 1
-    assert 'derived_type' in module.typedefs
+    assert 'derived_type' in module.typedef_map
     assert len(module.routines) == 1
     assert module.routines[0].name == 'my_routine'
     if frontend != OMNI:
@@ -87,7 +87,7 @@ end module a_module
 """
 
     external = Module.from_source(fcode_external, frontend=frontend)
-    assert'ext_type' in external.typedefs
+    assert 'ext_type' in external.typedef_map
 
     module = Module.from_source(fcode_module, frontend=frontend, definitions=external)
     routine = module.subroutines[0]
@@ -162,10 +162,10 @@ end module a_module
 """
 
     external = Module.from_source(fcode_external, frontend=frontend)
-    assert 'ext_type' in external.typedefs
+    assert 'ext_type' in external.typedef_map
 
     other = Module.from_source(fcode_other, frontend=frontend)
-    assert 'other_type' in other.typedefs
+    assert 'other_type' in other.typedef_map
 
     if frontend != OMNI:  # OMNI needs to know imported modules
         module = Module.from_source(fcode_module, frontend=frontend)
@@ -176,7 +176,7 @@ end module a_module
         assert module['other_routine'].symbol_attrs['pt'].dtype.typedef is BasicType.DEFERRED
 
     module = Module.from_source(fcode_module, frontend=frontend, definitions=[external, other])
-    nested = module.typedefs['nested_type']
+    nested = module.typedef_map['nested_type']
     ext = nested.variables[0]
 
     # Verify correct attachment of type information
@@ -241,7 +241,7 @@ end module type_mod
     exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
 
     module = Module.from_source(fcode, frontend=frontend)
-    parent = module.typedefs['parent_type']
+    parent = module.typedef_map['parent_type']
     pt = parent.variables[0]
     assert 'array' in pt.variable_map
     arr = pt.variable_map['array']
@@ -266,7 +266,7 @@ module type_mod
 end module type_mod
 """
     module = Module.from_source(fcode, frontend=frontend)
-    mytype = module.typedefs['mytype']
+    mytype = module.typedef_map['mytype']
     assert fexprgen(mytype.variables[0].shape) == '(size,)'
 
 
@@ -291,8 +291,8 @@ module type_mod
 end module type_mod
 """
     module = Module.from_source(fcode, frontend=frontend)
-    parent = module.typedefs['parent_type']
-    child = module.typedefs['sub_type']
+    parent = module.typedef_map['parent_type']
+    child = module.typedef_map['sub_type']
     assert fexprgen(child.variables[0].shape) == '(size,)'
 
     pt_x = parent.variables[0].variable_map['x']

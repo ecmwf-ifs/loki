@@ -5,11 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from pathlib import Path
+import shutil
 import pytest
 
 from loki import as_tuple, Frontend
 import loki.frontend
 
+__all__ = ['available_frontends', 'local_loki_setup', 'local_loki_cleanup']
 
 def available_frontends(xfail=None, skip=None):
     """
@@ -68,3 +71,39 @@ def available_frontends(xfail=None, skip=None):
             params += [f]
 
     return params
+
+
+def write_env_launch_script(here, binary, args):
+    # Write a script to source env.sh and launch the binary
+    script = Path(here/f'build/run_{binary}.sh')
+    script.write_text(f"""
+#!/bin/bash
+
+source env.sh >&2
+bin/{binary} {' '.join(args)}
+exit $?
+    """.strip())
+    script.chmod(0o750)
+
+    return script
+
+
+def local_loki_setup(here):
+    lokidir = Path(__file__).parent.parent.parent
+    target = here/'source/loki'
+    backup = here/'source/loki.bak'
+
+    # Do not overwrite any existing Loki copy
+    if target.exists():
+        if backup.exists():
+            shutil.rmtree(backup)
+        shutil.move(target, backup)
+
+    return str(lokidir.resolve()), target, backup
+
+
+def local_loki_cleanup(target, backup):
+    if target.is_symlink():
+        target.unlink()
+    if not target.exists() and backup.exists():
+        shutil.move(backup, target)

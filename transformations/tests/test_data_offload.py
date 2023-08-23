@@ -74,20 +74,32 @@ def test_data_offload_region_complex_remove_openmp(frontend):
     """
 
     fcode_driver = """
-  SUBROUTINE driver_routine(nlon, nlev, a, b, c)
+  SUBROUTINE driver_routine(nlon, nlev, a, b, c, flag)
     INTEGER, INTENT(IN)   :: nlon, nlev
     REAL, INTENT(INOUT)   :: a(nlon,nlev)
     REAL, INTENT(INOUT)   :: b(nlon,nlev)
     REAL, INTENT(INOUT)   :: c(nlon,nlev)
+    logical, intent(in) :: flag
     INTEGER :: j
 
     !$loki data
     call my_custom_timer()
 
-    !$omp parallel do private(j)
-    do j=1, nlev
-      call kernel_routine(nlon, j, a(:,j), b(:,j), c(:,j))
-    end do
+    if(flag)then
+       !$omp parallel do private(j)
+       do j=1, nlev
+         call kernel_routine(nlon, j, a(:,j), b(:,j), c(:,j))
+       end do
+       !$omp end parallel do
+    else
+       !$omp parallel do private(j)
+       do j=1, nlev
+          a(:,j) = 0.
+          b(:,j) = 0.
+          c(:,j) = 0.
+       end do
+       !$omp end parallel do
+    endif
     call my_custom_timer()
 
     !$loki end data
@@ -121,7 +133,7 @@ def test_data_offload_region_complex_remove_openmp(frontend):
         # Ensure that loops in the region are preserved
         regions = FindNodes(PragmaRegion).visit(driver.body)
         assert len(regions) == 1
-        assert len(FindNodes(Loop).visit(regions[0])) == 1
+        assert len(FindNodes(Loop).visit(regions[0])) == 2
 
         # Ensure all activa and inactive calls are there
         calls = FindNodes(CallStatement).visit(regions[0])
@@ -137,3 +149,59 @@ def test_data_offload_region_complex_remove_openmp(frontend):
     assert 'copyin( a )' in transformed
     assert 'copy( b, c )' in transformed
     assert '!$omp' not in transformed
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_data_offload_region_multiple(frontend):
+    """
+    Test the creation of a device data offload region (`!$acc update`)
+    from a `!$loki data` region with multiple kernel calls.
+    """
+
+    fcode_driver = """
+  SUBROUTINE driver_routine(nlon, nlev, a, b, c, d)
+    INTEGER, INTENT(IN)   :: nlon, nlev
+    REAL, INTENT(INOUT)   :: a(nlon,nlev)
+    REAL, INTENT(INOUT)   :: b(nlon,nlev)
+    REAL, INTENT(INOUT)   :: c(nlon,nlev)
+    REAL, INTENT(INOUT)   :: d(nlon,nlev)
+
+    !$loki data
+    call kernel_routine(nlon, nlev, a, b, c)
+
+    call kernel_routine(nlon, nlev, d, b, a)
+    !$loki end data
+
+  END SUBROUTINE driver_routine
+"""
+    fcode_kernel = """
+  SUBROUTINE kernel_routine(nlon, nlev, a, b, c)
+    INTEGER, INTENT(IN)   :: nlon, nlev
+    REAL, INTENT(IN)      :: a(nlon,nlev)
+    REAL, INTENT(INOUT)   :: b(nlon,nlev)
+    REAL, INTENT(OUT)     :: c(nlon,nlev)
+    INTEGER :: i, j
+
+    do j=1, nlon
+      do i=1, nlev
+        b(i,j) = a(i,j) + 0.1
+        c(i,j) = 0.1
+      end do
+    end do
+  END SUBROUTINE kernel_routine
+"""
+    driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
+    kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
+    driver.enrich_calls(kernel)
+
+    driver.apply(DataOffloadTransformation(), role='driver', targets=['kernel_routine'])
+
+    assert len(FindNodes(Pragma).visit(driver.body)) == 2
+    assert all(p.keyword == 'acc' for p in FindNodes(Pragma).visit(driver.body))
+
+    # Ensure that the copy direction is the union of the two calls, ie.
+    # "a" is "copyin" in first call and "copyout" in second, so it should be "copy"
+    transformed = driver.to_fortran()
+    assert 'copyin( d )' in transformed
+    assert 'copy( b, a )' in transformed
+    assert 'copyout( c )' in transformed

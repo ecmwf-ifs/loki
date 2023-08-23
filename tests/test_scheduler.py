@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 # pylint: disable=too-many-lines
+
 """
 Specialised test that exercises the bulk-processing capabilities and
 source-injection mechanism provided by the `loki.scheduler` and
@@ -59,7 +60,8 @@ from loki import (
     HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
-    ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls
+    ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
+    Import, Variable, GenericImportItem, GlobalVarImportItem
 )
 
 
@@ -102,8 +104,7 @@ def fixture_frontend():
 
 def graphviz_present():
     """
-    Test if graphviz s present,
-    including the executable
+    Test if graphviz is present and works
     """
     try:
         import graphviz as gviz
@@ -423,6 +424,62 @@ def test_scheduler_process(here, config, frontend):
     assert scheduler.item_map['compute_l2_mod#compute_l2'].routine.name == 'compute_l2_kernel'
     assert scheduler.item_map['#another_l1'].routine.name == 'another_l1_driver'
     assert scheduler.item_map['#another_l2'].routine.name == 'another_l2_kernel'
+
+
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
+def test_scheduler_process_filter(here, config, frontend):
+    """
+    Applies simple kernels over complex callgraphs to check that we
+    only apply to the entities requested and only once!
+
+    projA: driverA -> kernelA -> compute_l1 -> compute_l2
+                           |      <driver>      <kernel>
+                           |
+                           | --> another_l1 -> another_l2
+                                  <driver>      <kernel>
+    """
+    projA = here/'sources/projA'
+    projB = here/'sources/projB'
+
+    config['routine'] = [
+        {'name': 'driverE_single', 'role': 'driver', 'expand': True,},
+    ]
+
+
+    scheduler = Scheduler(
+        paths=[projA, projB], includes=projA/'include', config=config, frontend=frontend
+    )
+
+    class XMarksTheSpot(Transformation):
+        """
+        Append 'X' to a given :any:`Subroutine`
+        """
+        def transform_subroutine(self, routine, **kwargs):
+            routine.name += '_X'
+
+    # Apply re-naming transformation and check result
+    scheduler.process(transformation=XMarksTheSpot())
+
+    # Check that the targeted subroutines have been renamed
+    assert 'drivere_mod#drivere_single' in scheduler.items
+    assert scheduler.item_map['drivere_mod#drivere_single'].routine.name == 'driverE_single_X'
+
+    # Check that the second call-tree is excluded
+    assert 'drivere_mod#drivere_multiple' not in scheduler.items
+    # Get the source from the scheduler and check for side-effects
+    drivere_source =  scheduler.item_map['drivere_mod#drivere_single'].source
+    assert drivere_source.all_subroutines[0].name == 'driverE_single_X'
+    assert drivere_source.all_subroutines[1].name == 'driverE_multiple'
+
+    # Check that the kernel files have been renamed appropriately
+    assert 'kernele_mod#kernele' in scheduler.items
+    assert scheduler.item_map['kernele_mod#kernele'].routine.name == 'kernelE_X'
+
+    # Check that excluded kernel has not been altered
+    assert 'kernele_mod#kernelet' not in scheduler.items
+    kernele_source =  scheduler.item_map['kernele_mod#kernele'].source
+    assert kernele_source.all_subroutines[0].name == 'kernelE_X'
+    assert kernele_source.all_subroutines[1].name == 'kernelET'
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
@@ -1054,8 +1111,8 @@ def test_scheduler_typebound_item(here):
     available_names = []
     for s in [source, header, other]:
         available_names += [f'#{r.name.lower()}' for r in s.subroutines]
-        available_names += [f'{m.name.lower()}#{r.name.lower()}' for m in s.modules for r in m.subroutines]
-        available_names += [f'{m.name.lower()}#{t.lower()}' for m in s.modules for t in m.typedefs]
+        available_names += [f'{m.name}#{r.name}'.lower() for m in s.modules for r in m.subroutines]
+        available_names += [f'{m.name}#{t.name}'.lower() for m in s.modules for t in m.typedefs]
 
     driver = SubroutineItem(name='#driver', source=source)
 
@@ -1559,7 +1616,16 @@ module some_mod
     use other_mod
     use MORE_MOD
     implicit none
+
+    interface override
+      module procedure some_random_function
+    end interface ovveride
+
 contains
+
+    function some_random_function
+    end function
+
     subroutine DRIVER
         use YET_another_mod
         call routine
@@ -1581,6 +1647,41 @@ def test_scheduler_inline_call(here, config, frontend):
     """
 
     my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+    my_config['routine'] = [
+        {
+            'name': 'driver',
+            'role': 'driver',
+            'disable': ['return_one', 'some_var', 'add_args', 'some_type']
+        }
+    ]
+
+    scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
+
+    expected_items = {'#driver', '#double_real', 'some_module#some_type%do_something',
+                      'some_module#add_const', 'vars_module#vara', 'vars_module#varb'}
+    expected_dependencies = {('#driver', '#double_real'),
+                             ('#driver', 'some_module#some_type%do_something'),
+                             ('some_module#some_type%do_something', 'some_module#add_const'),
+                             ('#driver', 'vars_module#vara'), ('#driver', 'vars_module#varb'),
+                             ('#double_real', 'vars_module#vara'), ('#double_real', 'vars_module#varb')}
+
+    assert expected_items == {i.name for i in scheduler.items}
+    assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
+
+    for i in scheduler.items:
+        if i.name == '#double_real':
+            assert isinstance(i, SubroutineItem)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scheduler_import_dependencies(here, config, frontend):
+    """
+    Test that import dependencies are correctly classified.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
     my_config['routine'] = [
         {
             'name': 'driver',
@@ -1590,12 +1691,426 @@ def test_scheduler_inline_call(here, config, frontend):
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
-    expected_items = {'#driver', '#double_real'}
-    expected_dependencies = {('#driver', '#double_real')}
+    expected_items = {
+        '#driver', '#double_real', 'some_module#return_one', 'some_module#some_var', 'some_module#add_args',
+        'some_module#some_type', 'some_module#add_two_args', 'some_module#add_three_args',
+        'some_module#some_type%do_something', 'some_module#add_const', 'vars_module#vara', 'vars_module#varb'
+    }
+    expected_dependencies = {
+     ('#driver', '#double_real'), ('#driver', 'some_module#return_one'), ('#driver', 'some_module#some_var'),
+     ('#driver', 'some_module#add_args'), ('#driver', 'some_module#some_type'),
+     ('#driver', 'vars_module#vara'), ('#driver', 'vars_module#varb'),
+     ('#double_real', 'vars_module#vara'), ('#double_real', 'vars_module#varb'),
+     ('#driver', 'some_module#some_type%do_something'), ('some_module#some_type%do_something', 'some_module#add_const'),
+     ('some_module#add_args', 'some_module#add_two_args'), ('some_module#add_args', 'some_module#add_three_args'),
+    }
 
     assert expected_items == {i.name for i in scheduler.items}
     assert expected_dependencies == {(d[0].name, d[1].name) for d in scheduler.dependencies}
 
     for i in scheduler.items:
-        if i.name == '#double_real':
+        if i.name == 'some_module#add_args':
+            assert isinstance(i, GenericImportItem)
+        if i.name == 'some_module#some_type':
+            assert isinstance(i, GenericImportItem)
+        elif i.name == 'some_module#some_var':
+            assert isinstance(i, GlobalVarImportItem)
+        elif i.name in ('some_module#add_two_args', 'some_module#add_three_args'):
             assert isinstance(i, SubroutineItem)
+        elif i.name == '#double_real':
+            assert isinstance(i, SubroutineItem)
+
+    # Testing of callgraph visualisation with imports
+    workdir = gettempdir()/'test_scheduler_import_dependencies'
+    workdir.mkdir(exist_ok=True)
+    cg_path = workdir/'callgraph'
+    scheduler.callgraph(cg_path)
+
+    vgraph = VisGraphWrapper(cg_path)
+    assert all(n.upper() in vgraph.nodes for n in expected_items)
+    assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
+
+    rmtree(workdir)
+
+
+def test_scheduler_globalvarimportitem_id(here, config, frontend):
+    """
+    Test that scheduler.item_successors always returns the original item.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+    my_config['routine'] = [
+        {
+            'name': 'driver',
+            'role': 'driver'
+        }
+    ]
+
+    scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
+    importA_item = scheduler.item_map['vars_module#vara']
+    importB_item = scheduler.item_map['vars_module#varb']
+    driver_item = scheduler.item_map['#driver']
+    kernel_item = scheduler.item_map['#double_real']
+
+    idA = id(importA_item)
+    idB = id(importB_item)
+
+    for successor in scheduler.item_successors(driver_item):
+        if successor.name == importA_item.name:
+            assert id(successor) == idA
+        if successor.name == importB_item.name:
+            assert id(successor) == idB
+    for successor in scheduler.item_successors(kernel_item):
+        if successor.name == importA_item.name:
+            assert id(successor) == idA
+        if successor.name == importB_item.name:
+            assert id(successor) == idB
+
+
+def test_scheduler_globalvarimportitem_children(config):
+    """
+    Test that GlobalVarImportItems don't have any children.
+    """
+
+    fcode_type = """
+module parkind1
+   integer, parameter :: jprb = selected_real_kind(13,300)
+end module parkind1
+    """
+    fcode_mod = """
+module some_mod
+  use parkind1, only: jprb
+
+  real(kind=jprb) :: var
+end module some_mod
+    """
+    fcode_kernel = """
+subroutine some_routine()
+  use parkind1, only: jprb
+  use some_mod, only: var
+
+  real(kind=jprb) :: tmp
+
+  tmp = var
+end subroutine some_routine
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+
+    kernel = Sourcefile.from_source(fcode_kernel, frontend=REGEX)
+    kernel_item = SubroutineItem(name='#some_routine', source=kernel, config=my_config['default'])
+
+    var_mod = Sourcefile.from_source(fcode_mod, frontend=REGEX)
+    var_item = GlobalVarImportItem(name='some_mod#var', source=var_mod, config=my_config['default'])
+
+    type_mod = Sourcefile.from_source(fcode_type, frontend=REGEX)
+    type_item = GenericImportItem(name='parkind1#jprb', source=type_mod, config=my_config['default'])
+
+    assert len(kernel_item.children) == 2
+    assert kernel_item.children[0] != kernel_item.children[1]
+    assert all(item in [i.local_name for i in (var_item, type_item)] for item in kernel_item.children)
+    assert not var_item.children
+
+
+def test_scheduler_successors(config):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        real :: a
+    contains
+        procedure :: procedure => some_procedure
+        procedure :: routine
+        procedure :: other
+        generic :: do => procedure, routine
+    end type some_type
+contains
+    subroutine some_procedure(t, i)
+        class(some_type), intent(inout) :: t
+        integer, intent(in) :: i
+        t%a = t%a + real(i)
+    end subroutine some_procedure
+
+    subroutine routine(t, v)
+        class(some_type), intent(inout) :: t
+        real, intent(in) :: v
+        t%a = t%a + v
+        call t%other
+    end subroutine routine
+
+    subroutine other(t)
+        class(some_type), intent(in) :: t
+        print *,t%a
+    end subroutine other
+end module some_mod
+    """.strip()
+
+    fcode = """
+subroutine caller(val)
+    use some_mod, only: some_type
+    implicit none
+    real, intent(inout) :: val
+    type(some_type) :: t
+    t%a = val
+    call t%routine(1)
+    call t%routine(2.0)
+    call t%do(10)
+    call t%do(20.0)
+    call t%other
+    val = t%a
+end subroutine caller
+    """.strip()
+
+    class SuccessorTransformation(Transformation):
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.counter = {}
+
+        def transform_subroutine(self, routine, **kwargs):
+            item = kwargs.get('item')
+            assert item.local_name in ('caller', 'routine', 'some_procedure', 'other')
+            self.counter[item.local_name] = self.counter.get(item.local_name, 0) + 1
+
+            successors = kwargs.get('successors')
+            assert isinstance(successors, list)
+            if item.local_name == 'caller':
+                expected_successors = {
+                    'some_mod#some_type%routine', 'some_mod#some_type%do',
+                    'some_mod#some_type%procedure', 'some_mod#some_procedure', 'some_mod#routine',
+                    'some_mod#some_type%other', 'some_mod#other'
+                }
+            elif item.local_name == 'routine':
+                expected_successors = {'some_mod#some_type%other', 'some_mod#other'}
+            else:
+                expected_successors = set()
+            assert expected_successors == set(successors)
+
+    workdir = gettempdir()/'test_scheduler_successors'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'])
+
+    transformation = SuccessorTransformation()
+    scheduler.process(transformation=transformation)
+
+    assert transformation.counter == {
+        'caller': 1,
+        'routine': 1,
+        'some_procedure': 1,
+        'other': 1,
+    }
+
+    rmtree(workdir)
+
+
+@pytest.mark.parametrize('full_parse', [True, False])
+def test_scheduler_add_dependencies(config, full_parse):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        integer :: a
+    contains
+        procedure :: some_routine
+        procedure :: some_function
+    end type some_type
+contains
+    subroutine some_routine(t)
+        class(some_type), intent(inout) :: t
+        t%a = 5
+    end subroutine some_routine
+
+    integer function some_function(t)
+        class(some_type), intent(in) :: t
+        some_function = t%a
+    end function some_function
+end module some_mod
+    """.strip()
+
+    fcode_caller = """
+subroutine caller(b)
+    use some_mod, only: some_type
+    implicit none
+    integer, intent(inout) :: b
+    type(some_type) :: t
+    t%a = b
+    call t%some_routine()
+    b = t%some_function()
+end subroutine caller
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_add_dependencies'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode_caller)
+
+    def verify_graph(scheduler, expected_items, expected_dependencies):
+        assert len(scheduler.items) == len(expected_items)
+        assert all(n in scheduler.items for n in expected_items)
+        assert len(scheduler.dependencies) == len(expected_dependencies)
+        assert all(e in scheduler.dependencies for e in expected_dependencies)
+
+        assert all(item.source._incomplete is not full_parse for item in scheduler.items)
+
+        # Testing of callgraph visualisation
+        cg_path = workdir/'callgraph'
+        scheduler.callgraph(cg_path)
+
+        vgraph = VisGraphWrapper(cg_path)
+        assert all(n.upper() in vgraph.nodes for n in expected_items)
+        assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
+
+    expected_items = [
+        '#caller', 'some_mod#some_type%some_routine', 'some_mod#some_routine'
+    ]
+    expected_dependencies = [
+        ('#caller', 'some_mod#some_type%some_routine'),
+        ('some_mod#some_type%some_routine', 'some_mod#some_routine')
+    ]
+    verify_graph(scheduler, expected_items, expected_dependencies)
+
+    # Function should be in the obj map already
+    assert 'some_mod#some_function' in scheduler.obj_map
+
+    # Add inline call dependency
+    scheduler.add_dependencies(
+        {'#caller': ['some_mod#some_type%some_function']}
+    )
+
+    # Scheduler should have automatically added further relevant dependencies
+    expected_items += [
+        'some_mod#some_type%some_function', 'some_mod#some_function'
+    ]
+    expected_dependencies += [
+        ('#caller', 'some_mod#some_type%some_function'),
+        ('some_mod#some_type%some_function', 'some_mod#some_function')
+    ]
+    verify_graph(scheduler, expected_items, expected_dependencies)
+
+    rmtree(workdir)
+
+
+def test_scheduler_cached_properties():
+    fcode = """
+subroutine some_routine
+    implicit none
+    integer i
+    i = 1
+end subroutine some_routine
+    """.strip()
+
+    source = Sourcefile.from_source(fcode)
+    item = SubroutineItem('#some_routine', source=source)
+
+    assert not item.imports
+    assert not item.qualified_imports
+
+    # Add a random import...
+    item.routine.spec.prepend(
+        Import(module='some_mod', symbols=(Variable(name='some_var', scope=item.routine),))
+    )
+
+    # ...and see the caching in effect
+    assert not item.imports
+    assert not item.qualified_imports
+
+    # Clear the cache to update the property
+    item.clear_cached_property('imports')
+    assert item.imports and item.imports[0].module == 'some_mod'
+    assert 'some_var' in item.qualified_imports
+
+
+@pytest.mark.parametrize('full_parse', [False, True])
+def test_scheduler_cycle(config, full_parse):
+    fcode_mod = """
+module some_mod
+    implicit none
+    type some_type
+        integer :: a
+    contains
+        procedure :: proc => some_proc
+        procedure :: other => some_other
+    end type some_type
+contains
+    recursive subroutine some_proc(this, val, recurse, fallback)
+        class(some_type), intent(inout) :: this
+        integer, intent(in) :: val
+        logical, intent(in), optional :: recurse
+
+        if (present(recurse)) then
+            if (present(fallback)) then
+                call this%other(val)
+            else
+                call some_proc(this, val, .true., .true.)
+            end if
+        else
+            call this%proc(val, .true.)
+        end if
+    end subroutine some_proc
+
+    subroutine some_other(this, val)
+        class(some_type), intent(inout) :: this
+        integer, intent(in) :: val
+        this%a = val
+    end subroutine some_other
+end module some_mod
+    """.strip()
+
+    fcode_caller = """
+subroutine caller
+    use some_mod, only: some_type
+    implicit none
+    type(some_type) :: t
+
+    call t%proc(1)
+end subroutine caller
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_cycle'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'some_mod.F90').write_text(fcode_mod)
+    (workdir/'caller.F90').write_text(fcode_caller)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
+
+    # Make sure we the outgoing edges from the recursive routine to the procedure binding
+    # and itself are removed but the other edge still exists
+    assert (scheduler['#caller'], scheduler['some_mod#some_type%proc']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_type%proc'], scheduler['some_mod#some_proc']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_type%proc']) not in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_proc']) not in scheduler.dependencies
+    assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_type%other']) in scheduler.dependencies
+    assert (scheduler['some_mod#some_type%other'], scheduler['some_mod#some_other']) in scheduler.dependencies
+
+    rmtree(workdir)
+
+
+def test_scheduler_unqualified_imports(config):
+    """
+    Test that only qualified imports are added as children.
+    """
+
+    my_config = config.copy()
+    my_config['default']['enable_imports'] = True
+
+    kernel = """
+    subroutine kernel()
+       use some_mod
+       use other_mod, only: other_routine
+
+       call other_routine
+    end subroutine kernel
+    """
+
+    source = Sourcefile.from_source(kernel, frontend=REGEX)
+    item = SubroutineItem(name='#kernel', source=source, config=my_config['default'])
+
+    assert item.enable_imports
+    assert item.children == ('other_routine',)

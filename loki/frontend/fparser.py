@@ -1477,7 +1477,7 @@ class FParser2IR(GenericVisitor):
         associations = as_tuple(rescoped_associations)
 
         # The body
-        body = as_tuple(self.visit(c, **kwargs) for c in o.children[assoc_stmt_index+1:end_assoc_stmt_index])
+        body = as_tuple(flatten(self.visit(c, **kwargs) for c in o.children[assoc_stmt_index+1:end_assoc_stmt_index]))
         associate._update(associations=associations, body=body)
 
         # Everything past the END ASSOCIATE (should be empty)
@@ -1782,7 +1782,8 @@ class FParser2IR(GenericVisitor):
         if return_type is not None:
             routine.symbol_attrs[routine.name] = return_type
             return_var = sym.Variable(name=routine.name, scope=routine)
-            return_var_decl = ir.VariableDeclaration(symbols=(return_var,))
+            decl_source = self.get_source(subroutine_stmt, source=None)
+            return_var_decl = ir.VariableDeclaration(symbols=(return_var,), source=decl_source)
 
             decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
             if not decls:
@@ -1794,12 +1795,11 @@ class FParser2IR(GenericVisitor):
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
-        routine.__init__(
-            name=routine.name, args=routine._dummies,
-            docstring=docs, spec=spec, body=body, contains=contains, ast=o,
-            prefix=routine.prefix, bind=routine.bind, result_name=routine.result_name, is_function=routine.is_function,
-            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-            incomplete=False
+        routine.__initialize__(
+            name=routine.name, args=routine._dummies, docstring=docs, spec=spec,
+            body=body, contains=contains, ast=o, prefix=routine.prefix, bind=routine.bind,
+            result_name=routine.result_name, is_function=routine.is_function,
+            rescope_symbols=True, source=source, incomplete=False
         )
 
         # Big, but necessary hack:
@@ -1886,11 +1886,11 @@ class FParser2IR(GenericVisitor):
                 is_function=is_function, parent=kwargs['scope']
             )
         else:
-            routine.__init__(  # pylint: disable=unnecessary-dunder-call
-                name=name, args=args, docstring=routine.docstring, spec=routine.spec, body=routine.body,
-                contains=routine.contains, prefix=prefix, bind=bind, result_name=result, is_function=is_function,
-                ast=routine._ast, source=routine._source, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
-                incomplete=routine._incomplete
+            routine.__initialize__(
+                name=name, args=args, docstring=routine.docstring, spec=routine.spec,
+                body=routine.body, contains=routine.contains, prefix=prefix, bind=bind,
+                result_name=result, is_function=is_function, ast=routine._ast,
+                source=routine._source, incomplete=routine._incomplete
             )
 
         return (routine, return_type)
@@ -2031,11 +2031,11 @@ class FParser2IR(GenericVisitor):
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
-        module.__init__(
+        module.__initialize__(
             name=module.name, docstring=docs, spec=spec, contains=contains,
             default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
             private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
-            parent=module.parent, symbol_attrs=module.symbol_attrs, incomplete=False
+            incomplete=False
         )
 
         return (*pre, module)
@@ -2099,8 +2099,17 @@ class FParser2IR(GenericVisitor):
             else_if_stmt_index, else_if_stmts = zip(*else_if_stmts)
         else:
             else_if_stmt_index = ()
-        else_stmt = get_child(o, Fortran2003.Else_Stmt)
-        else_stmt_index = o.children.index(else_stmt) if else_stmt else end_if_stmt_index
+
+        # Note: we need to use here the same method as for else-if because finding Else_Stmt
+        # directly and checking its position via o.children.index may give the wrong result.
+        # This is because Else_Stmt may erronously compare equal to other node types.
+        # See https://github.com/stfc/fparser/issues/400
+        else_stmt = tuple((i, c) for i, c in enumerate(o.children) if isinstance(c, Fortran2003.Else_Stmt))
+        if else_stmt:
+            assert len(else_stmt) == 1
+            else_stmt_index, else_stmt = else_stmt[0]
+        else:
+            else_stmt_index = end_if_stmt_index
         conditions = as_tuple(self.visit(c, **kwargs) for c in (if_then_stmt,) + else_if_stmts)
         bodies = tuple(
             tuple(flatten(as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])))

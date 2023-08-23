@@ -85,7 +85,7 @@ class Transformation:
             Keyword arguments for the transformation.
         """
 
-    def apply(self, source, **kwargs):
+    def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
         """
         Dispatch method to apply transformation to all source items in
         :data:`source`.
@@ -97,6 +97,9 @@ class Transformation:
         ----------
         source : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine`
             The source item to transform.
+        post_apply_rescope_symbols : bool, optional
+            Call ``rescope_symbols`` on :data:`source` after applying the
+            transformation to clean up any scoping issues.
         **kwargs : optional
             Keyword arguments that are passed on to the methods defining the
             actual transformation.
@@ -110,7 +113,7 @@ class Transformation:
         if isinstance(source, Module):
             self.apply_module(source, **kwargs)
 
-        self.post_apply(source)
+        self.post_apply(source, rescope_symbols=post_apply_rescope_symbols)
 
     def apply_file(self, sourcefile, **kwargs):
         """
@@ -136,10 +139,10 @@ class Transformation:
         self.transform_file(sourcefile, **kwargs)
 
         for module in sourcefile.modules:
-            self.apply(module, **kwargs)
+            self.apply_module(module, **kwargs)
 
         for routine in sourcefile.subroutines:
-            self.apply(routine, **kwargs)
+            self.apply_subroutine(routine, **kwargs)
 
     def apply_subroutine(self, subroutine, **kwargs):
         """
@@ -161,12 +164,16 @@ class Transformation:
         if subroutine._incomplete:
             raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
 
+        # Bail if the subroutine has not actually been scheduled for processing
+        if (item := kwargs.get('item', None)) and item.local_name != subroutine.name.lower():
+            return
+
         # Apply the actual transformation for subroutines
         self.transform_subroutine(subroutine, **kwargs)
 
         # Recurse on subroutine members
         for member in subroutine.members:
-            self.apply(member, **kwargs)
+            self.apply_subroutine(member, **kwargs)
 
     def apply_module(self, module, **kwargs):
         """
@@ -193,9 +200,9 @@ class Transformation:
 
         # Call the dispatch for all contained subroutines
         for routine in module.subroutines:
-            self.apply(routine, **kwargs)
+            self.apply_subroutine(routine, **kwargs)
 
-    def post_apply(self, source):
+    def post_apply(self, source, rescope_symbols=False):
         """
         Dispatch method for actions to be carried out after applying a transformation
         to :data:`source`.
@@ -207,17 +214,19 @@ class Transformation:
         ----------
         source : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine`
             The source item to transform.
+        rescope_symbols : bool, optional
+            Call ``rescope_symbols`` on :data:`source`
         """
         if isinstance(source, Sourcefile):
-            self.post_apply_file(source)
+            self.post_apply_file(source, rescope_symbols)
 
         if isinstance(source, Subroutine):
-            self.post_apply_subroutine(source)
+            self.post_apply_subroutine(source, rescope_symbols)
 
         if isinstance(source, Module):
-            self.post_apply_module(source)
+            self.post_apply_module(source, rescope_symbols)
 
-    def post_apply_file(self, sourcefile):
+    def post_apply_file(self, sourcefile, rescope_symbols):
         """
         Apply actions after applying a transformation to :data:`sourcefile`.
 
@@ -225,11 +234,20 @@ class Transformation:
         ----------
         sourcefile : :any:`Sourcefile`
             The file to transform.
+        rescope_symbols : bool
+            Call ``rescope_symbols`` on modules and subroutines in :data:`sourcefile`
         """
         if not isinstance(sourcefile, Sourcefile):
             raise TypeError('Transformation.post_apply_file can only be applied to Sourcefile object')
 
-    def post_apply_subroutine(self, subroutine):
+        for module in sourcefile.modules:
+            self.post_apply_module(module, rescope_symbols)
+
+        for routine in sourcefile.subroutines:
+            self.post_apply_subroutine(routine, rescope_symbols)
+
+
+    def post_apply_subroutine(self, subroutine, rescope_symbols):
         """
         Apply actions after applying a transformation to :data:`subroutine`.
 
@@ -237,14 +255,20 @@ class Transformation:
         ----------
         subroutine : :any:`Subroutine`
             The file to transform.
+        rescope_symbols : bool
+            Call ``rescope_symbols`` on :data:`subroutine`
         """
         if not isinstance(subroutine, Subroutine):
             raise TypeError('Transformation.post_apply_subroutine can only be applied to Subroutine object')
 
-        # Ensure all objects in the IR are in the subroutine's or a parent scope.
-        subroutine.rescope_symbols()
+        for routine in subroutine.members:
+            self.post_apply_subroutine(routine, False)
 
-    def post_apply_module(self, module):
+        # Ensure all objects in the IR are in the subroutine's or a parent scope.
+        if rescope_symbols:
+            subroutine.rescope_symbols()
+
+    def post_apply_module(self, module, rescope_symbols):
         """
         Apply actions after applying a transformation to :data:`module`.
 
@@ -252,9 +276,15 @@ class Transformation:
         ----------
         module : :any:`Module`
             The file to transform.
+        rescope_symbols : bool
+            Call ``rescope_symbols`` on :data:`module`
         """
         if not isinstance(module, Module):
             raise TypeError('Transformation.post_apply_module can only be applied to Module object')
 
+        for routine in module.subroutines:
+            self.post_apply_subroutine(routine, False)
+
         # Ensure all objects in the IR are in the module's scope.
-        module.rescope_symbols()
+        if rescope_symbols:
+            module.rescope_symbols()

@@ -49,12 +49,21 @@ jobs:
       run: |
         make html
 
-    - name: Upload documentation to sites
+    - name: Upload pull request documentation to sites
+      if: github.event.pull_request.head.repo.full_name == 'ecmwf-ifs/loki'
       env:
         SITES_TOKEN: ${{ secrets.SITES_TOKEN }}
       working-directory: ./docs
       run: |
         ./sites-manager.py --space=docs --name=loki --token "$SITES_TOKEN" upload build/html ${{ github.event.pull_request.number }} || true
+
+    - name: Update documentation on sites
+      if: github.event_name != 'pull_request'
+      env:
+        SITES_TOKEN: ${{ secrets.SITES_TOKEN }}
+      working-directory: ./docs
+      run: |
+        ./sites-manager.py --space=docs --name=loki --token "$SITES_TOKEN" upload --clean build/html ${{ github.ref_name }} || true
 
     - name: Find Comment
       if: github.ref_name != 'main'
@@ -66,8 +75,8 @@ jobs:
         body-includes: Documentation for this branch can be viewed at
 
     - name: Create or update comment
-      if: github.ref_name != 'main'
-      uses: peter-evans/create-or-update-comment@v2
+      if: github.ref_name != 'main' && github.event.pull_request.head.repo.full_name == 'ecmwf-ifs/loki'
+      uses: peter-evans/create-or-update-comment@v3
       with:
         comment-id: ${{ steps.fc.outputs.comment-id }}
         issue-number: ${{ github.event.pull_request.number }}
@@ -75,14 +84,13 @@ jobs:
           Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html
         edit-mode: replace
 
-    # Alternative way of creating the comment but without a way to edit it (thus potentially creating many duplicate comments)
     # - uses: actions/github-script@v6
-    #   if: github.ref_name != 'main'
+    #   if: github.ref_name != 'main' && steps.fc.outputs.comment-id == ''
     #   with:
     #     script: |
     #       github.rest.issues.createComment({
     #         issue_number: context.issue.number,
     #         owner: context.repo.owner,
     #         repo: context.repo.repo,
-    #         body: 'Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.ref_name }}'
+    #         body: 'Documentation for this branch can be viewed at https://sites.ecmwf.int/docs/loki/${{ github.event.pull_request.number }}/index.html'
     #       })

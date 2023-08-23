@@ -15,7 +15,7 @@ from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.program_unit import ProgramUnit
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, ProcedureType, SymbolAttributes
+from loki.types import BasicType, ProcedureType, DerivedType, SymbolAttributes
 
 
 __all__ = ['Subroutine']
@@ -71,9 +71,29 @@ class Subroutine(ProgramUnit):
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, name, args=None, docstring=None, spec=None, body=None, contains=None,
-                 prefix=None, bind=None, result_name=None, is_function=False, ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None, incomplete=False):
+    def __init__(
+            self, name, args=None, docstring=None, spec=None, body=None,
+            contains=None, prefix=None, bind=None, result_name=None,
+            is_function=False, ast=None, source=None, parent=None,
+            symbol_attrs=None, rescope_symbols=False, incomplete=False
+    ):
+        super().__init__(parent=parent)
+
+        if symbol_attrs:
+            self.symbol_attrs.update(symbol_attrs)
+
+        self.__initialize__(
+            name=name, args=args, docstring=docstring, spec=spec, body=body,
+            contains=contains,  prefix=prefix, bind=bind, result_name=result_name,
+            is_function=is_function, ast=ast, source=source,
+            rescope_symbols=rescope_symbols, incomplete=incomplete
+        )
+
+    def __initialize__(
+            self, name, docstring=None, spec=None, contains=None,
+            ast=None, source=None, rescope_symbols=False, incomplete=False,
+            body=None, args=None, prefix=None, bind=None, result_name=None, is_function=False,
+    ):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self.prefix = as_tuple(prefix)
@@ -86,11 +106,9 @@ class Subroutine(ProgramUnit):
             body = ir.Section(body=body)
         self.body = body
 
-        # Then call the parent constructor to store common properties
-        super().__init__(
+        super().__initialize__(
             name=name, docstring=docstring, spec=spec, contains=contains,
-            ast=ast, source=source, parent=parent, rescope_symbols=rescope_symbols,
-            symbol_attrs=symbol_attrs, incomplete=incomplete
+            ast=ast, source=source, rescope_symbols=rescope_symbols, incomplete=incomplete
         )
 
     def __getstate__(self):
@@ -101,7 +119,6 @@ class Subroutine(ProgramUnit):
         self.__dict__.update(s)
 
         self._ast = None
-        self._parent = None
 
         # Re-register all encapulated member procedures
         for member in self.members:
@@ -404,8 +421,8 @@ class Subroutine(ProgramUnit):
         routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
         decl_map = {}
         for decl in FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(self.spec):
-            if any(v in arg_names for v in decl.symbols):
-                assert all(v in arg_names and v.type.intent is not None for v in decl.symbols), \
+            if any(v.name in arg_names for v in decl.symbols):
+                assert all(v.name in arg_names and v.type.intent is not None for v in decl.symbols), \
                     "Declarations must have intents and dummy and local arguments cannot be mixed."
                 # Replicate declaration with re-scoped variables
                 variables = as_tuple(v.clone(scope=routine) for v in decl.symbols)
@@ -461,6 +478,15 @@ class Subroutine(ProgramUnit):
 
         # TODO: Could extend this to module and header imports to
         # facilitate user-directed inlining.
+
+    def enrich_types(self, typedefs):
+
+        type_map = CaseInsensitiveDict((t.name, t) for t in as_tuple(typedefs))
+        for variable in self.variables:
+            type_ = variable.type
+            if isinstance(type_.dtype, DerivedType) and type_.dtype.typedef is BasicType.DEFERRED:
+                if type_.dtype.name in type_map:
+                    variable.type = type_.clone(dtype=DerivedType(typedef=type_map[type_.dtype.name]))
 
     def __repr__(self):
         """

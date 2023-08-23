@@ -9,16 +9,20 @@ import pytest
 
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
-    CallStatement, Scalar, Array, Pragma, pragmas_attached, fgen,
-    Sourcefile
+    CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
+    fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
+    is_loki_pragma, IntLiteral, RangeIndex, Comment
 )
 from conftest import available_frontends
-from transformations import SingleColumnCoalescedTransformation, DataOffloadTransformation
-
+from transformations import (
+     DataOffloadTransformation, SCCBaseTransformation, SCCDevectorTransformation, SCCDemoteTransformation,
+     SCCRevectorTransformation, SCCHoistTransformation, SCCAnnotateTransformation, SingleColumnCoalescedTransformation
+)
+#pylint: disable=too-many-lines
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
-    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'))
+    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'), aliases=('nproma',))
 
 
 @pytest.fixture(scope='module', name='vertical')
@@ -32,10 +36,10 @@ def fixture_blocking():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_simple(frontend, horizontal, vertical):
+def test_scc_revector_transformation(frontend, horizontal):
     """
-    Test removal of vector loops in kernel and re-insertion of the
-    horizontal loop in the "driver".
+    Test removal of vector loops in kernel and re-insertion of a single
+    hoisted horizontal loop in the kernel.
     """
 
     fcode_driver = """
@@ -78,14 +82,16 @@ def test_single_column_coalesced_simple(frontend, horizontal, vertical):
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical,
-        hoist_column_arrays=False
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
-    scc_transform.apply(kernel, role='kernel')
+    # Ensure we have three loops in the kernel prior to transformation
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 3
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(driver, role='driver')
+        transform.apply(kernel, role='kernel')
 
     # Ensure we have two nested loops in the kernel
     # (the hoisted horizontal and the native vertical)
@@ -103,38 +109,22 @@ def test_single_column_coalesced_simple(frontend, horizontal, vertical):
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
-    # Ensure only one loop in the driver
+    # Ensure driver remains unaffected
     driver_loops = FindNodes(Loop).visit(driver.body)
     assert len(driver_loops) == 1
     assert driver_loops[0].variable == 'b'
     assert driver_loops[0].bounds == '1:nb'
 
-    # Ensure we have a kernel call in the driver loop
     kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_vector_notation(frontend, horizontal, vertical):
+def test_scc_base_resolve_vector_notation(frontend, horizontal):
     """
-    Test resolving of vector notation in kernel and re-insertion of the
-    horizontal loop in the "driver".
+    Test resolving of vector notation in kernel.
     """
-
-    fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, t, nb)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
-    INTEGER :: b, start, end
-
-    start = 1
-    end = nlon
-    do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b), t(:,:,b))
-    end do
-  END SUBROUTINE column_driver
-"""
 
     fcode_kernel = """
   SUBROUTINE compute_column(start, end, nlon, nz, q, t)
@@ -152,22 +142,122 @@ def test_single_column_coalesced_vector_notation(frontend, horizontal, vertical)
     END DO
   END SUBROUTINE compute_column
 """
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical,
-        hoist_column_arrays=False
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
     scc_transform.apply(kernel, role='kernel')
 
     # Ensure horizontal loop variable has been declared
     assert 'jl' in kernel.variables
 
-    # Ensure we have two nested loops in the kernel
-    # (the hoisted horizontal and the native vertical)
+    # Ensure we have three loops in the kernel,
+    # horizontal loops should be nested within vertical
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 3
+    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[2] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[1].variable == 'jl'
+    assert kernel_loops[1].bounds == 'start:end'
+    assert kernel_loops[2].variable == 'jl'
+    assert kernel_loops[2].bounds == 'start:end'
+    assert kernel_loops[0].variable == 'jk'
+    assert kernel_loops[0].bounds == '2:nz'
+
+    # Ensure all expressions and array indices are unchanged
+    assigns = FindNodes(Assignment).visit(kernel.body)
+    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
+    assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_masked_statement(frontend, horizontal):
+    """
+    Test resolving of masked statements in kernel.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      WHERE (q(start:end, jk) > 1.234)
+        q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
+      ELSEWHERE
+        q(start:end, jk) = t(start:end, jk)
+      END WHERE
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel')
+
+    # Ensure horizontal loop variable has been declared
+    assert 'jl' in kernel.variables
+
+    # Ensure we have three loops in the kernel,
+    # horizontal loops should be nested within vertical
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 2
+    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[1].variable == 'jl'
+    assert kernel_loops[1].bounds == 'start:end'
+    assert kernel_loops[0].variable == 'jk'
+    assert kernel_loops[0].bounds == '2:nz'
+
+    # Ensure that the respective conditional has been inserted correctly
+    kernel_conds = FindNodes(Conditional).visit(kernel.body)
+    assert len(kernel_conds) == 1
+    assert kernel_conds[0] in FindNodes(Conditional).visit(kernel_loops[1])
+    assert kernel_conds[0].condition == 'q(jl, jk) > 1.234'
+    assert fgen(kernel_conds[0].body) == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+    assert fgen(kernel_conds[0].else_body) == 'q(jl, jk) = t(jl, jk)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_wrapper_masked_statement(frontend, horizontal, vertical):
+    """
+    Test resolving of masked statements in kernel.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      WHERE (q(start:end, jk) > 1.234)
+        q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
+      ELSEWHERE
+        q(start:end, jk) = t(start:end, jk)
+      END WHERE
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = SingleColumnCoalescedTransformation(horizontal=horizontal, vertical=vertical,
+                                                        directive='openacc', hoist_column_arrays=False)
+    scc_transform.apply(kernel, role='kernel')
+
+    # Ensure horizontal loop variable has been declared
+    assert 'jl' in kernel.variables
+
+    # Ensure we have three loops in the kernel,
+    # horizontal loops should be nested within vertical
     kernel_loops = FindNodes(Loop).visit(kernel.body)
     assert len(kernel_loops) == 2
     assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
@@ -176,42 +266,22 @@ def test_single_column_coalesced_vector_notation(frontend, horizontal, vertical)
     assert kernel_loops[1].variable == 'jk'
     assert kernel_loops[1].bounds == '2:nz'
 
-    # Ensure all expressions and array indices are unchanged
-    assigns = FindNodes(Assignment).visit(kernel.body)
-    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
-    assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+    # Ensure that the respective conditional has been inserted correctly
+    kernel_conds = FindNodes(Conditional).visit(kernel.body)
+    assert len(kernel_conds) == 1
+    assert kernel_conds[0] in FindNodes(Conditional).visit(kernel_loops[1])
+    assert kernel_conds[0].condition == 'q(jl, jk) > 1.234'
+    assert fgen(kernel_conds[0].body) == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+    assert fgen(kernel_conds[0].else_body) == 'q(jl, jk) = t(jl, jk)'
 
-    # Ensure only one loop in the driver
-    driver_loops = FindNodes(Loop).visit(driver.body)
-    assert len(driver_loops) == 1
-    assert driver_loops[0].variable == 'b'
-    assert driver_loops[0].bounds == '1:nb'
-
-    # Ensure we have a kernel call in the driver loop
-    kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
-    assert len(kernel_calls) == 1
-    assert kernel_calls[0].name == 'compute_column'
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_demote(frontend, horizontal, vertical):
+def test_scc_demote_transformation(frontend, horizontal):
     """
-    Test that local array variables that do not contain the
-    vertical dimension are demoted and privativised.
+    Test that local array variables that do not buffer values
+    between vector sections and whose size is known at compile-time
+    are demoted.
     """
-
-    fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, nb, q)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Array dimensions
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
-    INTEGER :: b, start, end
-
-    start = 1
-    end = nlon
-    do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b))
-    end do
-  END SUBROUTINE column_driver
-"""
 
     fcode_kernel = """
   SUBROUTINE compute_column(start, end, nlon, nz, q)
@@ -245,15 +315,13 @@ def test_single_column_coalesced_demote(frontend, horizontal, vertical):
   END SUBROUTINE compute_column
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical,
-        hoist_column_arrays=False
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
-    scc_transform.apply(kernel, role='kernel')
+    # Must run SCCDevector first because demotion relies on knowledge
+    # of vector sections
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(kernel, role='kernel')
 
     # Ensure correct array variables shapes
     assert isinstance(kernel.variable_map['a'], Scalar)
@@ -279,7 +347,7 @@ def test_single_column_coalesced_demote(frontend, horizontal, vertical):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking):
+def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     """
     Test hoisting of column temporaries to "driver" level.
     """
@@ -293,6 +361,9 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     start = 1
     end = nlon
     do b=1, nb
+      call compute_column(start, end, nlon, nz, q(:,:,b))
+
+      ! A second call, to check multiple calls are honored
       call compute_column(start, end, nlon, nz, q(:,:,b))
     end do
   END SUBROUTINE column_driver
@@ -325,12 +396,12 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        hoist_column_arrays=True
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
-    scc_transform.apply(kernel, role='kernel')
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical,
+                                           block_dim=blocking),)
+    for transform in scc_transform:
+        transform.apply(driver, role='driver', targets=['compute_column'])
+        transform.apply(kernel, role='kernel')
 
     # Ensure we have only one loop left in kernel
     kernel_loops = FindNodes(Loop).visit(kernel.body)
@@ -344,28 +415,33 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
-    # Ensure we have two nested driver loops
+    # Ensure we have two vector loops, nested in one driver loop
     driver_loops = FindNodes(Loop).visit(driver.body)
-    assert len(driver_loops) == 2
+    assert len(driver_loops) == 3
     assert driver_loops[1] in FindNodes(Loop).visit(driver_loops[0].body)
+    assert driver_loops[2] in FindNodes(Loop).visit(driver_loops[0].body)
     assert driver_loops[0].variable == 'b'
     assert driver_loops[0].bounds == '1:nb'
     assert driver_loops[1].variable == 'jl'
     assert driver_loops[1].bounds == 'start:end'
+    assert driver_loops[2].variable == 'jl'
+    assert driver_loops[2].bounds == 'start:end'
 
-    # Ensure we have a kernel call in the driver loop
+    # Ensure we have two kernel calls in the driver loop
     kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
-    assert len(kernel_calls) == 1
+    assert len(kernel_calls) == 2
     assert kernel_calls[0].name == 'compute_column'
+    assert kernel_calls[1].name == 'compute_column'
     assert ('jl', 'jl') in kernel_calls[0].kwarguments
     assert 't(:,:,b)' in kernel_calls[0].arguments
+    assert ('jl', 'jl') in kernel_calls[1].kwarguments
+    assert 't(:,:,b)' in kernel_calls[1].arguments
 
     # Ensure that column local `t(nlon,nz)` has been hoisted
     assert 't' in kernel.argnames
     assert kernel.variable_map['t'].type.intent.lower() == 'inout'
     # TODO: Shape doesn't translate correctly yet.
     assert driver.variable_map['t'].dimensions == ('nlon', 'nz', 'nb')
-    # assert driver.variable_map['t'].shape == ('nlon', 'nz', 'nb')
 
     # Ensure that the loop index variable is correctly promoted
     assert 'jl' in kernel.argnames
@@ -373,7 +449,108 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blocking):
+def test_scc_wrapper_multiple_kernels(frontend, horizontal, vertical, blocking):
+    """
+    Test hoisting of column temporaries to "driver" level.
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column(start, end, nlon, nz, q(:,:,b))
+
+      ! A second call, to check multiple calls are honored
+      call compute_column(start, end, nlon, nz, q(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: t(nlon,nz)
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = start, end
+        t(jl, jk) = c * k
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+
+    scc_transform = (SingleColumnCoalescedTransformation(horizontal=horizontal, vertical=vertical,
+                                                         block_dim=blocking, hoist_column_arrays=True),)
+    for transform in scc_transform:
+        transform.apply(driver, role='driver', targets=['compute_column'])
+        transform.apply(kernel, role='kernel')
+
+    # Ensure we have only one loop left in kernel
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 1
+    assert kernel_loops[0].variable == 'jk'
+    assert kernel_loops[0].bounds == '2:nz'
+
+    # Ensure all expressions and array indices are unchanged
+    assigns = FindNodes(Assignment).visit(kernel.body)
+    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
+    assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+    assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
+
+    # Ensure we have two vector loops, nested in one driver loop
+    driver_loops = FindNodes(Loop).visit(driver.body)
+    assert len(driver_loops) == 3
+    assert driver_loops[1] in FindNodes(Loop).visit(driver_loops[0].body)
+    assert driver_loops[2] in FindNodes(Loop).visit(driver_loops[0].body)
+    assert driver_loops[0].variable == 'b'
+    assert driver_loops[0].bounds == '1:nb'
+    assert driver_loops[1].variable == 'jl'
+    assert driver_loops[1].bounds == 'start:end'
+    assert driver_loops[2].variable == 'jl'
+    assert driver_loops[2].bounds == 'start:end'
+
+    # Ensure we have two kernel calls in the driver loop
+    kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
+    assert len(kernel_calls) == 2
+    assert kernel_calls[0].name == 'compute_column'
+    assert kernel_calls[1].name == 'compute_column'
+    assert ('jl', 'jl') in kernel_calls[0].kwarguments
+    assert 't(:,:,b)' in kernel_calls[0].arguments
+    assert ('jl', 'jl') in kernel_calls[1].kwarguments
+    assert 't(:,:,b)' in kernel_calls[1].arguments
+
+    # Ensure that column local `t(nlon,nz)` has been hoisted
+    assert 't' in kernel.argnames
+    assert kernel.variable_map['t'].type.intent.lower() == 'inout'
+    # TODO: Shape doesn't translate correctly yet.
+    assert driver.variable_map['t'].dimensions == ('nlon', 'nz', 'nb')
+
+    # Ensure that the loop index variable is correctly promoted
+    assert 'jl' in kernel.argnames
+    assert kernel.variable_map['jl'].type.intent.lower() == 'in'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
     """
     Test the correct addition of OpenACC pragmas to SCC format code (no hoisting).
     """
@@ -428,15 +605,17 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
     # Test OpenACC annotations on non-hoisted version
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        hoist_column_arrays=False, directive='openacc'
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
-    scc_transform.apply(kernel, role='kernel')
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical, directive='openacc',
+                                              block_dim=blocking),)
+    for transform in scc_transform:
+        transform.apply(driver, role='driver', targets=['compute_column'])
+        transform.apply(kernel, role='kernel')
 
     # Ensure routine is anntoated at vector level
-    pragmas = FindNodes(Pragma).visit(kernel.body)
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
     assert len(pragmas) == 5
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine vector'
@@ -445,10 +624,9 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
     assert pragmas[-1].keyword == 'acc'
     assert pragmas[-1].content == 'end data'
 
-    # Ensure vector and seq loops are annotated, including
-    # privatized variable `b`
+    # Ensure vector and seq loops are annotated, including privatized variable `b`
     with pragmas_attached(kernel, Loop):
-        kernel_loops = FindNodes(Loop).visit(kernel.body)
+        kernel_loops = FindNodes(Loop).visit(kernel.ir)
         assert len(kernel_loops) == 2
         assert kernel_loops[0].pragma[0].keyword == 'acc'
         assert kernel_loops[0].pragma[0].content == 'loop vector private(b)'
@@ -460,7 +638,7 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
         driver_loops = FindNodes(Loop).visit(driver.body)
         assert len(driver_loops) == 1
         assert driver_loops[0].pragma[0].keyword == 'acc'
-        assert driver_loops[0].pragma[0].content == 'parallel loop gang'
+        assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -515,21 +693,25 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     END DO
   END SUBROUTINE compute_column
 """
+
+    driver_item = SubroutineItem(name='#column_driver', source=fcode_driver)
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    # Test OpenACC annotations on non-hoisted version
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        hoist_column_arrays=True, directive='openacc'
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
-    scc_transform.apply(kernel, role='kernel')
+    # Test OpenACC annotations on hoisted version
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    scc_transform += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical, block_dim=blocking),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical, directive='openacc',
+                                              block_dim=blocking, hoist_column_arrays=True),)
+    for transform in scc_transform:
+        transform.apply(driver, role='driver', targets=['compute_column'], item=driver_item)
+        transform.apply(kernel, role='kernel')
 
     with pragmas_attached(kernel, Loop):
         # Ensure routine is anntoated at vector level
-        kernel_pragmas = FindNodes(Pragma).visit(kernel.body)
+        kernel_pragmas = FindNodes(Pragma).visit(kernel.ir)
         assert len(kernel_pragmas) == 3
         assert kernel_pragmas[0].keyword == 'acc'
         assert kernel_pragmas[0].content == 'routine seq'
@@ -549,9 +731,191 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
         driver_loops = FindNodes(Loop).visit(driver.body)
         assert len(driver_loops) == 2
         assert driver_loops[0].pragma[0].keyword == 'acc'
-        assert driver_loops[0].pragma[0].content == 'parallel loop gang'
+        assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
         assert driver_loops[1].pragma[0].keyword == 'acc'
         assert driver_loops[1].pragma[0].content == 'loop vector'
+
+        # Ensure deviece allocation and teardown via `!$acc enter/exit data`
+        driver_pragmas = FindNodes(Pragma).visit(driver.body)
+        assert len(driver_pragmas) == 2
+        assert driver_pragmas[0].keyword == 'acc'
+        assert driver_pragmas[0].content == 'enter data create(t)'
+        assert driver_pragmas[1].keyword == 'acc'
+        assert driver_pragmas[1].content == 'exit data delete(t)'
+
+
+@pytest.mark.parametrize('block_size', ['nlon','nproma'])
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_wrapper_hoist_openacc(frontend, horizontal, vertical, blocking, block_size):
+    """
+    Test the correct addition of OpenACC pragmas to SCC format code
+    when hoisting column array temporaries to driver.
+    """
+
+    fcode_driver = f"""
+  SUBROUTINE column_driver({block_size}, nz, q, nb)
+    INTEGER, INTENT(IN)   :: {block_size}, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: q({block_size},nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = {block_size}
+    do b=1, nb
+      call compute_column(start, end, {block_size}, nz, q(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: t(nlon,nz)
+    REAL :: a(nlon)
+    REAL :: b(nlon,psize)
+    INTEGER, PARAMETER :: psize = 3
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = start, end
+        t(jl, jk) = c * k
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = START, END
+      a(jl) = Q(JL, 1)
+      b(jl, 1) = Q(JL, 2)
+      b(jl, 2) = Q(JL, 3)
+      b(jl, 3) = a(jl) * (b(jl, 1) + b(jl, 2))
+
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+  END SUBROUTINE compute_column
+"""
+
+    driver_item = SubroutineItem(name='#column_driver', source=fcode_driver)
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+
+    # Test OpenACC annotations on hoisted version
+    scc_transform = (SingleColumnCoalescedTransformation(horizontal=horizontal, vertical=vertical,
+                                                         block_dim=blocking, directive='openacc',
+                                                         hoist_column_arrays=True),)
+    for transform in scc_transform:
+        transform.apply(driver, role='driver', targets=['compute_column'], item=driver_item)
+        transform.apply(kernel, role='kernel')
+
+    with pragmas_attached(kernel, Loop):
+        # Ensure routine is anntoated at vector level
+        kernel_pragmas = FindNodes(Pragma).visit(kernel.ir)
+        assert len(kernel_pragmas) == 3
+        assert kernel_pragmas[0].keyword == 'acc'
+        assert kernel_pragmas[0].content == 'routine seq'
+        assert kernel_pragmas[1].keyword == 'acc'
+        assert kernel_pragmas[1].content == 'data present(q, t)'
+        assert kernel_pragmas[2].keyword == 'acc'
+        assert kernel_pragmas[2].content == 'end data'
+
+        # Ensure only a single `seq` loop is left
+        kernel_loops = FindNodes(Loop).visit(kernel.body)
+        assert len(kernel_loops) == 1
+        assert kernel_loops[0].pragma[0].keyword == 'acc'
+        assert kernel_loops[0].pragma[0].content == 'loop seq'
+
+    # Ensure two levels of blocked parallel loops in driver
+    with pragmas_attached(driver, Loop):
+        driver_loops = FindNodes(Loop).visit(driver.body)
+        assert len(driver_loops) == 2
+        assert driver_loops[0].pragma[0].keyword == 'acc'
+        assert driver_loops[0].pragma[0].content == f'parallel loop gang vector_length({block_size})'
+        assert driver_loops[1].pragma[0].keyword == 'acc'
+        assert driver_loops[1].pragma[0].content == 'loop vector'
+
+        # Ensure deviece allocation and teardown via `!$acc enter/exit data`
+        driver_pragmas = FindNodes(Pragma).visit(driver.body)
+        assert len(driver_pragmas) == 2
+        assert driver_pragmas[0].keyword == 'acc'
+        assert driver_pragmas[0].content == 'enter data create(t)'
+        assert driver_pragmas[1].keyword == 'acc'
+        assert driver_pragmas[1].content == 'exit data delete(t)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_hoist_empty(frontend, horizontal, vertical, blocking):
+    """
+    Test the correct addition of OpenACC pragmas in SCC code with
+    hoisting, if only one of two kernels contains locals to hoist.
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column1(start, end, nlon, nz, q(:,:,b))
+
+      call compute_column2(start, end, nlon, nz, q(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel1 = """
+  SUBROUTINE compute_column1(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: t(nlon,nz)  ! <= temporary array to be hoisted
+
+    DO jl = start, end
+      t(jl, nz) = q(jl, nz) + 0.2
+      q(jl, nz) = q(jl, nz) * q(jl, nz)
+    END DO
+  END SUBROUTINE compute_column1
+"""
+
+    fcode_kernel2 = """
+  SUBROUTINE compute_column2(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    ! No temporary arrays to be hoisted!
+
+    DO jl = start, end
+      q(jl, nz) = q(jl, nz) * 1.2
+    END DO
+  END SUBROUTINE compute_column2
+"""
+
+    driver_item = SubroutineItem(name='#column_driver', source=fcode_driver)
+    kernel1 = Subroutine.from_source(fcode_kernel1, frontend=frontend)
+    kernel2 = Subroutine.from_source(fcode_kernel2, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich_calls(routines=(kernel1, kernel2))  # Attach kernel source to driver call
+
+    # Test OpenACC annotations on non-hoisted version
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    scc_transform += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical, block_dim=blocking),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical, directive='openacc',
+                                              block_dim=blocking, hoist_column_arrays=True),)
+
+    for transform in scc_transform:
+        transform.apply(driver, role='driver', targets=['compute_column1', 'compute_column2'], item=driver_item)
+        transform.apply(kernel1, role='kernel')
+        transform.apply(kernel2, role='kernel')
+
+    # Ensure only one of the kernel calls caused device allocations for hoisted variables
+    with pragmas_attached(driver, Loop):
 
         # Ensure deviece allocation and teardown via `!$acc enter/exit data`
         driver_pragmas = FindNodes(Pragma).visit(driver.body)
@@ -576,9 +940,11 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
     start = 1
     end = nlon
+    associate(x => q)
     do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b))
+      call compute_column(start, end, nlon, nz, x(:,:,b))
     end do
+    end associate
   END SUBROUTINE column_driver
 """
 
@@ -628,13 +994,21 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
     driver.enrich_calls(outer_kernel)  # Attach kernel source to driver call
 
     # Test SCC transform for plain nested kernel
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        hoist_column_arrays=False, directive='openacc'
-    )
-    scc_transform.apply(driver, role='driver', targets=['compute_column'])
-    scc_transform.apply(outer_kernel, role='kernel', targets=['compute_q'])
-    scc_transform.apply(inner_kernel, role='kernel')
+    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+
+    # Apply annotate twice to test bailing out mechanism
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+
+
+    for transform in scc_transform:
+        transform.apply(driver, role='driver', targets=['compute_column'])
+        transform.apply(outer_kernel, role='kernel', targets=['compute_q'])
+        transform.apply(inner_kernel, role='kernel')
 
     # Ensure a single outer parallel loop in driver
     with pragmas_attached(driver, Loop):
@@ -643,15 +1017,14 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert driver_loops[0].variable == 'b'
         assert driver_loops[0].bounds == '1:nb'
         assert driver_loops[0].pragma[0].keyword == 'acc'
-        assert driver_loops[0].pragma[0].content == 'parallel loop gang'
+        assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
 
         # Ensure we have a kernel call in the driver loop
         kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
         assert len(kernel_calls) == 1
         assert kernel_calls[0].name == 'compute_column'
 
-    # Ensure that the intermediate kernel contains two wrapped loops
-    # and an unwrapped call statement
+    # Ensure that the intermediate kernel contains two wrapped loops and an unwrapped call statement
     with pragmas_attached(outer_kernel, Loop):
         outer_kernel_loops = FindNodes(Loop).visit(outer_kernel.body)
         assert len(outer_kernel_loops) == 2
@@ -670,12 +1043,14 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert len(FindNodes(CallStatement).visit(outer_kernel.body)) == 1
 
         # Ensure the routine has been marked properly
-        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.body)
-        assert len(outer_kernel_pragmas) == 2
+        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.ir)
+        assert len(outer_kernel_pragmas) == 3
         assert outer_kernel_pragmas[0].keyword == 'acc'
         assert outer_kernel_pragmas[0].content == 'routine vector'
         assert outer_kernel_pragmas[1].keyword == 'acc'
         assert outer_kernel_pragmas[1].content == 'data present(q)'
+        assert outer_kernel_pragmas[2].keyword == 'acc'
+        assert outer_kernel_pragmas[2].content == 'end data'
 
     # Ensure that the leaf kernel contains two nested loops
     with pragmas_attached(inner_kernel, Loop):
@@ -692,12 +1067,14 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert inner_kernel_loops[1].pragma[0].content == 'loop seq'
 
         # Ensure the routine has been marked properly
-        inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.body)
-        assert len(inner_kernel_pragmas) == 2
+        inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.ir)
+        assert len(inner_kernel_pragmas) == 3
         assert inner_kernel_pragmas[0].keyword == 'acc'
         assert inner_kernel_pragmas[0].content == 'routine vector'
         assert outer_kernel_pragmas[1].keyword == 'acc'
         assert outer_kernel_pragmas[1].content == 'data present(q)'
+        assert outer_kernel_pragmas[2].keyword == 'acc'
+        assert outer_kernel_pragmas[2].content == 'end data'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -751,14 +1128,14 @@ def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, bloc
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
     # Test SCC transform for kernel with scope-splitting outer loop
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        hoist_column_arrays=False, directive='openacc'
-    )
-    scc_transform.apply(kernel, role='kernel')
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+    for transform in scc_transform:
+        transform.apply(kernel, role='kernel')
 
-    # Ensure that we capture vector loops outside the outer vertical
-    # loop, as well as the one vector loop inside it.
+    # Ensure that we capture vector loops outside the outer vertical loop, as well as the one vector loop inside it.
     with pragmas_attached(kernel, Loop):
         kernel_loops = FindNodes(Loop).visit(kernel.body)
         assert len(kernel_loops) == 5
@@ -795,7 +1172,83 @@ def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, bloc
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_variable_demotion(frontend, horizontal, vertical, blocking):
+def test_scc_devector_transformation(frontend, horizontal):
+    """
+    Test the correct identification of vector sections and removal of vector loops.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jl, jk, niter
+    LOGICAL :: maybe
+    REAL :: c
+
+    if (maybe)  call logger()
+
+    c = 5.345
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) + 3.0
+    END DO
+
+    DO niter = 1, 3
+
+      DO JL = START, END
+        Q(JL, NZ) = Q(JL, NZ) + 1.0
+      END DO
+
+      call update_q(start, end, nlon, nz, q, c)
+
+    END DO
+
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+
+    IF (.not. maybe) THEN
+      call update_q(start, end, nlon, nz, q, c)
+    END IF
+
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) + C * 3.
+    END DO
+
+    IF (maybe)  call logger()
+
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    # Check number of horizontal loops prior to transformation
+    loops = [l for l in FindNodes(Loop).visit(kernel.body) if l.variable == 'jl']
+    assert len(loops) == 4
+
+    # Test SCCDevector transform for kernel with scope-splitting outer loop
+    scc_transform = SCCDevectorTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel')
+
+    # Check removal of horizontal loops
+    loops = [l for l in FindNodes(Loop).visit(kernel.body) if l.variable == 'jl']
+    assert not loops
+
+    # Check number and content of vector sections
+    sections = [s for s in FindNodes(Section).visit(kernel.body) if s.label == 'vector_section']
+    assert len(sections) == 4
+
+    assigns = FindNodes(Assignment).visit(sections[0])
+    assert len(assigns) == 2
+    assigns = FindNodes(Assignment).visit(sections[1])
+    assert len(assigns) == 1
+    assigns = FindNodes(Assignment).visit(sections[2])
+    assert len(assigns) == 1
+    assigns = FindNodes(Assignment).visit(sections[3])
+    assert len(assigns) == 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_variable_demotion(frontend, horizontal):
     """
     Test the correct demotion of an outer loop that breaks scoping.
     """
@@ -832,17 +1285,16 @@ def test_single_column_coalesced_variable_demotion(frontend, horizontal, vertica
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
     # Test SCC transform for kernel with scope-splitting outer loop
-    scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        hoist_column_arrays=False, directive='openacc'
-    )
-    scc_transform.apply(kernel, role='kernel')
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(kernel, role='kernel')
 
-    # Ensure that only a has not been demoted, as it buffers
-    # information across the subroutine call.
+    # Ensure that only a has not been demoted, as it buffers information across the subroutine call.
     assert isinstance(kernel.variable_map['a'], Array)
     assert isinstance(kernel.variable_map['b'], Scalar)
     assert isinstance(kernel.variable_map['c'], Scalar)
+
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP,
                          'OFP fails to parse multiconditional with embedded call.')]))
@@ -881,11 +1333,13 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
 
     kernel = Subroutine.from_source(fcode, frontend=frontend)
 
-    transformation = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        directive='openacc', hoist_column_arrays=False )
-
-    transformation.transform_subroutine(kernel, role='kernel')
+    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+    for transform in scc_transform:
+        transform.apply(kernel, role='kernel')
 
     # Ensure we have three vector loops in the kernel
     kernel_loops = FindNodes(Loop).visit(kernel.body)
@@ -896,7 +1350,7 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
     assert kernel_loops[3].variable == 'jl'
 
     # Check acc pragmas of newly created vector loops
-    pragmas = FindNodes(Pragma).visit(kernel.body)
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
     assert len(pragmas) == 7
     assert pragmas[2].keyword == 'acc'
     assert pragmas[2].content == 'loop vector'
@@ -906,6 +1360,70 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
     assert pragmas[4].content == 'loop vector'
     assert pragmas[5].keyword == 'acc'
     assert pragmas[5].content == 'loop vector'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP,
+                         'OFP fails to parse multiconditional with embedded call.')]))
+def test_scc_wrapper_multicond(frontend, horizontal, vertical, blocking):
+    """
+    Test if horizontal loops in multiconditionals with CallStatements are
+    correctly transformed.
+    """
+
+    fcode = """
+    subroutine test(icase, start, end, work)
+    implicit none
+
+      integer, intent(in) :: icase, start, end
+      real, dimension(start:end), intent(inout) :: work
+      integer :: jl
+
+      select case(icase)
+      case(1)
+        work(start:end) = 1.
+      case(2)
+        do jl = start,end
+           work(jl) = work(jl) + 2.
+        enddo
+      case(3)
+        do jl = start,end
+           work(jl) = work(jl) + 3.
+        enddo
+        call some_kernel(start, end, work)
+      case default
+        work(start:end) = 0.
+      end select
+
+    end subroutine test
+    """
+
+    kernel = Subroutine.from_source(fcode, frontend=frontend)
+    scc_transform = (SingleColumnCoalescedTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking,
+                                                hoist_column_arrays=False),)
+    for transform in scc_transform:
+        transform.apply(kernel, role='kernel')
+
+    # Ensure we have three vector loops in the kernel
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 4
+    assert kernel_loops[0].variable == 'jl'
+    assert kernel_loops[1].variable == 'jl'
+    assert kernel_loops[2].variable == 'jl'
+    assert kernel_loops[3].variable == 'jl'
+
+    # Check acc pragmas of newly created vector loops
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
+    assert len(pragmas) == 7
+    assert pragmas[2].keyword == 'acc'
+    assert pragmas[2].content == 'loop vector'
+    assert pragmas[3].keyword == 'acc'
+    assert pragmas[3].content == 'loop vector'
+    assert pragmas[4].keyword == 'acc'
+    assert pragmas[4].content == 'loop vector'
+    assert pragmas[5].keyword == 'acc'
+    assert pragmas[5].content == 'loop vector'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vertical, blocking):
@@ -946,20 +1464,22 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     end subroutine some_kernel
     """
 
-    transformation = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, block_dim=blocking, vertical=vertical,
-        directive='openacc', hoist_column_arrays=False )
-    data_offload = DataOffloadTransformation(remove_openmp=True)
-
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
     routine.enrich_calls(source.all_subroutines)
 
+    data_offload = DataOffloadTransformation(remove_openmp=True)
     data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
-    transformation.transform_subroutine(routine, role='driver', targets=['some_kernel',])
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+    for transform in scc_transform:
+        transform.apply(routine, role='driver', targets=['some_kernel',])
 
     # Check that both acc pragmas are created
-    pragmas = FindNodes(Pragma).visit(routine.body)
+    pragmas = FindNodes(Pragma).visit(routine.ir)
     assert len(pragmas) == 4
     assert pragmas[0].keyword == 'acc'
     assert pragmas[1].keyword == 'acc'
@@ -969,6 +1489,395 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     assert 'data' in pragmas[0].content
     assert 'copy' in pragmas[0].content
     assert '(work)' in pragmas[0].content
-    assert pragmas[1].content == 'parallel loop gang'
+    assert pragmas[1].content == 'parallel loop gang vector_length(nlon)'
     assert pragmas[2].content == 'end parallel loop'
     assert pragmas[3].content == 'end data'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_routine_seq_pragma(frontend, horizontal):
+    """
+    Test that `!$loki routine seq` pragmas are replaced correctly by `!$acc routine seq` pragmas.
+    """
+
+    fcode = """
+    subroutine some_kernel(work, nang)
+       implicit none
+
+       integer, intent(in) :: nang
+       real, dimension(nang), intent(inout) :: work
+!$loki routine seq
+       integer :: k
+
+       do k=1,nang
+          work(k) = 1.
+       enddo
+
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    pragmas = FindNodes(Pragma).visit(routine.spec)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'loki'
+    assert pragmas[0].content == 'routine seq'
+
+    transformation = SCCBaseTransformation(horizontal=horizontal, directive='openacc')
+    transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
+
+    pragmas = FindNodes(Pragma).visit(routine.spec)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[0].content == 'routine seq'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
+    """
+    Test that calls targeted for inlining inside a vector region are not treated as separators
+    """
+
+    fcode = """
+    subroutine some_inlined_kernel(work)
+    !$loki routine seq
+       real, intent(inout) :: work
+
+       work = work*2.
+    end subroutine some_inlined_kernel
+
+    subroutine some_kernel(start, end, nlon, work, cond)
+       logical, intent(in) :: cond
+       integer, intent(in) :: nlon, start, end
+       real, dimension(nlon), intent(inout) :: work
+
+       integer :: jl
+
+       do jl=start,end
+          if(cond)then
+             call some_inlined_kernel(work(jl))
+          endif
+          work(jl) = work(jl) + 1.
+       enddo
+
+       call some_other_kernel()
+
+    end subroutine some_kernel
+    """
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['some_kernel']
+    inlined_routine = source['some_inlined_kernel']
+    routine.enrich_calls((inlined_routine,))
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel', 'some_inlined_kernel'])
+
+    # Check loki pragma has been removed
+    assert not FindNodes(Pragma).visit(routine.body)
+
+    # Check that 'some_inlined_kernel' remains within vector-parallel region
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    calls = FindNodes(CallStatement).visit(loops[0].body)
+    assert len(calls) == 1
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_vector_reduction(frontend, horizontal, vertical, blocking):
+    """
+    Test for the insertion of OpenACC vector reduction directives.
+    """
+
+    fcode = """
+    subroutine some_kernel(start, end, nlon, mij)
+       integer, intent(in) :: nlon, start, end
+       integer, dimension(nlon), intent(in) :: mij
+
+       integer :: jl, maxij
+
+       maxij = -1
+       !$loki vector-reduction( mAx:maXij )
+       do jl=start,end
+          maxij = max(maxij, mij(jl))
+       enddo
+       !$loki end vector-reduction( mAx:maXij )
+
+    end subroutine some_kernel
+    """
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                directive='openacc', block_dim=blocking),)
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['some_kernel']
+
+    with pragma_regions_attached(routine):
+        region = FindNodes(PragmaRegion).visit(routine.body)
+        assert is_loki_pragma(region[0].pragma, starts_with = 'vector-reduction')
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    assert len(pragmas) == 3
+    assert all(p.keyword == 'acc' for p in pragmas)
+
+    # Check OpenACC directives have been inserted
+    with pragmas_attached(routine, Loop):
+        loops = FindNodes(Loop).visit(routine.body)
+        assert len(loops) == 1
+        assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
+    """
+    Test that temporary arrays with compile-time constants are marked for demotion.
+    """
+
+    fcode_mod = """
+    module YOWPARAM
+       integer, parameter :: nang_param = 36
+    end module YOWPARAM
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, nang)
+       use yowparam, only: nang_param
+       implicit none
+
+       integer, intent(in) :: nlon, start, end, nang
+       real, dimension(nlon, nang_param, 2) :: work
+
+       integer :: jl, k
+
+       do jl=start,end
+          do k=1,nang
+             work(jl,k,1) = 1.
+             work(jl,k,2) = 1.
+          enddo
+       enddo
+
+    end subroutine some_kernel
+    """
+
+    source = Sourcefile.from_source(fcode_mod, frontend=frontend)
+    routine = Subroutine.from_source(fcode_kernel, definitions=source.definitions,
+                                     frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assert len(routine.symbol_map['work'].shape) == 2
+    if frontend == OMNI:
+        assert routine.symbol_map['work'].shape == (RangeIndex(children=(IntLiteral(1), IntLiteral(36))),
+                                                    IntLiteral(2))
+    else:
+        assert routine.symbol_map['work'].shape == ('nang_param', IntLiteral(2))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_horizontal_bounds_checks(frontend, horizontal):
+    """
+    Test the SCCBaseTransformation checks for horizontal loop bounds.
+    """
+
+    fcode_no_start = """
+    subroutine kernel(end, work)
+      real, intent(inout) :: work
+      integer, intent(in) :: end
+
+    end subroutine kernel
+"""
+
+    fcode_no_end = """
+    subroutine kernel(start, work)
+      real, intent(inout) :: work
+      integer, intent(in) :: start
+
+    end subroutine kernel
+"""
+
+    no_start = Subroutine.from_source(fcode_no_start, frontend=frontend)
+    no_end = Subroutine.from_source(fcode_no_end, frontend=frontend)
+
+    transform = SCCBaseTransformation(horizontal=horizontal)
+    with pytest.raises(RuntimeError):
+        transform.apply(no_start, role='kernel')
+    with pytest.raises(RuntimeError):
+        transform.apply(no_end, role='kernel')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_simple(frontend, horizontal, trim_vector_sections):
+    """
+    Test the trimming of vector-sections to exclude scalar assignments.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical :: flag0
+       real, dimension(nlon) :: work
+       integer :: jl
+
+       flag0 = .true.
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+       ! random comment
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assign = FindNodes(Assignment).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+    comment = [c for c in FindNodes(Comment).visit(routine.body) if c.text == '! random comment'][0]
+
+    # check we found the right assignment
+    assert assign.lhs.name.lower() == 'flag0'
+
+    # check we found the right comment
+    assert comment.text == '! random comment'
+
+    if trim_vector_sections:
+        assert assign not in loop.body
+        assert assign in routine.body.body
+
+        assert comment not in loop.body
+        assert comment in routine.body.body
+    else:
+        assert assign in loop.body
+        assert assign not in routine.body.body
+
+        assert comment in loop.body
+        assert comment not in routine.body.body
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_nested(frontend, horizontal, trim_vector_sections):
+    """
+    Test the trimming of vector-sections to exclude nested scalar assignments.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, flag0)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical, intent(in) :: flag0
+       logical :: flag1, flag2
+       real, dimension(nlon) :: work
+
+       integer :: jl
+
+       if(flag0)then
+         flag1 = .true.
+         flag2 = .false.
+       else
+         flag1 = .false.
+         flag2 = .true.
+       endif
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    cond = FindNodes(Conditional).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+
+    if trim_vector_sections:
+        assert cond not in loop.body
+        assert cond in routine.body.body
+    else:
+        assert cond in loop.body
+        assert cond not in routine.body.body
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_single_column_coalesced_vector_section_trim_complex(frontend, horizontal, trim_vector_sections):
+    """
+    Test to highlight the limitations of vector-section trimming.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, flag0)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical, intent(in) :: flag0
+       logical :: flag1, flag2
+       real, dimension(nlon) :: work, work1
+
+       integer :: jl
+
+       flag1 = .true.
+       if(flag0)then
+         flag2 = .false.
+       else
+         work1(start:end) = 1.
+       endif
+
+       do jl=start,end
+          work(jl) = 1.
+       enddo
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+
+    for transform in scc_transform:
+        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    assign = FindNodes(Assignment).visit(routine.body)[0]
+
+    # check we found the right assignment
+    assert assign.lhs.name.lower() == 'flag1'
+
+    cond = FindNodes(Conditional).visit(routine.body)[0]
+    loop = FindNodes(Loop).visit(routine.body)[0]
+
+    assert cond in loop.body
+    assert cond not in routine.body.body
+    if trim_vector_sections:
+        assert assign not in loop.body
+        assert(len(FindNodes(Assignment).visit(loop.body)) == 3)
+    else:
+        assert assign in loop.body
+        assert(len(FindNodes(Assignment).visit(loop.body)) == 4)

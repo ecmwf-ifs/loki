@@ -374,7 +374,7 @@ end module frontend_strict_mode
     config['frontend-strict-mode'] = False
     module = Module.from_source(fcode, frontend=frontend)
     assert 'matrix' in module.symbol_attrs
-    assert 'matrix' in module.typedefs
+    assert 'matrix' in module.typedef_map
 
 
 def test_regex_subroutine_from_source():
@@ -694,7 +694,7 @@ def test_regex_sourcefile_from_file_parser_classes(here):
         else:
             assert not sourcefile[unit].imports
 
-    assert sorted(sourcefile['bar'].typedefs) == ['food', 'organic']
+    assert sorted(sourcefile['bar'].typedef_map) == ['food', 'organic']
 
 
 def test_regex_raw_source():
@@ -1003,8 +1003,8 @@ end module typebound_item
 
     module = Module.from_source(fcode, frontend=REGEX)
 
-    assert 'some_type' in module.typedefs
-    some_type = module.typedefs['some_type']
+    assert 'some_type' in module.typedef_map
+    some_type = module.typedef_map['some_type']
 
     proc_bindings = {
         'routine': 'module_routine',
@@ -1056,8 +1056,8 @@ end module typebound_header
 
     module = Module.from_source(fcode, frontend=REGEX)
 
-    assert 'header_type' in module.typedefs
-    header_type = module.typedefs['header_type']
+    assert 'header_type' in module.typedef_map
+    header_type = module.typedef_map['header_type']
 
     proc_bindings = {
         'member_routine': 'header_member_routine',
@@ -1144,16 +1144,14 @@ end subroutine test
 def test_regex_variable_declaration(here):
     """
     Test correct parsing of derived type variable declarations
-
-    Note: this currently only matches ``TYPE(..)`` and ``CLASS(...)`` declarations
     """
     filepath = here/'sources/projTypeBound/typebound_item.F90'
     source = Sourcefile.from_file(filepath, frontend=REGEX)
 
     driver = source['driver']
-    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived')
-    assert not source['module_routine'].variables
-    assert source['other_routine'].variables == ('self',)
+    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived', 'x', 'i')
+    assert source['module_routine'].variables == ('m',)
+    assert source['other_routine'].variables == ('self', 'm', 'j')
     assert source['routine'].variables == ('self',)
     assert source['routine1'].variables == ('self',)
 
@@ -1170,6 +1168,10 @@ def test_regex_variable_declaration(here):
         assert var_map['other_obj'].type.dtype.name == 'other'
         assert isinstance(var_map['derived'].type.dtype, DerivedType)
         assert var_map['derived'].type.dtype.name == 'other'
+        assert isinstance(var_map['x'].type.dtype, BasicType)
+        assert var_map['x'].type.dtype is BasicType.REAL
+        assert isinstance(var_map['i'].type.dtype, BasicType)
+        assert var_map['i'].type.dtype is BasicType.INTEGER
 
         # While we're here: let's check the call statements, too
         calls = FindNodes(CallStatement).visit(driver.ir)
@@ -1177,7 +1179,7 @@ def test_regex_variable_declaration(here):
         assert all(isinstance(call.name.type.dtype, ProcedureType) for call in calls)
 
         # Note: we're explicitly accessing the string name here (instead of relying
-        # on the StrCompareMixing) as some have dimensions that only show up in the full
+        # on the StrCompareMixin) as some have dimensions that only show up in the full
         # parse
         assert calls[0].name.name == 'obj%other_routine'
         assert calls[0].name.parent.name == 'obj'
@@ -1209,14 +1211,23 @@ def test_regex_variable_declaration_parentheses():
     fcode = """
 subroutine definitely_not_allfpos(ydfpdata)
 implicit none
+integer, parameter :: NMaxCloudTypes = 12
 type(tfpdata), intent(in) :: ydfpdata
 type(tfpofn) :: ylofn(size(ydfpdata%yfpos%yfpgeometry%yfpusergeo))
+real, dimension(nproma, max(nang, 1), max(nfre, 1)) :: not_an_annoying_ecwam_var
+character(len=511) :: cloud_type_name(NMaxCloudTypes) = ["","","","","","","","","","","",""], other_name = "", names(3) = (/ "", "", "" /)
+character(len=511) :: more_names(2) = (/ "What", " is" /), naaaames(2) = [ " going ", "on?" ]
 end subroutine definitely_not_allfpos
     """.strip()
 
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     routine = source['definitely_not_allfpos']
-    assert routine.variables == ('ydfpdata', 'ylofn')
+    assert routine.variables == (
+        'nmaxcloudtypes', 'ydfpdata', 'ylofn', 'not_an_annoying_ecwam_var',
+        'cloud_type_name', 'other_name', 'names', 'more_names', 'naaaames'
+    )
+    assert routine.symbol_map['not_an_annoying_ecwam_var'].type.dtype is BasicType.REAL
+    assert routine.symbol_map['cloud_type_name'].type.dtype is BasicType.CHARACTER
 
 
 def test_regex_preproc_in_contains():
@@ -1403,3 +1414,80 @@ END SUBROUTINE DOT_PROD_SP_2D
     source.make_complete()
     routine = source['dot_product_ecv']
     assert 'dot_product_ecv' in routine.variables
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=(OFP, 'No support for prefix implemented')))
+def test_regex_prefix(frontend):
+    fcode = """
+module some_mod
+    implicit none
+contains
+    pure elemental real function f_elem(a)
+        real, intent(in) :: a
+        f_elem = a
+    end function f_elem
+
+    pure recursive integer function fib(i) result(fib_i)
+        integer, intent(in) :: i
+        if (i <= 0) then
+            fib_i = 0
+        else if (i == 1) then
+            fib_i = 1
+        else
+            fib_i = fib(i-1) + fib(i-2)
+        end if
+    end function fib
+end module some_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    assert source['f_elem'].prefix == ('pure elemental real',)
+    assert source['fib'].prefix == ('pure recursive integer',)
+    source.make_complete(frontend=frontend)
+    assert tuple(p.lower() for p in source['f_elem'].prefix) == ('pure', 'elemental')
+    assert tuple(p.lower() for p in source['fib'].prefix) == ('pure', 'recursive')
+
+
+def test_regex_fypp():
+    """
+    Test that unexpanded fypp-annotations are handled gracefully in the REGEX frontend.
+    """
+    fcode = """
+module fypp_mod
+! A pre-set array of pre-prcessor variables
+#:mute
+#:set foo  = [2,3,4,5]
+#:endmute
+
+contains
+
+! A non-templated routine
+subroutine first_routine(i, x)
+  integer, intent(in) :: i
+  real, intent(inout) :: x(3)
+end subroutine first_routine
+
+! A fypp-loop with in-place directives for subroutine names
+#:for bar in foo
+#:set rname = 'routine_%s' % (bar,)
+subroutine ${rname}$ (i, x)
+  integer, intent(in) :: i
+  real, intent(inout) :: x(3)
+end subroutine ${rname}$
+#:endfor
+
+! Another non-templated routine
+subroutine last_routine(i, x)
+  integer, intent(in) :: i
+  real, intent(inout) :: x(3)
+end subroutine last_routine
+
+end module fypp_mod
+"""
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    module = source['fypp_mod']
+    assert isinstance(module, Module)
+
+    # Check that only non-templated routines are included
+    assert len(module.routines) == 2
+    assert module.routines[0].name == 'first_routine'
+    assert module.routines[1].name == 'last_routine'

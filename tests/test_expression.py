@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import defaultdict
 from pathlib import Path
 import math
 import sys
@@ -1289,3 +1290,118 @@ end subroutine my_routine
     routine.body = SubstituteExpressions(expr_map).visit(routine.body)
     assignment = FindNodes(Assignment).visit(routine.body)[0]
     assert assignment.lhs == 'var(j + 1)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_variable_in_declaration_initializer(frontend):
+    """
+    Check correct handling of cases where the variable appears
+    in the initializer expression (i.e. no infinite recursion)
+    """
+    fcode = """
+subroutine some_routine(var)
+implicit none
+INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
+REAL(KIND=JPRB), PARAMETER :: ZEXPLIMIT = LOG(HUGE(ZEXPLIMIT))
+real(kind=jprb), intent(inout) :: var
+var = var + ZEXPLIMIT
+end subroutine some_routine
+    """.strip()
+
+    def _check(routine_):
+        # A few sanity checks
+        assert 'zexplimit' in routine_.variable_map
+        zexplimit = routine_.variable_map['zexplimit']
+        assert zexplimit.scope is routine_
+        # Now let's take a closer look at the initializer expression
+        assert 'zexplimit' in str(zexplimit.type.initial).lower()
+        variables = FindVariables().visit(zexplimit.type.initial)
+        assert 'zexplimit' in variables
+        assert variables[variables.index('zexplimit')].scope is routine_
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    _check(routine)
+    # Make sure that's still true when doing another scope attachment
+    routine.rescope_symbols()
+    _check(routine)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_variable_in_dimensions(frontend):
+    """
+    Check correct handling of cases where the variable appears in the
+    dimensions expression of the same variable (i.e. do not cause
+    infinite recursion)
+    """
+    fcode = """
+module some_mod
+    implicit none
+
+    type multi_level
+        real, allocatable :: data(:, :)
+    end type multi_level
+contains
+    subroutine some_routine(levels, num_levels)
+        type(multi_level), intent(inout) :: levels(:)
+        integer, intent(in) :: num_levels
+        integer jscale
+
+        do jscale = 2,num_levels
+            allocate(levels(jscale)%data(size(levels(jscale-1)%data,1), size(levels(jscale-1)%data,2)))
+        end do
+    end subroutine some_routine
+end module some_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['some_routine']
+    assert 'levels%data' in routine.symbol_attrs
+    shape = routine.symbol_attrs['levels%data'].shape
+    assert len(shape) == 2
+    for i, dim in enumerate(shape):
+        assert isinstance(dim, symbols.InlineCall)
+        assert str(dim).lower() == f'size(levels(jscale - 1)%data, {i+1})'
+
+
+def test_expression_container_matching():
+    """
+    Tests how different expression types match as keys in different
+    containers, with use of raw expressions and string equivalence.
+    """
+    scope = Scope()
+    t_real = SymbolAttributes(BasicType.REAL)
+    t_int = SymbolAttributes(BasicType.INTEGER)
+
+    i = symbols.Variable(name='i', scope=scope, type=t_int)
+    a = symbols.Variable(name='a', scope=scope, type=t_real)
+    b = symbols.Variable(name='b', scope=scope, type=t_real, dimensions=(i,))
+
+    # Test for simple containment of scalars
+    assert a in (a, b)
+    assert a in [a, b]
+    assert a in {a, b}
+    assert a in {a: b}
+    assert a in defaultdict(list, ((a, [b]),))
+
+    # Test for simple containment of scalars against strings
+    assert a == 'a'
+    assert a in ('a', 'b(i)')
+    assert a in ['a', 'b(i)']
+    assert a in {'a', 'b(i)'}
+    assert a in {'a': 'b(i)'}
+    assert a in defaultdict(list, (('a', ['b(i)']),))
+
+    # Test for simple containment of arrays against strings
+    assert b == 'b(i)'
+    assert b in ('b(i)', 'a')
+    assert b in ['b(i)', 'a']
+    assert b in {'b(i)', 'a'}
+    assert b in {'b(i)': 'a'}
+    assert b in defaultdict(list, (('b(i)', ['a']),))
+
+    # Test for simple containment of strings indices against arrays
+    assert 'b(i)' in (b, a)
+    assert 'b(i)' in [b, a]
+    assert 'b(i)' in {b, a}
+    assert 'b(i)' in {b: a}
+    assert 'b(i)' in defaultdict(list, ((b, [a]),))

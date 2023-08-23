@@ -1,0 +1,18 @@
+codecov:
+  require_ci_to_pass: yes
+  notify:
+    wait_for_ci: yes
+
+coverage:
+  precision: 2
+  round: down
+
+  status:
+    project:
+      default:
+        enabled: yes
+        target: auto
+        threshold: 0.1
+    patch:
+      default:
+        enabled: off

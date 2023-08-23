@@ -16,7 +16,9 @@ from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug
-from loki.bulk.item import ProcedureBindingItem, SubroutineItem
+from loki.bulk.item import ProcedureBindingItem, SubroutineItem, GlobalVarImportItem, GenericImportItem
+from loki.subroutine import Subroutine
+from loki.module import Module
 
 
 __all__ = ['Scheduler', 'SchedulerConfig']
@@ -42,9 +44,12 @@ class SchedulerConfig:
         visualisation. These are intended for utility routines that
         pop up in many routines but can be ignored in terms of program
         control flow, like ``flush`` or ``abort``.
+    enable_imports : bool
+        Disable the inclusion of module imports as scheduler dependencies.
     """
 
-    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None):
+    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None,
+                 enable_imports=False):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
@@ -52,6 +57,8 @@ class SchedulerConfig:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
+        self.enable_imports = enable_imports
+
         if dic2p is not None:
             self.dic2p = dic2p
         else:
@@ -70,6 +77,7 @@ class SchedulerConfig:
             config['routines'] = []
         routines = config['routines']
         disable = default.get('disable', None)
+        enable_imports = default.get('enable_imports', False)
 
         # Add any dimension definitions contained in the config dict
         dimensions = {}
@@ -86,7 +94,7 @@ class SchedulerConfig:
             derived_types = config['derived_types']
 
         return cls(default=default, routines=routines, disable=disable, dimensions=dimensions, dic2p=dic2p,
-                   derived_types=derived_types)
+                   derived_types=derived_types, enable_imports=enable_imports)
 
     @classmethod
     def from_file(cls, path):
@@ -159,6 +167,8 @@ class Scheduler:
         else:
             self.config = SchedulerConfig.from_dict(config)
 
+        self.full_parse = full_parse
+
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
 
@@ -183,7 +193,9 @@ class Scheduler:
             seed_routines = self.config.routines.keys()
         self._populate(routines=seed_routines)
 
-        if full_parse:
+        self._break_cycles()
+
+        if self.full_parse:
             self._parse_items()
 
             # Attach interprocedural call-tree information
@@ -222,12 +234,21 @@ class Scheduler:
         self.obj_map.update(
             (f'{module.name}#{r.name}', obj)
             for obj in obj_list for module in obj.modules
-            for r in module.subroutines + tuple(module.typedefs.values())
+            for r in module.subroutines + module.typedefs + module.variables
+        )
+        self.obj_map.update(
+            (f'{module.name}#{r.spec.name}', obj)
+            for obj in obj_list for module in obj.modules
+            for r in module.interfaces if r.spec
         )
 
     @property
     def routines(self):
         return as_tuple(item.routine for item in self.item_graph.nodes if item.routine is not None)
+
+    @property
+    def typedefs(self):
+        return as_tuple(flatten(module.typedefs for obj in self.obj_map.values() for module in obj.modules))
 
     @property
     def items(self):
@@ -345,7 +366,13 @@ class Scheduler:
         debug(f'[Loki] Scheduler creating Item: {name} => {sourcefile.path}')
         if '%' in name:
             return ProcedureBindingItem(name=name, source=sourcefile, config=item_conf)
-        return SubroutineItem(name=name, source=sourcefile, config=item_conf)
+        if isinstance(self.obj_map[name][name.split('#')[-1]], Subroutine):
+            return SubroutineItem(name=name, source=sourcefile, config=item_conf)
+        module = self.obj_map[name][name.split('#')[0]]
+        if isinstance(module, Module):
+            if name.split('#')[-1] in module.variables:
+                return GlobalVarImportItem(name=name, source=sourcefile, config=item_conf)
+        return GenericImportItem(name=name, source=sourcefile, config=item_conf)
 
     def find_routine(self, routine):
         """
@@ -385,6 +412,48 @@ class Scheduler:
                 raise RuntimeError(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
         return candidates[0]
 
+    def _add_children(self, item, children):
+        """
+        Create items for the provided list of children and insert them into the
+        item graph, marking them as dependencies of :data:`item`
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item for which to add the children
+        children : list
+            The list of children names
+        """
+        new_items = []
+
+        for c in children:
+            child = self.create_item(c)
+
+            if child is None:
+                continue
+
+            # Skip blocked children as well
+            if child.local_name in item.block:
+                continue
+
+            # Append child to work queue if expansion is configured
+            if item.expand:
+                # Do not propagate to dependencies marked as "ignore"
+                # Note that, unlike blackisted items, "ignore" items
+                # are still marked as targets during bulk-processing,
+                # so that calls to "ignore" routines will be renamed.
+                if child.local_name in item.ignore:
+                    continue
+
+                if child not in self.item_map:
+                    new_items += [child]
+                    self.item_map[child.name] = child
+                    self.item_graph.add_node(child)
+
+                self.item_graph.add_edge(item, child)
+
+        return new_items
+
     @Timer(logger=perf, text='[Loki::Scheduler] Populated initial call tree in {:.2f}s')
     def _populate(self, routines):
         """
@@ -407,33 +476,62 @@ class Scheduler:
 
         while len(queue) > 0:
             item = queue.popleft()
-
             children = item.qualify_names(item.children, available_names=self.obj_map.keys())
-            for c in children:
-                child = self.create_item(c)
+            new_items = self._add_children(item, children)
 
-                if child is None:
-                    continue
+            if new_items:
+                queue.extend(new_items)
 
-                # Skip blocked children as well
-                if child.local_name in item.block:
-                    continue
+    def _break_cycles(self):
+        """
+        Remove cyclic dependencies by deleting the first outgoing edge of
+        each cyclic dependency for all subroutine items with a ``RECURSIVE`` prefix
+        """
+        for item in self.items:
+            if item.routine and any('recursive' in prefix.lower() for prefix in item.routine.prefix or []):
+                try:
+                    while True:
+                        cycle_path = nx.find_cycle(self.item_graph, item)
+                        debug(f'Removed edge {cycle_path[0]!s} to break cyclic dependency {cycle_path!s}')
+                        self.item_graph.remove_edge(*cycle_path[0])
+                except nx.NetworkXNoCycle:
+                    pass
 
-                # Append child to work queue if expansion is configured
-                if item.expand:
-                    # Do not propagate to dependencies marked as "ignore"
-                    # Note that, unlike blackisted items, "ignore" items
-                    # are still marked as targets during bulk-processing,
-                    # so that calls to "ignore" routines will be renamed.
-                    if child.local_name in item.ignore:
-                        continue
+    def add_dependencies(self, dependencies):
+        """
+        Add new dependencies to the item graph
 
-                    if child not in self.item_map:
-                        queue.append(child)
-                        self.item_map[child.name] = child
-                        self.item_graph.add_node(child)
+        Parameters
+        ----------
+        dependencies : dict
+            Mapping from items to new dependencies of that item
+        """
+        queue = deque()
+        for item_name in dependencies:
+            item = self.create_item(item_name)
 
-                    self.item_graph.add_edge(item, child)
+            if item:
+                item.clear_cached_property('imports')
+                queue.append(item)
+
+                if item.name not in self.item_map:
+                    self.item_map[item.name] = item
+                if item not in self.item_graph:
+                    self.item_graph.add_node(item)
+
+        while len(queue) > 0:
+            item = queue.popleft()
+            children = item.qualify_names(item.children, available_names=self.obj_map.keys())
+            if item.name in dependencies:
+                children += as_tuple(dependencies[item.name])
+            new_items = self._add_children(item, children)
+
+            if new_items:
+                queue.extend(new_items)
+
+        if self.full_parse:
+            self._parse_items()
+            self._enrich()
 
     @Timer(logger=info, text='[Loki::Scheduler] Performed full source parse in {:.2f}s')
     def _parse_items(self):
@@ -460,6 +558,7 @@ class Scheduler:
 
             # Enrich with all routines in the call tree
             item.routine.enrich_calls(routines=self.routines)
+            item.routine.enrich_types(typedefs=self.typedefs)
 
             # Enrich item with meta-info from outside of the callgraph
             for routine in item.enrich:
@@ -472,11 +571,39 @@ class Scheduler:
                 self.obj_map[lookup_name].make_complete(**self.build_args)
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
-    def process(self, transformation, reverse=False, use_file_graph=False):
+    def item_successors(self, item):
+        """
+        Yields list of successor :any:`Item` for the given :data:`item`
+
+        Successors are all items onto which a dependency exists, such as
+        call targets.
+
+        For intermediate items, such as :any:`ProcedureBindingItem`, this
+        yields also the successors of these items to provide direct access
+        to the called routine.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item for which to yield the successors
+
+        Returns
+        -------
+        list of :any:`Item`
+        """
+        successors = []
+        for child in self.item_graph.successors(item):
+            if isinstance(child, (SubroutineItem, GlobalVarImportItem)):
+                successors += [self.item_map[child.name]]
+            else:
+                successors += [self.item_map[child.name]] + self.item_successors(child)
+        return successors
+
+    def process(self, transformation, reverse=False, item_filter=SubroutineItem, use_file_graph=False):
         """
         Process all :attr:`items` in the scheduler's graph
 
-        By default, the traversal is performed in topologicalal order, which
+        By default, the traversal is performed in topological order, which
         ensures that :any:`CallStatement` objects are always processed before
         their target :any:`Subroutine`.
         This order can be reversed by setting :data:`reverse` to ``True``.
@@ -484,6 +611,7 @@ class Scheduler:
         Optionally, the traversal can be performed on a source file level only,
         by setting :data:`use_file_graph` to ``True``. Currently, this calls
         the transformation on the first `item` associated with a file only.
+        In this mode, :data:`item_filter` does not have any effect.
         """
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
@@ -502,17 +630,19 @@ class Scheduler:
                 for node in traversal:
                     items = graph.nodes[node]['items']
                     transformation.apply(items[0].source, item=items[0], items=items)
-
             else:
                 for item in traversal:
-                    if not isinstance(item, SubroutineItem):
+                    if item_filter and not isinstance(item, item_filter):
                         continue
+
+                    # Use entry from item_map to ensure the original item is used in transformation
+                    _item = self.item_map[item.name]
 
                     # Process work item with appropriate kernel
                     transformation.apply(
-                        item.source, role=item.role, mode=item.mode,
-                        item=item, targets=item.targets, successors=list(graph.successors(item)),
-                        depths=self.depths
+                        _item.source, role=_item.role, mode=_item.mode,
+                        item=_item, targets=_item.targets,
+                        successors=self.item_successors(_item), depths=self.depths
                     )
 
     def callgraph(self, path, with_file_graph=False):
@@ -537,12 +667,22 @@ class Scheduler:
 
         # Insert all nodes in the schedulers graph
         for item in self.items:
+            style = {
+                'color': 'black',
+                'shape': 'box',
+                'fillcolor': 'limegreen',
+                'style': 'filled'
+            }
+            if isinstance(item, ProcedureBindingItem):
+                style['fillcolor'] = 'palegreen'
+            elif isinstance(item, GlobalVarImportItem):
+                style['fillcolor'] = 'lightgoldenrod1'
+            elif isinstance(item, GenericImportItem):
+                style['fillcolor'] = 'lightgoldenrodyellow'
             if item.replicate:
-                callgraph.node(item.name.upper(), color='black', shape='diamond',
-                               fillcolor='limegreen', style='rounded,filled')
-            else:
-                callgraph.node(item.name.upper(), color='black', shape='box',
-                               fillcolor='limegreen', style='filled')
+                style['shape'] = 'diamond'
+                style['style'] += ',rounded'
+            callgraph.node(item.name.upper(), **style)
 
         # Insert all edges in the schedulers graph
         for parent, child in self.dependencies:
@@ -609,7 +749,7 @@ class Scheduler:
         """
         info(f'[Loki] Scheduler writing CMake plan: {filepath}')
 
-        rootpath = Path(rootpath).resolve()
+        rootpath = None if rootpath is None else Path(rootpath).resolve()
         buildpath = None if buildpath is None else Path(buildpath)
         sources_to_append = []
         sources_to_remove = []
@@ -622,20 +762,21 @@ class Scheduler:
                 newsource = buildpath/newsource.name
 
             # Make new CMake paths relative to source again
-            sourcepath = sourcepath.relative_to(rootpath)
+            if rootpath is not None:
+                sourcepath = sourcepath.relative_to(rootpath)
 
             debug(f'Planning:: {item.name} (role={item.role}, mode={mode})')
 
-            sources_to_transform += [sourcepath]
-
             # Inject new object into the final binary libs
-            if item.replicate:
-                # Add new source file next to the old one
-                sources_to_append += [newsource]
-            else:
-                # Replace old source file to avoid ghosting
-                sources_to_append += [newsource]
-                sources_to_remove += [sourcepath]
+            if newsource not in sources_to_append:
+                sources_to_transform += [sourcepath]
+                if item.replicate:
+                    # Add new source file next to the old one
+                    sources_to_append += [newsource]
+                else:
+                    # Replace old source file to avoid ghosting
+                    sources_to_append += [newsource]
+                    sources_to_remove += [sourcepath]
 
         info(f'[Loki] CMakePlanner writing plan: {filepath}')
         with Path(filepath).open('w') as f:

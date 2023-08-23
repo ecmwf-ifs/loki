@@ -205,7 +205,7 @@ def inject_statement_functions(routine):
     def create_stmt_func(assignment):
         arguments = assignment.lhs.dimensions
         variable = assignment.lhs.clone(dimensions=None)
-        return StatementFunction(variable, arguments, assignment.rhs, variable.type)
+        return StatementFunction(variable, arguments, assignment.rhs, variable.type, source=assignment.source)
 
     def create_type(stmt_func):
         name = str(stmt_func.variable)
@@ -253,7 +253,9 @@ def inject_statement_functions(routine):
             if variable.name.lower() in stmt_funcs:
                 if isinstance(variable, Array):
                     parameters = variable.dimensions
-                    expr_map_spec[variable] = InlineCall(variable.clone(dimensions=None), parameters=parameters)
+                    expr_map_spec[variable] = InlineCall(
+                        variable.clone(dimensions=None), parameters=parameters, source=variable.source
+                    )
                 elif not isinstance(variable, ProcedureSymbol):
                     expr_map_spec[variable] = variable.clone()
         expr_map_body = {}
@@ -261,7 +263,9 @@ def inject_statement_functions(routine):
             if variable.name.lower() in stmt_funcs:
                 if isinstance(variable, Array):
                     parameters = variable.dimensions
-                    expr_map_body[variable] = InlineCall(variable.clone(dimensions=None), parameters=parameters)
+                    expr_map_body[variable] = InlineCall(
+                        variable.clone(dimensions=None), parameters=parameters, source=variable.source
+                    )
                 elif not isinstance(variable, ProcedureSymbol):
                     expr_map_body[variable] = variable.clone()
 
@@ -271,15 +275,15 @@ def inject_statement_functions(routine):
 
         # Apply transformer with the built maps
         if spec_map:
-            routine.spec = Transformer(spec_map).visit(routine.spec)
+            routine.spec = Transformer(spec_map, invalidate_source=False).visit(routine.spec)
         if body_map:
-            routine.body = Transformer(body_map).visit(routine.body)
+            routine.body = Transformer(body_map, invalidate_source=False).visit(routine.body)
             if spec_appendix:
                 routine.spec.append(spec_appendix)
         if expr_map_spec:
-            routine.spec = SubstituteExpressions(expr_map_spec).visit(routine.spec)
+            routine.spec = SubstituteExpressions(expr_map_spec, invalidate_source=False).visit(routine.spec)
         if expr_map_body:
-            routine.body = SubstituteExpressions(expr_map_body).visit(routine.body)
+            routine.body = SubstituteExpressions(expr_map_body, invalidate_source=False).visit(routine.body)
 
         # And make sure all symbols have the right type
         routine.rescope_symbols()

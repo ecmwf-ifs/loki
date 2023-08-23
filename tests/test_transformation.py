@@ -5,7 +5,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     OMNI, REGEX, OFP, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen, Assignment, IntLiteral, Module,
-    SubroutineItem
+    SubroutineItem, Intrinsic
 )
 from loki.transform import (
     Transformation, DependencyTransformation, replace_selected_kind,
@@ -260,6 +260,114 @@ END MODULE driver_mod
     assert driver['driver_mod'].spec.body[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in driver['driver_mod'].spec.body[0].symbols]
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_globalvar_imports(frontend):
+    """
+    Test that global variable imports are not renamed as a
+    call statement would be.
+    """
+
+    kernel = Sourcefile.from_source(source="""
+MODULE kernel_mod
+    INTEGER :: some_const
+CONTAINS
+    SUBROUTINE kernel(a, b, c)
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    a = 1
+    b = 2
+    c = 3
+  END SUBROUTINE kernel
+END MODULE kernel_mod
+""", frontend=frontend)
+
+    driver = Sourcefile.from_source(source="""
+SUBROUTINE driver(a, b, c)
+    USE kernel_mod, only: kernel
+    USE kernel_mod, only: some_const
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    CALL kernel(a, b ,c)
+END SUBROUTINE driver
+""", frontend=frontend)
+
+    transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
+    kernel.apply(transformation, role='kernel')
+    driver.apply(transformation, role='driver', targets=('kernel', 'some_const'))
+
+    # Check that the global variable declaration remains unchanged
+    assert kernel.modules[0].variables[0].name == 'some_const'
+
+    # Check that calls and matching import have been diverted to the re-generated routine
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 2
+    assert isinstance(imports[0], Import)
+    assert driver['driver'].spec.body[0].module == 'kernel_test_mod'
+    assert 'kernel_test' in [str(s) for s in driver['driver'].spec.body[0].symbols]
+
+    # Check that global variable import remains unchanged
+    assert isinstance(imports[1], Import)
+    assert driver['driver'].spec.body[1].module == 'kernel_mod'
+    assert 'some_const' in [str(s) for s in driver['driver'].spec.body[1].symbols]
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_globalvar_imports_driver_mod(frontend):
+    """
+    Test that global variable imports are not renamed as a
+    call statement would be.
+    """
+
+    kernel = Sourcefile.from_source(source="""
+MODULE kernel_mod
+    INTEGER :: some_const
+CONTAINS
+    SUBROUTINE kernel(a, b, c)
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    a = 1
+    b = 2
+    c = 3
+  END SUBROUTINE kernel
+END MODULE kernel_mod
+""", frontend=frontend)
+
+    driver = Sourcefile.from_source(source="""
+MODULE DRIVER_MOD
+    USE kernel_mod, only: kernel
+    USE kernel_mod, only: some_const
+CONTAINS
+SUBROUTINE driver(a, b, c)
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    CALL kernel(a, b ,c)
+END SUBROUTINE driver
+END MODULE DRIVER_MOD
+""", frontend=frontend)
+
+    transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
+    kernel.apply(transformation, role='kernel')
+    driver.apply(transformation, role='driver', targets=('kernel', 'some_const'))
+
+    # Check that the global variable declaration remains unchanged
+    assert kernel.modules[0].variables[0].name == 'some_const'
+
+    # Check that calls and matching import have been diverted to the re-generated routine
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver_mod'].spec)
+    assert len(imports) == 2
+    assert isinstance(imports[0], Import)
+    assert driver['driver_mod'].spec.body[0].module == 'kernel_test_mod'
+    assert 'kernel_test' in [str(s) for s in driver['driver_mod'].spec.body[0].symbols]
+
+    # Check that global variable import remains unchanged
+    assert isinstance(imports[1], Import)
+    assert driver['driver_mod'].spec.body[1].module == 'kernel_mod'
+    assert 'some_const' in [str(s) for s in driver['driver_mod'].spec.body[1].symbols]
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
 def test_dependency_transformation_header_includes(here, frontend):
@@ -382,10 +490,11 @@ def test_dependency_transformation_replace_interface(frontend):
 
     driver = Sourcefile.from_source(source="""
 SUBROUTINE driver(a, b, c)
+  IMPLICIT NONE
   INTERFACE
-    SUBROUTINE kernel(a, b, c)
+    SUBROUTINE KERNEL(a, b, c)
       INTEGER, INTENT(INOUT) :: a, b, c
-    END SUBROUTINE kernel
+    END SUBROUTINE KERNEL
   END INTERFACE
 
   INTEGER, INTENT(INOUT) :: a, b, c
@@ -429,8 +538,18 @@ END SUBROUTINE kernel
     assert calls[0].name == 'kernel_test'
     imports = FindNodes(Import).visit(driver['driver'].spec)
     assert len(imports) == 1
-    assert imports[0].module == 'kernel_test_mod'
-    assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+    if frontend == OMNI:
+        assert imports[0].module == 'kernel_test_mod'
+        assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+    else:
+        assert imports[0].module == 'KERNEL_test_mod'
+        assert 'KERNEL_test' in [str(s) for s in imports[0].symbols]
+
+    # Check that the newly generated USE statement appears before IMPLICIT NONE
+    nodes = FindNodes((Intrinsic, Import)).visit(driver['driver'].spec)
+    assert len(nodes) == 2
+    assert isinstance(nodes[1], Intrinsic)
+    assert nodes[1].text.lower() == 'implicit none'
 
 @pytest.mark.parametrize('frontend', available_frontends(
                          xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
@@ -632,7 +751,8 @@ end subroutine transform_replace_selected_kind
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_post_apply_subroutine(here, frontend):
+@pytest.mark.parametrize('post_apply_rescope_symbols', [True, False])
+def test_transformation_post_apply_subroutine(here, frontend, post_apply_rescope_symbols):
     """Verify that post_apply is called for subroutines."""
 
     #### Test that rescoping is applied and effective ####
@@ -667,8 +787,13 @@ end subroutine transformation_post_apply
     assert i == 1
 
     # Apply transformation and make sure variable scope is correct
-    routine.apply(ScopingErrorTransformation())
-    assert routine.variable_map['j'].scope is routine
+    routine.apply(ScopingErrorTransformation(), post_apply_rescope_symbols=post_apply_rescope_symbols)
+    if post_apply_rescope_symbols:
+        # Scope is correct
+        assert routine.variable_map['j'].scope is routine
+    else:
+        # Scope is wrong
+        assert routine.variable_map['j'].scope is tmp_routine
 
     new_filepath = here/(f'{routine.name}_{frontend}.f90')
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
@@ -681,7 +806,8 @@ end subroutine transformation_post_apply
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_post_apply_module(here, frontend):
+@pytest.mark.parametrize('post_apply_rescope_symbols', [True, False])
+def test_transformation_post_apply_module(here, frontend, post_apply_rescope_symbols):
     """Verify that post_apply is called for modules."""
 
     #### Test that rescoping is applied and effective ####
@@ -715,17 +841,22 @@ end module transformation_module_post_apply
     module = Module.from_source(fcode, frontend=frontend)
 
     # Test the original implementation
-    filepath = here/(f'{module.name}_{frontend}.f90')
+    filepath = here/(f'{module.name}_{frontend}_{post_apply_rescope_symbols!s}.f90')
     mod = jit_compile(module, filepath=filepath, objname=module.name)
 
     i = mod.test_post_apply()
     assert i == 1
 
     # Apply transformation
-    module.apply(ScopingErrorTransformation())
-    assert module.variable_map['j'].scope is module
+    module.apply(ScopingErrorTransformation(), post_apply_rescope_symbols=post_apply_rescope_symbols)
+    if post_apply_rescope_symbols:
+        # Scope is correct
+        assert module.variable_map['j'].scope is module
+    else:
+        # Scope is wrong
+        assert module.variable_map['j'].scope is tmp_scope
 
-    new_filepath = here/(f'{module.name}_{frontend}.f90')
+    new_filepath = here/(f'{module.name}_{frontend}_{post_apply_rescope_symbols!s}.f90')
     new_mod = jit_compile(module, filepath=new_filepath, objname=module.name)
 
     i = new_mod.test_post_apply()

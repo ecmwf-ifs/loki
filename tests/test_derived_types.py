@@ -5,11 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from sys import getrecursionlimit
+from inspect import stack
+
 from pathlib import Path
 import re
 import pytest
 import numpy as np
-from sys import getrecursionlimit
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
@@ -421,7 +423,7 @@ end module derived_type_bind_c
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend)
-    myftype = module.typedefs['myftype']
+    myftype = module.typedef_map['myftype']
     assert myftype.bind_c is True
     assert ', BIND(C)' in fgen(myftype)
 
@@ -458,8 +460,8 @@ end module derived_type_private_mod
 
     module = Module.from_source(fcode, frontend=frontend)
 
-    base_type = module.typedefs['base_type']
-    some_type = module.typedefs['some_type']
+    base_type = module.typedef_map['base_type']
+    some_type = module.typedef_map['some_type']
 
     # Verify correct properties on the `TypeDef` object
     assert base_type.abstract is True
@@ -490,7 +492,7 @@ end module derived_type_private_mod
 
     module = Module.from_source(fcode, frontend=frontend)
 
-    priv_type = module.typedefs['priv_type']
+    priv_type = module.typedef_map['priv_type']
     assert priv_type.private is True
     assert priv_type.public is False
     assert ', PRIVATE' in fgen(priv_type)
@@ -510,7 +512,7 @@ end module derived_type_public_mod
 
     module = Module.from_source(fcode, frontend=frontend)
 
-    pub_type = module.typedefs['pub_type']
+    pub_type = module.typedef_map['pub_type']
     assert pub_type.public is True
     assert pub_type.private is False
     assert ', PUBLIC' in fgen(pub_type)
@@ -553,8 +555,8 @@ end module derived_type_private_comp_mod
 
     module = Module.from_source(fcode, frontend=frontend)
 
-    some_private_comp_type = module.typedefs['some_private_comp_type']
-    type_bound_proc_type = module.typedefs['type_bound_proc_type']
+    some_private_comp_type = module.typedef_map['some_private_comp_type']
+    type_bound_proc_type = module.typedef_map['type_bound_proc_type']
 
     intrinsic_nodes = FindNodes(Intrinsic).visit(type_bound_proc_type.body)
     assert len(intrinsic_nodes) == 2
@@ -626,8 +628,8 @@ end subroutine derived_type_procedure_designator
     """.strip()
 
     module = Module.from_source(mcode, frontend=frontend)
-    assert 'some_type' in module.typedefs
-    assert 'other_type' in module.typedefs
+    assert 'some_type' in module.typedef_map
+    assert 'other_type' in module.typedef_map
     assert 'some_type' in module.symbol_attrs
     assert 'other_type' in module.symbol_attrs
 
@@ -641,7 +643,7 @@ end subroutine derived_type_procedure_designator
         assert isinstance(routine.symbol_attrs[name].dtype.typedef, TypeDef)
 
     # Make sure type-bound procedure declarations exist
-    some_type = module.typedefs['some_type']
+    some_type = module.typedef_map['some_type']
     proc_decls = FindNodes(ProcedureDeclaration).visit(some_type.body)
     assert len(proc_decls) == 3
     assert all(decl.interface is None for decl in proc_decls)
@@ -724,7 +726,7 @@ end module derived_types_bind_attrs_mod
 
     module = Module.from_source(fcode, frontend=frontend)
 
-    some_type = module.typedefs['some_type']
+    some_type = module.typedef_map['some_type']
 
     proc_decls = FindNodes(ProcedureDeclaration).visit(some_type.body)
     assert len(proc_decls) == 3
@@ -780,7 +782,7 @@ end module derived_type_bind_deferred_mod
 
     module = Module.from_source(fcode, frontend=frontend)
 
-    file_handle = module.typedefs['file_handle']
+    file_handle = module.typedef_map['file_handle']
     assert len(file_handle.body) == 2
 
     proc_decl = file_handle.body[1]
@@ -852,7 +854,7 @@ end module derived_type_final_generic_mod
     """.strip()
 
     mod = Module.from_source(fcode, frontend=frontend)
-    hdf5_file = mod.typedefs['hdf5_file']
+    hdf5_file = mod.typedef_map['hdf5_file']
     proc_decls = FindNodes(ProcedureDeclaration).visit(hdf5_file.body)
     assert len(proc_decls) == 5
 
@@ -895,7 +897,7 @@ end module
 """
     module = Module.from_source(fcode, frontend=frontend)
 
-    explicit = module.typedefs['explicit']
+    explicit = module.typedef_map['explicit']
     other = explicit.clone(name='other')
 
     assert explicit.name == 'explicit'
@@ -950,7 +952,7 @@ end module derived_type_linked_list
     for name in ('beg', 'cur'):
         assert name in module.variables
         assert isinstance(module.variable_map[name].type.dtype, DerivedType)
-        assert module.variable_map[name].type.dtype.typedef is module.typedefs['list_t']
+        assert module.variable_map[name].type.dtype.typedef is module.typedef_map['list_t']
 
         variables = module.variable_map[name].type.dtype.typedef.variables
         assert all(v.scope is module.variable_map[name].type.dtype.typedef for v in variables)
@@ -966,7 +968,7 @@ end module derived_type_linked_list
     routine = module['find']
     for name in ('this', 'x'):
         var = routine.variable_map[name]
-        assert var.type.dtype.typedef is module.typedefs['list_t']
+        assert var.type.dtype.typedef is module.typedef_map['list_t']
 
         assert 'payload' in var.variable_map
         assert 'next' in var.variable_map
@@ -976,10 +978,10 @@ end module derived_type_linked_list
     # Chase the next-chain to the limit with a buffer
     var = routine.variable_map['x']
     name = 'x'
-    for _ in range(min(1000, getrecursionlimit()-100)):
+    for _ in range(min(1000, getrecursionlimit()-len(stack())-50)):
         var = var.variable_map['next']
         assert var
-        assert var.type.dtype.typedef is module.typedefs['list_t']
+        assert var.type.dtype.typedef is module.typedef_map['list_t']
         name = f'{name}%next'
         assert var.name == name
 
@@ -1065,7 +1067,7 @@ end module derived_type_sequence
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend)
-    numeric_seq = module.typedefs['numeric_seq']
+    numeric_seq = module.typedef_map['numeric_seq']
     assert 'SEQUENCE' in fgen(numeric_seq)
 
 
@@ -1151,7 +1153,7 @@ def test_derived_type_rescope_symbols_shadowed(here, shadowed_typedef_symbols_fc
     assert mod_var.scope is module
 
     # Verify scope of variables in type def
-    rng_type = module.typedefs['rng_type']
+    rng_type = module.typedef_map['rng_type']
     istate = rng_type.variable_map['istate']
     tdef_var = rng_type.variable_map['nmaxstreams']
 
@@ -1357,3 +1359,42 @@ end subroutine driver
     assert assignment.rhs.parent.type.dtype.typedef is module['some_type']
     assert assignment.rhs.parent.parent.type.dtype.name == 'other_type'
     assert assignment.rhs.parent.parent.type.dtype.typedef is module['other_type']
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_types_abstract_deferred_procedure(frontend):
+    fcode = """
+module some_mod
+    implicit none
+    type, abstract :: abstract_type
+        contains
+        procedure (some_proc), deferred :: some_proc
+        procedure (other_proc), deferred :: other_proc
+    end type abstract_type
+
+    abstract interface
+        subroutine some_proc(this)
+            import abstract_type
+            class(abstract_type), intent(in) :: this
+        end subroutine some_proc
+    end interface
+
+    abstract interface
+        subroutine other_proc(this)
+            import abstract_type
+            class(abstract_type), intent(inout) :: this
+        end subroutine other_proc
+    end interface
+end module some_mod
+    """.strip()
+    module = Module.from_source(fcode, frontend=frontend)
+    typedef = module['abstract_type']
+    assert typedef.abstract is True
+    assert typedef.variables == ('some_proc', 'other_proc')
+    for symbol in typedef.variables:
+        assert isinstance(symbol, ProcedureSymbol)
+        assert isinstance(symbol.type.dtype, ProcedureType)
+        assert symbol.type.dtype.name.lower() == symbol.name.lower()
+        assert symbol.type.bind_names == (symbol,)
+        assert symbol.scope is typedef
+        assert symbol.type.bind_names[0].scope is module

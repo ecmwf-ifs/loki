@@ -5,4 +5,10 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-__version__ = "0.0.0"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("lint_rules")
+except PackageNotFoundError:
+    # package is not installed
+    pass

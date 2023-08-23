@@ -256,7 +256,10 @@ class FindExpressionRoot(ExpressionFinder):
     """
     def __init__(self, expr, recurse_to_parent=True, **kwargs):
         self._retriever = ExpressionRetriever(lambda e: e is expr, recurse_to_parent=recurse_to_parent)
-        super().__init__(unique=False, retrieve=lambda e: e if self._retriever.retrieve(e) else (), **kwargs)
+        if kwargs.get('unique'):
+            raise ValueError('FindExpressionRoot requires unique=False')
+        kwargs['unique'] = False
+        super().__init__(retrieve=lambda e: e if self._retriever.retrieve(e) else (), **kwargs)
 
 
 class SubstituteExpressions(Transformer):
@@ -297,7 +300,24 @@ class SubstituteExpressions(Transformer):
                                                        invalidate_source=invalidate_source)
 
     def visit_Expression(self, o, **kwargs):
+        """
+        call :any:`SubstituteExpressionsMapper` for the given expression node
+        """
+        if kwargs.get('recurse_to_declaration_attributes'):
+            return self.expr_mapper(o, recurse_to_declaration_attributes=True)
         return self.expr_mapper(o)
+
+    def visit_Import(self, o, **kwargs):
+        """
+        For :any:`Import` (as well as :any:`VariableDeclaration` and :any:`ProcedureDeclaration`)
+        we set ``recurse_to_declaration_attributes=True`` to make sure properties in the symbol
+        table are updated during dispatch to the expression mapper
+        """
+        kwargs['recurse_to_declaration_attributes'] = True
+        return super().visit_Node(o, **kwargs)
+
+    visit_VariableDeclaration = visit_Import
+    visit_ProcedureDeclaration = visit_Import
 
 
 class AttachScopes(Visitor):
@@ -344,6 +364,8 @@ class AttachScopes(Visitor):
         """
         Dispatch :any:`AttachScopesMapper` for :any:`Expression` tree nodes
         """
+        if kwargs.get('recurse_to_declaration_attributes'):
+            return self.expr_mapper(o, scope=kwargs['scope'], recurse_to_declaration_attributes=True)
         return self.expr_mapper(o, scope=kwargs['scope'])
 
     def visit_list(self, o, **kwargs):
@@ -362,6 +384,18 @@ class AttachScopes(Visitor):
         """
         children = tuple(self.visit(i, **kwargs) for i in o.children)
         return self._update(o, children)
+
+    def visit_Import(self, o, **kwargs):
+        """
+        For :any:`Import` (as well as :any:`VariableDeclaration` and :any:`ProcedureDeclaration`)
+        we set ``recurse_to_declaration_attributes=True`` to make sure properties in the symbol
+        table are updated during dispatch to the expression mapper
+        """
+        kwargs['recurse_to_declaration_attributes'] = True
+        return self.visit_Node(o, **kwargs)
+
+    visit_VariableDeclaration = visit_Import
+    visit_ProcedureDeclaration = visit_Import
 
     def visit_Scope(self, o, **kwargs):
         """

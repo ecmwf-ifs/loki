@@ -81,7 +81,7 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
             continue
         content = p.content or ''
         if starts_with is not None:
-            if not content.startswith(starts_with):
+            if not content.lower().startswith(starts_with.lower()):
                 continue
             content = content[len(starts_with):]
         for match in re.finditer(_get_pragma_parameters_re, content):
@@ -477,7 +477,7 @@ def detach_pragma_regions(ir):
     All replacements are performed in-place, without rebuilding any IR
     nodes.
     """
-    mapper = {region: (region.pragma, region.body, region.pragma_post)
+    mapper = {region: as_tuple(region.pragma) + region.body + as_tuple(region.pragma_post)
               for region in FindNodes(PragmaRegion).visit(ir)}
     return Transformer(mapper, inplace=True).visit(ir)
 

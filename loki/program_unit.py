@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 from abc import abstractmethod
-import weakref
 
 from loki import ir
 from loki.frontend import Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source
@@ -55,9 +54,8 @@ class ProgramUnit(Scope):
         frontend and a full parse using one of the other frontends is pending.
     """
 
-    def __init__(self, name, docstring=None, spec=None, contains=None,
-                 ast=None, source=None, parent=None,
-                 rescope_symbols=False, symbol_attrs=None, incomplete=False):
+    def __initialize__(self, name, docstring=None, spec=None, contains=None,
+                       ast=None, source=None, rescope_symbols=False, incomplete=False):
         # Common properties
         assert name and isinstance(name, str)
         self.name = name
@@ -83,11 +81,11 @@ class ProgramUnit(Scope):
         self.spec = spec
         self.contains = contains
 
-        # Call the parent constructor to take care of symbol table and rescoping
-        super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
-
         # Finally, register this object in the parent scope
         self.register_in_parent_scope()
+
+        if rescope_symbols:
+            self.rescope_symbols()
 
     @classmethod
     def from_source(cls, source, definitions=None, xmods=None, parser_classes=None, frontend=Frontend.FP, parent=None):
@@ -244,8 +242,8 @@ class ProgramUnit(Scope):
         # object is re-used while converting the parse tree to Loki-IR.
         has_parent = self.parent is not None
         if not has_parent:
-            parent_scope = Scope()
-            self._parent = weakref.ref(parent_scope)
+            parent_scope = Scope(parent=None)
+            self._reset_parent(parent_scope)
         if self.name not in self.parent.symbol_attrs:
             self.register_in_parent_scope()
 
@@ -256,7 +254,7 @@ class ProgramUnit(Scope):
         assert ir_ is self
 
         if not has_parent:
-            self._parent = None
+            self._reset_parent(None)
 
     def clone(self, **kwargs):
         """
@@ -319,8 +317,11 @@ class ProgramUnit(Scope):
             else:
                 for node in obj.contains.body:
                     if isinstance(node, ProgramUnit):
-                        node.parent = obj
+                        node._reset_parent(obj)
                         node.register_in_parent_scope()
+
+            # Rescope to ensure that symbol references are up to date
+            obj.rescope_symbols()
 
         obj.register_in_parent_scope()
 
@@ -329,17 +330,23 @@ class ProgramUnit(Scope):
     @property
     def typedefs(self):
         """
+        Return the :any:`TypeDef` defined in the :attr:`spec` of this unit
+        """
+        return as_tuple(FindNodes(ir.TypeDef).visit(self.spec))
+
+    @property
+    def typedef_map(self):
+        """
         Map of names and :any:`TypeDef` defined in the :attr:`spec` of this unit
         """
-        types = FindNodes(ir.TypeDef).visit(self.spec)
-        return CaseInsensitiveDict((td.name, td) for td in types)
+        return CaseInsensitiveDict((td.name, td) for td in self.typedefs)
 
     @property
     def declarations(self):
         """
         Return the declarations from the :attr:`spec` of this unit
         """
-        return FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(self.spec)
+        return as_tuple(FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(self.spec))
 
     @property
     def variables(self):
@@ -389,7 +396,14 @@ class ProgramUnit(Scope):
         """
         Return the list of :any:`Import` in this unit
         """
-        return FindNodes(ir.Import).visit(self.spec or ())
+        return as_tuple(FindNodes(ir.Import).visit(self.spec or ()))
+
+    @property
+    def import_map(self):
+        """
+        Map of imported symbol names to :any:`Import` objects
+        """
+        return CaseInsensitiveDict((s.name, imprt) for imprt in self.imports for s in imprt.symbols)
 
     @property
     def imported_symbols(self):
@@ -586,7 +600,7 @@ class ProgramUnit(Scope):
         Check if a symbol, type or subroutine with the given name is declared
         inside this unit
         """
-        return name in self.symbols or name in self.typedefs
+        return name in self.symbols or name in self.typedef_map
 
     def __getitem__(self, name):
         """
@@ -598,7 +612,7 @@ class ProgramUnit(Scope):
 
         item = self.subroutine_map.get(name)
         if item is None:
-            item = self.typedefs.get(name)
+            item = self.typedef_map.get(name)
         if item is None:
             item = self.symbol_map[name]
         return item

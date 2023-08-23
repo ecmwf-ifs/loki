@@ -18,10 +18,8 @@ from loki import (
     CaseInsensitiveDict, as_tuple, flatten, types
 )
 
-from transformations.single_column_coalesced import (
-    resolve_masked_stmts, get_integer_variable, kernel_remove_vector_loops,
-    resolve_vector_dimension
-)
+from transformations.single_column_coalesced import SCCBaseTransformation
+from transformations.single_column_coalesced_vector import SCCDevectorTransformation
 
 __all__ = ['SccCufTransformation', 'HoistTemporaryArraysDeviceAllocatableTransformation']
 
@@ -303,7 +301,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
                     arguments.append(arg.clone(dimensions=None))
                 else:
                     arguments.append(arg)
-            call._update(arguments=arguments)
+            call._update(arguments=as_tuple(arguments))
 
 
 def kernel_demote_private_locals(routine, horizontal, vertical):
@@ -468,7 +466,7 @@ def driver_device_variables(routine, targets=None):
                 arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
             else:
                 arguments.append(arg)
-        call_map[call] = call.clone(arguments=arguments)
+        call_map[call] = call.clone(arguments=as_tuple(arguments))
     routine.body = Transformer(call_map).visit(routine.body)
 
 
@@ -683,9 +681,6 @@ class SccCufTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):
 
         item = kwargs.get('item', None)
-        if item and not item.local_name == routine.name.lower():
-            return
-
         role = kwargs.get('role')
         depths = kwargs.get('depths', None)
         targets = kwargs.get('targets', None)
@@ -721,11 +716,11 @@ class SccCufTransformation(Transformation):
             The subroutines depth
         """
 
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
+        v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
         resolve_associates(routine)
-        resolve_masked_stmts(routine, loop_variable=v_index)
-        resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
-        kernel_remove_vector_loops(routine, self.horizontal)
+        SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
+        SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)
 
         kernel_cuf(
             routine, self.horizontal, self.vertical, self.block_dim,

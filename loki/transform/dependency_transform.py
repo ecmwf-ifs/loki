@@ -78,11 +78,6 @@ class DependencyTransformation(Transformation):
         'strict' mode, also  re-generate the kernel interface headers.
         """
         role = kwargs.get('role')
-        item = kwargs.get('item', None)
-
-        # Bail if this routine is not part of a scheduler traversal
-        if item and not item.local_name == routine.name.lower():
-            return
 
         if role == 'kernel':
             # Change the name of kernel routines
@@ -177,6 +172,20 @@ class DependencyTransformation(Transformation):
         targets = as_tuple(kwargs.get('targets', None))
         targets = as_tuple(str(t).upper() for t in targets)
 
+        # We don't want to rename module variable imports, so we build
+        # a list of calls to further filter the targets
+        if isinstance(source, Module):
+            calls = ()
+            for routine in source.subroutines:
+                calls += as_tuple(str(c.name).upper() for c in FindNodes(CallStatement).visit(routine.body))
+                calls += as_tuple(str(c).upper() for c in FindInlineCalls().visit(routine.body))
+        else:
+            calls = as_tuple(str(c.name).upper() for c in FindNodes(CallStatement).visit(source.body))
+            calls += as_tuple(str(c).upper() for c in FindInlineCalls().visit(source.body))
+
+        # Import statements still point to unmodified call names
+        calls = [call.replace(f'{self.suffix.upper()}', '') for call in calls]
+
         if self.replace_ignore_items:
             item = kwargs.get('item', None)
             targets += as_tuple(str(i).upper() for i in item.ignore) if item else ()
@@ -206,7 +215,7 @@ class DependencyTransformation(Transformation):
 
             else:
                 # Modify module import if it imports any targets
-                if targets is not None and any(s in targets for s in im.symbols):
+                if targets is not None and any(s in targets and s in calls for s in im.symbols):
                     # Append suffix to all target symbols
                     symbols = as_tuple(s.clone(name=f'{s.name}{self.suffix}')
                                        if s in targets else s for s in im.symbols)
@@ -235,18 +244,17 @@ class DependencyTransformation(Transformation):
         removal_map = {}
 
         for i in intfs:
-            new_imports = ()
             for b in i.body:
                 if isinstance(b, Subroutine):
-                    if targets is not None and b.name in targets:
+                    if targets is not None and b.name.lower() in targets:
                         # Create a new module import with explicitly qualified symbol
                         new_module = self.derive_module_name(b.name)
                         new_symbol = Variable(name=f'{b.name}{self.suffix}', scope=source)
                         new_import = Import(module=new_module, c_import=False, symbols=(new_symbol,))
-                        new_imports += as_tuple(new_import)
+                        source.spec.prepend(new_import)
 
-            if new_imports:
-                removal_map[i] = new_imports
+                        # Mark current import for removal
+                        removal_map[i] = None
 
         # Apply any scheduled interface removals to spec
         if removal_map:

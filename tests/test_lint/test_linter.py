@@ -48,7 +48,7 @@ def dummy_rules_fixture():
         config = {'key': 'default_value'}
 
         @classmethod
-        def check(cls, ast, rule_report, config):
+        def check(cls, ast, rule_report, config, **kwargs):
             assert len(config) == 1
             assert 'key' in config
             assert config['key'] == 'default_value'
@@ -58,7 +58,7 @@ def dummy_rules_fixture():
         config = {'key': 'default_value'}
 
         @classmethod
-        def check(cls, ast, rule_report, config):
+        def check(cls, ast, rule_report, config, **kwargs):
             assert len(config) == 2
             assert 'key' in config
             assert config['key'] == 'non_default_value'
@@ -156,7 +156,7 @@ def test_linter_disable_per_scope(file_rule, module_rule, subroutine_rule, assig
         docs = {'id': '13.37'}
 
         @classmethod
-        def check_file(cls, sourcefile, rule_report, config):  # pylint: disable=unused-argument
+        def check_file(cls, sourcefile, rule_report, config, **kwargs):  # pylint: disable=unused-argument
             rule_report.add(cls.__name__, sourcefile)
 
         check_module = check_file
@@ -215,7 +215,7 @@ def test_linter_disable_inline(rule_list, count):
         docs = {'id': '13.37'}
 
         @classmethod
-        def check_subroutine(cls, subroutine, rule_report, config):  # pylint: disable=unused-argument
+        def check_subroutine(cls, subroutine, rule_report, config, **kwargs):  # pylint: disable=unused-argument
             for node in FindNodes(Assignment).visit(subroutine.ir):
                 rule_report.add(cls.__name__ + '_' + str(node.source.lines[0]), node)
 
@@ -223,7 +223,7 @@ def test_linter_disable_inline(rule_list, count):
         docs = {'id': '23.42'}
 
         @classmethod
-        def check_subroutine(cls, subroutine, rule_report, config):  # pylint: disable=unused-argument
+        def check_subroutine(cls, subroutine, rule_report, config, **kwargs):  # pylint: disable=unused-argument
             for node, variables in FindVariables(with_ir_node=True).visit(subroutine.body):
                 for var in variables:
                     rule_report.add(cls.__name__ + '_' + str(var), node)
@@ -278,7 +278,7 @@ def test_linter_disable_config(disable_config, count):
         docs = {'id': '13.37'}
 
         @classmethod
-        def check_subroutine(cls, subroutine, rule_report, config):  # pylint: disable=unused-argument
+        def check_subroutine(cls, subroutine, rule_report, config, **kwargs):  # pylint: disable=unused-argument
             for node in FindNodes(Assignment).visit(subroutine.ir):
                 rule_report.add(cls.__name__ + '_' + str(node.source.lines[0]), node)
 
@@ -286,7 +286,7 @@ def test_linter_disable_config(disable_config, count):
         docs = {'id': '23.42'}
 
         @classmethod
-        def check_subroutine(cls, subroutine, rule_report, config):  # pylint: disable=unused-argument
+        def check_subroutine(cls, subroutine, rule_report, config, **kwargs):  # pylint: disable=unused-argument
             for node, variables in FindVariables(with_ir_node=True).visit(subroutine.body):
                 for var in variables:
                     rule_report.add(cls.__name__ + '_' + str(var), node)
@@ -345,33 +345,37 @@ class PicklableTestHandler(GenericHandler):
 
 @pytest.mark.parametrize('max_workers', [None, 1, 4])
 @pytest.mark.parametrize('counter,exclude,files', [
-    (13, None, [
+    (15, None, [
         'projA/module/compute_l1_mod.f90',
         'projA/module/compute_l2_mod.f90',
         'projA/module/driverA_mod.f90',
         'projA/module/driverB_mod.f90',
         'projA/module/driverC_mod.f90',
         'projA/module/driverD_mod.f90',
+        'projA/module/driverE_mod.f90',
         'projA/module/header_mod.f90',
         'projA/module/kernelA_mod.F90',
         'projA/module/kernelB_mod.F90',
         'projA/module/kernelC_mod.f90',
         'projA/module/kernelD_mod.f90',
+        'projA/module/kernelE_mod.f90',
         'projA/source/another_l1.F90',
         'projA/source/another_l2.F90'
     ]),
-    (13, [], [
+    (15, [], [
         'projA/module/compute_l1_mod.f90',
         'projA/module/compute_l2_mod.f90',
         'projA/module/driverA_mod.f90',
         'projA/module/driverB_mod.f90',
         'projA/module/driverC_mod.f90',
         'projA/module/driverD_mod.f90',
+        'projA/module/driverE_mod.f90',
         'projA/module/header_mod.f90',
         'projA/module/kernelA_mod.F90',
         'projA/module/kernelB_mod.F90',
         'projA/module/kernelC_mod.f90',
         'projA/module/kernelD_mod.f90',
+        'projA/module/kernelE_mod.f90',
         'projA/source/another_l1.F90',
         'projA/source/another_l2.F90'
     ]),
@@ -507,7 +511,7 @@ def test_linter_lint_files_fix(config, backup_suffix):
         fixable = True
 
         @classmethod
-        def check_subroutine(cls, subroutine, rule_report, config):
+        def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
             if not subroutine.name.isupper():
                 rule_report.add(f'Subroutine name "{subroutine.name}" is not upper case', subroutine)
 

@@ -15,6 +15,7 @@ from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.visitors import Visitor, Transformer
 from loki.subroutine import Subroutine
+from loki.tools.util import CaseInsensitiveDict
 
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
@@ -113,6 +114,21 @@ class DataflowAnalysisAttacher(Transformer):
         o._update(body=body)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
+    def visit_Associate(self, o, **kwargs):
+        # An associate block defines all symbols defined by its body and uses all
+        # symbols used by its body before they are defined in the body
+        live = kwargs.pop('live_symbols', set())
+        body, defines, uses = self._visit_body(o.body, live=live, **kwargs)
+        o._update(body=body)
+
+        # reverse the mapping of names before assinging lives, defines, uses sets for Associate node itself
+        invert_assoc = CaseInsensitiveDict({v.name: k for k, v in o.associations})
+        _live = set(invert_assoc[v.name] if v.name in invert_assoc else v for v in live)
+        _defines = set(invert_assoc[v.name] if v.name in invert_assoc else v for v in defines)
+        _uses = set(invert_assoc[v.name] if v.name in invert_assoc else v for v in uses)
+
+        return self.visit_Node(o, live_symbols=_live, defines_symbols=_defines, uses_symbols=_uses, **kwargs)
+
     def visit_Loop(self, o, **kwargs):
         # A loop defines the induction variable for its body before entering it
         live = kwargs.pop('live_symbols', set())
@@ -162,8 +178,9 @@ class DataflowAnalysisAttacher(Transformer):
         body = ()
         defines = set()
         for b in o.bodies:
-            _b, defines, uses = self._visit_body(b, live=live, uses=uses, defines=defines, **kwargs)
+            _b, _d, uses = self._visit_body(b, live=live, uses=uses, **kwargs)
             body += (as_tuple(_b),)
+            defines |= _d
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
         o._update(bodies=body, else_body=else_body)
         defines = defines | else_defines

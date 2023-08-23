@@ -98,7 +98,7 @@ class GenericRule:
         """
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         """
         Perform rule checks on subroutine level
 
@@ -114,7 +114,7 @@ class GenericRule:
         """
 
     @classmethod
-    def check(cls, ast, rule_report, config):
+    def check(cls, ast, rule_report, config, **kwargs):
         """
         Perform checks on all entities in the given IR object
 
@@ -132,6 +132,7 @@ class GenericRule:
             The rule configuration, filled with externally provided
             configuration values or the rule's default configuration.
         """
+
         # Perform checks on source file level
         if isinstance(ast, Sourcefile):
             cls.check_file(ast, rule_report, config)
@@ -139,10 +140,10 @@ class GenericRule:
             # Then recurse for all modules and subroutines in that file
             if hasattr(ast, 'modules') and ast.modules is not None:
                 for module in ast.modules:
-                    cls.check(module, rule_report, config)
+                    cls.check(module, rule_report, config, **kwargs)
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
                 for subroutine in ast.subroutines:
-                    cls.check(subroutine, rule_report, config)
+                    cls.check(subroutine, rule_report, config, **kwargs)
 
         # Perform checks on module level
         elif isinstance(ast, Module):
@@ -154,19 +155,24 @@ class GenericRule:
             # Then recurse for all subroutines in that module
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
                 for subroutine in ast.subroutines:
-                    cls.check(subroutine, rule_report, config)
+                    cls.check(subroutine, rule_report, config, **kwargs)
 
         # Peform checks on subroutine level
         elif isinstance(ast, Subroutine):
             if is_rule_disabled(ast.ir, cls.identifiers()):
                 return
 
-            cls.check_subroutine(ast, rule_report, config)
+            if not (targets := kwargs.pop('targets', None)):
+                items = kwargs.get('items', ())
+                item = [item for item in items if item.local_name.lower() == ast.name.lower()]
+                if len(item) > 0:
+                    targets = item[0].targets
+            cls.check_subroutine(ast, rule_report, config, targets=targets, **kwargs)
 
             # Recurse for any procedures contained in a subroutine
             if hasattr(ast, 'members') and ast.members is not None:
                 for member in ast.members:
-                    cls.check(member, rule_report, config)
+                    cls.check(member, rule_report, config, **kwargs)
 
     @classmethod
     def fix_module(cls, module, rule_report, config):

@@ -271,6 +271,8 @@ class Pattern:
 
     _pattern_opening_parenthesis = re.compile(r'\(')
     _pattern_closing_parenthesis = re.compile(r'\)')
+    _pattern_opening_bracket = re.compile(r'\[')
+    _pattern_closing_bracket = re.compile(r'\]')
     _pattern_quoted_string = re.compile(r'(?:\'.*?\')|(?:".*?")')
 
     @classmethod
@@ -281,6 +283,8 @@ class Pattern:
         string = cls._pattern_quoted_string.sub('', string)
         p_open = [match.start() for match in cls._pattern_opening_parenthesis.finditer(string)]
         p_close = [match.start() for match in cls._pattern_closing_parenthesis.finditer(string)]
+        b_open = [match.start() for match in cls._pattern_opening_bracket.finditer(string)]
+        b_close = [match.start() for match in cls._pattern_closing_bracket.finditer(string)]
         if len(p_open) > len(p_close):
             # Note: fparser's reader has currently problems with opening
             # quotes in comments in combination with line continuation, thus
@@ -291,28 +295,47 @@ class Pattern:
             # See https://github.com/stfc/fparser/issues/264
             return string[:p_open[0]]
         assert len(p_open) == len(p_close)
-        if not p_close:
+        assert len(b_open) == len(b_close)
+        if not p_close and not b_close:
             return string
 
-        # We match pairs of parentheses starting at the end by pushing and popping from a stack.
-        # Whenever the stack runs out, we have fully resolved a set of (nested) parenthesis and
-        # record the corresponding span
+        def _match_spans(open_, close_):
+            # We match pairs of parentheses starting at the end by pushing and popping from a stack.
+            # Whenever the stack runs out, we have fully resolved a set of (nested) parenthesis and
+            # record the corresponding span
+            if not close_:
+                return []
+            spans = []
+            stack = [close_.pop()]
+            while open_:
+                if not close_ or open_[-1] > close_[-1]:
+                    assert stack
+                    start = open_.pop()
+                    end = stack.pop()
+                    if not stack:
+                        spans.append((start, end))
+                else:
+                    stack.append(close_.pop())
+            assert not (stack or open_ or close_)
+            return spans
+
+        p_spans = _match_spans(p_open, p_close)
+        b_spans = _match_spans(b_open, b_close)
+
+        # Merge the span lists (and reverse the order into ascending in the process)
         spans = []
-        stack = [p_close.pop()]
-        while p_open:
-            if not p_close or p_open[-1] > p_close[-1]:
-                assert stack
-                start = p_open.pop()
-                end = stack.pop()
-                if not stack:
-                    spans.append((start, end))
+        while p_spans and b_spans:
+            if p_spans[-1][0] < b_spans[-1][0]:
+                spans.append(p_spans.pop())
             else:
-                stack.append(p_close.pop())
+                spans.append(b_spans.pop())
+        if p_spans:
+            spans += p_spans[::-1]
+        if b_spans:
+            spans += b_spans[::-1]
 
         # We should now be left with no parentheses anymore and can build the new string
         # by using everything between these parenthesis "spans"
-        assert not (stack or p_open or p_close)
-        spans.reverse()
         new_string = string[:spans[0][0]]
         for (_, start), (end, _) in zip(spans[:-1], spans[1:]):
             new_string += string[start+1:end]
@@ -422,9 +445,8 @@ class ModulePattern(Pattern):
         else:
             contains = None
 
-        module.__init__(  # pylint: disable=unnecessary-dunder-call
-            name=module.name, spec=spec, contains=contains, parent=module.parent,
-            source=module.source, symbol_attrs=module.symbol_attrs, incomplete=True
+        module.__initialize__(  # pylint: disable=unnecessary-dunder-call
+            name=module.name, spec=spec, contains=contains, source=module.source, incomplete=True
         )
 
         if match.span()[0] > 0:
@@ -443,7 +465,7 @@ class SubroutineFunctionPattern(Pattern):
 
     def __init__(self):
         super().__init__(
-            r'^[ \t\w()=]*?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
+            r'^(?P<prefix>[ \t\w()=]*)?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
             r'(?P<spec>(?:.*?(?:^(?:abstract[ \t]+)?interface\b.*?^end[ \t]+interface)?)+)'
             r'(?P<contains>^contains\n(?:'
             r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
@@ -508,10 +530,14 @@ class SubroutineFunctionPattern(Pattern):
         else:
             contains = None
 
-        routine.__init__(  # pylint: disable=unnecessary-dunder-call
+        if match['prefix'].strip():
+            prefix = match['prefix'].strip()
+        else:
+            prefix=None
+
+        routine.__initialize__(  # pylint: disable=unnecessary-dunder-call
             name=routine.name, args=routine._dummies, is_function=routine.is_function,
-            spec=spec, contains=contains, parent=routine.parent, source=routine.source,
-            symbol_attrs=routine.symbol_attrs, incomplete=True
+            prefix=prefix, spec=spec, contains=contains, source=routine.source, incomplete=True
         )
 
         if match.span()[0] > 0:
@@ -855,25 +881,23 @@ class ImportPattern(Pattern):
             symbols = None
 
         return ir.Import(
-            module, symbols=as_tuple(symbols), rename_list=rename_list,
+            module, symbols=as_tuple(symbols), rename_list=as_tuple(rename_list),
             source=reader.source_from_current_line()
         )
 
 
 class VariableDeclarationPattern(Pattern):
     """
-    Pattern to match :any:`VariableDeclaration` nodes
-
-    For the moment, this only matches variable declarations for derived type objects
-    (via ``TYPE`` or ``CLASS`` keywords).
+    Pattern to match :any:`VariableDeclaration` nodes.
     """
 
     parser_class = RegexParserClass.DeclarationClass
 
     def __init__(self):
         super().__init__(
-            r'^(?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\)'  # TYPE or CLASS keyword with typename
-            r'(?:[ \t]*,[ \t]*[a-z]+(?:\(.*?\))?)*'  # Optional attributes
+            r'^(((?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\))|' # TYPE or CLASS keyword with typename
+            r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))(\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
+            r'(?:[ \t]*,[ \t]*[a-z]+(?:\((.(\(.*\))?)*?\))?)*'  # Optional attributes
             r'(?:[ \t]*::)?'  # Optional `::` delimiter
             r'[ \t]*'  # Some white space
             r'(?P<variables>\w+\b.*?)$',  # Variable names
@@ -882,7 +906,7 @@ class VariableDeclarationPattern(Pattern):
 
     def match(self, reader, parser_classes, scope):
         """
-        Match the provided source string against the pattern for a :any:`Import`
+        Match the provided source string against the pattern for a :any:`VariableDeclaration`
 
         Parameters
         ----------
@@ -898,12 +922,17 @@ class VariableDeclarationPattern(Pattern):
         if not match:
             return None
 
-        type_ = SymbolAttributes(DerivedType(match['typename']))
+        if (_typename := match['typename']):
+            type_ = SymbolAttributes(DerivedType(_typename))
+        else:
+            type_ = SymbolAttributes(BasicType.from_str(match['basic_type']))
+        assert type_
+
         variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
+        variables = re.sub(r'=(?:>)?[^,]*(?=,|$)', r'', variables) # Remove initialization
         variables = variables.replace(' ', '').split(',')  # Variable names without white space
         variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
         return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
-
 
 class CallPattern(Pattern):
     """

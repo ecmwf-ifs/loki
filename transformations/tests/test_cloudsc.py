@@ -10,12 +10,12 @@ import io
 import resource
 from subprocess import CalledProcessError
 from pathlib import Path
-import shutil
 import pandas as pd
 import pytest
-import yaml
 
-from conftest import available_frontends
+from conftest import (
+    available_frontends, write_env_launch_script, local_loki_setup, local_loki_cleanup
+)
 from loki import execute, OMNI, HAVE_FP, HAVE_OMNI, warning
 
 pytestmark = pytest.mark.skipif('CLOUDSC_DIR' not in os.environ, reason='CLOUDSC_DIR not set')
@@ -28,45 +28,21 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='local_loki_bundle')
 def fixture_local_loki_bundle(here):
-    """Inject ourselves into the CLOUDSC bundle"""
-    lokidir = Path(__file__).parent.parent.parent
-    target = here/'source/loki'
-    backup = here/'source/loki.bak'
-    bundlefile = here/'bundle.yml'
-    local_loki_bundlefile = here/'__bundle_loki.yml'
-
-    # Do not overwrite any existing Loki copy
-    if target.exists():
-        if backup.exists():
-            shutil.rmtree(backup)
-        shutil.move(target, backup)
-
-    # Change bundle to symlink for Loki
-    bundle = yaml.safe_load(bundlefile.read_text())
-    loki_index = [i for i, p in enumerate(bundle['projects']) if 'loki' in p]
-    assert len(loki_index) == 1
-    if 'git' in bundle['projects'][loki_index[0]]['loki']:
-        del bundle['projects'][loki_index[0]]['loki']['git']
-    bundle['projects'][loki_index[0]]['loki']['dir'] = str(lokidir.resolve())
-    local_loki_bundlefile.write_text(yaml.dump(bundle))
-
-    yield local_loki_bundlefile
-
-    if local_loki_bundlefile.exists():
-        local_loki_bundlefile.unlink()
-    if target.is_symlink():
-        target.unlink()
-    if not target.exists() and backup.exists():
-        shutil.move(backup, target)
+    """Call setup utilities for injecting ourselves into the CLOUDSC bundle"""
+    lokidir, target, backup = local_loki_setup(here)
+    yield lokidir
+    local_loki_cleanup(target, backup)
 
 
 @pytest.fixture(scope='module', name='bundle_create')
 def fixture_bundle_create(here, local_loki_bundle):
+    """Inject ourselves into the CLOUDSC bundle"""
+    env = os.environ.copy()
+    env['CLOUDSC_BUNDLE_LOKI_DIR'] = local_loki_bundle
+
     # Run ecbundle to fetch dependencies
     execute(
-        ['./cloudsc-bundle', 'create', '--bundle', str(local_loki_bundle)],
-        cwd=here,
-        silent=False
+        ['./cloudsc-bundle', 'create'], cwd=here, silent=False, env=env
     )
 
 
@@ -96,7 +72,7 @@ def test_cloudsc(here, frontend):
     # Raise stack limit
     resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
     env = os.environ.copy()
-    env.update({'OMP_STACKSIZE': '2G'})
+    env.update({'OMP_STACKSIZE': '2G', 'NVCOMPILER_ACC_CUDA_HEAPSIZE': '2G'})
 
     # For some reason, the 'data' dir symlink is not created???
     os.symlink(here/'data', here/'build/data')
@@ -108,6 +84,8 @@ def test_cloudsc(here, frontend):
         ('dwarf-cloudsc-loki-scc', '1', '16000', '32'),
         ('dwarf-cloudsc-loki-scc-hoist', '1', '16000', '32'),
         ('dwarf-cloudsc-loki-c', '2', '16000', '32'),
+        ('dwarf-cloudsc-loki-idem-stack', '2', '16000', '32'),
+        ('dwarf-cloudsc-loki-scc-stack', '1', '16000', '32'),
     ]
 
     if HAVE_OMNI:
@@ -120,15 +98,7 @@ def test_cloudsc(here, frontend):
     failures, warnings = {}, {}
     for binary, *args in binaries:
         # Write a script to source env.sh and launch the binary
-        script = Path(here/f'build/run_{binary}.sh')
-        script.write_text(f"""
-#!/bin/bash
-
-source env.sh >&2
-bin/{binary} {' '.join(args)}
-exit $?
-        """.strip())
-        script.chmod(0o750)
+        script = write_env_launch_script(here, binary, args)
 
         # Run the script and verify error norms
         try:

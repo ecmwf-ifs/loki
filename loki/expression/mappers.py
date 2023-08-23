@@ -30,7 +30,7 @@ from loki.types import SymbolAttributes, BasicType
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper',
-           'LokiIdentityMapper', 'AttachScopesMapper']
+           'LokiIdentityMapper', 'AttachScopesMapper', 'DetachScopesMapper']
 
 
 
@@ -520,6 +520,7 @@ class LokiIdentityMapper(IdentityMapper):
     def __call__(self, expr, *args, **kwargs):
         if expr is None:
             return None
+        kwargs.setdefault('recurse_to_declaration_attributes', False)
         new_expr = super().__call__(expr, *args, **kwargs)
         if getattr(expr, 'source', None):
             if isinstance(new_expr, tuple):
@@ -551,38 +552,63 @@ class LokiIdentityMapper(IdentityMapper):
     map_float_literal = map_int_literal
 
     def map_variable_symbol(self, expr, *args, **kwargs):
-        kind = self.rec(expr.type.kind, *args, **kwargs)
-        if kind is not expr.type.kind and expr.scope:
-            # Update symbol table entry for kind directly because with a scope attached
-            # it does not affect the outcome of expr.clone
-            expr.scope.symbol_attrs[expr.name] = expr.type.clone(kind=kind)
+        # When updating declaration attributes, which are stored in the symbol table,
+        # we need to disable `recurse_to_declaration_attributes` to avoid infinite
+        # recursion because of the various ways that Fortran allows to use the declared
+        # symbol also inside the declaration expression
+        recurse_to_declaration_attributes = kwargs['recurse_to_declaration_attributes'] or expr.scope is None
+        kwargs['recurse_to_declaration_attributes'] = False
 
-        if expr.scope and expr.type.initial and expr.name == expr.type.initial:
-            # FIXME: This is a hack to work around situations where a constant
-            # symbol (from a parent scope) with the same name as the declared
-            # variable is used as initializer. This hands down the correct scope
-            # (in case this traversal is part of ``AttachScopesMapper``) and thus
-            # interrupts an otherwise infinite recursion (see LOKI-52).
-            _kwargs = kwargs.copy()
-            _kwargs['scope'] = expr.scope.parent
-            initial = self.rec(expr.type.initial, *args, **_kwargs)
-        else:
-            initial = self.rec(expr.type.initial, *args, **kwargs)
-        if initial is not expr.type.initial and expr.scope:
-            # Update symbol table entry for initial directly because with a scope attached
-            # it does not affect the outcome of expr.clone
-            expr.scope.symbol_attrs[expr.name] = expr.type.clone(initial=initial)
+        if recurse_to_declaration_attributes:
+            old_type = expr.type
+            kind = self.rec(old_type.kind, *args, **kwargs)
 
-        bind_names = self.rec(expr.type.bind_names, *args, **kwargs)
-        if not (bind_names is None or all(new is old for new, old in zip_longest(bind_names, expr.type.bind_names))):
-            # Update symbol table entry for bind_names directly because with a scope attached
-            # it does not affect the outcome of expr.clone
-            expr.scope.symbol_attrs[expr.name] = expr.type.clone(bind_names=as_tuple(bind_names))
+            if expr.scope and expr.name == old_type.initial:
+                # FIXME: This is a hack to work around situations where a constant
+                # symbol (from a parent scope) with the same name as the declared
+                # variable is used as initializer. This hands down the correct scope
+                # (in case this traversal is part of ``AttachScopesMapper``) and thus
+                # interrupts an otherwise infinite recursion (see LOKI-52).
+                _kwargs = kwargs.copy()
+                _kwargs['scope'] = expr.scope.parent
+                initial = self.rec(old_type.initial, *args, **_kwargs)
+            else:
+                initial = self.rec(old_type.initial, *args, **kwargs)
+
+            if old_type.bind_names:
+                bind_names = ()
+                for bind_name in old_type.bind_names:
+                    if bind_name == expr.name:
+                        # FIXME: This is a hack to work around situations where an
+                        # explicit interface is used with the same name as the
+                        # type bound procedure. This hands down the correct scope.
+                        _kwargs = kwargs.copy()
+                        _kwargs['scope'] = expr.scope.parent
+                        bind_names += (self.rec(bind_name, *args, **_kwargs),)
+                    else:
+                        bind_names += (self.rec(bind_name, *args, **kwargs),)
+            else:
+                bind_names = None
+
+            is_type_changed = (
+                kind is not old_type.kind or initial is not old_type.initial or
+                any(new is not old for new, old in zip_longest(as_tuple(bind_names), as_tuple(old_type.bind_names)))
+            )
+            if is_type_changed:
+                new_type = old_type.clone(kind=kind, initial=initial, bind_names=bind_names)
+                if expr.scope:
+                    # Update symbol table entry
+                    expr.scope.symbol_attrs[expr.name] = new_type
 
         parent = self.rec(expr.parent, *args, **kwargs)
-        if parent is expr.parent and (kind is expr.type.kind or expr.scope):
+        if expr.scope is None:
+            if parent is expr.parent and not is_type_changed:
+                return expr
+            return expr.clone(parent=parent, type=new_type)
+
+        if parent is expr.parent:
             return expr
-        return expr.clone(parent=parent, type=expr.type.clone(kind=kind))
+        return expr.clone(parent=parent)
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol
@@ -611,7 +637,13 @@ class LokiIdentityMapper(IdentityMapper):
             # and make sure we don't loose the call parameters (aka dimensions)
             return InlineCall(function=symbol.clone(parent=parent), parameters=dimensions)
 
-        shape = self.rec(symbol.type.shape, *args, **kwargs)
+        if kwargs['recurse_to_declaration_attributes']:
+            _kwargs = kwargs.copy()
+            _kwargs['recurse_to_declaration_attributes'] = False
+            shape = self.rec(symbol.type.shape, *args, **_kwargs)
+        else:
+            shape = symbol.type.shape
+
         if (getattr(symbol, 'symbol', symbol) is expr.symbol and
                 all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ())) and
                 all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))):
@@ -781,6 +813,29 @@ class AttachScopesMapper(LokiIdentityMapper):
             new_expr.type = SymbolAttributes(dtype=BasicType.DEFERRED)
 
         return map_fn(new_expr, *args, **kwargs)
+
+    map_deferred_type_symbol = map_variable_symbol
+    map_procedure_symbol = map_variable_symbol
+
+
+class DetachScopesMapper(LokiIdentityMapper):
+    """
+    A Pymbolic expression mapper (i.e., a visitor for the expression tree)
+    that rebuilds an expression unchanged but with the scope for every
+    :any:`TypedSymbol` detached.
+
+    This will ensure that type information is stored locally on the object
+    itself, which is useful when storing information for inter-procedural
+    analysis passes.
+    """
+
+    def __init__(self):
+        super().__init__(invalidate_source=False)
+
+    def map_variable_symbol(self, expr, *args, **kwargs):
+        new_expr = super().map_variable_symbol(expr, *args, **kwargs)
+        new_expr = new_expr.clone(scope=None)
+        return new_expr
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol
