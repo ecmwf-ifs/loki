@@ -1062,6 +1062,7 @@ def test_scheduler_loki_69(loki_69_dir):
     assert all(item.children == children_map[item.name] for item in scheduler.items)
 
 
+@pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 def test_scheduler_scopes(here, config, frontend):
     """
     Test discovery with import renames and duplicate names in separate scopes
