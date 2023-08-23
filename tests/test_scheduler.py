@@ -106,11 +106,15 @@ def graphviz_present():
     Test if graphviz is present and works
     """
     try:
-        import graphviz as gviz
-        callgraph = gviz.Graph()
-        callgraph.pipe()
+        import graphviz as gviz # pylint: disable=import-outside-toplevel
     except ImportError:
         return False
+
+    try:
+        gviz.Graph().pipe()
+    except gviz.ExecutableNotFound:
+        return False
+
     return True
 
 
