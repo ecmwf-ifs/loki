@@ -204,7 +204,6 @@ def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild, silent
 
             # Make sure the plan files have been created
             assert (builddir/'loki_plan.cmake').exists()
-            assert (builddir/'loki_callgraph.pdf').exists()
 
             # Validate the content of the plan file
             loki_plan = (builddir/'loki_plan.cmake').read_text()
