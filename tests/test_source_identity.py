@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from conftest import clean_test, available_frontends
 from loki import (
-  Sourcefile, Subroutine, OMNI, fgen, FindNodes, as_tuple, ir
+  Sourcefile, Subroutine, OMNI, fgen, FindNodes, ir
 )
 
 
@@ -136,9 +136,6 @@ end subroutine routine_raw_source_cond
     for node in FindNodes(ir.Conditional).visit(routine.ir):
         assert node.source is not None
         assert node.source.lines in cond_lines
-        # Make sure that conditionals have source information
-        assert node.condition.source.lines[0] == node.condition.source.lines[0]
-        assert node.condition.source.lines[0] == node.source.lines[0]
         # Verify that source string is subset of the relevant lines in the original source
         assert node.source.string in ('\n'.join(fcode[start-1:end]) for start, end in cond_lines)
         if node.name:
@@ -193,15 +190,9 @@ end subroutine routine_raw_source_multicond
     # Check the conditional
     cond_name_found = 0
     cond_lines = ((4, 11),)
-    conditions = {4: (5, 7)}
     for node in FindNodes(ir.MultiConditional).visit(routine.ir):
         assert node.source is not None
         assert node.source.lines in cond_lines
-        # Make sure that cases have source information
-        for value in node.values:
-            assert all(val.source.lines[0] == val.source.lines[1] and
-                       val.source.lines[0] in conditions[node.source.lines[0]]
-                       for val in as_tuple(value))
         # Verify that source string is subset of the relevant lines in the original source
         assert node.source.string in ('\n'.join(fcode[start-1:end]) for start, end in cond_lines)
         if node.name:

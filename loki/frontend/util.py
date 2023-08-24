@@ -254,8 +254,7 @@ def inject_statement_functions(routine):
                 if isinstance(variable, Array):
                     parameters = variable.dimensions
                     expr_map_spec[variable] = InlineCall(
-                        variable.clone(dimensions=None), parameters=parameters, source=variable.source
-                    )
+                        variable.clone(dimensions=None), parameters=parameters)
                 elif not isinstance(variable, ProcedureSymbol):
                     expr_map_spec[variable] = variable.clone()
         expr_map_body = {}
@@ -264,8 +263,7 @@ def inject_statement_functions(routine):
                 if isinstance(variable, Array):
                     parameters = variable.dimensions
                     expr_map_body[variable] = InlineCall(
-                        variable.clone(dimensions=None), parameters=parameters, source=variable.source
-                    )
+                        variable.clone(dimensions=None), parameters=parameters)
                 elif not isinstance(variable, ProcedureSymbol):
                     expr_map_body[variable] = variable.clone()
 

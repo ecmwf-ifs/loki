@@ -106,9 +106,10 @@ class Transformer(Visitor):
         args_frozen = o.args_frozen
         args_frozen.update(args)
         if self.invalidate_source and 'source' in args_frozen:
-            child_has_no_source = [getattr(i, 'source', None) is None for i in flatten(children)]
-            if any(child_has_no_source) or len(child_has_no_source) != len(flatten(o.children)):
-                return self._rebuild_without_source(o, children, **args_frozen)
+            if any(isinstance(child, Node) for child in flatten(children)):
+                child_has_no_source = [getattr(i, 'source', None) is None for i in flatten(children)]
+                if any(child_has_no_source) or len(child_has_no_source) != len(flatten(o.children)):
+                    return self._rebuild_without_source(o, children, **args_frozen)
 
         if self.inplace:
             # Updated nodes in place, if requested
