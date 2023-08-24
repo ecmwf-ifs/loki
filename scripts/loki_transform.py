@@ -149,8 +149,11 @@ def cli(debug):
               help='Trim vector loops in SCC transform to exclude scalar assignments.')
 @click.option('--global-var-offload', is_flag=True, default=False,
               help="Generate offload instructions for global vars imported via 'USE' statements.")
+@click.option('--inline-members/--no-inline-members', default=False,
+              help='Inline member functions for SCC-class transformations.')
 def convert(out_path, path, header, cpp, directive, include, define, omni_include, xmod,
-            data_offload, remove_openmp, mode, frontend, config, trim_vector_sections, global_var_offload):
+            data_offload, remove_openmp, mode, frontend, config, trim_vector_sections,
+            global_var_offload, inline_members):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -229,7 +232,9 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
-        transformation = (SCCBaseTransformation(horizontal=horizontal, directive=directive),)
+        transformation = (SCCBaseTransformation(
+            horizontal=horizontal, directive=directive, inline_members=inline_members
+        ),)
         transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
         transformation += (SCCDemoteTransformation(horizontal=horizontal),)
         if not 'hoist' in mode:
@@ -436,7 +441,9 @@ def plan(mode, config, header, source, build, root, cpp, directive, frontend, ca
               help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
               help='Frontend parser to use (default FP)')
-def ecphys(mode, config, header, source, build, cpp, directive, frontend):
+@click.option('--inline-members/--no-inline-members', default=False,
+              help='Inline member functions for SCC-class transformations.')
+def ecphys(mode, config, header, source, build, cpp, directive, frontend, inline_members):
     """
     Physics bulk-processing option that employs a :class:`Scheduler`
     to apply IFS-specific source-to-source transformations, such as
@@ -489,7 +496,8 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
         block_dim = scheduler.config.dimensions['block_dim']
         transformation = SingleColumnCoalescedTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            directive=directive, hoist_column_arrays='hoist' in mode
+            directive=directive, hoist_column_arrays='hoist' in mode,
+            inline_members=inline_members
         )
 
     if transformation:

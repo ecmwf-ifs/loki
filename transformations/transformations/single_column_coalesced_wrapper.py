@@ -7,7 +7,7 @@
 
 from loki import (
      Transformation, resolve_associates, ir, NestedTransformer, FindNodes, demote_variables,
-     Transformer, pragmas_attached, flatten, FindScopes, as_tuple
+     Transformer, pragmas_attached, flatten, FindScopes, as_tuple, inline_member_procedures
 )
 from transformations.single_column_coalesced_vector import (
      SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
@@ -57,10 +57,12 @@ class SingleColumnCoalescedTransformation(Transformation):
     hoist_column_arrays : bool
         Flag to trigger the more aggressive "column array hoisting"
         optimization.
+    inline_members : bool
+        Enable full source-inlining of member subroutines; default: False.
     """
 
     def __init__(self, horizontal, vertical=None, block_dim=None, directive=None,
-                 demote_local_arrays=True, hoist_column_arrays=True):
+                 demote_local_arrays=True, hoist_column_arrays=True, inline_members=False):
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
@@ -70,6 +72,7 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         self.demote_local_arrays = demote_local_arrays
         self.hoist_column_arrays = hoist_column_arrays
+        self.inline_members = inline_members
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -127,6 +130,10 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Find the iteration index variable for the specified horizontal
         v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
+
+        # Perform full source-inlining for member subroutines if so requested
+        if self.inline_members:
+            inline_member_procedures(routine)
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls

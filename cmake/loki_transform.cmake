@@ -182,7 +182,7 @@ endmacro()
 #       [OMNI_INCLUDE <omni-inc1> [<omni-inc2> ...]]
 #       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
 #       [REMOVE_OPENMP] [DATA_OFFLOAD] [GLOBAL_VAR_OFFLOAD]
-#       [TRIM_VECTOR_SECTIONS]
+#       [TRIM_VECTOR_SECTIONS] [INLINE_MEMBERS]
 #   )
 #
 # Call ``loki-transform.py convert ...`` with the provided arguments.
@@ -199,7 +199,7 @@ endmacro()
 
 function( loki_transform_convert )
 
-    set( options CPP DATA_OFFLOAD REMOVE_OPENMP GLOBAL_VAR_OFFLOAD TRIM_VECTOR_SECTIONS )
+    set( options CPP DATA_OFFLOAD REMOVE_OPENMP GLOBAL_VAR_OFFLOAD TRIM_VECTOR_SECTIONS INLINE_MEMBERS )
     set( oneValueArgs MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH )
     set( multiValueArgs OUTPUT DEPENDS INCLUDES INCLUDE HEADERS HEADER DEFINITIONS DEFINE OMNI_INCLUDE XMOD )
 
@@ -242,6 +242,10 @@ function( loki_transform_convert )
 
     if( ${_PAR_TRIM_VECTOR_SECTIONS} )
         list( APPEND _ARGS --trim-vector-sections )
+    endif()
+
+    if( ${_PAR_INLINE_MEMBERS} )
+        list( APPEND _ARGS --inline-members )
     endif()
 
     _loki_transform_env_setup()
@@ -580,6 +584,7 @@ endfunction()
 #       [DIRECTIVE <directive>]
 #       [CPP]
 #       [FRONTEND <frontend>]
+#       [INLINE_MEMBERS]
 #       [BUILDDIR <build-path>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
@@ -599,7 +604,7 @@ endfunction()
 
 function( loki_transform_command )
 
-    set( options CPP )
+    set( options CPP INLINE_MEMBERS )
     set( oneValueArgs COMMAND MODE DIRECTIVE FRONTEND CONFIG BUILDDIR )
     set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS )
 
@@ -723,7 +728,7 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN )
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS )
     set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS )
 
@@ -784,6 +789,10 @@ function( loki_transform_target )
         set( _TRANSFORM_OPTIONS "" )
         if( _PAR_CPP )
             list( APPEND _TRANSFORM_OPTIONS CPP )
+        endif()
+
+        if( _PAR_INLINE_MEMBERS )
+            list( APPEND _TRANSFORM_OPTIONS INLINE_MEMBERS )
         endif()
 
         loki_transform_command(
