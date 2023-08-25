@@ -24,7 +24,7 @@ except ImportError:
 from loki.visitors import GenericVisitor, Transformer, FindNodes
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
-from loki.frontend.util import read_file, FP, inject_statement_functions, sanitize_ir
+from loki.frontend.util import read_file, FP, sanitize_ir
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
@@ -34,7 +34,7 @@ from loki.expression import (
     ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
 )
 from loki.logging import debug, info, warning, error
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
 )
@@ -1811,9 +1811,6 @@ class FParser2IR(GenericVisitor):
         with pragmas_attached(routine, ir.VariableDeclaration):
             routine.spec = process_dimension_pragmas(routine.spec)
 
-        # Inject statement function definitions
-        inject_statement_functions(routine)
-
         if isinstance(o, Fortran2003.Subroutine_Body):
             # Return the subroutine object along with any clutter before it for interface declarations
             return (*pre, routine)
@@ -2912,8 +2909,39 @@ class FParser2IR(GenericVisitor):
         ptr = isinstance(o, Fortran2003.Pointer_Assignment_Stmt)
         lhs = self.visit(o.items[0], **kwargs)
         rhs = self.visit(o.items[2], **kwargs)
-        return ir.Assignment(lhs=lhs, rhs=rhs, ptr=ptr,
-                             label=kwargs.get('label'), source=kwargs.get('source'))
+
+        # Special-case: Identify statement functions using our internal symbol table
+        symbol_attrs = kwargs['scope'].symbol_attrs
+        if isinstance(lhs, sym.Array) and lhs.name in symbol_attrs:
+
+            def _create_stmt_func_type(stmt_func):
+                name = str(stmt_func.variable)
+                procedure = LazyNodeLookup(
+                    anchor=kwargs['scope'],
+                    query=lambda x: [
+                        f for f in FindNodes(ir.StatementFunction).visit(x.spec) if f.variable == name
+                    ][0]
+                )
+                proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
+                return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
+
+            if not symbol_attrs[lhs.name].shape and not symbol_attrs[lhs.name].intent:
+                # If the LHS array access is actually declared as a scalar,
+                # we are actually dealing with a statement function!
+                stmt_func = ir.StatementFunction(
+                    variable=lhs.clone(dimensions=None), arguments=lhs.dimensions,
+                    rhs=rhs, return_type=symbol_attrs[lhs.name],
+                    label=kwargs.get('label'), source=kwargs.get('source')
+                )
+
+                # Update the type in the local scope and return stmt func node
+                symbol_attrs[str(stmt_func.variable)] = _create_stmt_func_type(stmt_func)
+                return stmt_func
+
+        # Return Assignment node if we don't have to deal with the stupid side of Fortran!
+        return ir.Assignment(
+            lhs=lhs, rhs=rhs, ptr=ptr, label=kwargs.get('label'), source=kwargs.get('source')
+        )
 
     visit_Pointer_Assignment_Stmt = visit_Assignment_Stmt
 
