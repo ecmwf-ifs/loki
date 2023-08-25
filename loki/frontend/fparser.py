@@ -1753,6 +1753,15 @@ class FParser2IR(GenericVisitor):
             body = self.visit(body_ast, **kwargs)
             body = sanitize_ir(body, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
+        # Workaround for lost StatementFunctions:
+        # Since FParser has no means to identify StmtFuncs, the last set of them
+        # can get lumped in with the body, and we simply need to shift them over.
+        stmt_funcs = tuple(n for n in body.body if isinstance(n, ir.StatementFunction))
+        if stmt_funcs:
+            idx = body.body.index(stmt_funcs[-1]) + 1
+            spec._update(body=spec.body + body.body[:idx])
+            body._update(body=body.body[idx:])
+
         # Another big hack: fparser allocates all comments before and after the
         # spec to the spec. We remove them from the beginning to get the docstring.
         comment_map = {}
