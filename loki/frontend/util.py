@@ -9,23 +9,18 @@ from enum import IntEnum
 from pathlib import Path
 import codecs
 
-from loki.visitors import (
-    Transformer, NestedTransformer, FindNodes, PatternFinder, SequenceFinder
-)
+from loki.visitors import NestedTransformer, FindNodes, PatternFinder, SequenceFinder
 from loki.ir import (
     Assignment, Comment, CommentBlock, VariableDeclaration, ProcedureDeclaration,
-    Loop, Intrinsic, Pragma, StatementFunction
+    Loop, Intrinsic, Pragma
 )
-from loki.expression import SubstituteExpressions, Scalar, Array, InlineCall, FindVariables, ProcedureSymbol
-from loki.types import ProcedureType, SymbolAttributes
-from loki.tools import LazyNodeLookup
 from loki.frontend.source import Source
 from loki.logging import warning
 
 __all__ = [
     'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX',
     'inline_comments', 'cluster_comments', 'read_file',
-    'combine_multiline_pragmas', 'inject_statement_functions', 'sanitize_ir'
+    'combine_multiline_pragmas', 'sanitize_ir'
 ]
 
 
@@ -183,108 +178,6 @@ def combine_multiline_pragmas(ir):
                     collected_pragmas = []
 
     return NestedTransformer(pragma_mapper, invalidate_source=False).visit(ir)
-
-
-def inject_statement_functions(routine):
-    """
-    Identify statement function definitions and correct their
-    representation in the IR
-
-    Fparser misinterprets statement function definitions as array
-    assignments and may put them into the subroutine's body instead of
-    the spec. This function tries to identify them, correct the type of
-    the symbol_attrs representing statement functions (as :any:`ProcedureSymbol`)
-    and store their definition as :any:`StatementFunction`.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine object for which statement functions should be
-        injected
-    """
-    def create_stmt_func(assignment):
-        arguments = assignment.lhs.dimensions
-        variable = assignment.lhs.clone(dimensions=None)
-        return StatementFunction(variable, arguments, assignment.rhs, variable.type, source=assignment.source)
-
-    def create_type(stmt_func):
-        name = str(stmt_func.variable)
-        procedure = LazyNodeLookup(
-            anchor=routine,
-            query=lambda x: [f for f in FindNodes(StatementFunction).visit(x.spec) if f.variable == name][0]
-        )
-        proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
-        return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
-
-    # Only locally declared scalar variables are potential candidates
-    candidates = [str(v).lower() for v in routine.variables if isinstance(v, Scalar)]
-
-    # First suspects: Array assignments in the spec
-    spec_map = {}
-    for assignment in FindNodes(Assignment).visit(routine.spec):
-        if isinstance(assignment.lhs, Array) and assignment.lhs.name.lower() in candidates:
-            stmt_func = create_stmt_func(assignment)
-            spec_map[assignment] = stmt_func
-            routine.symbol_attrs[str(stmt_func.variable)] = create_type(stmt_func)
-
-    # Other suspects: Array assignments at the beginning of the body
-    spec_appendix = []
-    body_map = {}
-    for node in routine.body.body:
-        if isinstance(node, (Comment, CommentBlock)):
-            spec_appendix += [node]
-        if isinstance(node, Assignment) and isinstance(node.lhs, Array) and node.lhs.name.lower() in candidates:
-            stmt_func = create_stmt_func(node)
-            spec_appendix += [stmt_func]
-            body_map[node] = None
-            routine.symbol_attrs[str(stmt_func.variable)] = create_type(stmt_func)
-        else:
-            break
-
-    if spec_map or body_map:
-        # All statement functions
-        stmt_funcs = {node.lhs.name.lower() for node in spec_map}
-        stmt_funcs |= {node.lhs.name.lower() for node in body_map}
-
-        # Find any use of the statement functions in the body and replace
-        # them with function calls
-        expr_map_spec = {}
-        for variable in FindVariables().visit(routine.spec):
-            if variable.name.lower() in stmt_funcs:
-                if isinstance(variable, Array):
-                    parameters = variable.dimensions
-                    expr_map_spec[variable] = InlineCall(
-                        variable.clone(dimensions=None), parameters=parameters)
-                elif not isinstance(variable, ProcedureSymbol):
-                    expr_map_spec[variable] = variable.clone()
-        expr_map_body = {}
-        for variable in FindVariables().visit(routine.body):
-            if variable.name.lower() in stmt_funcs:
-                if isinstance(variable, Array):
-                    parameters = variable.dimensions
-                    expr_map_body[variable] = InlineCall(
-                        variable.clone(dimensions=None), parameters=parameters)
-                elif not isinstance(variable, ProcedureSymbol):
-                    expr_map_body[variable] = variable.clone()
-
-        # Make sure we remove comments from the body if we append them to spec
-        if any(isinstance(node, StatementFunction) for node in spec_appendix):
-            body_map.update({node: None for node in spec_appendix if isinstance(node, (Comment, CommentBlock))})
-
-        # Apply transformer with the built maps
-        if spec_map:
-            routine.spec = Transformer(spec_map, invalidate_source=False).visit(routine.spec)
-        if body_map:
-            routine.body = Transformer(body_map, invalidate_source=False).visit(routine.body)
-            if spec_appendix:
-                routine.spec.append(spec_appendix)
-        if expr_map_spec:
-            routine.spec = SubstituteExpressions(expr_map_spec, invalidate_source=False).visit(routine.spec)
-        if expr_map_body:
-            routine.body = SubstituteExpressions(expr_map_body, invalidate_source=False).visit(routine.body)
-
-        # And make sure all symbols have the right type
-        routine.rescope_symbols()
 
 
 def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
