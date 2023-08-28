@@ -522,7 +522,7 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
 
     if transformation:
         # Apply the set of trnasformations over the full depency tree in turn
-        for transform in transformation:
+        for transform in as_tuple(transformation):
             scheduler.process(transformation=transform)
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
