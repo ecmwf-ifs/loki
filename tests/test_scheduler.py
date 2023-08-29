@@ -53,7 +53,7 @@ from pathlib import Path
 from shutil import rmtree
 import pytest
 
-from conftest import available_frontends
+from conftest import (available_frontends, graphviz_present)
 from loki import (
     Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP,
     HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
@@ -99,23 +99,6 @@ def fixture_frontend():
     as not all tests have dependencies fully resolved.
     """
     return FP if HAVE_FP else OFP
-
-
-def graphviz_present():
-    """
-    Test if graphviz is present and works
-    """
-    try:
-        import graphviz as gviz # pylint: disable=import-outside-toplevel
-    except ImportError:
-        return False
-
-    try:
-        gviz.Graph().pipe()
-    except gviz.ExecutableNotFound:
-        return False
-
-    return True
 
 
 class VisGraphWrapper:
