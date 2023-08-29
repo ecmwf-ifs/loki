@@ -227,13 +227,13 @@ class OFP2IR(GenericVisitor):
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
-        variable = sym.Variable(name=vname, source=source)
+        variable = sym.Variable(name=vname)
         lower = self.visit(o.find('header/index-variable/lower-bound'), **kwargs)
         upper = self.visit(o.find('header/index-variable/upper-bound'), **kwargs)
         step = None
         if o.find('header/index-variable/step') is not None:
             step = self.visit(o.find('header/index-variable/step'), **kwargs)
-        bounds = sym.LoopRange((lower, upper, step), source=source)
+        bounds = sym.LoopRange((lower, upper, step))
         return ir.Loop(variable=variable, body=body, bounds=bounds, loop_label=loop_label,
                        label=label, name=construct_name, has_end_do=has_end_do,
                        source=source)
@@ -309,7 +309,7 @@ class OFP2IR(GenericVisitor):
     def visit_case(self, o, **kwargs):
         value = self.visit(o.find('header'), **kwargs)
         if isinstance(value, tuple) and len(value) > int(o.find('header/value-ranges').attrib['count']):
-            value = sym.RangeIndex(value, source=kwargs['source'])
+            value = sym.RangeIndex(value)
         body = self.visit(o.find('body'), **kwargs)
         return as_tuple(value) or None, as_tuple(body)
 
@@ -530,7 +530,7 @@ class OFP2IR(GenericVisitor):
         return None
 
     def visit_entity_decl(self, o, **kwargs):
-        return sym.Variable(name=o.attrib['id'], source=kwargs['source'])
+        return sym.Variable(name=o.attrib['id'])
 
     def visit_variables(self, o, **kwargs):
         count = int(o.attrib['count'])
@@ -581,7 +581,7 @@ class OFP2IR(GenericVisitor):
 
     def visit_null_init(self, o, **kwargs):
         name = sym.Variable(name='NULL')
-        return sym.InlineCall(name, parameters=(), source=kwargs['source'])
+        return sym.InlineCall(name, parameters=())
 
     visit_proc_decl = visit_entity_decl
     visit_proc_interface = visit_entity_decl
@@ -592,7 +592,7 @@ class OFP2IR(GenericVisitor):
         attrs = kwargs.pop('attrs')
 
         # Name of the binding
-        var = sym.Variable(name=o.attrib['bindingName'], source=kwargs['source'])
+        var = sym.Variable(name=o.attrib['bindingName'])
 
         interface = o.attrib['interfaceName'] or None
         if interface is not None:
@@ -1104,11 +1104,11 @@ class OFP2IR(GenericVisitor):
         name = o.attrib['name']
         if o.get('keyword').upper() == 'ASSIGNMENT':
             name = 'ASSIGNMENT(=)'
-        return sym.Variable(name=name, source=kwargs['source'])
+        return sym.Variable(name=name)
 
     def visit_defined_operator(self, o, **kwargs):
         name = f'OPERATOR({o.attrib["definedOp"]})'
-        return sym.Variable(name=name, source=kwargs['source'])
+        return sym.Variable(name=name)
 
     def _create_Subroutine_object(self, o, scope):
         """Helper method to instantiate a Subroutine object"""
@@ -1429,7 +1429,7 @@ class OFP2IR(GenericVisitor):
         if o.attrib['defOp1'] or o.attrib['defOp2']:
             self.warn_or_fail('OPERATOR in rename-list not yet implemented')
             return ()
-        return (o.attrib['id2'], sym.Variable(name=o.attrib['id1'], source=kwargs['source']))
+        return (o.attrib['id2'], sym.Variable(name=o.attrib['id1']))
 
     def visit_use_stmt(self, o, **kwargs):
         name = o.attrib['id']
@@ -1519,13 +1519,12 @@ class OFP2IR(GenericVisitor):
         return tuple(self.visit(c, **kwargs) for c in o if c.tag in ('subscript', 'argument'))
 
     def visit_subscript(self, o, **kwargs):
-        source = kwargs['source']
         if o.attrib['type'] in ('empty', 'assumed-shape'):
-            return sym.RangeIndex((None, None, None), source=source)
+            return sym.RangeIndex((None, None, None))
         if o.attrib['type'] == 'simple':
             return self.visit(o[0], **kwargs)
         if o.attrib['type'] == 'upper-bound-assumed-shape':
-            return sym.RangeIndex((self.visit(o[0], **kwargs), None, None), source=source)
+            return sym.RangeIndex((self.visit(o[0], **kwargs), None, None))
         if o.attrib['type'] == 'range':
             lower, upper, step = None, None, None
             if o.find('range/lower-bound') is not None:
@@ -1534,7 +1533,7 @@ class OFP2IR(GenericVisitor):
                 upper = self.visit(o.find('range/upper-bound'), **kwargs)
             if o.find('range/step') is not None:
                 step = self.visit(o.find('range/step'), **kwargs)
-            return sym.RangeIndex((lower, upper, step), source=source)
+            return sym.RangeIndex((lower, upper, step))
         raise ValueError('Unknown subscript type')
 
     def visit_dimensions(self, o, **kwargs):
@@ -1549,11 +1548,10 @@ class OFP2IR(GenericVisitor):
         return tuple(self.visit(c, **kwargs) for c in o.findall('name'))
 
     def visit_name(self, o, **kwargs):
-        source = kwargs['source']
 
         if o.find('generic-name-list-part') is not None:
             # From an external-stmt or use-stmt
-            return sym.Variable(name=o.attrib['id'], source=source)
+            return sym.Variable(name=o.attrib['id'])
 
         if o.find('generic_spec') is not None:
             return self.visit(o.find('generic_spec'), **kwargs)
@@ -1588,7 +1586,7 @@ class OFP2IR(GenericVisitor):
 
         if subscripts and not subscripts[0]:
             # Function call with no arguments (gaaawwddd...)
-            return sym.InlineCall(name, parameters=(), source=source)
+            return sym.InlineCall(name, parameters=())
 
         # unpack into positional and keyword args
         subscripts = subscripts[0] if subscripts else ()
@@ -1605,7 +1603,7 @@ class OFP2IR(GenericVisitor):
                 kind = kwarguments[0][1]
             else:
                 kind = arguments[1] if len(arguments) > 1 else None
-            return sym.Cast(name, expr, kind=kind, source=source)
+            return sym.Cast(name, expr, kind=kind)
 
         if subscripts:
             # This may potentially be an inline call
@@ -1615,11 +1613,11 @@ class OFP2IR(GenericVisitor):
                 'SIZE', 'LBOUND', 'UBOUND', 'LOC'
             )
             if str(name).upper() in intrinsic_calls or kwarguments:
-                return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
+                return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
 
             _type = name._lookup_type(kwargs['scope'])
             if subscripts and _type and isinstance(_type.dtype, ProcedureType):
-                return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
+                return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
 
         # We end up here if it is ambiguous (i.e., OFP did not know what the symbol is)
         # which is either a function call, an array with subscript or a name without anything further
@@ -1628,13 +1626,13 @@ class OFP2IR(GenericVisitor):
         return name.clone(dimensions=arguments or None)
 
     def visit_part_ref(self, o, **kwargs):
-        return sym.Variable(name=o.attrib['id'], source=kwargs['source'])
+        return sym.Variable(name=o.attrib['id'])
 
     def visit_literal(self, o, **kwargs):
         source = kwargs['source']
         boz_literal = o.find('boz-literal-constant')
         if boz_literal is not None:
-            return sym.IntrinsicLiteral(boz_literal.attrib['constant'], source=source)
+            return sym.IntrinsicLiteral(boz_literal.attrib['constant'])
 
         kw_args = {'source': source}
         value = o.attrib['value']
@@ -1651,12 +1649,13 @@ class OFP2IR(GenericVisitor):
                 kw_args['kind'] = sym.Literal(value=int(kind))
             else:
                 kw_args['kind'] = AttachScopesMapper()(sym.Variable(name=kind), scope=kwargs['scope'])
+        kw_args.pop('source')
         return sym.Literal(value, **kw_args)
 
     def visit_array_constructor_values(self, o, **kwargs):
         values = [self.visit(v, **kwargs) for v in o.findall('value')]
         values = [v for v in values if v is not None]  # Filter empy values
-        return sym.LiteralList(values=as_tuple(values), source=kwargs['source'])
+        return sym.LiteralList(values=as_tuple(values))
 
     def visit_operation(self, o, **kwargs):
         """
@@ -1668,65 +1667,64 @@ class OFP2IR(GenericVisitor):
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
 
         # Left-recurse on the list of operations and expressions
-        source = kwargs['source']
         exprs = deque(exprs)
         expression = exprs.popleft()
         for op in ops:
 
             if op == '+':
-                expression = sym.Sum((expression, exprs.popleft()), source=source)
+                expression = sym.Sum((expression, exprs.popleft()))
             elif op == '-':
                 if len(exprs) > 0:
                     # Binary minus
-                    expression = sym.Sum((expression, sym.Product((-1, exprs.popleft()))), source=source)
+                    expression = sym.Sum((expression, sym.Product((-1, exprs.popleft()))))
                 else:
                     # Unary minus
-                    expression = sym.Product((-1, expression), source=source)
+                    expression = sym.Product((-1, expression))
             elif op == '*':
-                expression = sym.Product((expression, exprs.popleft()), source=source)
+                expression = sym.Product((expression, exprs.popleft()))
             elif op == '/':
-                expression = sym.Quotient(numerator=expression, denominator=exprs.popleft(), source=source)
+                expression = sym.Quotient(numerator=expression, denominator=exprs.popleft())
             elif op == '**':
-                expression = sym.Power(base=expression, exponent=exprs.popleft(), source=source)
+                expression = sym.Power(base=expression, exponent=exprs.popleft())
             elif op in ('==', '.eq.'):
-                expression = sym.Comparison(expression, '==', exprs.popleft(), source=source)
+                expression = sym.Comparison(expression, '==', exprs.popleft())
             elif op in ('/=', '.ne.'):
-                expression = sym.Comparison(expression, '!=', exprs.popleft(), source=source)
+                expression = sym.Comparison(expression, '!=', exprs.popleft())
             elif op in ('>', '.gt.'):
-                expression = sym.Comparison(expression, '>', exprs.popleft(), source=source)
+                expression = sym.Comparison(expression, '>', exprs.popleft())
             elif op in ('<', '.lt.'):
-                expression = sym.Comparison(expression, '<', exprs.popleft(), source=source)
+                expression = sym.Comparison(expression, '<', exprs.popleft())
             elif op in ('>=', '.ge.'):
-                expression = sym.Comparison(expression, '>=', exprs.popleft(), source=source)
+                expression = sym.Comparison(expression, '>=', exprs.popleft())
             elif op in ('<=', '.le.'):
-                expression = sym.Comparison(expression, '<=', exprs.popleft(), source=source)
+                expression = sym.Comparison(expression, '<=', exprs.popleft())
             elif op == '.and.':
-                expression = sym.LogicalAnd((expression, exprs.popleft()), source=source)
+                expression = sym.LogicalAnd((expression, exprs.popleft()))
             elif op == '.or.':
-                expression = sym.LogicalOr((expression, exprs.popleft()), source=source)
+                expression = sym.LogicalOr((expression, exprs.popleft()))
             elif op == '.not.':
-                expression = sym.LogicalNot(expression, source=source)
+                expression = sym.LogicalNot(expression)
             elif op == '.eqv.':
                 e = (expression, exprs.popleft())
-                expression = sym.LogicalOr((sym.LogicalAnd(e), sym.LogicalNot(sym.LogicalOr(e))), source=source)
+                expression = sym.LogicalOr((sym.LogicalAnd(e), sym.LogicalNot(sym.LogicalOr(e))))
             elif op == '.neqv.':
                 e = (expression, exprs.popleft())
-                expression = sym.LogicalAnd((sym.LogicalNot(sym.LogicalAnd(e)), sym.LogicalOr(e)), source=source)
+                expression = sym.LogicalAnd((sym.LogicalNot(sym.LogicalAnd(e)), sym.LogicalOr(e)))
             elif op == '//':
-                expression = StringConcat((expression, exprs.popleft()), source=source)
+                expression = StringConcat((expression, exprs.popleft()))
             else:
                 raise RuntimeError(f'OFP: Unknown expression operator: {op}')
 
         if o.find('parenthesized_expr') is not None:
             # Force explicitly parenthesised operations
             if isinstance(expression, sym.Sum):
-                expression = ParenthesisedAdd(expression.children, source=source)
+                expression = ParenthesisedAdd(expression.children)
             if isinstance(expression, sym.Product):
-                expression = ParenthesisedMul(expression.children, source=source)
+                expression = ParenthesisedMul(expression.children)
             if isinstance(expression, sym.Power):
-                expression = ParenthesisedPow(expression.base, expression.exponent, source=source)
+                expression = ParenthesisedPow(expression.base, expression.exponent)
             if isinstance(expression, sym.Quotient):
-                expression = ParenthesisedDiv(expression.numerator, expression.denominator, source=source)
+                expression = ParenthesisedDiv(expression.numerator, expression.denominator)
 
         assert len(exprs) == 0
         return expression
@@ -1799,7 +1797,7 @@ class OFP2IR(GenericVisitor):
 
             if deferred_shape is not None:
                 dim_count = int(deferred_shape.attrib['count'])
-                dimensions = [sym.RangeIndex((None, None, None), source=source)
+                dimensions = [sym.RangeIndex((None, None, None))
                               for _ in range(dim_count)]
             else:
                 dimensions = as_tuple(self.visit(c, scope=scope) for c in v_children)
@@ -1807,12 +1805,11 @@ class OFP2IR(GenericVisitor):
                 AttachScopesMapper()(d, scope=scope) for d in dimensions if d is not None
             ) or None
 
-            v_source = extract_source(v.attrib, self._raw_source)
             v_type = stype.clone(shape=dimensions, initial=initial)
             v_name = v.attrib['name']
 
             scope.symbol_attrs[v_name] = v_type
-            variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
+            variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions)]
 
         return ir.VariableDeclaration(symbols=variables, source=source)
 

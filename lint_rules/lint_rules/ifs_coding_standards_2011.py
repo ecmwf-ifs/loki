@@ -472,6 +472,15 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         '<': re.compile(r'(?P<f77>\.lt\.)|(?P<f90><(?!=))', re.I),
     }
 
+    _op_map = {
+        '==': '.eq.',
+        '/=': '.ne.',
+        '>=': '.ge.',
+        '<=': '.le.',
+        '>': '.gt.',
+        '<': '.lt.'
+    }
+
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check for the use of Fortran 90 comparison operators.'''
@@ -486,20 +495,31 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
             root_expr_map = defaultdict(list)
             for expr in expr_list:
                 expr_root = FindExpressionRoot(expr).visit(node)[0]
-                if expr_root.source and expr_root.source.string:
+                if node.source and node.source.string:
                     # Include only if we have source string information for this node
                     root_expr_map[expr_root] += [expr]
 
             # Then we look at the comparison operators for each expression root and match
             # them directly in the source string
             for expr_root, exprs in root_expr_map.items():
+                # find source lines for expression root
+                lstart, lend = node.source.find(str(expr_root))
+                lines = node.source.clone_lines((lstart, lend))
+
                 # For each comparison operator, check if F90 or F77 operators are matched
                 for op in sorted({op.operator for op in exprs}):
-                    source_string = strip_inline_comments(expr_root.source.string)
+
+                    # find source line for operator
+                    op_str = op if op != '!=' else '/='
+                    line = [line for line in lines if op_str in strip_inline_comments(line.string)]
+                    if not line:
+                        line = [line for line in lines
+                                if op_str in strip_inline_comments(line.string.replace(cls._op_map[op_str], op_str))]
+
+                    source_string = strip_inline_comments(line[0].string)
                     matches = cls._op_patterns[op].findall(source_string)
                     for f77, _ in matches:
                         if f77:
-                            op_str = op if op != '!=' else '/='
                             msg = f'Use Fortran 90 comparison operator "{op_str}" instead of "{f77}"'
                             rule_report.add(msg, node)
 

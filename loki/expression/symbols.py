@@ -28,7 +28,7 @@ from loki.config import config
 __all__ = [
     'loki_make_stringifier',
     # Mix-ins
-    'ExprMetadataMixin', 'StrCompareMixin',
+    'StrCompareMixin',
     # Typed leaf nodes
     'TypedSymbol', 'DeferredTypeSymbol', 'VariableSymbol', 'ProcedureSymbol',
     'MetaSymbol', 'Scalar', 'Array', 'Variable',
@@ -53,49 +53,6 @@ def loki_make_stringifier(self, originating_stringifier=None):  # pylint: disabl
     """
     from loki.expression.mappers import LokiStringifyMapper  # pylint: disable=import-outside-toplevel
     return LokiStringifyMapper()
-
-
-class ExprMetadataMixin:
-    """
-    Mixin to store metadata annotations for expression tree nodes.
-
-    Currently, this stores only source information for expression nodes.
-
-    Parameters
-    ----------
-    source : :any:`Source`, optional
-        Raw source string and line information from original source code.
-    """
-
-    @property
-    def init_arg_names(self):
-        return super().init_arg_names + ('source', )
-
-    def __init__(self, *args, **kwargs):
-        self._source = kwargs.pop('source', None)
-        super().__init__(*args, **kwargs)
-
-    def __getinitargs__(self):
-        return super().__getinitargs__() + (self._source, )
-
-    @property
-    def source(self):
-        """The :any:`Source` object for this expression node."""
-        return self._source
-
-    @source.setter
-    def source(self, source):
-        self._source = source
-
-    make_stringifier = loki_make_stringifier
-
-    def clone(self, **kwargs):
-        """
-        Replicate the object with the provided overrides.
-        """
-        if self.source and 'source' not in kwargs:
-            kwargs['source'] = self.source
-        return super().clone(**kwargs)
 
 
 class StrCompareMixin:
@@ -126,6 +83,8 @@ class StrCompareMixin:
     def __contains__(self, other):
         # Assess containment via a retriver with node-wise string comparison
         return len(ExpressionRetriever(lambda x: x == other).retrieve(self)) > 0
+
+    make_stringifier = loki_make_stringifier
 
 
 class TypedSymbol:
@@ -392,7 +351,7 @@ class TypedSymbol:
         return self.clone(scope=scope)
 
 
-class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
+class DeferredTypeSymbol(StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
     """
     Internal representation of symbols with deferred type
 
@@ -420,7 +379,7 @@ class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.V
     mapper_method = intern('map_deferred_type_symbol')
 
 
-class VariableSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
+class VariableSymbol(StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
     """
     Expression node to represent a variable symbol
 
@@ -474,7 +433,7 @@ class _FunctionSymbol(pmbl.FunctionSymbol):
         super().__init__()
 
 
-class ProcedureSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint: disable=too-many-ancestors
+class ProcedureSymbol(StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint: disable=too-many-ancestors
     """
     Internal representation of a symbol that represents a callable
     subroutine or function
@@ -635,14 +594,6 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         Initial value of the variable in a declaration, if given
         """
         return self.type.initial
-
-    @property
-    def source(self):
-        return self.symbol.source
-
-    @source.setter
-    def source(self, source):
-        self.symbol.source = source
 
     mapper_method = intern('map_meta_symbol')
     make_stringifier = loki_make_stringifier
@@ -951,7 +902,7 @@ class _Literal(pmbl.Leaf):
         return ()
 
 
-class FloatLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
+class FloatLiteral(StrCompareMixin, _Literal):
     """
     A floating point constant in an expression.
 
@@ -1029,7 +980,7 @@ class FloatLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     mapper_method = intern('map_float_literal')
 
 
-class IntLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
+class IntLiteral(StrCompareMixin, _Literal):
     """
     An integer constant in an expression.
 
@@ -1109,7 +1060,7 @@ class IntLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
 pmbl.register_constant_class(IntLiteral)
 
 
-class LogicLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
+class LogicLiteral(StrCompareMixin, _Literal):
     """
     A boolean constant in an expression.
 
@@ -1131,7 +1082,7 @@ class LogicLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     mapper_method = intern('map_logic_literal')
 
 
-class StringLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
+class StringLiteral(StrCompareMixin, _Literal):
     """
     A string constant in an expression.
 
@@ -1168,7 +1119,7 @@ class StringLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
     mapper_method = intern('map_string_literal')
 
 
-class IntrinsicLiteral(ExprMetadataMixin, StrCompareMixin, _Literal):
+class IntrinsicLiteral(StrCompareMixin, _Literal):
     """
     Any literal not represented by a dedicated class.
 
@@ -1243,7 +1194,7 @@ class Literal:
         return obj
 
 
-class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
+class LiteralList(pmbl.AlgebraicLeaf):
     """
     A list of constant literals, e.g., as used in Array Initialization Lists.
     """
@@ -1254,12 +1205,13 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
         super().__init__(**kwargs)
 
     mapper_method = intern('map_literal_list')
+    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return (self.elements, self.dtype)
 
 
-class InlineDo(ExprMetadataMixin, pmbl.AlgebraicLeaf):
+class InlineDo(pmbl.AlgebraicLeaf):
     """
     An inlined do, e.g., implied-do as used in array constructors
     """
@@ -1271,44 +1223,45 @@ class InlineDo(ExprMetadataMixin, pmbl.AlgebraicLeaf):
         super().__init__(**kwargs)
 
     mapper_method = intern('map_inline_do')
+    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return (self.values, self.variable, self.bounds)
 
 
-class Sum(ExprMetadataMixin, StrCompareMixin, pmbl.Sum):
+class Sum(StrCompareMixin, pmbl.Sum):
     """Representation of a sum."""
 
 
-class Product(ExprMetadataMixin, StrCompareMixin, pmbl.Product):
+class Product(StrCompareMixin, pmbl.Product):
     """Representation of a product."""
 
 
-class Quotient(ExprMetadataMixin, StrCompareMixin, pmbl.Quotient):
+class Quotient(StrCompareMixin, pmbl.Quotient):
     """Representation of a quotient."""
 
 
-class Power(ExprMetadataMixin, StrCompareMixin, pmbl.Power):
+class Power(StrCompareMixin, pmbl.Power):
     """Representation of a power."""
 
 
-class Comparison(ExprMetadataMixin, StrCompareMixin, pmbl.Comparison):
+class Comparison(StrCompareMixin, pmbl.Comparison):
     """Representation of a comparison operation."""
 
 
-class LogicalAnd(ExprMetadataMixin, StrCompareMixin, pmbl.LogicalAnd):
+class LogicalAnd(StrCompareMixin, pmbl.LogicalAnd):
     """Representation of an 'and' in a logical expression."""
 
 
-class LogicalOr(ExprMetadataMixin, StrCompareMixin, pmbl.LogicalOr):
+class LogicalOr(StrCompareMixin, pmbl.LogicalOr):
     """Representation of an 'or' in a logical expression."""
 
 
-class LogicalNot(ExprMetadataMixin, StrCompareMixin, pmbl.LogicalNot):
+class LogicalNot(StrCompareMixin, pmbl.LogicalNot):
     """Representation of a negation in a logical expression."""
 
 
-class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
+class InlineCall(pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
     """
@@ -1331,6 +1284,7 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
                          kw_parameters=kw_parameters, **kwargs)
 
     mapper_method = intern('map_inline_call')
+    make_stringifier = loki_make_stringifier
 
     @property
     def _canonical(self):
@@ -1414,7 +1368,7 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
         return InlineCall(function, parameters, kw_parameters)
 
 
-class Cast(ExprMetadataMixin, pmbl.Call):
+class Cast(pmbl.Call):
     """
     Internal representation of a data type cast.
     """
@@ -1431,7 +1385,7 @@ class Cast(ExprMetadataMixin, pmbl.Call):
         return self.function.name
 
 
-class Range(ExprMetadataMixin, StrCompareMixin, pmbl.Slice):
+class Range(StrCompareMixin, pmbl.Slice):
     """
     Internal representation of a loop or index range.
     """
@@ -1489,14 +1443,14 @@ class LoopRange(Range):
     mapper_method = intern('map_loop_range')
 
 
-class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
+class ArraySubscript(StrCompareMixin, pmbl.Subscript):
     """
     Internal representation of an array subscript.
     """
     mapper_method = intern('map_array_subscript')
 
 
-class StringSubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
+class StringSubscript(StrCompareMixin, pmbl.Subscript):
     """
     Internal representation of a substring subscript operator.
     """
