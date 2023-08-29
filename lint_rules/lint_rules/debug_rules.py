@@ -10,7 +10,7 @@ from loki import (
      FindNodes, CallStatement, Assignment, Scalar, RangeIndex, resolve_associates,
      simplify, Sum, Product, IntLiteral, as_tuple, SubstituteExpressions, Array,
      symbolic_op, StringLiteral, is_constant, LogicLiteral, VariableDeclaration, flatten,
-     FindInlineCalls, Conditional, FindExpressions, Comparison, single_variable_declaration
+     FindInlineCalls, Conditional, FindExpressions, Comparison
 )
 from loki.lint import GenericRule, RuleType
 
@@ -273,8 +273,8 @@ class DynamicUboundCheckRule(GenericRule):
         ubound_checks = cls.get_ubound_checks(subroutine)
         args = cls.get_assumed_shape_args(subroutine)
 
-        new_vars = ()
         node_map = {}
+        var_map = {}
 
         for arg in args:
             checks = [c for c in ubound_checks if arg.name in c.arguments]
@@ -300,25 +300,16 @@ class DynamicUboundCheckRule(GenericRule):
                     else:
                         new_shape += as_tuple(cond.left)
 
-                vtype = arg.type.clone(shape=new_shape, scope=subroutine)
-                new_vars += as_tuple(arg.clone(type=vtype, dimensions=new_shape, scope=subroutine))
+                vtype = arg.type.clone(shape=new_shape)
+                var_map.update({arg: arg.clone(type=vtype, dimensions=new_shape)})
 
-        # simplify variable declarations
-        single_variable_declaration(subroutine)
-
-        #TODO: 'VariableDeclaration.symbols' should be of type 'Variable' rather than 'Expression'
-        # to enable case-insensitive search here
-        new_var_names = [v.name.lower() for v in new_vars]
-
-        routine = subroutine.clone()
-        routine.variables = [var for var in routine.variables if not var.name.lower() in new_var_names]
-        routine.variables += new_vars
-
-        old_decls = as_tuple([decl for decl in FindNodes(VariableDeclaration).visit(subroutine.spec)
-                     if decl.symbols[0].name.lower() in new_var_names])
-        new_decls = as_tuple([decl for decl in FindNodes(VariableDeclaration).visit(routine.spec)
-                     if decl.symbols[0].name.lower() in new_var_names])
-        node_map.update({old_decls: new_decls})
+        # update variable declarations
+        subroutine.spec = SubstituteExpressions(var_map).visit(subroutine.spec)
+        for decl in FindNodes(VariableDeclaration).visit(subroutine.spec):
+            if decl.dimensions:
+                if not all(sym.shape == decl.dimensions for sym in decl.symbols):
+                    new_decls = as_tuple(VariableDeclaration(as_tuple(sym)) for sym in decl.symbols)
+                    node_map.update({decl: new_decls})
 
         return node_map
 
