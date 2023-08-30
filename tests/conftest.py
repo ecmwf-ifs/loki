@@ -284,3 +284,22 @@ def available_frontends(xfail=None, skip=None, include_regex=False):
             params += [f]
 
     return params
+
+
+def graphviz_present():
+    """
+    Test if graphviz is present and works
+    The import will work as long as the graphviz python wrapper is available,
+    but the underlying binaries may be missing.
+    """
+    try:
+        import graphviz as gviz # pylint: disable=import-outside-toplevel
+    except ImportError:
+        return False
+
+    try:
+        gviz.Graph().pipe()
+    except gviz.ExecutableNotFound:
+        return False
+
+    return True
