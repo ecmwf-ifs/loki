@@ -310,6 +310,13 @@ class SCCAnnotateTransformation(Transformation):
         private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
         private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
 
+        if private_arrays:
+            # Log private arrays in vector regions, as these can impact performance
+            info(
+                f'[Loki-SCC::Annotate] Marking private arrays in {routine.name}: '
+                f'{[a.name for a in private_arrays]}'
+            )
+
         mapper = {}
         with pragma_regions_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
@@ -359,6 +366,12 @@ class SCCAnnotateTransformation(Transformation):
                     # Perform pragma addition in place to avoid nested loop replacements
                     loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
 
+                # Warn if we detect vector insisde sequential loop nesting
+                nested_loops = FindNodes(ir.Loop).visit(loop.body)
+                loop_pragmas = flatten(as_tuple(l.pragma) for l in as_tuple(nested_loops))
+                if any('loop vector' in pragma.content for pragma in loop_pragmas):
+                    info(f'[Loki-SCC::Annotate] Detected vector loop in sequential loop in {routine.name}')
+
     @classmethod
     def kernel_annotate_subroutine_present_openacc(cls, routine):
         """
@@ -382,11 +395,11 @@ class SCCAnnotateTransformation(Transformation):
     @classmethod
     def insert_annotations(cls, routine, horizontal, vertical, hoist_column_arrays):
 
-        # Mark all non-parallel loops as `!$acc loop seq`
-        cls.kernel_annotate_sequential_loops_openacc(routine, horizontal)
-
         # Mark all parallel vector loops as `!$acc loop vector`
         cls.kernel_annotate_vector_loops_openacc(routine, horizontal, vertical)
+
+        # Mark all non-parallel loops as `!$acc loop seq`
+        cls.kernel_annotate_sequential_loops_openacc(routine, horizontal)
 
         # Wrap the routine body in `!$acc data present` markers
         # to ensure device-resident data is used for array and struct arguments.
@@ -712,8 +725,8 @@ class SCCHoistTransformation(Transformation):
         ) for v in column_locals]
         new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
 
-        info(f'[Loki-SCC] Hoisted variables in call {routine.name} => {call.name}:'
-             f'{[v.name for v in column_locals]}')
+        info(f'[Loki-SCC::Hoist] Hoisted variables in call {routine.name} => {call.name}:'
+             f'{", ".join(v.name for v in column_locals)}')
 
         # Find the iteration index variable for the specified horizontal
         v_index = SCCBaseTransformation.get_integer_variable(routine, name=horizontal.index)

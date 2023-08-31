@@ -495,4 +495,4 @@ def demote_variables(routine, variable_names, dimensions):
             )
     routine.spec = Transformer(decl_map).visit(routine.spec)
 
-    info(f'[Loki] {routine.name}:: demoted variable(s): {", ".join(variable_names)}')
+    info(f'[Loki::Transform] Demoted variables in {routine.name}: {", ".join(variable_names)}')
