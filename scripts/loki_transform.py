@@ -318,12 +318,13 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     driver_item = SubroutineItem(f'#{driver_name.lower()}', source=driver)
 
     # First, remove all derived-type arguments; caller first!
-    kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel', item=kernel_item)
-    driver.apply(DerivedTypeArgumentsTransformation(), role='driver', item=driver_item, successors=(kernel_item,))
+    transformation = DerivedTypeArgumentsTransformation()
+    kernel[kernel_name].apply(transformation, role='kernel', item=kernel_item)
+    driver[driver_name].apply(transformation, role='driver', item=driver_item, successors=(kernel_item,))
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation()
-    transformation.apply(kernel, role='kernel', path=out_path)
+    transformation.apply(kernel, role='kernel', path=out_path, recurse_to_contained_nodes=True)
 
     # Traverse header modules to create getter functions for module variables
     for h in definitions:
@@ -331,12 +332,12 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel')
+    kernel.apply(dependency, role='kernel', recurse_to_contained_nodes=True)
     kernel.write(path=Path(out_path)/kernel.path.with_suffix('.c.F90').name)
 
     # Re-generate the driver that mimicks the original source file,
     # but imports and calls our re-generated kernel.
-    driver.apply(dependency, role='driver', targets=kernel_name)
+    driver.apply(dependency, role='driver', targets=kernel_name, recurse_to_contained_nodes=True)
     driver.write(path=Path(out_path)/driver.path.with_suffix('.c.F90').name)
 
 

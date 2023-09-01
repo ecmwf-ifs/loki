@@ -5,7 +5,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     OMNI, REGEX, OFP, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen, Assignment, IntLiteral, Module,
-    SubroutineItem, Intrinsic
+    SubroutineItem, Intrinsic, Comment
 )
 from loki.transform import (
     Transformation, DependencyTransformation, replace_selected_kind,
@@ -26,6 +26,11 @@ def fixture_rename_transform():
         Simple `Transformation` object that renames subroutine and modules.
         """
 
+        def transform_file(self, sourcefile, **kwargs):
+            sourcefile.ir.prepend(
+                Comment(text="! [Loki] RenameTransform applied")
+            )
+
         def transform_subroutine(self, routine, **kwargs):
             routine.name += '_test'
 
@@ -38,7 +43,8 @@ def fixture_rename_transform():
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('method', ['source', 'transformation'])
 @pytest.mark.parametrize('lazy', [False, True])
-def test_transformation_apply(rename_transform, frontend, method, lazy):
+@pytest.mark.parametrize('recurse_to_contained_nodes', [True, False])
+def test_transformation_apply(rename_transform, frontend, method, lazy, recurse_to_contained_nodes):
     """
     Apply a simple transformation that renames routines and modules, and
     test that this also works when the original source object was parsed
@@ -63,16 +69,32 @@ end subroutine myroutine
             with pytest.raises(RuntimeError):
                 source.apply(rename_transform)
             source.make_complete(frontend=frontend)
-        source.apply(rename_transform)
+        source.apply(rename_transform, recurse_to_contained_nodes=recurse_to_contained_nodes)
     elif method == 'transformation':
         if lazy:
             with pytest.raises(RuntimeError):
                 rename_transform.apply(source)
             source.make_complete(frontend=frontend)
-        rename_transform.apply(source)
+        rename_transform.apply(source, recurse_to_contained_nodes=recurse_to_contained_nodes)
     else:
         raise ValueError(f'Unknown method "{method}"')
     assert not source._incomplete
+
+    assert isinstance(source.ir.body[0], Comment)
+    assert source.ir.body[0].text == '! [Loki] RenameTransform applied'
+
+    # Without recursion, only source file object is changed
+    if not recurse_to_contained_nodes:
+        assert source.modules[0].name == 'mymodule'
+        assert source.subroutines[0].name == 'myroutine'
+
+        if method == 'source':
+            source.modules[0].apply(rename_transform, recurse_to_contained_nodes=True)
+            source.subroutines[0].apply(rename_transform, recurse_to_contained_nodes=True)
+        else:
+            rename_transform.apply(source.modules[0], recurse_to_contained_nodes=True)
+            rename_transform.apply(source.subroutines[0], recurse_to_contained_nodes=True)
+
     assert source.modules[0].name == 'mymodule_test'
     assert source['mymodule_test'] == source.modules[0]
     assert source.subroutines[0].name == 'myroutine_test'
@@ -81,11 +103,13 @@ end subroutine myroutine
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('target, apply_method', [
-    ('module_routine', lambda transform, obj: obj.apply(transform)),
-    ('myroutine', lambda transform, obj: transform.apply_subroutine(obj))
+    ('module_routine', lambda transform, obj, **kwargs: obj.apply(transform, **kwargs)),
+    ('myroutine', lambda transform, obj, **kwargs: transform.apply_subroutine(obj, **kwargs))
 ])
 @pytest.mark.parametrize('lazy', [False, True])
-def test_transformation_apply_subroutine(rename_transform, frontend, target, apply_method, lazy):
+@pytest.mark.parametrize('recurse_to_contained_nodes', [False, True])
+def test_transformation_apply_subroutine(rename_transform, frontend, target, apply_method, lazy,
+                                         recurse_to_contained_nodes):
     """
     Apply a simple transformation that renames routines and modules
     """
@@ -123,7 +147,7 @@ end subroutine myroutine
         with pytest.raises(RuntimeError):
             apply_method(rename_transform, source[target])
         source[target].make_complete(frontend=frontend)
-    apply_method(rename_transform, source[target])
+    apply_method(rename_transform, source[target], recurse_to_contained_nodes=recurse_to_contained_nodes)
 
     assert source._incomplete is lazy  # This should only have triggered a re-parse on the actual transformation target
     assert not source[f'{target}_test']._incomplete
@@ -142,7 +166,10 @@ end subroutine myroutine
         assert source.all_subroutines[1].name == 'module_routine_test'
         assert source['module_routine_test'] == source.all_subroutines[1]
         assert len(source['module_routine_test'].members) == 1
-        assert source['module_routine_test'].members[0].name == 'member_func_test'
+        if recurse_to_contained_nodes:
+            assert source['module_routine_test'].members[0].name == 'member_func_test'
+        else:
+            assert source['module_routine_test'].members[0].name == 'member_func'
     elif target == 'myroutine':
         assert source.all_subroutines[1].name == 'module_routine'
         assert source['module_routine'] == source.all_subroutines[1]
@@ -150,11 +177,12 @@ end subroutine myroutine
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('apply_method', [
-    lambda transform, obj: obj.apply(transform),
-    lambda transform, obj: transform.apply_module(obj)
+    lambda transform, obj, **kwargs: obj.apply(transform, **kwargs),
+    lambda transform, obj, **kwargs: transform.apply_module(obj, **kwargs)
 ])
 @pytest.mark.parametrize('lazy', [False, True])
-def test_transformation_apply_module(rename_transform, frontend, apply_method, lazy):
+@pytest.mark.parametrize('recurse_to_contained_nodes', [False, True])
+def test_transformation_apply_module(rename_transform, frontend, apply_method, lazy, recurse_to_contained_nodes):
     """
     Apply a simple transformation that renames routines and modules
     """
@@ -186,7 +214,7 @@ end subroutine myroutine
         with pytest.raises(RuntimeError):
             apply_method(rename_transform, source['mymodule'])
         source['mymodule'].make_complete(frontend=frontend)
-    apply_method(rename_transform, source['mymodule'])
+    apply_method(rename_transform, source['mymodule'], recurse_to_contained_nodes=recurse_to_contained_nodes)
 
     assert source._incomplete is lazy
     assert not source['mymodule_test']._incomplete
@@ -198,8 +226,13 @@ end subroutine myroutine
     # transformations to anything in the module.
     assert source.subroutines[0].name == 'myroutine'
     assert source['myroutine'] == source.subroutines[0]
-    assert source.all_subroutines[1].name == 'module_routine_test'
-    assert source['module_routine_test'] == source.all_subroutines[1]
+
+    if recurse_to_contained_nodes:
+        assert source.all_subroutines[1].name == 'module_routine_test'
+        assert source['module_routine_test'] == source.all_subroutines[1]
+    else:
+        assert source.all_subroutines[1].name == 'module_routine'
+        assert source['module_routine'] == source.all_subroutines[1]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -235,8 +268,10 @@ END MODULE driver_mod
 """, frontend=frontend)
 
     transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver.apply(transformation, role='driver', targets='kernel')
+    # Because the renaming is intended to be applied to the routines as well as the enclosing module,
+    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    driver.apply(transformation, role='driver', targets='kernel', recurse_to_contained_nodes=True)
 
     # Check that the basic entity names in the kernel source have changed
     assert kernel.all_subroutines[0].name == 'kernel_test'
@@ -259,6 +294,7 @@ END MODULE driver_mod
     assert isinstance(imports[0], Import)
     assert driver['driver_mod'].spec.body[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in driver['driver_mod'].spec.body[0].symbols]
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_dependency_transformation_globalvar_imports(frontend):
@@ -292,8 +328,10 @@ END SUBROUTINE driver
 """, frontend=frontend)
 
     transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver.apply(transformation, role='driver', targets=('kernel', 'some_const'))
+    # Because the renaming is intended to be applied to the routines as well as the enclosing module,
+    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    driver['driver'].apply(transformation, role='driver', targets=('kernel', 'some_const'))
 
     # Check that the global variable declaration remains unchanged
     assert kernel.modules[0].variables[0].name == 'some_const'
@@ -312,6 +350,7 @@ END SUBROUTINE driver
     assert isinstance(imports[1], Import)
     assert driver['driver'].spec.body[1].module == 'kernel_mod'
     assert 'some_const' in [str(s) for s in driver['driver'].spec.body[1].symbols]
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_dependency_transformation_globalvar_imports_driver_mod(frontend):
@@ -348,8 +387,10 @@ END MODULE DRIVER_MOD
 """, frontend=frontend)
 
     transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver.apply(transformation, role='driver', targets=('kernel', 'some_const'))
+    # Because the renaming is intended to be applied to the routines as well as the enclosing module,
+    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    driver.apply(transformation, role='driver', targets=('kernel', 'some_const'), recurse_to_contained_nodes=True)
 
     # Check that the global variable declaration remains unchanged
     assert kernel.modules[0].variables[0].name == 'some_const'
@@ -403,8 +444,8 @@ END SUBROUTINE kernel
 
     # Apply injection transformation via C-style includes by giving `include_path`
     transformation = DependencyTransformation(suffix='_test', mode='strict', include_path=here)
-    kernel.apply(transformation, role='kernel')
-    driver.apply(transformation, role='driver', targets='kernel')
+    kernel['kernel'].apply(transformation, role='kernel')
+    driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the subroutine name in the kernel source has changed
     assert len(kernel.modules) == 0
@@ -455,8 +496,10 @@ END SUBROUTINE kernel
 
     # Apply injection transformation via C-style includes by giving `include_path`
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver.apply(transformation, role='driver', targets='kernel')
+    # Because the renaming is intended to also wrap the kernel in a module,
+    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -480,6 +523,7 @@ END SUBROUTINE kernel
     assert len(imports) == 1
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_dependency_transformation_replace_interface(frontend):
@@ -515,8 +559,10 @@ END SUBROUTINE kernel
 
     # Apply injection transformation via C-style includes by giving `include_path`
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver.apply(transformation, role='driver', targets='kernel')
+    # Because the renaming is intended to also wrap the kernel in a module,
+    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -551,6 +597,7 @@ END SUBROUTINE kernel
     assert isinstance(nodes[1], Intrinsic)
     assert nodes[1].text.lower() == 'implicit none'
 
+
 @pytest.mark.parametrize('frontend', available_frontends(
                          xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
 def test_dependency_transformation_inline_call(frontend):
@@ -584,8 +631,10 @@ END FUNCTION kernel
 
     # Apply injection transformation via C-style includes by giving `include_path`
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver.apply(transformation, role='driver', targets='kernel')
+    # Because the renaming is intended to also wrap the kernel in a module,
+    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -615,6 +664,7 @@ END FUNCTION kernel
     assert len(imports) == 1
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+
 
 @pytest.mark.parametrize('frontend', available_frontends(
                          xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
@@ -651,8 +701,10 @@ END FUNCTION kernel
 
     # Apply injection transformation via C-style includes by giving `include_path`
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver.apply(transformation, role='driver', targets='kernel')
+    # Because the renaming is intended to also wrap the kernel in a module,
+    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -679,6 +731,7 @@ END FUNCTION kernel
     assert len(imports) == 1
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_replace_selected_kind(here, frontend):

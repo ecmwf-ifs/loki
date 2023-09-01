@@ -47,7 +47,7 @@ def test_extract_sca_horizontal(frontend, horizontal):
 """
     source = Sourcefile.from_source(fcode, frontend=frontend)
     sca_transform = ExtractSCATransformation(horizontal=horizontal)
-    source.apply(sca_transform, role='kernel')
+    source['compute_column'].apply(sca_transform, role='kernel')
 
     exp_loop_nest = """
   c = 5.345
@@ -92,7 +92,7 @@ def test_extract_sca_iteration(frontend, horizontal):
 """
     source = Sourcefile.from_source(fcode, frontend=frontend)
     sca_transform = ExtractSCATransformation(horizontal=horizontal)
-    source.apply(sca_transform, role='kernel')
+    source['compute_column'].apply(sca_transform, role='kernel')
 
     exp_loop_nest = """
   c = 5.345
@@ -151,8 +151,8 @@ def test_extract_sca_nested_level_zero(frontend, horizontal):
 
     # Apply single-column extraction trasnformation in topological order
     sca_transform = ExtractSCATransformation(horizontal=horizontal)
-    source.apply(sca_transform, role='kernel', targets=['compute_utility'])
-    level_zero.apply(sca_transform, role='kernel')
+    source['compute_column'].apply(sca_transform, role='kernel', targets=['compute_utility'])
+    level_zero['compute_level_zero'].apply(sca_transform, role='kernel')
 
     exp_loop_nest = """
   DO jk=2,nz
@@ -212,8 +212,8 @@ def test_extract_sca_nested_level_one(frontend, horizontal):
 
     # Apply single-column extraction trasnformation in topological order
     sca_transform = ExtractSCATransformation(horizontal=horizontal)
-    source.apply(sca_transform, role='kernel', targets=['compute_utility'])
-    level_one.apply(sca_transform, role='kernel')
+    source['compute_column'].apply(sca_transform, role='kernel', targets=['compute_utility'])
+    level_one['compute_level_one'].apply(sca_transform, role='kernel')
 
     exp_loop_nest = """
   t(jk) = c*jk

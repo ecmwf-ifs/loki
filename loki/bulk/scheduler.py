@@ -629,7 +629,7 @@ class Scheduler:
             if use_file_graph:
                 for node in traversal:
                     items = graph.nodes[node]['items']
-                    transformation.apply(items[0].source, item=items[0], items=items)
+                    transformation.apply(items[0].source, item=items[0], items=items, recurse_to_contained_nodes=True)
             else:
                 for item in traversal:
                     if item_filter and not isinstance(item, item_filter):
@@ -642,7 +642,8 @@ class Scheduler:
                     transformation.apply(
                         _item.source, role=_item.role, mode=_item.mode,
                         item=_item, targets=_item.targets,
-                        successors=self.item_successors(_item), depths=self.depths
+                        successors=self.item_successors(_item), depths=self.depths,
+                        recurse_to_contained_nodes=True
                     )
 
     def callgraph(self, path, with_file_graph=False):
