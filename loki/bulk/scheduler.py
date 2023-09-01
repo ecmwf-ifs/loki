@@ -599,7 +599,8 @@ class Scheduler:
                 successors += [self.item_map[child.name]] + self.item_successors(child)
         return successors
 
-    def process(self, transformation, reverse=False, item_filter=SubroutineItem, use_file_graph=False):
+    def process(self, transformation, reverse=False, item_filter=SubroutineItem, use_file_graph=False,
+                recurse_to_contained_nodes=False):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -612,6 +613,12 @@ class Scheduler:
         by setting :data:`use_file_graph` to ``True``. Currently, this calls
         the transformation on the first `item` associated with a file only.
         In this mode, :data:`item_filter` does not have any effect.
+
+        The scheduler applies the transformation to the IR node corresponding to
+        each item in the scheduler's graph. Optionally, the transformation can also
+        be applied recursively, e.g., to all member subroutines contained in a
+        subroutine object, or all modules and subroutines contained in a source file,
+        by setting :data:`recurse_to_contained_nodes` to ``True``.
         """
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
@@ -629,7 +636,10 @@ class Scheduler:
             if use_file_graph:
                 for node in traversal:
                     items = graph.nodes[node]['items']
-                    transformation.apply(items[0].source, item=items[0], items=items, recurse_to_contained_nodes=True)
+                    transformation.apply(
+                        items[0].source, item=items[0], items=items,
+                        recurse_to_contained_nodes=recurse_to_contained_nodes
+                    )
             else:
                 for item in traversal:
                     if item_filter and not isinstance(item, item_filter):
@@ -638,12 +648,19 @@ class Scheduler:
                     # Use entry from item_map to ensure the original item is used in transformation
                     _item = self.item_map[item.name]
 
+                    # Pick out the IR node to which to apply the transformation
+                    # TODO: should this become an Item property?
+                    if isinstance(item, SubroutineItem):
+                        source = _item.routine
+                    else:
+                        source = _item.scope
+
                     # Process work item with appropriate kernel
                     transformation.apply(
-                        _item.source, role=_item.role, mode=_item.mode,
+                        source, role=_item.role, mode=_item.mode,
                         item=_item, targets=_item.targets,
                         successors=self.item_successors(_item), depths=self.depths,
-                        recurse_to_contained_nodes=True
+                        recurse_to_contained_nodes=recurse_to_contained_nodes
                     )
 
     def callgraph(self, path, with_file_graph=False):

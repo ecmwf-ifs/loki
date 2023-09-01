@@ -80,6 +80,11 @@ class DependencyTransformation(Transformation):
         role = kwargs.get('role')
 
         if role == 'kernel':
+            if routine.name.endswith(self.suffix):
+                # This is to ensure that the transformation is idempotent if
+                # applied more than once to a routine
+                return
+
             # Change the name of kernel routines
             if routine.is_function:
                 if not routine.result_name:
@@ -305,7 +310,7 @@ class DependencyTransformation(Transformation):
         for routine in sourcefile.subroutines:
             if routine not in module_routines:
                 # Skip member functions
-                if item and f'#{routine.name.lower()}' != item.name.lower():
+                if item and routine.name.lower() != item.local_name.lower():
                     continue
 
                 # Skip internal utility routines too

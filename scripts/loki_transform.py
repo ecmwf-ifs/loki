@@ -29,9 +29,6 @@ from loki.transform import (
 )
 
 # pylint: disable=wrong-import-order
-from transformations.argument_shape import (
-    ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
-)
 from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
@@ -258,7 +255,7 @@ def convert(
     mode = mode.replace('-', '_')  # Sanitize mode string
     dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
                                           mode='module', module_suffix='_MOD')
-    scheduler.process(transformation=dependency)
+    scheduler.process(transformation=dependency, use_file_graph=True, recurse_to_contained_nodes=True)
 
     # Write out all modified source files into the build directory
     scheduler.process(
