@@ -467,6 +467,12 @@ class Subroutine(ProgramUnit):
                         name_type.dtype.procedure is not routine  # ProcedureType not linked to routine
                     )
                     if update_symbol:
+                        # Remove existing symbol from symbol table if defined in interface block
+                        for node in [node for intf in self.interfaces for node in intf.body]:
+                            if getattr(node, 'name', None) == call.name:
+                                if node.parent == self:
+                                    node.parent = None
+
                         # Need to update the call's symbol to establish link to routine
                         name_type = name_type.clone(dtype=routine.procedure_type)
                         call._update(name=call.name.clone(scope=self, type=name_type), not_active=not_active)

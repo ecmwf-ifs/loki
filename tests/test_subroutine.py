@@ -17,7 +17,7 @@ from loki import (
     SymbolAttributes, StringLiteral, fgen, fexprgen, VariableDeclaration,
     Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType,
     StatementFunction, normalize_range_indexing, DeferredTypeSymbol,
-    Assignment
+    Assignment, Interface
 )
 
 
@@ -1992,3 +1992,65 @@ end subroutine driver
 
     _verify_call_enrichment(driver, kernels)
     _verify_call_enrichment(cloned_driver, cloned_kernels)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_enrich_calls_explicit_interface(frontend):
+    """
+    Test enrich_calls points to the actual routine and not the symbol declared
+    in an explicit interface.
+    """
+
+    fcode_kernel = """
+    subroutine kernel(a,b)
+    implicit none
+    integer, intent(inout) :: a
+    integer, intent(out) :: b
+
+
+    a = a + 1
+    b = a
+
+    end subroutine kernel
+    """
+
+    fcode_driver = """
+    subroutine driver()
+    implicit none
+
+    interface
+    subroutine kernel(a,b)
+    integer, intent(inout) :: a
+    integer, intent(out) :: b
+    end subroutine kernel
+    end interface
+
+    integer :: a = 0
+    integer :: b
+
+    call kernel(a,b)
+
+    end subroutine driver
+    """
+
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+
+    driver.enrich_calls(routines=(kernel,))
+
+    # check if call is enriched correctly
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert calls[0].routine is kernel
+
+    # check if the procedure symbol in the interface block has been removed from
+    # driver's symbol table
+    intfs = FindNodes(Interface).visit(driver.spec)
+    assert not intfs[0].body[0].parent
+
+    # check that call still points to correct subroutine
+    _ = [sym for intf in intfs for sym in intf.symbols]
+    assert calls[0].routine is kernel
+
+    # confirm that rescoping symbols has no effect
+    driver.rescope_symbols()
+    assert calls[0].routine is kernel
