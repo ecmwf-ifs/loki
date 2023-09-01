@@ -1146,7 +1146,7 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
      SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(5),)), symbols.Array),
 ])
-def test_variable_clone(initype, inireftype, newtype, newreftype):
+def test_variable_clone_class(initype, inireftype, newtype, newreftype):
     """
     Test that cloning a variable object changes class according to symbol type
     """
@@ -1156,6 +1156,38 @@ def test_variable_clone(initype, inireftype, newtype, newreftype):
     assert 'var' in scope.symbol_attrs
     var = var.clone(type=newtype)  # pylint: disable=no-member
     assert isinstance(var, newreftype)
+
+@pytest.mark.parametrize('initype,newtype,reftype', [
+    # Preserve existing type info if type=None is given
+    (SymbolAttributes(BasicType.REAL), None, SymbolAttributes(BasicType.REAL)),
+    (SymbolAttributes(BasicType.INTEGER), None, SymbolAttributes(BasicType.INTEGER)),
+    (SymbolAttributes(BasicType.DEFERRED), None, SymbolAttributes(BasicType.DEFERRED)),
+    (SymbolAttributes(BasicType.DEFERRED, intent='in'), None,
+     SymbolAttributes(BasicType.DEFERRED, intent='in')),
+    # Update from deferred to known type
+    (SymbolAttributes(BasicType.DEFERRED), SymbolAttributes(BasicType.INTEGER),
+     SymbolAttributes(BasicType.INTEGER)),
+    (SymbolAttributes(BasicType.DEFERRED), SymbolAttributes(BasicType.REAL),
+     SymbolAttributes(BasicType.REAL)),
+    (SymbolAttributes(BasicType.DEFERRED), SymbolAttributes(BasicType.DEFERRED, intent='in'),
+     SymbolAttributes(BasicType.DEFERRED, intent='in')),  # Special case: Add attribute only
+    # Invalidate type by setting to DEFERRED
+    (SymbolAttributes(BasicType.INTEGER), SymbolAttributes(BasicType.DEFERRED),
+     SymbolAttributes(BasicType.DEFERRED)),
+    (SymbolAttributes(BasicType.REAL), SymbolAttributes(BasicType.DEFERRED),
+     SymbolAttributes(BasicType.DEFERRED)),
+    (SymbolAttributes(BasicType.DEFERRED, intent='in'), SymbolAttributes(BasicType.DEFERRED),
+     SymbolAttributes(BasicType.DEFERRED)),
+])
+def test_variable_clone_type(initype, newtype, reftype):
+    """
+    Test type updates are handled as expected and types are never ``None``.
+    """
+    scope = Scope()
+    var = symbols.Variable(name='var', scope=scope, type=initype)
+    assert 'var' in scope.symbol_attrs
+    new = var.clone(type=newtype)
+    assert new.type == reftype
 
 
 def test_variable_without_scope():
