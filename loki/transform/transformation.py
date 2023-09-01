@@ -85,10 +85,9 @@ class Transformation:
             Keyword arguments for the transformation.
         """
 
-    def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
+    def apply(self, source, recurse_to_contained_nodes=False, post_apply_rescope_symbols=False, **kwargs):
         """
-        Dispatch method to apply transformation to all source items in
-        :data:`source`.
+        Dispatch method to apply transformation to :data:`source`.
 
         It dispatches to one of the type-specific dispatch methods
         :meth:`apply_file`, :meth:`apply_module`, or :meth:`apply_subroutine`.
@@ -97,6 +96,9 @@ class Transformation:
         ----------
         source : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine`
             The source item to transform.
+        recurse_to_contained_nodes, bool, optional
+            Recursively apply the transformation to all :any:`Module` and
+            :any:`Subroutine` contained in :data:`source` (default: `False`)
         post_apply_rescope_symbols : bool, optional
             Call ``rescope_symbols`` on :data:`source` after applying the
             transformation to clean up any scoping issues.
@@ -105,17 +107,17 @@ class Transformation:
             actual transformation.
         """
         if isinstance(source, Sourcefile):
-            self.apply_file(source, **kwargs)
+            self.apply_file(source, recurse_to_contained_nodes=recurse_to_contained_nodes, **kwargs)
 
         if isinstance(source, Subroutine):
-            self.apply_subroutine(source, **kwargs)
+            self.apply_subroutine(source, recurse_to_contained_nodes=recurse_to_contained_nodes, **kwargs)
 
         if isinstance(source, Module):
-            self.apply_module(source, **kwargs)
+            self.apply_module(source, recurse_to_contained_nodes=recurse_to_contained_nodes, **kwargs)
 
         self.post_apply(source, rescope_symbols=post_apply_rescope_symbols)
 
-    def apply_file(self, sourcefile, **kwargs):
+    def apply_file(self, sourcefile, recurse_to_contained_nodes=False, **kwargs):
         """
         Apply transformation to all items in :data:`sourcefile`.
 
@@ -126,6 +128,9 @@ class Transformation:
         ----------
         sourcefile : :any:`Sourcefile`
             The file to transform.
+        recurse_to_contained_nodes, bool, optional
+            Recursively apply the transformation to all :any:`Module` and
+            :any:`Subroutine` contained in :data:`sourcefile` (default: `False`)
         **kwargs : optional
             Keyword arguments that are passed on to transformation methods.
         """
@@ -138,13 +143,14 @@ class Transformation:
         # Apply file-level transformations
         self.transform_file(sourcefile, **kwargs)
 
-        for module in sourcefile.modules:
-            self.apply_module(module, **kwargs)
+        if recurse_to_contained_nodes:
+            for module in sourcefile.modules:
+                self.apply_module(module, recurse_to_contained_nodes=True, **kwargs)
 
-        for routine in sourcefile.subroutines:
-            self.apply_subroutine(routine, **kwargs)
+            for routine in sourcefile.subroutines:
+                self.apply_subroutine(routine, recurse_to_contained_nodes=recurse_to_contained_nodes, **kwargs)
 
-    def apply_subroutine(self, subroutine, **kwargs):
+    def apply_subroutine(self, subroutine, recurse_to_contained_nodes=False, **kwargs):
         """
         Apply transformation to a given :any:`Subroutine` object and its members.
 
@@ -155,6 +161,9 @@ class Transformation:
         ----------
         subroutine : :any:`Subroutine`
             The subroutine to transform.
+        recurse_to_contained_nodes, bool, optional
+            Recursively apply the transformation to all member
+            :any:`Subroutine` contained in :data:`source` (default: `False`)
         **kwargs : optional
             Keyword arguments that are passed on to transformation methods.
         """
@@ -172,10 +181,11 @@ class Transformation:
         self.transform_subroutine(subroutine, **kwargs)
 
         # Recurse on subroutine members
-        for member in subroutine.members:
-            self.apply_subroutine(member, **kwargs)
+        if recurse_to_contained_nodes:
+            for member in subroutine.members:
+                self.apply_subroutine(member, recurse_to_contained_nodes=recurse_to_contained_nodes, **kwargs)
 
-    def apply_module(self, module, **kwargs):
+    def apply_module(self, module, recurse_to_contained_nodes=False, **kwargs):
         """
         Apply transformation to a given :any:`Module` object and its members.
 
@@ -186,6 +196,9 @@ class Transformation:
         ----------
         module : :any:`Module`
             The module to transform.
+        recurse_to_contained_nodes, bool, optional
+            Recursively apply the transformation to all :any:`Subroutine`
+            and their members contained in :data:`source` (default: `False`)
         **kwargs : optional
             Keyword arguments that are passed on to transformation methods.
         """
@@ -199,8 +212,9 @@ class Transformation:
         self.transform_module(module, **kwargs)
 
         # Call the dispatch for all contained subroutines
-        for routine in module.subroutines:
-            self.apply_subroutine(routine, **kwargs)
+        if recurse_to_contained_nodes:
+            for routine in module.subroutines:
+                self.apply_subroutine(routine, recurse_to_contained_nodes=recurse_to_contained_nodes, **kwargs)
 
     def post_apply(self, source, rescope_symbols=False):
         """

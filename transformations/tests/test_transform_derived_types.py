@@ -81,7 +81,7 @@ end module transform_derived_type_arguments_mod
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     item = SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source)
-    source.apply(DerivedTypeArgumentsTransformation(), role='kernel', item=item)
+    source['kernel'].apply(DerivedTypeArgumentsTransformation(), role='kernel', item=item)
 
     # Make sure the trafo data contains the right information
     assert item.trafo_data[DerivedTypeArgumentsTransformation._key] == {
@@ -193,7 +193,7 @@ end module transform_derived_type_arguments_mod
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
     for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        transformation.apply(item.source, role=item.role, item=item, successors=as_tuple(successor))
+        transformation.apply(item.routine, role=item.role, item=item, successors=as_tuple(successor))
 
     # Make sure derived type arguments are flattened
     call_args = (
@@ -260,8 +260,8 @@ end subroutine driver
     driver = SubroutineItem('#driver', config={'role': 'driver'}, source=source_driver)
 
     transformation = DerivedTypeArgumentsTransformation()
-    transformation.apply(kernel.source, item=kernel, role=kernel.role)
-    transformation.apply(driver.source, item=driver, role=driver.role, successors=[kernel])
+    transformation.apply(kernel.routine, item=kernel, role=kernel.role)
+    transformation.apply(driver.routine, item=driver, role=driver.role, successors=[kernel])
 
     assert kernel.trafo_data[transformation._key] == {
         'orig_argnames': ('r', 's'),
@@ -356,7 +356,7 @@ end module transform_derived_type_arguments_multilevel
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
     for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        transformation.apply(item.source, role=item.role, item=item, successors=as_tuple(successor))
+        transformation.apply(item.routine, role=item.role, item=item, successors=as_tuple(successor))
 
     for item in call_tree:
         if item.role == 'driver':
@@ -582,7 +582,7 @@ end subroutine caller
     for name, successors in reversed(call_tree):
         item = items[name]
         children = [items[c] for c in successors]
-        transformation.apply(item.source, role=item.role, item=item, successors=as_tuple(children))
+        transformation.apply(item.routine, role=item.role, item=item, successors=as_tuple(children))
 
     key = DerivedTypeArgumentsTransformation._key
 
@@ -771,10 +771,10 @@ end subroutine driver
 
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation(key='some_key')
-    source.apply(transformation, role='kernel', item=kernel_a)
-    source.apply(transformation, role='kernel', item=kernel)
-    source.apply(transformation, role='kernel', item=reduce)
-    source_driver.apply(transformation, role='driver', item=driver, successors=[reduce])
+    source['kernel_a'].apply(transformation, role='kernel', item=kernel_a)
+    source['kernel'].apply(transformation, role='kernel', item=kernel)
+    source['reduce'].apply(transformation, role='kernel', item=reduce)
+    source_driver['driver'].apply(transformation, role='driver', item=driver, successors=[reduce])
 
     # Check analysis outcome
     assert 'some_key' in kernel_a.trafo_data
@@ -849,8 +849,8 @@ end subroutine some_routine
     caller = SubroutineItem(name='#some_routine', source=source2)
 
     transformation = DerivedTypeArgumentsTransformation()
-    source1.apply(transformation, item=callee, role='kernel', successors=())
-    source2.apply(transformation, item=caller, role='kernel', successors=(callee,))
+    source1['some_routine'].apply(transformation, item=callee, role='kernel', successors=())
+    source2['some_routine'].apply(transformation, item=caller, role='kernel', successors=(callee,))
 
     assert caller.trafo_data[transformation._key]['expansion_map'] == {
         't': ('t%a',),
@@ -906,8 +906,8 @@ end module some_mod
     caller = SubroutineItem(name='some_mod#caller', source=source)
 
     transformation = DerivedTypeArgumentsTransformation()
-    source.apply(transformation, item=callee, role='kernel', successors=())
-    source.apply(transformation, item=caller, role='driver', successors=(callee,))
+    source['callee'].apply(transformation, item=callee, role='kernel', successors=())
+    source['caller'].apply(transformation, item=caller, role='driver', successors=(callee,))
 
     assert not caller.trafo_data[transformation._key]
     assert callee.trafo_data[transformation._key]['expansion_map'] == {
@@ -996,9 +996,9 @@ end module some_mod
     plus = SubroutineItem(name='some_mod#plus', source=source)
 
     transformation = DerivedTypeArgumentsTransformation()
-    source.apply(transformation, item=callee, role='kernel', successors=())
-    source.apply(transformation, item=plus, role='kernel', successors=())
-    source.apply(transformation, item=caller, role='driver', successors=(callee, plus))
+    source['callee'].apply(transformation, item=callee, role='kernel', successors=())
+    source['plus'].apply(transformation, item=plus, role='kernel', successors=())
+    source['caller'].apply(transformation, item=caller, role='driver', successors=(callee, plus))
 
     assert not caller.trafo_data[transformation._key]
     assert callee.trafo_data[transformation._key]['expansion_map'] == {
@@ -1102,9 +1102,9 @@ end subroutine caller
     caller = SubroutineItem(name='#caller', source=source_caller)
 
     transformation = DerivedTypeArgumentsTransformation()
-    source_some.apply(transformation, item=some_sub, role='kernel', successors=())
-    source_other.apply(transformation, item=other_sub, role='kernel', successors=())
-    source_caller.apply(transformation, item=caller, role='driver', successors=(some_sub, other_sub))
+    source_some['sub'].apply(transformation, item=some_sub, role='kernel', successors=())
+    source_other['sub'].apply(transformation, item=other_sub, role='kernel', successors=())
+    source_caller['caller'].apply(transformation, item=caller, role='driver', successors=(some_sub, other_sub))
 
     assert some_sub.routine.arguments == ('t_some(:)',)
     assert other_sub.routine.arguments == ('t_other(:)',)
@@ -1147,7 +1147,7 @@ end module some_mod
     assert variable_map['t%arr'].type.intent is None
 
     transformation = DerivedTypeArgumentsTransformation()
-    source.apply(transformation, role='kernel')
+    source['some_routine'].apply(transformation, role='kernel')
     variables = FindVariables().visit(source['some_routine'].body)
     assert variables == {'t_arr(:)'}
     variable_map = CaseInsensitiveDict((v.name, v) for v in variables)
@@ -1182,7 +1182,7 @@ end module some_mod
     source = Sourcefile.from_source(fcode, frontend=frontend)
 
     transformation = DerivedTypeArgumentsTransformation()
-    source.apply(transformation, role='kernel')
+    source['kernel'].apply(transformation, role='kernel')
     # Only type with derived type member
     assert source['kernel'].arguments == ('s', 'a_a(:)', 'n_s_i')
 
