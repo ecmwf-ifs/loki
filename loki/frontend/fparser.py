@@ -38,6 +38,7 @@ from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
 )
+from loki.scope import Scope
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.config import config
 
@@ -138,9 +139,14 @@ def parse_fparser_expression(source, scope):
     # Wrap source in brackets to make sure it appears like a valid expression
     # for fparser, and strip that Parenthesis node from the ast immediately after
     ast = Fortran2003.Primary('(' + source + ')').children[1]
-    _ir = parse_fparser_ast(ast, source, scope=scope)
+
+    # We parse the standalone expression with a dummy scope, to
+    # avoid overriding existing type info from the given scope.
+    _ir = parse_fparser_ast(ast, source, scope=Scope())
+
     # TODO: use rescope visitor for this
-    rescope_map = {v: v.clone(scope=scope) for v in FindTypedSymbols().visit(_ir)}
+    # In the rescoping we force using the existing type info via `type=None`
+    rescope_map = {v: v.clone(scope=scope, type=None) for v in FindTypedSymbols().visit(_ir)}
     _ir = SubstituteExpressions(rescope_map).visit(_ir)
     return _ir
 
