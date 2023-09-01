@@ -173,10 +173,6 @@ class Transformation:
         if subroutine._incomplete:
             raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
 
-        # Bail if the subroutine has not actually been scheduled for processing
-        if (item := kwargs.get('item', None)) and item.local_name != subroutine.name.lower():
-            return
-
         # Apply the actual transformation for subroutines
         self.transform_subroutine(subroutine, **kwargs)
 

@@ -300,7 +300,7 @@ def convert(
     mode = mode.replace('-', '_')  # Sanitize mode string
     dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
                                           mode='module', module_suffix='_MOD')
-    scheduler.process(transformation=dependency)
+    scheduler.process(transformation=dependency, use_file_graph=True, recurse_to_contained_nodes=True)
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode),
@@ -538,10 +538,10 @@ def ecphys(mode, config, header, source, build, cpp, directive, frontend):
     dependency = DependencyTransformation(
         mode='module', module_suffix='_MOD', suffix=f'_{mode.upper()}'
     )
-    scheduler.process(transformation=dependency)
+    scheduler.process(transformation=dependency, use_file_graph=True, recurse_to_contained_nodes=True)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode))
+    scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode), use_file_graph=True)
 
 
 if __name__ == "__main__":
