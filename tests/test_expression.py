@@ -1126,7 +1126,7 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     (None, symbols.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
     # From Scalar to other type
     (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     SymbolAttributes(BasicType.DEFERRED), symbols.Scalar),  # Providing DEFERRED doesn't change type
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
     (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
      SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
     (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
@@ -1135,12 +1135,12 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
      SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
     (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     SymbolAttributes(BasicType.DEFERRED), symbols.Array),  # Providing DEFERRED doesn't change type
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
     (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
      SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
     # From ProcedureSymbol to other type
     (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     SymbolAttributes(BasicType.DEFERRED), symbols.ProcedureSymbol),  # Providing DEFERRED doesn't change type
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
     (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
      SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
     (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
