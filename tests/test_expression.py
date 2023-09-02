@@ -1186,7 +1186,7 @@ def test_variable_clone_type(initype, newtype, reftype):
     scope = Scope()
     var = symbols.Variable(name='var', scope=scope, type=initype)
     assert 'var' in scope.symbol_attrs
-    new = var.clone(type=newtype)
+    new = var.clone(type=newtype)  # pylint: disable=no-member
     assert new.type == reftype
 
 
