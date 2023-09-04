@@ -31,7 +31,8 @@ from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedDiv, ParenthesisedPow
 )
 from loki.expression import (
-    ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
+    ExpressionDimensionsMapper, FindTypedSymbols,
+    SubstituteExpressions, AttachScopes, AttachScopesMapper
 )
 from loki.logging import debug, info, warning, error
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
@@ -140,14 +141,11 @@ def parse_fparser_expression(source, scope):
     # for fparser, and strip that Parenthesis node from the ast immediately after
     ast = Fortran2003.Primary('(' + source + ')').children[1]
 
-    # We parse the standalone expression with a dummy scope, to
-    # avoid overriding existing type info from the given scope.
+    # We parse the standalone expression with a dummy scope, to avoid
+    # overriding existing type info from the given scope, before
+    # attaching it after the fact.
     _ir = parse_fparser_ast(ast, source, scope=Scope())
-
-    # TODO: use rescope visitor for this
-    # In the rescoping we force using the existing type info via `type=None`
-    rescope_map = {v: v.clone(scope=scope, type=None) for v in FindTypedSymbols().visit(_ir)}
-    _ir = SubstituteExpressions(rescope_map).visit(_ir)
+    _ir = AttachScopes().visit(_ir, scope=scope)
     return _ir
 
 
