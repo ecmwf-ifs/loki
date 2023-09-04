@@ -1266,7 +1266,7 @@ end module attach_scopes_associates_mod
     assert len(associates) == 2
     assignment = FindNodes(Assignment).visit(routine.body)
     assert len(assignment) == 1
-    assert len(FindVariables(recurse_to_parent=False).visit(assignment)) == 2
+    assert len(FindVariables().visit(assignment)) == 3
     var_map = {str(var): var for var in FindVariables().visit(assignment)}
     assert len(var_map) == 3
     assert associates[1].parent is associates[0]
