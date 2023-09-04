@@ -286,7 +286,7 @@ class TypedSymbol:
             if _type.dtype.typedef is BasicType.DEFERRED:
                 return ()
             return tuple(
-                v.clone(name=f'{self.name}%{v.name}', scope=self.scope, parent=self)
+                v.clone(name=f'{self.name}%{v.name}', scope=self.scope, type=v.type, parent=self)
                 for v in _type.dtype.typedef.variables
             )
         return None
@@ -328,8 +328,12 @@ class TypedSymbol:
             kwargs['name'] = self.name
         if 'scope' not in kwargs and self.scope:
             kwargs['scope'] = self.scope
-        if 'type' not in kwargs and self.type:
-            kwargs['type'] = self.type
+        if 'type' not in kwargs:
+            # If no type is given, check new scope
+            if 'scope' in kwargs and kwargs['scope'] and kwargs['name'] in kwargs['scope'].symbol_attrs:
+                kwargs['type'] = kwargs['scope'].symbol_attrs[kwargs['name']]
+            else:
+                kwargs['type'] = self.type
         if 'parent' not in kwargs and self.parent:
             kwargs['parent'] = self.parent
 

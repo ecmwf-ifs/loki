@@ -1244,12 +1244,12 @@ def test_variable_without_scope():
     assert isinstance(rescoped_var, symbols.Scalar)
     assert rescoped_var.type.dtype is BasicType.REAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
-    # Re-attach the scope (overwrites scope-stored type with local type)
+    # Re-attach the scope (uses scope-stored type over local type)
     var = var.clone(scope=scope)
     assert var.scope is scope
     assert isinstance(var, symbols.Scalar)
-    assert var.type.dtype is BasicType.LOGICAL
-    assert scope.symbol_attrs['var'].dtype is BasicType.LOGICAL
+    assert var.type.dtype is BasicType.REAL
+    assert scope.symbol_attrs['var'].dtype is BasicType.REAL
 
 
 @pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
