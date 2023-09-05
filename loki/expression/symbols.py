@@ -820,7 +820,7 @@ class Variable:
         _type = kwargs.get('type')
 
         if scope is not None and _type is None:
-            # Try to determine stored type information if we have no or only deferred type
+            # Determine type information from scope if not provided explicitly
             _type = cls._get_type_from_scope(name, scope, kwargs.get('parent'))
         kwargs['type'] = _type
 
