@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from conftest import run_linter, available_frontends
-from loki import Sourcefile, FindInlineCalls
+from loki import Sourcefile, FindInlineCalls, FindNodes, VariableDeclaration
 from loki.lint import DefaultHandler
 
 
@@ -42,14 +42,16 @@ real, intent(in) :: var2(:,:), var4(:,:), var5(:,:), var3(klon, 137), var5(klon,
 real, intent(in) :: var6(:,:), var7(:,:)
 real, intent(inout) :: var0(klon, nblk), var1(klon, 138, nblk)
 real(kind=jphook) :: zhook_handle
-integer :: klev, ibl
+integer :: klev, ibl, iproma, iend
 
 if(lhook) call dr_hook('driver', 0, zhook_handle)
 
 associate(nlev => klev)
 nlev = 137
 do ibl = 1, nblk
-   call kernel(klon, nlev, var0(:,ibl), var1(:,:,ibl), var2(1:klon, 1:nlev), &
+   iproma = klon
+   iend = iproma
+   call kernel(klon, nlev, var0(:,ibl), var1(:,:,ibl), var2(1:iend, 1:nlev), &
                var3, var4(1:klon, 1:nlev+1), var5(:, 1:nlev+1), &
                var6_d=var6, var7_d=var7(:,1:nlev))
 enddo
@@ -84,7 +86,8 @@ end subroutine kernel
 
     messages = []
     handler = DefaultHandler(target=messages.append)
-    _ = run_linter(driver_source, [rules.ArgSizeMismatchRule], handlers=[handler], targets=['kernel',])
+    _ = run_linter(driver_source, [rules.ArgSizeMismatchRule], config={'ArgSizeMismatchRule': {'max_indirections': 3}},
+                   handlers=[handler], targets=['kernel',])
 
     assert len(messages) == 3
     keyword = 'ArgSizeMismatchRule'
@@ -113,13 +116,15 @@ real, intent(in) ::  var2(klon, 137), var3(klon*137)
 real(kind=jphook) :: zhook_handle
 real, dimension(klon, 137) :: var4, var5
 real :: var6
-integer :: klev, ibl
+integer :: klev, ibl, iproma, iend
 
 if(lhook) call dr_hook('driver', 0, zhook_handle)
 
 klev = 137
 do ibl = 1, nblk
-   call kernel(klon, klev, var0(1,ibl), var1(1,1,ibl), var2(1, 1), var3(1), &
+   iproma = klon
+   iend = iproma
+   call kernel(klon, klev, var0(1,ibl), var1(1,1,ibl), var2(1:iend, 1), var3(1), &
                var4(1, 1), var5, var6, 1, .true.)
 enddo
 
@@ -173,12 +178,13 @@ def test_dynamic_ubound_checks(rules, frontend):
     """
 
     fcode = """
-subroutine kernel(klon, klev, nblk, var0, var1, var2)
+subroutine kernel(klon, klev, nblk, var0, var1, var2, var3, var4)
 use abort_mod
 implicit none
 integer, intent(in) :: klon, klev, nblk
 real, dimension(:,:,:), intent(inout) :: var0, var1
 real, dimension(:,:,:), intent(inout) :: var2
+real, intent(inout) :: var3(:,:), var4(:,:,:)
 
 if(ubound(var0, 1) < klon)then
   call abort('kernel: first dimension of var0 too short')
@@ -198,7 +204,11 @@ if(ubound(var2, 1) < klon .and. ubound(var2, 2) < klev .and. ubound(var2, 3) < n
   call abort('kernel: dimensions of var2 too short')
 endif
 
-call some_other_kernel(klon, klen, nblk, var0, var1, var2)
+if(ubound(var4, 1) < klon .and. ubound(var4, 2) < klev .and. ubound(var4, 3) < nblk)then
+  call abort('kernel: dimensions of var4 too short')
+endif
+
+call some_other_kernel(klon, klen, nblk, var0, var1, var2, var3, var4)
 
 end subroutine kernel
     """.strip()
@@ -211,11 +221,12 @@ end subroutine kernel
     _ = run_linter(kernel, [rules.DynamicUboundCheckRule], config={'fix': True}, handlers=[handler])
 
     # check rule violations
-    assert len(messages) == 2
+    assert len(messages) == 3
     assert all('DynamicUboundCheckRule' in msg for msg in messages)
 
     assert 'var0' in messages[0]
     assert 'var2' in messages[1]
+    assert 'var4' in messages[2]
 
     # check fixed subroutine
     routine = kernel['kernel']
@@ -228,5 +239,22 @@ end subroutine kernel
 
     assert all(s.name == d for s, d in zip(routine.variable_map['var0'].shape, shape))
     assert all(s.name == d for s, d in zip(routine.variable_map['var2'].shape, shape))
+    assert all(s.name == d for s, d in zip(routine.variable_map['var4'].shape, shape))
+
+    arg_names = ['klon', 'klev', 'nblk', 'var0', 'var1', 'var2', 'var3', 'var4']
+    assert [arg.name.lower() for arg in routine.arguments] == arg_names
+
+    # check that variable declarations have not been duplicated
+    declarations = FindNodes(VariableDeclaration).visit(routine.spec)
+    symbols = [s.name.lower() for decl in declarations for s in decl.symbols]
+    assert len(symbols) == 8
+    assert set(symbols) == {'klon', 'klev', 'nblk', 'var0', 'var1', 'var2', 'var3', 'var4'}
+
+    # check number of declarations and symbols per declarations
+    assert len(declarations) == 5
+    assert len(declarations[0].symbols) == 3
+    for decl in declarations[1:4]:
+        assert len(decl.symbols) == 1
+    assert len(declarations[4].symbols) == 2
 
     os.remove(kernel.path)

@@ -10,7 +10,7 @@ from loki import (
      FindNodes, CallStatement, Assignment, Scalar, RangeIndex, resolve_associates,
      simplify, Sum, Product, IntLiteral, as_tuple, SubstituteExpressions, Array,
      symbolic_op, StringLiteral, is_constant, LogicLiteral, VariableDeclaration, flatten,
-     FindInlineCalls, Conditional, Transformer, FindExpressions, Comparison
+     FindInlineCalls, Conditional, FindExpressions, Comparison
 )
 from loki.lint import GenericRule, RuleType
 
@@ -20,6 +20,10 @@ class ArgSizeMismatchRule(GenericRule):
     """
 
     type = RuleType.WARN
+
+    config = {
+        'max_indirections': 2,
+    }
 
     @staticmethod
     def range_to_sum(lower, upper):
@@ -106,6 +110,8 @@ class ArgSizeMismatchRule(GenericRule):
         :any:`Subroutine`.
         """
 
+        max_indirections = config['max_indirections']
+
         # first resolve associates
         resolve_associates(subroutine)
 
@@ -183,9 +189,22 @@ class ArgSizeMismatchRule(GenericRule):
                 dummy_size = Product(dummy_arg_size)
                 stat = cls.compare_sizes(arg_size, alt_arg_size, dummy_size)
 
-                # if necessary, update dimension names and check
-                if not stat:
-                    dummy_size = Product(SubstituteExpressions(assign_map).visit(dummy_arg_size))
+                # we check for a configurable number of indirections for the dummy and arg dimension names
+                for _ in range(max_indirections):
+                    if stat:
+                        break
+
+                    # if necessary, update dummy arg dimension names and check
+                    dummy_arg_size = SubstituteExpressions(assign_map).visit(dummy_arg_size)
+                    dummy_size = Product(dummy_arg_size)
+                    stat = cls.compare_sizes(arg_size, alt_arg_size, dummy_size)
+
+                    if stat:
+                        break
+
+                    # if necessary, update arg dimension names and check
+                    arg_size = SubstituteExpressions(assign_map).visit(arg_size)
+                    alt_arg_size = SubstituteExpressions(assign_map).visit(alt_arg_size)
                     stat = cls.compare_sizes(arg_size, alt_arg_size, dummy_size)
 
                 if not stat:
@@ -254,8 +273,8 @@ class DynamicUboundCheckRule(GenericRule):
         ubound_checks = cls.get_ubound_checks(subroutine)
         args = cls.get_assumed_shape_args(subroutine)
 
-        new_vars = ()
         node_map = {}
+        var_map = {}
 
         for arg in args:
             checks = [c for c in ubound_checks if arg.name in c.arguments]
@@ -281,16 +300,18 @@ class DynamicUboundCheckRule(GenericRule):
                     else:
                         new_shape += as_tuple(cond.left)
 
-                vtype = arg.type.clone(shape=new_shape, scope=subroutine)
-                new_vars += as_tuple(arg.clone(type=vtype, dimensions=new_shape, scope=subroutine))
+                vtype = arg.type.clone(shape=new_shape)
+                var_map.update({arg: arg.clone(type=vtype, dimensions=new_shape)})
 
-        #TODO: add 'VariableDeclaration.symbols' should be of type 'Variable' rather than 'Expression'
-        # to enable case-insensitive search here
-        new_var_names = [v.name.lower() for v in new_vars]
-        subroutine.variables = [var for var in subroutine.variables if not var.name.lower() in new_var_names]
+        # update variable declarations
+        subroutine.spec = SubstituteExpressions(var_map).visit(subroutine.spec)
+        for decl in FindNodes(VariableDeclaration).visit(subroutine.spec):
+            if decl.dimensions:
+                if not all(sym.shape == decl.dimensions for sym in decl.symbols):
+                    new_decls = as_tuple(VariableDeclaration(as_tuple(sym)) for sym in decl.symbols)
+                    node_map.update({decl: new_decls})
 
-        subroutine.body = Transformer(node_map).visit(subroutine.body)
-        subroutine.variables += new_vars
+        return node_map
 
 # Create the __all__ property of the module to contain only the rule names
 __all__ = tuple(name for name in dir() if name.endswith('Rule') and name != 'GenericRule')

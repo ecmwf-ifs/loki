@@ -472,15 +472,6 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         '<': re.compile(r'(?P<f77>\.lt\.)|(?P<f90><(?!=))', re.I),
     }
 
-    _op_map = {
-        '==': '.eq.',
-        '/=': '.ne.',
-        '>=': '.ge.',
-        '<=': '.le.',
-        '>': '.gt.',
-        '<': '.lt.'
-    }
-
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check for the use of Fortran 90 comparison operators.'''
@@ -513,8 +504,16 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
                     op_str = op if op != '!=' else '/='
                     line = [line for line in lines if op_str in strip_inline_comments(line.string)]
                     if not line:
+                        _op_map = {
+                            '==': '.eq.',
+                            '/=': '.ne.',
+                            '>=': '.ge.',
+                            '<=': '.le.',
+                            '>': '.gt.',
+                            '<': '.lt.'
+                        }
                         line = [line for line in lines
-                                if op_str in strip_inline_comments(line.string.replace(cls._op_map[op_str], op_str))]
+                                if op_str in strip_inline_comments(line.string.replace(_op_map[op_str], op_str))]
 
                     source_string = strip_inline_comments(line[0].string)
                     matches = cls._op_patterns[op].findall(source_string)
