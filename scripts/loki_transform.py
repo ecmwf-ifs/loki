@@ -148,8 +148,13 @@ def cli(debug):
               help='Trim vector loops in SCC transform to exclude scalar assignments.')
 @click.option('--global-var-offload', is_flag=True, default=False,
               help="Generate offload instructions for global vars imported via 'USE' statements.")
-def convert(out_path, path, header, cpp, directive, include, define, omni_include, xmod,
-            data_offload, remove_openmp, mode, frontend, config, trim_vector_sections, global_var_offload):
+@click.option('--remove-derived-args/--no-remove-derived-args', default=True,
+              help="Remove derived-type arguments and replace with canonical arguments")
+def convert(
+        out_path, path, header, cpp, directive, include, define, omni_include, xmod,
+        data_offload, remove_openmp, mode, frontend, config, trim_vector_sections,
+        global_var_offload, remove_derived_args
+):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -191,7 +196,8 @@ def convert(out_path, path, header, cpp, directive, include, define, omni_includ
                           definitions=definitions, **build_args)
 
     # First, remove all derived-type arguments; caller first!
-    scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+    if remove_derived_args:
+        scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
     if 'scc' in mode:
