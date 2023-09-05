@@ -30,10 +30,7 @@ import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedDiv, ParenthesisedPow
 )
-from loki.expression import (
-    ExpressionDimensionsMapper, FindTypedSymbols,
-    SubstituteExpressions, AttachScopes, AttachScopesMapper
-)
+from loki.expression import ExpressionDimensionsMapper, AttachScopes, AttachScopesMapper
 from loki.logging import debug, info, warning, error
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import (
