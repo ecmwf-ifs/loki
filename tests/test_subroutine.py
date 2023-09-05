@@ -1308,7 +1308,7 @@ contains
   subroutine nested_routine(a, n)
     use some_mod, only: ext2
     integer, parameter :: jpim = selected_int_kind(4)
-    integer, intent(inout) :: a
+    integer, intent(inout) :: a(n)
     integer, intent(in) :: n
     integer(kind=jpim) :: j
 
@@ -1418,7 +1418,7 @@ contains
 
   subroutine nested_routine(a, n)
     use some_mod, only: ext2
-    integer, intent(inout) :: a
+    integer, intent(inout) :: a(n)
     integer, intent(in) :: n
     integer :: j
 
@@ -1492,14 +1492,16 @@ subroutine subroutine_stmt_func(a, b)
     implicit none
     integer, intent(in) :: a
     integer, intent(out) :: b
+    integer :: array(a)
     integer :: i, j
     integer :: plus, minus
     plus(i, j) = i + j
     minus(i, j) = i - j
     integer :: mult
-    mult(i, j) = i * j
     integer :: tmp
+    mult(i, j) = i * j
 
+    array(i) = i
     tmp = plus(a, 5)
     tmp = minus(tmp, 1)
     b = mult(2, tmp)
