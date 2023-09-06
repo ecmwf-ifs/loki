@@ -158,13 +158,17 @@ class Node:
     def __repr__(self):
         raise NotImplementedError
 
-    def view(self):
+    def view(self, visualization = False, **kwargs_visualization):
         """
         Pretty-print the node hierachy under this node.
         """
         # pylint: disable=import-outside-toplevel,cyclic-import
-        from loki.visitors import pprint
-        pprint(self)
+        if visualization:
+            from loki.visitors.pretty_visualize import pretty_visualize
+            pretty_visualize(self, **kwargs_visualization)
+        else:
+            from loki.visitors import pprint
+            pprint(self)
 
     @property
     def live_symbols(self):
