@@ -46,54 +46,6 @@ from transformations.single_column_coalesced_vector import (
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
 
 
-"""
-Scheduler configuration for the CLOUDSC ESCAPE dwarf.
-
-This defines the "roles" of the two main source files
-("driver" and "kernel") and adds exemptions for the
-bulk-processing scheduler to ignore the timing utlitiies.
-"""
-cloudsc_config = {
-    'default': {
-        'mode': 'idem',
-        'role': 'kernel',
-        'expand': True,
-        'strict': True,
-        # Ensure that we are never adding these to the tree, and thus
-        # do not attempt to look up the source files for these.
-        # TODO: Add type-bound procedure support and adjust scheduler to it
-        'disable': ['timer%start', 'timer%end', 'timer%thread_start', 'timer%thread_end',
-                    'timer%thread_log', 'timer%thread_log', 'timer%print_performance']
-    },
-    'routine': [
-        {
-            'name': 'cloudsc_driver',
-            'role': 'driver',
-            'expand': True,
-        }
-    ],
-    'dimension': [
-        {
-            'name': 'horizontal',
-            'size': 'KLON',
-            'index': 'JL',
-            'bounds': ('KIDIA', 'KFDIA'),
-            'aliases': ['NPROMA', 'KDIM%KLON'],
-        },
-        {
-            'name': 'vertical',
-            'size': 'KLEV',
-            'index': 'JK',
-        },
-        {
-            'name': 'block_dim',
-            'size': 'NGPBLKS',
-            'index': 'IBL',
-        }
-    ]
-}
-
-
 class IdemTransformation(Transformation):
     """
     A custom transformation pipeline that primarily does nothing,
@@ -164,10 +116,10 @@ def convert(
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
-    if config is None:
-        config = SchedulerConfig.from_dict(cloudsc_config)
-    else:
-        config = SchedulerConfig.from_file(config)
+
+    info(f'[Loki] Batch-processing source files using config: {config} ')
+
+    config = SchedulerConfig.from_file(config)
 
     directive = None if directive.lower() == 'none' else directive.lower()
 
