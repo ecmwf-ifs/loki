@@ -13,10 +13,12 @@ import pytest
 import numpy as np
 
 from conftest import available_frontends, jit_compile_lib, clean_test
-from loki import FindNodes, Scheduler, Builder
-from loki import ir, is_iterable
-from loki.transform import (HoistVariablesAnalysis, HoistVariablesTransformation,
-                            HoistTemporaryArraysAnalysis, HoistTemporaryArraysTransformationAllocatable)
+from loki import FindNodes, Scheduler, Builder, SchedulerConfig, OMNI
+from loki import ir, is_iterable, gettempdir, normalize_range_indexing
+from loki.transform import (
+    HoistVariablesAnalysis, HoistVariablesTransformation,
+    HoistTemporaryArraysAnalysis, HoistTemporaryArraysTransformationAllocatable
+)
 
 
 @pytest.fixture(scope='module', name='here')
@@ -323,3 +325,109 @@ def test_hoist_allocatable(here, frontend, config):
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
     compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="allocatable")
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_hoist_mixed_variable_declarations(frontend, config):
+
+    fcode_driver = """
+subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
+    use kernel_mod, only: kernel
+    implicit none
+    INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
+    INTEGER, INTENT(IN) :: NLON, NZ, NB
+    integer :: b
+    real(kind=jprb), intent(inout) :: field1(nlon, nb)
+    real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
+    do b=1,nb
+        call KERNEL(1, nlon, nlon, nz, 2, field1(:,b), field2(:,:,b))
+    end do
+end subroutine driver
+    """.strip()
+    fcode_kernel = """
+module kernel_mod
+    implicit none
+contains
+    subroutine kernel(start, end, klon, klev, nclv, field1, field2)
+        use iso_c_binding, only : c_size_t
+        implicit none
+        integer, parameter :: jprb = selected_real_kind(13,300)
+        integer, intent(in) :: nclv
+        integer, intent(in) :: start, end, klon, klev
+        real(kind=jprb), intent(inout) :: field1(klon)
+        real(kind=jprb), intent(inout) :: field2(klon,klev)
+        real(kind=jprb) :: tmp1(klon)
+        real(kind=jprb) :: tmp2(klon, klev), tmp3(nclv)
+        real(kind=jprb) :: tmp4(2), tmp5(klon, nclv, klev)
+        integer :: jk, jl, jm
+
+        do jk=1,klev
+            tmp1(jl) = 0.0_jprb
+            do jl=start,end
+                tmp2(jl, jk) = field2(jl, jk)
+                tmp1(jl) = field2(jl, jk)
+            end do
+            field1(jl) = tmp1(jl)
+        end do
+
+        do jm=1,nclv
+           tmp3(jm) = 0._jprb
+           do jl=start,end
+             tmp5(jl, jm, :) = field1(jl)
+           enddo
+        enddo
+    end subroutine kernel
+end module kernel_mod
+    """.strip()
+
+    basedir = gettempdir()/'test_hoist_mixed_variable_declarations'
+    basedir.mkdir(exist_ok=True)
+    (basedir/'driver.F90').write_text(fcode_driver)
+    (basedir/'kernel_mod.F90').write_text(fcode_kernel)
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True
+        },
+        'routine': [{
+            'name': 'driver',
+            'role': 'driver',
+        }]
+    }
+
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+
+    if frontend == OMNI:
+        for item in scheduler.items:
+            normalize_range_indexing(item.routine)
+
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('klev',)), reverse=True)
+    scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable())
+
+    driver_variables = (
+        'jprb', 'nlon', 'nz', 'nb', 'b',
+        'field1(nlon, nb)', 'field2(nlon, nz, nb)',
+        'kernel_tmp2(:,:)', 'kernel_tmp5(:,:,:)'
+    )
+    kernel_arguments = (
+       'start', 'end', 'klon', 'klev', 'nclv',
+        'field1(klon)', 'field2(klon,klev)', 'tmp2(klon,klev)', 'tmp5(klon,nclv,klev)'
+    )
+
+    # Check hoisting and declaration in driver
+    assert scheduler['#driver'].routine.variables == driver_variables
+    assert scheduler['kernel_mod#kernel'].routine.arguments == kernel_arguments
+
+    # Check updated call signature
+    calls = FindNodes(ir.CallStatement).visit(scheduler['#driver'].routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == (
+        '1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)',
+        'kernel_tmp2', 'kernel_tmp5'
+    )
+
+    # Check that fgen works
+    assert scheduler['kernel_mod#kernel'].source.to_fortran()
