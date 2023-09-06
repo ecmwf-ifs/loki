@@ -114,9 +114,17 @@ def cli(debug):
 
 
 @cli.command()
-@click.option('--out-path', '-out', type=click.Path(),
-              help='Path for generated souce files.')
-@click.option('--path', '-p', type=click.Path(),
+@click.option('--mode', '-m', default='idem',
+              type=click.Choice(
+                  ['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
+              ),
+              help='Transformation mode, selecting which code transformations to apply.')
+@click.option('--config', default=None, type=click.Path(),
+              help='Path to custom scheduler configuration file')
+@click.option('--build', '-b', '--out-path', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+@click.option('--source', '-s', '--path', type=click.Path(), multiple=True,
               help='Path to search during source exploration.')
 @click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
@@ -136,23 +144,17 @@ def cli(debug):
               help='Run transformation to insert custom data offload regions.')
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
-@click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                                 'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']),
-              help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-@click.option('--config', default=None, type=click.Path(),
-              help='Path to custom scheduler configuration file')
 @click.option('--trim-vector-sections', is_flag=True, default=False,
               help='Trim vector loops in SCC transform to exclude scalar assignments.')
 @click.option('--global-var-offload', is_flag=True, default=False,
               help="Generate offload instructions for global vars imported via 'USE' statements.")
-@click.option('--remove-derived-args/--no-remove-derived-args', default=True,
+@click.option('--remove-derived-args/--no-remove-derived-args', default=False,
               help="Remove derived-type arguments and replace with canonical arguments")
 def convert(
-        out_path, path, header, cpp, directive, include, define, omni_include, xmod,
-        data_offload, remove_openmp, mode, frontend, config, trim_vector_sections,
+        mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
+        data_offload, remove_openmp, frontend, trim_vector_sections,
         global_var_offload, remove_derived_args
 ):
     """
@@ -190,10 +192,11 @@ def convert(
         definitions = definitions + list(sfile.modules)
 
     # Create a scheduler to bulk-apply source transformations
-    paths = [Path(p).resolve() for p in as_tuple(path)]
+    paths = [Path(p).resolve() for p in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
-    scheduler = Scheduler(paths=paths, config=config, frontend=frontend,
-                          definitions=definitions, **build_args)
+    scheduler = Scheduler(
+        paths=paths, config=config, frontend=frontend, definitions=definitions, **build_args
+    )
 
     # First, remove all derived-type arguments; caller first!
     if remove_derived_args:
@@ -303,8 +306,10 @@ def convert(
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode),
-                      use_file_graph=True)
+    scheduler.process(
+        transformation=FileWriteTransformation(builddir=build, mode=mode, cuf='cuf' in mode),
+        use_file_graph=True
+    )
 
 
 @cli.command()

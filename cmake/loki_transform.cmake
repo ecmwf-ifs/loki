@@ -740,7 +740,7 @@ function( loki_transform_target )
     endif()
 
     if( NOT _PAR_COMMAND )
-        set( _PAR_COMMAND "ecphys" )
+        set( _PAR_COMMAND "convert" )
     endif()
 
     if( NOT _PAR_PLAN )
