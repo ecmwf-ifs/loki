@@ -110,11 +110,14 @@ def convert(
         global_var_offload, remove_derived_args
 ):
     """
-    Single Column Abstraction (SCA): Convert kernel into single-column
-    format and adjust driver to apply it over in a horizontal loop.
+    Batch-processing mode for Fortran-to-Fortran transformations that
+    employs a :class:`Scheduler` to process large numbers of source
+    files.
 
-    Optionally, this can also insert CLAW directives that may be use
-    for further downstream transformations.
+    Based on the given "mode" string, configuration file, source file
+    paths and build arguments the :any:`Scheduler` will perform
+    automatic call-tree exploration and apply a set of
+    :any:`Transformation` objects to this call tree.
     """
 
     info(f'[Loki] Batch-processing source files using config: {config} ')
