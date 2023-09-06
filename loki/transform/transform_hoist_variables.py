@@ -152,7 +152,7 @@ class HoistVariablesAnalysis(Transformation):
 
         calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name
                  not in self.disable]
-        call_map = {str(call.name): call for call in calls}
+        call_map = CaseInsensitiveDict((str(call.name), call) for call in calls)
 
         for child in successors:
             arg_map = dict(call_map[child.routine.name].arg_iter())
