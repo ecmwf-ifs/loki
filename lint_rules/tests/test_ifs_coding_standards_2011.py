@@ -724,12 +724,20 @@ end subroutine test_routine
     keywords = ('Fortran90OperatorsRule', '[4.15]', 'Use Fortran 90 comparison operator')
     assert all(all(keyword in msg for keyword in keywords) for msg in messages)
 
-    f77_f90_line = (('.ne.', '/=', '7'), ('.eq.', '==', '7'),
-                    ('.lt.', '<', '6'), ('.gt.', '>', '6'),
-                    ('.le.', '<=', '5'), ('.ge.', '>=', '5'),
-                    ('.gt.', '>', '26'), ('.gt.', '>', '32'),
-                    ('.eq.', '==', '29'), ('.gt.', '>', '25'),
-                    ('.le.', '<=', '23'))
+    # Check that violations are reported in the right order
+    f77_f90_line = (
+        ('.le.', '<=', '5'),
+        ('.ge.', '>=', '5'),
+        ('.lt.', '<', '6'),
+        ('.gt.', '>', '6'),
+        ('.ne.', '/=', '7'),
+        ('.eq.', '==', '7'),
+        ('.le.', '<=', '23'),
+        ('.gt.', '>', '25'),
+        ('.gt.', '>', '26'),
+        ('.eq.', '==', '29'),
+        ('.gt.', '>', '32'),
+    )
 
     for keywords, message in zip(f77_f90_line, messages):
         assert all(str(keyword) in message for keyword in keywords)

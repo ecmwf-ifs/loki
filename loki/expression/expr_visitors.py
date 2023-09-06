@@ -22,8 +22,7 @@ from loki.expression.symbols import (
 
 __all__ = [
     'FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls',
-    'FindLiterals', 'FindExpressionRoot', 'SubstituteExpressions',
-    'ExpressionFinder', 'AttachScopes'
+    'FindLiterals', 'SubstituteExpressions', 'ExpressionFinder', 'AttachScopes'
 ]
 
 
@@ -204,24 +203,6 @@ class FindLiterals(ExpressionFinder):
         literal_types = (FloatLiteral, IntLiteral, LogicLiteral, StringLiteral, IntrinsicLiteral)
         self._retriever = ExpressionRetriever(lambda e: isinstance(e, literal_types))
         super().__init__(retrieve=self._retriever.retrieve, **kwargs)
-
-
-class FindExpressionRoot(ExpressionFinder):
-    """
-    A visitor to obtain the root node of the expression tree in which a given
-    :class:`pymbolic.primitives.Expression` is located.
-
-    Parameters
-    ----------
-    expr : :any:`pymbolic.primitives.Expression`
-        The expression for which to find the root node
-    """
-    def __init__(self, expr, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: e is expr)
-        if kwargs.get('unique'):
-            raise ValueError('FindExpressionRoot requires unique=False')
-        kwargs['unique'] = False
-        super().__init__(retrieve=lambda e: e if self._retriever.retrieve(e) else (), **kwargs)
 
 
 class SubstituteExpressions(Transformer):

@@ -187,7 +187,6 @@ visitors exist that apply :any:`ExpressionRetriever` to all expression trees.
    loki.expression.expr_visitors.FindVariables
    loki.expression.expr_visitors.FindInlineCalls
    loki.expression.expr_visitors.FindLiterals
-   loki.expression.expr_visitors.FindExpressionRoot
 
 For example, the following finds all function calls embedded in expressions
 (:any:`InlineCall`, as opposed to subroutine calls in :any:`CallStatement`):
