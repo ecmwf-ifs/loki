@@ -286,7 +286,7 @@ class TypedSymbol:
             if _type.dtype.typedef is BasicType.DEFERRED:
                 return ()
             return tuple(
-                v.clone(name=f'{self.name}%{v.name}', scope=self.scope, parent=self)
+                v.clone(name=f'{self.name}%{v.name}', scope=self.scope, type=v.type, parent=self)
                 for v in _type.dtype.typedef.variables
             )
         return None
@@ -328,8 +328,12 @@ class TypedSymbol:
             kwargs['name'] = self.name
         if 'scope' not in kwargs and self.scope:
             kwargs['scope'] = self.scope
-        if 'type' not in kwargs and self.type:
-            kwargs['type'] = self.type
+        if 'type' not in kwargs:
+            # If no type is given, check new scope
+            if 'scope' in kwargs and kwargs['scope'] and kwargs['name'] in kwargs['scope'].symbol_attrs:
+                kwargs['type'] = kwargs['scope'].symbol_attrs[kwargs['name']]
+            else:
+                kwargs['type'] = self.type
         if 'parent' not in kwargs and self.parent:
             kwargs['parent'] = self.parent
 
@@ -815,16 +819,10 @@ class Variable:
         scope = kwargs.get('scope')
         _type = kwargs.get('type')
 
-        if scope is not None and (_type is None or _type.dtype is BasicType.DEFERRED):
-            # Try to determine stored type information if we have no or only deferred type
-            stored_type = cls._get_type_from_scope(name, scope, kwargs.get('parent'))
-            if _type is None:
-                _type = stored_type
-            elif stored_type is not None:
-                if stored_type.dtype is not BasicType.DEFERRED or not _type.attributes:
-                    # If provided and stored are deferred but attributes given, we use provided
-                    _type = stored_type
-            kwargs['type'] = _type
+        if scope is not None and _type is None:
+            # Determine type information from scope if not provided explicitly
+            _type = cls._get_type_from_scope(name, scope, kwargs.get('parent'))
+        kwargs['type'] = _type
 
         if _type and isinstance(_type.dtype, ProcedureType):
             # This is the name in a function/subroutine call
