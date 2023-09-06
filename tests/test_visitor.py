@@ -273,12 +273,16 @@ end subroutine routine_simple
             return expr
         return None
 
-    retriever = ExpressionCallbackMapper(callback=is_matrix,
-                                         combine=lambda v: tuple(e for e in v if e is not None))
-    matrix_count = ExpressionFinder(retrieve=retriever, unique=False).visit(routine.body)
+    class FindMatrix(ExpressionFinder):
+        retriever = ExpressionCallbackMapper(
+            callback=is_matrix,
+            combine=lambda v: tuple(e for e in v if e is not None)
+        )
+
+    matrix_count = FindMatrix(unique=False).visit(routine.body)
     assert len(matrix_count) == 2
 
-    matrix_count = ExpressionFinder(retrieve=retriever).visit(routine.body)
+    matrix_count = FindMatrix().visit(routine.body)
     assert len(matrix_count) == 1
     assert str(matrix_count.pop()) == 'matrix(i, j)'
 
@@ -314,11 +318,12 @@ end subroutine routine_simple
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Find all literals except when they appear in array subscripts or loop ranges
-    retriever = ExpressionRetriever(
-        query=lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral)),
-        recurse_query=lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
-    )
-    literals = ExpressionFinder(unique=False, retrieve=retriever.retrieve).visit(routine.body)
+    class FindLiteralsNotInSubscriptsOrRanges(ExpressionFinder):
+        retriever = ExpressionRetriever(
+            query=lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral)),
+            recurse_query=lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
+        )
+    literals = FindLiteralsNotInSubscriptsOrRanges(unique=False).visit(routine.body)
 
     if frontend == OMNI:
         # OMNI substitutes jprb

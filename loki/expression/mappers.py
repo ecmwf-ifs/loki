@@ -419,6 +419,9 @@ class ExpressionCallbackMapper(CombineMapper):
         self.callback = callback
         self.combine = combine
 
+    def retrieve(self, expr, *args, **kwargs):
+        return self(expr, *args, **kwargs)
+
     def map_constant(self, expr, *args, **kwargs):
         return self.callback(expr, *args, **kwargs)
 

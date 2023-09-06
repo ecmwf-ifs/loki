@@ -35,11 +35,15 @@ class ExpressionFinder(Visitor):
     to find some of the most common sub-expression types, eg. symbols, functions
     and variables.
 
+    Attributes
+    ----------
+    retriever : :class:`pymbolic.mapper.Mapper`
+        An implementation of an expression mapper, e.g., :any:`ExpressionRetriever`,
+        that is used to search expression trees. Note that it needs to provide a
+        ``retrieve`` method to initiate the traversal and retrieve the list of expressions.
+
     Parameters
     ----------
-    retrieve :
-        Custom retrieval function that yields all wanted sub-expressions
-        from an expression.
     unique : bool, optional
         If `True` the visitor will return a `set` of unique sub-expression
         instead of a list of possibly repeated instances.
@@ -50,22 +54,12 @@ class ExpressionFinder(Visitor):
     """
     # pylint: disable=unused-argument
 
-    @staticmethod
-    def default_retrieval_function(x):
-        """Default retrieval function that returns nothing"""
-        return ()
+    retriever = ExpressionRetriever(lambda _: False)
 
-    retrieval_function = default_retrieval_function
-
-    def __init__(self, unique=True, retrieve=None, with_ir_node=False):
+    def __init__(self, unique=True, with_ir_node=False):
         super().__init__()
         self.unique = unique
         self.with_ir_node = with_ir_node
-
-        # Use custom retrieval function or the class default
-        # TODO: This is pretty hacky, isn't it..?
-        if retrieve is not None:
-            type(self).retrieval_function = staticmethod(retrieve)
 
     def find_uniques(self, variables):
         """
@@ -90,11 +84,12 @@ class ExpressionFinder(Visitor):
             return set(var_dict.values())
         return variables
 
-    def retrieve(self, expr):
+    @classmethod
+    def retrieve(cls, expr):
         """
         Internal retrieval function used on expressions.
         """
-        return self.retrieval_function(expr)
+        return cls.retriever.retrieve(expr)
 
     def _return(self, node, expressions):
         """
@@ -142,6 +137,7 @@ class ExpressionFinder(Visitor):
         """
         return self._return(o, ())
 
+
 class FindExpressions(ExpressionFinder):
     """
     A visitor to collect all expression tree nodes
@@ -149,10 +145,7 @@ class FindExpressions(ExpressionFinder):
 
     See :any:`ExpressionFinder`
     """
-
-    def __init__(self, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, Expression))
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, Expression))
 
 
 class FindTypedSymbols(ExpressionFinder):
@@ -161,9 +154,7 @@ class FindTypedSymbols(ExpressionFinder):
 
     See :any:`ExpressionFinder`
     """
-    def __init__(self, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, TypedSymbol))
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, TypedSymbol))
 
 
 class FindVariables(ExpressionFinder):
@@ -175,9 +166,7 @@ class FindVariables(ExpressionFinder):
 
     See :class:`ExpressionFinder` for further details
     """
-    def __init__(self, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol)))
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol)))
 
 
 class FindInlineCalls(ExpressionFinder):
@@ -186,9 +175,7 @@ class FindInlineCalls(ExpressionFinder):
 
     See :class:`ExpressionFinder`
     """
-    def __init__(self, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall))
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall))
 
 
 class FindLiterals(ExpressionFinder):
@@ -199,10 +186,9 @@ class FindLiterals(ExpressionFinder):
 
     See :class:`ExpressionFinder`
     """
-    def __init__(self, **kwargs):
-        literal_types = (FloatLiteral, IntLiteral, LogicLiteral, StringLiteral, IntrinsicLiteral)
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, literal_types))
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (
+        FloatLiteral, IntLiteral, LogicLiteral, StringLiteral, IntrinsicLiteral
+    )))
 
 
 class SubstituteExpressions(Transformer):
