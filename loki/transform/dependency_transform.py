@@ -79,6 +79,29 @@ class DependencyTransformation(Transformation):
         """
         role = kwargs.get('role')
 
+        # If applied recursively over all routines in a sourcefile, we may
+        # visit subroutines that are not part of the scheduler graph, such as
+        # contained member functions (for now). While it would be safe to rename
+        # these as well, we do not currently list them in the `targets` list and
+        # therefore avoid processing the routine to retain legacy behaviour
+        if 'items' in kwargs:
+            item_names = [item_.local_name for item_ in kwargs['items']]
+            if routine.name.lower() not in item_names:
+                return
+
+            kwargs['item'] = kwargs['items'][item_names.index(routine.name.lower())]
+
+        # If called without explicit role or target, extract from Item
+        # We need to do this here to cache the value for targets, because
+        # rename_calls will change this property
+        if (item := kwargs.get('item')):
+            if not role:
+                kwargs['role'] = item.role
+                role = item.role
+            if not kwargs.get('targets'):
+                kwargs['targets'] = item.targets
+
+
         if role == 'kernel':
             if routine.name.endswith(self.suffix):
                 # This is to ensure that the transformation is idempotent if
@@ -125,6 +148,8 @@ class DependencyTransformation(Transformation):
         Rename kernel modules and re-point module-level imports.
         """
         role = kwargs.get('role')
+        if not role and 'item' in kwargs:
+            role = kwargs['item'].role
 
         if role == 'kernel':
             # Change the name of kernel modules
@@ -139,6 +164,8 @@ class DependencyTransformation(Transformation):
         In 'module' mode perform module-wrapping for dependnecy injection.
         """
         role = kwargs.get('role')
+        if not role and 'item' in kwargs:
+            role = kwargs['item'].role
         if role == 'kernel' and self.mode == 'module':
             self.module_wrap(sourcefile, **kwargs)
 
@@ -149,7 +176,7 @@ class DependencyTransformation(Transformation):
         :param targets: Optional list of subroutine names for which to
                         modify the corresponding calls.
         """
-        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(kwargs.get('targets'))
         targets = as_tuple(str(t).upper() for t in targets)
         members = [r.name for r in routine.subroutines]
 
@@ -174,7 +201,9 @@ class DependencyTransformation(Transformation):
         :param targets: Optional list of subroutine names for which to
                         modify the corresponding calls.
         """
-        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(kwargs.get('targets'))
+        if not targets and 'item' in kwargs:
+            targets = as_tuple(kwargs['item'].targets)
         targets = as_tuple(str(t).upper() for t in targets)
 
         # We don't want to rename module variable imports, so we build
@@ -239,10 +268,12 @@ class DependencyTransformation(Transformation):
         Update explicit interfaces to actively transformed subroutines.
         """
 
-        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(kwargs.get('targets'))
+        if not targets and 'item' in kwargs:
+            targets = as_tuple(kwargs['item'].targets)
         targets = as_tuple(str(t).lower() for t in targets)
 
-        if self.replace_ignore_items and (item := kwargs.get('item', None)):
+        if self.replace_ignore_items and (item := kwargs.get('item')):
             targets += as_tuple(str(i).lower() for i in item.ignore)
 
         # Transformer map to remove any outdated interfaces
@@ -301,6 +332,8 @@ class DependencyTransformation(Transformation):
         Wrap target subroutines in modules and replace in source file.
         """
         targets = as_tuple(kwargs.get('targets', None))
+        if not targets and 'item' in kwargs:
+            targets = as_tuple(kwargs['item'].targets)
         targets = as_tuple(str(t).upper() for t in targets)
         item = kwargs.get('item', None)
 
