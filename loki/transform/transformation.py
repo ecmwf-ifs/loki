@@ -37,6 +37,11 @@ class Transformation:
     traversed before standalone :any:`Subroutine` objects.
     """
 
+    # Below is a set of flags that consfigure the corresponding Scheduler behaviour
+
+    # Forces scheduler traversal in reverse order from the leaf nodes upwards
+    reverse_traversal = False
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Defines the transformation to apply to :any:`Subroutine` items.

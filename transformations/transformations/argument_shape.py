@@ -111,6 +111,10 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
     in reverse order via ``Scheduler.process(..., reverse=True)``.
     """
 
+    # We need to traverse call tree in reverse to ensure called
+    # procedures are updated before callers.
+    reverse_traversal = True
+
     def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
 
         # First, replace assumed array shapes with concrete shapes for

@@ -287,6 +287,9 @@ class GlobalVarOffloadTransformation(Transformation):
 
     _key = 'GlobalVarOffloadTransformation'
 
+    # Traverse call tree in reverse when using Scheduler
+    reverse_traversal = True
+
     def __init__(self, key=None):
         if key:
             self._key = key
