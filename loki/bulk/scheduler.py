@@ -636,6 +636,10 @@ class Scheduler:
             if use_file_graph:
                 for node in traversal:
                     items = graph.nodes[node]['items']
+
+                    if item_filter and any(not isinstance(item, item_filter) for item in items):
+                        continue
+
                     transformation.apply(
                         items[0].source, item=items[0], items=items,
                         recurse_to_contained_nodes=recurse_to_contained_nodes
