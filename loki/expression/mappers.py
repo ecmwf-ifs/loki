@@ -216,23 +216,13 @@ class LokiWalkMapper(WalkMapper):
     """
     A mapper that traverses the expression tree and calls :meth:`visit`
     for each visited node.
-
-    Parameters
-    ----------
-    recurse_to_parent : bool, optional
-        For symbols that belong to a derived type, recurse also to the
-        ``parent`` of that symbol (default: `True`)
     """
     # pylint: disable=abstract-method
-
-    def __init__(self, recurse_to_parent=True):
-        super().__init__()
-        self.recurse_to_parent = recurse_to_parent
 
     def map_variable_symbol(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
-        if self.recurse_to_parent and expr.parent:
+        if expr.parent:
             self.rec(expr.parent, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
@@ -428,6 +418,9 @@ class ExpressionCallbackMapper(CombineMapper):
         super().__init__()
         self.callback = callback
         self.combine = combine
+
+    def retrieve(self, expr, *args, **kwargs):
+        return self(expr, *args, **kwargs)
 
     def map_constant(self, expr, *args, **kwargs):
         return self.callback(expr, *args, **kwargs)

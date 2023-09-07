@@ -244,7 +244,6 @@ END ASSOCIATE
 END SUBROUTINE
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert len(FindVariables(recurse_to_parent=False).visit(routine.body)) == 3
     variables = {v.name: v for v in FindVariables().visit(routine.body)}
     assert len(variables) == 4
     some_var = variables['SOME_VAR']

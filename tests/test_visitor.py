@@ -12,8 +12,8 @@ from conftest import available_frontends
 from loki import (
     OMNI,
     Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
-    Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
-    FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
+    Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral,
+    FindNodes, FindVariables, ExpressionFinder,
     ExpressionCallbackMapper, ExpressionRetriever, Stringifier, Transformer,
     NestedTransformer, MaskedTransformer, NestedMaskedTransformer, SubstituteExpressions,
     is_parent_of, is_child_of, fgen, FindScopes, Intrinsic
@@ -273,12 +273,16 @@ end subroutine routine_simple
             return expr
         return None
 
-    retriever = ExpressionCallbackMapper(callback=is_matrix,
-                                         combine=lambda v: tuple(e for e in v if e is not None))
-    matrix_count = ExpressionFinder(retrieve=retriever, unique=False).visit(routine.body)
+    class FindMatrix(ExpressionFinder):
+        retriever = ExpressionCallbackMapper(
+            callback=is_matrix,
+            combine=lambda v: tuple(e for e in v if e is not None)
+        )
+
+    matrix_count = FindMatrix(unique=False).visit(routine.body)
     assert len(matrix_count) == 2
 
-    matrix_count = ExpressionFinder(retrieve=retriever).visit(routine.body)
+    matrix_count = FindMatrix().visit(routine.body)
     assert len(matrix_count) == 1
     assert str(matrix_count.pop()) == 'matrix(i, j)'
 
@@ -314,11 +318,12 @@ end subroutine routine_simple
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Find all literals except when they appear in array subscripts or loop ranges
-    retriever = ExpressionRetriever(
-        query=lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral)),
-        recurse_query=lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
-    )
-    literals = ExpressionFinder(unique=False, retrieve=retriever.retrieve).visit(routine.body)
+    class FindLiteralsNotInSubscriptsOrRanges(ExpressionFinder):
+        retriever = ExpressionRetriever(
+            query=lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral)),
+            recurse_query=lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
+        )
+    literals = FindLiteralsNotInSubscriptsOrRanges(unique=False).visit(routine.body)
 
     if frontend == OMNI:
         # OMNI substitutes jprb
@@ -327,87 +332,6 @@ end subroutine routine_simple
     else:
         assert len(literals) == 2
         assert sorted([str(l) for l in literals]) == ['1.', '2']
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_find_expression_root(frontend):
-    """
-    Test basic functionality of FindExpressionRoot.
-    """
-    fcode = """
-subroutine routine_simple (x, y, scalar, vector, matrix)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: x, y
-  real(kind=jprb), intent(in) :: scalar
-  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
-  integer :: i, j
-
-  do i=1, x
-    vector(i) = vector(i) + scalar
-    do j=1, y
-      if (j > i) then
-        matrix(i, j) = real(i * j, kind=jprb) + 1.
-      else
-        matrix(i, j) = i * vector(j)
-      end if
-    end do
-  end do
-end subroutine routine_simple
-"""
-
-    # Test the internals of the subroutine
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-
-    exprs = FindExpressions().visit(routine.body)
-    assert len(exprs) == (33 if frontend == OMNI else 31)  # OMNI substitutes jprb in the Cast
-
-    # Test ability to find root if searching for root
-    comps = [e for e in exprs if isinstance(e, Comparison)]
-    assert len(comps) == 1
-    comp_root = FindExpressionRoot(comps[0]).visit(routine.body)
-    assert len(comp_root) == 1
-    assert comp_root[0] is comps[0]
-
-    # Test ability to find root if searching for intermediate expression
-    casts = [e for e in exprs if isinstance(e, Cast)]
-    assert len(casts) == 1
-    cast_root = FindExpressionRoot(casts[0]).visit(routine.body)
-    assert len(cast_root) == 1
-    cond = FindNodes(Conditional).visit(routine.body).pop()
-    assert cast_root[0] is cond.body[0].rhs
-
-    # Test ability to find root if searching for a leaf expression
-    retriever = ExpressionRetriever(lambda e: isinstance(e, FloatLiteral))
-    literals = ExpressionFinder(retrieve=retriever.retrieve, with_ir_node=True).visit(routine.body)
-    assert len(literals) == 1
-    assert isinstance(literals[0][0], Assignment) and literals[0][0].source.lines == (13, 13)
-
-    literal_root = FindExpressionRoot(literals[0][1].pop()).visit(literals[0][0])
-    assert literal_root[0] is cast_root[0]
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_find_expression_root_constructor_args(frontend):
-    """
-    Test correct handling for various constructor arguments
-    """
-    fcode = """
-subroutine my_routine
-    implicit none
-    integer :: i
-    i = 1 + 1
-end subroutine my_routine
-    """.strip()
-
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    exprs = FindExpressions().visit(routine.body)
-    some_expr = [expr for expr in exprs if isinstance(expr, IntLiteral)][0]
-
-    with pytest.raises(ValueError):
-        FindExpressionRoot(some_expr, unique=True).visit(routine.body)
-
-    expr_root = FindExpressionRoot(some_expr, unique=False).visit(routine.body)
-    assert expr_root == (routine.body.body[0].rhs,)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1266,7 +1190,7 @@ end module attach_scopes_associates_mod
     assert len(associates) == 2
     assignment = FindNodes(Assignment).visit(routine.body)
     assert len(assignment) == 1
-    assert len(FindVariables(recurse_to_parent=False).visit(assignment)) == 2
+    assert len(FindVariables().visit(assignment)) == 3
     var_map = {str(var): var for var in FindVariables().visit(assignment)}
     assert len(var_map) == 3
     assert associates[1].parent is associates[0]

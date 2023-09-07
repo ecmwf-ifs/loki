@@ -276,18 +276,21 @@ class DerivedTypeArgumentsTransformation(Transformation):
                     candidates += [arg]
 
         # Inspect all derived type member use and determine their expansion
+        vars_to_expand = [var for var in FindVariables(unique=False).visit(routine.ir) if var.parent]
+        nested_parents = [var.parent for var in vars_to_expand if var.parent in vars_to_expand]
+        vars_to_expand = [var for var in vars_to_expand if var not in nested_parents]
+
         expansion_map = defaultdict(set)
         non_expansion_map = defaultdict(set)
         vmap = {}
-        for var in FindVariables(recurse_to_parent=False, unique=False).visit(routine.ir):
-            if var.parent:
-                declared_var, expansion, local_use = self.expand_derived_type_member(var)
-                if expansion and declared_var in candidates:
-                    # Mark this derived type member for expansion
-                    expansion_map[declared_var].add(expansion)
-                    vmap[var] = local_use
-                elif declared_var in candidates:
-                    non_expansion_map[declared_var].add(var)
+        for var in vars_to_expand:
+            declared_var, expansion, local_use = self.expand_derived_type_member(var)
+            if expansion and declared_var in candidates:
+                # Mark this derived type member for expansion
+                expansion_map[declared_var].add(expansion)
+                vmap[var] = local_use
+            elif declared_var in candidates:
+                non_expansion_map[declared_var].add(var)
 
         # Update the expansion map by re-adding the derived type argument when
         # there are non-expanded members left
@@ -493,13 +496,15 @@ class DerivedTypeArgumentsTransformation(Transformation):
             arguments, kwarguments = cls.expand_call_arguments(call, trafo_data)
             # And expand the derived type members in the new call signature next
             expansion_map = {}
-            for var in FindVariables(recurse_to_parent=False).visit((arguments, kwarguments)):
-                if var.parent:
-                    orig_arg = var.parents[0]
-                    expanded_var = cls._expand_kernel_variable(
-                        var, type=cls._get_expanded_kernel_var_type(orig_arg, var), scope=routine, dimensions=None
-                    )
-                    expansion_map[var] = expanded_var
+            vars_to_expand = {var for var in FindVariables().visit((arguments, kwarguments)) if var.parent}
+            nested_parents = {var.parent for var in vars_to_expand if var.parent in vars_to_expand}
+            vars_to_expand -= nested_parents
+            for var in vars_to_expand:
+                orig_arg = var.parents[0]
+                expanded_var = cls._expand_kernel_variable(
+                    var, type=cls._get_expanded_kernel_var_type(orig_arg, var), scope=routine, dimensions=None
+                )
+                expansion_map[var] = expanded_var
             expansion_mapper = SubstituteExpressionsMapper(recursive_expression_map_update(expansion_map))
             arguments = tuple(expansion_mapper(arg) for arg in arguments)
             kwarguments = tuple((k, expansion_mapper(v)) for k, v in kwarguments)
@@ -625,10 +630,7 @@ class TypeboundProcedureCallTransformer(Transformer):
         self.current_module = current_module
         self.new_procedure_imports = defaultdict(set)
         self.new_dependencies = set()
-        self._retriever = ExpressionRetriever(
-            lambda e: isinstance(e, InlineCall) and e.function.parent,
-            recurse_to_parent=False
-        )
+        self._retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall) and e.function.parent)
 
     def retrieve(self, o):
         return self._retriever.retrieve(o)

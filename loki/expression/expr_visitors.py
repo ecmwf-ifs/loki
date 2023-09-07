@@ -22,8 +22,7 @@ from loki.expression.symbols import (
 
 __all__ = [
     'FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls',
-    'FindLiterals', 'FindExpressionRoot', 'SubstituteExpressions',
-    'ExpressionFinder', 'AttachScopes'
+    'FindLiterals', 'SubstituteExpressions', 'ExpressionFinder', 'AttachScopes'
 ]
 
 
@@ -36,11 +35,15 @@ class ExpressionFinder(Visitor):
     to find some of the most common sub-expression types, eg. symbols, functions
     and variables.
 
+    Attributes
+    ----------
+    retriever : :class:`pymbolic.mapper.Mapper`
+        An implementation of an expression mapper, e.g., :any:`ExpressionRetriever`,
+        that is used to search expression trees. Note that it needs to provide a
+        ``retrieve`` method to initiate the traversal and retrieve the list of expressions.
+
     Parameters
     ----------
-    retrieve :
-        Custom retrieval function that yields all wanted sub-expressions
-        from an expression.
     unique : bool, optional
         If `True` the visitor will return a `set` of unique sub-expression
         instead of a list of possibly repeated instances.
@@ -51,22 +54,12 @@ class ExpressionFinder(Visitor):
     """
     # pylint: disable=unused-argument
 
-    @staticmethod
-    def default_retrieval_function(x):
-        """Default retrieval function that returns nothing"""
-        return ()
+    retriever = ExpressionRetriever(lambda _: False)
 
-    retrieval_function = default_retrieval_function
-
-    def __init__(self, unique=True, retrieve=None, with_ir_node=False):
+    def __init__(self, unique=True, with_ir_node=False):
         super().__init__()
         self.unique = unique
         self.with_ir_node = with_ir_node
-
-        # Use custom retrieval function or the class default
-        # TODO: This is pretty hacky, isn't it..?
-        if retrieve is not None:
-            type(self).retrieval_function = staticmethod(retrieve)
 
     def find_uniques(self, variables):
         """
@@ -91,11 +84,12 @@ class ExpressionFinder(Visitor):
             return set(var_dict.values())
         return variables
 
-    def retrieve(self, expr):
+    @classmethod
+    def retrieve(cls, expr):
         """
         Internal retrieval function used on expressions.
         """
-        return self.retrieval_function(expr)
+        return cls.retriever.retrieve(expr)
 
     def _return(self, node, expressions):
         """
@@ -143,24 +137,15 @@ class ExpressionFinder(Visitor):
         """
         return self._return(o, ())
 
+
 class FindExpressions(ExpressionFinder):
     """
     A visitor to collect all expression tree nodes
     (i.e., :class:`pymbolic.primitives.Expression`) in an IR tree.
 
     See :any:`ExpressionFinder`
-
-    Parameters
-    ----------
-    recurse_to_parent : bool, optional
-        For symbols that belong to a derived type, recurse also to the
-        ``parent`` of that symbol (default: `True`)
     """
-
-    def __init__(self, recurse_to_parent=True, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, Expression),
-                                              recurse_to_parent=recurse_to_parent)
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, Expression))
 
 
 class FindTypedSymbols(ExpressionFinder):
@@ -168,17 +153,8 @@ class FindTypedSymbols(ExpressionFinder):
     A visitor to collect all :any:`TypedSymbol` used in an IR tree.
 
     See :any:`ExpressionFinder`
-
-    Parameters
-    ----------
-    recurse_to_parent : bool, optional
-        For symbols that belong to a derived type, recurse also to the
-        ``parent`` of that symbol (default: `True`)
     """
-    def __init__(self, recurse_to_parent=True, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, TypedSymbol),
-                                              recurse_to_parent=recurse_to_parent)
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, TypedSymbol))
 
 
 class FindVariables(ExpressionFinder):
@@ -189,17 +165,8 @@ class FindVariables(ExpressionFinder):
     :any:`DeferredTypeSymbol`.
 
     See :class:`ExpressionFinder` for further details
-
-    Parameters
-    ----------
-    recurse_to_parent : bool, optional
-        For symbols that belong to a derived type, recurse also to the
-        ``parent`` of that symbol (default: `True`)
     """
-    def __init__(self, recurse_to_parent=True, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol)),
-                                              recurse_to_parent=recurse_to_parent)
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol)))
 
 
 class FindInlineCalls(ExpressionFinder):
@@ -207,17 +174,8 @@ class FindInlineCalls(ExpressionFinder):
     A visitor to collect all :any:`InlineCall` symbols used in an IR tree.
 
     See :class:`ExpressionFinder`
-
-    Parameters
-    ----------
-    recurse_to_parent : bool, optional
-        For symbols that belong to a derived type, recurse also to the
-        ``parent`` of that symbol (default: `True`)
     """
-    def __init__(self, recurse_to_parent=True, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall),
-                                              recurse_to_parent=recurse_to_parent)
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall))
 
 
 class FindLiterals(ExpressionFinder):
@@ -227,39 +185,10 @@ class FindLiterals(ExpressionFinder):
     and :any:`IntrinsicLiteral`) used in an IR tree.
 
     See :class:`ExpressionFinder`
-
-    Parameters
-    ----------
-    recurse_to_parent : bool, optional
-        For symbols that belong to a derived type, recurse also to the
-        ``parent`` of that symbol (default: `True`)
     """
-    def __init__(self, recurse_to_parent=True, **kwargs):
-        literal_types = (FloatLiteral, IntLiteral, LogicLiteral, StringLiteral, IntrinsicLiteral)
-        self._retriever = ExpressionRetriever(lambda e: isinstance(e, literal_types),
-                                              recurse_to_parent=recurse_to_parent)
-        super().__init__(retrieve=self._retriever.retrieve, **kwargs)
-
-
-class FindExpressionRoot(ExpressionFinder):
-    """
-    A visitor to obtain the root node of the expression tree in which a given
-    :class:`pymbolic.primitives.Expression` is located.
-
-    Parameters
-    ----------
-    expr : :any:`pymbolic.primitives.Expression`
-        The expression for which to find the root node
-    recurse_to_parent : bool, optional
-        For symbols that belong to a derived type, recurse also to the
-        ``parent`` of that symbol (default: `True`)
-    """
-    def __init__(self, expr, recurse_to_parent=True, **kwargs):
-        self._retriever = ExpressionRetriever(lambda e: e is expr, recurse_to_parent=recurse_to_parent)
-        if kwargs.get('unique'):
-            raise ValueError('FindExpressionRoot requires unique=False')
-        kwargs['unique'] = False
-        super().__init__(retrieve=lambda e: e if self._retriever.retrieve(e) else (), **kwargs)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (
+        FloatLiteral, IntLiteral, LogicLiteral, StringLiteral, IntrinsicLiteral
+    )))
 
 
 class SubstituteExpressions(Transformer):
