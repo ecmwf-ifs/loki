@@ -80,16 +80,15 @@ class DependencyTransformation(Transformation):
         role = kwargs.get('role')
 
         # If applied recursively over all routines in a sourcefile, we may
-        # visit subroutines that are not part of the scheduler graph, such as
-        # contained member functions (for now). While it would be safe to rename
-        # these as well, we do not currently list them in the `targets` list and
-        # therefore avoid processing the routine to retain legacy behaviour
+        # visit contained member subroutines. Since these are not outward facing
+        # it is not necessary to update their name.
+        is_member = isinstance(routine.parent, Subroutine)
+
+        # Pick out correct item for current subroutine if processed via recursion
         if 'items' in kwargs:
             item_names = [item_.local_name for item_ in kwargs['items']]
-            if routine.name.lower() not in item_names:
-                return
-
-            kwargs['item'] = kwargs['items'][item_names.index(routine.name.lower())]
+            if routine.name.lower() in item_names:
+                kwargs['item'] = kwargs['items'][item_names.index(routine.name.lower())]
 
         # If called without explicit role or target, extract from Item
         # We need to do this here to cache the value for targets, because
@@ -101,17 +100,14 @@ class DependencyTransformation(Transformation):
             if not kwargs.get('targets'):
                 kwargs['targets'] = item.targets
 
-
-        if role == 'kernel':
+        if role == 'kernel' and not is_member:
             if routine.name.endswith(self.suffix):
                 # This is to ensure that the transformation is idempotent if
                 # applied more than once to a routine
                 return
-
             # Change the name of kernel routines
-            if routine.is_function:
-                if not routine.result_name:
-                    self.update_result_var(routine)
+            if routine.is_function and not routine.result_name:
+                self.update_result_var(routine)
             routine.name += self.suffix
 
         self.rename_calls(routine, **kwargs)
@@ -124,7 +120,7 @@ class DependencyTransformation(Transformation):
         intfs = FindNodes(Interface).visit(routine.spec)
         self.rename_interfaces(routine, intfs=intfs, **kwargs)
 
-        if role == 'kernel' and self.mode == 'strict':
+        if role == 'kernel' and self.mode == 'strict' and not is_member:
             # Re-generate C-style interface header
             self.generate_interfaces(routine)
 
@@ -178,7 +174,7 @@ class DependencyTransformation(Transformation):
         """
         targets = as_tuple(kwargs.get('targets'))
         targets = as_tuple(str(t).upper() for t in targets)
-        members = [r.name for r in routine.subroutines]
+        members = [r.name.upper() for r in routine.subroutines]
 
         if self.replace_ignore_items:
             item = kwargs.get('item', None)
@@ -191,6 +187,8 @@ class DependencyTransformation(Transformation):
                 call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
 
         for call in FindInlineCalls(unique=False).visit(routine.body):
+            if call.name.upper() in members:
+                continue
             if targets is None or call.name.upper() in targets:
                 call.function = call.function.clone(name=f'{call.name}{self.suffix}')
 
