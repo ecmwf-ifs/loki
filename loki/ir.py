@@ -165,7 +165,7 @@ class Node:
         # pylint: disable=import-outside-toplevel,cyclic-import
         if visualization:
             from loki.visitors.pretty_visualize import pretty_visualize
-            pretty_visualize(self, **kwargs_visualization)
+            return pretty_visualize(self, **kwargs_visualization)
         else:
             from loki.visitors import pprint
             pprint(self)

@@ -8,12 +8,14 @@
 """
 Pretty-Graph-Visualizer classes for IR
 """
+from itertools import chain
 from codetiming import Timer
 from graphviz import Digraph
 from loki.tools import JoinableStringList, is_iterable, as_tuple
 from loki.visitors.visitor import Visitor
 
 __all__ = ["Visualizer", "pretty_visualize"]
+
 
 class Visualizer(Visitor):
     """
@@ -40,10 +42,10 @@ class Visualizer(Visitor):
         symgen=str,
     ):
         super().__init__()
-        self.graph = Digraph()
-        self.graph.attr(rankdir="LR")
         self.linewidth = linewidth
         self._symgen = symgen
+        self._id = 0
+        self._id_map = {}
 
     @property
     def symgen(self):
@@ -89,16 +91,19 @@ class Visualizer(Visitor):
 
         Creates a string of the form ``<name[, attribute, attribute, ...]>``.
         """
+        content = ""
         if items:
-            return self.format_line("<", name, " ", self.join_items(items), ">")
-        return self.format_line("<", name, ">")
+            content = self.format_line("<", name, " ", self.join_items(items), ">")
+        else:
+            content = self.format_line("<", name, ">")
+        return content.replace('"', '')
 
     def format_line(self, *items, comment=None, no_wrap=False):
         """
         Format a line by concatenating all items and applying indentation while observing
         the allowed line width limit.
 
-        Note that the provided comment will simply be appended to the line and no line
+        Note that the provided comment will simply be extended to the line and no line
         width limit will be enforced for that.
 
         :param list items: the items to be put on that line.
@@ -111,7 +116,7 @@ class Visualizer(Visitor):
         """
 
         if no_wrap:
-            # Simply concatenate items and append the comment
+            # Simply concatenate items and extend the comment
             line = "".join(str(item) for item in items)
         else:
             # Use join_items to concatenate items
@@ -128,8 +133,18 @@ class Visualizer(Visitor):
         :meth:`visit` is called on all of its elements instead.
         """
         if is_iterable(item) and not args:
-            return as_tuple(self.visit(i, **kwargs) for i in item if i is not None)
-        return as_tuple(self.visit(i, **kwargs) for i in [item, *args] if i is not None)
+            return list(
+                chain.from_iterable(
+                    as_tuple(self.visit(i, **kwargs) for i in item if i is not None)
+                )
+            )
+        return list(
+            chain.from_iterable(
+                as_tuple(
+                    self.visit(i, **kwargs) for i in [item, *args] if i is not None
+                )
+            )
+        )
 
     def __add_node(self, node, **kwargs):
         """
@@ -144,42 +159,61 @@ class Visualizer(Visitor):
         kwargs["parent"]: :any: `Node` object, optional (default: None)
             If not available no edge is drawn.
         """
-        label = kwargs.get("label", None)
-        if label is None:
+        label = kwargs.get("label", "")
+        if label == "":
             label = self.format_node(repr(node))
 
         shape = kwargs.get("shape", "oval")
         label = (
             label + "‎"
         )  # dirty hack to force graphviz to utilize parenthesis around the label
-        self.graph.node(str(id(node)), label=label, shape=shape)
+
+        node_key = str(id(node))
+        if node_key not in self._id_map:
+            self._id_map[node_key] = str(self._id)
+            self._id += 1
+
+        node_info = {
+            "name": self._id_map[node_key],
+            "label": str(label),
+            "shape": str(shape),
+        }
 
         parent = kwargs.get("parent")
+        edge_info = {}
         if parent:
-            self.graph.edge(str(id(parent)), str(id(node)))
+            parent_id = self._id_map[str(id(parent))]
+            child_id = self._id_map[str(id(node))]
+            edge_info = {"tail_name": parent_id, "head_name": child_id}
+
+        return [(node_info, edge_info)]
 
     # Handler for outer objects
     def visit_Module(self, o, **kwargs):
         """
         Add a :any:`Module`, mark parent node and visit all "spec" and "subroutine" nodes.
         """
-        self.__add_node(o, **kwargs)
+        node_edge_info = self.__add_node(o, **kwargs)
         kwargs["parent"] = o
 
-        self.visit(o.spec, **kwargs)
-        self.visit(o.subroutines, **kwargs)
+        node_edge_info.extend(self.visit(o.spec, **kwargs))
+        node_edge_info.extend(self.visit(o.subroutines, **kwargs))
+
+        return node_edge_info
 
     def visit_Subroutine(self, o, **kwargs):
         """
         Add a :any:`Subroutine`, mark parent node and visit all "docstring", "spec", "body", "members" nodes.
         """
-        self.__add_node(o, **kwargs)
+        node_edge_info = self.__add_node(o, **kwargs)
         kwargs["parent"] = o
 
-        self.visit(o.docstring, **kwargs)
-        self.visit(o.spec, **kwargs)
-        self.visit(o.body, **kwargs)
-        self.visit(o.members, **kwargs)
+        node_edge_info.extend(self.visit(o.docstring, **kwargs))
+        node_edge_info.extend(self.visit(o.spec, **kwargs))
+        node_edge_info.extend(self.visit(o.body, **kwargs))
+        node_edge_info.extend(self.visit(o.members, **kwargs))
+
+        return node_edge_info
 
     # Handler for AST base nodes
     def visit_Comment(self, o, **kwargs):
@@ -187,7 +221,8 @@ class Visualizer(Visitor):
         Enables turning off comments.
         """
         if kwargs.get("show_comments"):
-            self.visit_Node(o, **kwargs)
+            return self.visit_Node(o, **kwargs)
+        return [None]
 
     visit_CommentBlock = visit_Comment
 
@@ -195,10 +230,11 @@ class Visualizer(Visitor):
         """
         Add a :any:`Node`, mark parent and visit all children.
         """
-        self.__add_node(o, **kwargs)
+        node_edge_info = self.__add_node(o, **kwargs)
         kwargs["parent"] = o
 
-        self.visit_all(o.children, **kwargs)
+        node_edge_info.extend(self.visit_all(o.children, **kwargs))
+        return node_edge_info
 
     def visit_Expression(self, o, **kwargs):
         """
@@ -208,13 +244,14 @@ class Visualizer(Visitor):
         if kwargs.get("show_expressions"):
             content = self.symgen(o)
             parent = kwargs.get("parent")
-            self.__add_node(o, label=content, parent=parent, shape="box")
+            return self.__add_node(o, label=content, parent=parent, shape="box")
+        return [None]
 
     def visit_tuple(self, o, **kwargs):
         """
         Recurse for each item in the tuple.
         """
-        return tuple(self.visit(c, **kwargs) for c in o)
+        return self.visit_all(o, **kwargs)
 
     visit_list = visit_tuple
 
@@ -224,12 +261,13 @@ class Visualizer(Visitor):
         """
         parent = kwargs.get("parent")
         label = self.symgen(o.condition)
-        self.__add_node(o, label=label, parent=parent, shape="diamond")
+        node_edge_info = self.__add_node(o, label=label, parent=parent, shape="diamond")
         kwargs["parent"] = o
-        self.visit_all(o.body, **kwargs)
+        node_edge_info.extend(self.visit_all(o.body, **kwargs))
 
         if o.else_body:
-            self.visit_all(o.else_body, **kwargs)
+            node_edge_info.extend(self.visit_all(o.else_body, **kwargs))
+        return node_edge_info
 
 
 def pretty_visualize(ir, **kwargs):
@@ -240,8 +278,10 @@ def pretty_visualize(ir, **kwargs):
     ----------
     ir : :any:`Node`
         The IR node starting from which to produce the tree
-    kwargs["filename"] : str, optional, default: "graph_representation"
-        The location, name and format of the output graph
+    kwargs["filename"] : str, optional
+        The location, name and format of the output graph, if none is given the graph
+        object is returned. In jupyter-notebooks this imideatly plots it, in terminal
+        it just shows a text representation.
     kwargs["show_comments"] : bool, optional, default: True
         Whether to show comments in the output
     kwargs["show_expressions"] : bool, optional, default: False
@@ -249,12 +289,24 @@ def pretty_visualize(ir, **kwargs):
     """
     filename = kwargs.get("filename")
     if filename is None:
-        filename = "graph_representation"
-        kwargs["filename"] = filename
+        log = "[Loki::Graph Visualization] Creating graph visualization in {:.2f}s"
+    else:
+        log = f"[Loki::Graph Visualization] Visualized to {filename}" + " in {:.2f}s"
 
-    log = f"[Loki::Graph Visualization] Visualized to {filename}" + " in {:.2f}s"
     with Timer(text=log):
         visualizer = Visualizer()
-        visualizer.visit(ir, **kwargs)
+        node_edge_info = [
+            item for item in visualizer.visit(ir, **kwargs) if item is not None
+        ]
 
-        visualizer.graph.render(**kwargs)
+        graph = Digraph()
+        graph.attr(rankdir="LR")
+        for node_info, edge_info in node_edge_info:
+            if node_info:
+                graph.node(**node_info)
+            if edge_info:
+                graph.edge(**edge_info)
+        if filename:
+            graph.render(**kwargs)
+        else:
+            return graph
