@@ -1,10 +1,11 @@
 from pathlib import Path
+from shutil import rmtree
 import pytest
 
 from conftest import available_frontends
 from loki import (
-    OMNI, OFP, Sourcefile, CallStatement, Import,
-    FindNodes, FindInlineCalls, Intrinsic
+    gettempdir, OMNI, OFP, Sourcefile, CallStatement, Import,
+    FindNodes, FindInlineCalls, Intrinsic, Scheduler, SchedulerConfig
 )
 from loki.transform import DependencyTransformation
 
@@ -13,15 +14,40 @@ from loki.transform import DependencyTransformation
 def fixture_here():
     return Path(__file__).parent
 
+@pytest.fixture(scope='function', name='tempdir')
+def fixture_tempdir(request):
+    basedir = gettempdir()/request.function.__name__
+    basedir.mkdir(exist_ok=True)
+    yield basedir
+    if basedir.exists():
+        rmtree(basedir)
+
+
+@pytest.fixture(scope='function', name='config')
+def fixture_config():
+    return {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True
+        },
+        'routine': [{
+            'name': 'driver',
+            'role': 'driver',
+        }]
+    }
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_dependency_transformation_globalvar_imports(frontend):
+@pytest.mark.parametrize('use_scheduler', [False, True])
+def test_dependency_transformation_globalvar_imports(frontend, use_scheduler, tempdir, config):
     """
     Test that global variable imports are not renamed as a
     call statement would be.
     """
 
-    kernel = Sourcefile.from_source(source="""
+    kernel_fcode = """
 MODULE kernel_mod
     INTEGER :: some_const
 CONTAINS
@@ -33,9 +59,9 @@ CONTAINS
     c = 3
   END SUBROUTINE kernel
 END MODULE kernel_mod
-""", frontend=frontend)
+    """.strip()
 
-    driver = Sourcefile.from_source(source="""
+    driver_fcode = """
 SUBROUTINE driver(a, b, c)
     USE kernel_mod, only: kernel
     USE kernel_mod, only: some_const
@@ -43,13 +69,27 @@ SUBROUTINE driver(a, b, c)
 
     CALL kernel(a, b ,c)
 END SUBROUTINE driver
-""", frontend=frontend)
+    """.strip()
 
     transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
-    # Because the renaming is intended to be applied to the routines as well as the enclosing module,
-    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
-    driver['driver'].apply(transformation, role='driver', targets=('kernel', 'some_const'))
+
+    if use_scheduler:
+        (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
+        (tempdir/'driver.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+
+        kernel = scheduler['kernel_mod#kernel'].source
+        driver = scheduler['#driver'].source
+
+    else:
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+
+        # Because the renaming is intended to be applied to the routines as well as the enclosing module,
+        # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+        kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+        driver['driver'].apply(transformation, role='driver', targets=('kernel', 'some_const'))
 
     # Check that the global variable declaration remains unchanged
     assert kernel.modules[0].variables[0].name == 'some_const'
@@ -71,13 +111,14 @@ END SUBROUTINE driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_dependency_transformation_globalvar_imports_driver_mod(frontend):
+@pytest.mark.parametrize('use_scheduler', [False, True])
+def test_dependency_transformation_globalvar_imports_driver_mod(frontend, use_scheduler, tempdir, config):
     """
     Test that global variable imports are not renamed as a
     call statement would be.
     """
 
-    kernel = Sourcefile.from_source(source="""
+    kernel_fcode = """
 MODULE kernel_mod
     INTEGER :: some_const
 CONTAINS
@@ -89,9 +130,9 @@ CONTAINS
     c = 3
   END SUBROUTINE kernel
 END MODULE kernel_mod
-""", frontend=frontend)
+    """.strip()
 
-    driver = Sourcefile.from_source(source="""
+    driver_fcode = """
 MODULE DRIVER_MOD
     USE kernel_mod, only: kernel
     USE kernel_mod, only: some_const
@@ -102,13 +143,27 @@ SUBROUTINE driver(a, b, c)
     CALL kernel(a, b ,c)
 END SUBROUTINE driver
 END MODULE DRIVER_MOD
-""", frontend=frontend)
+    """.strip()
 
     transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
-    # Because the renaming is intended to be applied to the routines as well as the enclosing module,
-    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
-    driver.apply(transformation, role='driver', targets=('kernel', 'some_const'), recurse_to_contained_nodes=True)
+
+    if use_scheduler:
+        (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
+        (tempdir/'driver_mod.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+
+        kernel = scheduler['kernel_mod#kernel'].source
+        driver = scheduler['driver_mod#driver'].source
+
+    else:
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+
+        # Because the renaming is intended to be applied to the routines as well as the enclosing module,
+        # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+        kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+        driver.apply(transformation, role='driver', targets=('kernel', 'some_const'), recurse_to_contained_nodes=True)
 
     # Check that the global variable declaration remains unchanged
     assert kernel.modules[0].variables[0].name == 'some_const'
@@ -187,13 +242,14 @@ END SUBROUTINE kernel
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
-def test_dependency_transformation_module_wrap(frontend):
+@pytest.mark.parametrize('use_scheduler', [False, True])
+def test_dependency_transformation_module_wrap(frontend, use_scheduler, tempdir, config):
     """
     Test injection of suffixed kernels into unchanged driver
     routines automatic module wrapping of the kernel.
     """
 
-    driver = Sourcefile.from_source(source="""
+    driver_fcode = """
 SUBROUTINE driver(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
@@ -201,9 +257,9 @@ SUBROUTINE driver(a, b, c)
 
   CALL kernel(a, b ,c)
 END SUBROUTINE driver
-""", frontend=frontend)
+    """.strip()
 
-    kernel = Sourcefile.from_source(source="""
+    kernel_fcode = """
 SUBROUTINE kernel(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
@@ -211,14 +267,28 @@ SUBROUTINE kernel(a, b, c)
   b = 2
   c = 3
 END SUBROUTINE kernel
-""", frontend=frontend)
+    """.strip()
 
     # Apply injection transformation via C-style includes by giving `include_path`
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    # Because the renaming is intended to also wrap the kernel in a module,
-    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
-    driver['driver'].apply(transformation, role='driver', targets='kernel')
+
+    if use_scheduler:
+        (tempdir/'kernel.F90').write_text(kernel_fcode)
+        (tempdir/'driver.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+
+        kernel = scheduler['#kernel'].source
+        driver = scheduler['#driver'].source
+
+    else:
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+
+        # Because the renaming is intended to also wrap the kernel in a module,
+        # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+        kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+        driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -245,13 +315,14 @@ END SUBROUTINE kernel
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_dependency_transformation_replace_interface(frontend):
+@pytest.mark.parametrize('use_scheduler', [False, True])
+def test_dependency_transformation_replace_interface(frontend, use_scheduler, tempdir, config):
     """
     Test injection of suffixed kernels defined in interface block
     into unchanged driver routines automatic module wrapping of the kernel.
     """
 
-    driver = Sourcefile.from_source(source="""
+    driver_fcode = """
 SUBROUTINE driver(a, b, c)
   IMPLICIT NONE
   INTERFACE
@@ -264,9 +335,9 @@ SUBROUTINE driver(a, b, c)
 
   CALL kernel(a, b ,c)
 END SUBROUTINE driver
-""", frontend=frontend)
+    """.strip()
 
-    kernel = Sourcefile.from_source(source="""
+    kernel_fcode = """
 SUBROUTINE kernel(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
@@ -274,14 +345,28 @@ SUBROUTINE kernel(a, b, c)
   b = 2
   c = 3
 END SUBROUTINE kernel
-""", frontend=frontend)
+    """.strip()
 
     # Apply injection transformation via C-style includes by giving `include_path`
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    # Because the renaming is intended to also wrap the kernel in a module,
-    # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
-    driver['driver'].apply(transformation, role='driver', targets='kernel')
+
+    if use_scheduler:
+        (tempdir/'kernel.F90').write_text(kernel_fcode)
+        (tempdir/'driver.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+
+        kernel = scheduler['#kernel'].source
+        driver = scheduler['#driver'].source
+
+    else:
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+
+        # Because the renaming is intended to also wrap the kernel in a module,
+        # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+        kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+        driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -450,3 +535,95 @@ END FUNCTION kernel
     assert len(imports) == 1
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('use_scheduler', [False, True])
+def test_dependency_transformation_contained_member(frontend, use_scheduler, tempdir, config):
+    """
+    The scheduler currently does not recognize or allow processing contained member routines as part
+    of the scheduler graph traversal. This test ensures that even with the transformation class functionality
+    to recurse into contained members enabled, the dependency injection is not applied.
+    """
+
+    kernel_fcode = """
+MODULE kernel_mod
+    IMPLICIT NONE
+CONTAINS
+    SUBROUTINE kernel(a, b, c)
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    call set_a(1)
+    b = get_b()
+    c = 3
+
+    CONTAINS
+
+        SUBROUTINE SET_A(VAL)
+            INTEGER, INTENT(IN) :: VAL
+            A = VAL
+        END SUBROUTINE SET_A
+
+        FUNCTION GET_B()
+            INTEGER GET_B
+            GET_B = 2
+        END FUNCTION GET_B
+  END SUBROUTINE kernel
+END MODULE kernel_mod
+    """.strip()
+
+    driver_fcode = """
+SUBROUTINE driver(a, b, c)
+    USE kernel_mod, only: kernel
+    IMPLICIT NONE
+    INTEGER, INTENT(INOUT) :: a, b, c
+
+    CALL kernel(a, b ,c)
+END SUBROUTINE driver
+    """.strip()
+
+
+    transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
+
+    if use_scheduler:
+        (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
+        (tempdir/'driver.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+
+        kernel = scheduler['kernel_mod#kernel'].source
+        driver = scheduler['#driver'].source
+    else:
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+
+        # Because the renaming is intended to be applied to the routines as well as the enclosing module,
+        # we need to invoke the transformation on the full source file and activate recursion to contained nodes
+        kernel.apply(transformation, role='kernel', targets=('set_a', 'get_b'), recurse_to_contained_nodes=True)
+        driver['driver'].apply(transformation, role='driver', targets=('kernel', 'some_const'))
+
+    # Check that calls and matching import have been diverted to the re-generated routine
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 1
+    assert imports[0].module.lower() == 'kernel_test_mod'
+    assert imports[0].symbols == ('kernel_test',)
+
+    # Check that the kernel has been renamed
+    assert kernel.modules[0].name.lower() == 'kernel_test_mod'
+    assert kernel.modules[0].subroutines[0].name.lower() == 'kernel_test'
+
+    # Check if contained member has been renamed
+    assert kernel['kernel_test'].subroutines[0].name.lower() == 'set_a'
+    assert kernel['kernel_test'].subroutines[1].name.lower() == 'get_b'
+
+    # Check if kernel calls have been renamed
+    calls = FindNodes(CallStatement).visit(kernel['kernel_test'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'set_a'
+
+    calls = FindInlineCalls(unique=False).visit(kernel['kernel_test'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'get_b'
