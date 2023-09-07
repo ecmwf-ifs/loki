@@ -19,7 +19,7 @@ __all__ = ["Visualizer", "pretty_visualize"]
 
 class Visualizer(Visitor):
     """
-    Convert a given IR tree to a graphical representation using "graphviz".
+    Convert a given IR tree to a node and edge list via the visit mechanism.
 
     This serves as base class for backends and provides a number of helpful
     routines that ease implementing automatic recursion and line wrapping.
@@ -96,7 +96,9 @@ class Visualizer(Visitor):
             content = self.format_line("<", name, " ", self.join_items(items), ">")
         else:
             content = self.format_line("<", name, ">")
-        return content.replace('"', '')
+
+        # disregard all quotes to ensure nice graphviz label behaviour
+        return content.replace('"', "")
 
     def format_line(self, *items, comment=None, no_wrap=False):
         """
@@ -158,6 +160,11 @@ class Visualizer(Visitor):
         kwargs["label"]: str, optional (default: format_node(repr(node)))
         kwargs["parent"]: :any: `Node` object, optional (default: None)
             If not available no edge is drawn.
+
+        Returns
+        -------
+        list[tuple[dict[str,str], dict[str,str]]]]
+            A list of a tuple of a node and potentially a edge information
         """
         label = kwargs.get("label", "")
         if label == "":
@@ -174,7 +181,7 @@ class Visualizer(Visitor):
             self._id += 1
 
         node_info = {
-            "name": self._id_map[node_key],
+            "name": str(self._id_map[node_key]),
             "label": str(label),
             "shape": str(shape),
         }
@@ -184,7 +191,7 @@ class Visualizer(Visitor):
         if parent:
             parent_id = self._id_map[str(id(parent))]
             child_id = self._id_map[str(id(node))]
-            edge_info = {"tail_name": parent_id, "head_name": child_id}
+            edge_info = {"tail_name": str(parent_id), "head_name": str(child_id)}
 
         return [(node_info, edge_info)]
 
@@ -192,6 +199,11 @@ class Visualizer(Visitor):
     def visit_Module(self, o, **kwargs):
         """
         Add a :any:`Module`, mark parent node and visit all "spec" and "subroutine" nodes.
+
+        Returns
+        -------
+        list[tuple[dict[str,str], dict[str,str]]]]
+            An extended list of tuples of a node and potentially a edge information
         """
         node_edge_info = self.__add_node(o, **kwargs)
         kwargs["parent"] = o
@@ -204,6 +216,11 @@ class Visualizer(Visitor):
     def visit_Subroutine(self, o, **kwargs):
         """
         Add a :any:`Subroutine`, mark parent node and visit all "docstring", "spec", "body", "members" nodes.
+
+        Returns
+        -------
+        list[tuple[dict[str,str], dict[str,str]]]]
+            An extended list of tuples of a node and potentially a edge information
         """
         node_edge_info = self.__add_node(o, **kwargs)
         kwargs["parent"] = o
@@ -219,6 +236,11 @@ class Visualizer(Visitor):
     def visit_Comment(self, o, **kwargs):
         """
         Enables turning off comments.
+
+        Returns
+        -------
+        list[tuple[dict[str,str], dict[str,str]]]]
+            An extended list of tuples of a node and potentially a edge information, or list of nothing.
         """
         if kwargs.get("show_comments"):
             return self.visit_Node(o, **kwargs)
@@ -229,6 +251,11 @@ class Visualizer(Visitor):
     def visit_Node(self, o, **kwargs):
         """
         Add a :any:`Node`, mark parent and visit all children.
+
+        Returns
+        -------
+        list[tuple[dict[str,str], dict[str,str]]]]
+            An extended list of tuples of a node and potentially a edge information
         """
         node_edge_info = self.__add_node(o, **kwargs)
         kwargs["parent"] = o
@@ -240,6 +267,11 @@ class Visualizer(Visitor):
         """
         Dispatch routine to add nodes utilizing expression tree stringifier,
         mark parent and stop.
+
+        Returns
+        -------
+        list[tuple[dict[str,str], dict[str,str]]]]
+            An extended list of tuples of a node and potentially a edge information or list of nothing.
         """
         if kwargs.get("show_expressions"):
             content = self.symgen(o)
@@ -258,6 +290,11 @@ class Visualizer(Visitor):
     def visit_Conditional(self, o, **kwargs):
         """
         Add a :any:`Conditional`, mark parent and visit first body then else body.
+
+        Returns
+        -------
+        list[tuple[dict[str,str], dict[str,str]]]]
+            An extended list of tuples of a node and potentially a edge information
         """
         parent = kwargs.get("parent")
         label = self.symgen(o.condition)
