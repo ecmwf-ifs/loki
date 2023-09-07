@@ -92,6 +92,8 @@ def cli(debug):
               help='Run transformation to insert custom data offload regions.')
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
+@click.option('--deviceptr', is_flag=True, default=False,
+              help='Mark the relevant arguments as true device-pointers in "!$loki data" regions.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--trim-vector-sections', is_flag=True, default=False,
@@ -102,7 +104,7 @@ def cli(debug):
               help="Remove derived-type arguments and replace with canonical arguments")
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
-        data_offload, remove_openmp, frontend, trim_vector_sections,
+        data_offload, remove_openmp, deviceptr, frontend, trim_vector_sections,
         global_var_offload, remove_derived_args
 ):
     """
@@ -165,7 +167,7 @@ def convert(
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
     if data_offload:
-        offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp)
+        offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp, deviceptr=deviceptr)
         scheduler.process(transformation=offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
 

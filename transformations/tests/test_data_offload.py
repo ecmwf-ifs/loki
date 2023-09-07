@@ -9,14 +9,15 @@ import pytest
 
 from loki import (
     Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
-    CallStatement, pragma_regions_attached
+    CallStatement, pragma_regions_attached, get_pragma_parameters
 )
 from conftest import available_frontends
 from transformations import DataOffloadTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_data_offload_region_openacc(frontend):
+@pytest.mark.parametrize('deviceptr', [True, False])
+def test_data_offload_region_openacc(frontend, deviceptr):
     """
     Test the creation of a simple device data offload region
     (`!$acc update`) from a `!$loki data` region with a single
@@ -56,14 +57,20 @@ def test_data_offload_region_openacc(frontend):
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
     driver.enrich_calls(kernel)
 
-    driver.apply(DataOffloadTransformation(), role='driver', targets=['kernel_routine'])
+    driver.apply(DataOffloadTransformation(deviceptr=deviceptr), role='driver', targets=['kernel_routine'])
 
-    assert len(FindNodes(Pragma).visit(driver.body)) == 2
-    assert all(p.keyword == 'acc' for p in FindNodes(Pragma).visit(driver.body))
-    transformed = driver.to_fortran()
-    assert 'copyin( a )' in transformed
-    assert 'copy( b )' in transformed
-    assert 'copyout( c )' in transformed
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert len(pragmas) == 2
+    assert all(p.keyword == 'acc' for p in pragmas)
+    if deviceptr:
+        assert 'deviceptr' in pragmas[0].content
+        params = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)
+        assert all(var in params['deviceptr'] for var in ('a', 'b', 'c'))
+    else:
+        transformed = driver.to_fortran()
+        assert 'copyin( a )' in transformed
+        assert 'copy( b )' in transformed
+        assert 'copyout( c )' in transformed
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
