@@ -133,6 +133,9 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
                 continue
 
             callee = call.routine
+            imported_symbols = callee.imported_symbols
+            if callee.parent is not None:
+                imported_symbols += callee.parent.imported_symbols
 
             # Collect all potential dimension variables and filter for scalar integers
             dims = set(d for arg in callee.arguments if isinstance(arg, Array) for d in arg.shape)
@@ -141,6 +144,7 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
             # Add all new dimension arguments to the callee signature
             new_args = tuple(d for d in dim_vars if d not in callee.arguments)
             new_args = tuple(d for d in new_args if d.type.dtype == BasicType.INTEGER)
+            new_args = tuple(d for d in new_args if d not in imported_symbols)
             new_args = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in new_args)
             callee.arguments += new_args
 
