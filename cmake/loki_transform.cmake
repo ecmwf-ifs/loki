@@ -182,7 +182,7 @@ endmacro()
 #       [OMNI_INCLUDE <omni-inc1> [<omni-inc2> ...]]
 #       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
 #       [REMOVE_OPENMP] [DATA_OFFLOAD] [GLOBAL_VAR_OFFLOAD]
-#       [TRIM_VECTOR_SECTIONS] [NO_REMOVE_DERIVED_ARGS]
+#       [TRIM_VECTOR_SECTIONS] [REMOVE_DERIVED_ARGS]
 #   )
 #
 # Call ``loki-transform.py convert ...`` with the provided arguments.
@@ -199,7 +199,7 @@ endmacro()
 
 function( loki_transform_convert )
 
-    set( options CPP DATA_OFFLOAD REMOVE_OPENMP GLOBAL_VAR_OFFLOAD TRIM_VECTOR_SECTIONS NO_REMOVE_DERIVED_ARGS )
+    set( options CPP DATA_OFFLOAD REMOVE_OPENMP GLOBAL_VAR_OFFLOAD TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS )
     set( oneValueArgs MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH )
     set( multiValueArgs OUTPUT DEPENDS INCLUDES INCLUDE HEADERS HEADER DEFINITIONS DEFINE OMNI_INCLUDE XMOD )
 
@@ -244,8 +244,8 @@ function( loki_transform_convert )
         list( APPEND _ARGS --trim-vector-sections )
     endif()
 
-    if( ${_PAR_NO_REMOVE_DERIVED_ARGS} )
-        list( APPEND _ARGS --no-remove-derived-args )
+    if( ${_PAR_REMOVE_DERIVED_ARGS} )
+        list( APPEND _ARGS --remove-derived-args )
     endif()
 
     _loki_transform_env_setup()
@@ -740,7 +740,7 @@ function( loki_transform_target )
     endif()
 
     if( NOT _PAR_COMMAND )
-        set( _PAR_COMMAND "ecphys" )
+        set( _PAR_COMMAND "convert" )
     endif()
 
     if( NOT _PAR_PLAN )

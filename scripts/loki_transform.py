@@ -46,54 +46,6 @@ from transformations.single_column_coalesced_vector import (
 from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
 
 
-"""
-Scheduler configuration for the CLOUDSC ESCAPE dwarf.
-
-This defines the "roles" of the two main source files
-("driver" and "kernel") and adds exemptions for the
-bulk-processing scheduler to ignore the timing utlitiies.
-"""
-cloudsc_config = {
-    'default': {
-        'mode': 'idem',
-        'role': 'kernel',
-        'expand': True,
-        'strict': True,
-        # Ensure that we are never adding these to the tree, and thus
-        # do not attempt to look up the source files for these.
-        # TODO: Add type-bound procedure support and adjust scheduler to it
-        'disable': ['timer%start', 'timer%end', 'timer%thread_start', 'timer%thread_end',
-                    'timer%thread_log', 'timer%thread_log', 'timer%print_performance']
-    },
-    'routine': [
-        {
-            'name': 'cloudsc_driver',
-            'role': 'driver',
-            'expand': True,
-        }
-    ],
-    'dimension': [
-        {
-            'name': 'horizontal',
-            'size': 'KLON',
-            'index': 'JL',
-            'bounds': ('KIDIA', 'KFDIA'),
-            'aliases': ['NPROMA', 'KDIM%KLON'],
-        },
-        {
-            'name': 'vertical',
-            'size': 'KLEV',
-            'index': 'JK',
-        },
-        {
-            'name': 'block_dim',
-            'size': 'NGPBLKS',
-            'index': 'IBL',
-        }
-    ]
-}
-
-
 class IdemTransformation(Transformation):
     """
     A custom transformation pipeline that primarily does nothing,
@@ -114,9 +66,17 @@ def cli(debug):
 
 
 @cli.command()
-@click.option('--out-path', '-out', type=click.Path(),
-              help='Path for generated souce files.')
-@click.option('--path', '-p', type=click.Path(),
+@click.option('--mode', '-m', default='idem',
+              type=click.Choice(
+                  ['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
+              ),
+              help='Transformation mode, selecting which code transformations to apply.')
+@click.option('--config', default=None, type=click.Path(),
+              help='Path to custom scheduler configuration file')
+@click.option('--build', '-b', '--out-path', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+@click.option('--source', '-s', '--path', type=click.Path(), multiple=True,
               help='Path to search during source exploration.')
 @click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
@@ -136,36 +96,33 @@ def cli(debug):
               help='Run transformation to insert custom data offload regions.')
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions.')
-@click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                                 'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']),
-              help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-@click.option('--config', default=None, type=click.Path(),
-              help='Path to custom scheduler configuration file')
 @click.option('--trim-vector-sections', is_flag=True, default=False,
               help='Trim vector loops in SCC transform to exclude scalar assignments.')
 @click.option('--global-var-offload', is_flag=True, default=False,
               help="Generate offload instructions for global vars imported via 'USE' statements.")
-@click.option('--remove-derived-args/--no-remove-derived-args', default=True,
+@click.option('--remove-derived-args/--no-remove-derived-args', default=False,
               help="Remove derived-type arguments and replace with canonical arguments")
 def convert(
-        out_path, path, header, cpp, directive, include, define, omni_include, xmod,
-        data_offload, remove_openmp, mode, frontend, config, trim_vector_sections,
+        mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
+        data_offload, remove_openmp, frontend, trim_vector_sections,
         global_var_offload, remove_derived_args
 ):
     """
-    Single Column Abstraction (SCA): Convert kernel into single-column
-    format and adjust driver to apply it over in a horizontal loop.
+    Batch-processing mode for Fortran-to-Fortran transformations that
+    employs a :class:`Scheduler` to process large numbers of source
+    files.
 
-    Optionally, this can also insert CLAW directives that may be use
-    for further downstream transformations.
+    Based on the given "mode" string, configuration file, source file
+    paths and build arguments the :any:`Scheduler` will perform
+    automatic call-tree exploration and apply a set of
+    :any:`Transformation` objects to this call tree.
     """
-    if config is None:
-        config = SchedulerConfig.from_dict(cloudsc_config)
-    else:
-        config = SchedulerConfig.from_file(config)
+
+    info(f'[Loki] Batch-processing source files using config: {config} ')
+
+    config = SchedulerConfig.from_file(config)
 
     directive = None if directive.lower() == 'none' else directive.lower()
 
@@ -190,10 +147,11 @@ def convert(
         definitions = definitions + list(sfile.modules)
 
     # Create a scheduler to bulk-apply source transformations
-    paths = [Path(p).resolve() for p in as_tuple(path)]
+    paths = [Path(p).resolve() for p in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
-    scheduler = Scheduler(paths=paths, config=config, frontend=frontend,
-                          definitions=definitions, **build_args)
+    scheduler = Scheduler(
+        paths=paths, config=config, frontend=frontend, definitions=definitions, **build_args
+    )
 
     # First, remove all derived-type arguments; caller first!
     if remove_derived_args:
@@ -303,8 +261,10 @@ def convert(
     scheduler.process(transformation=dependency)
 
     # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=out_path, mode=mode, cuf='cuf' in mode),
-                      use_file_graph=True)
+    scheduler.process(
+        transformation=FileWriteTransformation(builddir=build, mode=mode, cuf='cuf' in mode),
+        use_file_graph=True
+    )
 
 
 @cli.command()
@@ -422,125 +382,6 @@ def plan(mode, config, header, source, build, root, cpp, directive, frontend, ca
     # Output the resulting callgraph
     if callgraph:
         scheduler.callgraph(callgraph)
-
-
-@cli.command('ecphys')
-@click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
-@click.option('--config', '-c', type=click.Path(),
-              help='Path to configuration file.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
-@click.option('--source', '-s', type=click.Path(), multiple=True,
-              help='Path to source files to transform.')
-@click.option('--build', '-b', type=click.Path(), default=None,
-              help='Path to build directory for source generation.')
-@click.option('--directive', default='openacc', type=click.Choice(['openacc', 'openmp', 'none']),
-              help='Programming model directives to insert (default openacc)')
-@click.option('--cpp/--no-cpp', default=False,
-              help='Trigger C-preprocessing of source files.')
-@click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
-              help='Frontend parser to use (default FP)')
-def ecphys(mode, config, header, source, build, cpp, directive, frontend):
-    """
-    Physics bulk-processing option that employs a :class:`Scheduler`
-    to apply IFS-specific source-to-source transformations, such as
-    the SCC ("Single Column Coalesced") transformations, to large sets
-    of interdependent subroutines.
-    """
-
-    info('[Loki] Bulk-processing physics using config: %s ', config)
-    config = SchedulerConfig.from_file(config)
-
-    directive = None if directive.lower() == 'none' else directive.lower()
-
-    frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
-
-    headers = [Sourcefile.from_file(filename=h, frontend=frontend_type) for h in header]
-    definitions = flatten(h.modules for h in headers)
-
-    # Create and setup the scheduler for bulk-processing
-    paths = [Path(s).resolve() for s in source]
-    paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(
-        paths=paths, config=config, definitions=definitions,
-        frontend=frontend, preprocess=cpp
-    )
-
-    # Pick the model dimensions out of the config file
-    horizontal = scheduler.config.dimensions.get('horizontal', None)
-    vertical = scheduler.config.dimensions.get('vertical', None)
-    block_dim = scheduler.config.dimensions.get('block_dim', None)
-
-    # Backward insert argument shapes (for surface routines)
-    scheduler.process(transformation=ArgumentArrayShapeAnalysis())
-
-    scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
-
-    # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
-    if 'scc' in mode:
-        utility_call_trafo = RemoveCallsTransformation(
-            routines=['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'], include_intrinsics=True, kernel_only=True
-        )
-    else:
-        utility_call_trafo = DrHookTransformation(mode=mode, remove=False)
-    scheduler.process(transformation=utility_call_trafo)
-
-    # Instantiate transformation pipeline and apply the main changes
-    transformation = None
-    if mode == 'idem':
-        transformation = IdemTransformation()
-
-    if mode == 'sca':
-        # Define the target dimension to strip from kernel and caller
-        transformation = ExtractSCATransformation(horizontal=horizontal)
-
-    if mode in ['scc', 'scc-hoist']:
-        # Compose the main SCC transformation from core components based on config
-        transformation = (
-            SCCBaseTransformation(horizontal=horizontal, directive=directive),
-        )
-
-        # Devectorise the single-column kernels by removing the horizotnal vector loops
-        transformation += (
-            SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=False),
-        )
-
-        # Demote vector temporaries to scalars where possible
-        transformation += (SCCDemoteTransformation(horizontal=horizontal),)
-
-        # Either hoist the vector loops to the driver or re-vectorise the kernels
-        if 'hoist' in mode:
-            transformation += (
-                SCCHoistTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim),
-            )
-        else:
-            transformation += (SCCRevectorTransformation(horizontal=horizontal),)
-
-        # Add offload annotations depending on the desired programming model directives
-        transformation += (
-            SCCAnnotateTransformation(
-                horizontal=horizontal, vertical=vertical, directive=directive,
-                block_dim=block_dim, hoist_column_arrays='hoist' in mode
-            ),
-        )
-
-    if transformation:
-        # Apply the set of trnasformations over the full depency tree in turn
-        for transform in as_tuple(transformation):
-            scheduler.process(transformation=transform)
-    else:
-        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
-
-    # Apply the dependency-injection transformation
-    dependency = DependencyTransformation(
-        mode='module', module_suffix='_MOD', suffix=f'_{mode.upper()}'
-    )
-    scheduler.process(transformation=dependency)
-
-    # Write out all modified source files into the build directory
-    scheduler.process(transformation=FileWriteTransformation(builddir=build, mode=mode))
 
 
 if __name__ == "__main__":
