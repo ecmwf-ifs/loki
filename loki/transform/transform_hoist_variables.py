@@ -81,9 +81,10 @@ are provided to create derived classes for specialisation of the actual hoisting
 """
 from loki.expression import FindVariables, SubstituteExpressions
 from loki.ir import CallStatement, Allocation, Deallocation
-from loki.tools.util import is_iterable, as_tuple
+from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
 from loki.visitors import Transformer, FindNodes
 from loki.transform.transformation import Transformation
+from loki.transform.transform_utilities import single_variable_declaration
 import loki.expression.symbols as sym
 
 
@@ -152,7 +153,7 @@ class HoistVariablesAnalysis(Transformation):
 
         calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name
                  not in self.disable]
-        call_map = {str(call.name): call for call in calls}
+        call_map = CaseInsensitiveDict((str(call.name), call) for call in calls)
 
         for child in successors:
             arg_map = dict(call_map[child.routine.name].arg_iter())
@@ -249,8 +250,15 @@ class HoistVariablesTransformation(Transformation):
             for var in item.trafo_data[self._key]["to_hoist"]:
                 self.driver_variable_declaration(routine, var)
         else:
-            routine.arguments += as_tuple([var.clone(type=var.type.clone(intent='inout'),
-                                                     scope=routine) for var in item.trafo_data[self._key]["to_hoist"]])
+            # We build the list of tempararies that are hoisted to the calling routine
+            # Because this requires adding an intent, we need to make sure they are not
+            # declared together with non-hoisted variables
+            hoisted_temporaries = tuple(
+                var.clone(type=var.type.clone(intent='inout'), scope=routine)
+                for var in item.trafo_data[self._key]['to_hoist']
+            )
+            single_variable_declaration(routine, variables=[var.clone(dimensions=None) for var in hoisted_temporaries])
+            routine.arguments += hoisted_temporaries
 
         call_map = {}
         calls = [_ for _ in FindNodes(CallStatement).visit(routine.body) if _.name not in self.disable]
