@@ -13,7 +13,7 @@ from itertools import chain
 from codetiming import Timer
 
 try:
-    from graphviz import Digraph
+    from graphviz import Digraph, nohtml
 
     HAVE_PRETTY_VISUALIZE = True
     """Indicate wheater the graphviz package is available."""
@@ -181,9 +181,6 @@ class Visualizer(Visitor):
             label = self.format_node(repr(node))
 
         shape = kwargs.get("shape", "oval")
-        label = (
-            label + "‎"
-        )  # dirty hack to force graphviz to utilize parenthesis around the label
 
         node_key = str(id(node))
         if node_key not in self._id_map:
@@ -192,7 +189,7 @@ class Visualizer(Visitor):
 
         node_info = {
             "name": str(self._id_map[node_key]),
-            "label": str(label),
+            "label": nohtml(str(label)),
             "shape": str(shape),
         }
 
