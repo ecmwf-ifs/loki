@@ -8,13 +8,23 @@
 """
 Pretty-Graph-Visualizer classes for IR
 """
+
 from itertools import chain
 from codetiming import Timer
-from graphviz import Digraph
+
+try:
+    from graphviz import Digraph
+
+    HAVE_PRETTY_VISUALIZE = True
+    """Indicate wheater the graphviz package is available."""
+except ImportError:
+    HAVE_PRETTY_VISUALIZE = False
+
+from loki.logging import error
 from loki.tools import JoinableStringList, is_iterable, as_tuple
 from loki.visitors.visitor import Visitor
 
-__all__ = ["Visualizer", "pretty_visualize"]
+__all__ = ["HAVE_PRETTY_VISUALIZE", "Visualizer", "pretty_visualize"]
 
 
 class Visualizer(Visitor):
@@ -324,6 +334,10 @@ def pretty_visualize(ir, **kwargs):
     kwargs["show_expressions"] : bool, optional, default: False
         Whether to further expand expressions in the output
     """
+
+    if not HAVE_PRETTY_VISUALIZE:
+        error("OpenFortranParser is not available.")
+
     filename = kwargs.get("filename")
     if filename is None:
         log = "[Loki::Graph Visualization] Creating graph visualization in {:.2f}s"
