@@ -118,13 +118,19 @@ class Visualizer(Visitor):
         Note that the provided comment will simply be extended to the line and no line
         width limit will be enforced for that.
 
-        :param list items: the items to be put on that line.
-        :param str comment: an optional inline comment to be put at the end of the line.
-        :param bool no_wrap: disable line wrapping.
+        Parameters
+        ----------
+        items : list 
+            The items to be put on that line.
+        comment : str
+            An optional inline comment to be put at the end of the line.
+        no_wrap : bool
+            Disable line wrapping.
 
-        :return: the string of the current line, potentially including line breaks if
+        Returns
+        -------
+        str the string of the current line, potentially including line breaks if
                  required to observe the line width limit.
-        :rtype: str
         """
 
         if no_wrap:
