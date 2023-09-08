@@ -44,18 +44,22 @@ class Visualizer(Visitor):
     symgen : str, optional
         A function handle that accepts a :any:`pymbolic.primitives.Expression`
         and produces a string representation for that.
+    show_comments : bool, optional, default: False
+        Whether to show comments in the output
+    show_expressions : bool, optional, default: False
+        Whether to further expand expressions in the output
     """
 
     def __init__(
-        self,
-        linewidth=40,
-        symgen=str,
+        self, linewidth=40, symgen=str, show_comments=False, show_expressions=False
     ):
         super().__init__()
         self.linewidth = linewidth
         self._symgen = symgen
         self._id = 0
         self._id_map = {}
+        self.show_comments = show_comments
+        self.show_expressions = show_expressions
 
     @property
     def symgen(self):
@@ -253,7 +257,7 @@ class Visualizer(Visitor):
         list[tuple[dict[str,str], dict[str,str]]]]
             An extended list of tuples of a node and potentially a edge information, or list of nothing.
         """
-        if kwargs.get("show_comments"):
+        if self.show_comments:
             return self.visit_Node(o, **kwargs)
         return []
 
@@ -284,7 +288,7 @@ class Visualizer(Visitor):
         list[tuple[dict[str,str], dict[str,str]]]]
             An extended list of tuples of a node and potentially a edge information or list of nothing.
         """
-        if kwargs.get("show_expressions"):
+        if self.show_expressions:
             content = self.symgen(o)
             parent = kwargs.get("parent")
             return self.__add_node(o, label=content, parent=parent, shape="box")
@@ -318,7 +322,9 @@ class Visualizer(Visitor):
         return node_edge_info
 
 
-def pretty_visualize(ir, **kwargs):
+def pretty_visualize(
+    ir, linewidth=40, symgen=str, show_comments=False, show_expressions=False
+):
     """
     Pretty-print the given IR using :class:`Visualizer`.
 
@@ -326,30 +332,20 @@ def pretty_visualize(ir, **kwargs):
     ----------
     ir : :any:`Node`
         The IR node starting from which to produce the tree
-    kwargs["filename"] : str, optional
-        The location, name and format of the output graph, if none is given the graph
-        object is returned. In jupyter-notebooks this imideatly plots it, in terminal
-        it just shows a text representation.
-    kwargs["show_comments"] : bool, optional, default: True
+    show_comments : bool, optional, default: False
         Whether to show comments in the output
-    kwargs["show_expressions"] : bool, optional, default: False
+    show_expressions : bool, optional, default: False
         Whether to further expand expressions in the output
     """
 
     if not HAVE_PRETTY_VISUALIZE:
-        error("OpenFortranParser is not available.")
+        error("pretty_visualize is not available.")
 
-    filename = kwargs.get("filename")
-    if filename is None:
-        log = "[Loki::Graph Visualization] Creating graph visualization in {:.2f}s"
-    else:
-        log = f"[Loki::Graph Visualization] Visualized to {filename}" + " in {:.2f}s"
+    log = "[Loki::Graph Visualization] Created graph visualization in {:.2f}s"
 
     with Timer(text=log):
-        visualizer = Visualizer()
-        node_edge_info = [
-            item for item in visualizer.visit(ir, **kwargs) if item is not None
-        ]
+        visualizer = Visualizer(linewidth, symgen, show_comments, show_expressions)
+        node_edge_info = [item for item in visualizer.visit(ir) if item is not None]
 
         graph = Digraph()
         graph.attr(rankdir="LR")
@@ -358,7 +354,4 @@ def pretty_visualize(ir, **kwargs):
                 graph.node(**node_info)
             if edge_info:
                 graph.edge(**edge_info)
-        if filename:
-            graph.render(**kwargs)
-        else:
-            return graph
+        return graph

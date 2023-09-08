@@ -163,12 +163,17 @@ class Node:
         Pretty-print the node hierachy under this node.
         """
         # pylint: disable=import-outside-toplevel,cyclic-import
-        if visualization:
-            from loki.visitors.pretty_visualize import pretty_visualize
-            return pretty_visualize(self, **kwargs_visualization)
-        else:
-            from loki.visitors import pprint
-            pprint(self)
+        from loki.visitors import pprint
+        pprint(self)
+
+    def visualize(self, show_comments=True, show_expressions=False):
+        """
+        Visualize the node hierachy under this node.
+        """
+        # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.visitors.pretty_visualize import pretty_visualize
+
+        return pretty_visualize(self, show_comments, show_expressions)
 
     @property
     def live_symbols(self):

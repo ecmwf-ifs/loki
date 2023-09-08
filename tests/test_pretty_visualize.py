@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 import re
-from os import remove
 from pathlib import Path
 import pytest
 from conftest import graphviz_present
@@ -26,7 +25,7 @@ test_files = [
     "sources/trivial_fortran_files/nested_if_else_statements_subroutine.f90",
 ]
 
-solutions = {
+solutions_default_parameters = {
     "sources/trivial_fortran_files/case_statement_subroutine.f90": {
         "node_count": 12,
         "edge_count": 11,
@@ -147,6 +146,25 @@ solutions = {
     },
 }
 
+solutions_node_edge_counts = {
+    "sources/trivial_fortran_files/case_statement_subroutine.f90": {
+        "node_count": [[12, 19], [14, 21]],
+        "edge_count": [[11, 18], [13, 20]],
+    },
+    "sources/trivial_fortran_files/if_else_statement_subroutine.f90": {
+        "node_count": [[8, 9], [10, 11]],
+        "edge_count": [[7, 8], [9, 10]],
+    },
+    "sources/trivial_fortran_files/module_with_subroutines.f90": {
+        "node_count": [[24, 39], [32, 47]],
+        "edge_count": [[23, 38], [31, 46]],
+    },
+    "sources/trivial_fortran_files/nested_if_else_statements_subroutine.f90": {
+        "node_count": [[12, 14], [14, 16]],
+        "edge_count": [[11, 13], [13, 15]],
+    },
+}
+
 
 def get_property(node_edge_info, name):
     for node_info, edge_info in node_edge_info:
@@ -168,8 +186,41 @@ def get_property(node_edge_info, name):
 
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
-def test_visualizer(here, test_file):
-    solution = solutions[test_file]
+@pytest.mark.parametrize("show_comments", [True, False])
+@pytest.mark.parametrize("show_expressions", [True, False])
+def test_visualizer_node_edge_count_only(
+    here, test_file, show_comments, show_expressions
+):
+    solution = solutions_node_edge_counts[test_file]
+    source = Sourcefile.from_file(here / test_file)
+
+    visualizer = Visualizer(
+        show_comments=show_comments, show_expressions=show_expressions
+    )
+    node_edge_info = [item for item in visualizer.visit(source.ir) if item is not None]
+
+    node_names = [name for (name, _) in get_property(node_edge_info, "name")]
+    node_labels = [label for (label, _) in get_property(node_edge_info, "label")]
+
+    assert (
+        len(node_names)
+        == len(node_labels)
+        == solution["node_count"][show_comments][show_expressions]
+    )
+    edge_heads = [head for (_, head) in get_property(node_edge_info, "head_name")]
+    edge_tails = [tail for (_, tail) in get_property(node_edge_info, "tail_name")]
+
+    assert (
+        len(edge_heads)
+        == len(edge_tails)
+        == solution["edge_count"][show_comments][show_expressions]
+    )
+
+
+@pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
+@pytest.mark.parametrize("test_file", test_files)
+def test_visualizer_detail(here, test_file):
+    solution = solutions_default_parameters[test_file]
     source = Sourcefile.from_file(here / test_file)
 
     visualizer = Visualizer()
@@ -194,19 +245,18 @@ def test_visualizer(here, test_file):
 
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
-def test_pretty_visualize_can_write_graphs(here, test_file):
+@pytest.mark.parametrize("linewidth", [40, 60, 80])
+def test_visualizer_maximum_label_length(here, test_file, linewidth):
     source = Sourcefile.from_file(here / test_file)
 
-    name = "test_pretty_visualize_write_graphs"
-    source.ir.view(visualization=True, filename=here / name)
+    visualizer = Visualizer(
+        show_comments=True, show_expressions=True, linewidth=linewidth
+    )
+    node_edge_info = [item for item in visualizer.visit(source.ir) if item is not None]
+    node_labels = [label for (label, _) in get_property(node_edge_info, "label")]
 
-    path = Path(here / name)
-    assert path.is_file()
-    remove(path)
-
-    path = Path(here / (name + ".pdf"))
-    assert path.is_file()
-    remove(path)
+    for label in node_labels:
+        assert len(label) <= linewidth
 
 
 def find_edges(input_text):
@@ -232,7 +282,7 @@ def find_label_content_inside_nodes(input_text):
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
 def test_pretty_visualize_writes_correct_graphs(here, test_file):
-    solution = solutions[test_file]
+    solution = solutions_default_parameters[test_file]
     source = Sourcefile.from_file(here / test_file)
 
     graph = pretty_visualize(source.ir)
