@@ -158,7 +158,7 @@ class Node:
     def __repr__(self):
         raise NotImplementedError
 
-    def view(self, visualization = False, **kwargs_visualization):
+    def view(self):
         """
         Pretty-print the node hierachy under this node.
         """
