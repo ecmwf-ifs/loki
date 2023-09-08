@@ -168,7 +168,7 @@ def get_property(node_edge_info, name):
 
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
-def test_Visualizer(here, test_file):
+def test_visualizer(here, test_file):
     solution = solutions[test_file]
     source = Sourcefile.from_file(here / test_file)
 
