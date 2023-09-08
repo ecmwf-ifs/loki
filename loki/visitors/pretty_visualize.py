@@ -255,7 +255,7 @@ class Visualizer(Visitor):
         """
         if kwargs.get("show_comments"):
             return self.visit_Node(o, **kwargs)
-        return [None]
+        return []
 
     visit_CommentBlock = visit_Comment
 
@@ -288,7 +288,7 @@ class Visualizer(Visitor):
             content = self.symgen(o)
             parent = kwargs.get("parent")
             return self.__add_node(o, label=content, parent=parent, shape="box")
-        return [None]
+        return []
 
     def visit_tuple(self, o, **kwargs):
         """
