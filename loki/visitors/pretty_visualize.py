@@ -120,7 +120,7 @@ class Visualizer(Visitor):
 
         Parameters
         ----------
-        items : list 
+        items : list
             The items to be put on that line.
         comment : str
             An optional inline comment to be put at the end of the line.
@@ -152,8 +152,8 @@ class Visualizer(Visitor):
         """
         if is_iterable(item) and not args:
             return chain.from_iterable(
-                    as_tuple(self.visit(i, **kwargs) for i in item if i is not None)
-                )
+                as_tuple(self.visit(i, **kwargs) for i in item if i is not None)
+            )
         return list(
             chain.from_iterable(
                 as_tuple(
@@ -220,7 +220,7 @@ class Visualizer(Visitor):
         kwargs["parent"] = o
 
         node_edge_info.extend(self.visit(o.spec, **kwargs))
-        node_edge_info.extend(self.visit(o.subroutines, **kwargs))
+        node_edge_info.extend(self.visit_all(o.contains, **kwargs))
 
         return node_edge_info
 
@@ -239,7 +239,7 @@ class Visualizer(Visitor):
         node_edge_info.extend(self.visit(o.docstring, **kwargs))
         node_edge_info.extend(self.visit(o.spec, **kwargs))
         node_edge_info.extend(self.visit(o.body, **kwargs))
-        node_edge_info.extend(self.visit(o.members, **kwargs))
+        node_edge_info.extend(self.visit_all(o.contains, **kwargs))
 
         return node_edge_info
 
