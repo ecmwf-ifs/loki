@@ -20,14 +20,14 @@ def fixture_here():
 
 
 test_files = [
-    "trivial_fortran_files/case_statement_subroutine.f90",
-    "trivial_fortran_files/if_else_statement_subroutine.f90",
-    "trivial_fortran_files/module_with_subroutines.f90",
-    "trivial_fortran_files/nested_if_else_statements_subroutine.f90",
+    "sources/trivial_fortran_files/case_statement_subroutine.f90",
+    "sources/trivial_fortran_files/if_else_statement_subroutine.f90",
+    "sources/trivial_fortran_files/module_with_subroutines.f90",
+    "sources/trivial_fortran_files/nested_if_else_statements_subroutine.f90",
 ]
 
 solutions = {
-    "trivial_fortran_files/case_statement_subroutine.f90": {
+    "sources/trivial_fortran_files/case_statement_subroutine.f90": {
         "node_count": 12,
         "edge_count": 11,
         "node_labels": {
@@ -52,7 +52,7 @@ solutions = {
             "5": ["6", "7", "8", "9", "10", "11"],
         },
     },
-    "trivial_fortran_files/if_else_statement_subroutine.f90": {
+    "sources/trivial_fortran_files/if_else_statement_subroutine.f90": {
         "node_count": 8,
         "edge_count": 7,
         "node_labels": {
@@ -73,7 +73,7 @@ solutions = {
             "5": ["6", "7"],
         },
     },
-    "trivial_fortran_files/module_with_subroutines.f90": {
+    "sources/trivial_fortran_files/module_with_subroutines.f90": {
         "node_count": 24,
         "edge_count": 23,
         "node_labels": {
@@ -118,7 +118,7 @@ solutions = {
             "7": ["8", "9"],
         },
     },
-    "trivial_fortran_files/nested_if_else_statements_subroutine.f90": {
+    "sources/trivial_fortran_files/nested_if_else_statements_subroutine.f90": {
         "node_count": 12,
         "edge_count": 11,
         "node_labels": {
