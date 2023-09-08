@@ -145,11 +145,9 @@ class Visualizer(Visitor):
         :meth:`visit` is called on all of its elements instead.
         """
         if is_iterable(item) and not args:
-            return list(
-                chain.from_iterable(
+            return chain.from_iterable(
                     as_tuple(self.visit(i, **kwargs) for i in item if i is not None)
                 )
-            )
         return list(
             chain.from_iterable(
                 as_tuple(
