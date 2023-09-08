@@ -220,7 +220,7 @@ class Visualizer(Visitor):
         kwargs["parent"] = o
 
         node_edge_info.extend(self.visit(o.spec, **kwargs))
-        node_edge_info.extend(self.visit(o.contains, **kwargs))
+        node_edge_info.extend(self.visit(o.subroutines, **kwargs))
 
         return node_edge_info
 
@@ -239,7 +239,7 @@ class Visualizer(Visitor):
         node_edge_info.extend(self.visit(o.docstring, **kwargs))
         node_edge_info.extend(self.visit(o.spec, **kwargs))
         node_edge_info.extend(self.visit(o.body, **kwargs))
-        node_edge_info.extend(self.visit(o.contains, **kwargs))
+        node_edge_info.extend(self.visit(o.members, **kwargs))
 
         return node_edge_info
 
