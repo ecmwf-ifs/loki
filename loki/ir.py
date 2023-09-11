@@ -166,14 +166,14 @@ class Node:
         from loki.visitors import pprint
         pprint(self)
 
-    def ir_graph(self, show_comments=True, show_expressions=False):
+    def ir_graph(self, show_comments=False, show_expressions=False, linewidth=40, symgen=str):
         """
         Get the IR graph to visualize the node hierachy under this node.
         """
         # pylint: disable=import-outside-toplevel,cyclic-import
         from loki.visitors.ir_graph import ir_graph
 
-        return ir_graph(self, show_comments, show_expressions)
+        return ir_graph(self, show_comments, show_expressions,linewidth, symgen)
 
     @property
     def live_symbols(self):
