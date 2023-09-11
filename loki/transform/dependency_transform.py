@@ -323,8 +323,6 @@ class DependencyTransformation(Transformation):
         Wrap target subroutines in modules and replace in source file.
         """
         targets = as_tuple(kwargs.get('targets', None))
-        if not targets and 'item' in kwargs:
-            targets = as_tuple(kwargs['item'].targets)
         targets = as_tuple(str(t).upper() for t in targets)
         item = kwargs.get('item', None)
 
