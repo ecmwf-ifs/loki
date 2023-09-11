@@ -12,7 +12,6 @@ Loki head script for source-to-source transformations concerning ECMWF
 physics, including "Single Column" (SCA) and CLAW transformations.
 """
 
-import sys
 from pathlib import Path
 import click
 
@@ -255,7 +254,7 @@ def convert(
     mode = mode.replace('-', '_')  # Sanitize mode string
     dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
                                           mode='module', module_suffix='_MOD')
-    scheduler.process(transformation=dependency, use_file_graph=True, recurse_to_contained_nodes=True)
+    scheduler.process(transformation=dependency, use_file_graph=True)
 
     # Write out all modified source files into the build directory
     if global_var_offload:
@@ -325,7 +324,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation()
-    transformation.apply(kernel, role='kernel', path=out_path, recurse_to_contained_nodes=True)
+    transformation.apply(kernel, role='kernel', path=out_path)
 
     # Traverse header modules to create getter functions for module variables
     for h in definitions:
@@ -333,12 +332,12 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel', recurse_to_contained_nodes=True)
+    kernel.apply(dependency, role='kernel')
     kernel.write(path=Path(out_path)/kernel.path.with_suffix('.c.F90').name)
 
     # Re-generate the driver that mimicks the original source file,
     # but imports and calls our re-generated kernel.
-    driver.apply(dependency, role='driver', targets=kernel_name, recurse_to_contained_nodes=True)
+    driver.apply(dependency, role='driver', targets=kernel_name)
     driver.write(path=Path(out_path)/driver.path.with_suffix('.c.F90').name)
 
 

@@ -1391,8 +1391,7 @@ def test_scheduler_typebound_ignore(here, config, frontend):
 
 @pytest.mark.parametrize('use_file_graph', [False, True])
 @pytest.mark.parametrize('reverse', [False, True])
-@pytest.mark.parametrize('recurse_to_contained_nodes', [False, True])
-def test_scheduler_traversal_order(here, config, frontend, use_file_graph, reverse, recurse_to_contained_nodes):
+def test_scheduler_traversal_order(here, config, frontend, use_file_graph, reverse):
     """
     Test correct traversal order for scheduler processing
 
@@ -1405,27 +1404,9 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
     )
 
     if use_file_graph:
-        if recurse_to_contained_nodes:
-            # With recursion, we record
-            expected = [
-                [
-                    'transformation_module_hoist#driver::driver_mod.f90',
-                    'transformation_module_hoist#driver::transformation_module_hoist',
-                    'transformation_module_hoist#driver::driver',
-                    'transformation_module_hoist#driver::another_driver',
-                ], [
-                    'subroutines_mod#kernel1::subroutines_mod.f90',
-                    'subroutines_mod#kernel1::subroutines_mod',
-                    'subroutines_mod#kernel1::kernel1',
-                    'subroutines_mod#kernel1::kernel2',
-                    'subroutines_mod#kernel1::device1',
-                    'subroutines_mod#kernel1::device2',
-                ]
-            ]
-        else:
-            expected = [
-                'transformation_module_hoist#driver::driver_mod.f90', 'subroutines_mod#kernel1::subroutines_mod.f90'
-            ]
+        expected = [
+            'driver_mod.f90', 'subroutines_mod.f90'
+        ]
     else:
         expected = [
             'transformation_module_hoist#driver::driver', 'subroutines_mod#kernel1::kernel1',
@@ -1439,7 +1420,10 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
+            if 'item' in kwargs:
+                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
+            else:
+                self.record += [sourcefile.path.name]
 
         def transform_module(self, module, **kwargs):
             self.record += [kwargs['item'].name + '::' + module.name]
@@ -1449,8 +1433,7 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
 
     transformation = LoggingTransformation()
     scheduler.process(
-        transformation=transformation, reverse=reverse, use_file_graph=use_file_graph,
-        recurse_to_contained_nodes=recurse_to_contained_nodes
+        transformation=transformation, reverse=reverse, use_file_graph=use_file_graph
     )
 
     if reverse:
@@ -1461,8 +1444,7 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
 
 @pytest.mark.parametrize('use_file_graph', [False, True])
 @pytest.mark.parametrize('reverse', [False, True])
-@pytest.mark.parametrize('recurse_to_contained_nodes', [False, True])
-def test_scheduler_member_routines(config, frontend, use_file_graph, reverse, recurse_to_contained_nodes):
+def test_scheduler_member_routines(config, frontend, use_file_graph, reverse):
     """
     Make sure that transformation processing works also for contained member routines
 
@@ -1502,7 +1484,10 @@ end module member_mod
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
+            if 'item' in kwargs:
+                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
+            else:
+                self.record += [sourcefile.path.name]
 
         def transform_module(self, module, **kwargs):
             self.record += [kwargs['item'].name + '::' + module.name]
@@ -1513,38 +1498,16 @@ end module member_mod
     transformation = LoggingTransformation()
     scheduler.process(
         transformation=transformation, reverse=reverse, use_file_graph=use_file_graph,
-        recurse_to_contained_nodes=recurse_to_contained_nodes
     )
 
     if use_file_graph:
-        if recurse_to_contained_nodes:
-            expected = [
-                'member_mod#driver::member_mod.F90',
-                'member_mod#driver::member_mod',
-                'member_mod#driver::my_routine',
-                'member_mod#driver::driver',
-                'member_mod#driver::my_member',
-            ]
-        else:
-            expected = ['member_mod#driver::member_mod.F90']
+        expected = ['member_mod.F90']
     else:
-        if recurse_to_contained_nodes:
-            expected = [
-                [
-                    'member_mod#driver::driver',
-                    'member_mod#driver::my_member',
-                ], [
-                    'member_mod#driver#my_member::my_member',
-                ], [
-                    'member_mod#my_routine::my_routine',
-                ]
-            ]
-        else:
-            expected = [
-                'member_mod#driver::driver',
-                'member_mod#driver#my_member::my_member',
-                'member_mod#my_routine::my_routine',
-            ]
+        expected = [
+            'member_mod#driver::driver',
+            'member_mod#driver#my_member::my_member',
+            'member_mod#my_routine::my_routine',
+        ]
 
     if not use_file_graph:
         # Because the scheduler cannot represent contained member routines currently, it does
@@ -1556,7 +1519,6 @@ end module member_mod
     assert transformation.record == flatten(expected)
 
     rmtree(workdir)
-
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

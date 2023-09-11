@@ -42,8 +42,7 @@ def fixture_rename_transform():
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('method', ['source', 'transformation'])
 @pytest.mark.parametrize('lazy', [False, True])
-@pytest.mark.parametrize('recurse_to_contained_nodes', [True, False])
-def test_transformation_apply(rename_transform, frontend, method, lazy, recurse_to_contained_nodes):
+def test_transformation_apply(rename_transform, frontend, method, lazy):
     """
     Apply a simple transformation that renames routines and modules, and
     test that this also works when the original source object was parsed
@@ -68,13 +67,13 @@ end subroutine myroutine
             with pytest.raises(RuntimeError):
                 source.apply(rename_transform)
             source.make_complete(frontend=frontend)
-        source.apply(rename_transform, recurse_to_contained_nodes=recurse_to_contained_nodes)
+        source.apply(rename_transform)
     elif method == 'transformation':
         if lazy:
             with pytest.raises(RuntimeError):
                 rename_transform.apply(source)
             source.make_complete(frontend=frontend)
-        rename_transform.apply(source, recurse_to_contained_nodes=recurse_to_contained_nodes)
+        rename_transform.apply(source)
     else:
         raise ValueError(f'Unknown method "{method}"')
     assert not source._incomplete
@@ -82,17 +81,15 @@ end subroutine myroutine
     assert isinstance(source.ir.body[0], Comment)
     assert source.ir.body[0].text == '! [Loki] RenameTransform applied'
 
-    # Without recursion, only source file object is changed
-    if not recurse_to_contained_nodes:
-        assert source.modules[0].name == 'mymodule'
-        assert source.subroutines[0].name == 'myroutine'
+    assert source.modules[0].name == 'mymodule'
+    assert source.subroutines[0].name == 'myroutine'
 
-        if method == 'source':
-            source.modules[0].apply(rename_transform, recurse_to_contained_nodes=True)
-            source.subroutines[0].apply(rename_transform, recurse_to_contained_nodes=True)
-        else:
-            rename_transform.apply(source.modules[0], recurse_to_contained_nodes=True)
-            rename_transform.apply(source.subroutines[0], recurse_to_contained_nodes=True)
+    if method == 'source':
+        source.modules[0].apply(rename_transform, recurse_to_contained_nodes=True)
+        source.subroutines[0].apply(rename_transform, recurse_to_contained_nodes=True)
+    else:
+        rename_transform.apply(source.modules[0], recurse_to_contained_nodes=True)
+        rename_transform.apply(source.subroutines[0], recurse_to_contained_nodes=True)
 
     assert source.modules[0].name == 'mymodule_test'
     assert source['mymodule_test'] == source.modules[0]
@@ -106,9 +103,7 @@ end subroutine myroutine
     ('myroutine', lambda transform, obj, **kwargs: transform.apply_subroutine(obj, **kwargs))
 ])
 @pytest.mark.parametrize('lazy', [False, True])
-@pytest.mark.parametrize('recurse_to_contained_nodes', [False, True])
-def test_transformation_apply_subroutine(rename_transform, frontend, target, apply_method, lazy,
-                                         recurse_to_contained_nodes):
+def test_transformation_apply_subroutine(rename_transform, frontend, target, apply_method, lazy):
     """
     Apply a simple transformation that renames routines and modules
     """
@@ -146,7 +141,7 @@ end subroutine myroutine
         with pytest.raises(RuntimeError):
             apply_method(rename_transform, source[target])
         source[target].make_complete(frontend=frontend)
-    apply_method(rename_transform, source[target], recurse_to_contained_nodes=recurse_to_contained_nodes)
+    apply_method(rename_transform, source[target])
 
     assert source._incomplete is lazy  # This should only have triggered a re-parse on the actual transformation target
     assert not source[f'{target}_test']._incomplete
@@ -165,10 +160,7 @@ end subroutine myroutine
         assert source.all_subroutines[1].name == 'module_routine_test'
         assert source['module_routine_test'] == source.all_subroutines[1]
         assert len(source['module_routine_test'].members) == 1
-        if recurse_to_contained_nodes:
-            assert source['module_routine_test'].members[0].name == 'member_func_test'
-        else:
-            assert source['module_routine_test'].members[0].name == 'member_func'
+        assert source['module_routine_test'].members[0].name == 'member_func'
     elif target == 'myroutine':
         assert source.all_subroutines[1].name == 'module_routine'
         assert source['module_routine'] == source.all_subroutines[1]
@@ -180,8 +172,7 @@ end subroutine myroutine
     lambda transform, obj, **kwargs: transform.apply_module(obj, **kwargs)
 ])
 @pytest.mark.parametrize('lazy', [False, True])
-@pytest.mark.parametrize('recurse_to_contained_nodes', [False, True])
-def test_transformation_apply_module(rename_transform, frontend, apply_method, lazy, recurse_to_contained_nodes):
+def test_transformation_apply_module(rename_transform, frontend, apply_method, lazy):
     """
     Apply a simple transformation that renames routines and modules
     """
@@ -213,7 +204,7 @@ end subroutine myroutine
         with pytest.raises(RuntimeError):
             apply_method(rename_transform, source['mymodule'])
         source['mymodule'].make_complete(frontend=frontend)
-    apply_method(rename_transform, source['mymodule'], recurse_to_contained_nodes=recurse_to_contained_nodes)
+    apply_method(rename_transform, source['mymodule'])
 
     assert source._incomplete is lazy
     assert not source['mymodule_test']._incomplete
@@ -226,12 +217,8 @@ end subroutine myroutine
     assert source.subroutines[0].name == 'myroutine'
     assert source['myroutine'] == source.subroutines[0]
 
-    if recurse_to_contained_nodes:
-        assert source.all_subroutines[1].name == 'module_routine_test'
-        assert source['module_routine_test'] == source.all_subroutines[1]
-    else:
-        assert source.all_subroutines[1].name == 'module_routine'
-        assert source['module_routine'] == source.all_subroutines[1]
+    assert source.all_subroutines[1].name == 'module_routine'
+    assert source['module_routine'] == source.all_subroutines[1]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -447,3 +434,15 @@ end subroutine rick
     FileWriteTransformation(builddir=here, mode='roll', suffix='.java').apply(source=source, item=item)
     assert ricks_path.exists()
     ricks_path.unlink()
+
+    # Test writing with "items" only (as in file graph traversal)
+    ricks_path = here/'rick.loki.F90'
+    if ricks_path.exists():
+        ricks_path.unlink()
+    FileWriteTransformation(builddir=here).apply(source=source, items=(item,))
+    assert ricks_path.exists()
+    ricks_path.unlink()
+
+    # Check error behaviour if no item provided
+    with pytest.raises(ValueError):
+        FileWriteTransformation(builddir=here).apply(source=source)

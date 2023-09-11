@@ -599,8 +599,7 @@ class Scheduler:
                 successors += [self.item_map[child.name]] + self.item_successors(child)
         return successors
 
-    def process(self, transformation, reverse=False, item_filter=SubroutineItem, use_file_graph=False,
-                recurse_to_contained_nodes=False):
+    def process(self, transformation, reverse=False, item_filter=SubroutineItem, use_file_graph=False):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -609,16 +608,16 @@ class Scheduler:
         their target :any:`Subroutine`.
         This order can be reversed by setting :data:`reverse` to ``True``.
 
-        Optionally, the traversal can be performed on a source file level only,
-        by setting :data:`use_file_graph` to ``True``. Currently, this calls
-        the transformation on the first `item` associated with a file only.
-        In this mode, :data:`item_filter` does not have any effect.
-
         The scheduler applies the transformation to the IR node corresponding to
-        each item in the scheduler's graph. Optionally, the transformation can also
-        be applied recursively, e.g., to all member subroutines contained in a
-        subroutine object, or all modules and subroutines contained in a source file,
-        by setting :data:`recurse_to_contained_nodes` to ``True``.
+        each item in the scheduler's graph. For example, for a :any:`SubroutineItem`,
+        the transformation is applied to the corresponding :any:`Subroutine` object.
+
+        Optionally, the traversal can be performed on a source file level only,
+        by setting :data:`use_file_graph` to ``True``. This calls the
+        transformation on all :any:`Sourcefile` objects that contain at least one
+        object corresponding to an item in the scheduler graph. If combined with
+        a :data:`item_filter`, only source files with at least one object corresponding
+        to an item of that type are processed.
         """
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
@@ -637,13 +636,12 @@ class Scheduler:
                 for node in traversal:
                     items = graph.nodes[node]['items']
 
-                    if item_filter and any(not isinstance(item, item_filter) for item in items):
-                        continue
+                    if item_filter:
+                        items = [item for item in items if isinstance(item, item_filter)]
+                        if not items:
+                            continue
 
-                    transformation.apply(
-                        items[0].source, item=items[0], items=items,
-                        recurse_to_contained_nodes=recurse_to_contained_nodes
-                    )
+                    transformation.apply(items[0].source, items=items)
             else:
                 for item in traversal:
                     if item_filter and not isinstance(item, item_filter):
@@ -663,8 +661,7 @@ class Scheduler:
                     transformation.apply(
                         source, role=_item.role, mode=_item.mode,
                         item=_item, targets=_item.targets,
-                        successors=self.item_successors(_item), depths=self.depths,
-                        recurse_to_contained_nodes=recurse_to_contained_nodes
+                        successors=self.item_successors(_item), depths=self.depths
                     )
 
     def callgraph(self, path, with_file_graph=False):

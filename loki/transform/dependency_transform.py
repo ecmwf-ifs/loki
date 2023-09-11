@@ -79,28 +79,7 @@ class DependencyTransformation(Transformation):
         """
         role = kwargs.get('role')
 
-        # If applied recursively over all routines in a sourcefile, we may
-        # visit contained member subroutines. Since these are not outward facing
-        # it is not necessary to update their name.
-        is_member = isinstance(routine.parent, Subroutine)
-
-        # Pick out correct item for current subroutine if processed via recursion
-        if 'items' in kwargs:
-            item_names = [item_.local_name for item_ in kwargs['items']]
-            if routine.name.lower() in item_names:
-                kwargs['item'] = kwargs['items'][item_names.index(routine.name.lower())]
-
-        # If called without explicit role or target, extract from Item
-        # We need to do this here to cache the value for targets, because
-        # rename_calls will change this property
-        if (item := kwargs.get('item')):
-            if not role:
-                kwargs['role'] = item.role
-                role = item.role
-            if not kwargs.get('targets'):
-                kwargs['targets'] = item.targets
-
-        if role == 'kernel' and not is_member:
+        if role == 'kernel':
             if routine.name.endswith(self.suffix):
                 # This is to ensure that the transformation is idempotent if
                 # applied more than once to a routine
@@ -120,7 +99,7 @@ class DependencyTransformation(Transformation):
         intfs = FindNodes(Interface).visit(routine.spec)
         self.rename_interfaces(routine, intfs=intfs, **kwargs)
 
-        if role == 'kernel' and self.mode == 'strict' and not is_member:
+        if role == 'kernel' and self.mode == 'strict':
             # Re-generate C-style interface header
             self.generate_interfaces(routine)
 
@@ -144,26 +123,45 @@ class DependencyTransformation(Transformation):
         Rename kernel modules and re-point module-level imports.
         """
         role = kwargs.get('role')
-        if not role and 'item' in kwargs:
-            role = kwargs['item'].role
 
         if role == 'kernel':
             # Change the name of kernel modules
             module.name = self.derive_module_name(module.name)
 
         # Module imports only appear in the spec section
-        imports = FindNodes(Import).visit(module.spec)
-        self.rename_imports(module, imports=imports, **kwargs)
+        self.rename_imports(module, imports=module.imports, **kwargs)
 
     def transform_file(self, sourcefile, **kwargs):
         """
-        In 'module' mode perform module-wrapping for dependnecy injection.
+        In 'module' mode perform module-wrapping for dependency injection.
         """
-        role = kwargs.get('role')
-        if not role and 'item' in kwargs:
-            role = kwargs['item'].role
+        items = kwargs.get('items')
+        role = kwargs.pop('role', None)
+        targets = kwargs.pop('targets', None)
+
+        if not role and items:
+            # We consider the sourcefile to be a "kernel" file if all items are kernels
+            if all(item.role == 'kernel' for item in items):
+                role = 'kernel'
+
+        if not targets and items:
+            # We collect the targets for file/module-level imports from all items
+            targets = [target for item in items for target in item.targets]
+
         if role == 'kernel' and self.mode == 'module':
             self.module_wrap(sourcefile, **kwargs)
+
+        for module in sourcefile.modules:
+            # Recursion into contained modules using the sourcefile's "role"
+            self.transform_module(module, role=role, targets=targets, **kwargs)
+
+        if items:
+            # Recursion into all subroutine items in the current file
+            for item in items:
+                self.transform_subroutine(item.routine, item=item, role=item.role, targets=item.targets, **kwargs)
+        else:
+            for routine in sourcefile.all_subroutines:
+                self.transform_subroutine(routine, role=role, targets=targets, **kwargs)
 
     def rename_calls(self, routine, **kwargs):
         """
@@ -199,9 +197,7 @@ class DependencyTransformation(Transformation):
         :param targets: Optional list of subroutine names for which to
                         modify the corresponding calls.
         """
-        targets = as_tuple(kwargs.get('targets'))
-        if not targets and 'item' in kwargs:
-            targets = as_tuple(kwargs['item'].targets)
+        targets = as_tuple(kwargs.get('targets', None))
         targets = as_tuple(str(t).upper() for t in targets)
 
         # We don't want to rename module variable imports, so we build
@@ -265,13 +261,10 @@ class DependencyTransformation(Transformation):
         """
         Update explicit interfaces to actively transformed subroutines.
         """
-
-        targets = as_tuple(kwargs.get('targets'))
-        if not targets and 'item' in kwargs:
-            targets = as_tuple(kwargs['item'].targets)
+        targets = as_tuple(kwargs.get('targets', None))
         targets = as_tuple(str(t).lower() for t in targets)
 
-        if self.replace_ignore_items and (item := kwargs.get('item')):
+        if self.replace_ignore_items and (item := kwargs.get('item', None)):
             targets += as_tuple(str(i).lower() for i in item.ignore)
 
         # Transformer map to remove any outdated interfaces

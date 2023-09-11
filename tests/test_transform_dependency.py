@@ -77,7 +77,7 @@ END SUBROUTINE driver
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+        scheduler.process(transformation, use_file_graph=True)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['#driver'].source
@@ -88,7 +88,7 @@ END SUBROUTINE driver
 
         # Because the renaming is intended to be applied to the routines as well as the enclosing module,
         # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-        kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+        kernel.apply(transformation, role='kernel')
         driver['driver'].apply(transformation, role='driver', targets=('kernel', 'some_const'))
 
     # Check that the global variable declaration remains unchanged
@@ -151,7 +151,7 @@ END MODULE DRIVER_MOD
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver_mod.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+        scheduler.process(transformation, use_file_graph=True)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['driver_mod#driver'].source
@@ -162,8 +162,8 @@ END MODULE DRIVER_MOD
 
         # Because the renaming is intended to be applied to the routines as well as the enclosing module,
         # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-        kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
-        driver.apply(transformation, role='driver', targets=('kernel', 'some_const'), recurse_to_contained_nodes=True)
+        kernel.apply(transformation, role='kernel')
+        driver.apply(transformation, role='driver', targets=('kernel', 'some_const'))
 
     # Check that the global variable declaration remains unchanged
     assert kernel.modules[0].variables[0].name == 'some_const'
@@ -276,7 +276,7 @@ END SUBROUTINE kernel
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+        scheduler.process(transformation, use_file_graph=True)
 
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
@@ -287,7 +287,7 @@ END SUBROUTINE kernel
 
         # Because the renaming is intended to also wrap the kernel in a module,
         # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-        kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+        kernel.apply(transformation, role='kernel')
         driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
@@ -354,7 +354,7 @@ END SUBROUTINE kernel
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+        scheduler.process(transformation, use_file_graph=True)
 
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
@@ -365,7 +365,7 @@ END SUBROUTINE kernel
 
         # Because the renaming is intended to also wrap the kernel in a module,
         # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-        kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+        kernel.apply(transformation, role='kernel')
         driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
@@ -437,7 +437,7 @@ END FUNCTION kernel
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
     # Because the renaming is intended to also wrap the kernel in a module,
     # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    kernel.apply(transformation, role='kernel')
     driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
@@ -507,7 +507,7 @@ END FUNCTION kernel
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
     # Because the renaming is intended to also wrap the kernel in a module,
     # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-    kernel.apply(transformation, role='kernel', recurse_to_contained_nodes=True)
+    kernel.apply(transformation, role='kernel')
     driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
@@ -589,7 +589,7 @@ END SUBROUTINE driver
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True, recurse_to_contained_nodes=True)
+        scheduler.process(transformation, use_file_graph=True)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['#driver'].source
@@ -599,7 +599,7 @@ END SUBROUTINE driver
 
         # Because the renaming is intended to be applied to the routines as well as the enclosing module,
         # we need to invoke the transformation on the full source file and activate recursion to contained nodes
-        kernel.apply(transformation, role='kernel', targets=('set_a', 'get_b'), recurse_to_contained_nodes=True)
+        kernel.apply(transformation, role='kernel', targets=('set_a', 'get_b'))
         driver['driver'].apply(transformation, role='driver', targets=('kernel', 'some_const'))
 
     # Check that calls and matching import have been diverted to the re-generated routine
