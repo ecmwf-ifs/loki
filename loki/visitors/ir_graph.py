@@ -20,7 +20,6 @@ try:
 except ImportError:
     HAVE_IR_GRAPH = False
 
-from loki.logging import error
 from loki.tools import JoinableStringList, is_iterable, as_tuple
 from loki.visitors.visitor import Visitor
 
@@ -339,7 +338,7 @@ def ir_graph(
     """
 
     if not HAVE_IR_GRAPH:
-        error("ir_graph is not available.")
+        raise ImportError("ir_graph is not available.")
 
     log = "[Loki::Graph Visualization] Created graph visualization in {:.2f}s"
 
