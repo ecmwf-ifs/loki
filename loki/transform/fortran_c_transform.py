@@ -56,6 +56,13 @@ class FortranCTransformation(Transformation):
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
 
+    def transform_file(self, sourcefile, **kwargs):
+        for module in sourcefile.modules:
+            self.transform_module(module, **kwargs)
+
+        for routine in sourcefile.subroutines:
+            self.transform_subroutine(routine, **kwargs)
+
     def transform_module(self, module, **kwargs):
         path = Path(kwargs.get('path'))
         role = kwargs.get('role', 'kernel')
@@ -73,6 +80,9 @@ class FortranCTransformation(Transformation):
             c_header = self.generate_c_header(module)
             self.c_path = (path/c_header.name.lower()).with_suffix('.h')
             Sourcefile.to_file(source=cgen(c_header), path=self.c_path)
+
+        for routine in module.subroutines:
+            self.transform_subroutine(routine, **kwargs)
 
     def transform_subroutine(self, routine, **kwargs):
         path = Path(kwargs.get('path'))

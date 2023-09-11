@@ -332,7 +332,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel')
+    kernel.apply(dependency, role='kernel', targets=())
     kernel.write(path=Path(out_path)/kernel.path.with_suffix('.c.F90').name)
 
     # Re-generate the driver that mimicks the original source file,

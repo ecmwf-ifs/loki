@@ -144,7 +144,7 @@ class DependencyTransformation(Transformation):
             if all(item.role == 'kernel' for item in items):
                 role = 'kernel'
 
-        if not targets and items:
+        if targets is None and items:
             # We collect the targets for file/module-level imports from all items
             targets = [target for item in items for target in item.targets]
 
