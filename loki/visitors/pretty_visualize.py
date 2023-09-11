@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 """
-Pretty-Graph-Visualizer classes for IR
+GraphCollector classes for IR
 """
 
 from itertools import chain
@@ -15,19 +15,19 @@ from codetiming import Timer
 try:
     from graphviz import Digraph, nohtml
 
-    HAVE_PRETTY_VISUALIZE = True
+    HAVE_IR_GRAPH = True
     """Indicate wheater the graphviz package is available."""
 except ImportError:
-    HAVE_PRETTY_VISUALIZE = False
+    HAVE_IR_GRAPH = False
 
 from loki.logging import error
 from loki.tools import JoinableStringList, is_iterable, as_tuple
 from loki.visitors.visitor import Visitor
 
-__all__ = ["HAVE_PRETTY_VISUALIZE", "Visualizer", "pretty_visualize"]
+__all__ = ["HAVE_IR_GRAPH", "GraphCollector", "ir_graph"]
 
 
-class Visualizer(Visitor):
+class GraphCollector(Visitor):
     """
     Convert a given IR tree to a node and edge list via the visit mechanism.
 
@@ -322,11 +322,11 @@ class Visualizer(Visitor):
         return node_edge_info
 
 
-def pretty_visualize(
+def ir_graph(
     ir, linewidth=40, symgen=str, show_comments=False, show_expressions=False
 ):
     """
-    Pretty-print the given IR using :class:`Visualizer`.
+    Pretty-print the given IR using :class:`GraphCollector`.
 
     Parameters
     ----------
@@ -338,14 +338,14 @@ def pretty_visualize(
         Whether to further expand expressions in the output
     """
 
-    if not HAVE_PRETTY_VISUALIZE:
-        error("pretty_visualize is not available.")
+    if not HAVE_IR_GRAPH:
+        error("ir_graph is not available.")
 
     log = "[Loki::Graph Visualization] Created graph visualization in {:.2f}s"
 
     with Timer(text=log):
-        visualizer = Visualizer(linewidth, symgen, show_comments, show_expressions)
-        node_edge_info = [item for item in visualizer.visit(ir) if item is not None]
+        graph_representation = GraphCollector(linewidth, symgen, show_comments, show_expressions)
+        node_edge_info = [item for item in graph_representation.visit(ir) if item is not None]
 
         graph = Digraph()
         graph.attr(rankdir="LR")

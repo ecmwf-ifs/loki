@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from conftest import graphviz_present
 from loki import Sourcefile
-from loki.visitors.pretty_visualize import pretty_visualize, Visualizer
+from loki.visitors.pretty_visualize import ir_graph, GraphCollector
 
 
 @pytest.fixture(scope="module", name="here")
@@ -188,16 +188,16 @@ def get_property(node_edge_info, name):
 @pytest.mark.parametrize("test_file", test_files)
 @pytest.mark.parametrize("show_comments", [True, False])
 @pytest.mark.parametrize("show_expressions", [True, False])
-def test_visualizer_node_edge_count_only(
+def test_graph_collector_node_edge_count_only(
     here, test_file, show_comments, show_expressions
 ):
     solution = solutions_node_edge_counts[test_file]
     source = Sourcefile.from_file(here / test_file)
 
-    visualizer = Visualizer(
+    graph_collector = GraphCollector(
         show_comments=show_comments, show_expressions=show_expressions
     )
-    node_edge_info = [item for item in visualizer.visit(source.ir) if item is not None]
+    node_edge_info = [item for item in graph_collector.visit(source.ir) if item is not None]
 
     node_names = [name for (name, _) in get_property(node_edge_info, "name")]
     node_labels = [label for (label, _) in get_property(node_edge_info, "label")]
@@ -219,12 +219,12 @@ def test_visualizer_node_edge_count_only(
 
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
-def test_visualizer_detail(here, test_file):
+def test_graph_collector_detail(here, test_file):
     solution = solutions_default_parameters[test_file]
     source = Sourcefile.from_file(here / test_file)
 
-    visualizer = Visualizer()
-    node_edge_info = [item for item in visualizer.visit(source.ir) if item is not None]
+    graph_collector = GraphCollector()
+    node_edge_info = [item for item in graph_collector.visit(source.ir) if item is not None]
 
     node_names = [name for (name, _) in get_property(node_edge_info, "name")]
     node_labels = [label for (label, _) in get_property(node_edge_info, "label")]
@@ -246,13 +246,13 @@ def test_visualizer_detail(here, test_file):
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
 @pytest.mark.parametrize("linewidth", [40, 60, 80])
-def test_visualizer_maximum_label_length(here, test_file, linewidth):
+def test_graph_collector_maximum_label_length(here, test_file, linewidth):
     source = Sourcefile.from_file(here / test_file)
 
-    visualizer = Visualizer(
+    graph_collector = GraphCollector(
         show_comments=True, show_expressions=True, linewidth=linewidth
     )
-    node_edge_info = [item for item in visualizer.visit(source.ir) if item is not None]
+    node_edge_info = [item for item in graph_collector.visit(source.ir) if item is not None]
     node_labels = [label for (label, _) in get_property(node_edge_info, "label")]
 
     for label in node_labels:
@@ -281,11 +281,11 @@ def find_label_content_inside_nodes(input_text):
 
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
-def test_pretty_visualize_writes_correct_graphs(here, test_file):
+def test_ir_graph_writes_correct_graphs(here, test_file):
     solution = solutions_default_parameters[test_file]
     source = Sourcefile.from_file(here / test_file)
 
-    graph = pretty_visualize(source.ir)
+    graph = ir_graph(source.ir)
 
     edges = find_edges(str(graph))
 
