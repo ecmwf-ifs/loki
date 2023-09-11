@@ -171,7 +171,7 @@ class Node:
         Get the IR graph to visualize the node hierachy under this node.
         """
         # pylint: disable=import-outside-toplevel,cyclic-import
-        from loki.visitors.pretty_visualize import ir_graph
+        from loki.visitors.ir_graph import ir_graph
 
         return ir_graph(self, show_comments, show_expressions)
 
