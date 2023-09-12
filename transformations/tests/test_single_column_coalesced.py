@@ -11,7 +11,8 @@ from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
     fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
-    is_loki_pragma, IntLiteral, RangeIndex, Comment, HoistTemporaryArraysAnalysis
+    is_loki_pragma, IntLiteral, RangeIndex, Comment, HoistTemporaryArraysAnalysis,
+    gettempdir, Scheduler, SchedulerConfig
 )
 from conftest import available_frontends
 from transformations import (
@@ -404,6 +405,194 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     assert kernel.variable_map['t'].type.intent.lower() == 'inout'
     assert kernel.variable_map['t'].type.shape == ('nlon', 'nz')
     assert driver.variable_map['compute_column_t'].dimensions == ('nlon', 'nz', 'nb')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_hoist_multiple_kernels_loops(frontend, horizontal, vertical, blocking):
+    """
+    Test hoisting of column temporaries to "driver" level.
+    """
+
+    fcode_driver = """
+  SUBROUTINE driver(nlon, nz, q, nb)
+    use kernel_mod, only: kernel
+    implicit none
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    REAL                  :: c, tmp(nlon,nz,nb)
+    INTEGER :: b, jk, jl, start, end
+
+    tmp = 0.0
+
+    do b=1, nb
+      !$loki driver-loop
+      end = nlon - nb
+      !$loki separator
+      do jk = 2, nz
+        do jl = start, end
+          q(jl, jk, b) = 2.0 * jk * jl
+        end do
+      end do
+    end do
+
+    do b=2, nb
+      end = nlon - nb
+      call kernel(start, end, nlon, nz, q(:,:,b))
+
+      DO jk = 2, nz
+        DO jl = start, end
+          tmp(jl, jk, b) = 2.0 * jk * jl
+          q(jl, jk, b) = q(jl, jk-1, b) * c + tmp(jl, jk, b)
+        END DO
+      END DO
+
+      ! A second call, to check multiple calls are honored
+      call kernel(start, end, nlon, nz, q(:,:,b))
+
+      DO jk = 2, nz
+        DO jl = start, end
+          q(jl, jk, b) = (-1.0) * q(jl, jk, b)
+        END DO
+      END DO
+    end do
+
+    do b=3, nb
+      !$loki driver-loop
+      end = nlon - nb
+      !$loki separator
+      do jk = 2, nz
+        do jl = start, end
+          q(jl, jk, b) = 2.0 * jk * jl
+        end do
+      end do
+    end do
+  END SUBROUTINE driver
+""".strip()
+
+    fcode_kernel = """
+MODULE kernel_mod
+implicit none
+CONTAINS
+  SUBROUTINE kernel(start, end, nlon, nz, q)
+    implicit none
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: t(nlon,nz)
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = start, end
+        t(jl, jk) = c * k
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+  END SUBROUTINE kernel
+END MODULE kernel_mod
+""".strip()
+
+    basedir = gettempdir() / 'test_pool_allocator_args_vs_kwargs'
+    basedir.mkdir(exist_ok=True)
+    (basedir / 'driver.F90').write_text(fcode_driver)
+    (basedir / 'kernel.F90').write_text(fcode_kernel)
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True
+        },
+        'routine': [{
+            'name': 'driver',
+            'role': 'driver'
+        }]
+    }
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+
+    driver = scheduler.item_map["#driver"].routine
+    kernel = scheduler.item_map["kernel_mod#kernel"].routine
+
+    transformation = (SCCBaseTransformation(horizontal=horizontal, directive='openacc'),)
+    transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=False),)
+    transformation += (SCCDemoteTransformation(horizontal=horizontal),)
+    transformation += (SCCRevectorTransformation(horizontal=horizontal),)
+    transformation += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
+                                                 directive='openacc', block_dim=blocking,
+                                                 hoist_column_arrays=False),)
+    for transform in transformation:
+        scheduler.process(transformation=transform)
+
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 2
+    assert kernel_loops[0].variable == 'jl'
+    assert kernel_loops[0].bounds == 'start:end'
+    assert kernel_loops[1].variable == 'jk'
+    assert kernel_loops[1].bounds == '2:nz'
+
+    driver_loops = FindNodes(Loop).visit(driver.body)
+    driver_loop_pragmas = [pragma for pragma in FindNodes(Pragma).visit(driver.body) if pragma.keyword.lower() == 'acc']
+    assert len(driver_loops) == 11
+    assert len(driver_loop_pragmas) == 14
+    assert "parallel loop gang vector_length" in driver_loop_pragmas[0].content.lower()
+    assert "loop vector" in driver_loop_pragmas[1].content.lower()
+    assert "loop seq" in driver_loop_pragmas[2].content.lower()
+    assert "end parallel loop" in driver_loop_pragmas[3].content.lower()
+    assert "parallel loop gang vector_length" in driver_loop_pragmas[4].content.lower()
+    assert "loop vector" in driver_loop_pragmas[5].content.lower()
+    assert "loop seq" in driver_loop_pragmas[6].content.lower()
+    assert "loop vector" in driver_loop_pragmas[7].content.lower()
+    assert "loop seq" in driver_loop_pragmas[8].content.lower()
+    assert "end parallel loop" in driver_loop_pragmas[9].content.lower()
+    assert "parallel loop gang vector_length" in driver_loop_pragmas[10].content.lower()
+    assert "loop vector" in driver_loop_pragmas[11].content.lower()
+    assert "loop seq" in driver_loop_pragmas[12].content.lower()
+    assert "end parallel loop" in driver_loop_pragmas[13].content.lower()
+
+    assert driver_loops[1] in FindNodes(Loop).visit(driver_loops[0].body)
+    assert driver_loops[2] in FindNodes(Loop).visit(driver_loops[0].body)
+    assert driver_loops[0].variable == 'b'
+    assert driver_loops[0].bounds == '1:nb'
+    assert driver_loops[1].variable == 'jl'
+    assert driver_loops[1].bounds == 'start:end'
+    assert driver_loops[2].variable == 'jk'
+    assert driver_loops[2].bounds == '2:nz'
+
+    assert driver_loops[4] in FindNodes(Loop).visit(driver_loops[3].body)
+    assert driver_loops[5] in FindNodes(Loop).visit(driver_loops[3].body)
+    assert driver_loops[6] in FindNodes(Loop).visit(driver_loops[3].body)
+    assert driver_loops[7] in FindNodes(Loop).visit(driver_loops[3].body)
+    kernel_calls = FindNodes(CallStatement).visit(driver_loops[3])
+    assert len(kernel_calls) == 2
+    assert kernel_calls[0].name == 'kernel'
+    assert kernel_calls[1].name == 'kernel'
+
+    assert driver_loops[3].variable == 'b'
+    assert driver_loops[3].bounds == '2:nb'
+    assert driver_loops[4].variable == 'jl'
+    assert driver_loops[4].bounds == 'start:end'
+    assert driver_loops[5].variable == 'jk'
+    assert driver_loops[5].bounds == '2:nz'
+    assert driver_loops[6].variable == 'jl'
+    assert driver_loops[6].bounds == 'start:end'
+    assert driver_loops[7].variable == 'jk'
+    assert driver_loops[7].bounds == '2:nz'
+
+    assert driver_loops[9] in FindNodes(Loop).visit(driver_loops[8].body)
+    assert driver_loops[10] in FindNodes(Loop).visit(driver_loops[8].body)
+    assert driver_loops[8].variable == 'b'
+    assert driver_loops[8].bounds == '3:nb'
+    assert driver_loops[9].variable == 'jl'
+    assert driver_loops[9].bounds == 'start:end'
+    assert driver_loops[10].variable == 'jk'
+    assert driver_loops[10].bounds == '2:nz'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

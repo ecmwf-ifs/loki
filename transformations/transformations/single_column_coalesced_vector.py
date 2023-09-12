@@ -73,8 +73,11 @@ class SCCDevectorTransformation(Transformation):
         _scope_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
 
         # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
-        separator_nodes = []
         calls = FindNodes(ir.CallStatement).visit(section)
+        pragmas = [pragma for pragma in FindNodes(ir.Pragma).visit(section) if pragma.keyword.lower() == "loki" and
+                   pragma.content.lower() == "separator"]
+        separator_nodes = pragmas
+
         for call in calls:
 
             # check if calls have been enriched
@@ -164,9 +167,12 @@ class SCCDevectorTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
         role = kwargs['role']
+        targets = kwargs.get('targets', ())
 
         if role == 'kernel':
             self.process_kernel(routine)
+        if role == "driver":
+            self.process_driver(routine, targets=targets)
 
     def process_kernel(self, routine):
         """
@@ -192,6 +198,67 @@ class SCCDevectorTransformation(Transformation):
         # Replace sections with marked Section node
         section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
         routine.body = NestedTransformer(section_mapper).visit(routine.body)
+
+    def process_driver(self, routine, targets=()):
+        """
+        Applies the SCCDevector utilities to a "driver". This consists simply
+        of stripping vector loops and determining which sections of the IR can be
+        placed within thread-parallel loops.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
+
+        driver_loop_map = {}
+        driver_loops = []
+        new_driver_loops = []
+        for call in FindNodes((ir.CallStatement, ir.Pragma)).visit(routine.body):
+            if isinstance(call, ir.CallStatement):
+                if call.name not in targets:
+                    continue
+            else:
+                if "loki" not in call.keyword.lower() or "driver-loop" not in call.content.lower():
+                    continue
+
+            # Find the driver loop by checking the call's heritage
+            ancestors = flatten(FindScopes(call).visit(routine.body))
+            loops = [a for a in ancestors if isinstance(a, ir.Loop)]
+            if not loops:
+                # Skip if there are no driver loops
+                continue
+            driver_loop = loops[0]
+            kernel_loop = [l for l in loops if l.variable == self.horizontal.index]
+            if kernel_loop:
+                kernel_loop = kernel_loop[0]
+
+            assert not driver_loop == kernel_loop
+            driver_loops.append(driver_loop)
+
+            loop_map = {}
+            for loop in FindNodes(ir.Loop).visit(driver_loop.body):
+                if loop.variable == self.horizontal.index:
+                    loop_map[loop] = loop.body
+            new_driver_loop = Transformer(loop_map).visit(driver_loop.body)
+            new_driver_loop = driver_loop.clone(body=new_driver_loop)
+            new_driver_loops.append(new_driver_loop)
+            driver_loop_map[driver_loop] = new_driver_loop
+
+        routine.body = Transformer(driver_loop_map).visit(routine.body)
+
+        driver_loop_map = {}
+        for driver_loop in new_driver_loops:
+            # Extract vector-level compute sections from the kernel
+            sections = self.extract_vector_sections(driver_loop.body, self.horizontal)
+            # Replace sections with marked Section node
+            section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
+            new_driver_loop = NestedTransformer(section_mapper).visit(driver_loop)
+            driver_loop_map[driver_loop] = new_driver_loop
+        routine.body = Transformer(driver_loop_map).visit(routine.body)
 
 
 class SCCRevectorTransformation(Transformation):
@@ -250,7 +317,7 @@ class SCCRevectorTransformation(Transformation):
         """
         role = kwargs['role']
 
-        if role == 'kernel':
+        if role in ('kernel', 'driver'):
             self.process_kernel(routine)
 
     def process_kernel(self, routine):
