@@ -107,7 +107,7 @@ def cli(debug):
               help="Remove derived-type arguments and replace with canonical arguments")
 @click.option('--inline-members/--no-inline-members', default=False,
               help='Inline member functions for SCC-class transformations.')
-@click.option('--argument-array-shape/--no-argument-array-shape', default=True,
+@click.option('--argument-array-shape/--no-argument-array-shape', default=False,
               help="Recursively derive explicit shape dimension for argument arrays")
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,

@@ -182,7 +182,8 @@ endmacro()
 #       [OMNI_INCLUDE <omni-inc1> [<omni-inc2> ...]]
 #       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
 #       [REMOVE_OPENMP] [DATA_OFFLOAD] [GLOBAL_VAR_OFFLOAD]
-#       [TRIM_VECTOR_SECTIONS] [REMOVE_DERIVED_ARGS] [INLINE_MEMBERS]
+#       [TRIM_VECTOR_SECTIONS] [REMOVE_DERIVED_ARGS]
+#       [INLINE_MEMBERS] [ARGUMENT_ARRAY_SHAPE]
 #   )
 #
 # Call ``loki-transform.py convert ...`` with the provided arguments.
@@ -257,6 +258,10 @@ function( loki_transform_convert )
 
     if( ${_PAR_INLINE_MEMBERS} )
         list( APPEND _ARGS --inline-members )
+    endif()
+
+    if( ${_PAR_ARGUMENT_ARRAY_SHAPE} )
+        list( APPEND _ARGS --argument-array-shape )
     endif()
 
     _loki_transform_env_setup()
