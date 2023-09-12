@@ -107,10 +107,12 @@ def cli(debug):
               help="Remove derived-type arguments and replace with canonical arguments")
 @click.option('--inline-members/--no-inline-members', default=False,
               help='Inline member functions for SCC-class transformations.')
+@click.option('--argument-array-shape/--no-argument-array-shape', default=True,
+              help="Recursively derive explicit shape dimension for argument arrays")
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
-        global_var_offload, remove_derived_args, inline_members
+        global_var_offload, remove_derived_args, inline_members, argument_array_shape
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -173,6 +175,11 @@ def convert(
         ))
     else:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
+
+    # Backward insert argument shapes (for surface routines)
+    if argument_array_shape:
+        scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+        scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
