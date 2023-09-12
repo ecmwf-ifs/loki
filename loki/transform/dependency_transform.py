@@ -206,10 +206,10 @@ class DependencyTransformation(Transformation):
             calls = ()
             for routine in source.subroutines:
                 calls += as_tuple(str(c.name).upper() for c in FindNodes(CallStatement).visit(routine.body))
-                calls += as_tuple(str(c).upper() for c in FindInlineCalls().visit(routine.body))
+                calls += as_tuple(str(c.name).upper() for c in FindInlineCalls().visit(routine.body))
         else:
             calls = as_tuple(str(c.name).upper() for c in FindNodes(CallStatement).visit(source.body))
-            calls += as_tuple(str(c).upper() for c in FindInlineCalls().visit(source.body))
+            calls += as_tuple(str(c.name).upper() for c in FindInlineCalls().visit(source.body))
 
         # Import statements still point to unmodified call names
         calls = [call.replace(f'{self.suffix.upper()}', '') for call in calls]
