@@ -16,8 +16,8 @@ from transformations import DataOffloadTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('deviceptr', [True, False])
-def test_data_offload_region_openacc(frontend, deviceptr):
+@pytest.mark.parametrize('assume_deviceptr', [True, False])
+def test_data_offload_region_openacc(frontend, assume_deviceptr):
     """
     Test the creation of a simple device data offload region
     (`!$acc update`) from a `!$loki data` region with a single
@@ -57,12 +57,12 @@ def test_data_offload_region_openacc(frontend, deviceptr):
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
     driver.enrich_calls(kernel)
 
-    driver.apply(DataOffloadTransformation(deviceptr=deviceptr), role='driver', targets=['kernel_routine'])
+    driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr), role='driver', targets=['kernel_routine'])
 
     pragmas = FindNodes(Pragma).visit(driver.body)
     assert len(pragmas) == 2
     assert all(p.keyword == 'acc' for p in pragmas)
-    if deviceptr:
+    if assume_deviceptr:
         assert 'deviceptr' in pragmas[0].content
         params = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)
         assert all(var in params['deviceptr'] for var in ('a', 'b', 'c'))

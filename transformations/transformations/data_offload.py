@@ -27,9 +27,9 @@ class DataOffloadTransformation(Transformation):
     ----------
     remove_openmp : bool
         Remove any existing OpenMP pragmas inside the marked region.
-    deviceptr : bool
+    assume_deviceptr : bool
         Mark all offloaded arrays as true device-pointers if data offload
-        is being managed outside of structured Openacc data regions.
+        is being managed outside of structured OpenACC data regions.
     """
 
     def __init__(self, **kwargs):
@@ -37,7 +37,7 @@ class DataOffloadTransformation(Transformation):
         # that down-stream processing can use that info
         self.has_data_regions = False
         self.remove_openmp = kwargs.get('remove_openmp', False)
-        self.deviceptr = kwargs.get('deviceptr', False)
+        self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -138,11 +138,13 @@ class DataOffloadTransformation(Transformation):
                 inoutargs = tuple(dict.fromkeys(inoutargs))
 
                 # Now geenerate the pre- and post pragmas (OpenACC)
-                if self.deviceptr:
-                    deviceptr = ''
-                    if inargs+outargs+inoutargs:
-                        deviceptr = f'deviceptr({", ".join(inargs+outargs+inoutargs)})'
-                    pragma = Pragma(keyword='acc', content=f'data {deviceptr}')
+                if self.assume_deviceptr:
+                    offload_args = inargs + outargs + inoutargs
+                    if offload_args:
+                        deviceptr = f' deviceptr({", ".join(offload_args)})'
+                    else:
+                        deviceptr = ''
+                    pragma = Pragma(keyword='acc', content=f'data{deviceptr}')
                 else:
                     copyin = f'copyin({", ".join(inargs)})' if inargs else ''
                     copy = f'copy({", ".join(inoutargs)})' if inoutargs else ''
