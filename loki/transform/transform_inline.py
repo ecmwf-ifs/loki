@@ -218,10 +218,19 @@ def inline_member_routine(routine, member):
         For example, mapping the passed array ``m(:,j)`` to the local
         expression ``a(i)`` yields ``m(i,j)``.
         """
-        val_free_dims = tuple(d for d in val.dimensions if isinstance(d, sym.Range))
-        var_bound_dims = tuple(d for d in var.dimensions if not isinstance(d, sym.Range))
-        mapper = SubstituteExpressionsMapper(dict(zip(val_free_dims, var_bound_dims)))
-        return mapper(val)
+        new_dimensions = list(val.dimensions)
+
+        indices = [index for index, dim in enumerate(val.dimensions) if isinstance(dim, sym.Range)]
+
+        for index, dim in enumerate(var.dimensions):
+            new_dimensions[indices[index]] = dim
+
+        original_symbol = sym.ArraySubscript(val.symbol, val.dimensions)
+        new_symbol = sym.ArraySubscript(val.symbol, tuple(new_dimensions) )
+
+        mapper = SubstituteExpressionsMapper({original_symbol:new_symbol})
+
+        return mapper(original_symbol)
 
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(member.spec)
