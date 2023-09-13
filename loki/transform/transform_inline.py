@@ -20,6 +20,7 @@ from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
 from loki.logging import warning
+from loki.transform import recursive_expression_map_update
 
 
 __all__ = [
@@ -261,6 +262,9 @@ def inline_member_routine(routine, member):
                     argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
                 else:
                     argmap[arg] = val
+
+            # Recursive update of the map in case of nested variables to map
+            argmap = recursive_expression_map_update(argmap, max_iterations=10)
 
             # Substitute argument calls into a copy of the body
             member_body = SubstituteExpressions(argmap).visit(member.body.body)
