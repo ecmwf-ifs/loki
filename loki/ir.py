@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain
 from typing import Any, Tuple, Union
+from uuid import uuid4
 
 from pymbolic.primitives import Expression
 
@@ -81,10 +82,10 @@ class Node:
 
     source: Union[Source, str] = None
     label: str = None
-
     _traversable = []
 
     def __post_init__(self):
+        object.__setattr__(self, '_uid', uuid4())
         # Create private placeholders for dataflow analysis fields that
         # do not show up in the dataclass field definitions, as these
         # are entirely transient.
