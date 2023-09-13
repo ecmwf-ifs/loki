@@ -20,6 +20,9 @@ from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
+from loki.logging import error
+
+import sys
 
 
 __all__ = [
@@ -259,6 +262,23 @@ def inline_member_routine(routine, member):
 
             # Substitute argument calls into a copy of the body
             member_body = SubstituteExpressions(argmap).visit(member.body.body)
+
+            # Recurse for nested variables replacements
+            test = True
+            arg_names = [a.name for a in argmap]
+            depth = 0
+            while(test) :
+                depth += 1
+                test = False
+                for var in FindVariables().visit(member_body):
+                    if var.name in arg_names:
+                        test=True                   
+                if test:
+                    member_body = SubstituteExpressions(argmap).visit(member_body)
+
+                if depth > 10:
+                    error(f'Too many recursions while inlining routine {routine.name}')
+                    sys.exit(1)
 
             # Inline substituted body within a pair of marker comments
             comment = Comment(f'! [Loki] inlined member subroutine: {member.name}')
