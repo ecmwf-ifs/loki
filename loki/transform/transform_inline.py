@@ -210,15 +210,22 @@ def inline_member_routine(routine, member):
     def _map_unbound_dims(var, val):
         """
         Maps all unbound dimension ranges in the passed array value `val` with the
-        indices from the local variable `var`. It returns the re-mapped symbol.
+        indices from the local variable `var`.  It returns the updated tuple of dimensions.
 
         For example, mapping the passed array `m(:,j)` to the local
         expression `a(i)` yields `m(i,j)`.
         """
-        val_free_dims = tuple(d for d in val.dimensions if isinstance(d, sym.Range))
-        var_bound_dims = tuple(d for d in var.dimensions if not isinstance(d, sym.Range))
-        mapper = SubstituteExpressionsMapper(dict(zip(val_free_dims, var_bound_dims)))
-        return mapper(val)
+        new_dimensions = list(val.dimensions)
+        indices = []
+        for index, dim in enumerate(val.dimensions):
+            if isinstance(dim, sym.Range):
+                indices.append(index)
+
+        for index, dim in enumerate(var.dimensions):
+            new_dimensions[indices[index]] = dim
+
+        return tuple(new_dimensions)
+
 
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(member.spec)
@@ -246,7 +253,7 @@ def inline_member_routine(routine, member):
                             dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
                         )
                     arg_vars = tuple(v for v in member_vars if v.name == arg.name)
-                    argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
+                    argmap.update((v, val.clone(dimensions = _map_unbound_dims(v, qualified_value))) for v in arg_vars)
                 else:
                     argmap[arg] = val
 
