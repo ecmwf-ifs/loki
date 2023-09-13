@@ -1058,6 +1058,7 @@ class Comment(LeafNode, _CommentBase):
     """
 
     def __post_init__(self):
+        super().__post_init__()
         assert isinstance(self.text, str)
 
     def __repr__(self):
