@@ -10,9 +10,10 @@ Collection of utility routines to perform code-level force-inlining.
 
 
 """
+import sys
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, SubstituteExpressionsMapper, LokiIdentityMapper
+    SubstituteExpressions, LokiIdentityMapper
 )
 from loki.ir import Import, Comment, Assignment, VariableDeclaration, CallStatement
 from loki.expression import symbols as sym
@@ -22,7 +23,6 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple
 from loki.logging import error
 
-import sys
 
 
 __all__ = [
@@ -267,12 +267,12 @@ def inline_member_routine(routine, member):
             test = True
             arg_names = [a.name for a in argmap]
             depth = 0
-            while(test) :
+            while test :
                 depth += 1
                 test = False
                 for var in FindVariables().visit(member_body):
                     if var.name in arg_names:
-                        test=True                   
+                        test=True
                 if test:
                     member_body = SubstituteExpressions(argmap).visit(member_body)
 
