@@ -307,11 +307,11 @@ def attach_dataflow_analysis(module_or_routine):
         )
 
     if hasattr(module_or_routine, 'spec'):
-        module_or_routine.spec = DataflowAnalysisAttacher().visit(module_or_routine.spec, live_symbols=live_symbols)
+        DataflowAnalysisAttacher().visit(module_or_routine.spec, live_symbols=live_symbols)
         live_symbols |= module_or_routine.spec.defines_symbols
 
     if hasattr(module_or_routine, 'body'):
-        module_or_routine.body = DataflowAnalysisAttacher().visit(module_or_routine.body, live_symbols=live_symbols)
+        DataflowAnalysisAttacher().visit(module_or_routine.body, live_symbols=live_symbols)
 
 
 def detach_dataflow_analysis(module_or_routine):
@@ -321,9 +321,9 @@ def detach_dataflow_analysis(module_or_routine):
     Accessing the relevant attributes afterwards raises :py:class:`RuntimeError`.
     """
     if hasattr(module_or_routine, 'spec'):
-        module_or_routine.spec = DataflowAnalysisDetacher().visit(module_or_routine.spec)
+        DataflowAnalysisDetacher().visit(module_or_routine.spec)
     if hasattr(module_or_routine, 'body'):
-        module_or_routine.body = DataflowAnalysisDetacher().visit(module_or_routine.body)
+        DataflowAnalysisDetacher().visit(module_or_routine.body)
 
 
 @contextmanager
