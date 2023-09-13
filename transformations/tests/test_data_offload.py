@@ -57,7 +57,8 @@ def test_data_offload_region_openacc(frontend, assume_deviceptr):
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
     driver.enrich_calls(kernel)
 
-    driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr), role='driver', targets=['kernel_routine'])
+    driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr), role='driver',
+                 targets=['kernel_routine'])
 
     pragmas = FindNodes(Pragma).visit(driver.body)
     assert len(pragmas) == 2
