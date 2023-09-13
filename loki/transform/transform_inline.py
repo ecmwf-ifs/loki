@@ -241,9 +241,13 @@ def inline_member_routine(routine, member):
                 if isinstance(arg, sym.Array):
                     # Resolve implicit dimension ranges of the passed value,
                     # eg. when passing a two-dimensional array `a` as `call(arg=a)`
-                    qualified_value = val if val.dimensions else val.clone(
-                        dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
-                    )
+                    # Check if val is a DeferredTypeSymbol, as it does not have a `dimensions` attribute
+                    if not isinstance(val, sym.DeferredTypeSymbol) and val.dimensions:
+                        qualified_value = val
+                    else:
+                        qualified_value = val.clone(
+                            dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
+                        )
                     arg_vars = tuple(v for v in member_vars if v.name == arg.name)
                     argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
                 else:
