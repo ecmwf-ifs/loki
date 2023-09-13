@@ -5,12 +5,16 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from pathlib import Path
 import pytest
 
 from conftest import available_frontends
-from loki import CallStatement, FindNodes, OMNI, Subroutine
+from loki import CallStatement, FindNodes, OMNI, Subroutine, Scheduler, Sourcefile, flatten
 from transformations import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_argument_shape_simple(frontend):
@@ -353,3 +357,66 @@ def test_argument_shape_transformation(frontend):
         assert (v, v) in FindNodes(CallStatement).visit(kernel_a2.body)[0].kwarguments
         assert (v, v) in FindNodes(CallStatement).visit(driver.body)[0].kwarguments
         assert (v, v) in FindNodes(CallStatement).visit(driver.body)[1].kwarguments
+
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI module type definitions not available')]))
+def test_argument_shape_transformation_import(frontend, here):
+    """
+    Test that ensures that explicit argument shapes are indeed inserted
+    in a multi-layered call tree.
+    """
+
+    config = {
+         'default': {
+             'mode': 'idem',
+             'role': 'kernel',
+             'expand': True,
+             'strict': True
+         },
+         'routine': [{
+             'name': 'driver',
+             'role': 'driver'
+         }]
+    }
+
+    header = [here/'sources/projArgShape/var_module_mod.F90']
+    frontend_type = frontend
+    headers = [Sourcefile.from_file(filename=h, frontend=frontend_type) for h in header]
+    definitions = flatten(h.modules for h in headers)
+    scheduler = Scheduler(paths=here/'sources/projArgShape', config=config, frontend=frontend,
+                          definitions=definitions)
+    scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+    scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
+
+    item_map = {item.name: item for item in scheduler.items}
+    driver = item_map['driver_mod#driver'].source['driver']
+    kernel_a = item_map['kernel_a_mod#kernel_a'].source['kernel_a']
+    kernel_a1 = item_map['kernel_a1_mod#kernel_a1'].source['kernel_a1']
+    kernel_b = item_map['kernel_b_mod#kernel_b'].source['kernel_b']
+
+    # Check that argument shapes have been applied
+    assert kernel_a.arguments[0].dimensions == ('nlon',)
+    assert kernel_a.arguments[1].dimensions == ('nlon', 'nlev')
+    assert kernel_a.arguments[2].dimensions == ('nlon', 'n')
+    assert 'nlon' in kernel_a.arguments
+    assert 'nlon' in kernel_a.arguments
+    assert 'n' not in kernel_a.arguments
+
+    assert kernel_b.arguments[0].dimensions == ('nlon', 'nlev')
+    assert kernel_b.arguments[1].dimensions == ('nlon', 'n')
+    assert 'nlon' in kernel_b.arguments
+    assert 'nlon' in kernel_b.arguments
+    assert 'n' not in kernel_b.arguments
+
+    assert kernel_a1.arguments[0].dimensions == ('nlon', 'nlev')
+    assert kernel_a1.arguments[1].dimensions == ('nlon', 'n')
+    assert 'nlon' in kernel_a1.arguments
+    assert 'nlon' in kernel_a1.arguments
+    assert 'n' in kernel_a1.arguments
+
+    # And finally, check that scalar dimension size variables have been added to calls
+    for v in ('nlon', 'nlev'):
+        assert (v, v) in FindNodes(CallStatement).visit(driver.body)[0].kwarguments
+        assert (v, v) in FindNodes(CallStatement).visit(driver.body)[1].kwarguments
+    for v in ('nlon', 'nlev', 'n'):
+        assert (v, v) in FindNodes(CallStatement).visit(kernel_a.body)[0].kwarguments

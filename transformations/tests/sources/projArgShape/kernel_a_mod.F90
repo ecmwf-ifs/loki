@@ -1,0 +1,14 @@
+MODULE KERNEL_A_MOD
+USE KERNEL_A1_MOD, ONLY: KERNEL_A1
+IMPLICIT NONE
+CONTAINS
+  SUBROUTINE kernel_a(a, b, c)
+    USE VAR_MODULE_MOD, only: n
+    REAL, INTENT(INOUT)   :: a(:)
+    REAL, INTENT(INOUT)   :: b(:,:)
+    REAL, INTENT(INOUT)   :: c(:,:)
+
+    CALL kernel_a1(b, c)
+  END SUBROUTINE kernel_a
+
+END MODULE KERNEL_A_MOD
