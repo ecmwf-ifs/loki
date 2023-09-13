@@ -12,7 +12,6 @@ Loki head script for source-to-source transformations concerning ECMWF
 physics, including "Single Column" (SCA) and CLAW transformations.
 """
 
-import sys
 from pathlib import Path
 import click
 
@@ -29,9 +28,6 @@ from loki.transform import (
 )
 
 # pylint: disable=wrong-import-order
-from transformations.argument_shape import (
-    ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
-)
 from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
@@ -258,12 +254,16 @@ def convert(
     mode = mode.replace('-', '_')  # Sanitize mode string
     dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
                                           mode='module', module_suffix='_MOD')
-    scheduler.process(transformation=dependency)
+    scheduler.process(transformation=dependency, use_file_graph=True)
 
     # Write out all modified source files into the build directory
+    if global_var_offload:
+        item_filter = (SubroutineItem, GlobalVarImportItem)
+    else:
+        item_filter = SubroutineItem
     scheduler.process(
         transformation=FileWriteTransformation(builddir=build, mode=mode, cuf='cuf' in mode),
-        use_file_graph=True
+        use_file_graph=True, item_filter=item_filter
     )
 
 
@@ -318,8 +318,9 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     driver_item = SubroutineItem(f'#{driver_name.lower()}', source=driver)
 
     # First, remove all derived-type arguments; caller first!
-    kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel', item=kernel_item)
-    driver.apply(DerivedTypeArgumentsTransformation(), role='driver', item=driver_item, successors=(kernel_item,))
+    transformation = DerivedTypeArgumentsTransformation()
+    kernel[kernel_name].apply(transformation, role='kernel', item=kernel_item)
+    driver[driver_name].apply(transformation, role='driver', item=driver_item, successors=(kernel_item,))
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation()
@@ -331,7 +332,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel')
+    kernel.apply(dependency, role='kernel', targets=())
     kernel.write(path=Path(out_path)/kernel.path.with_suffix('.c.F90').name)
 
     # Re-generate the driver that mimicks the original source file,

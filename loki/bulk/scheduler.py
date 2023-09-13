@@ -608,10 +608,16 @@ class Scheduler:
         their target :any:`Subroutine`.
         This order can be reversed by setting :data:`reverse` to ``True``.
 
+        The scheduler applies the transformation to the IR node corresponding to
+        each item in the scheduler's graph. For example, for a :any:`SubroutineItem`,
+        the transformation is applied to the corresponding :any:`Subroutine` object.
+
         Optionally, the traversal can be performed on a source file level only,
-        by setting :data:`use_file_graph` to ``True``. Currently, this calls
-        the transformation on the first `item` associated with a file only.
-        In this mode, :data:`item_filter` does not have any effect.
+        by setting :data:`use_file_graph` to ``True``. This calls the
+        transformation on all :any:`Sourcefile` objects that contain at least one
+        object corresponding to an item in the scheduler graph. If combined with
+        a :data:`item_filter`, only source files with at least one object corresponding
+        to an item of that type are processed.
         """
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
@@ -629,7 +635,13 @@ class Scheduler:
             if use_file_graph:
                 for node in traversal:
                     items = graph.nodes[node]['items']
-                    transformation.apply(items[0].source, item=items[0], items=items)
+
+                    if item_filter:
+                        items = [item for item in items if isinstance(item, item_filter)]
+                        if not items:
+                            continue
+
+                    transformation.apply(items[0].source, items=items)
             else:
                 for item in traversal:
                     if item_filter and not isinstance(item, item_filter):
@@ -638,9 +650,16 @@ class Scheduler:
                     # Use entry from item_map to ensure the original item is used in transformation
                     _item = self.item_map[item.name]
 
+                    # Pick out the IR node to which to apply the transformation
+                    # TODO: should this become an Item property?
+                    if isinstance(item, SubroutineItem):
+                        source = _item.routine
+                    else:
+                        source = _item.scope
+
                     # Process work item with appropriate kernel
                     transformation.apply(
-                        _item.source, role=_item.role, mode=_item.mode,
+                        source, role=_item.role, mode=_item.mode,
                         item=_item, targets=_item.targets,
                         successors=self.item_successors(_item), depths=self.depths
                     )

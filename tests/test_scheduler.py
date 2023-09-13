@@ -60,7 +60,7 @@ from loki import (
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
-    Import, Variable, GenericImportItem, GlobalVarImportItem
+    Import, Variable, GenericImportItem, GlobalVarImportItem, flatten
 )
 
 
@@ -1389,9 +1389,8 @@ def test_scheduler_typebound_ignore(here, config, frontend):
     cg_path.with_suffix('.pdf').unlink()
 
 
-@pytest.mark.parametrize('use_file_graph,reverse', [
-    (False, False), (False, True), (True, False), (True, True)
-])
+@pytest.mark.parametrize('use_file_graph', [False, True])
+@pytest.mark.parametrize('reverse', [False, True])
 def test_scheduler_traversal_order(here, config, frontend, use_file_graph, reverse):
     """
     Test correct traversal order for scheduler processing
@@ -1406,12 +1405,13 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
 
     if use_file_graph:
         expected = [
-            'transformation_module_hoist#driver', 'subroutines_mod#kernel1'
+            'driver_mod.f90', 'subroutines_mod.f90'
         ]
     else:
         expected = [
-            'transformation_module_hoist#driver', 'subroutines_mod#kernel1', 'subroutines_mod#kernel2',
-            'subroutines_mod#device1', 'subroutines_mod#device2'
+            'transformation_module_hoist#driver::driver', 'subroutines_mod#kernel1::kernel1',
+            'subroutines_mod#kernel2::kernel2', 'subroutines_mod#device1::device1',
+            'subroutines_mod#device2::device2'
         ]
 
     class LoggingTransformation(Transformation):
@@ -1420,16 +1420,105 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            item = kwargs['item']
-            self.record += [item.name]
+            if 'item' in kwargs:
+                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
+            else:
+                self.record += [sourcefile.path.name]
+
+        def transform_module(self, module, **kwargs):
+            self.record += [kwargs['item'].name + '::' + module.name]
+
+        def transform_subroutine(self, routine, **kwargs):
+            self.record += [kwargs['item'].name + '::' + routine.name]
 
     transformation = LoggingTransformation()
-    scheduler.process(transformation=transformation, reverse=reverse, use_file_graph=use_file_graph)
+    scheduler.process(
+        transformation=transformation, reverse=reverse, use_file_graph=use_file_graph
+    )
 
     if reverse:
-        assert transformation.record == expected[::-1]
+        assert transformation.record == flatten(expected[::-1])
     else:
-        assert transformation.record == expected
+        assert transformation.record == flatten(expected)
+
+
+@pytest.mark.parametrize('use_file_graph', [False, True])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_scheduler_member_routines(config, frontend, use_file_graph, reverse):
+    """
+    Make sure that transformation processing works also for contained member routines
+
+    Notably, this does currently _NOT_ work and this test is here to document that fact and
+    serve as the test base for when this has been corrected.
+    """
+    fcode_mod = """
+module member_mod
+    implicit none
+contains
+    subroutine my_routine(ret)
+        integer, intent(out) :: ret
+        ret = 1
+    end subroutine my_routine
+
+    subroutine driver
+        integer :: val
+        call my_member
+        write(*,*) val
+    contains
+        subroutine my_member
+            call my_routine(val)
+        end subroutine my_member
+    end subroutine driver
+end module member_mod
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_member_routines'
+    workdir.mkdir(exist_ok=True)
+    (workdir/'member_mod.F90').write_text(fcode_mod)
+
+    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['driver'], frontend=frontend)
+
+    class LoggingTransformation(Transformation):
+
+        def __init__(self):
+            self.record = []
+
+        def transform_file(self, sourcefile, **kwargs):
+            if 'item' in kwargs:
+                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
+            else:
+                self.record += [sourcefile.path.name]
+
+        def transform_module(self, module, **kwargs):
+            self.record += [kwargs['item'].name + '::' + module.name]
+
+        def transform_subroutine(self, routine, **kwargs):
+            self.record += [kwargs['item'].name + '::' + routine.name]
+
+    transformation = LoggingTransformation()
+    scheduler.process(
+        transformation=transformation, reverse=reverse, use_file_graph=use_file_graph,
+    )
+
+    if use_file_graph:
+        expected = ['member_mod.F90']
+    else:
+        expected = [
+            'member_mod#driver::driver',
+            'member_mod#driver#my_member::my_member',
+            'member_mod#my_routine::my_routine',
+        ]
+
+    if not use_file_graph:
+        # Because the scheduler cannot represent contained member routines currently, it does
+        # not find the call dependencies via the member routine and therefore doesn't process
+        # these subroutines with the transformation
+        if len(scheduler.items) == 1 and transformation.record == flatten(expected[:1]):
+            pytest.xfail(reason='Scheduler unable to represent contained member routines as graph items')
+
+    assert transformation.record == flatten(expected)
+
+    rmtree(workdir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

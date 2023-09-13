@@ -138,6 +138,12 @@ class FileWriteTransformation(Transformation):
 
     def transform_file(self, sourcefile, **kwargs):
         item = kwargs.get('item', None)
+        if not item and 'items' in kwargs:
+            if kwargs['items']:
+                item = kwargs['items'][0]
+
+        if not item:
+            raise ValueError('No Item provided; required to determine file write path')
 
         path = Path(item.path)
         suffix = self.suffix if self.suffix else path.suffix

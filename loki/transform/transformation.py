@@ -87,8 +87,7 @@ class Transformation:
 
     def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
         """
-        Dispatch method to apply transformation to all source items in
-        :data:`source`.
+        Dispatch method to apply transformation to :data:`source`.
 
         It dispatches to one of the type-specific dispatch methods
         :meth:`apply_file`, :meth:`apply_module`, or :meth:`apply_subroutine`.
@@ -119,8 +118,7 @@ class Transformation:
         """
         Apply transformation to all items in :data:`sourcefile`.
 
-        This calls :meth:`transform_file` and dispatches the transformation
-        for all :any:`Module` and :any:`Subroutine` objects in the file.
+        This calls :meth:`transform_file`.
 
         Parameters
         ----------
@@ -138,18 +136,11 @@ class Transformation:
         # Apply file-level transformations
         self.transform_file(sourcefile, **kwargs)
 
-        for module in sourcefile.modules:
-            self.apply_module(module, **kwargs)
-
-        for routine in sourcefile.subroutines:
-            self.apply_subroutine(routine, **kwargs)
-
     def apply_subroutine(self, subroutine, **kwargs):
         """
         Apply transformation to a given :any:`Subroutine` object and its members.
 
-        This calls :meth:`transform_subroutine` and dispatches the transformation
-        for all :any:`Subroutine` members.
+        This calls :meth:`transform_subroutine`.
 
         Parameters
         ----------
@@ -164,23 +155,14 @@ class Transformation:
         if subroutine._incomplete:
             raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
 
-        # Bail if the subroutine has not actually been scheduled for processing
-        if (item := kwargs.get('item', None)) and item.local_name != subroutine.name.lower():
-            return
-
         # Apply the actual transformation for subroutines
         self.transform_subroutine(subroutine, **kwargs)
-
-        # Recurse on subroutine members
-        for member in subroutine.members:
-            self.apply_subroutine(member, **kwargs)
 
     def apply_module(self, module, **kwargs):
         """
         Apply transformation to a given :any:`Module` object and its members.
 
-        This calls :meth:`transform_module` and dispatches the transformation
-        for all :any:`Subroutine` members.
+        This calls :meth:`transform_module`.
 
         Parameters
         ----------
@@ -197,10 +179,6 @@ class Transformation:
 
         # Apply the actual transformation for modules
         self.transform_module(module, **kwargs)
-
-        # Call the dispatch for all contained subroutines
-        for routine in module.subroutines:
-            self.apply_subroutine(routine, **kwargs)
 
     def post_apply(self, source, rescope_symbols=False):
         """

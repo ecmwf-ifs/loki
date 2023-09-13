@@ -80,10 +80,13 @@ class DependencyTransformation(Transformation):
         role = kwargs.get('role')
 
         if role == 'kernel':
+            if routine.name.endswith(self.suffix):
+                # This is to ensure that the transformation is idempotent if
+                # applied more than once to a routine
+                return
             # Change the name of kernel routines
-            if routine.is_function:
-                if not routine.result_name:
-                    self.update_result_var(routine)
+            if routine.is_function and not routine.result_name:
+                self.update_result_var(routine)
             routine.name += self.suffix
 
         self.rename_calls(routine, **kwargs)
@@ -126,16 +129,39 @@ class DependencyTransformation(Transformation):
             module.name = self.derive_module_name(module.name)
 
         # Module imports only appear in the spec section
-        imports = FindNodes(Import).visit(module.spec)
-        self.rename_imports(module, imports=imports, **kwargs)
+        self.rename_imports(module, imports=module.imports, **kwargs)
 
     def transform_file(self, sourcefile, **kwargs):
         """
-        In 'module' mode perform module-wrapping for dependnecy injection.
+        In 'module' mode perform module-wrapping for dependency injection.
         """
-        role = kwargs.get('role')
+        items = kwargs.get('items')
+        role = kwargs.pop('role', None)
+        targets = kwargs.pop('targets', None)
+
+        if not role and items:
+            # We consider the sourcefile to be a "kernel" file if all items are kernels
+            if all(item.role == 'kernel' for item in items):
+                role = 'kernel'
+
+        if targets is None and items:
+            # We collect the targets for file/module-level imports from all items
+            targets = [target for item in items for target in item.targets]
+
         if role == 'kernel' and self.mode == 'module':
             self.module_wrap(sourcefile, **kwargs)
+
+        for module in sourcefile.modules:
+            # Recursion into contained modules using the sourcefile's "role"
+            self.transform_module(module, role=role, targets=targets, **kwargs)
+
+        if items:
+            # Recursion into all subroutine items in the current file
+            for item in items:
+                self.transform_subroutine(item.routine, item=item, role=item.role, targets=item.targets, **kwargs)
+        else:
+            for routine in sourcefile.all_subroutines:
+                self.transform_subroutine(routine, role=role, targets=targets, **kwargs)
 
     def rename_calls(self, routine, **kwargs):
         """
@@ -144,9 +170,9 @@ class DependencyTransformation(Transformation):
         :param targets: Optional list of subroutine names for which to
                         modify the corresponding calls.
         """
-        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(kwargs.get('targets'))
         targets = as_tuple(str(t).upper() for t in targets)
-        members = [r.name for r in routine.subroutines]
+        members = [r.name.upper() for r in routine.subroutines]
 
         if self.replace_ignore_items:
             item = kwargs.get('item', None)
@@ -159,6 +185,8 @@ class DependencyTransformation(Transformation):
                 call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
 
         for call in FindInlineCalls(unique=False).visit(routine.body):
+            if call.name.upper() in members:
+                continue
             if targets is None or call.name.upper() in targets:
                 call.function = call.function.clone(name=f'{call.name}{self.suffix}')
 
@@ -178,10 +206,10 @@ class DependencyTransformation(Transformation):
             calls = ()
             for routine in source.subroutines:
                 calls += as_tuple(str(c.name).upper() for c in FindNodes(CallStatement).visit(routine.body))
-                calls += as_tuple(str(c).upper() for c in FindInlineCalls().visit(routine.body))
+                calls += as_tuple(str(c.name).upper() for c in FindInlineCalls().visit(routine.body))
         else:
             calls = as_tuple(str(c.name).upper() for c in FindNodes(CallStatement).visit(source.body))
-            calls += as_tuple(str(c).upper() for c in FindInlineCalls().visit(source.body))
+            calls += as_tuple(str(c.name).upper() for c in FindInlineCalls().visit(source.body))
 
         # Import statements still point to unmodified call names
         calls = [call.replace(f'{self.suffix.upper()}', '') for call in calls]
@@ -233,7 +261,6 @@ class DependencyTransformation(Transformation):
         """
         Update explicit interfaces to actively transformed subroutines.
         """
-
         targets = as_tuple(kwargs.get('targets', None))
         targets = as_tuple(str(t).lower() for t in targets)
 
@@ -305,7 +332,7 @@ class DependencyTransformation(Transformation):
         for routine in sourcefile.subroutines:
             if routine not in module_routines:
                 # Skip member functions
-                if item and f'#{routine.name.lower()}' != item.name.lower():
+                if item and routine.name.lower() != item.local_name.lower():
                     continue
 
                 # Skip internal utility routines too
