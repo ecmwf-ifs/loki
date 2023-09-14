@@ -8,9 +8,11 @@
 from pathlib import Path
 from collections import defaultdict
 import pytest
+from fparser.two.utils import FortranSyntaxError
 from loki import Sourcefile
 from loki.visitors.visitor import Visitor
 from loki.tools import is_iterable, as_tuple
+
 
 
 @pytest.fixture(scope="module", name="here")
@@ -56,16 +58,14 @@ class Checker(Visitor):
 
 fortran_files = list(Path(".").rglob("*.[fF]90"))
 
-
 @pytest.mark.parametrize("file", fortran_files)
 def test_has_every_node_a_uid(here: Path, file: Path):
-    print(here, file)
     try:
         source = Sourcefile.from_file(file)
-    except Exception:
+    except FortranSyntaxError:
         try:
             source = Sourcefile.from_file(file, preprocess=True)
-        except Exception:
+        except FortranSyntaxError:
             return  # ignore if a file cannot be parsed
 
     Checker().visit(source.ir)
