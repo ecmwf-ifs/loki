@@ -199,7 +199,7 @@ endmacro()
 
 function( loki_transform_convert )
 
-    set( options CPP DATA_OFFLOAD REMOVE_OPENMP GLOBAL_VAR_OFFLOAD TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS )
+    set( options CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR GLOBAL_VAR_OFFLOAD TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS )
     set( oneValueArgs MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH )
     set( multiValueArgs OUTPUT DEPENDS INCLUDES INCLUDE HEADERS HEADER DEFINITIONS DEFINE OMNI_INCLUDE XMOD )
 
@@ -234,6 +234,10 @@ function( loki_transform_convert )
 
     if( ${_PAR_REMOVE_OPENMP} )
         list( APPEND _ARGS --remove-openmp )
+    endif()
+
+    if( ${_PAR_ASSUME_DEVICEPTR} )
+        list( APPEND _ARGS --assume-deviceptr )
     endif()
 
     if( ${_PAR_GLOBAL_VAR_OFFLOAD} )
