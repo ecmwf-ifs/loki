@@ -11,6 +11,7 @@ Base class definition for :ref:`transformations`.
 from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
+from loki.bulk.item import SubroutineItem
 
 
 __all__ = ['Transformation']
@@ -49,6 +50,7 @@ class Transformation:
     # TODO: All these traversal options will eventually superseded by SGraph options
     traverse_file_graph = False
 
+    item_filter = SubroutineItem  # This can also be a tuple of types
 
     def transform_subroutine(self, routine, **kwargs):
         """

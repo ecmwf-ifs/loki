@@ -614,7 +614,7 @@ class Scheduler:
                 successors += [self.item_map[child.name]] + self.item_successors(child)
         return successors
 
-    def process(self, transformation, item_filter=SubroutineItem):
+    def process(self, transformation):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -638,11 +638,11 @@ class Scheduler:
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
         with Timer(logger=info, text=log):
 
-            if transformation.traverse_file_graph:
-                graph = self.file_graph
-            else:
-                graph = self.item_graph
+            # Extract the graph iteration properties from the transformation
+            graph = self.file_graph if transformation.traverse_file_graph else self.item_graph
+            item_filter = as_tuple(transformation.item_filter)
 
+            # Construct the actual graph to traverse
             traversal = nx.topological_sort(graph)
             if transformation.reverse_traversal:
                 traversal = reversed(list(traversal))
