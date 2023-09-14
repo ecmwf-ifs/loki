@@ -42,6 +42,14 @@ class Transformation:
     # Forces scheduler traversal in reverse order from the leaf nodes upwards
     reverse_traversal = False
 
+    # The following options configure the iteration space of the
+    # Scheduler traversal; it configures which graph-type is used and
+    # which nodes are traversed when applying the Transformation.
+    #
+    # TODO: All these traversal options will eventually superseded by SGraph options
+    traverse_file_graph = False
+
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Defines the transformation to apply to :any:`Subroutine` items.

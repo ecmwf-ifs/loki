@@ -77,7 +77,7 @@ END SUBROUTINE driver
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(transformation)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['#driver'].source
@@ -149,7 +149,7 @@ END MODULE DRIVER_MOD
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver_mod.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(transformation)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['driver_mod#driver'].source
@@ -272,7 +272,7 @@ END SUBROUTINE kernel
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(transformation)
 
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
@@ -348,7 +348,7 @@ END SUBROUTINE kernel
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(transformation)
 
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
@@ -576,7 +576,7 @@ END SUBROUTINE driver
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(transformation)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['#driver'].source
@@ -668,7 +668,7 @@ END MODULE header_mod
     assert 'header_mod#header_var' in scheduler.items
 
     transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    scheduler.process(transformation, use_file_graph=True)
+    scheduler.process(transformation)
 
     kernel = scheduler['kernel_mod#kernel'].source
     header = scheduler['header_mod#header_var'].source

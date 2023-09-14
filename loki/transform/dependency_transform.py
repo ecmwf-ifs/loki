@@ -62,6 +62,9 @@ class DependencyTransformation(Transformation):
         in the ``ignore``. Default is ``True``.
     """
 
+    # This transformation is applied over the file graph
+    traverse_file_graph = True
+
     def __init__(self, suffix, mode='module', module_suffix=None, include_path=None,
                  replace_ignore_items=True):
         self.suffix = suffix

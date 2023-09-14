@@ -130,6 +130,10 @@ class FileWriteTransformation(Transformation):
     cuf : bool, optional
         Use CUF (CUDA Fortran) backend instead of Fortran backend.
     """
+
+    # This transformation is applied over the file graph
+    traverse_file_graph = True
+
     def __init__(self, builddir=None, mode='loki', suffix=None, cuf=False):
         self.builddir = Path(builddir)
         self.mode = mode

@@ -248,6 +248,9 @@ class LinterTransformation(Transformation):
 
     _key = 'LinterTransformation'
 
+    # This transformation is applied over the file graph
+    traverse_file_graph = True
+
     def __init__(self, linter, key=None, **kwargs):
         self.linter = linter
         self.counter = 0
@@ -272,7 +275,7 @@ def lint_files_scheduler(linter, basedir, config):
     """
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config))
     transformation = LinterTransformation(linter=linter)
-    scheduler.process(transformation=transformation, use_file_graph=True)
+    scheduler.process(transformation=transformation)
     return transformation.counter
 
 
