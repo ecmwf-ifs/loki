@@ -13,7 +13,7 @@ Collection of utility routines to perform code-level force-inlining.
 import sys
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, LokiIdentityMapper
+    SubstituteExpressions, SubstituteExpressionsMapper, LokiIdentityMapper
 )
 from loki.ir import Import, Comment, Assignment, VariableDeclaration, CallStatement
 from loki.expression import symbols as sym
@@ -22,6 +22,7 @@ from loki.visitors import Transformer, FindNodes
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
 from loki.logging import error
+from loki.transform import recursive_expression_map_update
 
 
 
@@ -213,22 +214,24 @@ def inline_member_routine(routine, member):
     def _map_unbound_dims(var, val):
         """
         Maps all unbound dimension ranges in the passed array value `val` with the
-        indices from the local variable `var`.  It returns the updated tuple of dimensions.
+        indices from the local variable `var`. It returns the re-mapped symbol.
 
         For example, mapping the passed array `m(:,j)` to the local
         expression `a(i)` yields `m(i,j)`.
         """
         new_dimensions = list(val.dimensions)
-        indices = []
-        for index, dim in enumerate(val.dimensions):
-            if isinstance(dim, sym.Range):
-                indices.append(index)
+
+        indices = [index for index, dim in enumerate(val.dimensions) if isinstance(dim, sym.Range)]
 
         for index, dim in enumerate(var.dimensions):
             new_dimensions[indices[index]] = dim
+ 
+        original_symbol = sym.ArraySubscript(val.symbol, val.dimensions)
+        new_symbol = sym.ArraySubscript(val.symbol, tuple(new_dimensions) )
 
-        return tuple(new_dimensions)
+        mapper = SubstituteExpressionsMapper({original_symbol:new_symbol})
 
+        return mapper(original_symbol)
 
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(member.spec)
@@ -256,29 +259,15 @@ def inline_member_routine(routine, member):
                             dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
                         )
                     arg_vars = tuple(v for v in member_vars if v.name == arg.name)
-                    argmap.update((v, val.clone(dimensions = _map_unbound_dims(v, qualified_value))) for v in arg_vars)
+                    argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
                 else:
                     argmap[arg] = val
 
+            # Recursive update of the map in case of nested variables to map
+            argmap = recursive_expression_map_update(argmap, max_iterations=10)
+            
             # Substitute argument calls into a copy of the body
             member_body = SubstituteExpressions(argmap).visit(member.body.body)
-
-            # Recurse for nested variables replacements
-            test = True
-            arg_names = [a.name for a in argmap]
-            depth = 0
-            while test :
-                depth += 1
-                test = False
-                for var in FindVariables().visit(member_body):
-                    if var.name in arg_names:
-                        test=True
-                if test:
-                    member_body = SubstituteExpressions(argmap).visit(member_body)
-
-                if depth > 10:
-                    error(f'Too many recursions while inlining routine {routine.name}')
-                    sys.exit(1)
 
             # Inline substituted body within a pair of marker comments
             comment = Comment(f'! [Loki] inlined member subroutine: {member.name}')
