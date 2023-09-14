@@ -10,7 +10,6 @@ Collection of utility routines to perform code-level force-inlining.
 
 
 """
-import sys
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, SubstituteExpressionsMapper, LokiIdentityMapper
@@ -21,7 +20,6 @@ from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
-from loki.logging import error
 from loki.transform import recursive_expression_map_update
 
 
