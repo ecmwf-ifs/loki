@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from shutil import rmtree
+
 import pytest
 
 from loki import (
@@ -498,7 +500,7 @@ CONTAINS
 END MODULE kernel_mod
 """.strip()
 
-    basedir = gettempdir() / 'test_pool_allocator_args_vs_kwargs'
+    basedir = gettempdir() / 'test_scc_hoist_multiple_kernels_loops'
     basedir.mkdir(exist_ok=True)
     (basedir / 'driver.F90').write_text(fcode_driver)
     (basedir / 'kernel.F90').write_text(fcode_kernel)
@@ -593,6 +595,8 @@ END MODULE kernel_mod
     assert driver_loops[9].bounds == 'start:end'
     assert driver_loops[10].variable == 'jk'
     assert driver_loops[10].bounds == '2:nz'
+
+    rmtree(basedir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
