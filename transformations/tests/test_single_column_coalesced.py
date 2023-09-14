@@ -426,8 +426,8 @@ def test_scc_hoist_multiple_kernels_loops(frontend, horizontal, vertical, blocki
 
     tmp = 0.0
 
+    !$loki driver-loop
     do b=1, nb
-      !$loki driver-loop
       end = nlon - nb
       !$loki separator
       do jk = 2, nz
@@ -458,8 +458,8 @@ def test_scc_hoist_multiple_kernels_loops(frontend, horizontal, vertical, blocki
       END DO
     end do
 
+    !$loki driver-loop
     do b=3, nb
-      !$loki driver-loop
       end = nlon - nb
       !$loki separator
       do jk = 2, nz

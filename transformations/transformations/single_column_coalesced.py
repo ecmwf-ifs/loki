@@ -200,7 +200,7 @@ class SCCBaseTransformation(Transformation):
             routine.variables += as_tuple(loop_variable)
 
     @staticmethod
-    def is_driver_loop(loop, routine, targets):
+    def is_driver_loop(loop, targets):
         """
         Test/check whether a given loop is a *driver loop*.
 
@@ -208,8 +208,6 @@ class SCCBaseTransformation(Transformation):
         ----------
         loop : :any: `Loop`
             The loop to test if it is a *driver loop*.
-        routine : :any:`Subroutine`
-            The subroutine in which to check whether loop is a *driver loop*.
         targets : list or string
             List of subroutines that are to be considered as part of
             the transformation call tree.
@@ -218,7 +216,7 @@ class SCCBaseTransformation(Transformation):
             for pragma in loop.pragma:
                 if pragma.keyword.lower() == "loki" and pragma.content.lower() == "driver-loop":
                     return True
-        for call in FindNodes(ir.CallStatement).visit(routine.body):
+        for call in FindNodes(ir.CallStatement).visit(loop.body):
             if call.name in targets:
                 return True
         return False
@@ -246,7 +244,7 @@ class SCCBaseTransformation(Transformation):
             if loop in nested_driver_loops:
                 continue
 
-            if not cls.is_driver_loop(loop, routine, targets):
+            if not cls.is_driver_loop(loop, targets):
                 continue
 
             driver_loops.append(loop)
