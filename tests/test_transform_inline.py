@@ -12,7 +12,7 @@ import numpy as np
 from conftest import jit_compile, jit_compile_lib, available_frontends
 from loki import (
     Builder, Module, Subroutine, FindNodes, Import, FindVariables,
-    CallStatement, Loop
+    CallStatement, Loop, symbols as sym, BasicType, DerivedType, OMNI
 )
 from loki.ir import Assignment
 from loki.transform import (
@@ -370,7 +370,7 @@ subroutine member_routines_arg_dimensions(matrix, tensor)
   real(kind=8), intent(inout) :: matrix(3, 3), tensor(3, 3, 4)
   integer :: i
   do i=1, 3
-    call add_one(3, matrix(:,i), tensor(1:3,i,:))
+    call add_one(3, matrix(1:3,i), tensor(:,i,:))
   end do
   contains
     subroutine add_one(n, a, b)
@@ -410,3 +410,51 @@ end subroutine member_routines_arg_dimensions
     assert len(loops) == 2
     assert loops[0].bounds == '1:3'
     assert loops[1].bounds == '1:3'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No header information in test')]))
+def test_inline_member_routines_derived_type_member(frontend):
+    """
+    Test inlining of member subroutines when the member routine
+    handles arrays that are derived type components and thus might
+    have the DEFERRED type.
+    """
+    fcode = """
+subroutine outer(x, a)
+  real, intent(inout) :: x
+  type(my_type), intent(in) :: a
+
+  ! Pass derived type arrays as arguments
+  call inner(a%b(:), a%c, a%k, a%n)
+
+contains
+  subroutine inner(y, z, k, n)
+    integer, intent(in) :: k, n
+    real, intent(inout) :: y(n), z(:,:)
+    integer :: j
+
+    do j=1, n
+      x = x + y(j)
+      ! Use derived-type variable as index
+      ! to test for nested substitution
+      y(j) = z(k,j)
+    end do
+  end subroutine inner
+end subroutine outer
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert routine.variable_map['x'].type.dtype == BasicType.REAL
+    assert isinstance(routine.variable_map['a'].type.dtype, DerivedType)
+    call = FindNodes(CallStatement).visit(routine.body)[0]
+    assert isinstance(call.arguments[0], sym.Array)
+    assert isinstance(call.arguments[1], sym.DeferredTypeSymbol)
+    assert isinstance(call.arguments[2], sym.DeferredTypeSymbol)
+
+    # Now inline the member routines and check again
+    inline_member_procedures(routine=routine)
+
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].rhs =='x + a%b(j)'
+    assert assigns[1].lhs == 'a%b(j)' and assigns[1].rhs == 'a%c(a%k, j)'
