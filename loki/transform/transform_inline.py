@@ -225,7 +225,7 @@ def inline_member_routine(routine, member):
 
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(member.spec)
-    decls = tuple(d for d in decls if all(not s.type.intent for s in d.symbols))
+    decls = tuple(d for d in decls if all(s.name not in routine._dummies for s in d.symbols))
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
     routine.spec.append(decls)
 
