@@ -656,7 +656,11 @@ class Scheduler:
                         if not items:
                             continue
 
-                    transformation.apply(items[0].source, items=items)
+                    _item = items[0]
+                    transformation.apply(
+                        items[0].source, role=_item.role, mode=_item.mode,
+                        item=_item, items=items, targets=_item.targets,
+                    )
             else:
                 for item in traversal:
                     if item_filter and not isinstance(item, item_filter):

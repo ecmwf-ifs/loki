@@ -1497,10 +1497,7 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            if 'item' in kwargs:
-                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
-            else:
-                self.record += [sourcefile.path.name]
+            self.record += [sourcefile.path.name]
 
         def transform_module(self, module, **kwargs):
             self.record += [kwargs['item'].name + '::' + module.name]
@@ -1563,10 +1560,7 @@ end module member_mod
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            if 'item' in kwargs:
-                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
-            else:
-                self.record += [sourcefile.path.name]
+            self.record += [sourcefile.path.name]
 
         def transform_module(self, module, **kwargs):
             self.record += [kwargs['item'].name + '::' + module.name]
