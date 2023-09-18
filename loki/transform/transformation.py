@@ -36,20 +36,43 @@ class Transformation:
 
     Note that in :any:`Sourcefile` objects, all :any:`Module` members will be
     traversed before standalone :any:`Subroutine` objects.
-    """
 
-    # Below is a set of flags that consfigure the corresponding Scheduler behaviour
+    Classes inheriting from :any:`Transformation` may configure the
+    invocation and behaviour batch processing via a predefined set of
+    class attributes. These flags determine the underlying
+    graph traversal when processing complex call trees and determine
+    how the transformations are invoked for a given type of scheduler
+    :any:`Item`.
+
+    * ``reverse_traversal`` :
+        Forces scheduler traversal in reverse order from the leaf
+        nodes upwards (default: ``False``).
+    * ``traverse_file_graph`` :
+         Apply :any:`Transformation` to the :any:`Sourcefile` object
+         corresponding to the :any:`Item` being processed, instead of
+         the program unit in question (default: ``False``).
+    * ``item_filter`` :
+        Filter by graph node types to prune the graph and change connectivity.
+        By default, only calls to :any:`Subroutine` items are used to construct
+        the graph.
+    * ``recurse_to_modules`` :
+        Apply transformation to all :any:`Module` objects when processing
+        a :any:`Sourcefile` (default ``False``)
+    * ``recurse_to_subroutines`` :
+        Apply transformation to all :any:`Subroutine` objects when processing
+        :any:`Sourcefile` or :any:``Module`` objects (default ``False``)
+    * ``recurse_to_contained_procedures`` :
+        Apply transformation to all internal :any:`Subroutine` objects
+        when processing :any:`Subroutine` objects (default ``False``)
+    """
 
     # Forces scheduler traversal in reverse order from the leaf nodes upwards
     reverse_traversal = False
 
-    # The following options configure the iteration space of the
-    # Scheduler traversal; it configures which graph-type is used and
-    # which nodes are traversed when applying the Transformation.
-    #
-    # TODO: All these traversal options will eventually superseded by SGraph options
+    # Traverse a graph of Sourcefile options corresponding to scheduler items
     traverse_file_graph = False
 
+    # Filter certain graph nodes to prune the graph and change connectivity
     item_filter = SubroutineItem  # This can also be a tuple of types
 
     # Recursion behaviour when invoking transformations via ``trafo.apply()``
