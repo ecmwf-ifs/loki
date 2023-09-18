@@ -52,6 +52,12 @@ class Transformation:
 
     item_filter = SubroutineItem  # This can also be a tuple of types
 
+    # Recursion behaviour when invoking transformations via ``trafo.apply()``
+    recurse_to_modules = False  # Recurse from Sourcefile to Module
+    recurse_to_subroutines = False  # Recurse from Sourcefile/Module to Subroutine
+    recurse_to_contained_procedures = False  # Recurse to subroutines in ``contains`` clause
+
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Defines the transformation to apply to :any:`Subroutine` items.
@@ -135,6 +141,13 @@ class Transformation:
 
         This calls :meth:`transform_file`.
 
+        If the :attr:`recurse_to_modules` class property is set, it
+        will also invoke :meth:`apply` on all :any:`Module` objects in
+        this :any:`Sourcefile`. Likewise, if
+        :attr:`recurse_to_subroutines` is set, it will invoke
+        :meth:`apply` on all free :any:`Subroutine` objects in this
+        :any:`Sourcefile`.
+
         Parameters
         ----------
         sourcefile : :any:`Sourcefile`
@@ -151,11 +164,27 @@ class Transformation:
         # Apply file-level transformations
         self.transform_file(sourcefile, **kwargs)
 
+        # Recurse to modules, if configured
+        if self.recurse_to_modules:
+            for module in sourcefile.modules:
+                self.apply_module(module, **kwargs)
+
+        # Recurse into subroutine, if configured
+        if self.recurse_to_subroutines:
+            # Recurse into free subroutines (will skip module-contained ones)
+            for routine in sourcefile.subroutines:
+                self.apply_subroutine(routine, **kwargs)
+
     def apply_subroutine(self, subroutine, **kwargs):
         """
         Apply transformation to a given :any:`Subroutine` object and its members.
 
         This calls :meth:`transform_subroutine`.
+
+        If the :attr:`recurse_to_member_procedures` class property is
+        set, it will also invoke :meth:`apply` on all
+        :any:`Subroutine` objects in the ``contains`` clause of this
+        :any:`Subroutine`.
 
         Parameters
         ----------
@@ -173,11 +202,20 @@ class Transformation:
         # Apply the actual transformation for subroutines
         self.transform_subroutine(subroutine, **kwargs)
 
+        # Recurse to contained member subroutines
+        if self.recurse_to_contained_procedures:
+            for routine in subroutine.subroutines:
+                self.apply_subroutine(routine, **kwargs)
+
     def apply_module(self, module, **kwargs):
         """
         Apply transformation to a given :any:`Module` object and its members.
 
         This calls :meth:`transform_module`.
+
+        If the :attr:`recurse_to_subroutines` class property is set,
+        it will also invoke :meth:`apply` on all :any:`Subroutine`
+        objects in the ``contains`` clause of this :any:`Module`.
 
         Parameters
         ----------
@@ -194,6 +232,11 @@ class Transformation:
 
         # Apply the actual transformation for modules
         self.transform_module(module, **kwargs)
+
+        # Recurse to subroutines contained in this module
+        if self.recurse_to_subroutines:
+            for routine in module.subroutines:
+                self.apply_subroutine(routine, **kwargs)
 
     def post_apply(self, source, rescope_symbols=False):
         """

@@ -65,6 +65,12 @@ class DependencyTransformation(Transformation):
     # This transformation is applied over the file graph
     traverse_file_graph = True
 
+    # This transformation recurses from the Sourcefile down
+    recurse_to_modules = True
+    recurse_to_subroutines = True
+    recurse_to_contained_procedures = False
+
+
     def __init__(self, suffix, mode='module', module_suffix=None, include_path=None,
                  replace_ignore_items=True):
         self.suffix = suffix
@@ -153,18 +159,6 @@ class DependencyTransformation(Transformation):
 
         if role == 'kernel' and self.mode == 'module':
             self.module_wrap(sourcefile, **kwargs)
-
-        for module in sourcefile.modules:
-            # Recursion into contained modules using the sourcefile's "role"
-            self.transform_module(module, role=role, targets=targets, **kwargs)
-
-        if items:
-            # Recursion into all subroutine items in the current file
-            for item in items:
-                self.transform_subroutine(item.routine, item=item, role=item.role, targets=item.targets, **kwargs)
-        else:
-            for routine in sourcefile.all_subroutines:
-                self.transform_subroutine(routine, role=role, targets=targets, **kwargs)
 
     def rename_calls(self, routine, **kwargs):
         """
