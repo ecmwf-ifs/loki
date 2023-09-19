@@ -458,3 +458,49 @@ end subroutine outer
     assert len(assigns) == 2
     assert assigns[0].rhs =='x + a%b(j)'
     assert assigns[1].lhs == 'a%b(j)' and assigns[1].rhs == 'a%c(a%k, j)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines_variable_shadowing(frontend):
+    """
+    Test inlining of member subroutines when variable allocations
+    in child routine shadow different allocations in the parent.
+    """
+    fcode = """
+subroutine outer()
+     real :: x = 3 ! 'x' is real in outer.
+     real :: tmp = 0
+     call inner(tmp)
+     x = x + tmp
+
+contains
+    subroutine inner(y)
+        real, intent(inout) :: y
+        real :: x(3) ! 'x' is array in inner.
+        x = [1, 2, 3]
+        y = sum(x)
+    end subroutine inner
+end subroutine outer
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check outer and inner 'x'
+    assert routine.variable_map['x'] == 'x'
+    assert isinstance(routine.variable_map['x'], sym.Scalar)
+    assert routine.variable_map['x'].type.initial == 3
+
+    assert routine['inner'].variable_map['x'] in ['x(3)', 'x(1:3)']
+    assert isinstance(routine['inner'].variable_map['x'], sym.Array)
+    assert routine['inner'].variable_map['x'].type.shape == (3,)
+
+    inline_member_procedures(routine=routine)
+
+    # Check outer has not changed
+    assert routine.variable_map['x'] == 'x'
+    assert isinstance(routine.variable_map['x'], sym.Scalar)
+    assert routine.variable_map['x'].type.initial == 3
+
+    # Check inner 'x' was move correctly
+    assert routine.variable_map['inner_x'] in ['inner_x(3)', 'inner_x(1:3)']
+    assert isinstance(routine.variable_map['inner_x'], sym.Array)
+    assert routine.variable_map['inner_x'].type.shape == (3,)

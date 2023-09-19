@@ -233,6 +233,18 @@ def inline_member_routine(routine, member):
 
         return mapper(original_symbol)
 
+    # Prevent shadowing of member variables by renaming them a priori
+    parent_variables = routine.variable_map
+    duplicate_locals = tuple(
+        v for v in member.variables
+        if v.name in parent_variables and v.name not in member._dummies
+    )
+    shadow_mapper = SubstituteExpressions(
+        {v: v.clone(name=f'{member.name}_{v.name}') for v in duplicate_locals}
+    )
+    member.spec = shadow_mapper.visit(member.spec)
+    member.body = shadow_mapper.visit(member.body)
+
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(member.spec)
     decls = tuple(d for d in decls if all(s.name not in routine._dummies for s in d.symbols))
