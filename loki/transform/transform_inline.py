@@ -226,12 +226,7 @@ def inline_member_routine(routine, member):
         for index, dim in enumerate(var.dimensions):
             new_dimensions[indices[index]] = dim
 
-        original_symbol = sym.ArraySubscript(val.symbol, val.dimensions)
-        new_symbol = sym.ArraySubscript(val.symbol, tuple(new_dimensions) )
-
-        mapper = SubstituteExpressionsMapper({original_symbol:new_symbol})
-
-        return mapper(original_symbol)
+        return val.clone(dimensions=tuple(new_dimensions))
 
     # Prevent shadowing of member variables by renaming them a priori
     parent_variables = routine.variable_map
