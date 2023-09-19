@@ -12,13 +12,14 @@ import numpy as np
 from conftest import jit_compile, jit_compile_lib, available_frontends
 from loki import (
     Builder, Module, Subroutine, FindNodes, Import, FindVariables,
-    CallStatement, Loop, symbols as sym, BasicType, DerivedType, OMNI
+    CallStatement, Loop, BasicType, DerivedType, OMNI
 )
 from loki.ir import Assignment
 from loki.transform import (
     inline_elemental_functions, inline_constant_parameters,
     replace_selected_kind, inline_member_procedures
 )
+from loki.expression import symbols as sym
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():

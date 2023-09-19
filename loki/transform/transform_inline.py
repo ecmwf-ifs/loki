@@ -12,7 +12,7 @@ Collection of utility routines to perform code-level force-inlining.
 """
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, SubstituteExpressionsMapper, LokiIdentityMapper
+    SubstituteExpressions, LokiIdentityMapper
 )
 from loki.ir import Import, Comment, Assignment, VariableDeclaration, CallStatement
 from loki.expression import symbols as sym
@@ -20,7 +20,6 @@ from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
 from loki.logging import warning
-from loki.transform import recursive_expression_map_update
 
 
 __all__ = [
@@ -209,6 +208,8 @@ def inline_member_routine(routine, member):
     member : :any:`Subroutine`
         The contained member subroutine to be inlined in the parent
     """
+    # pylint: disable=import-outside-toplevel,cyclic-import
+    from loki.transform import recursive_expression_map_update
 
     def _map_unbound_dims(var, val):
         """
