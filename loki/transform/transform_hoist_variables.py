@@ -236,7 +236,9 @@ class HoistVariablesTransformation(Transformation):
         _successors = kwargs.get('successors', ())
         successors = [_ for _ in _successors if _.local_name.lower()
                       not in self.disable and _.name.lower() not in self.disable]
-        successor_map = {successor.routine.name: successor for successor in successors}
+        successor_map = CaseInsensitiveDict(
+            (successor.routine.name, successor) for successor in successors
+        )
 
         if item.local_name.lower() in self.disable:
             return
@@ -261,10 +263,15 @@ class HoistVariablesTransformation(Transformation):
             routine.arguments += hoisted_temporaries
 
         call_map = {}
-        calls = [_ for _ in FindNodes(CallStatement).visit(routine.body) if _.name not in self.disable]
-        for call in calls:
-            new_args = [arg.clone(dimensions=None) for arg
-                        in successor_map[str(call.routine.name)].trafo_data[self._key]["hoist_variables"]]
+        for call in FindNodes(CallStatement).visit(routine.body):
+            # Only process calls in this call tree
+            if str(call.name) not in successor_map:
+                continue
+
+            new_args = [
+                arg.clone(dimensions=None) for arg
+                in successor_map[str(call.routine.name)].trafo_data[self._key]["hoist_variables"]
+            ]
             arguments = list(call.arguments) + new_args
             call_map[call] = call.clone(arguments=as_tuple(arguments))
 
