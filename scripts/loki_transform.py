@@ -215,9 +215,13 @@ def convert(
             horizontal=horizontal, trim_vector_sections=trim_vector_sections
         ))
         scheduler.process(transformation=SCCDemoteTransformation(horizontal=horizontal))
-        scheduler.process(transformation=SCCHoistTransformation(
-            horizontal=horizontal, vertical=vertical, block_dim=block_dim),
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(
+            dim_vars=(vertical.size,)), reverse=True
         )
+        scheduler.process(
+            transformation=HoistTemporaryArraysDeviceAllocatableTransformation()
+        )
+
         scheduler.process(transformation=SCCAnnotateTransformation(
             horizontal=horizontal, vertical=vertical, directive=directive,
             block_dim=block_dim, hoist_column_arrays='hoist' in mode),
