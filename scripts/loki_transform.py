@@ -183,48 +183,53 @@ def convert(
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
     if mode in ['idem', 'idem-stack']:
-        transformation = (IdemTransformation(),)
+        scheduler.process(transformation=IdemTransformation())
 
     if mode == 'sca':
-        transformation = (ExtractSCATransformation(horizontal=horizontal),)
+        scheduler.process(transformation=ExtractSCATransformation(horizontal=horizontal))
 
     if mode == 'claw':
-        transformation = (CLAWTransformation(
+        scheduler.process(transformation=CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
-        ),)
+        ))
 
-    if mode in ['scc', 'scc-hoist', 'scc-stack']:
-        transformation = (SCCBaseTransformation(
+    if mode in ['scc', 'scc-stack']:
+        scheduler.process(transformation=SCCBaseTransformation(
+            horizontal=horizontal, directive=directive
+        ))
+        scheduler.process(transformation=SCCDevectorTransformation(
+            horizontal=horizontal, trim_vector_sections=trim_vector_sections
+        ))
+        scheduler.process(transformation=SCCDemoteTransformation(horizontal=horizontal))
+        scheduler.process(transformation=SCCRevectorTransformation(horizontal=horizontal))
+        scheduler.process(transformation=SCCAnnotateTransformation(
+            horizontal=horizontal, vertical=vertical, directive=directive,
+            block_dim=block_dim, hoist_column_arrays='hoist' in mode
+        ))
+
+    if mode == 'scc-hoist':
+        scheduler.process(transformation=SCCBaseTransformation(
             horizontal=horizontal, directive=directive, inline_members=inline_members
-        ),)
-        transformation += (SCCDevectorTransformation(
-            horizontal=horizontal, trim_vector_sections=trim_vector_sections),
+        ))
+        scheduler.process(transformation=SCCDevectorTransformation(
+            horizontal=horizontal, trim_vector_sections=trim_vector_sections
+        ))
+        scheduler.process(transformation=SCCDemoteTransformation(horizontal=horizontal))
+        scheduler.process(transformation=SCCHoistTransformation(
+            horizontal=horizontal, vertical=vertical, block_dim=block_dim),
         )
-        transformation += (SCCDemoteTransformation(horizontal=horizontal),)
-        if not 'hoist' in mode:
-            transformation += (SCCRevectorTransformation(horizontal=horizontal),)
-        if 'hoist' in mode:
-            transformation += (SCCHoistTransformation(
-                horizontal=horizontal, vertical=vertical, block_dim=block_dim),
-            )
-        transformation += (SCCAnnotateTransformation(
+        scheduler.process(transformation=SCCAnnotateTransformation(
             horizontal=horizontal, vertical=vertical, directive=directive,
             block_dim=block_dim, hoist_column_arrays='hoist' in mode),
         )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         derived_types = scheduler.config.derived_types
-        transformation = (SccCufTransformation(
+        scheduler.process(transformation=SccCufTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
             transformation_type=mode.replace('cuf-', ''),
             derived_types=derived_types
-        ),)
-
-    if transformation:
-        for transform in transformation:
-            scheduler.process(transformation=transform)
-    else:
-        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+        ))
 
     if global_var_offload:
         scheduler.process(transformation=GlobalVarOffloadTransformation(),
