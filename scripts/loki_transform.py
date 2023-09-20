@@ -153,6 +153,11 @@ def convert(
         paths=paths, config=config, frontend=frontend, definitions=definitions, **build_args
     )
 
+    # Pull dimension definition from configuration
+    horizontal = scheduler.config.dimensions.get('horizontal', None)
+    vertical = scheduler.config.dimensions.get('vertical', None)
+    block_dim = scheduler.config.dimensions.get('block_dim', None)
+
     # First, remove all derived-type arguments; caller first!
     if remove_derived_args:
         scheduler.process(transformation=DerivedTypeArgumentsTransformation())
@@ -169,7 +174,9 @@ def convert(
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
     if data_offload:
-        offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr)
+        offload_transform = DataOffloadTransformation(
+            remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
+        )
         scheduler.process(transformation=offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
 
@@ -179,36 +186,33 @@ def convert(
         transformation = (IdemTransformation(),)
 
     if mode == 'sca':
-        horizontal = scheduler.config.dimensions['horizontal']
         transformation = (ExtractSCATransformation(horizontal=horizontal),)
 
     if mode == 'claw':
-        horizontal = scheduler.config.dimensions['horizontal']
         transformation = (CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         ),)
 
     if mode in ['scc', 'scc-hoist', 'scc-stack']:
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
         transformation = (SCCBaseTransformation(
             horizontal=horizontal, directive=directive, inline_members=inline_members
         ),)
-        transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
+        transformation += (SCCDevectorTransformation(
+            horizontal=horizontal, trim_vector_sections=trim_vector_sections),
+        )
         transformation += (SCCDemoteTransformation(horizontal=horizontal),)
         if not 'hoist' in mode:
             transformation += (SCCRevectorTransformation(horizontal=horizontal),)
         if 'hoist' in mode:
-            transformation += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim),)
-        transformation += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
-                                                     directive=directive, block_dim=block_dim,
-                                                     hoist_column_arrays='hoist' in mode),)
+            transformation += (SCCHoistTransformation(
+                horizontal=horizontal, vertical=vertical, block_dim=block_dim),
+            )
+        transformation += (SCCAnnotateTransformation(
+            horizontal=horizontal, vertical=vertical, directive=directive,
+            block_dim=block_dim, hoist_column_arrays='hoist' in mode),
+        )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
         derived_types = scheduler.config.derived_types
         transformation = (SccCufTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
@@ -236,9 +240,6 @@ def convert(
 
             scheduler.process(transformation=NormalizeRangeIndexingTransformation())
 
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
         directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
         transformation = TemporariesPoolAllocatorTransformation(
             block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
@@ -258,8 +259,9 @@ def convert(
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     mode = mode.replace('-', '_')  # Sanitize mode string
-    dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
-                                          mode='module', module_suffix='_MOD')
+    dependency = DependencyTransformation(
+        suffix=f'_{mode.upper()}', mode='module', module_suffix='_MOD'
+    )
     scheduler.process(transformation=dependency, use_file_graph=True)
 
     # Write out all modified source files into the build directory
