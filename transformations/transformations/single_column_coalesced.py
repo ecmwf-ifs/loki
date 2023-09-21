@@ -581,9 +581,9 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
         Access identifier/key for the ``item.trafo_data`` dictionary.
     """
 
-    def __init__(self, key=None, disable=None, block_dim=None, **kwargs):
+    def __init__(self, key=None, block_dim=None, **kwargs):
         self.block_dim = block_dim
-        super().__init__(key=key, disable=disable, **kwargs)
+        super().__init__(key=key, **kwargs)
 
     def driver_variable_declaration(self, routine, variables):
         """

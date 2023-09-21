@@ -112,13 +112,9 @@ class HoistVariablesAnalysis(Transformation):
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, key=None, disable=None):
+    def __init__(self, key=None):
         if key is not None:
             self._key = key
-        if disable is None:
-            self.disable = ()
-        else:
-            self.disable = [_.lower() for _ in disable]
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -137,9 +133,7 @@ class HoistVariablesAnalysis(Transformation):
 
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        _successors = kwargs.get('successors', ())
-        successors = [_ for _ in _successors if _.local_name.lower()
-                      not in self.disable and _.name.lower() not in self.disable]
+        successors = kwargs.get('successors', ())
 
         item.trafo_data[self._key] = {}
 
@@ -152,8 +146,7 @@ class HoistVariablesAnalysis(Transformation):
             item.trafo_data[self._key]["to_hoist"] = []
             item.trafo_data[self._key]["hoist_variables"] = []
 
-        calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name
-                 not in self.disable]
+        calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name]
         call_map = CaseInsensitiveDict((str(call.name), call) for call in calls)
 
         for child in successors:
@@ -205,13 +198,9 @@ class HoistVariablesTransformation(Transformation):
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, key=None, disable=None):
+    def __init__(self, key=None):
         if key is not None:
             self._key = key
-        if disable is None:
-            self.disable = ()
-        else:
-            self.disable = [_.lower() for _ in disable]
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -233,16 +222,10 @@ class HoistVariablesTransformation(Transformation):
         """
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        # targets = kwargs.get('targets', None)
-        _successors = kwargs.get('successors', ())
-        successors = [_ for _ in _successors if _.local_name.lower()
-                      not in self.disable and _.name.lower() not in self.disable]
+        successors = kwargs.get('successors', ())
         successor_map = CaseInsensitiveDict(
             (successor.routine.name, successor) for successor in successors
         )
-
-        if item.local_name.lower() in self.disable:
-            return
 
         if self._key not in item.trafo_data:
             raise RuntimeError(f'{self.__class__.__name__} requires key "{self._key}" in item.trafo_data!\n'
@@ -341,8 +324,8 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
         for the array dimensions.
     """
 
-    def __init__(self, key=None, disable=None, dim_vars=None, **kwargs):
-        super().__init__(key=key, disable=disable, **kwargs)
+    def __init__(self, key=None, dim_vars=None, **kwargs):
+        super().__init__(key=key, **kwargs)
         self.dim_vars = dim_vars
         if self.dim_vars is not None:
             assert is_iterable(self.dim_vars)
@@ -381,8 +364,8 @@ class HoistTemporaryArraysTransformationAllocatable(HoistVariablesTransformation
         these transformations are carried out in succession.
     """
 
-    def __init__(self, key=None, disable=None, **kwargs):
-        super().__init__(key=key, disable=disable, **kwargs)
+    def __init__(self, key=None, **kwargs):
+        super().__init__(key=key, **kwargs)
 
     def driver_variable_declaration(self, routine, variables):
         """

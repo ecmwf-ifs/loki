@@ -214,13 +214,10 @@ def convert(
         # Apply recursive hoisting of local temporary arrays.
         # This requires a first analysis pass to run in reverse
         # direction through the call graph to gather temporary arrays.
-        disable = scheduler.config.disable
         scheduler.process( HoistTemporaryArraysAnalysis(
-            disable=disable, dim_vars=(vertical.size,)), reverse=True
+            dim_vars=(vertical.size,)), reverse=True
         )
-        scheduler.process( SCCHoistTemporaryArraysTransformation(
-            block_dim=block_dim, disable=disable
-        ))
+        scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         derived_types = scheduler.config.derived_types
@@ -251,15 +248,14 @@ def convert(
         scheduler.process(transformation=transformation, reverse=True)
     if mode == 'cuf-parametrise':
         dic2p = scheduler.config.dic2p
-        disable = scheduler.config.disable
-        transformation = ParametriseTransformation(dic2p=dic2p, disable=disable)
+        transformation = ParametriseTransformation(dic2p=dic2p)
         scheduler.process(transformation=transformation)
     if mode == "cuf-hoist":
-        disable = scheduler.config.disable
         vertical = scheduler.config.dimensions['vertical']
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(disable=disable, dim_vars=(vertical.size,)),
-                          reverse=True)
-        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(disable=disable))
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(
+            dim_vars=(vertical.size,)), reverse=True
+        )
+        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     mode = mode.replace('-', '_')  # Sanitize mode string
