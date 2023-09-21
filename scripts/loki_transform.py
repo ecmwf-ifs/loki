@@ -206,8 +206,7 @@ def convert(
         scheduler.process(transformation=SCCDemoteTransformation(horizontal=horizontal))
         scheduler.process(transformation=SCCRevectorTransformation(horizontal=horizontal))
         scheduler.process(transformation=SCCAnnotateTransformation(
-            horizontal=horizontal, vertical=vertical, directive=directive,
-            block_dim=block_dim, hoist_column_arrays=False
+            horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
         ))
 
     if mode == 'scc-hoist':
@@ -232,9 +231,8 @@ def convert(
         )
 
         scheduler.process(transformation=SCCAnnotateTransformation(
-            horizontal=horizontal, vertical=vertical, directive=directive,
-            block_dim=block_dim, hoist_column_arrays=False),
-        )
+            horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
+        ))
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         derived_types = scheduler.config.derived_types

@@ -288,17 +288,13 @@ class SCCAnnotateTransformation(Transformation):
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
-    hoist_column_arrays : bool
-        Flag to trigger the more aggressive "column array hoisting"
-        optimization.
     """
 
-    def __init__(self, horizontal, vertical, directive, block_dim, hoist_column_arrays=False):
+    def __init__(self, horizontal, vertical, directive, block_dim):
         self.horizontal = horizontal
         self.vertical = vertical
         self.directive = directive
         self.block_dim = block_dim
-        self.hoist_column_arrays = hoist_column_arrays
 
     @classmethod
     def kernel_annotate_vector_loops_openacc(cls, routine, horizontal, vertical):
@@ -406,7 +402,7 @@ class SCCAnnotateTransformation(Transformation):
         routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
 
     @classmethod
-    def insert_annotations(cls, routine, horizontal, vertical, hoist_column_arrays):
+    def insert_annotations(cls, routine, horizontal, vertical):
 
         # Mark all parallel vector loops as `!$acc loop vector`
         cls.kernel_annotate_vector_loops_openacc(routine, horizontal, vertical)
@@ -418,13 +414,8 @@ class SCCAnnotateTransformation(Transformation):
         # to ensure device-resident data is used for array and struct arguments.
         cls.kernel_annotate_subroutine_present_openacc(routine)
 
-        if hoist_column_arrays:
-            # Mark routine as `!$acc routine seq` to make it device-callable
-            routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
-
-        else:
-            # Mark routine as `!$acc routine vector` to make it device-callable
-            routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
+        # Mark routine as `!$acc routine vector` to make it device-callable
+        routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -463,8 +454,7 @@ class SCCAnnotateTransformation(Transformation):
             return
 
         if self.directive == 'openacc':
-            self.insert_annotations(routine, self.horizontal, self.vertical,
-                                    self.hoist_column_arrays)
+            self.insert_annotations(routine, self.horizontal, self.vertical)
 
         # Remove section wrappers
         section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
@@ -485,15 +475,6 @@ class SCCAnnotateTransformation(Transformation):
         item : :any:`Item`
             Scheduler work item corresponding to routine.
         """
-
-        column_locals = []
-        # Insert device side allocations for hoisted column locals
-        if self.hoist_column_arrays:
-            # Get list of hoisted column locals
-            if item:
-                column_locals = item.trafo_data['SCCHoistTransformation'].get('column_locals', None)
-            if self.directive == 'openacc':
-                self.device_alloc_column_locals(routine, column_locals)
 
         # For the thread block size, find the horizontal size variable that is available in
         # the driver
@@ -524,36 +505,13 @@ class SCCAnnotateTransformation(Transformation):
 
                 # Mark driver loop as "gang parallel".
                 self.annotate_driver(
-                    self.directive, driver_loop, kernel_loop,
-                    self.block_dim, column_locals, num_threads
+                    self.directive, driver_loop, kernel_loop, self.block_dim, num_threads
                 )
 
     @classmethod
-    def device_alloc_column_locals(cls, routine, column_locals):
+    def annotate_driver(cls, directive, driver_loop, kernel_loop, block_dim, num_threads):
         """
-        Add explicit OpenACC statements for creating device variables for hoisted column locals.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        column_locals : list
-            List of column locals to be hoisted to driver layer
-        """
-
-        if column_locals:
-            vnames = ', '.join(v.name for v in column_locals)
-            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
-            # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
-
-    @classmethod
-    def annotate_driver(cls, directive, driver_loop, kernel_loop, block_dim, column_locals, num_threads):
-        """
-        Annotate driver block loop with ``'openacc'`` pragmas, and add offload directives
-        for hoisted column locals.
+        Annotate driver block loop with ``'openacc'`` pragmas.
 
         Parameters
         ----------
@@ -566,9 +524,7 @@ class SCCAnnotateTransformation(Transformation):
             Vector ``Loop`` to wrap in ``'opencc'`` pragmas if hoisting is enabled.
         block_dim : :any:`Dimension`
             Optional ``Dimension`` object to define the blocking dimension
-            to use for hoisted column arrays if hoisting is enabled.
-        column_locals : list
-            List of column locals to be hoisted to driver layer
+            to detect hoisted temporary arrays and excempt them from marking.
         num_threads : str
             The size expression that determines the number of threads per thread block
         """
@@ -579,7 +535,6 @@ class SCCAnnotateTransformation(Transformation):
             arrays = [v for v in arrays if isinstance(v, sym.Array)]
             arrays = [v for v in arrays if not v.type.intent]
             arrays = [v for v in arrays if not v.type.pointer]
-            arrays = [v for v in arrays if not v.name in [c.name for c in column_locals]]
 
             # Filter out arrays that are explicitly allocated with block dimension
             sizes = block_dim.size_expressions
