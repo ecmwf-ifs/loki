@@ -34,12 +34,15 @@ from transformations.utility_routines import DrHookTransformation, RemoveCallsTr
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import (
-     SCCBaseTransformation, SCCAnnotateTransformation, SCCHoistTransformation
+    SCCBaseTransformation, SCCAnnotateTransformation, SCCHoistTransformation,
+    SCCHoistTemporaryArraysTransformation
 )
 from transformations.single_column_coalesced_vector import (
-     SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
+    SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
 )
-from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
+from transformations.scc_cuf import (
+    SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
+)
 
 
 class IdemTransformation(Transformation):
@@ -204,10 +207,12 @@ def convert(
         scheduler.process(transformation=SCCRevectorTransformation(horizontal=horizontal))
         scheduler.process(transformation=SCCAnnotateTransformation(
             horizontal=horizontal, vertical=vertical, directive=directive,
-            block_dim=block_dim, hoist_column_arrays='hoist' in mode
+            block_dim=block_dim, hoist_column_arrays=False
         ))
 
     if mode == 'scc-hoist':
+        disable = scheduler.config.disable
+
         scheduler.process(transformation=SCCBaseTransformation(
             horizontal=horizontal, directive=directive, inline_members=inline_members
         ))
@@ -215,16 +220,20 @@ def convert(
             horizontal=horizontal, trim_vector_sections=trim_vector_sections
         ))
         scheduler.process(transformation=SCCDemoteTransformation(horizontal=horizontal))
+        scheduler.process(transformation=SCCRevectorTransformation(horizontal=horizontal))
+
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(
-            dim_vars=(vertical.size,)), reverse=True
+            disable=disable, dim_vars=(vertical.size,)), reverse=True
         )
         scheduler.process(
-            transformation=HoistTemporaryArraysDeviceAllocatableTransformation()
+            transformation=SCCHoistTemporaryArraysTransformation(
+                block_dim=block_dim, disable=disable
+            )
         )
 
         scheduler.process(transformation=SCCAnnotateTransformation(
             horizontal=horizontal, vertical=vertical, directive=directive,
-            block_dim=block_dim, hoist_column_arrays='hoist' in mode),
+            block_dim=block_dim, hoist_column_arrays=False),
         )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
