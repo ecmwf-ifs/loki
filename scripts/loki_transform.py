@@ -34,7 +34,7 @@ from transformations.utility_routines import DrHookTransformation, RemoveCallsTr
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import (
-    SCCBaseTransformation, SCCAnnotateTransformation, SCCHoistTransformation,
+    SCCBaseTransformation, SCCAnnotateTransformation,
     SCCHoistTemporaryArraysTransformation
 )
 from transformations.single_column_coalesced_vector import (
