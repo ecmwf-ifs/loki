@@ -163,16 +163,16 @@ def convert(
 
     # First, remove all derived-type arguments; caller first!
     if remove_derived_args:
-        scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+        scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
     if 'scc' in mode:
-        scheduler.process(transformation=RemoveCallsTransformation(
+        scheduler.process( RemoveCallsTransformation(
             routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
             include_intrinsics=True
         ))
     else:
-        scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
+        scheduler.process( DrHookTransformation(mode=mode, remove=False) )
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
@@ -180,63 +180,51 @@ def convert(
         offload_transform = DataOffloadTransformation(
             remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
         )
-        scheduler.process(transformation=offload_transform)
+        scheduler.process(offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
     if mode in ['idem', 'idem-stack']:
-        scheduler.process(transformation=IdemTransformation())
+        scheduler.process( IdemTransformation() )
 
     if mode == 'sca':
-        scheduler.process(transformation=ExtractSCATransformation(horizontal=horizontal))
+        scheduler.process( ExtractSCATransformation(horizontal=horizontal) )
 
     if mode == 'claw':
-        scheduler.process(transformation=CLAWTransformation(
+        scheduler.process( CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         ))
 
-    if mode in ['scc', 'scc-stack']:
-        scheduler.process(transformation=SCCBaseTransformation(
+    if mode in ['scc', 'scc-hoist', 'scc-stack']:
+        # Apply the basic SCC transformation set
+        scheduler.process( SCCBaseTransformation(
             horizontal=horizontal, directive=directive
         ))
-        scheduler.process(transformation=SCCDevectorTransformation(
+        scheduler.process( SCCDevectorTransformation(
             horizontal=horizontal, trim_vector_sections=trim_vector_sections
         ))
-        scheduler.process(transformation=SCCDemoteTransformation(horizontal=horizontal))
-        scheduler.process(transformation=SCCRevectorTransformation(horizontal=horizontal))
-        scheduler.process(transformation=SCCAnnotateTransformation(
+        scheduler.process( SCCDemoteTransformation(horizontal=horizontal))
+        scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
+        scheduler.process( SCCAnnotateTransformation(
             horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
         ))
 
     if mode == 'scc-hoist':
+        # Apply recursive hoisting of local temporary arrays.
+        # This requires a first analysis pass to run in reverse
+        # direction through the call graph to gather temporary arrays.
         disable = scheduler.config.disable
-
-        scheduler.process(transformation=SCCBaseTransformation(
-            horizontal=horizontal, directive=directive, inline_members=inline_members
-        ))
-        scheduler.process(transformation=SCCDevectorTransformation(
-            horizontal=horizontal, trim_vector_sections=trim_vector_sections
-        ))
-        scheduler.process(transformation=SCCDemoteTransformation(horizontal=horizontal))
-        scheduler.process(transformation=SCCRevectorTransformation(horizontal=horizontal))
-
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(
+        scheduler.process( HoistTemporaryArraysAnalysis(
             disable=disable, dim_vars=(vertical.size,)), reverse=True
         )
-        scheduler.process(
-            transformation=SCCHoistTemporaryArraysTransformation(
-                block_dim=block_dim, disable=disable
-            )
-        )
-
-        scheduler.process(transformation=SCCAnnotateTransformation(
-            horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
+        scheduler.process( SCCHoistTemporaryArraysTransformation(
+            block_dim=block_dim, disable=disable
         ))
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         derived_types = scheduler.config.derived_types
-        scheduler.process(transformation=SccCufTransformation(
+        scheduler.process( SccCufTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
             transformation_type=mode.replace('cuf-', ''),
             derived_types=derived_types
@@ -254,7 +242,7 @@ def convert(
                 def transform_subroutine(self, routine, **kwargs):
                     normalize_range_indexing(routine)
 
-            scheduler.process(transformation=NormalizeRangeIndexingTransformation())
+            scheduler.process( NormalizeRangeIndexingTransformation() )
 
         directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
         transformation = TemporariesPoolAllocatorTransformation(
