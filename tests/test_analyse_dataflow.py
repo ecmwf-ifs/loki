@@ -517,24 +517,36 @@ end subroutine masked_statements
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_whileloop(frontend):
     fcode = """
-subroutine while_loop()
+subroutine while_loop(flag)
    implicit none
 
+   logical, intent(in) :: flag
    integer :: ij
    real :: a(10)
 
-   ij = 0
-   do while(ij .lt. 10)
-     ij = ij + 1
-     a(ij) = 0.
-   enddo
+   if(flag)then
+      ij = 0
+      do while(ij .lt. 10)
+          ij = ij + 1
+          a(ij) = 0.
+      enddo
+   endif
 
 end subroutine while_loop
 """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loop = FindNodes(WhileLoop).visit(routine.body)[0]
+    cond = FindNodes(Conditional).visit(routine.body)[0]
     with dataflow_analysis_attached(routine):
+        assert len(cond.uses_symbols) == 1
+        assert 'flag' in cond.uses_symbols
+        assert len(loop.uses_symbols) == 1
+        assert len(loop.defines_symbols) == 2
+        assert 'ij' in loop.uses_symbols
+        assert all(v in loop.defines_symbols for v in ('ij', 'a'))
+
+    with dataflow_analysis_attached(cond):
         assert len(loop.uses_symbols) == 1
         assert len(loop.defines_symbols) == 2
         assert 'ij' in loop.uses_symbols
