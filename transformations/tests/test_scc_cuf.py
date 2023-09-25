@@ -60,6 +60,9 @@ def fixture_config():
 
 
 def check_subroutine_driver(routine, blocking, disable=()):
+    # use of "use cudafor"
+    imports = [_import.module.lower() for _import in FindNodes(Import).visit(routine.spec)]
+    assert "cudafor" in imports
     # device arrays
     # device arrays: declaration
     arrays = [var for var in routine.variables if isinstance(var, sym.Array)]

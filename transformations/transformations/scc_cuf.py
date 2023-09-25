@@ -671,13 +671,6 @@ class SccCufTransformation(Transformation):
             self.derived_types = [_.upper() for _ in derived_types]
         self.derived_type_variables = ()
 
-    def transform_module(self, module, **kwargs):
-
-        role = kwargs.get('role')
-
-        if role == 'driver':
-            module.spec.prepend(ir.Import(module="cudafor"))
-
     def transform_subroutine(self, routine, **kwargs):
 
         item = kwargs.get('item', None)
@@ -696,8 +689,7 @@ class SccCufTransformation(Transformation):
         single_variable_declaration(routine=routine, group_by_shape=True)
         device_subroutine_prefix(routine, depth)
 
-        if depth > 0:
-            routine.spec.prepend(ir.Import(module="cudafor"))
+        routine.spec.prepend(ir.Import(module="cudafor"))
 
         if role == 'driver':
             self.process_routine_driver(routine, targets=targets)
