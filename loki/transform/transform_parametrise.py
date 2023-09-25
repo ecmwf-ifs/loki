@@ -121,8 +121,8 @@ class ParametriseTransformation(Transformation):
 
         dic2p = {'a': 12, 'b': 11}
 
-        transformation = ParametriseTransformation(dic2p=dic2p, disable=("ignore_this_func", "ignore_another_func"),
-                                                   abort_callback=error_stop, entry_points=("driver1", "driver2"))
+        transformation = ParametriseTransformation(dic2p=dic2p, abort_callback=error_stop, 
+                                entry_points=("driver1", "driver2"))
 
         scheduler.process(transformation=transformation)
 
@@ -130,8 +130,6 @@ class ParametriseTransformation(Transformation):
     ----------
     dic2p: dict
         Dictionary of variable names and corresponding values to be parametrised.
-    disable: tuple
-        Tuple of subroutines not to be processed.
     replace_by_value: bool
         Replace variables entirely by value (default: `False`)
     entry_points: None or tuple
@@ -152,12 +150,8 @@ class ParametriseTransformation(Transformation):
 
     _key = "ParametriseTransformation"
 
-    def __init__(self, dic2p, disable=None, replace_by_value=False, entry_points=None, abort_callback=None, key=None):
+    def __init__(self, dic2p, replace_by_value=False, entry_points=None, abort_callback=None, key=None):
         self.dic2p = dic2p
-        if disable is None:
-            self.disable = ()
-        else:
-            self.disable = [_.upper() for _ in disable]
         self.replace_by_value = replace_by_value
         if entry_points is not None:
             self.entry_points = [_.upper() for _ in entry_points]
@@ -188,17 +182,8 @@ class ParametriseTransformation(Transformation):
         role = kwargs.get('role', None)
 
         _successors = kwargs.get('successors', None)
-        successors = []
-        for successor in _successors:
-            append = True
-            for _disable in self.disable:
-                if _disable.upper() in successor.name.upper():
-                    append = False
-                    break
-            if append:
-                successors.append(successor)
-        successor_map = {successor.routine.name: successor for successor in successors if successor.name.upper()
-                         not in self.disable}
+        successor_map = {successor.routine.name: successor for successor in _successors}
+        successors = [successor.local_name.upper() for successor in _successors]
 
         # decide whether subroutine is an entry point or not
         process_entry_point = False
@@ -263,7 +248,7 @@ class ParametriseTransformation(Transformation):
             # remove variables to be parametrised from all call statements
             call_map = {}
             for call in FindNodes(ir.CallStatement).visit(routine.body):
-                if str(call.name).upper() not in self.disable:
+                if str(call.name).upper() in successors:
                     successor_map[str(call.name)].trafo_data[self._key] = {}
                     arg_map = dict(call.arg_iter())
                     arg_map_reversed = {v: k for k, v in arg_map.items()}
