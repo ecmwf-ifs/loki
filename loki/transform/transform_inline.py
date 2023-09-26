@@ -233,7 +233,7 @@ def inline_member_routine(routine, member):
     parent_variables = routine.variable_map
     duplicate_locals = tuple(
         v for v in member.variables
-        if v.name in parent_variables and v.name not in member._dummies
+        if v.name in parent_variables and v.name.lower() not in member._dummies
     )
     shadow_mapper = SubstituteExpressions(
         {v: v.clone(name=f'{member.name}_{v.name}') for v in duplicate_locals}
@@ -243,7 +243,7 @@ def inline_member_routine(routine, member):
 
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(member.spec)
-    decls = tuple(d for d in decls if all(s.name not in routine._dummies for s in d.symbols))
+    decls = tuple(d for d in decls if all(s.name.lower() not in routine._dummies for s in d.symbols))
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
     routine.spec.append(decls)
 
