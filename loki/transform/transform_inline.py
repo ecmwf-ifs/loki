@@ -19,7 +19,7 @@ from loki.expression import symbols as sym
 from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
-from loki.logging import warning
+from loki.logging import warning, error
 
 
 __all__ = [
@@ -266,6 +266,15 @@ def inline_member_routine(routine, member):
                         qualified_value = val.clone(
                             dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
                         )
+
+                    # If sequence association (scalar-to-array argument passing) is used,
+                    # we cannot determine the right re-mapped iteration space, so we bail here!
+                    if not any(isinstance(d, sym.Range) for d in qualified_value.dimensions):
+                        error(
+                            '[Loki::TransformInline] Cannot find free dimension resolving '
+                            f' array argument for value "{qualified_value}"'
+                        )
+                        raise RuntimeError('[Loki::TransformInline] Unable to resolve member subroutine call')
                     arg_vars = tuple(v for v in member_vars if v.name == arg.name)
                     argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
                 else:

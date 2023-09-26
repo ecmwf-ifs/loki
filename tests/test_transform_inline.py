@@ -513,3 +513,36 @@ end subroutine outer
     assign = FindNodes(Assignment).visit(routine.body)
     assert routine.variable_map['y'] == 'y'
     assert assign[2].lhs == 'y' and assign[2].rhs == 'y + sum(x)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines_sequence_assoc(frontend):
+    """
+    Test inlining of member subroutines in the presence of sequence
+    associations. As this is not supported, we check for the
+    appropriate error.
+    """
+    fcode = """
+subroutine member_routines_sequence_assoc(vector)
+  real(kind=8), intent(inout) :: vector(6)
+  integer :: i
+
+  i = 2
+  call inner(3, vector(i))
+
+  contains
+    subroutine inner(n, a)
+      integer, intent(in) :: n
+      real(kind=8), intent(inout) :: a(3)
+      integer :: j
+      do j=1, n
+        a(j) = a(j) + 1
+      end do
+    end subroutine
+end subroutine member_routines_sequence_assoc
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Expect to fail here due to use of sequence association
+    with pytest.raises(RuntimeError):
+        inline_member_procedures(routine=routine)
