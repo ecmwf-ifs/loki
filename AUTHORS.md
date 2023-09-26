@@ -2,6 +2,7 @@
 
 - R. Heilemann Myhre (Met Norway)
 - M. Lange (ECMWF)
+- J. Legaux (CERFACS)
 - O. Marsden (ECMWF)
 - A. Nawab (ECMWF)
 - B. Reuter (ECMWF)

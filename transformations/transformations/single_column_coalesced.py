@@ -7,11 +7,13 @@
 
 import re
 from loki.expression import symbols as sym
+from loki.transform import resolve_associates, inline_member_procedures
 from loki import (
     Transformation, FindNodes, FindScopes, Transformer, info,
-    pragmas_attached, as_tuple, flatten, ir, resolve_associates,
-    FindExpressions, SymbolAttributes, BasicType, SubstituteExpressions, DerivedType,
-    FindVariables, CaseInsensitiveDict, pragma_regions_attached, PragmaRegion, is_loki_pragma
+    pragmas_attached, as_tuple, flatten, ir, FindExpressions,
+    SymbolAttributes, BasicType, SubstituteExpressions, DerivedType,
+    FindVariables, CaseInsensitiveDict, pragma_regions_attached,
+    PragmaRegion, is_loki_pragma
 )
 
 __all__ = ['SCCBaseTransformation', 'SCCAnnotateTransformation', 'SCCHoistTransformation']
@@ -31,13 +33,17 @@ class SCCBaseTransformation(Transformation):
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
+    inline_members : bool
+        Enable full source-inlining of member subroutines; default: False.
     """
 
-    def __init__(self, horizontal, directive=None):
+    def __init__(self, horizontal, directive=None, inline_members=False):
         self.horizontal = horizontal
 
         assert directive in [None, 'openacc']
         self.directive = directive
+
+        self.inline_members = inline_members
 
     @classmethod
     def check_routine_pragmas(cls, routine, directive):
@@ -228,6 +234,10 @@ class SCCBaseTransformation(Transformation):
 
         # Find the iteration index variable for the specified horizontal
         v_index = self.get_integer_variable(routine, name=self.horizontal.index)
+
+        # Perform full source-inlining for member subroutines if so requested
+        if self.inline_members:
+            inline_member_procedures(routine)
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls

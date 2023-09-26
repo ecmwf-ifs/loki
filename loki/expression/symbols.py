@@ -1069,7 +1069,7 @@ class LogicLiteral(StrCompareMixin, _Literal):
     """
 
     def __init__(self, value, **kwargs):
-        self.value = value.lower() in ('true', '.true.')
+        self.value = str(value).lower() in ('true', '.true.')
         super().__init__(**kwargs)
 
     init_arg_names = ('value', )

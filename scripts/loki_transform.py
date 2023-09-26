@@ -102,10 +102,12 @@ def cli(debug):
               help="Generate offload instructions for global vars imported via 'USE' statements.")
 @click.option('--remove-derived-args/--no-remove-derived-args', default=False,
               help="Remove derived-type arguments and replace with canonical arguments")
+@click.option('--inline-members/--no-inline-members', default=False,
+              help='Inline member functions for SCC-class transformations.')
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
-        global_var_offload, remove_derived_args
+        global_var_offload, remove_derived_args, inline_members
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -190,7 +192,9 @@ def convert(
         horizontal = scheduler.config.dimensions['horizontal']
         vertical = scheduler.config.dimensions['vertical']
         block_dim = scheduler.config.dimensions['block_dim']
-        transformation = (SCCBaseTransformation(horizontal=horizontal, directive=directive),)
+        transformation = (SCCBaseTransformation(
+            horizontal=horizontal, directive=directive, inline_members=inline_members
+        ),)
         transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
         transformation += (SCCDemoteTransformation(horizontal=horizontal),)
         if not 'hoist' in mode:

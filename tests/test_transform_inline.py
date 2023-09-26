@@ -7,12 +7,19 @@
 
 from pathlib import Path
 import pytest
+import numpy as np
 
-from conftest import jit_compile_lib, available_frontends
-from loki import Builder, Module, Subroutine, FindNodes, Import, FindVariables
+from conftest import jit_compile, jit_compile_lib, available_frontends
+from loki import (
+    Builder, Module, Subroutine, FindNodes, Import, FindVariables,
+    CallStatement, Loop, BasicType, DerivedType, OMNI
+)
 from loki.ir import Assignment
-from loki.transform import inline_elemental_functions, inline_constant_parameters, replace_selected_kind
-
+from loki.transform import (
+    inline_elemental_functions, inline_constant_parameters,
+    replace_selected_kind, inline_member_procedures
+)
+from loki.expression import symbols as sym
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
@@ -281,3 +288,261 @@ end subroutine kernel
     stmts = FindNodes(Assignment).visit(routine.body)
     assert len(stmts) == 1
     assert stmts[0].rhs == 'b + 10'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines(here, frontend):
+    """
+    Test inlining of member subroutines.
+    """
+    fcode = """
+subroutine member_routines(a, b)
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer :: i
+
+  do i=1, size(a)
+    call add_one(a(i))
+  end do
+
+  call add_to_a(b)
+
+  do i=1, size(a)
+    call add_one(a(i))
+  end do
+
+  contains
+
+    subroutine add_one(a)
+      real(kind=8), intent(inout) :: a
+      a = a + 1
+    end subroutine
+
+    subroutine add_to_a(b)
+      real(kind=8), intent(inout) :: b(:)
+      integer :: n
+
+      n = size(a)
+      do i = 1, n
+        a(i) = a(i) + b(i)
+      end do
+    end subroutine
+end subroutine member_routines
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    filepath = here/(f'ref_transform_inline_member_routines_{frontend}.f90')
+    reference = jit_compile(routine, filepath=filepath, objname='member_routines')
+
+    a = np.array([1., 2., 3.], order='F')
+    b = np.array([3., 3., 3.], order='F')
+    reference(a, b)
+
+    assert (a == [6., 7., 8.]).all()
+    assert (b == [3., 3., 3.]).all()
+
+    # Now inline the member routines and check again
+    inline_member_procedures(routine=routine)
+
+    assert not routine.members
+    assert not FindNodes(CallStatement).visit(routine.body)
+    assert len(FindNodes(Loop).visit(routine.body)) == 3
+    assert 'n' in routine.variables
+
+    # An verify compiled behaviour
+    filepath = here/(f'transform_inline_member_routines_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='member_routines')
+
+    a = np.array([1., 2., 3.], order='F')
+    b = np.array([3., 3., 3.], order='F')
+    function(a, b)
+
+    assert (a == [6., 7., 8.]).all()
+    assert (b == [3., 3., 3.]).all()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines_arg_dimensions(frontend):
+    """
+    Test inlining of member subroutines when sub-arrays of rank less
+    than the formal argument are passed.
+    """
+    fcode = """
+subroutine member_routines_arg_dimensions(matrix, tensor)
+  real(kind=8), intent(inout) :: matrix(3, 3), tensor(3, 3, 4)
+  integer :: i
+  do i=1, 3
+    call add_one(3, matrix(1:3,i), tensor(:,i,:))
+  end do
+  contains
+    subroutine add_one(n, a, b)
+      integer, intent(in) :: n
+      real(kind=8), intent(inout) :: a(3), b(3,1:n)
+      integer :: j
+      do j=1, n
+        a(j) = a(j) + 1
+        b(j,:) = 66.6
+      end do
+    end subroutine
+end subroutine member_routines_arg_dimensions
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Ensure initial member arguments
+    assert len(routine.routines) == 1
+    assert routine.routines[0].name == 'add_one'
+    assert len(routine.routines[0].arguments) == 3
+    assert routine.routines[0].arguments[0].name == 'n'
+    assert routine.routines[0].arguments[1].name == 'a'
+    assert routine.routines[0].arguments[2].name == 'b'
+
+    # Now inline the member routines and check again
+    inline_member_procedures(routine=routine)
+
+    # Ensure member has been inlined and arguments adapated
+    assert len(routine.routines) == 0
+    assert len([v for v in FindVariables().visit(routine.body) if v.name == 'a']) == 0
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'matrix(j, i)' and assigns[0].rhs =='matrix(j, i) + 1'
+    assert assigns[1].lhs == 'tensor(j, i, :)'
+
+    # Ensure the `n` in the inner loop bound has been substituted too
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert loops[0].bounds == '1:3'
+    assert loops[1].bounds == '1:3'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No header information in test')]))
+def test_inline_member_routines_derived_type_member(frontend):
+    """
+    Test inlining of member subroutines when the member routine
+    handles arrays that are derived type components and thus might
+    have the DEFERRED type.
+    """
+    fcode = """
+subroutine outer(x, a)
+  real, intent(inout) :: x
+  type(my_type), intent(in) :: a
+
+  ! Pass derived type arrays as arguments
+  call inner(a%b(:), a%c, a%k, a%n)
+
+contains
+  subroutine inner(y, z, k, n)
+    integer, intent(in) :: k, n
+    real, intent(inout) :: y(n), z(:,:)
+    integer :: j
+
+    do j=1, n
+      x = x + y(j)
+      ! Use derived-type variable as index
+      ! to test for nested substitution
+      y(j) = z(k,j)
+    end do
+  end subroutine inner
+end subroutine outer
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert routine.variable_map['x'].type.dtype == BasicType.REAL
+    assert isinstance(routine.variable_map['a'].type.dtype, DerivedType)
+    call = FindNodes(CallStatement).visit(routine.body)[0]
+    assert isinstance(call.arguments[0], sym.Array)
+    assert isinstance(call.arguments[1], sym.DeferredTypeSymbol)
+    assert isinstance(call.arguments[2], sym.DeferredTypeSymbol)
+
+    # Now inline the member routines and check again
+    inline_member_procedures(routine=routine)
+
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].rhs =='x + a%b(j)'
+    assert assigns[1].lhs == 'a%b(j)' and assigns[1].rhs == 'a%c(a%k, j)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines_variable_shadowing(frontend):
+    """
+    Test inlining of member subroutines when variable allocations
+    in child routine shadow different allocations in the parent.
+    """
+    fcode = """
+subroutine outer()
+     real :: x = 3 ! 'x' is real in outer.
+     real :: tmp = 0
+     real :: y
+
+     y = 1.0
+     call inner(tmp, y=y)
+     x = x + tmp
+
+contains
+    subroutine inner(y)
+        real, intent(inout) :: Y
+        real :: x(3) ! 'x' is array in inner.
+        x = [1, 2, 3]
+        y = y + sum(x)
+    end subroutine inner
+end subroutine outer
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check outer and inner 'x'
+    assert routine.variable_map['x'] == 'x'
+    assert isinstance(routine.variable_map['x'], sym.Scalar)
+    assert routine.variable_map['x'].type.initial == 3
+
+    assert routine['inner'].variable_map['x'] in ['x(3)', 'x(1:3)']
+    assert isinstance(routine['inner'].variable_map['x'], sym.Array)
+    assert routine['inner'].variable_map['x'].type.shape == (3,)
+
+    inline_member_procedures(routine=routine)
+
+    # Check outer has not changed
+    assert routine.variable_map['x'] == 'x'
+    assert isinstance(routine.variable_map['x'], sym.Scalar)
+    assert routine.variable_map['x'].type.initial == 3
+
+    # Check inner 'x' was moved correctly
+    assert routine.variable_map['inner_x'] in ['inner_x(3)', 'inner_x(1:3)']
+    assert isinstance(routine.variable_map['inner_x'], sym.Array)
+    assert routine.variable_map['inner_x'].type.shape == (3,)
+
+    # Check inner 'y' was substituted, not renamed!
+    assign = FindNodes(Assignment).visit(routine.body)
+    assert routine.variable_map['y'] == 'y'
+    assert assign[2].lhs == 'y' and assign[2].rhs == 'y + sum(x)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines_sequence_assoc(frontend):
+    """
+    Test inlining of member subroutines in the presence of sequence
+    associations. As this is not supported, we check for the
+    appropriate error.
+    """
+    fcode = """
+subroutine member_routines_sequence_assoc(vector)
+  real(kind=8), intent(inout) :: vector(6)
+  integer :: i
+
+  i = 2
+  call inner(3, vector(i))
+
+  contains
+    subroutine inner(n, a)
+      integer, intent(in) :: n
+      real(kind=8), intent(inout) :: a(3)
+      integer :: j
+      do j=1, n
+        a(j) = a(j) + 1
+      end do
+    end subroutine
+end subroutine member_routines_sequence_assoc
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Expect to fail here due to use of sequence association
+    with pytest.raises(RuntimeError):
+        inline_member_procedures(routine=routine)

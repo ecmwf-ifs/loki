@@ -988,6 +988,9 @@ def test_string_compare():
     assert symbols.Literal('u') == 'u'
     assert symbols.Literal('u') != 'U'
     assert symbols.Literal('u') != u  # The `Variable(name='u', ...) from above
+    assert symbols.Literal('.TrUe.') == 'true'
+    # Specific test for constructor checks
+    assert symbols.LogicLiteral(value=True) == 'true'
 
 
 @pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
