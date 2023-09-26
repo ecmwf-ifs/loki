@@ -193,9 +193,14 @@ def test_hoist_disable(here, frontend, config):
         "device2": ('a1', 'b', 'x')
     }
 
-    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments, 
-            include_device_functions=False)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="all_hoisted_disable")
+    check_arguments(
+        scheduler=scheduler, subroutine_arguments=subroutine_arguments,
+        call_arguments=call_arguments, include_device_functions=False
+    )
+    compile_and_test(
+        scheduler=scheduler, here=here, a=(5, 10, 100),
+        frontend=frontend, test_name="all_hoisted_disable"
+    )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

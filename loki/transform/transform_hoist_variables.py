@@ -298,6 +298,7 @@ class HoistVariablesTransformation(Transformation):
         variables : tuple of :any:`Variable`
             The tuple of variables to be declared.
         """
+        # pylint: disable=unused-argument
         new_args = tuple(v.clone(dimensions=None) for v in variables)
         return call.clone(arguments=call.arguments + new_args)
 
