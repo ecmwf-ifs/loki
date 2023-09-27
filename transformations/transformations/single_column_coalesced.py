@@ -430,13 +430,12 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         role = kwargs['role']
-        item = kwargs.get('item', None)
         targets = kwargs.get('targets', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
         if role == 'driver':
-            self.process_driver(routine, targets=targets, item=item)
+            self.process_driver(routine, targets=targets)
 
     def process_kernel(self, routine):
         """
@@ -461,7 +460,7 @@ class SCCAnnotateTransformation(Transformation):
         if section_mapper:
             routine.body = Transformer(section_mapper).visit(routine.body)
 
-    def process_driver(self, routine, targets=None, item=None):
+    def process_driver(self, routine, targets=None):
         """
         Apply the relevant ``'openacc'`` annotations to the driver loop.
 
@@ -472,8 +471,6 @@ class SCCAnnotateTransformation(Transformation):
         targets : list or string
             List of subroutines that are to be considered as part of
             the transformation call tree.
-        item : :any:`Item`
-            Scheduler work item corresponding to routine.
         """
 
         # For the thread block size, find the horizontal size variable that is available in
