@@ -1415,7 +1415,7 @@ END SUBROUTINE DOT_PROD_SP_2D
     assert 'dot_product_ecv' in routine.variables
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=(OFP, 'No support for prefix implemented')))
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for prefix implemented')]))
 def test_regex_prefix(frontend):
     fcode = """
 module some_mod
