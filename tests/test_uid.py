@@ -13,13 +13,6 @@ from loki import Sourcefile
 from loki.visitors.visitor import Visitor
 from loki.tools import is_iterable, as_tuple
 
-
-
-@pytest.fixture(scope="module", name="here")
-def fixture_here():
-    return Path(__file__).parent
-
-
 class Checker(Visitor):
     def __init__(self):
         super().__init__()
@@ -56,10 +49,10 @@ class Checker(Visitor):
     visit_list = visit_tuple
 
 
-fortran_files = list(Path(".").rglob("*.[fF]90"))
+fortran_files = list((Path(__file__).parent).rglob("*.[fF]90"))
 
 @pytest.mark.parametrize("file", fortran_files)
-def test_has_every_node_a_uid(here: Path, file: Path):
+def test_has_every_node_a_uid(file: Path):
     try:
         source = Sourcefile.from_file(file)
     except FortranSyntaxError:
