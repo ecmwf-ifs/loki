@@ -705,3 +705,84 @@ END MODULE header_mod
     assert len(imports) == 2
     assert 'header_var' in imports and imports['header_var'].module.lower() == 'header_mod'
     assert 'kernel_test' in imports and imports['kernel_test'].module.lower() == 'kernel_test_mod'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_multi_module(frontend, tempdir, config):
+    """
+    Test some shit that goes wrong in ecwam...
+    """
+
+    fcode_dave = '''
+module dave_mod
+
+contains
+  subroutine give_you_up(x, y)
+    implicit none
+#include "f.intfb.h"
+    real(8), intent(inout) :: x, y
+
+    y = f(x)
+  end subroutine give_you_up
+
+  subroutine let_you_down()
+    implicit none
+
+    print "Hello world!"
+  end subroutine let_you_down
+
+end module dave_mod
+
+module never_gonna_mod
+
+contains
+  subroutine never_gonna
+    use dave_mod, only: give_you_up
+    real(8) :: a, b
+
+    a = 42.
+    b = 66.6
+    call give_you_up(a, b)
+  end subroutine never_gonna
+end module never_gonna_mod
+'''
+
+    fcode_rick = """
+module rick_mod
+  use never_gonna_mod, only: never_gonna
+contains
+
+  subroutine rick
+
+    call never_gonna()
+  end subroutine rick
+end module rick_mod
+"""
+
+    fcode_f = """
+real function f(x)
+  real(8), intent(in) :: x
+
+  f = x + 66.6
+end function f
+"""
+
+    (tempdir/'dave_mod.F90').write_text(fcode_dave)
+    (tempdir/'rick_mod.F90').write_text(fcode_rick)
+    (tempdir/'f.F90').write_text(fcode_f)
+
+    scheduler = Scheduler(paths=[tempdir], config=config, seed_routines=['rick'])
+
+    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    scheduler.process(transformation, use_file_graph=True)
+
+    assert len(scheduler.items) == 3
+    assert scheduler.items[0].name == 'rick_mod#rick'
+    assert scheduler.items[1].name == 'never_gonna_mod#never_gonna'
+    assert scheduler.items[2].name == 'dave_mod#give_you_up'
+
+    assert scheduler.items[0].source['rick_test']
+    assert scheduler.items[1].source['never_gonna_test']
+    assert scheduler.items[1].source['give_you_up_test']
+    # Last one is not called, so should not be converted
+    assert scheduler.items[1].source['let_you_down']
