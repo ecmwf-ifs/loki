@@ -69,7 +69,7 @@ def test_scc_revector_transformation(frontend, horizontal):
     c = 5.345
     DO jk = 2, nz
       DO jl = start, end
-        t(jl, jk) = c * k
+        t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
@@ -105,7 +105,7 @@ def test_scc_revector_transformation(frontend, horizontal):
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
-    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
+    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*jk'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
@@ -137,7 +137,7 @@ def test_scc_base_resolve_vector_notation(frontend, horizontal):
 
     c = 5.345
     DO jk = 2, nz
-      t(start:end, jk) = c * k
+      t(start:end, jk) = c * jk
       q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
     END DO
   END SUBROUTINE compute_column
@@ -166,7 +166,7 @@ def test_scc_base_resolve_vector_notation(frontend, horizontal):
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
-    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
+    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*jk'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
 
 
@@ -245,7 +245,7 @@ def test_scc_demote_transformation(frontend, horizontal):
     c = 5.345
     DO jk = 2, nz
       DO jl = start, end
-        t(jl, jk) = c * k
+        t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
@@ -284,7 +284,7 @@ def test_scc_demote_transformation(frontend, horizontal):
 
     # Ensure relevant expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
-    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
+    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*jk'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'a = q(jl, 1)'
     assert fgen(assigns[4]).lower() == 'b(1) = q(jl, 2)'
@@ -328,7 +328,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     c = 5.345
     DO jk = 2, nz
       DO jl = start, end
-        t(jl, jk) = c * k
+        t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
@@ -358,7 +358,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
-    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*k'
+    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*jk'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
@@ -430,7 +430,7 @@ def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
     c = 5.345
     DO jk = 2, nz
       DO jl = start, end
-        t(jl, jk) = c * k
+        t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
@@ -523,7 +523,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     c = 5.345
     DO jk = 2, nz
       DO jl = start, end
-        t(jl, jk) = c * k
+        t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
@@ -644,7 +644,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
     DO jk = 2, nz
       DO jl = start, end
-        t(jl, jk) = c * k
+        t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO

@@ -198,7 +198,7 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
     c = 5.345
     DO jk = 2, nz
       DO jl = start, end
-        t(jl, jk) = c * k
+        t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
