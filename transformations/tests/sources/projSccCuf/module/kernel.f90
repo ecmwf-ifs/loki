@@ -23,7 +23,7 @@ MODULE KERNEL_MOD
         c = 5.345
         DO jk = 2, nz
           DO jl = start, iend
-            t(jl, jk) = c * k
+            t(jl, jk) = c * jk
             q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
           END DO
         END DO

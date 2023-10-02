@@ -34,7 +34,7 @@ def test_extract_sca_horizontal(frontend, horizontal):
     c = 5.345
     DO jk = 2, nz
       DO jl = 1, nlon
-        t(jl, jk) = c * k
+        t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1)  + t(jl, jk) * c
       END DO
     END DO
@@ -52,7 +52,7 @@ def test_extract_sca_horizontal(frontend, horizontal):
     exp_loop_nest = """
   c = 5.345
   DO jk=2,nz
-    t(jk) = c*k
+    t(jk) = c*jk
     q(jk) = q(jk - 1) + t(jk)*c
   END DO
 """
