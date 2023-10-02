@@ -567,6 +567,13 @@ END MODULE kernel_mod
     assert driver_loops[2].variable == 'jk'
     assert driver_loops[2].bounds == '2:nz'
 
+    # check location of loop-bound assignment
+    assign = FindNodes(Assignment).visit(driver_loops[0])[0]
+    assert assign.lhs == 'end'
+    assert assign.rhs == 'nlon-nb'
+    assigns = FindNodes(Assignment).visit(driver_loops[1])
+    assert not assign in assigns
+
     assert driver_loops[4] in FindNodes(Loop).visit(driver_loops[3].body)
     assert driver_loops[5] in FindNodes(Loop).visit(driver_loops[3].body)
     assert driver_loops[6] in FindNodes(Loop).visit(driver_loops[3].body)
@@ -595,6 +602,13 @@ END MODULE kernel_mod
     assert driver_loops[9].bounds == 'start:end'
     assert driver_loops[10].variable == 'jk'
     assert driver_loops[10].bounds == '2:nz'
+
+    # check location of loop-bound assignment
+    assign = FindNodes(Assignment).visit(driver_loops[8])[0]
+    assert assign.lhs == 'end'
+    assert assign.rhs == 'nlon-nb'
+    assigns = FindNodes(Assignment).visit(driver_loops[9])
+    assert not assign in assigns
 
     rmtree(basedir)
 
