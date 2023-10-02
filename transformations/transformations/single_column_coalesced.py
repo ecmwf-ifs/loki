@@ -13,10 +13,13 @@ from loki import (
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
     SymbolAttributes, BasicType, SubstituteExpressions, DerivedType,
     FindVariables, CaseInsensitiveDict, pragma_regions_attached,
-    PragmaRegion, is_loki_pragma
+    PragmaRegion, is_loki_pragma, HoistVariablesTransformation
 )
 
-__all__ = ['SCCBaseTransformation', 'SCCAnnotateTransformation', 'SCCHoistTransformation']
+__all__ = [
+    'SCCBaseTransformation', 'SCCAnnotateTransformation',
+    'SCCHoistTemporaryArraysTransformation'
+]
 
 
 class SCCBaseTransformation(Transformation):
@@ -285,17 +288,13 @@ class SCCAnnotateTransformation(Transformation):
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
-    hoist_column_arrays : bool
-        Flag to trigger the more aggressive "column array hoisting"
-        optimization.
     """
 
-    def __init__(self, horizontal, vertical, directive, block_dim, hoist_column_arrays=False):
+    def __init__(self, horizontal, vertical, directive, block_dim):
         self.horizontal = horizontal
         self.vertical = vertical
         self.directive = directive
         self.block_dim = block_dim
-        self.hoist_column_arrays = hoist_column_arrays
 
     @classmethod
     def kernel_annotate_vector_loops_openacc(cls, routine, horizontal, vertical):
@@ -403,7 +402,7 @@ class SCCAnnotateTransformation(Transformation):
         routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
 
     @classmethod
-    def insert_annotations(cls, routine, horizontal, vertical, hoist_column_arrays):
+    def insert_annotations(cls, routine, horizontal, vertical):
 
         # Mark all parallel vector loops as `!$acc loop vector`
         cls.kernel_annotate_vector_loops_openacc(routine, horizontal, vertical)
@@ -415,13 +414,8 @@ class SCCAnnotateTransformation(Transformation):
         # to ensure device-resident data is used for array and struct arguments.
         cls.kernel_annotate_subroutine_present_openacc(routine)
 
-        if hoist_column_arrays:
-            # Mark routine as `!$acc routine seq` to make it device-callable
-            routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
-
-        else:
-            # Mark routine as `!$acc routine vector` to make it device-callable
-            routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
+        # Mark routine as `!$acc routine vector` to make it device-callable
+        routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -436,13 +430,12 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         role = kwargs['role']
-        item = kwargs.get('item', None)
         targets = kwargs.get('targets', None)
 
         if role == 'kernel':
             self.process_kernel(routine)
         if role == 'driver':
-            self.process_driver(routine, targets=targets, item=item)
+            self.process_driver(routine, targets=targets)
 
     def process_kernel(self, routine):
         """
@@ -460,15 +453,14 @@ class SCCAnnotateTransformation(Transformation):
             return
 
         if self.directive == 'openacc':
-            self.insert_annotations(routine, self.horizontal, self.vertical,
-                                    self.hoist_column_arrays)
+            self.insert_annotations(routine, self.horizontal, self.vertical)
 
         # Remove section wrappers
         section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
         if section_mapper:
             routine.body = Transformer(section_mapper).visit(routine.body)
 
-    def process_driver(self, routine, targets=None, item=None):
+    def process_driver(self, routine, targets=None):
         """
         Apply the relevant ``'openacc'`` annotations to the driver loop.
 
@@ -479,18 +471,7 @@ class SCCAnnotateTransformation(Transformation):
         targets : list or string
             List of subroutines that are to be considered as part of
             the transformation call tree.
-        item : :any:`Item`
-            Scheduler work item corresponding to routine.
         """
-
-        column_locals = []
-        # Insert device side allocations for hoisted column locals
-        if self.hoist_column_arrays:
-            # Get list of hoisted column locals
-            if item:
-                column_locals = item.trafo_data['SCCHoistTransformation'].get('column_locals', None)
-            if self.directive == 'openacc':
-                self.device_alloc_column_locals(routine, column_locals)
 
         # For the thread block size, find the horizontal size variable that is available in
         # the driver
@@ -521,36 +502,13 @@ class SCCAnnotateTransformation(Transformation):
 
                 # Mark driver loop as "gang parallel".
                 self.annotate_driver(
-                    self.directive, driver_loop, kernel_loop,
-                    self.block_dim, column_locals, num_threads
+                    self.directive, driver_loop, kernel_loop, self.block_dim, num_threads
                 )
 
     @classmethod
-    def device_alloc_column_locals(cls, routine, column_locals):
+    def annotate_driver(cls, directive, driver_loop, kernel_loop, block_dim, num_threads):
         """
-        Add explicit OpenACC statements for creating device variables for hoisted column locals.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        column_locals : list
-            List of column locals to be hoisted to driver layer
-        """
-
-        if column_locals:
-            vnames = ', '.join(v.name for v in column_locals)
-            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
-            # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
-
-    @classmethod
-    def annotate_driver(cls, directive, driver_loop, kernel_loop, block_dim, column_locals, num_threads):
-        """
-        Annotate driver block loop with ``'openacc'`` pragmas, and add offload directives
-        for hoisted column locals.
+        Annotate driver block loop with ``'openacc'`` pragmas.
 
         Parameters
         ----------
@@ -563,9 +521,7 @@ class SCCAnnotateTransformation(Transformation):
             Vector ``Loop`` to wrap in ``'opencc'`` pragmas if hoisting is enabled.
         block_dim : :any:`Dimension`
             Optional ``Dimension`` object to define the blocking dimension
-            to use for hoisted column arrays if hoisting is enabled.
-        column_locals : list
-            List of column locals to be hoisted to driver layer
+            to detect hoisted temporary arrays and excempt them from marking.
         num_threads : str
             The size expression that determines the number of threads per thread block
         """
@@ -576,7 +532,6 @@ class SCCAnnotateTransformation(Transformation):
             arrays = [v for v in arrays if isinstance(v, sym.Array)]
             arrays = [v for v in arrays if not v.type.intent]
             arrays = [v for v in arrays if not v.type.pointer]
-            arrays = [v for v in arrays if not v.name in [c.name for c in column_locals]]
 
             # Filter out arrays that are explicitly allocated with block dimension
             sizes = block_dim.size_expressions
@@ -604,226 +559,91 @@ class SCCAnnotateTransformation(Transformation):
                                               driver_loop.pragma_post[0]))
 
 
-class SCCHoistTransformation(Transformation):
+class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
     """
-    A transformation to promote all local arrays with column dimensions to arguments.
+    **Specialisation** for the *Synthesis* part of the hoist variables
+    transformation that uses automatic arrays in the driver layer to
+    allocate hoisted temporaries.
+
+    This flavour of the hoisting synthesis will add a blocking dimension
+    to the allocation and add OpenACC directives to the driver routine
+    to trigger device side-allocation of the hoisted temporaries.
 
     Parameters
     ----------
-    horizontal : :any:`Dimension`
-        :any:`Dimension` object describing the variable conventions used in code
-        to define the horizontal data dimension and iteration space.
-    vertical : :any:`Dimension`
-        :any:`Dimension` object describing the variable conventions used in code
-        to define the vertical dimension, as needed to decide array privatization.
     block_dim : :any:`Dimension`
-        Optional ``Dimension`` object to define the blocking dimension
-        to use for hoisted column arrays if hoisting is enabled.
+        :any:`Dimension` object to define the blocking dimension
+        to use for hoisted array arguments on the driver side.
+    key : str, optional
+        Access identifier/key for the ``item.trafo_data`` dictionary.
     """
 
-    _key = 'SCCHoistTransformation'
-
-    def __init__(self, horizontal, vertical, block_dim):
-        self.horizontal = horizontal
-        self.vertical = vertical
+    def __init__(self, key=None, block_dim=None, **kwargs):
         self.block_dim = block_dim
+        super().__init__(key=key, **kwargs)
 
-    @classmethod
-    def get_column_locals(cls, routine, vertical):
+    def driver_variable_declaration(self, routine, variables):
         """
-        List of array variables that include a `vertical` dimension and
-        thus need to be stored in shared memory.
+        Adds driver-side declarations of full block-size arrays to
+        pass to kernels. It also adds the OpenACC pragmas for
+        driver-side allocation/deallocation.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
-            The subroutine in the vector loops should be removed.
-        vertical: :any:`Dimension`
-            The dimension object specifying the vertical dimension
+            The subroutine to add the variable declaration to.
+        variables : tuple of :any:`Variable`
+            The array to be declared, allocated and de-allocated.
         """
-        variables = list(routine.variables)
-
-        # Filter out purely local array variables
-        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-        variables = [v for v in variables if not v.name in argument_map]
-        variables = [v for v in variables if isinstance(v, sym.Array)]
-
-        variables = [v for v in variables if any(vertical.size in d for d in v.shape)]
-
-        return variables
-
-    @classmethod
-    def add_loop_index_to_args(cls, v_index, routine):
-        """
-        Add loop index to routine arguments.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            The subroutine to modify.
-        v_index : :any:`Scalar`
-            The induction variable for the promoted horizontal loops.
-        """
-
-        new_v = v_index.clone(type=v_index.type.clone(intent='in'))
-        # Remove original variable first, since we need to update declaration
-        routine.variables = as_tuple(v for v in routine.variables if v != v_index)
-        routine.arguments += as_tuple(new_v)
-
-    @classmethod
-    def hoist_temporary_column_arrays(cls, routine, call, horizontal, vertical, block_dim, item=None):
-        """
-        Hoist temporary column arrays to the driver level.
-
-        Note that this employs an interprocedural analysis pass
-        (forward), and thus needs to be executed for the calling
-        driver routine before any of the kernels are processed.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        call : :any:`CallStatement`
-            Call to subroutine from which we hoist the column arrays.
-        horizontal: :any:`Dimension`
-            The dimension object specifying the horizontal vector dimension
-        vertical: :any:`Dimension`
-            The dimension object specifying the vertical loop dimension
-        block_dim : :any:`Dimension`
-            ``Dimension`` object to define the blocking dimension
-            to use for hoisted column arrays if hoisting is enabled.
-        item : :any:`Item`
-            Scheduler work item corresponding to routine.
-        """
-
-        if call.not_active or call.routine is BasicType.DEFERRED:
-            raise RuntimeError(
-                '[Loki] SingleColumnCoalescedTransform: Target kernel is not attached '
-                'to call in driver routine.'
-            )
-
-        if not block_dim:
+        if not self.block_dim:
             raise RuntimeError(
                 '[Loki] SingleColumnCoalescedTransform: No blocking dimension found '
-                'for column hoisting.'
+                'for array argument hoisting.'
             )
 
-        kernel = call.routine
-        call_map = {}
+        block_var = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size)
+        routine.variables += tuple(
+            v.clone(
+                dimensions=v.dimensions + (block_var,),
+                type=v.type.clone(shape=v.shape + (block_var,))
+            ) for v in variables
+        )
 
-        column_locals = cls.get_column_locals(kernel, vertical=vertical)
-        arg_map = dict(call.arg_iter())
-        arg_mapper = SubstituteExpressions(arg_map)
+        # Add explicit device-side allocations/deallocations for hoisted temporaries
+        vnames = ', '.join(v.name for v in variables)
+        pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+        pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
 
-        # Create a driver-level buffer variable for all promoted column arrays
-        # TODO: Note that this does not recurse into the kernels yet!
-        block_var = SCCBaseTransformation.get_integer_variable(routine, block_dim.size)
-        arg_dims = [v.shape + (block_var,) for v in column_locals]
-        # Translate shape variables back to caller's namespace
-        routine.variables += as_tuple(v.clone(dimensions=arg_mapper.visit(dims), scope=routine)
-                                      for v, dims in zip(column_locals, arg_dims))
+        # Add comments around standalone pragmas to avoid false attachment
+        routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+        routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
-        # Add column_locals to trafo_data for offload annotations in SCCAnnotate
-        if item:
-            item.trafo_data[cls._key]['column_locals'] += column_locals
-
-        # Add a block-indexed slice of each column variable to the call
-        idx = SCCBaseTransformation.get_integer_variable(routine, block_dim.index)
-        new_args = [v.clone(
-            dimensions=as_tuple([sym.RangeIndex((None, None)) for _ in v.shape]) + (idx,),
-            scope=routine
-        ) for v in column_locals]
-        new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
-
-        info(f'[Loki-SCC::Hoist] Hoisted variables in call {routine.name} => {call.name}:'
-             f'{", ".join(v.name for v in column_locals)}')
-
-        # Find the iteration index variable for the specified horizontal
-        v_index = SCCBaseTransformation.get_integer_variable(routine, name=horizontal.index)
-        if v_index.name not in routine.variable_map:
-            routine.variables += as_tuple(v_index)
-
-        # Append new loop variable to call signature
-        new_call._update(kwarguments=new_call.kwarguments + ((horizontal.index, v_index),))
-
-        # Now create a vector loop around the kernel invocation
-        v_start = arg_map[kernel.variable_map[horizontal.bounds[0]]]
-        v_end = arg_map[kernel.variable_map[horizontal.bounds[1]]]
-        bounds = sym.LoopRange((v_start, v_end))
-        vector_loop = ir.Loop(variable=v_index, bounds=bounds, body=(new_call,))
-        call_map[call] = vector_loop
-
-        routine.body = Transformer(call_map).visit(routine.body)
-
-    def transform_subroutine(self, routine, **kwargs):
+    def driver_call_argument_remapping(self, routine, call, variables):
         """
-        Apply SCCHoist utilities to a :any:`Subroutine`.
+        Adds hoisted sub-arrays to the kernel call from a driver routine.
+
+        This assumes that the hoisted temporaries have been allocated with
+        a blocking dimension and are device-resident. The remapping will then
+        add the block-index as the last index to each passed array argument.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        role : string
-            Role of the subroutine in the call tree; should be ``"kernel"``
+            The subroutine to add the variable declaration to.
+        call : :any:`CallStatement`
+            Call object to which hoisted arrays will be added.
+        variables : tuple of :any:`Variable`
+            The array to be declared, allocated and de-allocated.
         """
-        role = kwargs['role']
-        item = kwargs.get('item', None)
-        targets = kwargs.get('targets', None)
+        if not self.block_dim:
+            raise RuntimeError(
+                '[Loki] SingleColumnCoalescedTransform: No blocking dimension found '
+                'for array argument hoisting.'
+            )
 
-        if role == 'kernel':
-            self.process_kernel(routine)
-
-        if role == 'driver':
-            self.process_driver(routine, targets=targets, item=item)
-
-    def process_kernel(self, routine):
-        """
-        Applies the SCCHoist utilities to a "kernel" and promote all local arrays with column
-        dimension to arguments.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        """
-
-        # Find the iteration index variable for the specified horizontal
-        v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
-
-        column_locals = self.get_column_locals(routine, vertical=self.vertical)
-        promoted = [v.clone(type=v.type.clone(intent='INOUT')) for v in column_locals]
-        routine.arguments += as_tuple(promoted)
-
-        # Add loop index variable
-        if v_index not in routine.arguments:
-            self.add_loop_index_to_args(v_index, routine)
-
-    def process_driver(self, routine, targets=None, item=None):
-        """
-        Hoist temporary column arrays.
-
-        Note that the driver needs to be processed before any kernels are transformed.
-        This is due to the use of an interprocedural analysis forward pass
-        needed to collect the list of "column arrays".
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        targets : list or string
-            List of subroutines that are to be considered as part of
-            the transformation call tree.
-        item : :any:`Item`
-            Scheduler work item corresponding to routine.
-        """
-
-        if item:
-            item.trafo_data[self._key] = {'column_locals': []}
-
-        # Apply hoisting of temporary "column arrays"
-        for call in FindNodes(ir.CallStatement).visit(routine.body):
-            if not call.name in targets:
-                continue
-
-            self.hoist_temporary_column_arrays(routine, call, self.horizontal, self.vertical,
-                                               self.block_dim, item=item)
+        idx_var = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.index)
+        new_args = tuple(
+            v.clone(dimensions=tuple(sym.RangeIndex((None, None)) for _ in v.dimensions) + (idx_var,))
+            for v in variables
+        )
+        return call.clone(arguments=call.arguments + new_args)

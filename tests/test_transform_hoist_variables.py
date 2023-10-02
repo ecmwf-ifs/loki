@@ -79,7 +79,7 @@ def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name=""):
     clean_test(filepath=here.parent / item.source.path.with_suffix(suffix).name)
 
 
-def check_arguments(scheduler, subroutine_arguments, call_arguments):
+def check_arguments(scheduler, subroutine_arguments, call_arguments, include_device_functions=False):
     """
     Check the subroutine and call arguments of each subroutine.
     """
@@ -108,15 +108,16 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments):
             assert call.arguments == call_arguments["device1"]
         elif "device2" in call.name:
             assert call.arguments == call_arguments["device2"]
-    # device 1
-    item = scheduler.item_map['subroutines_mod#device1']
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device1"]
-    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
-        if "device2" in call.name:
-            assert call.arguments == call_arguments["device2"]
-    # device 2
-    item = scheduler.item_map['subroutines_mod#device2']
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device2"]
+    if include_device_functions:
+        # device 1
+        item = scheduler.item_map['subroutines_mod#device1']
+        assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device1"]
+        for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+            if "device2" in call.name:
+                assert call.arguments == call_arguments["device2"]
+        # device 2
+        item = scheduler.item_map['subroutines_mod#device2']
+        assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device2"]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -165,15 +166,15 @@ def test_hoist_disable(here, frontend, config):
     thus hoisting all (non-parameter) local variables for the non-disabled subroutines.
     """
 
+    disable = ("device1", "device2")
+    config['routine'].append({'name': 'kernel2', 'role': 'kernel', 'ignore': disable})
     proj = here/'sources/projHoist'
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
-    disable = ("device1", "device2")
-
     # Transformation: Analysis
-    scheduler.process(transformation=HoistVariablesAnalysis(disable=disable), reverse=True)
+    scheduler.process(transformation=HoistVariablesAnalysis(), reverse=True)
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistVariablesTransformation(disable=disable))
+    scheduler.process(transformation=HoistVariablesTransformation())
 
     # check generated source code
     subroutine_arguments = {
@@ -192,8 +193,14 @@ def test_hoist_disable(here, frontend, config):
         "device2": ('a1', 'b', 'x')
     }
 
-    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="all_hoisted_disable")
+    check_arguments(
+        scheduler=scheduler, subroutine_arguments=subroutine_arguments,
+        call_arguments=call_arguments, include_device_functions=False
+    )
+    compile_and_test(
+        scheduler=scheduler, here=here, a=(5, 10, 100),
+        frontend=frontend, test_name="all_hoisted_disable"
+    )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

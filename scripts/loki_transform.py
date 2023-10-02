@@ -34,12 +34,15 @@ from transformations.utility_routines import DrHookTransformation, RemoveCallsTr
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import (
-     SCCBaseTransformation, SCCAnnotateTransformation, SCCHoistTransformation
+    SCCBaseTransformation, SCCAnnotateTransformation,
+    SCCHoistTemporaryArraysTransformation
 )
 from transformations.single_column_coalesced_vector import (
-     SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
+    SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
 )
-from transformations.scc_cuf import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
+from transformations.scc_cuf import (
+    SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
+)
 
 
 class IdemTransformation(Transformation):
@@ -153,74 +156,76 @@ def convert(
         paths=paths, config=config, frontend=frontend, definitions=definitions, **build_args
     )
 
+    # Pull dimension definition from configuration
+    horizontal = scheduler.config.dimensions.get('horizontal', None)
+    vertical = scheduler.config.dimensions.get('vertical', None)
+    block_dim = scheduler.config.dimensions.get('block_dim', None)
+
     # First, remove all derived-type arguments; caller first!
     if remove_derived_args:
-        scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+        scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
     if 'scc' in mode:
-        scheduler.process(transformation=RemoveCallsTransformation(
+        scheduler.process( RemoveCallsTransformation(
             routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
             include_intrinsics=True
         ))
     else:
-        scheduler.process(transformation=DrHookTransformation(mode=mode, remove=False))
+        scheduler.process( DrHookTransformation(mode=mode, remove=False) )
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
     if data_offload:
-        offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr)
-        scheduler.process(transformation=offload_transform)
+        offload_transform = DataOffloadTransformation(
+            remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
+        )
+        scheduler.process(offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
     if mode in ['idem', 'idem-stack']:
-        transformation = (IdemTransformation(),)
+        scheduler.process( IdemTransformation() )
 
     if mode == 'sca':
-        horizontal = scheduler.config.dimensions['horizontal']
-        transformation = (ExtractSCATransformation(horizontal=horizontal),)
+        scheduler.process( ExtractSCATransformation(horizontal=horizontal) )
 
     if mode == 'claw':
-        horizontal = scheduler.config.dimensions['horizontal']
-        transformation = (CLAWTransformation(
+        scheduler.process( CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
-        ),)
+        ))
 
     if mode in ['scc', 'scc-hoist', 'scc-stack']:
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
-        transformation = (SCCBaseTransformation(
-            horizontal=horizontal, directive=directive, inline_members=inline_members
-        ),)
-        transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
-        transformation += (SCCDemoteTransformation(horizontal=horizontal),)
-        if not 'hoist' in mode:
-            transformation += (SCCRevectorTransformation(horizontal=horizontal),)
-        if 'hoist' in mode:
-            transformation += (SCCHoistTransformation(horizontal=horizontal, vertical=vertical, block_dim=block_dim),)
-        transformation += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
-                                                     directive=directive, block_dim=block_dim,
-                                                     hoist_column_arrays='hoist' in mode),)
+        # Apply the basic SCC transformation set
+        scheduler.process( SCCBaseTransformation(
+            horizontal=horizontal, directive=directive
+        ))
+        scheduler.process( SCCDevectorTransformation(
+            horizontal=horizontal, trim_vector_sections=trim_vector_sections
+        ))
+        scheduler.process( SCCDemoteTransformation(horizontal=horizontal))
+        scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
+        scheduler.process( SCCAnnotateTransformation(
+            horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
+        ))
+
+    if mode == 'scc-hoist':
+        # Apply recursive hoisting of local temporary arrays.
+        # This requires a first analysis pass to run in reverse
+        # direction through the call graph to gather temporary arrays.
+        scheduler.process( HoistTemporaryArraysAnalysis(
+            dim_vars=(vertical.size,)), reverse=True
+        )
+        scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
         derived_types = scheduler.config.derived_types
-        transformation = (SccCufTransformation(
+        scheduler.process( SccCufTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
             transformation_type=mode.replace('cuf-', ''),
             derived_types=derived_types
-        ),)
-
-    if transformation:
-        for transform in transformation:
-            scheduler.process(transformation=transform)
-    else:
-        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+        ))
 
     if global_var_offload:
         scheduler.process(transformation=GlobalVarOffloadTransformation(),
@@ -234,11 +239,8 @@ def convert(
                 def transform_subroutine(self, routine, **kwargs):
                     normalize_range_indexing(routine)
 
-            scheduler.process(transformation=NormalizeRangeIndexingTransformation())
+            scheduler.process( NormalizeRangeIndexingTransformation() )
 
-        horizontal = scheduler.config.dimensions['horizontal']
-        vertical = scheduler.config.dimensions['vertical']
-        block_dim = scheduler.config.dimensions['block_dim']
         directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
         transformation = TemporariesPoolAllocatorTransformation(
             block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
@@ -246,20 +248,20 @@ def convert(
         scheduler.process(transformation=transformation, reverse=True)
     if mode == 'cuf-parametrise':
         dic2p = scheduler.config.dic2p
-        disable = scheduler.config.disable
-        transformation = ParametriseTransformation(dic2p=dic2p, disable=disable)
+        transformation = ParametriseTransformation(dic2p=dic2p)
         scheduler.process(transformation=transformation)
     if mode == "cuf-hoist":
-        disable = scheduler.config.disable
         vertical = scheduler.config.dimensions['vertical']
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(disable=disable, dim_vars=(vertical.size,)),
-                          reverse=True)
-        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(disable=disable))
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(
+            dim_vars=(vertical.size,)), reverse=True
+        )
+        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     mode = mode.replace('-', '_')  # Sanitize mode string
-    dependency = DependencyTransformation(suffix=f'_{mode.upper()}',
-                                          mode='module', module_suffix='_MOD')
+    dependency = DependencyTransformation(
+        suffix=f'_{mode.upper()}', mode='module', module_suffix='_MOD'
+    )
     scheduler.process(transformation=dependency, use_file_graph=True)
 
     # Write out all modified source files into the build directory

@@ -352,8 +352,7 @@ def test_parametrise_modified_callback(here, frontend, config):
     for i, abort_callback in enumerate(abort_callbacks):
         scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
                               frontend=frontend)
-        transformation = ParametriseTransformation(dic2p=dic2p, abort_callback=abort_callback,
-                                                   disable=(abort_callback.__name__,))
+        transformation = ParametriseTransformation(dic2p=dic2p, abort_callback=abort_callback)
         scheduler.process(transformation=transformation)
 
         check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,

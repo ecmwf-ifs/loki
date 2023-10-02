@@ -29,7 +29,7 @@ class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransfor
     Synthesis part for variable/array hoisting for CUDA Fortran (CUF) (transformation).
     """
 
-    def driver_variable_declaration(self, routine, var):
+    def driver_variable_declaration(self, routine, variables):
         """
         CUDA Fortran (CUF) Variable/Array device declaration including
         allocation and de-allocation.
@@ -41,22 +41,23 @@ class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransfor
         var: :any:`Variable`
             The variable to be declared
         """
-        vtype = var.type.clone(device=True, allocatable=True)
-        routine.variables += tuple([var.clone(scope=routine, dimensions=as_tuple(
-            [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=vtype)])
+        for var in variables:
+            vtype = var.type.clone(device=True, allocatable=True)
+            routine.variables += tuple([var.clone(scope=routine, dimensions=as_tuple(
+                [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=vtype)])
 
-        allocations = FindNodes(ir.Allocation).visit(routine.body)
-        if allocations:
-            insert_index = routine.body.body.index(allocations[-1])
-            routine.body.insert(insert_index + 1, ir.Allocation((var.clone(),)))
-        else:
-            routine.body.prepend(ir.Allocation((var.clone(),)))
-        de_allocations = FindNodes(ir.Deallocation).visit(routine.body)
-        if de_allocations:
-            insert_index = routine.body.body.index(de_allocations[-1])
-            routine.body.insert(insert_index + 1, ir.Deallocation((var.clone(dimensions=None),)))
-        else:
-            routine.body.append(ir.Deallocation((var.clone(dimensions=None),)))
+            allocations = FindNodes(ir.Allocation).visit(routine.body)
+            if allocations:
+                insert_index = routine.body.body.index(allocations[-1])
+                routine.body.insert(insert_index + 1, ir.Allocation((var.clone(),)))
+            else:
+                routine.body.prepend(ir.Allocation((var.clone(),)))
+            de_allocations = FindNodes(ir.Deallocation).visit(routine.body)
+            if de_allocations:
+                insert_index = routine.body.body.index(de_allocations[-1])
+                routine.body.insert(insert_index + 1, ir.Deallocation((var.clone(dimensions=None),)))
+            else:
+                routine.body.append(ir.Deallocation((var.clone(dimensions=None),)))
 
 
 def dynamic_local_arrays(routine, vertical):
