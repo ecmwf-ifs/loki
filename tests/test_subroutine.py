@@ -1501,7 +1501,7 @@ subroutine subroutine_stmt_func(a, b)
     integer :: tmp
     mult(i, j) = i * j
 
-    array(i) = i
+    array(a) = a
     tmp = plus(a, 5)
     tmp = minus(tmp, 1)
     b = mult(2, tmp)
