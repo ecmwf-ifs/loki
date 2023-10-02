@@ -146,7 +146,7 @@ class HoistVariablesAnalysis(Transformation):
             item.trafo_data[self._key]["to_hoist"] = []
             item.trafo_data[self._key]["hoist_variables"] = []
 
-        calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name]
+        calls = FindNodes(CallStatement).visit(routine.body)
         call_map = CaseInsensitiveDict((str(call.name), call) for call in calls)
 
         for child in successors:
