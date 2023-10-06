@@ -17,7 +17,7 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info,
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info,
     GlobalVarImportItem
 )
 
@@ -28,6 +28,7 @@ from loki.transform import (
 )
 
 # pylint: disable=wrong-import-order
+from transformations.argument_shape import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
@@ -206,7 +207,7 @@ def convert(
     if mode in ['scc', 'scc-hoist', 'scc-stack']:
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
-            horizontal=horizontal, directive=directive
+            horizontal=horizontal, directive=directive, inline_members=inline_members
         ))
         scheduler.process( SCCDevectorTransformation(
             horizontal=horizontal, trim_vector_sections=trim_vector_sections
