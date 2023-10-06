@@ -796,6 +796,8 @@ class FortranCodegen(Stringifier):
 
         if o.external:
             attributes += ['EXTERNAL']
+        if o.save:
+            attributes += ['SAVE']
         if o.allocatable:
             attributes += ['ALLOCATABLE']
         if o.pointer:
