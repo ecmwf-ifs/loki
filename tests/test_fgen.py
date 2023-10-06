@@ -146,3 +146,20 @@ end subroutine test_fgen
     out = fgen(routine, linewidth=132)
     for line in out.splitlines():
         assert line.count('&') <= 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_fgen_save_attribute(frontend):
+    """
+    Make sure the SAVE attribute on declarations is preserved (#164)
+    """
+    fcode = """
+MODULE test
+    INTEGER, SAVE :: variable
+END MODULE test
+    """.strip()
+    module = Module.from_source(fcode, frontend=frontend)
+    assert module['variable'].type.save is True
+    assert len(module.declarations) == 1
+    assert 'SAVE' in fgen(module.declarations[0])
+    assert 'SAVE' in module.to_fortran()
