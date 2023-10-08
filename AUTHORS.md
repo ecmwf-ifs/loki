@@ -1,6 +1,7 @@
 # Authors and Contributors
 
 - R. Heilemann Myhre (Met Norway)
+- P. Kiepas (École polytechnique/IPSL)
 - M. Lange (ECMWF)
 - J. Legaux (CERFACS)
 - O. Marsden (ECMWF)
