@@ -917,6 +917,10 @@ class OFP2IR(GenericVisitor):
             target = self.visit(o.find('attribute-target'), **kwargs)
             attrs.update((target,))
 
+        if o.find('attribute-save') is not None:
+            save = self.visit(o.find('attribute-save'), **kwargs)
+            attrs.update((save,))
+
         if o.find('access-spec') is not None:
             access_spec = self.visit(o.find('access-spec'), **kwargs)
             attrs.update((access_spec,))
