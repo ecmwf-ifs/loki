@@ -513,7 +513,8 @@ class SCCAnnotateTransformation(Transformation):
         if self.directive == 'openacc':
             self.insert_annotations(routine, self.horizontal, self.vertical)
 
-        # Remove section wrappers
+        # Remove the vector section wrappers
+        # These have been inserted by SCCDevectorTransformation
         section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
         if section_mapper:
             routine.body = Transformer(section_mapper).visit(routine.body)
@@ -556,6 +557,8 @@ class SCCAnnotateTransformation(Transformation):
                 self.kernel_annotate_sequential_loops_openacc(routine, self.horizontal, self.block_dim,
                                                               ignore=driver_loops)
 
+        # Remove the vector section wrappers
+        # These have been inserted by SCCDevectorTransformation
         section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
         if section_mapper:
             routine.body = Transformer(section_mapper).visit(routine.body)
