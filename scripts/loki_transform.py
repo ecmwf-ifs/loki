@@ -17,7 +17,7 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, flatten, info,
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info,
     GlobalVarImportItem
 )
 
@@ -28,6 +28,7 @@ from loki.transform import (
 )
 
 # pylint: disable=wrong-import-order
+from transformations.argument_shape import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
@@ -206,7 +207,7 @@ def convert(
     if mode in ['scc', 'scc-hoist', 'scc-stack']:
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
-            horizontal=horizontal, directive=directive
+            horizontal=horizontal, directive=directive, inline_members=inline_members
         ))
         scheduler.process( SCCDevectorTransformation(
             horizontal=horizontal, trim_vector_sections=trim_vector_sections
@@ -283,9 +284,9 @@ def convert(
 
 
 @cli.command()
-@click.option('--out-path', '-out', type=click.Path(),
+@click.option('--build', '-b', '--out-path', type=click.Path(),
               help='Path for generated souce files.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
+@click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
@@ -295,13 +296,13 @@ def convert(
               help='Trigger C-preprocessing of source files.')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
-@click.option('--define', '-I', multiple=True,
+@click.option('--define', '-D', multiple=True,
               help='Additional symbol definitions for C-preprocessor')
 @click.option('--xmod', '-M', type=click.Path(), multiple=True,
               help='Path for additional module file(s)')
-@click.option('--frontend', default='omni', type=click.Choice(['fp', 'ofp', 'omni']),
+@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def transpile(out_path, header, source, driver, cpp, include, define, frontend, xmod):
+def transpile(build, header, source, driver, cpp, include, define, frontend, xmod):
     """
     Convert kernels to C and generate ISO-C bindings and interfaces.
     """
@@ -339,21 +340,21 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation()
-    transformation.apply(kernel, role='kernel', path=out_path)
+    transformation.apply(kernel, role='kernel', path=build)
 
     # Traverse header modules to create getter functions for module variables
     for h in definitions:
-        transformation.apply(h, role='header', path=out_path)
+        transformation.apply(h, role='header', path=build)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
     kernel.apply(dependency, role='kernel', targets=())
-    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.c.F90').name)
+    kernel.write(path=Path(build)/kernel.path.with_suffix('.c.F90').name)
 
     # Re-generate the driver that mimicks the original source file,
     # but imports and calls our re-generated kernel.
     driver.apply(dependency, role='driver', targets=kernel_name)
-    driver.write(path=Path(out_path)/driver.path.with_suffix('.c.F90').name)
+    driver.write(path=Path(build)/driver.path.with_suffix('.c.F90').name)
 
 
 @cli.command('plan')
