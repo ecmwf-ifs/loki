@@ -30,7 +30,7 @@ include( loki_transform_helpers )
 #       [HEADERS <header1> [<header2> ...]]
 #   )
 #
-# Call ``loki-transform.py <ecphys|...> ...`` with the provided arguments.
+# Call ``loki-transform.py <convert|...> ...`` with the provided arguments.
 # See ``loki-transform.py`` for a description of all options.
 #
 # Options
@@ -228,7 +228,9 @@ function( loki_transform_target )
 
     cmake_parse_arguments( _PAR "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
 
-    _loki_transform_parse_target_args( loki_transform_target )
+    if( _PAR_UNPARSED_ARGUMENTS )
+        ecbuild_critical( "Unknown keywords given to loki_transform_target(): \"${_PAR_UNPARSED_ARGUMENTS}\"")
+    endif()
 
     if( NOT _PAR_TARGET )
         ecbuild_critical( "The call to loki_transform_target() doesn't specify the TARGET." )
