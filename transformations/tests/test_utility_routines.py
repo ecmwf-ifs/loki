@@ -82,10 +82,29 @@ subroutine never_gonna_give
 
     if (dave) call abor1('[INLINE CONDITIONAL]')
 
+    call never_gonna_run_around()
+
     WRITE(NULOUT,*) "[WRITE INTRINSIC]"
     if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
 
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
+
+contains
+
+subroutine never_gonna_run_around
+
+    implicit none
+
+    if (lhook) call dr_hook('never_gonna_run_around',0,zhook_handle)
+
+    if (dave) call abor1('[INLINE CONDITIONAL]')
+    WRITE(NULOUT,*) "[WRITE INTRINSIC]"
+    if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
+
+    if (lhook) call dr_hook('never_gonna_run_around',1,zhook_handle)
+
+end subroutine never_gonna_run_around
+
 end subroutine
 subroutine i_hope_you_havent_let_me_down
     real(kind=jprb) :: zhook_handle
@@ -156,6 +175,15 @@ def test_dr_hook_transformation_remove(frontend, config, source):
             imp for imp in FindNodes(Import).visit(item.routine.ir)
             if imp.module == 'yomhook'
         ]
+        for r in item.routine.members:
+            drhook_calls += [
+                call for call in FindNodes(CallStatement).visit(r.ir)
+                if call.name == 'dr_hook'
+            ]
+            drhook_imports += [
+                imp for imp in FindNodes(Import).visit(item.routine.ir)
+                if imp.module == 'yomhook'
+            ]
         if item.role == 'driver':
             assert len(drhook_calls) == 2
             assert len(drhook_imports) == 1
@@ -195,6 +223,13 @@ def test_utility_routine_removal(frontend, config, source, include_intrinsics, k
     assert ('dave' not in transformed) == include_intrinsics
     assert ('[WRITE INTRINSIC]' not in transformed) == include_intrinsics
     assert 'zhook_handle' not in routine.variables
+
+    for r in routine.members:
+        transformed = r.to_fortran()
+        assert '[SUBROUTINE CALL]' not in transformed
+        assert '[INLINE CONDITIONAL]' not in transformed
+        assert ('dave' not in transformed) == include_intrinsics
+        assert 'zhook_handle' not in routine.variables
 
     routine = Sourcefile.from_file(source/'never_gonna_give.F90', frontend=frontend)['i_hope_you_havent_let_me_down']
     assert 'zhook_handle' in routine.variables
