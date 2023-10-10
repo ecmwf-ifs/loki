@@ -6,16 +6,44 @@
 # nor does it submit to any jurisdiction.
 
 from loki.expression import (
-    Product, IntLiteral
+    Sum, Product, IntLiteral, Scalar, Array, RangeIndex, DeferredTypeSymbol
     )
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
-from loki import Array, RangeIndex
+from loki.tools import as_tuple
 
 
 __all__ = [
     'fix_scalar_syntax'
 ]
+
+def check_if_scalar_syntax(arg, dummy):
+    if isinstance(arg, Array) and isinstance(dummy, Array):
+        if arg.dimensions:
+            n_dummy_ranges = sum(1 for d in arg.dimensions if isinstance(d, RangeIndex))
+            if n_dummy_ranges == 0:
+                return True
+    return False
+
+def construct_range_index(lower, length):
+
+    #Define one and minus one for later
+
+    one = IntLiteral(1)
+    minus_one = Product((-1, IntLiteral(1)))
+
+    if lower == one:
+        new_high = length
+    elif isinstance(lower, IntLiteral) and isinstance(length, IntLiteral):
+        new_high = IntLiteral(value = length.value + lower.value - 1)
+    elif isinstance(lower, IntLiteral):
+        new_high = Sum((length,IntLiteral(value = lower.value - 1)))
+    elif isinstance(length, IntLiteral):
+        new_high = Sum((lower,IntLiteral(value = length.value - 1)))
+    else:
+        new_high = Sum((lower, length, minus_one))
+        
+    return RangeIndex((lower, new_high))
 
 
 def fix_scalar_syntax(routine):
@@ -42,26 +70,46 @@ def fix_scalar_syntax(routine):
         The subroutine where calls will be changed
     """
 
-    #Define minus one for later
-    minus_one = Product((-1, IntLiteral(1)))
-
     calls = FindNodes(CallStatement).visit(routine.body)
 
     for call in calls:
 
-        arg_map = {}
-
+        new_arg_map = {}
 
         for dummy, arg in call.arg_map.items():
-            if isinstance(arg, Array) and isinstance(dummy, Array):
-                if arg.dimensions:
-                    n_dummy_ranges = sum(1 for d in arg.dimensions if isinstance(d, RangeIndex))
-                    if n_dummy_ranges == 0:
-                        print(call)
-                        print(arg, dummy)
-                        for s in dummy.shape:
-                            print(s, s.__class__)
-                        print()
+            if check_if_scalar_syntax(arg, dummy):
+                print(routine)
+                print(call)
+                print(arg, dummy)
+                new_dims = []
+                for s, lower in zip(dummy.shape, arg.dimensions):
+                    
+                    if isinstance(s, IntLiteral):
+                        new_dims += [construct_range_index(lower, s)]
+
+                    elif isinstance(s, Scalar):
+                        if s in call.routine.arguments:
+                            new_dims += [construct_range_index(lower,call.arg_map[s])]
+                        elif call.routine in routine.members and s in routine.variables:
+                            new_dims += [construct_range_index(lower,s)]
+                        else:
+                            raise RuntimeError('[Loki::fix_scalar_syntax] Unable to resolve argument dimension. Module variable?')
+
+                    elif isinstance(s, DeferredTypeSymbol):
+
+                        if s.parents[0] in call.routine.arguments:
+                            print(s, s.parents[0], s.parents[0].scope)
+                            print(call.arg_map[s.parents[0]])
+                            print()
+
+
+                if len(arg.dimensions) > len(dummy.shape):
+                    new_dims += [d for d in arg.dimensions[len(dummy.shape):]]
+
+                new_dims = as_tuple(new_dims)
+                new_arg = arg.clone(dimensions=new_dims)
+                print('new_arg: ', new_arg)
+                print()
 
 
 
