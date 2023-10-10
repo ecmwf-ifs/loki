@@ -66,6 +66,9 @@ class DrHookTransformation(Transformation):
         if role == 'driver':
             return
 
+        for r in routine.members:
+            self.transform_subroutine(r, **kwargs)
+
         mapper = {}
         for call in FindNodes(CallStatement).visit(routine.body):
             # Lazily changing the DrHook label in-place
@@ -121,6 +124,9 @@ class RemoveCallsTransformation(Transformation):
         role = kwargs.get('role', None)
         if role and role == 'driver' and self.kernel_only:
             return
+
+        for r in routine.members:
+            self.transform_subroutine(r, **kwargs)
 
         mapper = {}
 

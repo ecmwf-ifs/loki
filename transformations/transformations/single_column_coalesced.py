@@ -9,7 +9,7 @@ import re
 from loki.expression import symbols as sym
 from loki.transform import resolve_associates, inline_member_procedures, fix_scalar_syntax
 from loki import (
-    Transformation, FindNodes, FindScopes, Transformer, info,
+    Transformation, FindNodes, Transformer, info,
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
     SymbolAttributes, BasicType, SubstituteExpressions, DerivedType,
     FindVariables, CaseInsensitiveDict, pragma_regions_attached,
@@ -199,6 +199,59 @@ class SCCBaseTransformation(Transformation):
         if mapper and loop_variable not in routine.variables:
             routine.variables += as_tuple(loop_variable)
 
+    @staticmethod
+    def is_driver_loop(loop, targets):
+        """
+        Test/check whether a given loop is a *driver loop*.
+
+        Parameters
+        ----------
+        loop : :any: `Loop`
+            The loop to test if it is a *driver loop*.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
+        if loop.pragma:
+            for pragma in loop.pragma:
+                if pragma.keyword.lower() == "loki" and pragma.content.lower() == "driver-loop":
+                    return True
+        for call in FindNodes(ir.CallStatement).visit(loop.body):
+            if call.name in targets:
+                return True
+        return False
+
+    @classmethod
+    def find_driver_loops(cls, routine, targets):
+        """
+        Find and return all driver loops of a given `routine`.
+
+        A *driver loop* is specified either by a call to a routine within
+        `targets` or by the pragma `!$loki driver-loop`.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The subroutine in which to find the driver loops.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
+
+        driver_loops = []
+        nested_driver_loops = []
+        for loop in FindNodes(ir.Loop).visit(routine.body):
+            if loop in nested_driver_loops:
+                continue
+
+            if not cls.is_driver_loop(loop, targets):
+                continue
+
+            driver_loops.append(loop)
+            loops = FindNodes(ir.Loop).visit(loop.body)
+            nested_driver_loops.extend(loops)
+        return driver_loops
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply SCCBase utilities to a :any:`Subroutine`.
@@ -354,7 +407,7 @@ class SCCAnnotateTransformation(Transformation):
             routine.body = Transformer(mapper).visit(routine.body)
 
     @classmethod
-    def kernel_annotate_sequential_loops_openacc(cls, routine, horizontal):
+    def kernel_annotate_sequential_loops_openacc(cls, routine, horizontal, block_dim=None, ignore=()):
         """
         Insert ``!$acc loop seq`` annotations around all loops that
         are not horizontal vector loops.
@@ -365,7 +418,12 @@ class SCCAnnotateTransformation(Transformation):
             The subroutine in which to annotate sequential loops
         horizontal: :any:`Dimension`
             The dimension object specifying the horizontal vector dimension
+        block_dim: :any: `Dimension`
+            The dimension object specifying the blocking dimension
+        ignore: list or tuple
+            Loops to be ignored for annotation
         """
+        block_dim_index = None if block_dim is None else block_dim.index
         with pragmas_attached(routine, ir.Loop):
 
             for loop in FindNodes(ir.Loop).visit(routine.body):
@@ -373,7 +431,7 @@ class SCCAnnotateTransformation(Transformation):
                 if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
                     continue
 
-                if loop.variable != horizontal.index:
+                if loop.variable != horizontal.index and loop.variable != block_dim_index and loop not in ignore:
                     # Perform pragma addition in place to avoid nested loop replacements
                     loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
 
@@ -432,7 +490,7 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         role = kwargs['role']
-        targets = kwargs.get('targets', None)
+        targets = as_tuple(kwargs.get('targets'))
 
         if role == 'kernel':
             self.process_kernel(routine)
@@ -457,7 +515,8 @@ class SCCAnnotateTransformation(Transformation):
         if self.directive == 'openacc':
             self.insert_annotations(routine, self.horizontal, self.vertical)
 
-        # Remove section wrappers
+        # Remove the vector section wrappers
+        # These have been inserted by SCCDevectorTransformation
         section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
         if section_mapper:
             routine.body = Transformer(section_mapper).visit(routine.body)
@@ -485,30 +544,50 @@ class SCCAnnotateTransformation(Transformation):
                 break
 
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-            for call in FindNodes(ir.CallStatement).visit(routine.body):
-                if not call.name in targets:
-                    continue
-
-                # Find the driver loop by checking the call's heritage
-                ancestors = flatten(FindScopes(call).visit(routine.body))
-                loops = [a for a in ancestors if isinstance(a, ir.Loop)]
-                if not loops:
-                    # Skip if there are no driver loops
-                    continue
-                driver_loop = loops[0]
-                kernel_loop = [l for l in loops if l.variable == self.horizontal.index]
-                if kernel_loop:
-                    kernel_loop = kernel_loop[0]
-
-                assert not driver_loop == kernel_loop
-
-                # Mark driver loop as "gang parallel".
+            driver_loops = SCCBaseTransformation.find_driver_loops(routine=routine, targets=targets)
+            for loop in driver_loops:
+                loops = FindNodes(ir.Loop).visit(loop.body)
+                kernel_loops = [l for l in loops if l.variable == self.horizontal.index]
+                if kernel_loops:
+                    assert not loop == kernel_loops[0]
                 self.annotate_driver(
-                    self.directive, driver_loop, kernel_loop, self.block_dim, num_threads
+                    self.directive, loop, kernel_loops, self.block_dim, num_threads
                 )
 
+            if self.directive == 'openacc':
+                # Mark all non-parallel loops as `!$acc loop seq`
+                self.kernel_annotate_sequential_loops_openacc(routine, self.horizontal, self.block_dim,
+                                                              ignore=driver_loops)
+
+        # Remove the vector section wrappers
+        # These have been inserted by SCCDevectorTransformation
+        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
+        if section_mapper:
+            routine.body = Transformer(section_mapper).visit(routine.body)
+
     @classmethod
-    def annotate_driver(cls, directive, driver_loop, kernel_loop, block_dim, num_threads):
+    def device_alloc_column_locals(cls, routine, column_locals):
+        """
+        Add explicit OpenACC statements for creating device variables for hoisted column locals.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        column_locals : list
+            List of column locals to be hoisted to driver layer
+        """
+
+        if column_locals:
+            vnames = ', '.join(v.name for v in column_locals)
+            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+            # Add comments around standalone pragmas to avoid false attachment
+            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+
+    @classmethod
+    def annotate_driver(cls, directive, driver_loop, kernel_loops, block_dim, num_threads):
         """
         Annotate driver block loop with ``'openacc'`` pragmas.
 
@@ -519,7 +598,7 @@ class SCCAnnotateTransformation(Transformation):
             ``'openacc'`` or ``None``.
         driver_loop : :any:`Loop`
             Driver ``Loop`` to wrap in ``'opencc'`` pragmas.
-        kernel_loop : :any:`Loop`
+        kernel_loops : list of :any:`Loop`
             Vector ``Loop`` to wrap in ``'opencc'`` pragmas if hoisting is enabled.
         block_dim : :any:`Dimension`
             Optional ``Dimension`` object to define the blocking dimension
@@ -543,10 +622,13 @@ class SCCAnnotateTransformation(Transformation):
             vector_length_clause = '' if not num_threads else f' vector_length({num_threads})'
 
             # Annotate vector loops with OpenACC pragmas
-            if kernel_loop:
-                kernel_loop._update(pragma=ir.Pragma(keyword='acc', content='loop vector'))
+            if kernel_loops:
+                for loop in as_tuple(kernel_loops):
+                    loop._update(pragma=(ir.Pragma(keyword='acc', content='loop vector'),))
 
-            if driver_loop.pragma is None:
+            if driver_loop.pragma is None or (len(driver_loop.pragma) == 1 and
+                                              driver_loop.pragma[0].keyword.lower() == "loki" and
+                                              driver_loop.pragma[0].content.lower() == "driver-loop"):
                 p_content = f'parallel loop gang{private_clause}{vector_length_clause}'
                 driver_loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
                 driver_loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
