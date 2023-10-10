@@ -7,7 +7,7 @@
 
 import re
 from loki.expression import symbols as sym
-from loki.transform import resolve_associates, inline_member_procedures
+from loki.transform import resolve_associates, inline_member_procedures, fix_scalar_syntax
 from loki import (
     Transformation, FindNodes, FindScopes, Transformer, info,
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
@@ -237,6 +237,8 @@ class SCCBaseTransformation(Transformation):
 
         # Find the iteration index variable for the specified horizontal
         v_index = self.get_integer_variable(routine, name=self.horizontal.index)
+
+        fix_scalar_syntax(routine)
 
         # Perform full source-inlining for member subroutines if so requested
         if self.inline_members:
