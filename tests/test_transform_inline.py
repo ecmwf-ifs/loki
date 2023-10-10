@@ -401,6 +401,9 @@ end subroutine member_routines_arg_dimensions
     # Ensure member has been inlined and arguments adapated
     assert len(routine.routines) == 0
     assert len([v for v in FindVariables().visit(routine.body) if v.name == 'a']) == 0
+    assert len([v for v in FindVariables().visit(routine.body) if v.name == 'b']) == 0
+    assert len([v for v in FindVariables().visit(routine.spec) if v.name == 'a']) == 0
+    assert len([v for v in FindVariables().visit(routine.spec) if v.name == 'b']) == 0
     assigns = FindNodes(Assignment).visit(routine.body)
     assert len(assigns) == 2
     assert assigns[0].lhs == 'matrix(j, i)' and assigns[0].rhs =='matrix(j, i) + 1'
