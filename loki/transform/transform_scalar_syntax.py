@@ -10,7 +10,7 @@ from loki.expression import (
     DeferredTypeSymbol, SubstituteExpressions
     )
 from loki.ir import CallStatement
-from loki.visitors import FindNodes
+from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
 
 
@@ -110,10 +110,11 @@ def fix_scalar_syntax(routine):
     """
 
     calls = FindNodes(CallStatement).visit(routine.body)
+    call_map = {}
 
     for call in calls:
 
-        new_arg_map = {}
+        new_args = []
 
         for dummy, arg in call.arg_map.items():
             if check_if_scalar_syntax(arg, dummy):
@@ -129,11 +130,12 @@ def fix_scalar_syntax(routine):
                 if len(arg.dimensions) > len(dummy.shape):
                     new_dims += [d for d in arg.dimensions[len(dummy.shape):]]
 
-                new_dims = as_tuple(new_dims)
-                new_arg = arg.clone(dimensions=new_dims)
+                new_args += [arg.clone(dimensions=as_tuple(new_dims)),]
 
-                print(arg, new_arg)
-                new_arg_map[arg] = new_arg
+            else:
 
-    routine.body = SubstituteExpressions(new_arg_map).visit(routine.body)
+                new_args += [arg,]
 
+        call_map[call] = call.clone(arguments = as_tuple(new_args))
+
+    routine.body = Transformer(call_map).visit(routine.body)
