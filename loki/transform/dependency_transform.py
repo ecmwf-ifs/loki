@@ -17,7 +17,57 @@ from loki.backend import fgen
 from loki.tools import as_tuple
 
 
-__all__ = ['DependencyTransformation']
+__all__ = ['ModuleWrapTransformation', 'DependencyTransformation']
+
+
+class ModuleWrapTransformation(Transformation):
+    """
+
+    """
+
+
+    def __init__(self, suffix=None):
+        self.suffix = suffix or '_MOD'
+
+    def transform_file(self, sourcefile, **kwargs):
+        """
+        In 'module' mode perform module-wrapping for dependency injection.
+        """
+        items = kwargs.get('items')
+        role = kwargs.pop('role', None)
+        targets = kwargs.pop('targets', None)
+
+        if not role and items:
+            # We consider the sourcefile to be a "kernel" file if all items are kernels
+            if all(item.role == 'kernel' for item in items):
+                role = 'kernel'
+
+        if role == 'kernel':
+            self.module_wrap(sourcefile, targets)
+
+    def module_wrap(self, sourcefile, targets=None):
+        """
+        Wrap target subroutines in modules and replace in source file.
+        """
+
+        # Pick out either all, or all targeted, un-wrapped modules
+        if targets:
+            targets = tuple(str(t).lower() for t in as_tuple(targets))
+            routines = tuple(r for r in sourcefile.subroutines if r.name.lower() in targets)
+        else:
+            routines = sourcefile.subroutines
+
+        if routines:
+            # Create wrapper module for all routine and derive module name
+            basename = sourcefile.path.stem if sourcefile.path else routines[0].name
+            modname = f'{basename}{self.suffix}'
+            module = Module(name=modname, contains=Section(body=as_tuple(routines)))
+
+            # Remove old subroutines and prepend module
+            sourcefile.ir.prepend(module)
+            sourcefile.ir._update(body=tuple(
+                node for node in sourcefile.ir.body if node not in routines
+            ))
 
 
 class DependencyTransformation(Transformation):
@@ -147,9 +197,6 @@ class DependencyTransformation(Transformation):
         if targets is None and items:
             # We collect the targets for file/module-level imports from all items
             targets = [target for item in items for target in item.targets]
-
-        if role == 'kernel' and self.mode == 'module':
-            self.module_wrap(sourcefile, **kwargs)
 
         for module in sourcefile.modules:
             # Recursion into contained modules using the sourcefile's "role"
@@ -318,31 +365,3 @@ class DependencyTransformation(Transformation):
             with intfb_path.open('w') as f:
                 f.write(fgen(source.interface))
 
-    def module_wrap(self, sourcefile, **kwargs):
-        """
-        Wrap target subroutines in modules and replace in source file.
-        """
-        targets = as_tuple(kwargs.get('targets', None))
-        targets = as_tuple(str(t).upper() for t in targets)
-        item = kwargs.get('item', None)
-
-        module_routines = [r for r in sourcefile.all_subroutines
-                           if r not in sourcefile.subroutines]
-
-        for routine in sourcefile.subroutines:
-            if routine not in module_routines:
-                # Skip member functions
-                if item and routine.name.lower() != item.local_name.lower():
-                    continue
-
-                # Skip internal utility routines too
-                if routine.name.upper() in targets:
-                    continue
-
-                # Create wrapper module and insert into file, replacing the old
-                # standalone routine
-                modname = f'{routine.name}{self.module_suffix}'
-                module = Module(name=modname, contains=Section(body=as_tuple(routine)))
-                sourcefile.ir._update(body=as_tuple(
-                    module if c is routine else c for c in sourcefile.ir.body
-                ))

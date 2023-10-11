@@ -7,7 +7,7 @@ from loki import (
     gettempdir, OMNI, OFP, Sourcefile, CallStatement, Import,
     FindNodes, FindInlineCalls, Intrinsic, Scheduler, SchedulerConfig
 )
-from loki.transform import DependencyTransformation
+from loki.transform import ModuleWrapTransformation, DependencyTransformation
 
 
 @pytest.fixture(scope='module', name='here')
@@ -266,13 +266,15 @@ END SUBROUTINE kernel
     """.strip()
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    dependency = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    module_wrap = ModuleWrapTransformation(suffix='_mod')
 
     if use_scheduler:
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(module_wrap, use_file_graph=True)
+        scheduler.process(dependency, use_file_graph=True)
 
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
@@ -281,8 +283,10 @@ END SUBROUTINE kernel
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
-        kernel.apply(transformation, role='kernel')
-        driver['driver'].apply(transformation, role='driver', targets='kernel')
+        kernel.apply(module_wrap, role='kernel')
+        kernel.apply(dependency, role='kernel')
+        driver['driver'].apply(module_wrap, role='driver', targets='kernel')
+        driver['driver'].apply(dependency, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -342,13 +346,15 @@ END SUBROUTINE kernel
     """.strip()
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    dependency = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    module_wrap = ModuleWrapTransformation(suffix='_mod')
 
     if use_scheduler:
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(module_wrap, use_file_graph=True)
+        scheduler.process(dependency, use_file_graph=True)
 
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
@@ -357,8 +363,10 @@ END SUBROUTINE kernel
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
-        kernel.apply(transformation, role='kernel')
-        driver['driver'].apply(transformation, role='driver', targets='kernel')
+        kernel.apply(module_wrap, role='kernel')
+        kernel.apply(dependency, role='kernel')
+        driver['driver'].apply(module_wrap, role='driver', targets='kernel')
+        driver['driver'].apply(dependency, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -426,9 +434,12 @@ END FUNCTION kernel
 """, frontend=frontend)
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver['driver'].apply(transformation, role='driver', targets='kernel')
+    dependency = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    module_wrap = ModuleWrapTransformation(suffix='_mod')
+    kernel.apply(module_wrap, role='kernel')
+    kernel.apply(dependency, role='kernel')
+    driver['driver'].apply(module_wrap, role='driver', targets='kernel')
+    driver['driver'].apply(dependency, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -494,9 +505,12 @@ END FUNCTION kernel
 """, frontend=frontend)
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver['driver'].apply(transformation, role='driver', targets='kernel')
+    dependency = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    module_wrap = ModuleWrapTransformation(suffix='_mod')
+    kernel.apply(module_wrap, role='kernel')
+    kernel.apply(dependency, role='kernel')
+    driver['driver'].apply(module_wrap, role='driver', targets='kernel')
+    driver['driver'].apply(dependency, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0

@@ -24,7 +24,8 @@ from loki import (
 # Get generalized transformations provided by Loki
 from loki.transform import (
     DependencyTransformation, FortranCTransformation, FileWriteTransformation,
-    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing
+    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
+    ModuleWrapTransformation
 )
 
 # pylint: disable=wrong-import-order
@@ -270,6 +271,8 @@ def convert(
     dependency = DependencyTransformation(
         suffix=f'_{mode.upper()}', mode='module', module_suffix='_MOD'
     )
+    module_wrap = ModuleWrapTransformation(suffix='_MOD')
+    scheduler.process(transformation=module_wrap, use_file_graph=True)
     scheduler.process(transformation=dependency, use_file_graph=True)
 
     # Write out all modified source files into the build directory
@@ -348,6 +351,9 @@ def transpile(build, header, source, driver, cpp, include, define, frontend, xmo
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
+    module_wrap = ModuleWrapTransformation(suffix='_MOD')
+
+    kernel.apply(module_wrap, role='kernel', targets=())
     kernel.apply(dependency, role='kernel', targets=())
     kernel.write(path=Path(build)/kernel.path.with_suffix('.c.F90').name)
 
