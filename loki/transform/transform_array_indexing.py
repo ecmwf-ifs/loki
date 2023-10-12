@@ -28,7 +28,8 @@ __all__ = [
     'shift_to_zero_indexing', 'invert_array_indices',
     'resolve_vector_notation', 'normalize_range_indexing',
     'promote_variables', 'promote_nonmatching_variables',
-    'promotion_dimensions_from_loop_nest', 'demote_variables'
+    'promotion_dimensions_from_loop_nest', 'demote_variables',
+    'flatten_arrays'
 ]
 
 
@@ -496,3 +497,32 @@ def demote_variables(routine, variable_names, dimensions):
     routine.spec = Transformer(decl_map).visit(routine.spec)
 
     info(f'[Loki::Transform] Demoted variables in {routine.name}: {", ".join(variable_names)}')
+
+def flatten_arrays(routine, order='F', start_index=1):
+
+    def new_dims(dim, shape):
+        if len(dim) > 1:
+            _dim = [sym.Sum((dim[-2], sym.Product((shape[-2], dim[-1] - start_index))))]
+            new_dim = dim[:-2]
+            new_dim.extend(_dim)
+            return new_dims(new_dim, shape[:-1])
+        else:
+            return as_tuple(dim)
+
+    order = order if order in ['F', 'C'] else 'F'
+    if order == 'C':
+        array_map = {
+            var: var.clone(dimensions=new_dims(list(var.dimensions)[::-1], list(var.shape)[::-1]))
+            for var in FindVariables().visit(routine.body) if isinstance(var, sym.Array) and var.shape and len(var.shape)
+        }
+    elif order == 'F':
+        array_map = {
+            var: var.clone(dimensions=new_dims(list(var.dimensions), list(var.shape)))
+            for var in FindVariables().visit(routine.body) if isinstance(var, sym.Array) and var.shape and len(var.shape)
+        }
+    routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
+    routine.variables = [v.clone(dimensions=as_tuple(sym.Product(v.shape)),
+                                 type=v.type.clone(shape=as_tuple(sym.Product(v.shape))))
+                         if isinstance(v, sym.Array) else v for v in routine.variables]
+

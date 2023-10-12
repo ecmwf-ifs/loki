@@ -11,7 +11,8 @@ from collections import OrderedDict
 from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
-    resolve_vector_notation, normalize_range_indexing
+    resolve_vector_notation, normalize_range_indexing,
+    flatten_arrays
 )
 from loki.transform.transform_associates import resolve_associates
 from loki.transform.transform_utilities import (
@@ -375,6 +376,8 @@ class FortranCTransformation(Transformation):
         invert_array_indices(kernel)
         shift_to_zero_indexing(kernel)
 
+        flatten_arrays(kernel, order="C", start_index=0)
+        
         # Inline all known parameters, since they can be used in declarations,
         # and thus need to be known before we can fetch them via getters.
         inline_constant_parameters(kernel, external_only=True)
