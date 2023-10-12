@@ -284,7 +284,9 @@ def inline_member_routine(routine, member):
             argmap = recursive_expression_map_update(argmap, max_iterations=10)
 
             # Substitute argument calls into a copy of the body
-            member_body = SubstituteExpressions(argmap).visit(member.body.body)
+            member_body = SubstituteExpressions(argmap, rebuild_scopes=True).visit(
+                member.body.body, scope=routine
+            )
 
             # Inline substituted body within a pair of marker comments
             comment = Comment(f'! [Loki] inlined member subroutine: {member.name}')
