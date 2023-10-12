@@ -559,14 +559,13 @@ def test_inline_member_routines_with_associate(frontend):
     """
     fcode = """
 subroutine acraneb_transt(klon, klev, kidia, kfdia, ktdia)
-  use parkind1, only: jpim, jprb
   implicit none
 
-  integer(kind=jpim), intent(in) :: klon, klev, kidia, kfdia, ktdia
-  integer(kind=jpim) :: jlon, jlev
+  integer(kind=4), intent(in) :: klon, klev, kidia, kfdia, ktdia
+  integer(kind=4) :: jlon, jlev
 
-  real(kind=jprb) :: zq1(klon)
-  real(kind=jprb) :: zq2(klon, klev)
+  real(kind=8) :: zq1(klon)
+  real(kind=8) :: zq2(klon, klev)
 
   call delta_t(zq1)
 
@@ -580,8 +579,8 @@ contains
 subroutine delta_t(pq)
   implicit none
 
-  real(kind=jprb), intent(in) :: pq(klon)
-  real(kind=jprb) :: x, z
+  real(kind=8), intent(in) :: pq(klon)
+  real(kind=8) :: x, z
 
   associate(zz => z)
 
@@ -601,7 +600,7 @@ end subroutine acraneb_transt
     assert not routine.members
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
-    
+
     assigns = FindNodes(Assignment).visit(routine.body)
     assert len(assigns) == 2
     assert assigns[0].rhs == 'x + zq1(jlon)'
