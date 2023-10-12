@@ -228,7 +228,7 @@ class SCCDevectorTransformation(Transformation):
             new_driver_loop = loop.clone(body=new_driver_loop)
             sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
             if self.trim_vector_sections:
-                sections = self.get_trimmed_sections(routine, self.horizontal, sections)
+                sections = self.get_trimmed_sections(new_driver_loop, self.horizontal, sections)
             section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
             new_driver_loop = NestedTransformer(section_mapper).visit(new_driver_loop)
             driver_loop_map[loop] = new_driver_loop
