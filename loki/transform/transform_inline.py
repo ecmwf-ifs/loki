@@ -239,7 +239,12 @@ def inline_member_routine(routine, member):
         {v: v.clone(name=f'{member.name}_{v.name}') for v in duplicate_locals}
     )
     member.spec = shadow_mapper.visit(member.spec)
-    member.body = shadow_mapper.visit(member.body)
+
+    var_map = {}
+    for v in FindVariables(unique=False).visit(member.body):
+        if v.name in [dl.name for dl in duplicate_locals]:
+            var_map[v] = v.clone(name=f'{member.name}_{v.name}')
+    member.body = SubstituteExpressions(var_map).visit(member.body)
 
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(member.spec)
