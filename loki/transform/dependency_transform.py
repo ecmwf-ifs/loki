@@ -138,11 +138,11 @@ class DependencyTransformation(Transformation):
                 self.update_result_var(routine)
             routine.name += self.suffix
 
-        self.rename_calls(routine, **kwargs)
-
         # Note, C-style imports can be in the body, so use whole IR
         imports = FindNodes(Import).visit(routine.ir)
         self.rename_imports(routine, imports=imports, **kwargs)
+
+        self.rename_calls(routine, **kwargs)
 
         # Interface blocks can only be in the spec
         intfs = FindNodes(Interface).visit(routine.spec)
@@ -250,14 +250,11 @@ class DependencyTransformation(Transformation):
         if isinstance(source, Module):
             calls = ()
             for routine in source.subroutines:
-                calls += as_tuple(str(c.name).upper() for c in FindNodes(CallStatement).visit(routine.body))
-                calls += as_tuple(str(c.name).upper() for c in FindInlineCalls().visit(routine.body))
+                calls += as_tuple(c.name for c in FindNodes(CallStatement).visit(routine.body))
+                calls += as_tuple(c.name for c in FindInlineCalls().visit(routine.body))
         else:
-            calls = as_tuple(str(c.name).upper() for c in FindNodes(CallStatement).visit(source.body))
-            calls += as_tuple(str(c.name).upper() for c in FindInlineCalls().visit(source.body))
-
-        # Import statements still point to unmodified call names
-        calls = [call.replace(f'{self.suffix.upper()}', '') for call in calls]
+            calls = as_tuple(c.name for c in FindNodes(CallStatement).visit(source.body))
+            calls += as_tuple(c.name for c in FindInlineCalls().visit(source.body))
 
         if self.replace_ignore_items:
             item = kwargs.get('item', None)
