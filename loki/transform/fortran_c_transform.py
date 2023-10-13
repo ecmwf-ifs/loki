@@ -33,10 +33,11 @@ from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
     ProcedureSymbol
 )
+from loki.expression import symbols as sym
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
-
+from loki import SubstituteExpressions
 
 __all__ = ['FortranCTransformation']
 
@@ -127,24 +128,27 @@ class FortranCTransformation(Transformation):
 
     @staticmethod
     def iso_c_intrinsic_import(scope):
-        symbols = as_tuple(Variable(name=name, scope=scope) for name in ['c_int', 'c_double', 'c_float'])
+        symbols = as_tuple(Variable(name=name, scope=scope) for name in ['c_int', 'c_double', 'c_float', 'c_ptr'])
         isoc_import = Import(module='iso_c_binding', symbols=symbols)
         return isoc_import
 
     @staticmethod
-    def iso_c_intrinsic_kind(_type, scope):
+    def iso_c_intrinsic_kind(_type, scope, is_array=False):
         if _type.dtype == BasicType.INTEGER:
             return Variable(name='c_int', scope=scope)
         if _type.dtype == BasicType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return Variable(name='c_float', scope=scope)
-            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
-                return Variable(name='c_double', scope=scope)
+            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double', 'c_ptr'):
+                if is_array:
+                    return Variable(name='c_ptr', scope=scope)
+                else:
+                    return Variable(name='c_double', scope=scope)
         return None
 
     @staticmethod
-    def c_intrinsic_kind(_type, scope):
+    def c_intrinsic_kind(_type, scope, is_array=False):
         if _type.dtype == BasicType.LOGICAL:
             return Variable(name='int', scope=scope)
         if _type.dtype == BasicType.INTEGER:
@@ -153,7 +157,10 @@ class FortranCTransformation(Transformation):
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return Variable(name='float', scope=scope)
-            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double', 'c_ptr'):
+                # if is_array:
+                #     return Variable(name='c_ptr', scope=scope)
+                # else:
                 return Variable(name='double', scope=scope)
         return None
 
@@ -188,12 +195,35 @@ class FortranCTransformation(Transformation):
                                       parameters=(cvar,), kw_parameters={'mold': arg})
                 casts_out += [Assignment(lhs=arg, rhs=cast_out)]
                 local_arg_map[arg.name] = cvar
-
+        
         arguments = tuple(local_arg_map[a] if a in local_arg_map else Variable(name=a)
                           for a in routine.argnames)
+
+        arg_map = {}
+        for arg in routine.arguments:
+            if isinstance(arg, Array):
+                new_type = tuple(sym.RangeIndex((None, None)) for _ in arg.dimensions)
+                # arg_map[arg] = arg.clone(type=arg.type.clone(shape=new_type), dimensions=new_type)
+                arg_map[arg] = arg.clone(dimensions=new_type)
+        routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
+
+        call_arguments = []
+        for arg in routine.arguments:
+            if isinstance(arg, Array):
+                new_arg = arg.clone(dimensions=None)
+                c_loc = sym.InlineCall(
+                        function=sym.ProcedureSymbol(name="c_loc", scope=routine),
+                        parameters=(new_arg,))
+                call_arguments.append(c_loc)
+            elif isinstance(arg.type.dtype, DerivedType):
+                cvar = Variable(name=f'{arg.name}_c', type=ctype, scope=wrapper)
+                call_arguments.append(cvar)
+            else:
+                call_arguments.append(arg)
+
         wrapper_body = casts_in
         wrapper_body += [
-            CallStatement(name=Variable(name=interface.body[0].name), arguments=arguments)  # pylint: disable=unsubscriptable-object
+            CallStatement(name=Variable(name=interface.body[0].name), arguments=call_arguments)  # pylint: disable=unsubscriptable-object
         ]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
@@ -293,9 +323,13 @@ class FortranCTransformation(Transformation):
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
                 value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
-                kind = cls.iso_c_intrinsic_kind(arg.type, intf_routine)
-                ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
-            dimensions = arg.dimensions if isinstance(arg, Array) else None
+                kind = cls.iso_c_intrinsic_kind(arg.type, intf_routine, isinstance(arg, Array))
+                if isinstance(arg, Array):
+                    ctype = SymbolAttributes(DerivedType(name="c_ptr"), value=True, kind=None)
+                else:
+                    ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
+            # dimensions = arg.dimensions if isinstance(arg, Array) else None
+            dimensions = None
             var = Variable(name=arg.name, dimensions=dimensions, type=ctype, scope=intf_routine)
             intf_routine.variables += (var,)
             intf_routine.arguments += (var,)
