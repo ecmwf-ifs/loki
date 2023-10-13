@@ -52,8 +52,7 @@ class ModuleWrapTransformation(Transformation):
 
         # Pick out either all, or all targeted, un-wrapped modules
         if targets:
-            targets = tuple(str(t).lower() for t in as_tuple(targets))
-            routines = tuple(r for r in sourcefile.subroutines if r.name.lower() in targets)
+            routines = tuple(r for r in sourcefile.subroutines if r.procedure_symbol in targets)
         else:
             routines = sourcefile.subroutines
 
@@ -218,12 +217,11 @@ class DependencyTransformation(Transformation):
                         modify the corresponding calls.
         """
         targets = as_tuple(kwargs.get('targets'))
-        targets = as_tuple(str(t).upper() for t in targets)
-        members = [r.name.upper() for r in routine.subroutines]
+        members = [r.procedure_symbol for r in routine.subroutines]
 
         if self.replace_ignore_items:
             item = kwargs.get('item', None)
-            targets += as_tuple(str(i).upper() for i in item.ignore) if item else ()
+            targets += as_tuple(item.ignore) if item else ()
 
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in members:
@@ -232,9 +230,9 @@ class DependencyTransformation(Transformation):
                 call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
 
         for call in FindInlineCalls(unique=False).visit(routine.body):
-            if call.name.upper() in members:
+            if call.name in members:
                 continue
-            if targets is None or call.name.upper() in targets:
+            if targets is None or call.name in targets:
                 call.function = call.function.clone(name=f'{call.name}{self.suffix}')
 
     def rename_imports(self, source, imports, **kwargs):
@@ -309,10 +307,9 @@ class DependencyTransformation(Transformation):
         Update explicit interfaces to actively transformed subroutines.
         """
         targets = as_tuple(kwargs.get('targets', None))
-        targets = as_tuple(str(t).lower() for t in targets)
 
         if self.replace_ignore_items and (item := kwargs.get('item', None)):
-            targets += as_tuple(str(i).lower() for i in item.ignore)
+            targets += as_tuple(item.ignore)
 
         # Transformer map to remove any outdated interfaces
         removal_map = {}
@@ -320,7 +317,7 @@ class DependencyTransformation(Transformation):
         for i in intfs:
             for b in i.body:
                 if isinstance(b, Subroutine):
-                    if targets is not None and b.name.lower() in targets:
+                    if targets is not None and b.procedure_symbol in targets:
                         # Create a new module import with explicitly qualified symbol
                         new_module = self.derive_module_name(b.name)
                         new_symbol = Variable(name=f'{b.name}{self.suffix}', scope=source)
