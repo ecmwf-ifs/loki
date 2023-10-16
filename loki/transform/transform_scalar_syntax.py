@@ -12,6 +12,7 @@ from loki.expression import (
 from loki.ir import CallStatement
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
+from loki.types import BasicType
 
 
 __all__ = [
@@ -109,7 +110,8 @@ def fix_scalar_syntax(routine):
         The subroutine where calls will be changed
     """
 
-    calls = FindNodes(CallStatement).visit(routine.body)
+    #List calls in routine, but make sure we have the called routine definition
+    calls = (c for c in FindNodes(CallStatement).visit(routine.body) if not c.procedure_type is BasicType.DEFERRED)
     call_map = {}
 
     for call in calls:
