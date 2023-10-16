@@ -473,12 +473,11 @@ def test_inline_member_routines_variable_shadowing(frontend):
     fcode = """
 subroutine outer()
      real :: x = 3 ! 'x' is real in outer.
-     real :: tmp = 0
      real :: y
 
      y = 1.0
-     call inner(tmp, y=y)
-     x = x + tmp
+     call inner(y)
+     x = x + y
 
 contains
     subroutine inner(y)
@@ -515,7 +514,7 @@ end subroutine outer
     # Check inner 'y' was substituted, not renamed!
     assign = FindNodes(Assignment).visit(routine.body)
     assert routine.variable_map['y'] == 'y'
-    assert assign[2].lhs == 'y' and assign[2].rhs == 'y + sum(x)'
+    assert assign[2].lhs == 'y' and assign[2].rhs == 'y + sum(inner_x)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
