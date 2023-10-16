@@ -33,7 +33,7 @@ class ModuleWrapTransformation(Transformation):
         """
         In 'module' mode perform module-wrapping for dependency injection.
         """
-        items = kwargs.get('items')
+        items = kwargs.get('items', None)
         role = kwargs.pop('role', None)
         targets = kwargs.pop('targets', None)
 
@@ -43,7 +43,29 @@ class ModuleWrapTransformation(Transformation):
                 role = 'kernel'
 
         if role == 'kernel':
+            # Insert modules for free routines in a file
             self.module_wrap(sourcefile, targets)
+
+        if targets is None and items:
+            # We collect the targets for file/module-level imports from all items
+            targets = tuple(target for item in items for target in item.targets)
+
+        # Recursion into contained modules
+        for module in sourcefile.modules:
+            self.transform_module(module, role=role, targets=targets, **kwargs)
+
+        # Recurse into remaining free subroutines (if any)
+        for routine in sourcefile.subroutines:
+            self.transform_subroutine(routine, role=role, targets=targets, **kwargs)
+
+
+    def transform_module(self, sourcefile, **kwargs):
+        pass # TODO rename imports
+
+    def transform_subroutine(self, subroutine, **kwargs):
+
+        targets = as_tuple(kwargs.pop('targets', None))
+        self.rename_c_imports(subroutine, targets=targets)
 
     def module_wrap(self, sourcefile, targets=None):
         """
@@ -67,6 +89,35 @@ class ModuleWrapTransformation(Transformation):
             sourcefile.ir._update(body=tuple(
                 node for node in sourcefile.ir.body if node not in routines
             ))
+
+    def rename_c_imports(self, routine, targets=None):
+        """
+        """
+
+        c_imports = tuple(im for im in FindNodes(Import).visit(routine.ir) if im.c_import)
+
+        if targets is not None:
+            # Downcase targets, as module imports are still case-sensitive
+            targets = tuple(str(t).lower() for t in as_tuple(targets))
+            c_imports = tuple(
+                im for im in c_imports if im.module.split('.')[0].lower() in targets
+            )
+
+        # Create a new module import with explicitly qualified symbol
+        for im in c_imports:
+            symbol_name = im.module.split('.')[0]
+            new_symbol = Variable(name=symbol_name, scope=routine)
+            new_import = im.clone(
+                module=f'{symbol_name}{self.suffix}', c_import=False, symbols=(new_symbol,)
+            )
+            routine.spec.prepend(new_import)
+
+        # Remove C-imports from given program unit
+        removal = Transformer({im: None for im in c_imports})
+        routine.spec = removal.visit(routine.spec)
+        routine.body = removal.visit(routine.body)
+            
+        # from IPython import embed; embed()
 
 
 class DependencyTransformation(Transformation):

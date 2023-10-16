@@ -265,35 +265,59 @@ SUBROUTINE kernel(a, b, c)
 END SUBROUTINE kernel
     """.strip()
 
-    # Apply injection transformation via C-style includes by giving `include_path`
-    dependency = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    module_wrap = ModuleWrapTransformation(suffix='_mod')
-
+    # First, set up the source objects
     if use_scheduler:
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(module_wrap, use_file_graph=True)
-        scheduler.process(dependency, use_file_graph=True)
-
+        scheduler = Scheduler(
+            paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend
+        )
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
-
     else:
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
+    # Then apply module wrapping
+    module_wrap = ModuleWrapTransformation(suffix='_mod')
+    if use_scheduler:
+        scheduler.process(module_wrap, use_file_graph=True)
+    else:
         kernel.apply(module_wrap, role='kernel')
-        kernel.apply(dependency, role='kernel')
         driver['driver'].apply(module_wrap, role='driver', targets='kernel')
-        driver['driver'].apply(dependency, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
     assert len(kernel.all_subroutines) == 1
+    assert kernel.all_subroutines[0].name == 'kernel'
+    assert kernel['kernel'] == kernel.all_subroutines[0]
+    assert len(kernel.modules) == 1
+    assert kernel.modules[0].name == 'kernel_mod'
+    assert kernel['kernel_mod'] == kernel.modules[0]
+
+    # Check that calls and imports have been diverted to the module routine
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel'
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 1
+    assert imports[0].module == 'kernel_mod'
+    assert not imports[0].c_import
+    assert 'kernel' in [str(s) for s in imports[0].symbols]
+
+    # And finally, apply the dependency injection
+    dependency = DependencyTransformation(
+        suffix='_test', mode='module', module_suffix='_mod'
+    )
+    if use_scheduler:
+        scheduler.process(dependency, use_file_graph=True)
+    else:
+        kernel.apply(dependency, role='kernel')
+        driver['driver'].apply(dependency, role='driver', targets='kernel')
+
+    # Check that the kernel module has been renamed
     assert kernel.all_subroutines[0].name == 'kernel_test'
     assert kernel['kernel_test'] == kernel.all_subroutines[0]
-    assert len(kernel.modules) == 1
     assert kernel.modules[0].name == 'kernel_test_mod'
     assert kernel['kernel_test_mod'] == kernel.modules[0]
 
@@ -302,7 +326,7 @@ END SUBROUTINE kernel
     assert len(driver.subroutines) == 1
     assert driver.subroutines[0].name == 'driver'
 
-    # Check that calls and imports have been diverted to the re-generated routine
+    # Check that calls and imports have been diverted to the renamed routine
     calls = FindNodes(CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
