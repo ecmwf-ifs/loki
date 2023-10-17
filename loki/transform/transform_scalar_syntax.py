@@ -53,14 +53,6 @@ def construct_range_index(lower, length):
     return RangeIndex((lower, new_high))
 
 
-def merge_parents(parent, symbol):
-
-    new_parent = parent.clone()
-    for p in symbol.parents[1:]:
-        new_parent = TypedSymbol(name=p.name_parts[-1], scope=parent.scope, parent=new_parent)
-    return symbol.clone(parent=new_parent, scope=parent.scope)
-
-
 def process_symbol(symbol, caller, call):
 
     if isinstance(symbol, IntLiteral):
@@ -72,7 +64,7 @@ def process_symbol(symbol, caller, call):
 
     elif isinstance(symbol, TypedSymbol):
         if symbol.parents[0] in call.routine.arguments:
-            return merge_parents(call.arg_map[symbol.parents[0]], symbol)
+            return SubstituteExpressions(call.arg_map).visit(symbol)
 
     if call.routine in caller.members and symbol in caller.variables:
         return symbol
