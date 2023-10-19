@@ -90,8 +90,7 @@ def product_value(expr):
 
         return m*Product(as_tuple(new_children))
 
-    else:
-        return expr
+    return expr
 
 
 def simplify_sum(expr):
@@ -130,8 +129,8 @@ def simplify_sum(expr):
 
         else:
             return IntLiteral(n)
-    else:
-        return expr
+
+    return expr
 
 
 def construct_range_index(lower, length):
