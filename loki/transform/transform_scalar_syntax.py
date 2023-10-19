@@ -62,6 +62,7 @@ def product_value(expr):
 
     Note: Negative numbers and subtractions in Sums are represented as Product of
           the integer -1 and the symbol. This complicates matters.
+    Note: Ensure that a Loki Product is returned, not a pymbolic Product
 
     Parameters
     ----------
@@ -84,11 +85,11 @@ def product_value(expr):
             return m
 
         if m > 1:
-            m = IntLiteral(m)
+            new_children = [IntLiteral(m)] + new_children
         elif m < -1:
-            m = Product((-1, IntLiteral(abs(m))))
+            new_children = [-1, IntLiteral(abs(m))] + new_children
 
-        return m*Product(as_tuple(new_children))
+        return Product(as_tuple(new_children))
 
     return expr
 
@@ -99,6 +100,8 @@ def simplify_sum(expr):
     try to simplify it by evaluating any Products and adding up ints and IntLiterals.
     If the sum can be reduced to a number, it returns an IntLiteral
     If the Sum reduces to one expression, it returns that expression
+
+    Note: Ensure that a Loki Sum is returned, not a pymbolic Sum
 
     Parameters
     ----------
@@ -188,7 +191,7 @@ def construct_length(xrange, caller, call):
     new_start = process_symbol(xrange.start, caller, call)
     new_stop  = process_symbol(xrange.stop, caller, call)
 
-    return simplify_sum(single_sum(new_stop) - new_start + IntLiteral(1))
+    return single_sum(new_stop) - new_start + IntLiteral(1)
 
 
 def fix_scalar_syntax(routine):
@@ -208,6 +211,10 @@ def fix_scalar_syntax(routine):
 
     call myroutine(a(i:i+5,j)
 
+    Note: Using the __add__ and __mul__ functions of Sum and Product, respectively,
+          returns the pymbolic.primitives version of the objuect, not the loki.expressions version.
+          simplify_sum and product_value returns loki versions, so this is currently not an issue,
+          but this can cause unexpected behaviour
 
     Parameters
     ----------
