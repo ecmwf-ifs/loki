@@ -126,10 +126,7 @@ def simplify_sum(expr):
             if len(new_children) > 1:
                 return Sum(as_tuple(new_children))
             return new_children[0]
-
-        else:
-            return IntLiteral(n)
-
+        return IntLiteral(n)
     return expr
 
 
