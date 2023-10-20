@@ -48,6 +48,7 @@ def single_sum(expr):
     ----------
     expr: any pymbolic expression
     """
+
     if isinstance(expr, pmbl.Sum):
         return expr
     return Sum((expr,))
@@ -78,7 +79,6 @@ def product_value(expr):
                 m = m*c
             else:
                 new_children += [c]
-
         if m == 0:
             return 0
         if not new_children:
@@ -86,6 +86,8 @@ def product_value(expr):
 
         if m > 1:
             new_children = [IntLiteral(m)] + new_children
+        elif m == -1:
+            new_children = [-1] + new_children
         elif m < -1:
             new_children = [-1, IntLiteral(abs(m))] + new_children
 
