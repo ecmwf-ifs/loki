@@ -288,7 +288,7 @@ class Subroutine(ProgramUnit):
 
         # Rebuild body (other IR components are taken care of in super class)
         if 'body' in kwargs:
-            kwargs['body'] = Transformer({}).visit(kwargs['body'])
+            kwargs['body'] = Transformer({}, rebuild_scopes=True).visit(kwargs['body'])
 
         # Escalate to parent class
         return super().clone(**kwargs)

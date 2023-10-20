@@ -2054,3 +2054,48 @@ def test_enrich_calls_explicit_interface(frontend):
     # confirm that rescoping symbols has no effect
     driver.rescope_symbols()
     assert calls[0].routine is kernel
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI cannot handle external type defs without source')]
+))
+def test_subroutine_deep_clone(frontend):
+    """
+    Test that deep-cloning a subroutine actually ensures clean scope separation.
+    """
+
+    fcode = """
+subroutine myroutine(something)
+  use parkind1, only : jpim, jprb
+  implicit none
+
+  type(that_thing), intent(inout) :: something
+  real(kind=jprb) :: foo(something%n)
+
+  foo(:)=0.0_jprb
+
+  associate(thing=>something%else)
+    if (something%entirely%different) then
+      foo(:)=42.0_jprb
+    else
+      foo(:)=66.6_jprb
+    end if
+  end associate
+end subroutine myroutine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Create a deep-copy of the routine
+    new_routine = routine.clone()
+
+    # Replace all assignments with dummy calls
+    map_nodes={}
+    for assign in FindNodes(Assignment).visit(new_routine.body):
+        map_nodes[assign] = CallStatement(
+            name=DeferredTypeSymbol(name='testcall'), arguments=(assign.lhs,), scope=new_routine
+        )
+    new_routine.body = Transformer(map_nodes).visit(new_routine.body)
+
+    # Ensure that the original copy of the routine remains unaffected
+    assert len(FindNodes(Assignment).visit(routine.body)) == 3
+    assert len(FindNodes(Assignment).visit(new_routine.body)) == 0

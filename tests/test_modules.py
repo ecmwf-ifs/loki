@@ -13,7 +13,7 @@ from loki import (
     OFP, OMNI, Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
     Transformer, fgen, SymbolAttributes, Variable, Import, Section, Intrinsic,
-    Scalar, DeferredTypeSymbol
+    Scalar, DeferredTypeSymbol, FindVariables, SubstituteExpressions, Literal
 )
 
 
@@ -528,6 +528,55 @@ end module test_module_rescope_clone
     # fgen of the not rescoped copy should fail because the scope of the variables went away
     with pytest.raises(AttributeError):
         fgen(other_module_copy)
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'Parsing fails without dummy module provided')]
+))
+def test_module_deep_clone(frontend):
+    """
+    Test the rescoping of variables in clone with nested scopes.
+    """
+    fcode = """
+module test_module_rescope_clone
+  use parkind1, only : jpim, jprb
+  implicit none
+
+  integer :: n
+
+  real :: array(n)
+
+  type my_type
+    real :: vector(n)
+    real :: matrix(n, n)
+  end type
+
+end module test_module_rescope_clone
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Deep-copy/clone the module
+    new_module = module.clone()
+
+    n = [v for v in FindVariables().visit(new_module.spec) if v.name == 'n'][0]
+    n_decl = FindNodes(VariableDeclaration).visit(new_module.spec)[0]
+
+    # Remove the declaration of `n` and replace it with `3`
+    new_module.spec = Transformer({n_decl: None}).visit(new_module.spec)
+    new_module.spec = SubstituteExpressions({n: Literal(3)}).visit(new_module.spec)
+
+    # Check the new module has been changed
+    assert len(FindNodes(VariableDeclaration).visit(new_module.spec)) == 1
+    new_type_decls = FindNodes(VariableDeclaration).visit(new_module['my_type'].body)
+    assert len(new_type_decls) == 2
+    assert new_type_decls[0].symbols[0] == 'vector(3)'
+    assert new_type_decls[1].symbols[0] == 'matrix(3, 3)'
+
+    # Check the old one has not changed
+    assert len(FindNodes(VariableDeclaration).visit(module.spec)) == 2
+    type_decls = FindNodes(VariableDeclaration).visit(module['my_type'].body)
+    assert len(type_decls) == 2
+    assert type_decls[0].symbols[0] == 'vector(n)'
+    assert type_decls[1].symbols[0] == 'matrix(n, n)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
