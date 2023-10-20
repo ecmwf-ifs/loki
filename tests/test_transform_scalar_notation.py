@@ -12,11 +12,11 @@ from loki.transform import fix_scalar_syntax
 from loki.module import Module
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
-from loki.expression import Sum, IntLiteral, Scalar, Product, RangeIndex
+from loki.expression import Sum, IntLiteral, Scalar, Product
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilities_recursive_expression_map_update(frontend):
+def test_transform_scalar_notation(frontend):
     fcode = """
 module mod_a
     implicit none
@@ -201,7 +201,3 @@ end module mod_a
     assert calls[27].arguments[0].dimensions[0].stop == Sum((n,m_k,m))
     assert calls[28].arguments[0].dimensions[0].stop == Sum((n,Product((-1,Sum((k, m_one)))),m,m_one))
     assert calls[29].arguments[0].dimensions[0].stop == Sum((n,m_abd,abc))
-
-
-
-
