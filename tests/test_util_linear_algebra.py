@@ -4,15 +4,16 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
-import pytest
 from math import gcd
+import pytest
 import numpy as np
 
 from loki.analyse.util_linear_algebra import (
     back_substitution,
     generate_row_echelon_form,
     bounds_of_one_d_system,
-    is_independent_system
+    is_independent_system,
+    yield_one_d_systems
 )
 
 
@@ -170,3 +171,40 @@ def test_bounds_of_one_d_system(matrix, rhs, expected_lower, expected_upper):
 )
 def test_is_independent_system(matrix, expected_result):
     assert is_independent_system(matrix) == expected_result
+
+
+@pytest.mark.parametrize(
+    "matrix, rhs, list_of_lhs_column, list_of_rhs_column",
+    [
+        (
+            np.array([[1, 0], [0, 1], [0, 0]]),
+            np.array([[1], [2], [0]]),
+            [[1], [1]],
+            [[1], [2]],
+        ),
+        (
+            np.array([[1, 0], [0, 1], [0, 0]]),
+            np.array([[1], [2], [1]]),
+            [[0],[1], [1]],
+            [[1],[1], [2]],
+        ),
+        (
+            np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]]),
+            np.array([[1], [2], [3]]),
+            [[0]],
+            [[1,2,3]],
+        ),
+        (   #will even split non independent systems, call is_independent_system before
+            np.array([[2, 1], [1, 3]]),
+            np.array([[3], [4]]),
+            [[2], [1]],
+            [[3], [4]],
+        ),
+    ],
+)
+def test_yield_one_d_systems(matrix, rhs, list_of_lhs_column, list_of_rhs_column):
+    for index, (A, b) in enumerate(yield_one_d_systems(matrix, rhs)):
+        assert np.allclose(A, list_of_lhs_column[index])
+        assert np.allclose(b, list_of_rhs_column[index])
+
+    

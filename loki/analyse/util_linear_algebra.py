@@ -39,30 +39,28 @@ def is_independent_system(matrix):
     return np_all(np_isin(np_sum(matrix != 0, axis=1), [0,1]))
 
 
-def yield_one_d_systems(matrix, right_hand_side, drop_zero_rows=True):
+def yield_one_d_systems(matrix, right_hand_side):
     """
-    Split a linear system of equations into independent one-dimensional problems.
+    Split a linear system of equations (<=, >= or ==) into independent one-dimensional problems.
 
     Args:
         matrix (numpy.ndarray): A rectangular matrix representing coefficients.
         right_hand_side (numpy.ndarray): The right-hand side vector.
-        drop_zero_rows (bool, optional): If True, drop rows where both coefficients and right-hand side are zero.
 
     Yields:
-        tuple: A tuple containing a one-column coefficient matrix and the corresponding right-hand side.
+        tuple[single_dimensional_array, single_dimensional_array]: 
+            A tuple containing a coefficient vector and the corresponding right-hand side.
 
     This function takes a linear system of equations in the form of matrix x [operator] right_hand_side,
     where "matrix" is a rectangular matrix, x is a vector of variables, and "right_hand_side" is
-    the right-hand side vector. It splits the system into independent one-dimensional problems.
+    the right-hand side vector. It splits the system into assumed independent one-dimensional problems.
 
     Each problem consists of a coefficient vector and a right-hand side. The number of problems is equal to the
     number of variables (the row number of the matrix).
 
-    You can choose to drop rows where both the coefficients and the right-hand side are zero by setting
-    the drop_zero_rows parameter to True.
-
     Note:
-    - The independence of the problems is not explicitly checked.
+    - The independence of the problems is not explicitly checked, call is_independent_system before using this 
+      function if unsure.
 
     Example:
     ```
@@ -71,12 +69,28 @@ def yield_one_d_systems(matrix, right_hand_side, drop_zero_rows=True):
         solution = solve_one_d_system(A, b)
     ```
     """
+    #drop completly empty rows
+    mask = ~np_all(hstack((matrix, right_hand_side)) == 0, axis = 1)
+    matrix = matrix[mask]
+    right_hand_side = right_hand_side[mask]
+
+    #yield systems with empty left hand side (A) and non empty right hand side
+    mask = np_all(matrix == 0, axis = 1)
+    if right_hand_side[mask].size == 0:
+        return
+
+    for A,b in zip(matrix[mask].T, right_hand_side[mask].T):
+        yield A, b
+
+    matrix = matrix[~mask]
+    right_hand_side = right_hand_side[~mask]
+
+    if right_hand_side.size == 0:
+        return
+
     for A, b in zip(matrix.T, right_hand_side.T):
-        if drop_zero_rows:
-            mask = ~np_all(hstack((A, b)) == 0)
-            yield A[mask].T, b[mask].T
-        else:
-            yield A.T, b.T
+        mask = A != 0
+        yield A[mask], b[mask]
 
 
 def bounds_of_one_d_system(single_column_matrix, right_hand_side):
