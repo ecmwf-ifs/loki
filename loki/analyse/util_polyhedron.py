@@ -126,17 +126,17 @@ class Polyhedron:
 
     def get_bounds(self, index):
         """
-        Return the lower and upper bounds for a variable by index c R^d following the representation:
+        Return the lower and upper bounds for a variable by index i c d, with x c R^d, following the representation:
 
         c_L xi >= L y + l
         c_U xi <= U y + u
 
         with x_i the variable of interest, y=[x_1,...,x_{i-1},x_{i+1}, ..., x_d]^T c R^{d-1} the remaining variables,
-        L, U the coefficient matrices and l, u the right-hand side vectors. 1 in this case denotes a unit vector of
-        size of l or respective u.
+        L, U the coefficient matrices, c_L, c_U the single column coefficients  and l, u the right-hand side vectors. 
+        1 in this case denotes a unit vector of size of l or respective u.
 
         Returns:
-        tuple: ((L, l), (U, u))
+        tuple: ((c_L, L, l), (c_U, U, u))
         """
         mask = self.A[:, index] != 0
         A_masked = self.A[mask]
