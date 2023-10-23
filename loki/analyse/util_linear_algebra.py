@@ -5,16 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from math import gcd
 from numpy import zeros_like, dot
-from numpy import vstack, hstack, logical_and
-from numpy import all as np_all, sum as np_sum, empty as np_empty, unique as np_unique
+from numpy import vstack, hstack
+from numpy import all as np_all, sum as np_sum, unique as np_unique
 
 __all__ = [
     "back_substitution",
     "generate_reduced_row_echelon_form",
-    "NoIntegerSolution",
-    "row_echelon_form_under_gcd_condition",
     "is_independent_system",
     "yield_one_d_systems",
     "bounds_of_one_d_system",
@@ -179,7 +176,7 @@ def generate_reduced_row_echelon_form(
     else:
         # if all elements in the first column is zero,
         # we perform REF on matrix from second column
-        B = row_echelon_form_under_gcd_condition(A[:, 1:])
+        B = generate_reduced_row_echelon_form(A[:, 1:], conditional_check, division_operator)
         # and then add the first zero-column back
         return hstack([A[:, :1], B])
 
@@ -198,43 +195,7 @@ def generate_reduced_row_echelon_form(
     A[1:] -= A[0] * A[1:, 0:1]
 
     # we perform REF on matrix from second row, from second column
-    B = row_echelon_form_under_gcd_condition(A[1:, 1:])
+    B = generate_reduced_row_echelon_form(A[1:, 1:], conditional_check, division_operator)
 
     # we add first row and first (zero) column, and return
     return vstack([A[:1], hstack([A[1:, :1], B])])
-
-
-class NoIntegerSolution(Exception):
-    pass
-
-
-def row_echelon_form_under_gcd_condition(A):
-    """
-    Return the Row Echelon Form (REF) of an integer matrix A while ensuring integer solutions
-    to linear Diophantine equations.
-
-    Args:
-        A (numpy.ndarray): The input integer matrix.
-
-    Returns:
-        numpy.ndarray: The REF of the input matrix A under the GCD (Greatest Common Divisor) condition.
-
-    This function computes the Row Echelon Form (REF) of a given integer matrix A while enforcing that
-    each linear Diophantine equation in the system has integer solutions. It follows Theorem 11.32
-    in "Compilers: Principles, Techniques, and Tools" by Aho, Lam, Sethi, and Ullman (2015).
-    """
-
-    def gcd_condition(A):
-        """Check that gcd condition of linear Diophantine equation is satisfied"""
-        if A[0, -1] % gcd(*A[0, :-1]) != 0:
-            raise NoIntegerSolution()
-
-    def safe_integer_division(x, y):
-        result = x // y
-        if (x % y != 0).all():
-            raise ValueError("Division does not result in an integer.")
-        return result
-
-    return generate_reduced_row_echelon_form(
-        A, conditional_check=gcd_condition, division_operator=safe_integer_division
-    )
