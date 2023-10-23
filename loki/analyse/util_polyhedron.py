@@ -277,4 +277,4 @@ class Polyhedron:
         as used in the Compilers: Principles, Techniques, and Tools book
         """
 
-        return self.A, -np.reshape(self.b, (-1, 1))
+        return -self.A, np.reshape(self.b, (-1, 1))
