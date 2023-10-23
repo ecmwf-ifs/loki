@@ -13,7 +13,8 @@ import numpy as np
 from conftest import jit_compile, clean_test, available_frontends
 from loki import Subroutine, OMNI, FindNodes, Loop, Conditional, Scope, Assignment
 from loki.frontend.fparser import parse_fparser_expression, HAVE_FP
-from loki.transform import loop_interchange, loop_fusion, loop_fission, Polyhedron, normalize_range_indexing
+from loki.transform import loop_interchange, loop_fusion, loop_fission, normalize_range_indexing
+from loki.analyse.util_polyhedron import Polyhedron
 from loki.expression import symbols as sym
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
 
