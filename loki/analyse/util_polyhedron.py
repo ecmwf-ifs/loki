@@ -54,6 +54,16 @@ class Polyhedron:
             self.variables = variables
             self.variable_names = [v.name.lower() for v in self.variables]
 
+    def __str__(self):
+        str_A = '[' + ', '.join([str(row) for row in self.A]) + ']'
+        str_b = f"[{', '.join(map(str, self.b))}]"
+        str_variable_names = f"[{', '.join(map(str, self.variable_names))}]" if self.variable_names else "[]"
+
+        return f"Polyhedron(\n\tA={str_A}, \n\tb={str_b}, \n\tvariables={str_variable_names}\n)"
+
+    def __repr__(self):
+        return str(self)
+
     def variable_to_index(self, variable):
         if self.variable_names is None:
             raise RuntimeError("No variables list associated with polyhedron.")
