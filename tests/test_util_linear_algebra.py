@@ -9,8 +9,7 @@ import numpy as np
 
 from loki.analyse.util_linear_algebra import (
     back_substitution,
-    row_echelon_form_under_gcd_condition,
-    NoIntegerSolution,
+    generate_reduced_row_echelon_form,
     bounds_of_one_d_system,
 )
 
@@ -46,21 +45,19 @@ def test_backsubstitution(
 
 
 @pytest.mark.parametrize(
-    "matrix, should_fail, result",
+    "matrix, result",
     [
-        ([[2, 0, 1], [0, 2, 0]], True, None),
-        ([[1, -2, 1, 0], [3, 2, 1, 5]], True, None),
-        ([[1, -1, -10]], False, [[1, -1, -10]]),
+        ([[2, 0, 1], [0, 2, 0]], [[1,0,0.5],[0,1,0]]),
+        ([[1, -2, 1, 0], [3, 2, 1, 5]], [[1,-2,1,0],[0,1,-0.25,0.625]]),
+        ([[1, -1, -10]], [[1, -1, -10]]),
     ],
 )
-def test_row_echelon_form_under_gcd_condition(matrix, should_fail, result):
-    matrix = np.array(matrix, dtype=np.dtype(int))
-    if should_fail:
-        with pytest.raises(NoIntegerSolution):
-            _ = row_echelon_form_under_gcd_condition(matrix)
-    else:
-        result = np.array(result, dtype=np.dtype(int))
-        assert np.array_equal(row_echelon_form_under_gcd_condition(matrix), result)
+def test_generate_reduced_row_echelon_form(matrix, result):
+
+    matrix = np.array(matrix, dtype=float)
+    result = np.array(result, dtype=float)
+
+    assert np.allclose(generate_reduced_row_echelon_form(matrix), result)
 
 
 @pytest.mark.parametrize(

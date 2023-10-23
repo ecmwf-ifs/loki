@@ -140,7 +140,7 @@ def back_substitution(
 
 
 def generate_reduced_row_echelon_form(
-    A, conditional_check=lambda: None, division_operator=lambda x, y: x / y
+    A, conditional_check=lambda A: None, division_operator=lambda x, y: x / y
 ):
     """
     Calculate the Reduced Row Echelon Form (RREF) of a matrix A using Gaussian elimination.
