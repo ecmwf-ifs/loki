@@ -20,6 +20,7 @@ from loki.tools import as_tuple
 
 __all__ = ["Polyhedron"]
 
+
 class Polyhedron:
     """
     Halfspace representation of a (convex) polyhedron.
@@ -272,8 +273,8 @@ class Polyhedron:
 
     def get_B_b_representation(self):
         """
-        Retrun the matrix and vector constructing the polyhedron in the B-b notation 
+        Return the matrix and vector constructing the polyhedron in the B-b notation
         as used in the Compilers: Principles, Techniques, and Tools book
         """
 
-        return self.A, -np.reshape(self.b, (-1,1))
+        return self.A, -np.reshape(self.b, (-1, 1))
