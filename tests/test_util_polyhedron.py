@@ -151,3 +151,24 @@ def test_polyhedron_bounds(A, b, variable_names, lower_bounds, upper_bounds):
         ubounds = p.upper_bounds(var)
         assert len(ubounds) == len(ref_bounds)
         assert all(str(b1) == b2 for b1, b2 in zip(ubounds, ref_bounds))
+
+
+@pytest.mark.parametrize(
+    "polyhedron,is_empty,will_fail",
+    [
+        # totaly empty polyhedron
+        (Polyhedron.from_nested_loops([]), True, False),
+        # full matrix --> non trivial problem
+        (Polyhedron([[1]], [1]), None, True),
+        # empty matrix, full and fullfiled b --> non empty polyhedron
+        (Polyhedron([[]], [1]), False, False),
+        # empty matrix, full b but not fullfiled b --> empty polyhedron
+        (Polyhedron([[]], [-1]), True, False),
+    ],
+)
+def test_check_empty_polyhedron(polyhedron, is_empty, will_fail):
+    if will_fail:
+        with pytest.raises(RuntimeError):
+            _ = polyhedron.is_empty()
+    else:
+        assert polyhedron.is_empty() == is_empty
