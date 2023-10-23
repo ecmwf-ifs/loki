@@ -72,6 +72,8 @@ def jit_compile(source, filepath=None, objname=None):
     """
     if isinstance(source, Sourcefile):
         filepath = source.path if filepath is None else Path(filepath)
+        if filepath is None:
+            filepath = Path(gettempdir()/filehash(source, prefix='', suffix='.f90'))
         source.write(path=filepath)
     else:
         source = fgen(source)
