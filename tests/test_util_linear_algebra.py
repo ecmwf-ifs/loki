@@ -11,6 +11,7 @@ from loki.analyse.util_linear_algebra import (
     back_substitution,
     row_echelon_form_under_gcd_condition,
     NoIntegerSolution,
+    bounds_of_one_d_system,
 )
 
 
@@ -60,3 +61,51 @@ def test_row_echelon_form_under_gcd_condition(matrix, should_fail, result):
     else:
         result = np.array(result, dtype=np.dtype(int))
         assert np.array_equal(row_echelon_form_under_gcd_condition(matrix), result)
+
+
+@pytest.mark.parametrize(
+    "matrix, rhs, expected_lower, expected_upper",
+    [
+        (  # test no upper bound only lower bound
+            np.array([[1], [2], [3], [4], [5]]),
+            np.array([[10], [20], [30], [40], [50]]),
+            [10],
+            [],
+        ),
+        (  # test no lower bound only upper bound
+            np.array([[-1], [-2], [-3], [-4], [-5]]),
+            np.array([[-10], [-20], [-30], [-40], [-50]]),
+            [],
+            [10],
+        ),
+        (  # test no lower bound only upper bound
+            -np.array([[1], [2], [3], [4], [5]]),
+            -np.array([[10], [20], [30], [40], [50]]),
+            [],
+            [10],
+        ),
+        (  # test no upper bound only lower bounds
+            np.array([[1], [2], [3], [4], [5]]),
+            np.array([[10], [20], [30], [40], [50]]),
+            [10],
+            [],
+        ),
+        (  # test both upper and lower bounds
+            np.array([[1], [-1]]),
+            np.array([[0], [-10]]),
+            [0],
+            [10],
+        ),
+        (np.array([[0]]), np.array([[1]]), [1], []),
+        (
+            np.array([[0], [0], [1], [-1], [1], [-1], [0], [0]]),
+            np.array([[-10], [0], [-11], [1], [0], [-10], [0], [-10]]),
+            [-11,-10, 0],
+            [-1, 10],
+        ),
+    ],
+)
+def test_bounds_of_one_d_system(matrix, rhs, expected_lower, expected_upper):
+    lower_bounds, upper_bounds = bounds_of_one_d_system(matrix, rhs)
+    assert np.allclose(lower_bounds, expected_lower)
+    assert np.allclose(upper_bounds, expected_upper)

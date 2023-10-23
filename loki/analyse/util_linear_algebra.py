@@ -7,14 +7,105 @@
 
 from math import gcd
 from numpy import zeros_like, dot
-from numpy import vstack, hstack
+from numpy import vstack, hstack, logical_and
+from numpy import all as np_all, sum as np_sum, empty as np_empty, unique as np_unique
 
 __all__ = [
     "back_substitution",
     "generate_reduced_row_echelon_form",
     "NoIntegerSolution",
     "row_echelon_form_under_gcd_condition",
+    "is_independent_system",
+    "yield_one_d_systems",
+    "bounds_of_one_d_system",
 ]
+
+
+def is_independent_system(matrix):
+    """
+    Check if a linear system of equations can be split into independent one-dimensional problems.
+
+    Args:
+        matrix (numpy.ndarray): A rectangular matrix representing coefficients.
+
+    Returns:
+        bool: True if the system can be split into independent one-dimensional problems, False otherwise.
+
+    This function checks whether a linear system of equations in the form of matrix x [operator] right_hand_side
+    can be split into independent one-dimensional problems. The number of problems is determined by the
+    number of variables (the row number of the matrix).
+
+    Each problem consists of a coefficient vector and a right-hand side. The system can be considered independent
+    if each row of the matrix has exactly one non-zero coefficient.
+    """
+
+    return np_all(np_sum(matrix != 0, axis=1) == 1)
+
+
+def yield_one_d_systems(matrix, right_hand_side, drop_zero_rows=True):
+    """
+    Split a linear system of equations into independent one-dimensional problems.
+
+    Args:
+        matrix (numpy.ndarray): A rectangular matrix representing coefficients.
+        right_hand_side (numpy.ndarray): The right-hand side vector.
+        drop_zero_rows (bool, optional): If True, drop rows where both coefficients and right-hand side are zero.
+
+    Yields:
+        tuple: A tuple containing a one-column coefficient matrix and the corresponding right-hand side.
+
+    This function takes a linear system of equations in the form of matrix x [operator] right_hand_side,
+    where "matrix" is a rectangular matrix, x is a vector of variables, and "right_hand_side" is
+    the right-hand side vector. It splits the system into independent one-dimensional problems.
+
+    Each problem consists of a coefficient vector and a right-hand side. The number of problems is equal to the
+    number of variables (the row number of the matrix).
+
+    You can choose to drop rows where both the coefficients and the right-hand side are zero by setting
+    the drop_zero_rows parameter to True.
+
+    Note:
+    - The independence of the problems is not explicitly checked.
+
+    Example:
+    ```
+    for A, b in yield_one_d_systems(matrix, right_hand_side):
+        # Solve the one-dimensional problem A * x = b
+        solution = solve_one_d_system(A, b)
+    ```
+    """
+    for A, b in zip(matrix.T, right_hand_side.T):
+        if drop_zero_rows:
+            mask = ~np_all(hstack((A, b)) == 0)
+            yield A[mask].T, b[mask].T
+        else:
+            yield A.T, b.T
+
+
+def bounds_of_one_d_system(single_column_matrix, right_hand_side):
+    """
+    Calculate the lower and upper bounds of a one-dimensional linear inequality
+    represented by the equation: single_column_matrix * x >= right_hand_side.
+
+    Args:
+        single_column_matrix (numpy.ndarray): A single-column matrix representing coefficients.
+        right_hand_side (numpy.ndarray): The right-hand side vector.
+
+    Returns:
+        tuple: A tuple containing the lower and upper bounds for variable x that satisfy the inequality.
+    """
+    mask = single_column_matrix >= 0
+    zero_mask = single_column_matrix == 0
+    lower_bounds = np_empty(zero_mask[mask].size, dtype=right_hand_side.dtype)
+    valid_divsion_mask = logical_and(mask,~zero_mask)
+    count = right_hand_side[valid_divsion_mask].reshape(-1).size
+    lower_bounds[0:count] = right_hand_side[valid_divsion_mask] / single_column_matrix[valid_divsion_mask]
+
+    lower_bounds[count:] = right_hand_side[logical_and(mask, zero_mask)]
+
+    upper_bounds = right_hand_side[~mask] / single_column_matrix[~mask]
+
+    return np_unique(lower_bounds), np_unique(upper_bounds)
 
 
 def back_substitution(
