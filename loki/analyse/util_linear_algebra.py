@@ -229,6 +229,12 @@ def row_echelon_form_under_gcd_condition(A):
         if A[0, -1] % gcd(*A[0, :-1]) != 0:
             raise NoIntegerSolution()
 
+    def safe_integer_division(x, y):
+        result = x // y
+        if (x % y != 0).all():
+            raise ValueError("Division does not result in an integer.")
+        return result
+
     return generate_reduced_row_echelon_form(
-        A, conditional_check=gcd_condition, division_operator=lambda x, y: x // y
+        A, conditional_check=gcd_condition, division_operator=safe_integer_division
     )
