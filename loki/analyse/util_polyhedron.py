@@ -68,6 +68,48 @@ class Polyhedron:
     def __repr__(self):
         return str(self)
 
+    def _has_satisfiable_constant_restrictions(self):
+        """
+        Check whether the constant restrictions of the polyhedron are satisfiable.
+
+        This method checks if 0 <= b, assuming that A x = 0.
+
+        Returns:
+        bool: True if all constant restrictions are satisfiable, False otherwise.
+
+        """
+
+        return (0 <= self.b).all()
+
+    def is_empty(self):
+        """
+        Determine whether a polyhedron is empty.
+
+        A polyhedron is considered empty under the following conditions:
+        1. It contains no inequalities.
+        2. It spans no space, which is a nontrivial problem. The easiest circumstance are if
+           it has an empty matrix A and does not fulfill the constant restrictions 0 <= b.
+
+        Args:
+        self: The Polyhedron object.
+
+        Returns:
+        bool: True if the polyhedron is empty; False if it is not.
+
+        Note:
+        - An empty polyhedron implies that it has no valid solutions or feasible points within its boundaries.
+        - This function is expected to be only called upon polyhedrons with an empty matrix.
+        """
+        if self.A.size == 0:
+            return self.b.size == 0 or not self._has_satisfiable_constant_restrictions()
+
+        raise RuntimeError(
+            """
+                Checking if a polyhedron with a non-empty matrix spans no space is a nontrivial problem.
+                This function is expected to be only called upon polyhedrons with an empty matrix!
+            """
+        )
+
     def variable_to_index(self, variable):
         if self.variable_names is None:
             raise RuntimeError("No variables list associated with polyhedron.")
