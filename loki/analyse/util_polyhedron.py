@@ -326,11 +326,3 @@ class Polyhedron:
         return cls.from_loop_ranges(
             [l.variable for l in nested_loops], [l.bounds for l in nested_loops]
         )
-
-    def get_B_b_representation(self):
-        """
-        Return the matrix and vector constructing the polyhedron in the B-b notation
-        as used in the Compilers: Principles, Techniques, and Tools book
-        """
-
-        return -self.A, np.reshape(self.b, (-1, 1))
