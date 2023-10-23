@@ -14,31 +14,61 @@ from loki.frontend.fparser import parse_fparser_expression, HAVE_FP
 from loki.analyse.util_polyhedron import Polyhedron
 from loki.expression import symbols as sym
 
-@pytest.fixture(scope='module', name='here')
+
+@pytest.fixture(scope="module", name="here")
 def fixture_here():
     return Path(__file__).parent
 
 
 # Polyhedron functionality relies on FParser's expression parsing
-pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
+pytestmark = pytest.mark.skipif(not HAVE_FP, reason="Fparser not available")
 
-@pytest.mark.parametrize('variables, lbounds, ubounds, A, b, variable_names', [
-    # do i=0,5: do j=i,7: ...
-    (['i', 'j'], ['0', 'i'], ['5', '7'],
-     [[-1, 0], [1, 0], [1, -1], [0, 1]], [0, 5, 0, 7], ['i', 'j']),
-    # do i=1,n: do j=0,2*i+1: do k=a,b: ...
-    (['i', 'j', 'k'], ['1', '0', 'a'], ['n', '2*i+1', 'b'],
-     [[-1, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, -1], [0, -1, 0, 0, 0, 0], [-2, 1, 0, 0, 0, 0],
-      [0, 0, -1, 1, 0, 0], [0, 0, 1, 0, -1, 0]], [-1, 0, 0, 1, 0, 0], ['i', 'j', 'k', 'a', 'b', 'n']),
-    # do jk=1,klev: ...
-    (['jk'], ['1'], ['klev'], [[-1, 0], [1, -1]], [-1, 0], ['jk', 'klev']),
-    # do JK=1,klev-1: ...
-    (['JK'], ['1'], ['klev - 1'], [[-1, 0], [1, -1]], [-1, -1], ['jk', 'klev']),
-    # do jk=ncldtop,klev: ...
-    (['jk'], ['ncldtop'], ['klev'], [[-1, 0, 1], [1, -1, 0]], [0, 0], ['jk', 'klev', 'ncldtop']),
-    # do jk=1,KLEV+1: ...
-    (['jk'], ['1'], ['KLEV+1'], [[-1, 0], [1, -1]], [-1, 1], ['jk', 'klev']),
-])
+
+@pytest.mark.parametrize(
+    "variables, lbounds, ubounds, A, b, variable_names",
+    [
+        # do i=0,5: do j=i,7: ...
+        (
+            ["i", "j"],
+            ["0", "i"],
+            ["5", "7"],
+            [[-1, 0], [1, 0], [1, -1], [0, 1]],
+            [0, 5, 0, 7],
+            ["i", "j"],
+        ),
+        # do i=1,n: do j=0,2*i+1: do k=a,b: ...
+        (
+            ["i", "j", "k"],
+            ["1", "0", "a"],
+            ["n", "2*i+1", "b"],
+            [
+                [-1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, -1],
+                [0, -1, 0, 0, 0, 0],
+                [-2, 1, 0, 0, 0, 0],
+                [0, 0, -1, 1, 0, 0],
+                [0, 0, 1, 0, -1, 0],
+            ],
+            [-1, 0, 0, 1, 0, 0],
+            ["i", "j", "k", "a", "b", "n"],
+        ),
+        # do jk=1,klev: ...
+        (["jk"], ["1"], ["klev"], [[-1, 0], [1, -1]], [-1, 0], ["jk", "klev"]),
+        # do JK=1,klev-1: ...
+        (["JK"], ["1"], ["klev - 1"], [[-1, 0], [1, -1]], [-1, -1], ["jk", "klev"]),
+        # do jk=ncldtop,klev: ...
+        (
+            ["jk"],
+            ["ncldtop"],
+            ["klev"],
+            [[-1, 0, 1], [1, -1, 0]],
+            [0, 0],
+            ["jk", "klev", "ncldtop"],
+        ),
+        # do jk=1,KLEV+1: ...
+        (["jk"], ["1"], ["KLEV+1"], [[-1, 0], [1, -1]], [-1, 1], ["jk", "klev"]),
+    ],
+)
 def test_polyhedron_from_loop_ranges(variables, lbounds, ubounds, A, b, variable_names):
     """
     Test converting loop ranges to polyedron representation of iteration space.
@@ -60,34 +90,52 @@ def test_polyhedron_from_loop_ranges_failures():
     """
     # m*n is non-affine and thus can't be represented
     scope = Scope()
-    loop_variable = parse_fparser_expression('i', scope)
-    lower_bound = parse_fparser_expression('1', scope)
-    upper_bound = parse_fparser_expression('m * n', scope)
+    loop_variable = parse_fparser_expression("i", scope)
+    lower_bound = parse_fparser_expression("1", scope)
+    upper_bound = parse_fparser_expression("m * n", scope)
     loop_range = sym.LoopRange((lower_bound, upper_bound))
     with pytest.raises(ValueError):
         _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
 
     # no functionality to flatten exponentials, yet
-    upper_bound = parse_fparser_expression('5**2', scope)
+    upper_bound = parse_fparser_expression("5**2", scope)
     loop_range = sym.LoopRange((lower_bound, upper_bound))
     with pytest.raises(ValueError):
         _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
 
 
-@pytest.mark.parametrize('A, b, variable_names, lower_bounds, upper_bounds', [
-    # do i=1,n: ...
-    ([[-1, 0], [1, -1]], [-1, 0], ['i', 'n'], [['1'], ['i']], [['n'], []]),
-    # do i=1,10: ...
-    ([[-1], [1]], [-1, 10], ['i'], [['1']], [['10']]),
-    # do i=0,5: do j=i,7: ...
-    ([[-1, 0], [1, 0], [1, -1], [0, 1]], [0, 5, 0, 7], ['i', 'j'], [['0'], ['i']], [['5', 'j'], ['7']]),
-    # do i=1,n: do j=0,2*i+1: do k=a,b: ...
-    ([[-1, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, -1], [0, -1, 0, 0, 0, 0], [-2, 1, 0, 0, 0, 0],
-      [0, 0, -1, 1, 0, 0], [0, 0, 1, 0, -1, 0]], [-1, 0, 0, 1, 0, 0],
-     ['i', 'j', 'k', 'a', 'b', 'n'],                               # variable names
-     [['1', '-1 / 2 + j / 2'], ['0'], ['a'], [], ['k'], ['i']],    # lower bounds
-     [['n'], ['1 + 2*i'], ['b'], ['k'], [], []]),                  # upper bounds
-])
+@pytest.mark.parametrize(
+    "A, b, variable_names, lower_bounds, upper_bounds",
+    [
+        # do i=1,n: ...
+        ([[-1, 0], [1, -1]], [-1, 0], ["i", "n"], [["1"], ["i"]], [["n"], []]),
+        # do i=1,10: ...
+        ([[-1], [1]], [-1, 10], ["i"], [["1"]], [["10"]]),
+        # do i=0,5: do j=i,7: ...
+        (
+            [[-1, 0], [1, 0], [1, -1], [0, 1]],
+            [0, 5, 0, 7],
+            ["i", "j"],
+            [["0"], ["i"]],
+            [["5", "j"], ["7"]],
+        ),
+        # do i=1,n: do j=0,2*i+1: do k=a,b: ...
+        (
+            [
+                [-1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, -1],
+                [0, -1, 0, 0, 0, 0],
+                [-2, 1, 0, 0, 0, 0],
+                [0, 0, -1, 1, 0, 0],
+                [0, 0, 1, 0, -1, 0],
+            ],
+            [-1, 0, 0, 1, 0, 0],
+            ["i", "j", "k", "a", "b", "n"],  # variable names
+            [["1", "-1 / 2 + j / 2"], ["0"], ["a"], [], ["k"], ["i"]],  # lower bounds
+            [["n"], ["1 + 2*i"], ["b"], ["k"], [], []],
+        ),  # upper bounds
+    ],
+)
 def test_polyhedron_bounds(A, b, variable_names, lower_bounds, upper_bounds):
     """
     Test the production of lower and upper bounds.
