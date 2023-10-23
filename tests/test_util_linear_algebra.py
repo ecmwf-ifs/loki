@@ -7,7 +7,11 @@
 import pytest
 import numpy as np
 
-from loki.analyse.util_linear_algebra import back_substitution, row_echelon_form_under_gcd_condition, NoIntegerSolution
+from loki.analyse.util_linear_algebra import (
+    back_substitution,
+    row_echelon_form_under_gcd_condition,
+    NoIntegerSolution,
+)
 
 
 @pytest.mark.parametrize(
@@ -20,7 +24,7 @@ from loki.analyse.util_linear_algebra import back_substitution, row_echelon_form
             lambda x, y: x / y,
         ),
         (
-            [[2,0], [0, 1]],
+            [[2, 0], [0, 1]],
             [[10], [11]],
             [[5], [11]],
             lambda x, y: x // y,

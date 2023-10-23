@@ -40,6 +40,7 @@ def back_substitution(
 
     return x
 
+
 def generate_reduced_row_echelon_form(A, conditional_check=lambda: None):
     """
     Calculate reduced row echelon form of matrix A
@@ -86,6 +87,7 @@ def generate_reduced_row_echelon_form(A, conditional_check=lambda: None):
 
 class NoIntegerSolution(Exception):
     pass
+
 
 def row_echelon_form_under_gcd_condition(A):
     """Return Row Echelon Form of matrix A enforcing that each linear equation has an integer solution following
