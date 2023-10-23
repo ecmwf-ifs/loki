@@ -7,7 +7,7 @@
 
 import numpy as np
 
-from loki import TypedSymbol
+from loki import TypedSymbol, Loop
 
 from loki.expression import (
     symbols as sym,
@@ -260,3 +260,20 @@ class Polyhedron:
             b[2 * i + 1] = -rhs
 
         return cls(A, b, variables)
+
+    @classmethod
+    def from_nested_loops(cls, nested_loops: list[Loop]):
+        """
+        Helper function, for creating a polyhedron from a list of loops.
+        """
+        return cls.from_loop_ranges(
+            [l.variable for l in nested_loops], [l.bounds for l in nested_loops]
+        )
+
+    def get_B_b_representation(self):
+        """
+        Retrun the matrix and vector constructing the polyhedron in the B-b notation 
+        as used in the Compilers: Principles, Techniques, and Tools book
+        """
+
+        return self.A, -np.reshape(self.b, (-1,1))
