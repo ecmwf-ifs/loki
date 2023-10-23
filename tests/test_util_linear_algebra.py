@@ -60,6 +60,7 @@ def test_backsubstitution(
             [[2, 4, 6, 8], [1, 2, 3, 4], [3, 6, 9, 12]],
             [[1, 2, 3, 4], [0, 0, 0, 0], [0, 0, 0, 0]],
         ),
+        ([[0, 0, 0], [1, 0, 2]], [[1, 0, 2], [0, 0, 0]]),
     ],
 )
 def test_generate_row_echelon_form(matrix, result):
