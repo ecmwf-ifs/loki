@@ -157,7 +157,7 @@ def generate_row_echelon_form(
     A, conditional_check=lambda A: None, division_operator=lambda x, y: x / y
 ):
     """
-    Calculate the Reduced Row Echelon Form (RREF) of a matrix A using Gaussian elimination.
+    Calculate the Row Echelon Form (REF) of a matrix A using Gaussian elimination.
 
     Args:
         A (numpy.ndarray): The input matrix for which RREF is to be calculated.
@@ -165,14 +165,14 @@ def generate_row_echelon_form(
         division_operation (function, optional): A custom division operation function. Default is standard division (/).
 
     Returns:
-        numpy.ndarray: The RREF of the input matrix A.
+        numpy.ndarray: The REF of the input matrix A.
 
-    This function computes the Reduced Row Echelon Form (RREF) of a given matrix A using Gaussian elimination.
+    This function computes the Row Echelon Form (RREF) of a given matrix A using Gaussian elimination.
     You can provide a custom conditional_check function to add checks or operations during the computation.
     You can also specify a custom division_operation function for division (e.g., for custom division operations).
 
     Note:
-    - If the input matrix has no rows or columns, it is already in RREF, and the function returns itself.
+    - If the input matrix has no rows or columns, it is already in REF, and the function returns itself.
     - The function utilizes the specified division operation (default is standard division) for division.
 
     Reference: https://math.stackexchange.com/questions/3073083/how-to-reduce-matrix-into-row-echelon-form-in-numpy
