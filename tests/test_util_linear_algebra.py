@@ -100,7 +100,7 @@ def test_row_echelon_form_under_gcd_condition(matrix, should_fail, result):
         (
             np.array([[0], [0], [1], [-1], [1], [-1], [0], [0]]),
             np.array([[-10], [0], [-11], [1], [0], [-10], [0], [-10]]),
-            [-11,-10, 0],
+            [-11, 0],
             [-1, 10],
         ),
     ],

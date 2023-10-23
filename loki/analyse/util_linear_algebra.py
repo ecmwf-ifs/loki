@@ -94,16 +94,11 @@ def bounds_of_one_d_system(single_column_matrix, right_hand_side):
     Returns:
         tuple: A tuple containing the lower and upper bounds for variable x that satisfy the inequality.
     """
-    mask = single_column_matrix >= 0
-    zero_mask = single_column_matrix == 0
-    lower_bounds = np_empty(zero_mask[mask].size, dtype=right_hand_side.dtype)
-    valid_divsion_mask = logical_and(mask,~zero_mask)
-    count = right_hand_side[valid_divsion_mask].reshape(-1).size
-    lower_bounds[0:count] = right_hand_side[valid_divsion_mask] / single_column_matrix[valid_divsion_mask]
+    larger_zero = single_column_matrix > 0
+    lower_bounds = right_hand_side[larger_zero] / single_column_matrix[larger_zero]
 
-    lower_bounds[count:] = right_hand_side[logical_and(mask, zero_mask)]
-
-    upper_bounds = right_hand_side[~mask] / single_column_matrix[~mask]
+    smaller_zero = single_column_matrix < 0
+    upper_bounds = right_hand_side[smaller_zero] / single_column_matrix[smaller_zero]
 
     return np_unique(lower_bounds), np_unique(upper_bounds)
 
