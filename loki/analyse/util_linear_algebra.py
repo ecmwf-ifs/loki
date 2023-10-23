@@ -11,7 +11,7 @@ from numpy import all as np_all, sum as np_sum, unique as np_unique
 
 __all__ = [
     "back_substitution",
-    "generate_reduced_row_echelon_form",
+    "generate_row_echelon_form",
     "is_independent_system",
     "yield_one_d_systems",
     "bounds_of_one_d_system",
@@ -139,7 +139,7 @@ def back_substitution(
     return x
 
 
-def generate_reduced_row_echelon_form(
+def generate_row_echelon_form(
     A, conditional_check=lambda A: None, division_operator=lambda x, y: x / y
 ):
     """
@@ -176,7 +176,7 @@ def generate_reduced_row_echelon_form(
     else:
         # if all elements in the first column is zero,
         # we perform REF on matrix from second column
-        B = generate_reduced_row_echelon_form(
+        B = generate_row_echelon_form(
             A[:, 1:], conditional_check, division_operator
         )
         # and then add the first zero-column back
@@ -197,7 +197,7 @@ def generate_reduced_row_echelon_form(
     A[1:] -= A[0] * A[1:, 0:1]
 
     # we perform REF on matrix from second row, from second column
-    B = generate_reduced_row_echelon_form(
+    B = generate_row_echelon_form(
         A[1:, 1:], conditional_check, division_operator
     )
 

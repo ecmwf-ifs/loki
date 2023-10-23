@@ -9,7 +9,7 @@ import numpy as np
 
 from loki.analyse.util_linear_algebra import (
     back_substitution,
-    generate_reduced_row_echelon_form,
+    generate_row_echelon_form,
     bounds_of_one_d_system,
 )
 
@@ -52,12 +52,12 @@ def test_backsubstitution(
         ([[1, -1, -10]], [[1, -1, -10]]),
     ],
 )
-def test_generate_reduced_row_echelon_form(matrix, result):
+def test_generate_row_echelon_form(matrix, result):
 
     matrix = np.array(matrix, dtype=float)
     result = np.array(result, dtype=float)
 
-    assert np.allclose(generate_reduced_row_echelon_form(matrix), result)
+    assert np.allclose(generate_row_echelon_form(matrix), result)
 
 
 @pytest.mark.parametrize(
