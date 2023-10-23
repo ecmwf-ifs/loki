@@ -7,7 +7,7 @@
 
 from numpy import zeros_like, dot
 from numpy import vstack, hstack
-from numpy import all as np_all, sum as np_sum, unique as np_unique
+from numpy import all as np_all, sum as np_sum, unique as np_unique, isin as np_isin
 
 __all__ = [
     "back_substitution",
@@ -33,10 +33,10 @@ def is_independent_system(matrix):
     number of variables (the row number of the matrix).
 
     Each problem consists of a coefficient vector and a right-hand side. The system can be considered independent
-    if each row of the matrix has exactly one non-zero coefficient.
+    if each row of the matrix has exactly one non-zero coefficient or no non-zero coefficients.
     """
 
-    return np_all(np_sum(matrix != 0, axis=1) == 1)
+    return np_all(np_isin(np_sum(matrix != 0, axis=1), [0,1]))
 
 
 def yield_one_d_systems(matrix, right_hand_side, drop_zero_rows=True):

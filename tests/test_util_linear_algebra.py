@@ -12,6 +12,7 @@ from loki.analyse.util_linear_algebra import (
     back_substitution,
     generate_row_echelon_form,
     bounds_of_one_d_system,
+    is_independent_system
 )
 
 
@@ -67,6 +68,7 @@ def test_generate_row_echelon_form(matrix, result):
 @pytest.mark.parametrize(
     "matrix, result",
     [
+        ([[]],[[]]),
         ([[2, 0, 1], [0, 2, 0]], [[1,0,0],[0,1,0]]),
         ([[1, -2, 1, 0], [3, 2, 1, 5]], [[1,-2,1,0],[0,1,-1,0]]),
         ([[1, -1, -10]], [[1, -1, -10]]),
@@ -155,3 +157,16 @@ def test_bounds_of_one_d_system(matrix, rhs, expected_lower, expected_upper):
     lower_bounds, upper_bounds = bounds_of_one_d_system(matrix, rhs)
     assert np.allclose(lower_bounds, expected_lower)
     assert np.allclose(upper_bounds, expected_upper)
+
+@pytest.mark.parametrize(
+    "matrix, expected_result",
+    [
+        (np.array([[1, 0], [0, 1], [0, 0]]), True),
+        (np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]]), True),
+        (np.array([[1, 0, 1], [0, 1, 0], [0, 0, 0]]), False),
+        (np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]]), True),
+        (np.array([[1, 0, 0], [0, 0, 1], [0, 1, 0]]), True),
+    ],
+)
+def test_is_independent_system(matrix, expected_result):
+    assert is_independent_system(matrix) == expected_result
