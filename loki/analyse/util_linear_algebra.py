@@ -176,7 +176,9 @@ def generate_reduced_row_echelon_form(
     else:
         # if all elements in the first column is zero,
         # we perform REF on matrix from second column
-        B = generate_reduced_row_echelon_form(A[:, 1:], conditional_check, division_operator)
+        B = generate_reduced_row_echelon_form(
+            A[:, 1:], conditional_check, division_operator
+        )
         # and then add the first zero-column back
         return hstack([A[:, :1], B])
 
@@ -195,7 +197,9 @@ def generate_reduced_row_echelon_form(
     A[1:] -= A[0] * A[1:, 0:1]
 
     # we perform REF on matrix from second row, from second column
-    B = generate_reduced_row_echelon_form(A[1:, 1:], conditional_check, division_operator)
+    B = generate_reduced_row_echelon_form(
+        A[1:, 1:], conditional_check, division_operator
+    )
 
     # we add first row and first (zero) column, and return
     return vstack([A[:1], hstack([A[1:, :1], B])])
