@@ -114,8 +114,23 @@ def back_substitution(
     divison_operation=lambda x, y: x / y,
 ):
     """
-    Solve a linear system of equations via back substitution Rx = y where R is an upper triangular
-    square matrix and y is a vector.
+    Solve a linear system of equations using back substitution for an upper triangular square matrix.
+
+    Args:
+        upper_triangular_square_matrix (numpy.ndarray): An upper triangular square matrix (R).
+        right_hand_side (numpy.ndarray): A vector (y) on the right-hand side of the equation Rx = y.
+        division_operation (function, optional): A custom division operation function. Default is standard division (/).
+
+    Returns:
+        numpy.ndarray: The solution vector (x) to the system of equations Rx = y.
+
+    The function performs back substitution to find the solution vector x for the equation Rx = y,
+    where R is an upper triangular square matrix and y is a vector. The division_operation
+    function is used for division (e.g., for custom division operations).
+
+    Note:
+    - The function assumes that the upper right element of the upper_triangular_square_matrix (R)
+      is nonzero for proper back substitution.
     """
     R = upper_triangular_square_matrix
     y = right_hand_side
@@ -132,12 +147,30 @@ def back_substitution(
     return x
 
 
-def generate_reduced_row_echelon_form(A, conditional_check=lambda: None):
+def generate_reduced_row_echelon_form(
+    A, conditional_check=lambda: None, division_operator=lambda x, y: x / y
+):
     """
-    Calculate reduced row echelon form of matrix A
-    """
+    Calculate the Reduced Row Echelon Form (RREF) of a matrix A using Gaussian elimination.
 
-    # Credit: https://math.stackexchange.com/questions/3073083/how-to-reduce-matrix-into-row-echelon-form-in-numpy
+    Args:
+        A (numpy.ndarray): The input matrix for which RREF is to be calculated.
+        conditional_check (function, optional): A custom function to check conditions during the computation.
+        division_operation (function, optional): A custom division operation function. Default is standard division (/).
+
+    Returns:
+        numpy.ndarray: The RREF of the input matrix A.
+
+    This function computes the Reduced Row Echelon Form (RREF) of a given matrix A using Gaussian elimination.
+    You can provide a custom conditional_check function to add checks or operations during the computation.
+    You can also specify a custom division_operation function for division (e.g., for custom division operations).
+
+    Note:
+    - If the input matrix has no rows or columns, it is already in RREF, and the function returns itself.
+    - The function utilizes the specified division operation (default is standard division) for division.
+
+    Reference: https://math.stackexchange.com/questions/3073083/how-to-reduce-matrix-into-row-echelon-form-in-numpy
+    """
     # if matrix A has no columns or rows,
     # it is already in REF, so we return itself
     r, c = A.shape
@@ -164,7 +197,7 @@ def generate_reduced_row_echelon_form(A, conditional_check=lambda: None):
     conditional_check(A)
 
     # we divide first row by first element in it
-    A[0] = A[0] // A[0, 0]
+    A[0] = division_operator(A[0], A[0, 0])
     # we subtract all subsequent rows with first row (it has 1 now as first element)
     # multiplied by the corresponding element in the first column
     A[1:] -= A[0] * A[1:, 0:1]
@@ -181,9 +214,19 @@ class NoIntegerSolution(Exception):
 
 
 def row_echelon_form_under_gcd_condition(A):
-    """Return Row Echelon Form of matrix A enforcing that each linear equation has an integer solution following
-    Theorem 11.32 in Aho, A. V., Lam, M. S., Sethi, R., &amp; Ullman, J. D. (2015). Compilers: Principles,
-    techniques, and Tools. Pearson India Education Services.
+    """
+    Return the Row Echelon Form (REF) of an integer matrix A while ensuring integer solutions
+    to linear Diophantine equations.
+
+    Args:
+        A (numpy.ndarray): The input integer matrix.
+
+    Returns:
+        numpy.ndarray: The REF of the input matrix A under the GCD (Greatest Common Divisor) condition.
+
+    This function computes the Row Echelon Form (REF) of a given integer matrix A while enforcing that
+    each linear Diophantine equation in the system has integer solutions. It follows Theorem 11.32
+    in "Compilers: Principles, Techniques, and Tools" by Aho, Lam, Sethi, and Ullman (2015).
     """
 
     def gcd_condition(A):
@@ -191,4 +234,6 @@ def row_echelon_form_under_gcd_condition(A):
         if A[0, -1] % gcd(*A[0, :-1]) != 0:
             raise NoIntegerSolution()
 
-    return generate_reduced_row_echelon_form(A, conditional_check=gcd_condition)
+    return generate_reduced_row_echelon_form(
+        A, conditional_check=gcd_condition, division_operator=lambda x, y: x // y
+    )
