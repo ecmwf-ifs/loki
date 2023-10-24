@@ -199,8 +199,9 @@ def _does_independent_system_violate_bounds(
     Returns:
     - bool: True if any of the 1d systems violate their bounds, False otherwise.
     """
+
     def get_bounds(matrix, vector):
-        """ Gets x <= c and x >= d conditions"""
+        """Gets x <= c and x >= d conditions"""
         larger_zero = matrix > 0
         upper_bounds = vector[larger_zero] / matrix[larger_zero]
 
@@ -210,12 +211,12 @@ def _does_independent_system_violate_bounds(
         return np.unique(lower_bounds), np.unique(upper_bounds)
 
     def get_zero_lhs_conditions(matrix, vector):
-        """ Gets 0 <= e conditions"""
+        """Gets 0 <= e conditions"""
         zero_lhs = matrix == 0
         return vector[zero_lhs]
 
     for one_d_system in yield_one_d_systems(matrix, vector):
-        if not np.all(0 <= get_zero_lhs_conditions(one_d_system[0], one_d_system[1]) ):
+        if not np.all(0 <= get_zero_lhs_conditions(one_d_system[0], one_d_system[1])):
             return True
 
         lower_bounds, upper_bounds = get_bounds(
