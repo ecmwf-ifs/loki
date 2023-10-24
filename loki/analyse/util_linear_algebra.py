@@ -35,7 +35,7 @@ def is_independent_system(matrix):
     if each row of the matrix has exactly one non-zero coefficient or no non-zero coefficients.
     """
 
-    return np_all(np_isin(np_sum(matrix != 0, axis=1), [0,1]))
+    return np_all(np_isin(np_sum(matrix != 0, axis=1), [0, 1]))
 
 
 def yield_one_d_systems(matrix, right_hand_side):
@@ -47,7 +47,7 @@ def yield_one_d_systems(matrix, right_hand_side):
         right_hand_side (numpy.ndarray): The right-hand side vector.
 
     Yields:
-        tuple[single_dimensional_array, single_dimensional_array]: 
+        tuple[single_dimensional_array, single_dimensional_array]:
             A tuple containing a coefficient vector and the corresponding right-hand side.
 
     This function takes a linear system of equations in the form of matrix x [operator] right_hand_side,
@@ -58,7 +58,7 @@ def yield_one_d_systems(matrix, right_hand_side):
     number of variables (the row number of the matrix).
 
     Note:
-    - The independence of the problems is not explicitly checked, call is_independent_system before using this 
+    - The independence of the problems is not explicitly checked, call is_independent_system before using this
       function if unsure.
 
     Example:
@@ -68,17 +68,17 @@ def yield_one_d_systems(matrix, right_hand_side):
         solution = solve_one_d_system(A, b)
     ```
     """
-    #drop completly empty rows
-    mask = ~np_all(hstack((matrix, right_hand_side)) == 0, axis = 1)
+    # drop completly empty rows
+    mask = ~np_all(hstack((matrix, right_hand_side)) == 0, axis=1)
     matrix = matrix[mask]
     right_hand_side = right_hand_side[mask]
 
-    #yield systems with empty left hand side (A) and non empty right hand side
-    mask = np_all(matrix == 0, axis = 1)
+    # yield systems with empty left hand side (A) and non empty right hand side
+    mask = np_all(matrix == 0, axis=1)
     if right_hand_side[mask].size == 0:
         return
 
-    for A,b in zip(matrix[mask].T, right_hand_side[mask].T):
+    for A, b in zip(matrix[mask].T, right_hand_side[mask].T):
         yield A, b
 
     matrix = matrix[~mask]
@@ -90,6 +90,7 @@ def yield_one_d_systems(matrix, right_hand_side):
     for A, b in zip(matrix.T, right_hand_side.T):
         mask = A != 0
         yield A[mask], b[mask]
+
 
 def back_substitution(
     upper_triangular_square_matrix,
@@ -167,9 +168,7 @@ def generate_row_echelon_form(
     else:
         # if all elements in the first column is zero,
         # we perform REF on matrix from second column
-        B = generate_row_echelon_form(
-            A[:, 1:], conditional_check, division_operator
-        )
+        B = generate_row_echelon_form(A[:, 1:], conditional_check, division_operator)
         # and then add the first zero-column back
         return hstack([A[:, :1], B])
 
@@ -188,9 +187,7 @@ def generate_row_echelon_form(
     A[1:] -= A[0] * A[1:, 0:1]
 
     # we perform REF on matrix from second row, from second column
-    B = generate_row_echelon_form(
-        A[1:, 1:], conditional_check, division_operator
-    )
+    B = generate_row_echelon_form(A[1:, 1:], conditional_check, division_operator)
 
     # we add first row and first (zero) column, and return
     return vstack([A[:1], hstack([A[1:, :1], B])])
