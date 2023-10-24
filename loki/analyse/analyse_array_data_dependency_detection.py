@@ -18,7 +18,6 @@ from loki.analyse.util_linear_algebra import (
     back_substitution,
     is_independent_system,
     yield_one_d_systems,
-    bounds_of_one_d_system,
 )
 
 __all__ = ["has_data_dependency"]
@@ -200,9 +199,27 @@ def _does_independent_system_violate_bounds(
     Returns:
     - bool: True if any of the 1d systems violate their bounds, False otherwise.
     """
+    def get_bounds(matrix, vector):
+        """ Gets x <= c and x >= d conditions"""
+        larger_zero = matrix > 0
+        upper_bounds = vector[larger_zero] / matrix[larger_zero]
+
+        smaller_zero = matrix < 0
+        lower_bounds = vector[smaller_zero] / matrix[smaller_zero]
+
+        return np.unique(lower_bounds), np.unique(upper_bounds)
+
+    def get_zero_lhs_conditions(matrix, vector):
+        """ Gets 0 <= e conditions"""
+        zero_lhs = matrix == 0
+        return vector[zero_lhs]
+
     for one_d_system in yield_one_d_systems(matrix, vector):
-        lower_bounds, upper_bounds = bounds_of_one_d_system(
-            one_d_system[0].astype(float), -one_d_system[1].astype(float)
+        if not np.all(0 <= get_zero_lhs_conditions(one_d_system[0], one_d_system[1]) ):
+            return True
+
+        lower_bounds, upper_bounds = get_bounds(
+            one_d_system[0].astype(float), one_d_system[1].astype(float)
         )
         if np.amax(lower_bounds) > np.amin(upper_bounds):
             return True
