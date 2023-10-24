@@ -19,3 +19,4 @@ from loki.transform.fortran_python_transform import * # noqa
 from loki.transform.build_system_transform import * # noqa
 from loki.transform.transform_hoist_variables import * # noqa
 from loki.transform.transform_parametrise import * # noqa
+from loki.transform.transform_lift_contained_subroutines import * # noqa
