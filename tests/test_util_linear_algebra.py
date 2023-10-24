@@ -11,7 +11,6 @@ import numpy as np
 from loki.analyse.util_linear_algebra import (
     back_substitution,
     generate_row_echelon_form,
-    bounds_of_one_d_system,
     is_independent_system,
     yield_one_d_systems,
 )
@@ -128,54 +127,6 @@ def test_require_conditions(matrix, condition, result):
         assert np.allclose(
             generate_row_echelon_form(matrix, conditional_check=condition), result
         )
-
-
-@pytest.mark.parametrize(
-    "matrix, rhs, expected_lower, expected_upper",
-    [
-        (  # test no upper bound only lower bound
-            np.array([[1], [2], [3], [4], [5]]),
-            np.array([[10], [20], [30], [40], [50]]),
-            [10],
-            [],
-        ),
-        (  # test no lower bound only upper bound
-            np.array([[-1], [-2], [-3], [-4], [-5]]),
-            np.array([[-10], [-20], [-30], [-40], [-50]]),
-            [],
-            [10],
-        ),
-        (  # test no lower bound only upper bound
-            -np.array([[1], [2], [3], [4], [5]]),
-            -np.array([[10], [20], [30], [40], [50]]),
-            [],
-            [10],
-        ),
-        (  # test no upper bound only lower bounds
-            np.array([[1], [2], [3], [4], [5]]),
-            np.array([[10], [20], [30], [40], [50]]),
-            [10],
-            [],
-        ),
-        (  # test both upper and lower bounds
-            np.array([[1], [-1]]),
-            np.array([[0], [-10]]),
-            [0],
-            [10],
-        ),
-        (np.array([[0]]), np.array([[1]]), [1], []),
-        (
-            np.array([[0], [0], [1], [-1], [1], [-1], [0], [0]]),
-            np.array([[-10], [0], [-11], [1], [0], [-10], [0], [-10]]),
-            [-11, 0],
-            [-1, 10],
-        ),
-    ],
-)
-def test_bounds_of_one_d_system(matrix, rhs, expected_lower, expected_upper):
-    lower_bounds, upper_bounds = bounds_of_one_d_system(matrix, rhs)
-    assert np.allclose(lower_bounds, expected_lower)
-    assert np.allclose(upper_bounds, expected_upper)
 
 
 @pytest.mark.parametrize(

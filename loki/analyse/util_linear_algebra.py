@@ -7,14 +7,13 @@
 
 from numpy import zeros_like, dot
 from numpy import vstack, hstack
-from numpy import all as np_all, sum as np_sum, unique as np_unique, isin as np_isin
+from numpy import all as np_all, sum as np_sum, isin as np_isin
 
 __all__ = [
     "back_substitution",
     "generate_row_echelon_form",
     "is_independent_system",
     "yield_one_d_systems",
-    "bounds_of_one_d_system",
 ]
 
 
@@ -91,28 +90,6 @@ def yield_one_d_systems(matrix, right_hand_side):
     for A, b in zip(matrix.T, right_hand_side.T):
         mask = A != 0
         yield A[mask], b[mask]
-
-
-def bounds_of_one_d_system(single_column_matrix, right_hand_side):
-    """
-    Calculate the lower and upper bounds of a one-dimensional linear inequality
-    represented by the equation: single_column_matrix * x >= right_hand_side.
-
-    Args:
-        single_column_matrix (numpy.ndarray): A single-column matrix representing coefficients.
-        right_hand_side (numpy.ndarray): The right-hand side vector.
-
-    Returns:
-        tuple: A tuple containing the lower and upper bounds for variable x that satisfy the inequality.
-    """
-    larger_zero = single_column_matrix > 0
-    lower_bounds = right_hand_side[larger_zero] / single_column_matrix[larger_zero]
-
-    smaller_zero = single_column_matrix < 0
-    upper_bounds = right_hand_side[smaller_zero] / single_column_matrix[smaller_zero]
-
-    return np_unique(lower_bounds), np_unique(upper_bounds)
-
 
 def back_substitution(
     upper_triangular_square_matrix,
