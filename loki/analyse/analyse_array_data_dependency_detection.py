@@ -14,7 +14,7 @@ import numpy as np
 from ortools.linear_solver import pywraplp
 
 from loki.analyse.util_linear_algebra import (
-    generate_reduced_row_echelon_form,
+    generate_row_echelon_form,
     back_substitution,
     is_independent_system,
     yield_one_d_systems,
@@ -173,7 +173,7 @@ def _gaussian_eliminiation_for_diophantine_equations(
     status = True
     solution = None
     try:
-        solution = generate_reduced_row_echelon_form(
+        solution = generate_row_echelon_form(
             augmented_matrix,
             conditional_check=gcd_condition,
             division_operator=_safe_integer_division,
