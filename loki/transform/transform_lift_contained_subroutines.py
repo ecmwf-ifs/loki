@@ -8,6 +8,55 @@ from functools import reduce
 from loki.transform import resolve_associates
 
 def lift_contained_subroutines(routine):
+    """
+    This transform creates "standalone" `Subroutine`s from the contained subroutines of `routine`.
+    A list of `Subroutine`s is returned, where the first `Subroutine` is the modified parent (i.e `routine` itself),
+    and the modified contained subroutines come next.
+    In summary, this function does the following transforms:
+    1. all global bindings from the point of view of the contained subroutine(s) are introduced 
+    as imports or dummy arguments to the modified contained subroutine(s) to make them standalone.
+    2. all calls to the contained subroutines in parent are modified accordingly.
+
+    As a basic example of this transformation, the Fortran subroutine:
+    ```
+    subroutine outer()
+        integer :: y
+        integer :: o
+        o = 0
+        y = 1
+        call inner(o)
+        contains
+        subroutine inner(o)
+           integer, intent(inout) :: o
+           integer :: x
+           x = 4
+           o = x + y ! Note, 'y' is "global" here!
+        end subroutine inner
+    end subroutine outer
+    ```
+    is transformed to (modified) parent:
+    ```
+    subroutine outer()
+        integer :: y
+        integer :: o
+        o = 0
+        y = 1
+        call inner(o, y) ! 'y' now passed as argument.
+        contains
+    end subroutine outer
+    ```
+    and the (modified) child:
+    ```
+    subroutine inner(o, y)
+           integer, intent(inout) :: o
+           integer, intent(inout) :: y
+           integer :: x
+           x = 4
+           o = x + y ! Note, 'y' is no longer "global"
+    end subroutine inner
+    ```
+    """
+
     def find_var_defining_import(varname: str, impos):
         for impo in impos: 
             varnames_in_import = [var.name.lower() for var in FindVariables().visit(impo)]
@@ -111,7 +160,7 @@ def lift_contained_subroutines(routine):
 
                 # If there is no intent, set intent as 'inout', so that variable can be (possibly) modified inside
                 # the lifted `inner` routine. Without further analysis, it is not possibly to
-                # say whether this is the true intent.
+                # say whether this is the "true" intent.
                 if not var.type.intent:
                     var.type = var.type.clone(intent = 'inout') 
                 defs_to_add.append(var)
@@ -125,13 +174,9 @@ def lift_contained_subroutines(routine):
                         gvar_names.append(fv.name.lower())
 
                 # Related to the above case: 
-                # This checks this is an ugly hack to check if `var` has a derived type whose definition is also needed.
+                # This checks if `var` has a derived type whose definition is also needed.
                 is_derived_type = isinstance(var.type.dtype, DerivedType)
                 dtname = var.type.dtype.name.lower()
-                #do_not_consider = ('integer', 'logical', 'real', 'complex', 'character')
-                #if not (dtname in do_not_consider or dtname in gvar_names):
-                #if not (not is_derived_type or dtname in gvar_names):
-                #    gvar_names.append(dtname)   
                 if is_derived_type and not dtname in gvar_names:
                     gvar_names.append(dtname)   
                         
