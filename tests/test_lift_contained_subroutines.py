@@ -30,11 +30,10 @@ def test_basic_scalar():
     src = Sourcefile.from_source(fcode)
     routines = lift_contained_subroutines(src.routines[0])
     assert len(routines) == 2
-    assert routines[0].name == "inner"
-    assert routines[1].name == "outer"
-    inner = routines[0]
-    outer = routines[1]
-    assert outer.contains is None 
+    assert routines[1].name == "inner"
+    assert routines[0].name == "outer"
+    inner = routines[1]
+    outer = routines[0]
     assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'x' in (var.name for var in inner.arguments)
 
@@ -66,8 +65,8 @@ def test_basic_array():
     src = Sourcefile.from_source(fcode)
     routines = lift_contained_subroutines(src.routines[0])
     assert len(routines) == 2
-    inner = routines[0]
-    outer = routines[1]
+    inner = routines[1]
+    outer = routines[0]
     assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'x' in (var.name for var in inner.arguments)
     assert 'arr' in (var.name for var in FindVariables().visit(inner.spec))
@@ -101,8 +100,8 @@ def test_basic_import():
     src = Sourcefile.from_source(fcode)
     routines = lift_contained_subroutines(src.routines[0])
     assert len(routines) == 2
-    inner = routines[0]
-    outer = routines[1]
+    outer = routines[0]
+    inner = routines[1]
     imports = FindNodes(Import).visit(inner.spec)
     assert len(imports) == 1
     constants_import = imports[0]
@@ -135,8 +134,8 @@ def test_recursive_definition():
     src = Sourcefile.from_source(fcode)
     routines = lift_contained_subroutines(src.routines[0])
     assert len(routines) == 2
-    inner = routines[0]
-    outer = routines[1]
+    outer = routines[0]
+    inner = routines[1]
     assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'x' in (var.name for var in inner.arguments)
     assert 'klon' in (var.name for var in FindVariables().visit(inner.spec))
@@ -177,8 +176,8 @@ def test_recursive_definition_import():
     src = Sourcefile.from_source(fcode)
     routines = lift_contained_subroutines(src.routines[0])
     assert len(routines) == 2
-    inner = routines[0]
-    outer = routines[1]
+    outer = routines[0]
+    inner = routines[1]
     assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'x' in (var.name for var in inner.arguments)
     assert 'ii' in (var.name for var in FindVariables().visit(inner.spec))
@@ -225,8 +224,8 @@ def test_derived_type_field():
     """
     src = Sourcefile.from_source(fcode)
     routines = lift_contained_subroutines(src.routines[0])
-    inner = routines[0]
-    outer = routines[1]
+    outer = routines[0]
+    inner = routines[1]
     assert 'xtyp' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'xtyp' in (var.name for var in inner.arguments)
     assert 'ytyp' in (var.name for var in FindVariables().visit(inner.spec))
@@ -275,8 +274,8 @@ def test_intent():
     src = Sourcefile.from_source(fcode)
     routines = lift_contained_subroutines(src.routines[0])
     assert len(routines) == 2
-    inner = routines[0]
-    outer = routines[1]
+    outer = routines[0]
+    inner = routines[1]
     assert inner.variable_map['v'].type.intent == "in"
     assert inner.variable_map['x'].type.intent == "inout"
     assert inner.variable_map['p'].type.intent == "out"
@@ -340,12 +339,12 @@ def test_multiple_contained_subroutines():
     src = Sourcefile.from_source(fcode)
     routines = lift_contained_subroutines(src.routines[0])
     assert len(routines) == 3
-    assert routines[0].name == "inner1"
-    assert routines[1].name == "inner2"
-    assert routines[2].name == "outer"
-    inner1 = routines[0]
-    inner2 = routines[1]
-    outer = routines[2]
+    assert routines[0].name == "outer"
+    assert routines[1].name == "inner1"
+    assert routines[2].name == "inner2"
+    outer = routines[0]
+    inner1 = routines[1]
+    inner2 = routines[2]
     assert 'x' in (var.name for var in FindVariables().visit(inner1.spec))
     assert 'x' in (var.name for var in inner1.arguments)
     assert 'gx' in (var.name for var in FindVariables().visit(inner2.spec))

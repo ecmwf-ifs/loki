@@ -160,8 +160,8 @@ def lift_contained_subroutines(routine):
     routine.body = Transformer(call_transmap).visit(routine.body)
 
     # Remove contained subroutines from `routine`.
-    routine.contains = None
-
-    routines.append(routine)
+    contains_body = tuple(n for n in routine.contains.body if not isinstance(n, Subroutine))
+    routine.contains._update(body = contains_body)
+    routines.insert(0, routine) # Insert the parent to the beginning of returned routines.
     return routines
 
