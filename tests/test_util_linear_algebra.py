@@ -4,9 +4,17 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
-from math import gcd
+from math import gcd as math_gcd
 import pytest
 import numpy as np
+
+try:
+    _ = math_gcd(4,3,2)
+    gcd = math_gcd
+except TypeError: #Python 3.8 can only handle two arguments
+    from functools import reduce
+    def gcd(*args):
+        return reduce(math_gcd, args)
 
 from loki.analyse.util_linear_algebra import (
     back_substitution,
