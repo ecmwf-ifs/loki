@@ -5,6 +5,7 @@ from loki import (
 from loki.transform import (
     lift_contained_subroutines
 )
+import pytest
 
 def test_basic_scalar():
     """
@@ -207,6 +208,7 @@ def test_derived_type_field():
     fcode = """
         subroutine outer()
             implicit none
+            use types, only: my_type, your_type
             type(my_type) :: xtyp
             type(your_type) :: ytyp
             call inner()
@@ -233,6 +235,19 @@ def test_derived_type_field():
     call = FindNodes(CallStatement).visit(outer.body)[0]
     assert 'xtyp' in (var.name for var in call.arguments)
     assert 'ytyp' in (var.name for var in call.arguments)
+
+    imports = FindNodes(Import).visit(inner.spec)
+    modules = set()
+    symbols = set()
+    for imp in imports:
+        modules.add(imp.module)
+        for sym in imp.symbols:
+            symbols.add(sym)
+    assert "types" in modules
+    assert len(modules) == 1
+    assert "my_type" in symbols
+    assert "your_type" in symbols
+    assert len(symbols) == 2
 
 def test_intent():
     """
@@ -270,6 +285,30 @@ def test_intent():
     assert outer.variable_map['v'].type.intent == "in"
     assert outer.variable_map['x'].type.intent is None 
     assert outer.variable_map['p'].type.intent == "out"
+
+def test_undefined_in_parent():
+    """
+    This test is just to document current behaviour: an exception is raised if a global inside the contained subroutine does not
+    have a definition in the parent scope.
+    """
+    fcode = """
+        subroutine outer()
+            implicit none
+            integer :: x
+            x = 42
+            call inner()
+            contains
+            subroutine inner()
+                integer :: y
+                y = 1
+                z = x + y ! 'z' undefined in contained subroutine and parent.
+            end subroutine inner
+        end subroutine outer 
+    """
+    src = Sourcefile.from_source(fcode)
+    with pytest.raises(Exception):
+        routines = lift_contained_subroutines(src.routines[0])
+
 
 def test_multiple_contained_subroutines():
     """
