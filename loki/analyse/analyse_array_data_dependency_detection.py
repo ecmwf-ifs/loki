@@ -12,7 +12,6 @@ from typing import Any, List
 from numpy.typing import NDArray as npt_NDArray
 from numpy import int_ as np_int_
 import numpy as np
-from ortools.linear_solver import pywraplp
 from loki.expression import (
     FindVariables,
     accumulate_polynomial_terms,
@@ -27,8 +26,16 @@ from loki.analyse.util_linear_algebra import (
     yield_one_d_systems,
 )
 
+try:
+    from ortools.linear_solver import pywraplp
+
+    HAVE_ORTOOLS = True
+except ImportError:
+    HAVE_ORTOOLS = False
+
 __all__ = [
     "has_data_dependency",
+    "HAVE_ORTOOLS",
     "construct_affine_array_access_function_representation",
 ]
 
@@ -336,6 +343,12 @@ def has_data_dependency_impl(
         matrix_final_polygon, vector_final_polygon
     ):
         return False
+
+    if not HAVE_ORTOOLS:
+        warn(
+            "ortools is not installed --> assuming data dependency --> will lead to alot of false positives"
+        )
+        return True
 
     status = _solve_inequalties_with_ortools(matrix_final_polygon, vector_final_polygon)
     match status:
