@@ -7,7 +7,7 @@
 
 import numpy as np
 
-from loki import TypedSymbol, Loop
+from loki.ir import Loop
 
 from loki.expression import (
     symbols as sym,
@@ -113,7 +113,7 @@ class Polyhedron:
     def variable_to_index(self, variable):
         if self.variable_names is None:
             raise RuntimeError("No variables list associated with polyhedron.")
-        if isinstance(variable, TypedSymbol):
+        if isinstance(variable, sym.TypedSymbol):
             variable = variable.name.lower()
         assert isinstance(variable, str)
         return self.variable_names.index(variable)
