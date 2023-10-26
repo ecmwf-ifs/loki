@@ -101,26 +101,26 @@ class Polyhedron:
 
         A polyhedron is considered empty under the following conditions:
         1. It contains no inequalities.
-        2. It spans no space, which is a nontrivial problem. The easiest circumstance are if
-           it has an empty matrix A and does not fulfill the constant restrictions 0 <= b.
+        2. It spans no space, which is a nontrivial problem. The simplest case is when it has an empty
+        matrix A and does not satisfy the constant restrictions 0 <= b.
 
-        Args:
-        self: The Polyhedron object.
+        Notes
+        -----
+        An empty polyhedron implies that it has no valid solutions or feasible points within its boundaries.
+        This function is expected to be called only for polyhedrons with an empty matrix.
 
-        Returns:
-        bool: True if the polyhedron is empty; False if it is not.
-
-        Note:
-        - An empty polyhedron implies that it has no valid solutions or feasible points within its boundaries.
-        - This function is expected to be only called upon polyhedrons with an empty matrix.
+        Returns
+        -------
+        bool
+            True if the polyhedron is empty; False if it is not.
         """
         if self.A.size == 0:
             return self.b.size == 0 or not self._has_satisfiable_constant_restrictions()
 
         raise RuntimeError(
             """
-                Checking if a polyhedron with a non-empty matrix spans no space is a nontrivial problem.
-                This function is expected to be only called upon polyhedrons with an empty matrix!
+            Checking if a polyhedron with a non-empty matrix spans no space is a nontrivial problem.
+            This function is expected to be only called upon polyhedrons with an empty matrix!
             """
         )
 
@@ -142,19 +142,22 @@ class Polyhedron:
         """
         Return all lower bounds imposed on a variable.
 
-        Lower bounds for variable `j` are given by the index set
+        The lower bounds for the variable `j` are given by the index set:
         ```
-        L = {i in {0,...,d-1} | A_ij < 0}
+        L = {i | A_ij < 0, i in {0, ..., d-1}}
         ```
+        Parameters
+        ----------
+        index_or_variable : int or str or sym.Array or sym.Scalar
+            The index, name, or expression symbol for which the lower bounds are produced.
+        ignore_variables : list or None, optional
+            A list of variable names, indices, or symbols for which constraints should be ignored
+            if they depend on one of them.
 
-        :param index_or_variable: the index, name, or expression symbol for which the
-                    lower bounds are produced.
-        :type index_or_variable: int or str or sym.Array or sym.Scalar
-        :param ignore_variables: optional list of variable names, indices or symbols
-                    for which constraints should be ignored if they depend on one of them.
-        :type ignore_variables: list or None
-
-        :returns list: the bounds for that variable.
+        Returns
+        -------
+        list
+            The bounds for the specified variable.
         """
         if isinstance(index_or_variable, int):
             j = index_or_variable
@@ -201,19 +204,22 @@ class Polyhedron:
         """
         Return all upper bounds imposed on a variable.
 
-        Upper bounds for variable `j` are given by the index set
+        The upper bounds for the variable `j` are given by the index set:
         ```
-        U = {i in {0,...,d-1} | A_ij > 0}
+        U = {i | A_ij > 0, i in {0, ..., d-1}}
         ```
+        Parameters
+        ----------
+        index_or_variable : int or str or sym.Array or sym.Scalar
+            The index, name, or expression symbol for which the upper bounds are produced.
+        ignore_variables : list or None, optional
+            A list of variable names, indices, or symbols for which constraints should be ignored
+            if they depend on one of them.
 
-        :param index_or_variable: the index, name, or expression symbol for which the
-                    upper bounds are produced.
-        :type index_or_variable: int or str or sym.Array or sym.Scalar
-        :param ignore_variables: optional list of variable names, indices or symbols
-                    for which constraints should be ignored if they depend on one of them.
-        :type ignore_variables: list or None
-
-        :returns list: the bounds for that variable.
+        Returns
+        -------
+        list
+            The bounds for the specified variable.
         """
         if isinstance(index_or_variable, int):
             j = index_or_variable
@@ -259,21 +265,28 @@ class Polyhedron:
     @staticmethod
     def generate_entries_for_lower_bound(bound, variables, index):
         """
-        Helper routine to generate matrix and right-hand side entries for a
-        given lower bound.
+        Helper routine to generate matrix and right-hand side entries for a given lower bound.
 
-        NB: This can only deal with affine bounds, i.e. expressions that are
-            constant or can be reduced to a linear polynomial.
+        Note that this routine can only handle affine bounds, which means expressions that are
+        constant or can be reduced to a linear polynomial.
 
-        Upper bounds can be derived from this by multiplying left-hand side and
-        right-hand side with -1.
+        Upper bounds can be derived from this by multiplying the left-hand side and right-hand side
+        with -1.
 
-        :param bound: the expression representing the lower bound.
-        :param list variables: the list of variable names.
-        :param int index: the index of the variable constrained by this bound.
+        Parameters
+        ----------
+        bound : int or str or sym.Array or sym.Scalar
+            The expression representing the lower bound.
+        variables : list of str
+            The list of variable names.
+        index : int
+            The index of the variable constrained by this bound.
 
-        :return: the pair ``(lhs, rhs)`` of the row in the matrix inequality.
-        :rtype: tuple(np.array, np.array)
+        Returns
+        -------
+        tuple(np.array, np.array)
+            The pair ``(lhs, rhs)`` of the row in the matrix inequality, where `lhs` is the left-hand side
+            and `rhs` is the right-hand side.
         """
         supported_types = (sym.TypedSymbol, sym.MetaSymbol, sym.Sum, sym.Product)
         if not (is_constant(bound) or isinstance(bound, supported_types)):
