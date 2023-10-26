@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 import numpy as np
+from typing import List
 
 from loki.ir import Loop
 
@@ -319,7 +320,7 @@ class Polyhedron:
         return cls(A, b, variables)
 
     @classmethod
-    def from_nested_loops(cls, nested_loops: list[Loop]):
+    def from_nested_loops(cls, nested_loops: List[Loop]):
         """
         Helper function, for creating a polyhedron from a list of loops.
         """
