@@ -35,11 +35,24 @@ class Polyhedron:
     In loop transformations, polyhedrons are used to represent iteration spaces of
     d-deep loop nests.
 
-    :param np.array A: the representation matrix A.
-    :param np.array b: the right hand-side vector b.
-    :param list variables: list of variables representing the dimensions in the polyhedron.
+    
+    Parameters
+    ----------
+    A : numpy.array
+        The representation matrix A.
+    b : numpy.array
+        The right hand-side vector b.
+    variables : list, optional
+        List of variables representing the dimensions in the polyhedron.
+    
+    Attributes
+    ----------
+    A : numpy.array
+        The representation matrix A.
+    b : numpy.array
+        The right hand-side vector b.
+    variables : list, optional, default = None
     """
-
     def __init__(self, A, b, variables=None):
         A = np.array(A, dtype=np.dtype(int))
         b = np.array(b, dtype=np.dtype(int))
