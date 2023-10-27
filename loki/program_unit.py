@@ -290,12 +290,13 @@ class ProgramUnit(Scope):
         kwargs.setdefault('incomplete', self._incomplete)
 
         # Rebuild IRs
+        rebuild = Transformer({}, rebuild_scopes=True)
         if 'docstring' in kwargs:
-            kwargs['docstring'] = Transformer({}).visit(kwargs['docstring'])
+            kwargs['docstring'] = rebuild.visit(kwargs['docstring'])
         if 'spec' in kwargs:
-            kwargs['spec'] = Transformer({}).visit(kwargs['spec'])
+            kwargs['spec'] = rebuild.visit(kwargs['spec'])
         if 'contains' in kwargs:
-            kwargs['contains'] = Transformer({}).visit(kwargs['contains'])
+            kwargs['contains'] = rebuild.visit(kwargs['contains'])
 
         # Rescope symbols if not explicitly disabled
         kwargs.setdefault('rescope_symbols', True)
