@@ -6,12 +6,15 @@
 # nor does it submit to any jurisdiction.
 
 import pytest
-from numpy import array
+import numpy as np
+from loki import Scope, parse_fparser_expression
 from loki.analyse.analyse_array_data_dependency_detection import (
     has_data_dependency,
     HAVE_ORTOOLS,
+    construct_affine_array_access_function_representation,
 )
 
+array = np.array
 
 @pytest.mark.parametrize(
     "first_access_represenetation, second_access_represenetation, error_type",
@@ -31,6 +34,29 @@ def test_has_data_dependency_false_inputs(
             first_access_represenetation, second_access_represenetation
         )
 
+@pytest.mark.parametrize(
+    "array_dimensions_expr, expected",
+    [
+        ("i-1", ([[1, 0]], [[-1]])),
+        ("i,j", ([[1, 0], [0, 1]], [[0], [0]])),
+        ("j,j+1", ([[0, 1], [0, 1]], [[0], [1]])),
+        ("1,2", ([[0, 0], [0, 0]], [[1], [2]])),
+        ("1,i,2*i+j", ([[0, 0], [1, 0], [2, 1]], [[1], [0], [0]])),
+    ],
+)
+def test_access_function_creation(array_dimensions_expr, expected):
+    scope = Scope()
+    first = parse_fparser_expression(f"z({array_dimensions_expr})", scope)
+
+    use_these_variables = ["i", "j"]
+
+    access, variables = construct_affine_array_access_function_representation(
+        first.dimensions, use_these_variables
+    )
+
+    assert np.array_equal(access.matrix, np.array(expected[0], dtype=np.dtype(int)))
+    assert np.array_equal(access.vector, np.array(expected[1], dtype=np.dtype(int)))
+    assert np.array_equal(variables, np.array(["i", "j"], dtype=np.dtype(object)))
 
 expected_result = {
     "Example 11.29.1. from Compilers: Principles, Techniques, and Tools": True,
