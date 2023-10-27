@@ -5,12 +5,10 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from math import gcd
+from math import gcd as math_gcd
 from warnings import warn
 from dataclasses import dataclass
 from typing import Any, List
-from numpy.typing import NDArray as npt_NDArray
-from numpy import int_ as np_int_
 import numpy as np
 from loki.expression import (
     FindVariables,
@@ -27,6 +25,16 @@ from loki.analyse.util_linear_algebra import (
 )
 
 try:
+    _ = math_gcd(4, 3, 2)
+    gcd = math_gcd
+except TypeError:  # Python 3.8 can only handle two arguments
+    from functools import reduce
+
+    def gcd(*args):
+        return reduce(math_gcd, args)
+
+
+try:
     from ortools.linear_solver import pywraplp
 
     HAVE_ORTOOLS = True
@@ -39,7 +47,7 @@ __all__ = [
     "construct_affine_array_access_function_representation",
 ]
 
-NDArrayInt = npt_NDArray[np_int_]
+NDArrayInt = np.typing.NDArray[np.int_]
 
 
 @dataclass
