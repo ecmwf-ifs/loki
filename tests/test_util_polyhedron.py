@@ -9,10 +9,12 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import Scope
+from loki.ir import Scope, Loop
+from loki.sourcefile import Sourcefile
 from loki.frontend.fparser import parse_fparser_expression, HAVE_FP
 from loki.analyse.util_polyhedron import Polyhedron
 from loki.expression import symbols as sym
+from loki.visitors import FindNodes
 
 
 @pytest.fixture(scope="module", name="here")
@@ -172,3 +174,121 @@ def test_check_empty_polyhedron(polyhedron, is_empty, will_fail):
             _ = polyhedron.is_empty()
     else:
         assert polyhedron.is_empty() == is_empty
+
+
+def simple_loop_extractor(start_node):
+    """Find all loops in the AST and structure them depending on their nesting level"""
+    start_loops = FindNodes(Loop, greedy=True).visit(start_node)
+    return [FindNodes(Loop).visit(node) for node in start_loops]
+
+
+def assert_equal_polyhedron(poly_A, poly_B):
+    assert poly_A.variables == poly_B.variables
+    assert (poly_A.A == poly_B.A).all()
+    assert (poly_A.b == poly_B.b).all()
+
+
+@pytest.mark.parametrize(
+    "filename, loop_extractor, polyhedrons_per_subroutine",
+    [
+        (
+            "sources/data_dependency_detection/loop_carried_dependencies.f90",
+            simple_loop_extractor,
+            {
+                "SimpleDependency": [
+                    Polyhedron(
+                        [[-1, 0], [1, -1]], [-1, 0], [sym.Scalar("i"), sym.Scalar("n")]
+                    ),
+                ],
+                "NestedDependency": [
+                    Polyhedron(
+                        [[-1, 0, 0], [1, 0, -1], [0, -1, 0], [-1, 1, 0]],
+                        [-2, 0, -1, -1],
+                        [sym.Scalar("i"), sym.Scalar("j"), sym.Scalar("n")],
+                    ),
+                ],
+                "ConditionalDependency": [
+                    Polyhedron(
+                        [[-1, 0], [1, -1]],
+                        [-2, 0],
+                        [sym.Scalar("i"), sym.Scalar("n")],
+                    ),
+                ],
+                "NoDependency": [
+                    Polyhedron(
+                        [[-1], [1]],
+                        [-1, 10],
+                        [sym.Scalar("i")],
+                    ),
+                    Polyhedron(
+                        [[-1], [1]],
+                        [-1, 5],
+                        [sym.Scalar("i")],
+                    ),
+                ],
+            },
+        ),
+        (
+            "sources/data_dependency_detection/various_loops.f90",
+            simple_loop_extractor,
+            {
+                "single_loop": [
+                    Polyhedron(
+                        [[-1, 0], [1, -1]],
+                        [-1, 0],
+                        [sym.Scalar("i"), sym.Scalar("n")],
+                    ),
+                ],
+                "single_loop_split_access": [
+                    Polyhedron(
+                        [[-1, 0], [1, -1]],
+                        [-1, 0],
+                        [sym.Scalar("i"), sym.Scalar("nhalf")],
+                    ),
+                ],
+                "single_loop_arithmetic_operations_for_access": [
+                    Polyhedron(
+                        [[-1, 0], [1, -1]],
+                        [-1, 0],
+                        [sym.Scalar("i"), sym.Scalar("n")],
+                    ),
+                ],
+                "nested_loop_single_dimensions_access": [
+                    Polyhedron(
+                        [[-1, 0, 0], [1, 0, -1], [0, -1, 0], [0, 1, -1]],
+                        [-1, 0, -1, 0],
+                        [sym.Scalar("i"), sym.Scalar("j"), sym.Scalar("nhalf")],
+                    ),
+                ],
+                "nested_loop_partially_used": [
+                    Polyhedron(
+                        [[-1, 0, 0], [1, 0, -1], [0, -1, 0], [0, 1, -1]],
+                        [-1, 0, -1, 0],
+                        [sym.Scalar("i"), sym.Scalar("j"), sym.Scalar("nfourth")],
+                    ),
+                ],
+                "partially_used_array": [
+                    Polyhedron(
+                        [[-1, 0], [1, -1]],
+                        [-2, 0],
+                        [sym.Scalar("i"), sym.Scalar("nhalf")],
+                    ),
+                ],
+            },
+        ),
+    ],
+)
+def test_polyhedron_construction_from_nested_loops(
+    here, filename, loop_extractor, polyhedrons_per_subroutine
+):
+    source = Sourcefile.from_file(here / filename)
+
+    for subroutine in source.all_subroutines:
+        expected_polyhedrons = polyhedrons_per_subroutine[subroutine.name]
+
+        list_of_loops = loop_extractor(subroutine.body)
+
+        polyhedrons = [Polyhedron.from_nested_loops(loops) for loops in list_of_loops]
+
+        for polyhedron, expected_polyhedron in zip(polyhedrons, expected_polyhedrons):
+            assert_equal_polyhedron(polyhedron, expected_polyhedron)
