@@ -351,17 +351,16 @@ def has_data_dependency_impl(
         return True
 
     status = _solve_inequalties_with_ortools(matrix_final_polygon, vector_final_polygon)
-    match status:
-        case pywraplp.Solver.OPTIMAL:
-            return True
-        case pywraplp.Solver.FEASIBLE:
-            return True
-        case pywraplp.Solver.INFEASIBLE:
-            return False
-        case _:
-            warn(
-                "ortools produced a not considered status --> assuming data dependency."
-            )
+
+    known_status = {
+        pywraplp.Solver.OPTIMAL: True,
+        pywraplp.Solver.FEASIBLE: True,
+        pywraplp.Solver.INFEASIBLE: False,
+    }
+
+    if status in known_status:
+        return known_status[status]
+    warn("ortools produced a not considered status --> assuming data dependency.")
 
     return True  # assume data dependency if all tests are inconclusive
 
