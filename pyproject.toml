@@ -64,6 +64,10 @@ examples = [
   "ipyparams",
 ]
 
+dataflow_analysis = [
+  "ortools"
+]
+
 [project.scripts]
 "loki-transform.py" = "scripts.loki_transform:cli"
 "loki-lint.py" = "scripts.loki_lint:cli"
