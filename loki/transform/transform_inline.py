@@ -241,8 +241,9 @@ def inline_member_routine(routine, member):
     member.spec = shadow_mapper.visit(member.spec)
 
     var_map = {}
+    duplicate_locals_names = {dl.name.lower() for dl in duplicate_locals}
     for v in FindVariables(unique=False).visit(member.body):
-        if v.name in [dl.name for dl in duplicate_locals]:
+        if v.name.lower() in duplicate_locals_names:
             var_map[v] = v.clone(name=f'{member.name}_{v.name}')
     member.body = SubstituteExpressions(var_map).visit(member.body)
 
