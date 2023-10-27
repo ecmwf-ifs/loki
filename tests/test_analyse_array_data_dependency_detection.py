@@ -11,6 +11,23 @@ from loki.analyse.analyse_array_data_dependency_detection import has_data_depend
 
 
 @pytest.mark.parametrize(
+    "first_access_represenetation, second_access_represenetation, error_type",
+    [
+        # totaly empty tuple
+        (tuple(), tuple(), ValueError),
+        # tuple with two empty tuple --> correct form
+        ((tuple(), tuple()), (tuple(), tuple()), ValueError),
+        #
+    ],
+)
+def test_has_data_dependency_false_inputs(
+    first_access_represenetation, second_access_represenetation, error_type
+):
+    with pytest.raises(error_type):
+        _ = has_data_dependency(first_access_represenetation, second_access_represenetation)
+
+
+@pytest.mark.parametrize(
     "first_access_represenetation, second_access_represenetation, result",
     [
         # Example 11.29.1. from Compilers: Principles, Techniques, and Tools
