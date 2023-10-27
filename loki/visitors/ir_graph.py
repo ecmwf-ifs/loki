@@ -185,7 +185,19 @@ class GraphCollector(Visitor):
         """
         label = kwargs.get("label", "")
         if label == "":
-            label = self.format_node(repr(node))
+            try:
+                comment = "\nlive: " + ", ".join(
+                    str(symbol) for symbol in node.live_symbols
+                )
+                comment += "\ndefines: " + ", ".join(
+                    str(symbol) for symbol in node.defines_symbols
+                )
+                comment += "\nuses: " + ", ".join(
+                    str(symbol) for symbol in node.uses_symbols
+                )
+                label = self.format_node(repr(node), comment)
+            except (RuntimeError, KeyError, AttributeError) as _:
+                label = self.format_node(repr(node))
 
         shape = kwargs.get("shape", "oval")
 
@@ -321,8 +333,7 @@ class GraphCollector(Visitor):
         return node_edge_info
 
 
-def ir_graph(
-    ir, show_comments=False, show_expressions=False, linewidth=40, symgen=str):
+def ir_graph(ir, show_comments=False, show_expressions=False, linewidth=40, symgen=str):
     """
     Pretty-print the given IR using :class:`GraphCollector`.
 
@@ -342,8 +353,12 @@ def ir_graph(
     log = "[Loki::Graph Visualization] Created graph visualization in {:.2f}s"
 
     with Timer(text=log):
-        graph_representation = GraphCollector(show_comments, show_expressions, linewidth, symgen)
-        node_edge_info = [item for item in graph_representation.visit(ir) if item is not None]
+        graph_representation = GraphCollector(
+            show_comments, show_expressions, linewidth, symgen
+        )
+        node_edge_info = [
+            item for item in graph_representation.visit(ir) if item is not None
+        ]
 
         graph = Digraph()
         graph.attr(rankdir="LR")
