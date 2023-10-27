@@ -436,7 +436,7 @@ def construct_affine_array_access_function_representation(
         return [x for x in sequence if not (x in seen or seen.add(x))]
 
     if additional_variables is None:
-        additional_variables = list()
+        additional_variables = []
 
     for variable in additional_variables:
         assert variable.lower() == variable
