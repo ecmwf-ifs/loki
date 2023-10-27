@@ -5,11 +5,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import numpy as np
 from typing import List
-
+import numpy as np
 from loki.ir import Loop
-
 from loki.expression import (
     symbols as sym,
     FindVariables,
