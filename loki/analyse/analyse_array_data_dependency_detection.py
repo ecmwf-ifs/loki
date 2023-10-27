@@ -10,6 +10,7 @@ from warnings import warn
 from dataclasses import dataclass
 from typing import Any, List
 import numpy as np
+import numpy.typing as npt
 from loki.expression import (
     FindVariables,
     accumulate_polynomial_terms,
@@ -47,7 +48,7 @@ __all__ = [
     "construct_affine_array_access_function_representation",
 ]
 
-NDArrayInt = np.typing.NDArray[np.int_]
+NDArrayInt = npt.NDArray[np.int_]
 
 
 @dataclass
