@@ -180,20 +180,28 @@ def _gaussian_eliminiation_for_diophantine_equations(
     augmented_matrix: NDArrayInt,
 ) -> (bool, NDArrayInt):
     """
-    Calculate the Row Echelon Form (REF) of an augmented matrix while ensuring integer solutions
+    Compute the Row Echelon Form (REF) of an augmented matrix while ensuring integer solutions
     to linear Diophantine equations.
 
-    Args:
-        augmented_matrix (numpy.ndarray): The input augmented system matrix.
+    Parameters
+    ----------
+    augmented_matrix : numpy.ndarray
+        The input augmented system matrix.
 
-    Returns:
-        (HasIntegerSolution, numpy.ndarray): The tuple of if the solution exists and the REF of the input matrix.
+    Returns
+    -------
+    tuple
+        HasIntegerSolution : bool
+            A boolean indicating if a solution with integer coefficients exists.
+        REF_matrix : numpy.ndarray
+            The Row Echelon Form (REF) of the input matrix.
 
-    This function computes the Row Echelon Form (REF) of a given matrix of integers while enforcing that
+    Notes
+    -----
+    This function calculates the Row Echelon Form (REF) of a given matrix of integers while enforcing that
     each linear Diophantine equation in the system has integer solutions. It follows Theorem 11.32
     in "Compilers: Principles, Techniques, and Tools" by Aho, Lam, Sethi, and Ullman (2015).
     """
-
     def gcd_condition(A):
         """Check that gcd condition of linear Diophantine equation is satisfied"""
         if A[0, -1] % gcd(*A[0, :-1]) != 0:
@@ -217,19 +225,23 @@ def _does_independent_system_violate_bounds(
     matrix: NDArrayInt, vector: NDArrayInt
 ) -> bool:
     """
-    Check if a system of inequalities which is seperable into N one dimensional problems represented by a
-    matrix and a vector violates its bounds. The following system is considered
-    A x <= b, where A is the matrix, b the vector and x the vector of unkowns.
+    Check if a system of inequalities, which can be separated into N one-dimensional problems
+    represented by a matrix and a vector, violates its bounds. The system is defined as A x <= b,
+    where A is the matrix, b is the vector, and x is the vector of unknowns.
 
+    Parameters
+    ----------
+    matrix : numpy.ndarray
+        A 2D NumPy array representing the matrix of the independent system.
 
-    Parameters:
-    - matrix (NDArrayInt): A 2D NumPy array representing the matrix of the independent system.
-    - vector (NDArrayInt): A 1D NumPy array representing the vector of the independent system.
+    vector : numpy.ndarray
+        A 1D NumPy array representing the vector of the independent system.
 
-    Returns:
-    - bool: True if any of the 1d systems violate their bounds, False otherwise.
+    Returns
+    -------
+    bool
+        True if any of the 1D systems violate their bounds, False otherwise.
     """
-
     def get_bounds(matrix, vector):
         """Gets x <= c and x >= d conditions"""
         larger_zero = matrix > 0
@@ -416,14 +428,16 @@ def construct_affine_array_access_function_representation(
     array_dimensions_expr: tuple(), additional_variables: List[str] = None
 ):
     """
-    Construct a matrix, vector representation of the access function of an array.
-    E.g. z[i], where the expression ("i", ) should be passed to this function,
-         y[1+3,4-j], where ("1+3", "4-j") should be passed to this function,
-         if var=Array(...), then var.dimensions should be passed to this function.
-    Returns: matrix, vector: F,f mapping a vecector i within the bounds Bi+b>=0 to the
-    array location Fi+f
-    """
+    Create a matrix and vector representation of the array access function.
 
+    This function is used to represent array access expressions like z[i], where you should pass ("i", )
+    or y[1+3, 4-j], where you should pass ("1+3", "4-j"). If 'var' is an Array object, then 'var.dimensions'
+    should be passed to this function.
+
+    Returns:
+        AffiAcceRepr(matrix, vector): A mapping that relates a vector 'i' within the bounds Bi+b>=0 to the
+        array location Fi+f.
+    """
     def generate_row(expr, variables):
         supported_types = (sym.TypedSymbol, sym.MetaSymbol, sym.Sum, sym.Product)
         if not (is_constant(expr) or isinstance(expr, supported_types)):
