@@ -112,8 +112,8 @@ macro( _loki_transform_parse_options )
         list( APPEND _ARGS --inline-members )
     endif()
 
-    if( _PAR_FIX_SCALAR_SYNTAX )
-        list( APPEND _ARGS --fix-scalar-syntax )
+    if( _PAR_FIX_SCALARS )
+        list( APPEND _ARGS --fix-scalars )
     endif()
 
     if( _PAR_DERIVE_ARGUMENT_ARRAY_SHAPE )

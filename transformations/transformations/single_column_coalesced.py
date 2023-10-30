@@ -40,14 +40,14 @@ class SCCBaseTransformation(Transformation):
         Enable full source-inlining of member subroutines; default: False.
     """
 
-    def __init__(self, horizontal, directive=None, inline_members=False, fix_scalar_syntax=False):
+    def __init__(self, horizontal, directive=None, inline_members=False, fix_scalars=False):
         self.horizontal = horizontal
 
         assert directive in [None, 'openacc']
         self.directive = directive
 
         self.inline_members = inline_members
-        self.fix_scalar_syntax = fix_scalar_syntax
+        self.fix_scalars = fix_scalars
 
     @classmethod
     def check_routine_pragmas(cls, routine, directive):
@@ -293,7 +293,7 @@ class SCCBaseTransformation(Transformation):
         v_index = self.get_integer_variable(routine, name=self.horizontal.index)
 
         # Transform arrays passed with scalar syntax to array syntax
-        if self.fix_scalar_syntax:
+        if self.fix_scalars:
             fix_scalar_syntax(routine)
 
         # Perform full source-inlining for member subroutines if so requested
