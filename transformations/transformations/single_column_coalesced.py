@@ -46,8 +46,8 @@ class SCCBaseTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
-        self.fix_scalar_syntax = fix_scalar_syntax
         self.inline_members = inline_members
+        self.fix_scalar_syntax = fix_scalar_syntax
 
     @classmethod
     def check_routine_pragmas(cls, routine, directive):
