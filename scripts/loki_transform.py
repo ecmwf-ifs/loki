@@ -108,12 +108,15 @@ def cli(debug):
               help="Remove derived-type arguments and replace with canonical arguments")
 @click.option('--inline-members/--no-inline-members', default=False,
               help='Inline member functions for SCC-class transformations.')
+@click.option('--fix-scalar-syntax/--no-fix-scalar-syntax', default=False,
+              help='Replace array arguments passed as scalars with arrays.')
 @click.option('--derive-argument-array-shape/--no-derive-argument-array-shape', default=False,
               help="Recursively derive explicit shape dimension for argument arrays")
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
-        global_var_offload, remove_derived_args, inline_members, derive_argument_array_shape
+        global_var_offload, remove_derived_args, inline_members, fix_scalar_syntax,
+        derive_argument_array_shape
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -207,7 +210,8 @@ def convert(
     if mode in ['scc', 'scc-hoist', 'scc-stack']:
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
-            horizontal=horizontal, directive=directive, inline_members=inline_members
+            horizontal=horizontal, directive=directive,
+            inline_members=inline_members, fix_scalar_syntax=fix_scalar_syntax
         ))
         scheduler.process( SCCDevectorTransformation(
             horizontal=horizontal, trim_vector_sections=trim_vector_sections

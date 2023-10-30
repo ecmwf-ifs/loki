@@ -25,6 +25,7 @@ include( loki_transform_helpers )
 #       [CPP]
 #       [FRONTEND <frontend>]
 #       [INLINE_MEMBERS]
+#       [FIX_SCALAR_SYNTAX]
 #       [BUILDDIR <build-path>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
@@ -46,7 +47,7 @@ function( loki_transform )
 
     set( options
          CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR TRIM_VECTOR_SECTIONS GLOBAL_VAR_OFFLOAD
-         REMOVE_DERIVED_ARGS INLINE_MEMBERS DERIVE_ARGUMENT_ARRAY_SHAPE
+         REMOVE_DERIVED_ARGS INLINE_MEMBERS FIX_SCALAR_SYNTAX DERIVE_ARGUMENT_ARRAY_SHAPE
     )
     set( oneValueArgs
          COMMAND MODE DIRECTIVE FRONTEND CONFIG BUILDDIR
@@ -193,7 +194,7 @@ endfunction()
 #       [DIRECTIVE <openacc|openmp|...>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
-#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED INLINE_MEMBERS]
+#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED INLINE_MEMBERS FIX_SCALAR_SYNTAX]
 #   )
 #
 # Applies a Loki bulk transformation to the source files belonging to a particular
@@ -222,7 +223,7 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS )
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS FIX_SCALAR_SYNTAX )
     set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS )
 
@@ -289,6 +290,10 @@ function( loki_transform_target )
 
         if( _PAR_INLINE_MEMBERS )
             list( APPEND _TRANSFORM_OPTIONS INLINE_MEMBERS )
+        endif()
+
+        if( _PAR_FIX_SCALAR_SYNTAX )
+            list( APPEND _TRANSFORM_OPTIONS FIX_SCALAR_SYNTAX )
         endif()
 
         loki_transform(
@@ -384,7 +389,7 @@ or
 
     set( options
          CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR GLOBAL_VAR_OFFLOAD
-         TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS
+         TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS FIX_SCALAR_SYNTAX
     )
     set( oneValueArgs
          MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH
