@@ -184,20 +184,23 @@ class GraphCollector(Visitor):
             A list of a tuple of a node and potentially a edge information
         """
         label = kwargs.get("label", "")
+
         if label == "":
-            try:
-                comment = "\nlive: " + ", ".join(
-                    str(symbol) for symbol in node.live_symbols
-                )
-                comment += "\ndefines: " + ", ".join(
-                    str(symbol) for symbol in node.defines_symbols
-                )
-                comment += "\nuses: " + ", ".join(
-                    str(symbol) for symbol in node.uses_symbols
-                )
-                label = self.format_node(repr(node), comment)
-            except (RuntimeError, KeyError, AttributeError) as _:
-                label = self.format_node(repr(node))
+            label = self.format_node(repr(node))
+
+        try:
+            live_symbols = "live: [" + ", ".join(
+                str(symbol) for symbol in node.live_symbols
+            )
+            defines_symbols = "defines: [" + ", ".join(
+                str(symbol) for symbol in node.defines_symbols
+            )
+            uses_symbols = "uses: [" + ", ".join(
+                str(symbol) for symbol in node.uses_symbols
+            )
+            label = self.format_line(label, "\n", live_symbols, "], ", defines_symbols, "], ", uses_symbols, "]")
+        except (RuntimeError, KeyError, AttributeError) as _:
+            pass
 
         shape = kwargs.get("shape", "oval")
 
