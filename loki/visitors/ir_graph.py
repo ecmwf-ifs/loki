@@ -198,7 +198,16 @@ class GraphCollector(Visitor):
             uses_symbols = "uses: [" + ", ".join(
                 str(symbol) for symbol in node.uses_symbols
             )
-            label = self.format_line(label, "\n", live_symbols, "], ", defines_symbols, "], ", uses_symbols, "]")
+            label = self.format_line(
+                label,
+                "\n",
+                live_symbols,
+                "], ",
+                defines_symbols,
+                "], ",
+                uses_symbols,
+                "]",
+            )
         except (RuntimeError, KeyError, AttributeError) as _:
             pass
 
