@@ -87,8 +87,12 @@ def convert_to_lower_case(routine):
     variables = FindVariables(unique=False).visit(routine.ir)
     vmap = {
         v: v.clone(name=v.name.lower()) for v in variables
-        if isinstance(v, (sym.Scalar, sym.Array, sym.DeferredTypeSymbol)) and not v.name.islower()
+        if isinstance(v, (sym.Scalar, sym.Array, sym.DeferredTypeSymbol)) and not v.name.islower() and not v.case_sensitive
     }
+
+    for v in variables:
+        if v.case_sensitive:
+            print(f"variable: {v} is case sensitive!!!")
 
     # Capture nesting by applying map to itself before applying to the routine
     vmap = recursive_expression_map_update(vmap)

@@ -14,7 +14,7 @@ from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, LokiIdentityMapper
 )
-from loki.ir import Import, Comment, Assignment, VariableDeclaration, CallStatement
+from loki.ir import Import, Comment, Assignment, VariableDeclaration, CallStatement, StatementFunction
 from loki.expression import symbols as sym
 from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
@@ -37,25 +37,15 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         raise NotImplementedError
 
     def map_scalar(self, expr, *args, **kwargs):
-        symbol = self.rec(expr._symbol, *args, **kwargs)
-        # This is tricky as a rebuilt of the symbol will yield Scalar, Array, ProcedureSymbol etc
-        # but with no rebuilt it may return VariableSymbol. Therefore we need to return the
-        # original expression if the underlying symbol is unchanged
-        if symbol is expr._symbol:
-            return expr
-        return symbol
-
-    def map_scalar_2(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-        print(f"map_scalar: {expr}") 
+
         scope = kwargs.get('scope') or expr.scope
-        # print(f"mapping scalar {expr} | type: {expr.type}")
         # We're re-scoping an imported symbol
         if expr.scope != scope:
             return expr.clone(scope=scope, type=expr.type.clone(), parent=parent)
         return expr.clone(parent=parent)
 
-    map_deferred_type_symbol = map_scalar_2
+    map_deferred_type_symbol = map_scalar
 
     def map_array(self, expr, *args, **kwargs):
         if expr.dimensions:
@@ -80,21 +70,39 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         return expr.clone(parent=parent)
 
     def map_inline_call(self, expr, *args, **kwargs):
-        if expr.procedure_type is None or expr.procedure_type is BasicType.DEFERRED:
+        print(f"map inline call: {expr} | {type(expr)} | {type(expr.procedure_type)}")
+        # print(f"map inline: {expr.procedure_type.procedure.name} | {isinstance(expr.procedure_type.procedure, StatementFunction)}")
+        # if isinstance(expr.procedure_type.procedure, StatementFunction):
+        #     return
+        
+        if expr.procedure_type is None or expr.procedure_type is BasicType.DEFERRED: #  or isinstance(expr.procedure_type.procedure, StatementFunction):
             # Unkonw inline call, potentially an intrinsic
             # We still need to recurse and ensure re-scoping
+            print(f"  ... calling super().map_inline... for map inline call: {expr} | {expr.procedure_type}")
             return super().map_inline_call(expr, *args, **kwargs)
 
+        print(f"  ... continuing map inline call: {expr} | {expr.procedure_type}")
         function = expr.procedure_type.procedure
-        v_result = [v for v in function.variables if v == function.name][0]
+        print(f"    ... function: {function} | {type(function)}")
+        if isinstance(function, StatementFunction):
+            v_result = function.variable
+        else:
+            v_result = [v for v in function.variables if v == function.name][0]
 
         # Substitute all arguments through the elemental body
         arg_map = dict(zip(function.arguments, expr.parameters))
-        fbody = SubstituteExpressions(arg_map).visit(function.body)
-
+        if isinstance(function, StatementFunction):
+            print(f"FUNCTION.RHS: {function.rhs}")
+            fbody = SubstituteExpressions(arg_map).visit(function.rhs)
+            print(f"FBODY: {fbody}")
+            return fbody
+        else:
+            fbody = SubstituteExpressions(arg_map).visit(function.body)
+        
         # Extract the RHS of the final result variable assignment
         stmts = [s for s in FindNodes(Assignment).visit(fbody) if s.lhs == v_result]
-        assert len(stmts) == 1
+        print(f"stmts: {stmts}")
+        # assert len(stmts) == 1
         rhs = self.rec(stmts[0].rhs, *args, **kwargs)
         return rhs
 
@@ -181,7 +189,7 @@ def inline_elemental_functions(routine):
 
     exprmap = {}
     for call in FindInlineCalls().visit(routine.body):
-        if call.procedure_type is not BasicType.DEFERRED:
+        if call.procedure_type is not BasicType.DEFERRED: #  and not isinstance(call.procedure_type.procedure, StatementFunction):
             # Map each call to its substitutions, as defined by the
             # recursive inline substitution mapper
             exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
@@ -189,7 +197,6 @@ def inline_elemental_functions(routine):
             # Mark function as removed for later cleanup
             removed_functions.add(call.procedure_type)
 
-    print(f"inline_elemental_functions: {exprmap}")
     # Apply expression-level substitution to routine
     routine.body = SubstituteExpressions(exprmap).visit(routine.body)
 
@@ -197,7 +204,7 @@ def inline_elemental_functions(routine):
     import_map = {}
     for im in FindNodes(Import).visit(routine.spec):
         if all(hasattr(s, 'type') and s.type.dtype in removed_functions for s in im.symbols):
-             import_map[im] = None
+            import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)
 
 

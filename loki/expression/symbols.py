@@ -126,6 +126,7 @@ class TypedSymbol:
         self.name = kwargs['name']
         self.parent = kwargs.pop('parent', None)
         self.scope = kwargs.pop('scope', None)
+        self.case_sensitive = kwargs.pop('case_sensitive', False)
 
         # Use provided type or try to determine from scope
         self._type = None
@@ -490,6 +491,7 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
 
     def __init__(self, symbol, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.case_sensitive = False
         self._symbol = symbol
 
     def __getstate__(self):

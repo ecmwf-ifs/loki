@@ -245,6 +245,9 @@ class SubstituteExpressions(Transformer):
         kwargs['recurse_to_declaration_attributes'] = True
         return super().visit_Node(o, **kwargs)
 
+    # def visit_VariableDeclaration(self, o, **kwargs):
+    #     return o
+
     visit_VariableDeclaration = visit_Import
     visit_ProcedureDeclaration = visit_Import
 

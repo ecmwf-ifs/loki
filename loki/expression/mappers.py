@@ -86,6 +86,7 @@ class LokiStringifyMapper(StringifyMapper):
     map_intrinsic_literal = map_logic_literal
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
+        # print(f"LokiStringify ... map: {expr}")
         if expr.parent is not None:
             parent = self.rec(expr.parent, enclosing_prec, *args, **kwargs)
             return self.format('%s%%%s', parent, expr.basename)
@@ -555,6 +556,7 @@ class LokiIdentityMapper(IdentityMapper):
         if recurse_to_declaration_attributes:
             old_type = expr.type
             kind = self.rec(old_type.kind, *args, **kwargs)
+            new_type = old_type
 
             if expr.scope and expr.name == old_type.initial:
                 # FIXME: This is a hack to work around situations where a constant

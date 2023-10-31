@@ -7,7 +7,7 @@
 
 import re
 from loki.expression import symbols as sym
-from loki.transform import resolve_associates, inline_member_procedures
+from loki.transform import resolve_associates, inline_member_procedures, convert_to_lower_case
 from loki import (
     Transformation, FindNodes, Transformer, info,
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
@@ -264,6 +264,8 @@ class SCCBaseTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
         role = kwargs['role']
+        
+        convert_to_lower_case(routine)
 
         if role == 'kernel':
             self.process_kernel(routine)

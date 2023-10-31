@@ -298,8 +298,10 @@ class GlobalVarOffloadTransformation(Transformation):
 
         item = kwargs['item']
 
+        print(f"GlobalVarOffload transform_module: {module}")
         # bail if not global variable import
         if not isinstance(item, GlobalVarImportItem):
+            print(f"  early exit ...")
             return
 
         # confirm that var to be offloaded is declared in module
@@ -329,6 +331,7 @@ class GlobalVarOffloadTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
+        print(f"GlobalVarOffload transform_subroutine: {routine}")
         role = kwargs.get('role')
         item = kwargs['item']
 
@@ -441,6 +444,7 @@ class GlobalVarOffloadTransformation(Transformation):
         """
         Collect the set of module variables to be offloaded.
         """
+        print(f"GlobalVarOffload process_kernel: {routine}")
 
         # build map of modules corresponding to imported symbols
         import_mod = CaseInsensitiveDict((s.name, i.module) for i in routine.imports for s in i.symbols)
@@ -457,7 +461,9 @@ class GlobalVarOffloadTransformation(Transformation):
                                                      for k, v in s.trafo_data[self._key]['modules'].items()})
 
         # separate out derived and basic types
-        imported_vars = [var for var in routine.imported_symbols if var in item.trafo_data[self._key]['var_set']]
+        # imported_vars = [var for var in routine.imported_symbols if var in item.trafo_data[self._key]['var_set']]
+        imported_vars = [var for var in routine.imported_symbols if not var.type.parameter]
+        print(f"GlobalVarOffload imported_vars: {imported_vars} | vs. {[var for var in routine.imported_symbols]}")
         basic_types = [var.name.lower() for var in imported_vars if isinstance(var.type.dtype, BasicType)]
         deriv_types = [var              for var in imported_vars if isinstance(var.type.dtype, DerivedType)]
 

@@ -25,28 +25,22 @@ from loki.sourcefile import Sourcefile
 from loki.backend import cgen, fgen
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, VariableDeclaration,
-    TypeDef, Assignment, Comment
+    TypeDef, Assignment
 )
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
-    ProcedureSymbol, FindVariables
+    ProcedureSymbol
 )
 from loki.expression import symbols as sym
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
 from loki import SubstituteExpressions
-from loki import ir
 
 __all__ = ['FortranCTransformation']
 
-def print_import_info(kernel, identifier=""):
-    for im in kernel.imports:
-        print(f"{identifier} import {im}: \n  {im.symbols}")
-        for s in im.symbols:
-            print(f"{identifier}   {s} | scalar: {isinstance(s, Scalar)} | not deferred: {s.type.dtype is not BasicType.DEFERRED} | parameter: {s.type.parameter}")
 
 class FortranCTransformation(Transformation):
     """
@@ -65,7 +59,6 @@ class FortranCTransformation(Transformation):
         self.c_structs = OrderedDict()
 
     def transform_file(self, sourcefile, **kwargs):
-        print(f"CALLING transform_file on {sourcefile}")
         for module in sourcefile.modules:
             self.transform_module(module, **kwargs)
 
@@ -74,11 +67,8 @@ class FortranCTransformation(Transformation):
 
     def transform_module(self, module, **kwargs):
         # path = Path(kwargs.get('path'))
-        print(f"CALLING transform_module on {module}")
         path = self.path
         role = kwargs.get('role', 'kernel')
-        for routine in module.subroutines:
-            print_import_info(routine, "[0]")
 
         for name, td in module.typedef_map.items():
             self.c_structs[name.lower()] = self.c_struct_typedef(td)
@@ -98,43 +88,34 @@ class FortranCTransformation(Transformation):
             self.transform_subroutine(routine, **kwargs)
 
     def transform_subroutine(self, routine, **kwargs):
-        print(f"CALLING transform_subroutine on {routine}")
         # path = Path(kwargs.get('path')) # / routine.path.with_suffix('.c.F90').name
         item = kwargs.get('item', None)
-        # print(f"HERE: routine: {routine.name} | item: {item}")
+        print(f"HERE: routine: {routine.name} | item: {item}")
         # TODO: how to skip headers properly?
-        # if item is None:
+        # if item is None:
         #     return
         
         # path = self.path # / item.path.with_suffix('.c.F90').name
         # print(f"path for .c.F90 for routine {routine.name}: {path}")
         path = self.path # / routine.path.with_suffix('.c.F90').name
         role = kwargs.get('role', 'kernel')
-        if role == 'driver':
-            return
 
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
                 self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
 
         if role == 'kernel':
-            # print_import_info(routine, "[1]")
             # Generate Fortran wrapper module
-            wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs, bind_name=f'{routine.name.lower()}_c_launch')
+            wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
             contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
-            # print_import_info(routine, "[2]")
+
             # Generate C source file from Loki IR
             c_kernel = self.generate_c_kernel(routine)
-            c_kernel_launch = c_kernel.clone(name=f"{c_kernel.name}_launch", prefix="extern_c")
-            self.generate_c_kernel_launch(c_kernel_launch, c_kernel)
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
             Sourcefile.to_file(source=cgen(c_kernel), path=self.c_path)
-
-            self.c_path = (path/c_kernel_launch.name.lower()).with_suffix('.h')
-            Sourcefile.to_file(source=cgen(c_kernel_launch), path=self.c_path)
 
     @classmethod
     def c_struct_typedef(cls, derived):
@@ -149,9 +130,6 @@ class FortranCTransformation(Transformation):
             variables = derived.dtype.typedef.variables
         declarations = []
         for v in variables:
-            # print(f"here: {v}")
-            # if v.basename.lower() == "threadidx":
-            #     print("here it is lowered ...")
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type, typedef))
             vnew = v.clone(name=v.basename.lower(), scope=typedef, type=ctype)
             declarations += (VariableDeclaration(symbols=(vnew,)),)
@@ -239,7 +217,6 @@ class FortranCTransformation(Transformation):
                 arg_map[arg] = arg.clone(dimensions=new_type)
         routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
 
-        use_device_addr = []
         call_arguments = []
         for arg in routine.arguments:
             if isinstance(arg, Array):
@@ -248,23 +225,16 @@ class FortranCTransformation(Transformation):
                         function=sym.ProcedureSymbol(name="c_loc", scope=routine),
                         parameters=(new_arg,))
                 call_arguments.append(c_loc)
-                use_device_addr.append(arg.name)
             elif isinstance(arg.type.dtype, DerivedType):
                 cvar = Variable(name=f'{arg.name}_c', type=ctype, scope=wrapper)
                 call_arguments.append(cvar)
             else:
                 call_arguments.append(arg)
 
-        # $acc host_data use_device
-        # ir.Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')
-        # ir.Pragma(keyword='acc', content=f'end host_data')
-
         wrapper_body = casts_in
-        wrapper_body += [ir.Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')]
         wrapper_body += [
             CallStatement(name=Variable(name=interface.body[0].name), arguments=call_arguments)  # pylint: disable=unsubscriptable-object
         ]
-        wrapper_body += [ir.Pragma(keyword='acc', content=f'end host_data')]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
 
@@ -448,7 +418,7 @@ class FortranCTransformation(Transformation):
         # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         invert_array_indices(kernel)
-        shift_to_zero_indexing(kernel, ignore=("jl", "ibl"))
+        shift_to_zero_indexing(kernel)
 
         flatten_arrays(kernel, order="C", start_index=0)
         
@@ -456,45 +426,18 @@ class FortranCTransformation(Transformation):
         # and thus need to be known before we can fetch them via getters.
         inline_constant_parameters(kernel, external_only=True)
 
-        if self.inline_elementals:
-            # Inline known elemental function via expression substitution
-            inline_elemental_functions(kernel)
+        # if self.inline_elementals:
+        #     # Inline known elemental function via expression substitution
+        #     inline_elemental_functions(kernel)
 
-        # for arg in routine.arguments:
-        #     try:
-        #         print(f"FIX arg: {arg} | intent var {routine.variable_map[arg.name].type.intent}")
-        #         if routine.variable_map[arg.name].type.intent is None:
-        #             routine.variable_map[arg.name].type.__setattr__('intent', 'in')
-        #             arg.type.__setattr__('intent', 'in')
-        #             print(f"FIXed arg: {arg} {arg.type.intent} | intent var {routine.variable_map[arg.name].type.intent}")
-        #     except: 
-        #         try:
-        #             print(f"FIX arg: {arg} | intent {arg.type.intent}")
-        #         except:
-        #             print(f"FIX arg: {arg}")
-
-        # for decl in FindNodes(VariableDeclaration).visit(routine.spec):
-        #     # print(f"FIX var: {var} | argument? {var in routine.arguments} | intent? {var.intent}")
-        #     for var in decl.symbols:
-        #         # print(f"FIX var: {var} | argument? {var in routine.arguments} | intent? {var.intent}")
-        #         if var in routine.arguments and var.intent is None:
-        #             print("FIX ME intent is None and within arguments ...!")
-        
-        # for im in kernel.imports:
-        #     print(f"import {im}: \n  {im.symbols}")
-        #     for s in im.symbols:
-        #         print(f"   {s} | scalar: {isinstance(s, Scalar)} | not deferred: {s.type.dtype is not BasicType.DEFERRED} | parameter: {s.type.parameter}")
-        
         # Create declarations for module variables
         module_variables = {
             im.module.lower(): [
                 s.clone(scope=kernel, type=s.type.clone(imported=None, module=None)) for s in im.symbols
                 if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED and not s.type.parameter
-                # if isinstance(s, Scalar) and not s.type.parameter
             ]
             for im in kernel.imports
         }
-        print(f"adding variables: {as_tuple(flatten(list(module_variables.values())))}")
         kernel.variables += as_tuple(flatten(list(module_variables.values())))
 
         # Create calls to getter routines for module variables
@@ -521,8 +464,6 @@ class FortranCTransformation(Transformation):
                 # Remove other imports, as they might include untreated Fortran code
                 import_map[im] = None
         kernel.spec = Transformer(import_map).visit(kernel.spec)
-        # print("adding cuda.h to c kernel ...")
-        kernel.spec.append((Import(module='cuda.h')),)
 
         # Remove intrinsics from spec (eg. implicit none)
         intrinsic_map = {i: None for i in FindNodes(Intrinsic).visit(kernel.spec)
@@ -537,17 +478,13 @@ class FortranCTransformation(Transformation):
 
         # Force pointer on reference-passed arguments
         for arg in kernel.arguments:
-            print(f"arg: {arg}")
-            try:
-                if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
-                    _type = arg.type.clone(pointer=True)
-                    if isinstance(arg.type.dtype, DerivedType):
-                        # Lower case type names for derived types
-                        typedef = _type.dtype.typedef.clone(name=_type.dtype.typedef.name.lower())
-                        _type = _type.clone(dtype=typedef.dtype)
-                    kernel.symbol_attrs[arg.name] = _type
-            except Exception as e:
-                print(f"for arg: {arg} - {e}")
+            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+                _type = arg.type.clone(pointer=True)
+                if isinstance(arg.type.dtype, DerivedType):
+                    # Lower case type names for derived types
+                    typedef = _type.dtype.typedef.clone(name=_type.dtype.typedef.name.lower())
+                    _type = _type.clone(dtype=typedef.dtype)
+                kernel.symbol_attrs[arg.name] = _type
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
@@ -558,67 +495,3 @@ class FortranCTransformation(Transformation):
         sanitise_imports(kernel)
 
         return kernel
-
-
-    def generate_c_kernel_launch(self, kernel_launch, kernel, **kwargs):
-      
-        import_map = {}
-        for im in FindNodes(Import).visit(kernel_launch.spec):
-            import_map[im] = None
-        kernel_launch.spec = Transformer(import_map).visit(kernel_launch.spec)
-
-        ####
-
-        # call_arguments = []
-        # for arg in kernel.arguments:
-        #     if isinstance(arg, Array):
-        #         new_arg = Variable(name=f"{arg.name}") # arg.clone(dimensions=None)
-        #         # c_loc = sym.InlineCall(
-        #         #         function=sym.ProcedureSymbol(name="c_loc", scope=routine),
-        #         #         parameters=(new_arg,))
-        #         call_arguments.append(new_arg)
-        #     elif isinstance(arg.type.dtype, DerivedType):
-        #         cvar = Variable(name=f'{arg.name}_c') # , type=ctype, scope=wrapper)
-        #         call_arguments.append(cvar)
-        #     else:
-        #         # call_arguments.append(arg)
-        #         pass
-        # for arg in kernel.arguments:
-        #    call_arguments.append(arg.name)
-
-        # kernel.body = (Comment(text="! here should be the launcher ...."), CallStatement(name=Variable(name=kernel.name.replace("_launch", "")), arguments=as_tuple(kernel.arguments))) #  CallStatement(name=Variable(name=kernel.name.replace("_launch", "")), arguments=call_arguments))
-
-        kernel_call = kernel.clone()
-        call_arguments = []
-        for arg in kernel_call.arguments:
-            if False: # isinstance(arg, Array):
-                # _type = arg.type.clone(pointer=False)
-                # kernel_call.symbol_attrs[arg.name] = _type
-                call_arguments.append(arg.clone(dimensions=None))
-                # call_arguments.append(arg.clone(dimensions=None, type=_type))
-            else:
-                call_arguments.append(arg)
-            # if isinstance(arg, Array):
-            #     new_arg = arg.clone(dimensions=None)
-            #     # c_loc = sym.InlineCall(
-            #     #         function=sym.ProcedureSymbol(name="c_loc", scope=routine),
-            #     #         parameters=(new_arg,))
-            #     call_arguments.append(new_arg)
-            # elif isinstance(arg.type.dtype, DerivedType):
-            #     # cvar = Variable(name=f'{arg.name}_c', type=ctype, scope=kernel_launch)
-            #     call_arguments.append(cvar)
-            # else:
-            #     call_arguments.append(arg)
-        use_device_addr = []
-        for arg in kernel_call.arguments:
-            if isinstance(arg, Array): 
-                use_device_addr.append(arg.name)
-
-        # $acc host_data use_device
-        # ir.Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')
-        # ir.Pragma(keyword='acc', content=f'end host_data')
-        
-        # kernel_launch.spec = (Comment(text="! used to be the spec ..."),)
-        kernel_launch.body = (Comment(text="! here should be the launcher ...."), CallStatement(name=Variable(name=kernel.name), arguments=call_arguments, chevron=(sym.Variable(name="griddim"), sym.Variable(name="blockdim"))))
-
-

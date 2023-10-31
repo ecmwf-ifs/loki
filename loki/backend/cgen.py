@@ -12,7 +12,7 @@ from pymbolic.mapper.stringifier import (
 
 from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import
-from loki.expression import LokiStringifyMapper, Array, symbolic_op, Literal
+from loki.expression import LokiStringifyMapper, Array, symbolic_op, Literal, DeferredTypeSymbol
 from loki.types import BasicType, SymbolAttributes, DerivedType
 
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
@@ -27,7 +27,9 @@ def c_intrinsic_type(_type):
         if str(_type.kind) in ['real32']:
             return 'float'
         return 'double'
-    raise ValueError(str(_type))
+    # print(f"c_intrinsic_type: {_type}")
+    return "wtf"
+    # raise ValueError(str(_type))
 
 
 class CCodeMapper(LokiStringifyMapper):
@@ -39,12 +41,14 @@ class CCodeMapper(LokiStringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.REAL, kind=expr.kind)
+            # print(f"intrinsic type for expr: {expr}")
             return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
         return str(expr.value)
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
+            # print(f"intrinsic type for expr: {expr}")
             return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
         return str(expr.value)
 
@@ -56,16 +60,33 @@ class CCodeMapper(LokiStringifyMapper):
         expression = self.parenthesize_if_needed(
             self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
             PREC_CALL, PREC_NONE)
+        # print(f"intrinsic type for expr: {expr}")
         return self.parenthesize_if_needed(
             self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
         ptr = '*' if expr.type and expr.type.pointer else ''
-        if expr.parent is not None:
+        # print(f"map variable symbol: {expr}")
+        if expr.parent in ["threadIdx", "blockIdx"]:
+            # print("Hello!!!")
+            # print(f"expr: {expr} | {type(expr)}")
+            # tmp = ""
+            # if expr.parent == "threadidx":
+            #     tmp = DeferredTypeSymbol(name="threadIdx")
+            # else:
+            #     tmp = DeferredTypeSymbol(name="blockIdx")
+            parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs)
+            return self.format('%s%s.%s', ptr, parent, expr.basename)
+        elif expr.parent is not None:
+            # if ptr:
             parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
+            # else:
+            #     parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs)
             return self.format('%s%s.%s', ptr, parent, expr.basename)
         return self.format('%s%s', ptr, expr.name)
+
+    map_deferred_type_symbol = map_variable_symbol
 
     def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
@@ -75,15 +96,18 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
         name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
-        if expr.aggregate.type.pointer and name_str.startswith('*'):
-            # Strip the pointer '*' because subscript dereference
-            name_str = name_str[1:]
-        index_str = ''
-        for index in expr.index_tuple:
-            d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
-            if d:
-                index_str += self.format('[%s]', d)
-        return self.format('%s%s', name_str, index_str)
+        try:
+            if expr.aggregate.type.pointer and name_str.startswith('*'):
+                # Strip the pointer '*' because subscript dereference
+                name_str = name_str[1:]
+            index_str = ''
+            for index in expr.index_tuple:
+                d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+                if d:
+                    index_str += self.format('[%s]', d)
+            return self.format('%s%s', name_str, index_str)
+        except:
+            return self.format('%s', name_str)
 
     map_string_subscript = map_array_subscript
 
@@ -147,8 +171,11 @@ class CCodegen(Stringifier):
             ...body...
           }
         """
+
+        # print(f"visit_Subroutine: prefix: {o.prefix}")
+        
         # Some boilerplate imports...
-        standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
+        standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h', 'cuda.h']
         header = [self.format_line('#include <', name, '>') for name in standard_imports]
 
         # ...and imports from the spec
@@ -160,7 +187,7 @@ class CCodegen(Stringifier):
         for a in o.arguments:
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if isinstance(a, Array) > 0:
-                aptr += ['* restrict '] # v_
+                aptr += ['*'] # ['* restrict '] # v_
             elif isinstance(a.type.dtype, DerivedType):
                 aptr += ['*']
             elif a.type.pointer:
@@ -169,12 +196,31 @@ class CCodegen(Stringifier):
                 aptr += ['']
         arguments = [f'{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
                      for a, p in zip(o.arguments, aptr)]
-        header += [self.format_line('int ', o.name, '(', self.join_items(arguments), ') {')]
-
+        
+        prefix = ''
+        extern = ''
+        postfix = ''
+        skip_decls = False
+        global_whatever = False
+        if o.prefix:
+            if "global" in o.prefix[0].lower():
+                prefix = "__global__ "
+                arguments = list(map(lambda x: x.replace('struct tecldp *yrecldp', 'struct TECLDP *yrecldp'), list(arguments)))
+                header += [self.format_line(prefix, 'void ', o.name, '(', self.join_items(arguments), ');')] 
+                header += [self.format_line('#include "load_state.h"')]
+                header += [self.format_line('#include "', o.name, '_launch.h', '"')]
+                global_whatever = True
+                # arguments = list(map(lambda x: x.replace('struct tecldp *yrecldp', 'struct TECLDP *yrecldp'), list(arguments))) 
+            elif "extern_c" in o.prefix[0].lower():
+                # prefix = 'extern "C" {\n'
+                extern = 'extern "C" {'
+                postfix = '}'
+                skip_decls = True
+        header += [self.format_line(extern), self.format_line(prefix, 'void ', o.name, '(', self.join_items(arguments), ') {')]
         self.depth += 1
 
         # ...and generate the spec without imports and argument declarations
-        body = [self.visit(o.spec, skip_imports=True, skip_argument_declarations=True, **kwargs)]
+        body = [self.visit(o.spec, skip_decls=skip_decls, skip_imports=True, skip_argument_declarations=True, **kwargs)]
 
         # Generate the array casts for pointer arguments
         if False:
@@ -189,13 +235,33 @@ class CCodegen(Stringifier):
                         body += [self.format_line(dtype, ' (*', a.name.lower(), ')', outer_dims, ' = (',
                                                   dtype, ' (*)', outer_dims, ') v_', a.name.lower(), ';')]
 
+        # dim3 blockdim(nproma, 1, 1);
+        # dim3 griddim(ceil(((double)numcols) / ((double)nproma)), 1, 1);
+        # cudaMalloc(&d_yrecldp, sizeof(struct TECLDP));
+        # cudaMemcpy(d_yrecldp, yrecldp, sizeof(TECLDP), cudaMemcpyHostToDevice);
+        if global_whatever:
+            # body += [self.format_line('if (jl == 0 && ibl == 0) {')]
+            # body += [self.format_line('printf("(*yrecldp).ncldtop: %i\\n", (*yrecldp).ncldtop);')]
+            # body += [self.format_line('}')]
+            pass
+        if skip_decls:
+            body += [self.format_line('printf("executing c launch ...\\n");')]
+            body += [self.format_line('printf("ngptot: %i,  nproma: %i\\n", ngptot, nproma);')]
+            body += [self.format_line('struct TECLDP *helper_yrecldp = (struct TECLDP*)malloc(sizeof(struct TECLDP));')]
+            body += [self.format_line('load_state_helper(helper_yrecldp);')]
+            body += [self.format_line('struct TECLDP *d_yrecldp;')]
+            body += [self.format_line('cudaMalloc(&d_yrecldp, sizeof(struct TECLDP));')]
+            body += [self.format_line('cudaMemcpy(d_yrecldp, helper_yrecldp, sizeof(TECLDP), cudaMemcpyHostToDevice);')]
+            body += [self.format_line('dim3 blockdim(nproma, 1, 1);')]
+            body += [self.format_line('dim3 griddim(ceil(((double)ngptot) / ((double)nproma)), 1, 1);')]
+
         # Fill the body
-        body += [self.visit(o.body, **kwargs)]
-        body += [self.format_line('return 0;')]
+        body += [self.visit(o.body, skip_decls=skip_decls, **kwargs)]
+        # body += [self.format_line('return 0;')]
 
         # Close everything off
         self.depth -= 1
-        footer = [self.format_line('}')]
+        footer = [self.format_line('}'), self.format_line(postfix)]
 
         return self.join_lines(*header, *body, *footer)
 
@@ -220,9 +286,13 @@ class CCodegen(Stringifier):
         """
         Format comments.
         """
-        text = o.text or o.source.string
-        text = str(text).lstrip().replace('!', '//', 1)
-        return self.format_line(text, no_wrap=True)
+        try:
+            text = o.text or o.source.string
+            text = str(text).lstrip().replace('!', '//', 1)
+            return self.format_line(text, no_wrap=True)
+        except Exception as e:
+            # print(f"cgen visit_Comment: {e}")
+            return ""
 
     def visit_CommentBlock(self, o, **kwargs):
         """
@@ -236,6 +306,9 @@ class CCodegen(Stringifier):
         Format declaration as
           <type> <name> [= <initial>]
         """
+        if kwargs.get('skip_decls', False):
+            return None
+        # print(f"visit_VariableDeclaration: {o}")
         types = [v.type for v in o.symbols]
         # Ensure all variable types are equal, except for shape and dimension
         ignore = ['shape', 'dimensions', 'source']
@@ -245,6 +318,7 @@ class CCodegen(Stringifier):
         variables = []
         for v in o.symbols:
             if kwargs.get('skip_argument_declarations') and v.type.intent:
+                # print(" skip ...")
                 continue
             var = self.visit(v, **kwargs)
             initial = ''
@@ -341,6 +415,7 @@ class CCodegen(Stringifier):
           <target> = <expr> [<comment>]
         """
         lhs = self.visit(o.lhs, **kwargs)
+        # print(f"visit Assignment: lhs: {o.lhs}, rhs: {o.rhs} | {type(o.rhs)}")
         rhs = self.visit(o.rhs, **kwargs)
         comment = None
         if o.comment:
@@ -360,11 +435,17 @@ class CCodegen(Stringifier):
         """
         args = self.visit_all(o.arguments, **kwargs)
         assert not o.kwarguments
-        return self.format_line(o.name, '(', self.join_items(args), ');')
+        if o.chevron is not None:
+            chevron = f"<<<{','.join([str(elem) for elem in o.chevron])}>>>"
+            args = list(map(lambda x: x.replace('yrecldp', 'd_yrecldp'), list(args)))
+        else:
+            chevron = ""
+        return self.format_line(o.name, chevron, '(', self.join_items(args), ');')
 
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):
             return f'struct {o.dtype.name}'
+        # print(f"intrinsic type for o: {o}")
         return c_intrinsic_type(o)
 
     def visit_TypeDef(self, o, **kwargs):
