@@ -11,6 +11,10 @@ import pytest
 from conftest import graphviz_present
 from loki import Sourcefile
 from loki.visitors.ir_graph import ir_graph, GraphCollector
+from loki.visitors import FindNodes
+from loki.analyse import dataflow_analysis_attached
+from loki.ir import Node
+from loki.backend.fgen import fgen
 
 
 @pytest.fixture(scope="module", name="here")
@@ -197,7 +201,9 @@ def test_graph_collector_node_edge_count_only(
     graph_collector = GraphCollector(
         show_comments=show_comments, show_expressions=show_expressions
     )
-    node_edge_info = [item for item in graph_collector.visit(source.ir) if item is not None]
+    node_edge_info = [
+        item for item in graph_collector.visit(source.ir) if item is not None
+    ]
 
     node_names = [name for (name, _) in get_property(node_edge_info, "name")]
     node_labels = [label for (label, _) in get_property(node_edge_info, "label")]
@@ -224,7 +230,9 @@ def test_graph_collector_detail(here, test_file):
     source = Sourcefile.from_file(here / test_file)
 
     graph_collector = GraphCollector()
-    node_edge_info = [item for item in graph_collector.visit(source.ir) if item is not None]
+    node_edge_info = [
+        item for item in graph_collector.visit(source.ir) if item is not None
+    ]
 
     node_names = [name for (name, _) in get_property(node_edge_info, "name")]
     node_labels = [label for (label, _) in get_property(node_edge_info, "label")]
@@ -252,7 +260,9 @@ def test_graph_collector_maximum_label_length(here, test_file, linewidth):
     graph_collector = GraphCollector(
         show_comments=True, show_expressions=True, linewidth=linewidth
     )
-    node_edge_info = [item for item in graph_collector.visit(source.ir) if item is not None]
+    node_edge_info = [
+        item for item in graph_collector.visit(source.ir) if item is not None
+    ]
     node_labels = [label for (label, _) in get_property(node_edge_info, "label")]
 
     for label in node_labels:
@@ -309,3 +319,38 @@ def test_ir_graph_writes_correct_graphs(here, test_file):
 
     for node, label in zip(node_ids, found_labels):
         assert solution["node_labels"][node[0]] == label[0]
+
+
+@pytest.mark.parametrize("test_file", test_files)
+def test_ir_graph_dataflow_analysis_attached(here, test_file):
+    source = Sourcefile.from_file(here / test_file)
+
+    def find_lives_defines_uses(text):
+        # Regular expression pattern to match content within square brackets after 'live:', 'defines:', and 'uses:'
+        pattern = r"live:\s*\[([^\]]*?)\],\s*defines:\s*\[([^\]]*?)\],\s*uses:\s*\[([^\]]*?)\]"
+        matches = re.search(pattern, text)
+        assert matches
+
+        def remove_spaces_and_newlines(text):
+            return text.replace(" ", "").replace("\n", "")
+
+        def disregard_empty_strings(elements):
+            return set(element for element in elements if element != "")
+
+        def apply_conversion(text):
+            return disregard_empty_strings(remove_spaces_and_newlines(text).split(","))
+
+        return (
+            apply_conversion(matches.group(1)),
+            apply_conversion(matches.group(2)),
+            apply_conversion(matches.group(3)),
+        )
+
+    for routine in source.all_subroutines:
+        with dataflow_analysis_attached(routine):
+            for node in FindNodes(Node).visit(routine.body):
+                node_info, _ = GraphCollector(show_comments=True).visit(node)[0]
+                lives, defines, uses = find_lives_defines_uses(node_info["label"])
+                assert node.live_symbols == set(lives)
+                assert node.uses_symbols == set(uses)
+                assert node.defines_symbols == set(defines)
