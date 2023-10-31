@@ -14,7 +14,6 @@ from loki.visitors.ir_graph import ir_graph, GraphCollector
 from loki.visitors import FindNodes
 from loki.analyse import dataflow_analysis_attached
 from loki.ir import Node
-from loki.backend.fgen import fgen
 
 
 @pytest.fixture(scope="module", name="here")
