@@ -157,30 +157,32 @@ def test_is_independent_system(matrix, expected_result):
         (
             np.array([[1, 0], [0, 1], [0, 0]]),
             np.array([[1], [2], [0]]),
-            [[1], [1]],
-            [[1], [2]],
+            [np.array([[0]]), np.array([[0]]), np.array([[1]]), np.array([[1]])],
+            [np.array([[0]]), np.array([[0]]), np.array([[1]]), np.array([[2]])],
         ),
         (
             np.array([[1, 0], [0, 1], [0, 0]]),
             np.array([[1], [2], [1]]),
-            [[0], [1], [1]],
-            [[1], [1], [2]],
+            [np.array([[0]]), np.array([[0]]), np.array([[1]]), np.array([[1]])],
+            [np.array([[1]]), np.array([[1]]), np.array([[1]]), np.array([[2]])],
         ),
         (
             np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]]),
             np.array([[1], [2], [3]]),
-            [[0]],
-            [[1, 2, 3]],
+            [np.array([[0], [0], [0]])] * 3,
+            [np.array([[1], [2], [3]])] * 3,
         ),
         (  # will even split non independent systems, call is_independent_system before
             np.array([[2, 1], [1, 3]]),
             np.array([[3], [4]]),
-            [[2], [1]],
-            [[3], [4]],
+            [np.array([[2], [1]]), np.array([[1], [3]])],
+            [np.array([[3], [4]]), np.array([[3], [4]])],
         ),
     ],
 )
 def test_yield_one_d_systems(matrix, rhs, list_of_lhs_column, list_of_rhs_column):
-    for index, (A, b) in enumerate(yield_one_d_systems(matrix, rhs)):
-        assert np.allclose(A, list_of_lhs_column[index])
-        assert np.allclose(b, list_of_rhs_column[index])
+    results = list(yield_one_d_systems(matrix, rhs))
+    assert len(results) == len(list_of_lhs_column) == len(list_of_rhs_column)
+    for index, (A, b) in enumerate(results):
+        assert np.array_equal(A, list_of_lhs_column[index])
+        assert np.array_equal(b, list_of_rhs_column[index])
