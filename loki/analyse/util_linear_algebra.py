@@ -78,28 +78,19 @@ def yield_one_d_systems(matrix, right_hand_side):
         solution = solve_one_d_system(A, b)
     ```
     """
-    # drop completly empty rows
-    mask = ~np.all(np.hstack((matrix, right_hand_side)) == 0, axis=1)
-    matrix = matrix[mask]
-    right_hand_side = right_hand_side[mask]
-
     # yield systems with empty left hand side (A) and non empty right hand side
     mask = np.all(matrix == 0, axis=1)
-    if right_hand_side[mask].size == 0:
-        return
-
-    for A, b in zip(matrix[mask].T, right_hand_side[mask].T):
-        yield A, b
+    if right_hand_side[mask].size != 0:
+        for A in matrix[mask].T:
+            yield A.reshape((-1,1)), right_hand_side[mask]
 
     matrix = matrix[~mask]
     right_hand_side = right_hand_side[~mask]
 
-    if right_hand_side.size == 0:
-        return
-
-    for A, b in zip(matrix.T, right_hand_side.T):
-        mask = A != 0
-        yield A[mask], b[mask]
+    if right_hand_side.size != 0:
+        for A in matrix.T:
+            mask = A != 0
+            yield A[mask].reshape((-1,1)), right_hand_side[mask]
 
 
 def back_substitution(
