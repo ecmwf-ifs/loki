@@ -202,6 +202,7 @@ def _gaussian_eliminiation_for_diophantine_equations(
     each linear Diophantine equation in the system has integer solutions. It follows Theorem 11.32
     in "Compilers: Principles, Techniques, and Tools" by Aho, Lam, Sethi, and Ullman (2015).
     """
+
     def gcd_condition(A):
         """Check that gcd condition of linear Diophantine equation is satisfied"""
         if A[0, -1] % gcd(*A[0, :-1]) != 0:
@@ -242,6 +243,7 @@ def _does_independent_system_violate_bounds(
     bool
         True if any of the 1D systems violate their bounds, False otherwise.
     """
+
     def get_bounds(matrix, vector):
         """Gets x <= c and x >= d conditions"""
         larger_zero = matrix > 0
@@ -252,14 +254,12 @@ def _does_independent_system_violate_bounds(
 
         return np.unique(lower_bounds), np.unique(upper_bounds)
 
-    for (A,b) in yield_one_d_systems(matrix, vector):
+    for A, b in yield_one_d_systems(matrix, vector):
         if np.all(0 == A):
             if not np.all(0 <= b[A == 0]):
                 return True
 
-        lower_bounds, upper_bounds = get_bounds(
-            A.astype(float), b.astype(float)
-        )
+        lower_bounds, upper_bounds = get_bounds(A.astype(float), b.astype(float))
         if np.amax(lower_bounds) > np.amin(upper_bounds):
             return True
     return False
@@ -434,6 +434,7 @@ def construct_affine_array_access_function_representation(
         AffiAcceRepr(matrix, vector): A mapping that relates a vector 'i' within the bounds Bi+b>=0 to the
         array location Fi+f.
     """
+
     def generate_row(expr, variables):
         supported_types = (sym.TypedSymbol, sym.MetaSymbol, sym.Sum, sym.Product)
         if not (is_constant(expr) or isinstance(expr, supported_types)):
