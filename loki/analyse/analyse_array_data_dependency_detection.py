@@ -252,17 +252,13 @@ def _does_independent_system_violate_bounds(
 
         return np.unique(lower_bounds), np.unique(upper_bounds)
 
-    def get_zero_lhs_conditions(matrix, vector):
-        """Gets 0 <= e conditions"""
-        zero_lhs = matrix == 0
-        return vector[zero_lhs]
-
-    for one_d_system in yield_one_d_systems(matrix, vector):
-        if not np.all(0 <= get_zero_lhs_conditions(one_d_system[0], one_d_system[1])):
-            return True
+    for (A,b) in yield_one_d_systems(matrix, vector):
+        if np.all(0 == A):
+            if not np.all(0 <= b[A == 0]):
+                return True
 
         lower_bounds, upper_bounds = get_bounds(
-            one_d_system[0].astype(float), one_d_system[1].astype(float)
+            A.astype(float), b.astype(float)
         )
         if np.amax(lower_bounds) > np.amin(upper_bounds):
             return True
