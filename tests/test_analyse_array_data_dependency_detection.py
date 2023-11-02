@@ -61,7 +61,7 @@ def test_access_function_creation(array_dimensions_expr, expected):
 expected_result = {
     "Example 11.29.1. from Compilers: Principles, Techniques, and Tools": True,
     "Example 11.30 from Compilers: Principles, Techniques, and Tools": False,
-    "Example 11.35 from Compilers: Principles, Techniques, and Tools": not HAVE_ORTOOLS,
+    "Example 11.35 from Compilers: Principles, Techniques, and Tools": False,
     "Example Anti Dependency": True,
     "Exercise 11.6.5 a) from Compilers: Principles, Techniques, and Tools": not HAVE_ORTOOLS,
     "Exercise 11.6.5 b) from Compilers: Principles, Techniques, and Tools": not HAVE_ORTOOLS,
