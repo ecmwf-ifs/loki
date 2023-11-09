@@ -13,7 +13,7 @@ from loki import (
     Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
     config, REGEX, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective, config_override
+    PreprocessorDirective, config_override, Section
 )
 from loki.expression import symbols as sym
 
@@ -1490,3 +1490,11 @@ end module fypp_mod
     assert len(module.routines) == 2
     assert module.routines[0].name == 'first_routine'
     assert module.routines[1].name == 'last_routine'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
+def test_frontend_empty_file(frontend):
+    """Ensure that all frontends can handle empty source files correctly (#186)"""
+    source = Sourcefile.from_source("\n", frontend=frontend)
+    assert isinstance(source.ir, Section)
+    assert not source.to_fortran().strip()

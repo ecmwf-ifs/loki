@@ -268,7 +268,7 @@ class FParser2IR(GenericVisitor):
         """
         Helper method that builds the source object for the node.
         """
-        if not isinstance(o, str) and o.item is not None:
+        if o is not None and not isinstance(o, str) and o.item is not None:
             lines = (o.item.span[0], o.item.span[1])
             string = ''.join(self.raw_source[lines[0] - 1:lines[1]]).strip('\n')
             source = Source(lines=lines, string=string)
@@ -288,7 +288,7 @@ class FParser2IR(GenericVisitor):
         """
         Helper method that returns the label of the node.
         """
-        if not isinstance(o, str) and o.item is not None:
+        if o is not None and not isinstance(o, str) and o.item is not None:
             return getattr(o.item, 'label', None)
         return None
 
