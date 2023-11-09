@@ -904,7 +904,7 @@ def fgen(ir, depth=0, conservative=False, linewidth=132):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """
-    return FortranCodegen(depth=depth, linewidth=linewidth, conservative=conservative).visit(ir)
+    return FortranCodegen(depth=depth, linewidth=linewidth, conservative=conservative).visit(ir) or ''
 
 
 """
