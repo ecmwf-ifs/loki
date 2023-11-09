@@ -25,7 +25,7 @@ include( loki_transform_helpers )
 #       [CPP]
 #       [FRONTEND <frontend>]
 #       [INLINE_MEMBERS]
-#       [FIX_SEQUENCE_ASSOCIATION]
+#       [RESOLVE_SEQUENCE_ASSOCIATION]
 #       [BUILDDIR <build-path>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
@@ -47,7 +47,7 @@ function( loki_transform )
 
     set( options
          CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR TRIM_VECTOR_SECTIONS GLOBAL_VAR_OFFLOAD
-         REMOVE_DERIVED_ARGS INLINE_MEMBERS FIX_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
+         REMOVE_DERIVED_ARGS INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
     )
     set( oneValueArgs
          COMMAND MODE DIRECTIVE FRONTEND CONFIG BUILDDIR
@@ -194,7 +194,7 @@ endfunction()
 #       [DIRECTIVE <openacc|openmp|...>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
-#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED INLINE_MEMBERS FIX_SEQUENCE_ASSOCIATION]
+#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION]
 #   )
 #
 # Applies a Loki bulk transformation to the source files belonging to a particular
@@ -223,7 +223,7 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS FIX_SEQUENCE_ASSOCIATION )
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION )
     set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS )
 
@@ -292,8 +292,8 @@ function( loki_transform_target )
             list( APPEND _TRANSFORM_OPTIONS INLINE_MEMBERS )
         endif()
 
-        if( _PAR_FIX_SEQUENCE_ASSOCIATION )
-            list( APPEND _TRANSFORM_OPTIONS FIX_SEQUENCE_ASSOCIATION )
+        if( _PAR_RESOLVE_SEQUENCE_ASSOCIATION )
+            list( APPEND _TRANSFORM_OPTIONS RESOLVE_SEQUENCE_ASSOCIATION )
         endif()
 
         loki_transform(
@@ -389,7 +389,7 @@ or
 
     set( options
          CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR GLOBAL_VAR_OFFLOAD
-         TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS FIX_SEQUENCE_ASSOCIATION
+         TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION
     )
     set( oneValueArgs
          MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH
