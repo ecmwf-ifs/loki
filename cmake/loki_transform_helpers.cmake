@@ -112,8 +112,8 @@ macro( _loki_transform_parse_options )
         list( APPEND _ARGS --inline-members )
     endif()
 
-    if( _PAR_FIX_SCALARS )
-        list( APPEND _ARGS --fix-scalars )
+    if( _PAR_FIX_SEQUENCE_ASSOCIATION )
+        list( APPEND _ARGS --fix-sequence-association )
     endif()
 
     if( _PAR_DERIVE_ARGUMENT_ARRAY_SHAPE )

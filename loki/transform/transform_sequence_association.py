@@ -18,7 +18,7 @@ from loki.types import BasicType
 
 
 __all__ = [
-    'fix_scalar_syntax'
+    'fix_sequence_association'
 ]
 
 def check_if_scalar_syntax(arg, dummy):
@@ -175,7 +175,7 @@ def process_symbol(symbol, caller, call):
     if call.routine in caller.members and symbol in caller.variables:
         return symbol
 
-    raise RuntimeError('[Loki::fix_scalar_syntax] Unable to resolve argument dimension. Module variable?')
+    raise RuntimeError('[Loki::fix_sequence_association] Unable to resolve argument dimension. Module variable?')
 
 
 def construct_length(xrange, caller, call):
@@ -196,7 +196,7 @@ def construct_length(xrange, caller, call):
     return single_sum(new_stop) - new_start + IntLiteral(1)
 
 
-def fix_scalar_syntax(routine):
+def fix_sequence_association(routine):
     """
     Housekeeping routine to replace scalar syntax when passing arrays as arguments
     For example, a call like

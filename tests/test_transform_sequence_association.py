@@ -8,7 +8,7 @@
 import pytest
 
 from conftest import available_frontends
-from loki.transform import fix_scalar_syntax
+from loki.transform import fix_sequence_association
 from loki.module import Module
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
@@ -126,7 +126,7 @@ end module mod_a
     module = Module.from_source(fcode, frontend=frontend)
     routine = module['main']
 
-    fix_scalar_syntax(routine)
+    fix_sequence_association(routine)
 
     calls = FindNodes(CallStatement).visit(routine.body)
 
