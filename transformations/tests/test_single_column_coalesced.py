@@ -1727,8 +1727,7 @@ def test_single_column_coalesced_vector_section_trim_complex(frontend, horizonta
 @pytest.mark.parametrize('inline_members', [False, True])
 @pytest.mark.parametrize('resolve_sequence_association', [False, True])
 def test_single_column_coalesced_inline_and_sequence_association(frontend, horizontal,
-                                                                 inline_members, resolve_sequence_association,
-                                                                 capsys):
+                                                                 inline_members, resolve_sequence_association):
     """
     Test the combinations of routine inlining and sequence association
     """
@@ -1766,40 +1765,35 @@ def test_single_column_coalesced_inline_and_sequence_association(frontend, horiz
 
     #Not really doing anything for contained routines
     if (not inline_members and not resolve_sequence_association):
-       scc_transform.apply(routine, role='kernel')
+        scc_transform.apply(routine, role='kernel')
 
-       assert len(routine.members) == 1
-       assert not FindNodes(Loop).visit(routine.body)
+        assert len(routine.members) == 1
+        assert not FindNodes(Loop).visit(routine.body)
 
     #Should fail because it can't resolve sequence association
     elif (inline_members and not resolve_sequence_association):
-       with pytest.raises(RuntimeError) as e_info:
-          scc_transform.apply(routine, role='kernel')
-       assert(e_info.exconly() ==
-              'RuntimeError: [Loki::TransformInline] Unable to resolve member subroutine call')
+        with pytest.raises(RuntimeError) as e_info:
+            scc_transform.apply(routine, role='kernel')
+        assert(e_info.exconly() ==
+               'RuntimeError: [Loki::TransformInline] Unable to resolve member subroutine call')
 
     #Check that the call is properly modified
     elif (not inline_members and resolve_sequence_association):
-       scc_transform.apply(routine, role='kernel')
+        scc_transform.apply(routine, role='kernel')
 
-       assert len(routine.members) == 1
-       call = FindNodes(CallStatement).visit(routine.body)[0]
-       assert fgen(call).lower() == 'call contained_kernel(work(1:nlon))'
+        assert len(routine.members) == 1
+        call = FindNodes(CallStatement).visit(routine.body)[0]
+        assert fgen(call).lower() == 'call contained_kernel(work(1:nlon))'
 
     #Check that the contained subroutine has been inlined
     else:
-       scc_transform.apply(routine, role='kernel')
+        scc_transform.apply(routine, role='kernel')
 
-       assert len(routine.members) == 0
+        assert len(routine.members) == 0
 
-       loop = FindNodes(Loop).visit(routine.body)[0]
-       assert loop.variable == 'jl'
-       assert loop.bounds == 'start:end'
+        loop = FindNodes(Loop).visit(routine.body)[0]
+        assert loop.variable == 'jl'
+        assert loop.bounds == 'start:end'
 
-       assign = FindNodes(Assignment).visit(loop.body)[0]
-       assert fgen(assign).lower() == 'work(jl) = 1.'
-
-
-
-
-
+        assign = FindNodes(Assignment).visit(loop.body)[0]
+        assert fgen(assign).lower() == 'work(jl) = 1.'
