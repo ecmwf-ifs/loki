@@ -5,12 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import pymbolic.primitives as pmbl
-
-from loki.expression import (
-    Sum, Product, IntLiteral, Array, RangeIndex,
-    SubstituteExpressions
-    )
+from loki.expression import Array, RangeIndex
 from loki.ir import CallStatement
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -39,167 +34,12 @@ def check_if_scalar_syntax(arg, dummy):
     return False
 
 
-def single_sum(expr):
-    """
-    Return a Sum object of expr if expr is not an instance of pymbolic.primitives.Sum.
-    Otherwise return expr
-
-    Parameters
-    ----------
-    expr: any pymbolic expression
-    """
-
-    if isinstance(expr, pmbl.Sum):
-        return expr
-    return Sum((expr,))
-
-
-def product_value(expr):
-    """
-    If expr is an instance of pymbolic.primitives.Product, try to evaluate it
-    If it is possible, return the value as an int.
-    If it is not possible, try to simplify the the product and return as a Product
-    If it is not a pymbolic.primitives.Product , return expr
-
-    Note: Negative numbers and subtractions in Sums are represented as Product of
-          the integer -1 and the symbol. This complicates matters.
-    Note: Ensure that a Loki Product is returned, not a pymbolic Product
-
-    Parameters
-    ----------
-    expr: any pymbolic expression
-    """
-    if isinstance(expr, pmbl.Product):
-        m = 1
-        new_children = []
-        for c in expr.children:
-            if isinstance(c, IntLiteral):
-                m = m*c.value
-            elif isinstance(c, int):
-                m = m*c
-            else:
-                new_children += [c]
-        if m == 0:
-            return 0
-        if not new_children:
-            return m
-
-        if m > 1:
-            new_children = [IntLiteral(m)] + new_children
-        elif m == -1:
-            new_children = [-1] + new_children
-        elif m < -1:
-            new_children = [-1, IntLiteral(abs(m))] + new_children
-
-        return Product(as_tuple(new_children))
-
-    return expr
-
-
-def simplify_sum(expr):
-    """
-    If expr is an instance of pymbolic.primitives.Sum,
-    try to simplify it by evaluating any Products and adding up ints and IntLiterals.
-    If the sum can be reduced to a number, it returns an IntLiteral
-    If the Sum reduces to one expression, it returns that expression
-
-    Note: Ensure that a Loki Sum is returned, not a pymbolic Sum
-
-    Parameters
-    ----------
-    expr: any pymbolic expression
-    """
-
-    if isinstance(expr, pmbl.Sum):
-        n = 0
-        new_children = []
-        for c in expr.children:
-            c = product_value(c)
-            if isinstance(c, IntLiteral):
-                n += c.value
-            elif isinstance(c, int):
-                n += c
-            else:
-                new_children += [c]
-
-        if new_children:
-            if n > 0:
-                new_children += [IntLiteral(n)]
-            elif n < 0:
-                new_children += [Product((-1,IntLiteral(abs(n))))]
-
-            if len(new_children) > 1:
-                return Sum(as_tuple(new_children))
-            return new_children[0]
-        return IntLiteral(n)
-    return expr
-
-
-def construct_range_index(lower, length):
-    """
-    Construct a range index from lower to lower + length - 1
-
-    Parameters
-    ----------
-    lower : any pymbolic expression
-    length: any pymbolic expression
-    """
-
-    new_high = simplify_sum(single_sum(length) + lower - IntLiteral(1))
-
-    return RangeIndex((lower, new_high))
-
-
-def process_symbol(symbol, caller, call):
-    """
-    Map symbol in call.routine to the appropriate symbol in caller,
-    taking any parents into account
-
-    Parameters
-    ----------
-    symbol: Loki variable in call.routine
-    caller: Subroutine object containing call
-    call  : Call object
-    """
-
-    if isinstance(symbol, IntLiteral):
-        return symbol
-
-    if not symbol.parents:
-        if symbol in call.routine.arguments:
-            return call.arg_map[symbol]
-
-    elif symbol.parents[0] in call.routine.arguments:
-        return SubstituteExpressions(call.arg_map).visit(symbol.clone(scope=caller))
-
-    if call.routine in caller.members and symbol in caller.variables:
-        return symbol
-
-    raise RuntimeError('[Loki::transform_sequence_association] Unable to resolve argument dimension. Module variable?')
-
-
-def construct_length(xrange, caller, call):
-    """
-    Construct an expression for the length of xrange,
-    defined in call.routine, in caller.
-
-    Parameters
-    ----------
-    xrange: RangeIndex object defined in call.routine
-    caller: Subroutine object
-    call  : call contained in caller
-    """
-
-    new_start = process_symbol(xrange.start, caller, call)
-    new_stop  = process_symbol(xrange.stop, caller, call)
-
-    return single_sum(new_stop) - new_start + IntLiteral(1)
-
-
 def transform_sequence_association(routine):
     """
     Housekeeping routine to replace scalar syntax when passing arrays as arguments
     For example, a call like
+
+    real :: a(m,n)
 
     call myroutine(a(i,j))
 
@@ -211,12 +51,7 @@ def transform_sequence_association(routine):
 
     should be changed to
 
-    call myroutine(a(i:i+5,j)
-
-    Note: Using the __add__ and __mul__ functions of Sum and Product, respectively,
-          returns the pymbolic.primitives version of the objuect, not the loki.expressions version.
-          simplify_sum and product_value returns loki versions, so this is currently not an issue,
-          but this can cause unexpected behaviour
+    call myroutine(a(i:m,j)
 
     Parameters
     ----------
@@ -238,12 +73,12 @@ def transform_sequence_association(routine):
                 found_scalar = True
 
                 new_dims = []
-                for s, lower in zip(dummy.shape, arg.dimensions):
+                for s, lower, d in zip(arg.shape, arg.dimensions, dummy.shape):
 
                     if isinstance(s, RangeIndex):
-                        new_dims += [construct_range_index(lower, construct_length(s, routine, call))]
+                        new_dims += [RangeIndex((lower, s.stop))]
                     else:
-                        new_dims += [construct_range_index(lower, process_symbol(s, routine, call))]
+                        new_dims += [RangeIndex((lower, s))]
 
                 if len(arg.dimensions) > len(dummy.shape):
                     new_dims += arg.dimensions[len(dummy.shape):]
