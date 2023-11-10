@@ -73,7 +73,9 @@ def transform_sequence_association(routine):
                 found_scalar = True
 
                 new_dims = []
-                for s, lower, d in zip(arg.shape, arg.dimensions, dummy.shape):
+                for i in range(len(dummy.shape)):
+                    s = arg.shape[i]
+                    lower = arg.dimensions[i]
 
                     if isinstance(s, RangeIndex):
                         new_dims += [RangeIndex((lower, s.stop))]

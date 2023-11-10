@@ -7,13 +7,13 @@
 
 import pytest
 
-from loki import fgen
 from conftest import available_frontends
+
+from loki.backend import fgen
 from loki.transform import transform_sequence_association
 from loki.module import Module
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
-from loki.expression import Sum, IntLiteral, Scalar, Product
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_scalar_notation(frontend):
