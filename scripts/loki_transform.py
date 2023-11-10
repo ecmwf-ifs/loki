@@ -175,7 +175,7 @@ def convert(
     if 'scc' in mode:
         scheduler.process( RemoveCallsTransformation(
             routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
-            include_intrinsics=True
+            include_intrinsics=True, kernel_only=True
         ))
     else:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )

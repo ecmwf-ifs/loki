@@ -184,8 +184,32 @@ class GraphCollector(Visitor):
             A list of a tuple of a node and potentially a edge information
         """
         label = kwargs.get("label", "")
+
         if label == "":
             label = self.format_node(repr(node))
+
+        try:
+            live_symbols = "live: [" + ", ".join(
+                str(symbol) for symbol in node.live_symbols
+            )
+            defines_symbols = "defines: [" + ", ".join(
+                str(symbol) for symbol in node.defines_symbols
+            )
+            uses_symbols = "uses: [" + ", ".join(
+                str(symbol) for symbol in node.uses_symbols
+            )
+            label = self.format_line(
+                label,
+                "\n",
+                live_symbols,
+                "], ",
+                defines_symbols,
+                "], ",
+                uses_symbols,
+                "]",
+            )
+        except (RuntimeError, KeyError, AttributeError) as _:
+            pass
 
         shape = kwargs.get("shape", "oval")
 
@@ -321,8 +345,7 @@ class GraphCollector(Visitor):
         return node_edge_info
 
 
-def ir_graph(
-    ir, show_comments=False, show_expressions=False, linewidth=40, symgen=str):
+def ir_graph(ir, show_comments=False, show_expressions=False, linewidth=40, symgen=str):
     """
     Pretty-print the given IR using :class:`GraphCollector`.
 
@@ -342,8 +365,12 @@ def ir_graph(
     log = "[Loki::Graph Visualization] Created graph visualization in {:.2f}s"
 
     with Timer(text=log):
-        graph_representation = GraphCollector(show_comments, show_expressions, linewidth, symgen)
-        node_edge_info = [item for item in graph_representation.visit(ir) if item is not None]
+        graph_representation = GraphCollector(
+            show_comments, show_expressions, linewidth, symgen
+        )
+        node_edge_info = [
+            item for item in graph_representation.visit(ir) if item is not None
+        ]
 
         graph = Digraph()
         graph.attr(rankdir="LR")
