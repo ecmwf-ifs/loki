@@ -72,17 +72,16 @@ def transform_sequence_association(routine):
             if check_if_scalar_syntax(arg, dummy):
                 found_scalar = True
 
+                n_dims = len(dummy.shape)
                 new_dims = []
-                for i in range(len(dummy.shape)):
-                    s = arg.shape[i]
-                    lower = arg.dimensions[i]
+                for s, lower in zip(arg.shape[:n_dims], arg.dimensions[:n_dims]):
 
                     if isinstance(s, RangeIndex):
                         new_dims += [RangeIndex((lower, s.stop))]
                     else:
                         new_dims += [RangeIndex((lower, s))]
 
-                if len(arg.dimensions) > len(dummy.shape):
+                if len(arg.dimensions) > n_dims:
                     new_dims += arg.dimensions[len(dummy.shape):]
                 new_args += [arg.clone(dimensions=as_tuple(new_dims)),]
             else:
