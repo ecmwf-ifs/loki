@@ -1492,9 +1492,13 @@ end module fypp_mod
     assert module.routines[1].name == 'last_routine'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
-def test_frontend_empty_file(frontend):
+@pytest.mark.parametrize(
+    'frontend', 
+    available_frontends(include_regex=True, xfail=[(OMNI, 'OMNI may segfault on empty files')])
+)
+@pytest.mark.parametrize('fcode', ['', '\n', '\n\n\n\n'])
+def test_frontend_empty_file(frontend, fcode):
     """Ensure that all frontends can handle empty source files correctly (#186)"""
-    source = Sourcefile.from_source("\n", frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     assert isinstance(source.ir, Section)
     assert not source.to_fortran().strip()
