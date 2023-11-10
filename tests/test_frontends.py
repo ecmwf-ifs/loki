@@ -134,9 +134,7 @@ end module alloc_mod
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_associates(here, frontend):
-    """
-    Test the use of associate to access and modify other items
-    """
+    """Test the use of associate to access and modify other items"""
 
     fcode = """
 module derived_types_mod
@@ -255,9 +253,7 @@ END SUBROUTINE
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_associates_expr(here, frontend):
-    """
-    Verify that associates with expressions are supported
-    """
+    """Verify that associates with expressions are supported"""
     fcode = """
 subroutine associates_expr(in, out)
   implicit none
@@ -296,9 +292,7 @@ end subroutine associates_expr
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_enum(here, frontend):
-    """
-    Verify that enums are represented correctly
-    """
+    """Verify that enums are represented correctly"""
     # F2008, Note 4.67
     fcode = """
 subroutine test_enum (out)
