@@ -13,7 +13,7 @@ from loki import (
     Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
     config, REGEX, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective, config_override
+    PreprocessorDirective, config_override, Section
 )
 from loki.expression import symbols as sym
 
@@ -134,9 +134,7 @@ end module alloc_mod
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_associates(here, frontend):
-    """
-    Test the use of associate to access and modify other items
-    """
+    """Test the use of associate to access and modify other items"""
 
     fcode = """
 module derived_types_mod
@@ -255,9 +253,7 @@ END SUBROUTINE
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_associates_expr(here, frontend):
-    """
-    Verify that associates with expressions are supported
-    """
+    """Verify that associates with expressions are supported"""
     fcode = """
 subroutine associates_expr(in, out)
   implicit none
@@ -296,9 +292,7 @@ end subroutine associates_expr
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_enum(here, frontend):
-    """
-    Verify that enums are represented correctly
-    """
+    """Verify that enums are represented correctly"""
     # F2008, Note 4.67
     fcode = """
 subroutine test_enum (out)
@@ -1490,3 +1484,15 @@ end module fypp_mod
     assert len(module.routines) == 2
     assert module.routines[0].name == 'first_routine'
     assert module.routines[1].name == 'last_routine'
+
+
+@pytest.mark.parametrize(
+    'frontend', 
+    available_frontends(include_regex=True, xfail=[(OMNI, 'OMNI may segfault on empty files')])
+)
+@pytest.mark.parametrize('fcode', ['', '\n', '\n\n\n\n'])
+def test_frontend_empty_file(frontend, fcode):
+    """Ensure that all frontends can handle empty source files correctly (#186)"""
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    assert isinstance(source.ir, Section)
+    assert not source.to_fortran().strip()
