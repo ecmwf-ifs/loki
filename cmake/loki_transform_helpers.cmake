@@ -112,6 +112,10 @@ macro( _loki_transform_parse_options )
         list( APPEND _ARGS --inline-members )
     endif()
 
+    if( _PAR_RESOLVE_SEQUENCE_ASSOCIATION )
+        list( APPEND _ARGS --resolve-sequence-association )
+    endif()
+
     if( _PAR_DERIVE_ARGUMENT_ARRAY_SHAPE )
         list( APPEND _ARGS --derive-argument-array-shape )
     endif()

@@ -7,7 +7,7 @@
 
 import re
 from loki.expression import symbols as sym
-from loki.transform import resolve_associates, inline_member_procedures
+from loki.transform import resolve_associates, inline_member_procedures, transform_sequence_association
 from loki import (
     Transformation, FindNodes, Transformer, info,
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
@@ -40,13 +40,14 @@ class SCCBaseTransformation(Transformation):
         Enable full source-inlining of member subroutines; default: False.
     """
 
-    def __init__(self, horizontal, directive=None, inline_members=False):
+    def __init__(self, horizontal, directive=None, inline_members=False, resolve_sequence_association=False):
         self.horizontal = horizontal
 
         assert directive in [None, 'openacc']
         self.directive = directive
 
         self.inline_members = inline_members
+        self.resolve_sequence_association = resolve_sequence_association
 
     @classmethod
     def check_routine_pragmas(cls, routine, directive):
@@ -290,6 +291,10 @@ class SCCBaseTransformation(Transformation):
 
         # Find the iteration index variable for the specified horizontal
         v_index = self.get_integer_variable(routine, name=self.horizontal.index)
+
+        # Transform arrays passed with scalar syntax to array syntax
+        if self.resolve_sequence_association:
+            transform_sequence_association(routine)
 
         # Perform full source-inlining for member subroutines if so requested
         if self.inline_members:
