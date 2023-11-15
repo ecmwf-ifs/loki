@@ -328,20 +328,25 @@ class FortranCodegen(Stringifier):
         # the symbol has a known derived type
         ignore = ['shape', 'dimensions', 'variables', 'source', 'initial']
 
-        if isinstance(types[0].dtype, ProcedureType):
+        # Statement functions can share declarations with scalars, so we collect the variable types here
+        _var_types = [t.dtype.return_type.dtype if isinstance(t.dtype, ProcedureType) else t.dtype for t in types]
+        _procedure_types = [t for t in types if isinstance(t.dtype, ProcedureType)]
+
+        if len(_procedure_types) > 0:
             # Statement functions are the only symbol with ProcedureType that should appear
             # in a VariableDeclaration as all other forms of procedure declarations (bindings,
             # pointers, EXTERNAL statements) are handled by ProcedureDeclaration.
             # However, the fact that statement function declarations can appear mixed with actual
             # variable declarations forbids this in this case.
-            assert types[0].is_stmt_func
+            assert _procedure_types[0].is_stmt_func
             # TODO: We can't fully compare statement functions, yet but we can make at least sure
             # other declared attributes are compatible and that all have the same return type
             ignore += ['dtype']
-            assert all(t.dtype.return_type == types[0].dtype.return_type or
-                       t.dtype.return_type.compare(types[0].dtype.return_type, ignore=ignore) for t in types)
+            assert all(t.dtype.return_type == _procedure_types[0].dtype.return_type or
+                       t.dtype.return_type.compare(_procedure_types[0].dtype.return_type, ignore=ignore)
+                       for t in _procedure_types)
 
-        assert all(t.compare(types[0], ignore=ignore) for t in types)
+        assert all((t == _var_types[0]) for t in _var_types)
 
         is_function = isinstance(types[0].dtype, ProcedureType) and types[0].dtype.is_function
         if is_function:

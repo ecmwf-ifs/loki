@@ -1493,8 +1493,7 @@ subroutine subroutine_stmt_func(a, b)
     integer, intent(in) :: a
     integer, intent(out) :: b
     integer :: array(a)
-    integer :: i, j
-    integer :: plus, minus
+    integer :: i, j, plus, minus
     plus(i, j) = i + j
     minus(i, j) = i - j
     integer :: mult
