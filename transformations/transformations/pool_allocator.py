@@ -13,7 +13,7 @@ from loki import (
     SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, LogicLiteral,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Cast,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation, is_dimension_constant,
-    Loop, Pragma, SubroutineItem, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
+    Loop, Pragma, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -129,7 +129,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         role = kwargs['role']
         item = kwargs.get('item', None)
-        targets = kwargs.get('targets', None)
+        targets = as_tuple(kwargs.get('targets', None))
 
         self.stack_type_kind = 'JPRB'
         if item:
@@ -375,15 +375,19 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         # Collect variable kind imports from successors
         if item:
-            item.trafo_data[self._key]['kind_imports'].update({k: v
-                                                           for s in successors if isinstance(s, SubroutineItem)
-                                                           for k, v in s.trafo_data[self._key]['kind_imports'].items()})
+            item.trafo_data[self._key]['kind_imports'].update({
+                k: v
+                for s in successors
+                for k, v in s.trafo_data.get(self._key, {}).get('kind_imports', {}).items()
+            })
 
         # Note: we are not using a CaseInsensitiveDict here to be able to search directly with
         # Variable instances in the dict. The StrCompareMixin takes care of case-insensitive
         # comparisons in that case
-        successor_map = {successor.routine.name.lower(): successor for successor in successors
-                                                         if isinstance(successor, SubroutineItem)}
+        successor_map = {
+            successor.local_name.lower(): successor
+            for successor in successors
+        }
 
         # Collect stack sizes for successors
         # Note that we need to translate the names of variables used in the expressions to the
