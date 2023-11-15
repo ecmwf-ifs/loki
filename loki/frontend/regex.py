@@ -468,8 +468,8 @@ class SubroutineFunctionPattern(Pattern):
             r'^(?P<prefix>[ \t\w()=]*)?(?P<keyword>subroutine|function)[ \t]+(?P<name>\w+)\b.*?$'
             r'(?P<spec>(?:.*?(?:^(?:abstract[ \t]+)?interface\b.*?^end[ \t]+interface)?)+)'
             r'(?P<contains>^contains\n(?:'
-            r'(?:[ \t\w()]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
-            r'(?:[ \t\w()]*?function.*?^end[ \t]*function\b(?:[ \t]\w+)?\n)|'
+            r'(?:[ \t\w()=]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
+            r'(?:[ \t\w()=]*?function.*?^end[ \t]*function\b(?:[ \t]\w+)?\n)|'
             r'(?:^#\w+.*?\n)'
             r')*)?'
             r'^end[ \t]*(?P=keyword)\b(?:[ \t](?P=name))?',
