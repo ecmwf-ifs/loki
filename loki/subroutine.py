@@ -15,7 +15,7 @@ from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.program_unit import ProgramUnit
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, ProcedureType, DerivedType, SymbolAttributes
+from loki.types import BasicType, ProcedureType, SymbolAttributes
 
 
 __all__ = ['Subroutine']
@@ -432,67 +432,60 @@ class Subroutine(ProgramUnit):
         routine.spec = Transformer(decl_map).visit(self.spec)
         return ir.Interface(body=(routine,))
 
-    def enrich_calls(self, routines):
+    def enrich(self, definitions, recurse=False):
         """
-        Update :any:`SymbolAttributes` for the ``name`` property of
-        :any:`CallStatement` nodes to provide links to the :any:`Subroutine`
-        nodes given in :data:`routines`.
+        Apply :any:`ProgramUnit.enrich` and expand enrichment to calls declared
+        via interfaces
 
         Parameters
         ----------
-        routines : (list of) :any:`Subroutine`
-            Possible targets of :any:`CallStatement` calls
+        definitions : list of :any:`ProgramUnit`
+            A list of all available definitions
+        recurse : bool, optional
+            Enrich contained scopes
         """
-        routine_map = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
+        # First, enrich imported symbols
+        super().enrich(definitions, recurse=recurse)
 
+        # Secondly, take care of procedures that are declared via interface block includes
+        # and therefore are not discovered via module imports
+        definitions_map = CaseInsensitiveDict((r.name, r) for r in as_tuple(definitions))
         with pragmas_attached(self, ir.CallStatement, attach_pragma_post=False):
             for call in FindNodes(ir.CallStatement).visit(self.body):
-                name = str(call.name)
                 # Calls marked as 'reference' are inactive and thus skipped
                 not_active = is_loki_pragma(call.pragma, starts_with='reference')
+                if call.not_active is not not_active:
+                    call._update(not_active=not_active)
 
-                # Update symbol table if necessary and present in routine_map
-                routine = routine_map.get(name)
+                symbol = call.name
+
+                routine = definitions_map.get(symbol.name)
                 if isinstance(routine, sym.ProcedureSymbol):
                     # Type-bound procedure: shortcut to bound procedure if not generic
                     if routine.type.bind_names and len(routine.type.bind_names) == 1:
                         routine = routine.type.bind_names[0].type.dtype.procedure
                     else:
                         routine = None
-                if routine is not None:
-                    name_type = call.name.type
-                    update_symbol = (
-                        call.name.scope is None or                # No scope attached
-                        name_type.dtype is BasicType.DEFERRED or  # No ProcedureType attached
-                        name_type.dtype.procedure is not routine  # ProcedureType not linked to routine
-                    )
-                    if update_symbol:
-                        # Remove existing symbol from symbol table if defined in interface block
-                        for node in [node for intf in self.interfaces for node in intf.body]:
-                            if getattr(node, 'name', None) == call.name:
-                                if node.parent == self:
-                                    node.parent = None
 
-                        # Need to update the call's symbol to establish link to routine
-                        name_type = name_type.clone(dtype=routine.procedure_type)
-                        call._update(name=call.name.clone(scope=self, type=name_type), not_active=not_active)
+                is_not_enriched = (
+                    symbol.scope is None or                         # No scope attached
+                    symbol.type.dtype is BasicType.DEFERRED or      # Wrong datatype
+                    symbol.type.dtype.procedure is not routine      # ProcedureType not linked
+                )
 
-                # In any case, update the not_active attribute
-                if call.not_active is not not_active:
-                    # Need to update only the active status of the call
-                    call._update(not_active=not_active)
+                # Skip already enriched symbols and routines without definitions
+                if not (routine and is_not_enriched):
+                    continue
 
-        # TODO: Could extend this to module and header imports to
-        # facilitate user-directed inlining.
+                # Remove existing symbol from symbol table if defined in interface block
+                for node in [node for intf in self.interfaces for node in intf.body]:
+                    if getattr(node, 'name', None) == symbol:
+                        if node.parent == self:
+                            node.parent = None
 
-    def enrich_types(self, typedefs):
-
-        type_map = CaseInsensitiveDict((t.name, t) for t in as_tuple(typedefs))
-        for variable in self.variables:
-            type_ = variable.type
-            if isinstance(type_.dtype, DerivedType) and type_.dtype.typedef is BasicType.DEFERRED:
-                if type_.dtype.name in type_map:
-                    variable.type = type_.clone(dtype=DerivedType(typedef=type_map[type_.dtype.name]))
+                # Need to update the call's symbol to establish link to routine
+                symbol = symbol.clone(scope=self, type=symbol.type.clone(dtype=routine.procedure_type))
+                call._update(name=symbol)
 
     def __repr__(self):
         """

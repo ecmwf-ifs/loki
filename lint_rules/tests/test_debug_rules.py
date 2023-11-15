@@ -82,7 +82,7 @@ end subroutine kernel
 
     driver = driver_source['driver']
     kernel = kernel_source['kernel']
-    driver.enrich_calls([kernel,])
+    driver.enrich([kernel,])
 
     messages = []
     handler = DefaultHandler(target=messages.append)
@@ -155,7 +155,7 @@ end subroutine kernel
 
     driver = driver_source['driver']
     kernel = kernel_source['kernel']
-    driver.enrich_calls([kernel,])
+    driver.enrich([kernel,])
 
     messages = []
     handler = DefaultHandler(target=messages.append)

@@ -307,7 +307,7 @@ end subroutine test
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
-    routine.enrich_calls(source.all_subroutines)
+    routine.enrich(source.all_subroutines)
     call = FindNodes(CallStatement).visit(routine.body)[0]
 
     with dataflow_analysis_attached(routine):
@@ -443,7 +443,7 @@ end subroutine test
     routine = source['test']
 
     call = FindNodes(CallStatement).visit(routine.body)[0]
-    routine.enrich_calls(source.all_subroutines)
+    routine.enrich(source.all_subroutines)
 
     with dataflow_analysis_attached(routine):
         assert 'n' in call.uses_symbols

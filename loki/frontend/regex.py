@@ -978,7 +978,9 @@ class CallPattern(Pattern):
         for cname in name_parts[1:]:
             name = sym.Variable(name=name.name + '%' + cname, parent=name, scope=scope)  # pylint:disable=no-member
 
-        scope.symbol_attrs[call] = scope.symbol_attrs[call].clone(dtype=ProcedureType(name=call, is_function=False))
+        scope.symbol_attrs[call] = scope.symbol_attrs.lookup(call).clone(
+            dtype=ProcedureType(name=call, is_function=False)
+        )
 
         source = reader.source_from_current_line()
         if match['conditional']:
