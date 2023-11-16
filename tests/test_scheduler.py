@@ -1663,6 +1663,8 @@ end subroutine driver
         assert isinstance(call.name.type.dtype, ProcedureType)
         assert call.name.parent
         assert isinstance(call.name.parent.type.dtype, DerivedType)
+        assert isinstance(call.routine, Subroutine)
+        assert isinstance(call.name.type.dtype.procedure, Subroutine)
 
     assert isinstance(calls[0].name.parent, Scalar)
     assert calls[0].name.parent.type.dtype.name == 'third_type'

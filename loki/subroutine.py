@@ -11,11 +11,12 @@ from loki.frontend import (
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, get_fparser_node,
     parse_regex_source
 )
+from loki.logging import debug
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.program_unit import ProgramUnit
-from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, ProcedureType, SymbolAttributes
+from loki.visitors import FindNodes, Transformer
 
 
 __all__ = ['Subroutine']
@@ -458,14 +459,16 @@ class Subroutine(ProgramUnit):
                     call._update(not_active=not_active)
 
                 symbol = call.name
-
                 routine = definitions_map.get(symbol.name)
-                if isinstance(routine, sym.ProcedureSymbol):
-                    # Type-bound procedure: shortcut to bound procedure if not generic
-                    if routine.type.bind_names and len(routine.type.bind_names) == 1:
-                        routine = routine.type.bind_names[0].type.dtype.procedure
-                    else:
-                        routine = None
+
+                if not routine and symbol.parent:
+                    # Type-bound procedure: try to obtain procedure from typedef
+                    if (dtype := symbol.parent.type.dtype) is not BasicType.DEFERRED:
+                        if (typedef := dtype.typedef) is not BasicType.DEFERRED:
+                            if proc_symbol := typedef.variable_map.get(symbol.name_parts[-1]):
+                                if (dtype := proc_symbol.type.dtype) is not BasicType.DEFERRED:
+                                    if dtype.procedure is not BasicType.DEFERRED:
+                                        routine = dtype.procedure
 
                 is_not_enriched = (
                     symbol.scope is None or                         # No scope attached
@@ -475,6 +478,7 @@ class Subroutine(ProgramUnit):
 
                 # Skip already enriched symbols and routines without definitions
                 if not (routine and is_not_enriched):
+                    debug('Cannot enrich call to %s', symbol)
                     continue
 
                 # Remove existing symbol from symbol table if defined in interface block
