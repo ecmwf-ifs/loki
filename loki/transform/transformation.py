@@ -184,19 +184,44 @@ class Transformation:
         if sourcefile._incomplete:
             raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
 
+        item = kwargs.pop('item', None)
+        items = kwargs.pop('items', None)
+        role = kwargs.pop('role', None)
+        targets = kwargs.pop('targets', None)
+
+        if 'items' in kwargs:
+            # TODO: This special logic is required for the
+            # DependencyTransformation to capture certain corner
+            # cases. Once the module wrapping is split into its
+            # own transformation, we can probably simplify this.
+
+            # We consider the sourcefile to be a "kernel" file if all items are kernels
+            if all(item.role == 'kernel' for item in items):
+                role = 'kernel'
+
+            if targets is None:
+                # We collect the targets for file/module-level imports from all items
+                targets = [target for item in items for target in item.targets]
+
         # Apply file-level transformations
-        self.transform_file(sourcefile, **kwargs)
+        self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
 
         # Recurse to modules, if configured
         if self.recurse_to_modules:
             for module in sourcefile.modules:
-                self.apply_module(module, **kwargs)
+                self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
 
         # Recurse into subroutine, if configured
         if self.recurse_to_subroutines:
-            # Recurse into free subroutines (will skip module-contained ones)
-            for routine in sourcefile.subroutines:
-                self.apply_subroutine(routine, **kwargs)
+            if items:
+                # Recursion into all subroutine items in the current file
+                for item in items:
+                    self.transform_subroutine(
+                        item.routine, item=item, role=item.role, targets=item.targets, **kwargs
+                    )
+            else:
+                for routine in sourcefile.all_subroutines:
+                    self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
 
     def apply_subroutine(self, subroutine, **kwargs):
         """
