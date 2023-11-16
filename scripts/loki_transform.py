@@ -332,7 +332,7 @@ def transpile(build, header, source, driver, cpp, include, define, frontend, xmo
                                   frontend=frontend)
     driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
     # Ensure that the kernel calls have all meta-information
-    driver[driver_name].enrich(routines=kernel[kernel_name])
+    driver[driver_name].enrich(kernel[kernel_name])
 
     kernel_item = SubroutineItem(f'#{kernel_name.lower()}', source=kernel)
     driver_item = SubroutineItem(f'#{driver_name.lower()}', source=driver)

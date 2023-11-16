@@ -60,7 +60,8 @@ from loki import (
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
-    Import, Variable, GenericImportItem, GlobalVarImportItem, flatten
+    Import, Variable, GenericImportItem, GlobalVarImportItem, flatten,
+    CaseInsensitiveDict
 )
 
 
@@ -120,6 +121,25 @@ class VisGraphWrapper:
     @property
     def edges(self):
         return list(self._re_edges.findall(self.text))
+
+
+def test_scheduler_enrichment(here, config, frontend):
+    projA = here/'sources/projA'
+
+    scheduler = Scheduler(
+        paths=projA, includes=projA/'include', config=config,
+        seed_routines=['driverA'], frontend=frontend
+    )
+
+    for item in scheduler.item_graph:
+        if not isinstance(item, SubroutineItem):
+            continue
+        dependency_map = CaseInsensitiveDict(
+            (item_.local_name, item_) for item_ in scheduler.item_successors(item)
+        )
+        for call in FindNodes(CallStatement).visit(item.routine.body):
+            if call_item := dependency_map.get(str(call.name)):
+                assert call.routine is call_item.routine
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
