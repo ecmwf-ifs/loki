@@ -9,10 +9,11 @@ from pathlib import Path
 from collections import OrderedDict
 
 from loki.dimension import Dimension
-from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.tools import as_tuple, CaseInsensitiveDict, load_module
+from loki.logging import error
 
 
-__all__ = ['SchedulerConfig']
+__all__ = ['SchedulerConfig', 'TransformationConfig']
 
 
 class SchedulerConfig:
@@ -39,13 +40,27 @@ class SchedulerConfig:
         Disable the inclusion of module imports as scheduler dependencies.
     """
 
-    def __init__(self, default, routines, disable=None, dimensions=None, dic2p=None, derived_types=None,
-                 enable_imports=False):
-        self.default = default
+    def __init__(
+            self, default, routines, disable=None, dimensions=None,
+            transformation_configs=None, dic2p=None, derived_types=None,
+            enable_imports=False
+    ):
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
         else:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
+
+        if isinstance(transformation_configs, dict):
+            self.transformation_configs = transformation_configs
+        else:
+            self.transformation_configs = dict((r.name, r) for r in as_tuple(transformation_configs))
+
+        # Instantiate Transformation objects
+        self.transformations = {
+            name: config.instantiate() for name, config in self.transformation_configs.items()
+        }
+
+        self.default = default
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
         self.enable_imports = enable_imports
@@ -76,6 +91,13 @@ class SchedulerConfig:
             dimensions = [Dimension(**d) for d in config['dimension']]
             dimensions = {d.name: d for d in dimensions}
 
+        # Create config objects for Transformation configurations
+        transformation_configs = config.get('transformations', {})
+        transformation_configs = {
+            name: TransformationConfig(name=name, **cfg)
+            for name, cfg in transformation_configs.items()
+        }
+
         dic2p = {}
         if 'dic2p' in config:
             dic2p = config['dic2p']
@@ -84,8 +106,11 @@ class SchedulerConfig:
         if 'derived_types' in config:
             derived_types = config['derived_types']
 
-        return cls(default=default, routines=routines, disable=disable, dimensions=dimensions, dic2p=dic2p,
-                   derived_types=derived_types, enable_imports=enable_imports)
+        return cls(
+            default=default, routines=routines, disable=disable, dimensions=dimensions,
+            transformation_configs=transformation_configs, dic2p=dic2p, derived_types=derived_types,
+            enable_imports=enable_imports
+        )
 
     @classmethod
     def from_file(cls, path):
@@ -95,3 +120,55 @@ class SchedulerConfig:
             config = toml.load(f)
 
         return cls.from_dict(config)
+
+
+class TransformationConfig:
+    """
+    Configuration object for :any:`Transformation` instances that can
+    be used to create :any:`Transformation` objects from dictionaries
+    or a config file.
+
+    Parameters
+    ----------
+    name : str
+        Name of the transformation object
+    module : str
+        Python module from which to load the transformation class
+    classname : str, optional
+        Name of the class to look for when instantiating the transformation.
+        If not provided, ``name`` will be used instead.
+    path : str or Path, optional
+        Path to add to the sys.path before attempting to load the ``module``
+    options : dict
+        Dicts of options that define the transformation behaviour.
+        These options will be passed as constructor arguments using
+        keyword-argument notation.
+    """
+
+    def __init__(self, name, module, classname=None, path=None, options=None):
+        self.name = name
+        self.module = module
+        self.classname = classname or self.name
+        self.path = path
+        self.options = dict(options)
+
+    def instantiate(self):
+        """
+        Creates instantiated :any:`Transformation` object from stored config options.
+        """
+        # Load the module that contains the transformations
+        mod = load_module(self.module, path=self.path)
+
+        # Check for and return Transformation class
+        if not hasattr(mod, self.classname):
+            raise RuntimeError('Failed to load Transformation class!')
+
+        # Attempt to instantiate transformation from config
+        try:
+            transformation = getattr(mod, self.classname)(**self.options)
+        except TypeError as e:
+            error(f'[Loki::Transformation] Failed to instiate {self.classname} from configuration')
+            error(f'    Options passed: {self.options}')
+            raise e
+
+        return transformation

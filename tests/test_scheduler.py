@@ -2339,3 +2339,30 @@ end subroutine my_driver
         dirname.rmdir()
     except FileNotFoundError:
         pass
+
+
+def test_transformation_config(config):
+    """
+    Test the correct instantiation of :any:`Transformation` objecst from config
+    """
+    my_config = config.copy()
+    my_config['transformation'] = [
+        {
+            'name': 'DependencyTransformation',
+            'module': 'loki.transform',
+            'option':
+            {
+                'suffix': '_rick',
+                'module_suffix': '_roll',
+                'replace_ignore_items': False,
+            }
+        }
+    ]
+    cfg = SchedulerConfig.from_dict(my_config)
+    assert cfg.transformations['DependencyTransformation']
+
+    transformation = cfg.transformations['DependencyTransformation']
+    assert isinstance(transformation, DependencyTransformation)
+    assert transformation.suffix == '_rick'
+    assert transformation.module_suffix == '_roll'
+    assert not transformation.replace_ignore_items
