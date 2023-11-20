@@ -61,7 +61,7 @@ from loki import (
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, Variable, GenericImportItem, GlobalVarImportItem, flatten,
-    CaseInsensitiveDict, ModuleWrapTransformation
+    CaseInsensitiveDict, ModuleWrapTransformation, Dimension
 )
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
@@ -2350,3 +2350,35 @@ def test_transformation_config(config):
     assert transformation.suffix == '_rick'
     assert transformation.module_suffix == '_roll'
     assert not transformation.replace_ignore_items
+
+
+def test_transformation_config_with_dimension(config):
+    """
+    Test instantiation of :any:`Transformation` from config with
+    :any:`Dimension` argument.
+    """
+    from transformations.single_column_coalesced import SCCBaseTransformation  # pylint: disable=import-outside-toplevel
+
+    my_config = config.copy()
+    my_config['dimensions'] = {
+        'ij': {'size': 'n', 'index': 'i'}
+    }
+    my_config['transformations'] = {
+        'SCCBase': {
+            'classname': 'SCCBaseTransformation',
+            'module': 'transformations.single_column_coalesced',
+            'options': { 'horizontal': '%dimensions.ij%', 'directive': 'openacc'}
+        }
+    }
+    cfg = SchedulerConfig.from_dict(my_config)
+    assert cfg.transformations['SCCBase']
+
+    transformation = cfg.transformations['SCCBase']
+    # assert isinstance(transformation, SCCBaseTransformation)
+    # TODO: The above check can fail, even though the class is correct.
+    # So instead we check that the class names is correct (ouch!)
+    assert str(type(transformation)) == str(SCCBaseTransformation)
+    assert isinstance(transformation.horizontal, Dimension)
+    assert transformation.horizontal.size == 'n'
+    assert transformation.horizontal.index == 'i'
+    assert transformation.directive == 'openacc'
