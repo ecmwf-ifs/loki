@@ -42,8 +42,7 @@ class SchedulerConfig:
 
     def __init__(
             self, default, routines, disable=None, dimensions=None,
-            transformation_configs=None, dic2p=None, derived_types=None,
-            enable_imports=False
+            transformation_configs=None, enable_imports=False
     ):
         self.default = default
         self.disable = as_tuple(disable)
@@ -69,15 +68,6 @@ class SchedulerConfig:
             name: config.instantiate() for name, config in self.transformation_configs.items()
         }
 
-        if dic2p is not None:
-            self.dic2p = dic2p
-        else:
-            self.dic2p = {}
-        if derived_types is not None:
-            self.derived_types = derived_types
-        else:
-            self.derived_types = ()
-
     @classmethod
     def from_dict(cls, config):
         default = config['default']
@@ -96,18 +86,9 @@ class SchedulerConfig:
             for name, cfg in transformation_configs.items()
         }
 
-        dic2p = {}
-        if 'dic2p' in config:
-            dic2p = config['dic2p']
-
-        derived_types = ()
-        if 'derived_types' in config:
-            derived_types = config['derived_types']
-
         return cls(
             default=default, routines=routines, disable=disable, dimensions=dimensions,
-            transformation_configs=transformation_configs, dic2p=dic2p, derived_types=derived_types,
-            enable_imports=enable_imports
+            transformation_configs=transformation_configs, enable_imports=enable_imports
         )
 
     @classmethod
