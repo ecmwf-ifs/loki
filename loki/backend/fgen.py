@@ -332,13 +332,13 @@ class FortranCodegen(Stringifier):
         _var_types = [t.dtype.return_type.dtype if isinstance(t.dtype, ProcedureType) else t.dtype for t in types]
         _procedure_types = [t for t in types if isinstance(t.dtype, ProcedureType)]
 
-        if len(_procedure_types) > 0:
+        if _procedure_types:
             # Statement functions are the only symbol with ProcedureType that should appear
             # in a VariableDeclaration as all other forms of procedure declarations (bindings,
             # pointers, EXTERNAL statements) are handled by ProcedureDeclaration.
             # However, the fact that statement function declarations can appear mixed with actual
             # variable declarations forbids this in this case.
-            assert _procedure_types[0].is_stmt_func
+            assert all(t.is_stmt_func for t in _procedure_types)
             # TODO: We can't fully compare statement functions, yet but we can make at least sure
             # other declared attributes are compatible and that all have the same return type
             ignore += ['dtype']
