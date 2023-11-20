@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import re
 from pathlib import Path
 
 from loki.dimension import Dimension
@@ -44,6 +45,11 @@ class SchedulerConfig:
             transformation_configs=None, dic2p=None, derived_types=None,
             enable_imports=False
     ):
+        self.default = default
+        self.disable = as_tuple(disable)
+        self.dimensions = dimensions
+        self.enable_imports = enable_imports
+
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
         else:
@@ -54,15 +60,14 @@ class SchedulerConfig:
         else:
             self.transformation_configs = dict((r.name, r) for r in as_tuple(transformation_configs))
 
+        # Resolve the dimensions for trafo configurations
+        for cfg in self.transformation_configs.values():
+            cfg.resolve_dimensions(dimensions)
+
         # Instantiate Transformation objects
         self.transformations = {
             name: config.instantiate() for name, config in self.transformation_configs.items()
         }
-
-        self.default = default
-        self.disable = as_tuple(disable)
-        self.dimensions = dimensions
-        self.enable_imports = enable_imports
 
         if dic2p is not None:
             self.dic2p = dic2p
@@ -138,12 +143,36 @@ class TransformationConfig:
         keyword-argument notation.
     """
 
+    _re_dimension = re.compile(r'\%dimensions?\.(.*)\%')
+
     def __init__(self, name, module, classname=None, path=None, options=None):
         self.name = name
         self.module = module
         self.classname = classname or self.name
         self.path = path
         self.options = dict(options)
+
+    def resolve_dimensions(self, dimensions):
+        """
+        Substitute :any:`Dimension` objects for placeholder strings.
+
+        The format of the string replacement matches the TOML
+        configuration.  It will attempt to replace ``%dimensions.dim_name%``
+        with a :any:`Dimension` found in :param dimensions:
+
+        Parameters
+        ----------
+        dimensions : dict
+            Dict matching string to pre-configured :any:`Dimension` objects.
+        """
+        for key, val in self.options.items():
+            if not isinstance(val, str):
+                continue
+
+            matches = self._re_dimension.findall(val)
+            matches = tuple(dimensions[m] for m in as_tuple(matches))
+            if matches:
+                self.options[key] = matches[0] if len(matches) == 1 else matches
 
     def instantiate(self):
         """
