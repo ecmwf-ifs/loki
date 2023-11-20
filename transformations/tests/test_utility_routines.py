@@ -26,9 +26,9 @@ def fixture_config():
         'default': {
             'role': 'kernel', 'expand': True, 'strict': True, 'disable': ['dr_hook', 'abor1']
         },
-        'routine': [
-            {'name': 'rick_astley', 'role': 'driver'},
-        ]
+        'routines': {
+            'rick_astley': {'role': 'driver'},
+        }
     }
     return default_config
 

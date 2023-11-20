@@ -64,7 +64,6 @@ from loki import (
     CaseInsensitiveDict, ModuleWrapTransformation
 )
 
-
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
 
 
@@ -228,17 +227,16 @@ def test_scheduler_graph_partial(here, config, frontend):
     """
     projA = here/'sources/projA'
 
-    config['routine'] = [
-        {
-            'name': 'compute_l1',
-            'role': 'driver',
-            'expand': True,
-        }, {
-            'name': 'another_l1',
+    config['routines'] = {
+        'compute_l1': {
             'role': 'driver',
             'expand': True,
         },
-    ]
+        'another_l1': {
+            'role': 'driver',
+            'expand': True,
+        },
+    }
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
 
@@ -402,17 +400,16 @@ def test_scheduler_process(here, config, frontend):
     """
     projA = here/'sources/projA'
 
-    config['routine'] = [
-        {
-            'name': 'compute_l1',
-            'role': 'driver',
-            'expand': True,
-        }, {
-            'name': 'another_l1',
+    config['routines'] = {
+        'compute_l1': {
             'role': 'driver',
             'expand': True,
         },
-    ]
+        'another_l1': {
+            'role': 'driver',
+            'expand': True,
+        },
+    }
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
 
@@ -447,9 +444,9 @@ def test_scheduler_process_filter(here, config, frontend):
     projA = here/'sources/projA'
     projB = here/'sources/projB'
 
-    config['routine'] = [
-        {'name': 'driverE_single', 'role': 'driver', 'expand': True,},
-    ]
+    config['routines'] = {
+        'driverE_single': {'role': 'driver', 'expand': True,},
+    }
 
 
     scheduler = Scheduler(
@@ -551,14 +548,13 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
     projB = here/'sources/projB'
 
     configA = config.copy()
-    configA['routine'] = [
-        {
-            'name': 'kernelB',
+    configA['routines'] = {
+        'kernelB': {
             'role': 'kernel',
             'ignore': ['ext_driver'],
             'enrich': ['ext_driver'],
         },
-    ]
+    }
 
     schedulerA = Scheduler(
         paths=[projA, projB], includes=projA/'include', config=configA,
@@ -594,12 +590,9 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
 
     # Test second scheduler instance that holds the receiver items
     configB = config.copy()
-    configB['routine'] = [
-        {
-            'name': 'ext_driver',
-            'role': 'kernel',
-        },
-    ]
+    configB['routines'] = {
+        'ext_driver': { 'role': 'kernel' },
+    }
 
     schedulerB = Scheduler(
         paths=projB, config=configB, seed_routines=['ext_driver'],
@@ -813,17 +806,17 @@ def test_scheduler_dependencies_ignore(here, frontend):
 
     configA = SchedulerConfig.from_dict({
         'default': {'role': 'kernel', 'expand': True, 'strict': True},
-        'routine': [
-            {'name': 'driverB', 'role': 'driver'},
-            {'name': 'kernelB', 'ignore': ['ext_driver']},
-        ]
+        'routines': {
+            'driverB': {'role': 'driver'},
+            'kernelB': {'ignore': ['ext_driver']},
+        }
     })
 
     configB = SchedulerConfig.from_dict({
         'default': {'role': 'kernel', 'expand': True, 'strict': True},
-        'routine': [
-            {'name': 'ext_driver', 'role': 'kernel'}
-        ]
+        'routines': {
+            'ext_driver': {'role': 'kernel'}
+        }
     })
 
     schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA, frontend=frontend)
@@ -880,10 +873,10 @@ def test_scheduler_cmake_planner(here, frontend):
 
     config = SchedulerConfig.from_dict({
         'default': {'role': 'kernel', 'expand': True, 'strict': True},
-        'routine': [
-            {'name': 'driverB', 'role': 'driver'},
-            {'name': 'kernelB', 'ignore': ['ext_driver']},
-        ]
+        'routines': {
+            'driverB': {'role': 'driver'},
+            'kernelB': {'ignore': ['ext_driver']},
+        }
     })
 
     # Populate the scheduler
@@ -1007,10 +1000,10 @@ def test_scheduler_item_children(here):
     """
     config = SchedulerConfig.from_dict({
         'default': {'role': 'kernel', 'expand': True, 'strict': True},
-        'routine': [
-            {'name': 'driver', 'role': 'driver'},
-            {'name': 'another_driver', 'role': 'driver'}
-        ]
+        'routines': {
+            'driver': { 'role': 'driver'},
+            'another_driver': { 'role': 'driver'}
+        }
     })
 
     proj_hoist = here/'sources/projHoist'
@@ -1407,12 +1400,11 @@ def test_scheduler_typebound_ignore(here, config, frontend):
 
     my_config = config.copy()
     my_config['default']['disable'] += ['some_type%some_routine', 'header_member_routine']
-    my_config['routine'] = [
-        {
-            'name': 'other_member',
+    my_config['routines'] = {
+        'other_member': {
             'disable': my_config['default']['disable'] + ['member_routine']
         }
-    ]
+    }
 
     scheduler = Scheduler(
         paths=proj, seed_routines=['driver'], config=my_config,
@@ -1803,13 +1795,12 @@ def test_scheduler_inline_call(here, config, frontend):
 
     my_config = config.copy()
     my_config['default']['enable_imports'] = True
-    my_config['routine'] = [
-        {
-            'name': 'driver',
+    my_config['routines'] = {
+        'driver': {
             'role': 'driver',
             'disable': ['return_one', 'some_var', 'add_args', 'some_type']
         }
-    ]
+    }
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
@@ -1837,12 +1828,9 @@ def test_scheduler_import_dependencies(here, config, frontend):
 
     my_config = config.copy()
     my_config['default']['enable_imports'] = True
-    my_config['routine'] = [
-        {
-            'name': 'driver',
-            'role': 'driver'
-        }
-    ]
+    my_config['routines'] = {
+        'driver': { 'role': 'driver' }
+    }
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
@@ -1895,12 +1883,9 @@ def test_scheduler_globalvarimportitem_id(here, config, frontend):
 
     my_config = config.copy()
     my_config['default']['enable_imports'] = True
-    my_config['routine'] = [
-        {
-            'name': 'driver',
-            'role': 'driver'
-        }
-    ]
+    my_config['routines'] = {
+        'driver': { 'role': 'driver' }
+    }
 
     scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
     importA_item = scheduler.item_map['vars_module#vara']
@@ -2346,18 +2331,17 @@ def test_transformation_config(config):
     Test the correct instantiation of :any:`Transformation` objecst from config
     """
     my_config = config.copy()
-    my_config['transformation'] = [
-        {
-            'name': 'DependencyTransformation',
+    my_config['transformations'] = {
+        'DependencyTransformation': {
             'module': 'loki.transform',
-            'option':
+            'options':
             {
                 'suffix': '_rick',
                 'module_suffix': '_roll',
                 'replace_ignore_items': False,
             }
         }
-    ]
+    }
     cfg = SchedulerConfig.from_dict(my_config)
     assert cfg.transformations['DependencyTransformation']
 

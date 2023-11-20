@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
-from collections import OrderedDict
 
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, load_module
@@ -77,19 +76,13 @@ class SchedulerConfig:
     @classmethod
     def from_dict(cls, config):
         default = config['default']
-        if 'routine' in config:
-            config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
-        else:
-            config['routines'] = []
-        routines = config['routines']
+        routines = config.get('routines', [])
         disable = default.get('disable', None)
         enable_imports = default.get('enable_imports', False)
 
         # Add any dimension definitions contained in the config dict
-        dimensions = {}
-        if 'dimension' in config:
-            dimensions = [Dimension(**d) for d in config['dimension']]
-            dimensions = {d.name: d for d in dimensions}
+        dimensions = config.get('dimensions', {})
+        dimensions = {k: Dimension(**d) for k, d in dimensions.items()}
 
         # Create config objects for Transformation configurations
         transformation_configs = config.get('transformations', {})

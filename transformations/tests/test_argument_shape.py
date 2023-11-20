@@ -373,10 +373,9 @@ def test_argument_shape_transformation_import(frontend, here):
              'expand': True,
              'strict': True
          },
-         'routine': [{
-             'name': 'driver',
-             'role': 'driver'
-         }]
+         'routines': {
+             'driver': {'role': 'driver'}
+         }
     }
 
     header = [here/'sources/projArgShape/var_module_mod.F90']

@@ -38,18 +38,16 @@ def fixture_config():
             'expand': True,
             'strict': True,
         },
-        'routine': [
-            {
-                'name': 'driver',
+        'routines': {
+            'driver': {
                 'role': 'driver',
                 'expand': True,
             },
-            {
-                'name': 'another_driver',
+            'another_driver': {
                 'role': 'driver',
                 'expand': True,
             },
-        ]
+        }
     }
 
 
@@ -167,7 +165,7 @@ def test_hoist_disable(here, frontend, config):
     """
 
     disable = ("device1", "device2")
-    config['routine'].append({'name': 'kernel2', 'role': 'kernel', 'ignore': disable})
+    config['routines']['kernel2'] = {'role': 'kernel', 'ignore': disable}
     proj = here/'sources/projHoist'
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
@@ -399,10 +397,9 @@ end module kernel_mod
             'expand': True,
             'strict': True
         },
-        'routine': [{
-            'name': 'driver',
-            'role': 'driver',
-        }]
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
     }
 
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
