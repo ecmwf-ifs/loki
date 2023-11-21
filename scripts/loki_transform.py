@@ -425,6 +425,11 @@ def convert(
     inline_trafo = type("InlineTrafo", (Transformation, object), {
         "transform_subroutine": lambda self, routine, **kwargs: inline_elemental_kernel(routine, **kwargs)})()
     # scheduler.process(transformation=inline_trafo)
+    
+    # Derived type transformation ...
+    # TODO: reintroduce
+    derived_type_transformation = DerivedTypeArgumentsTransformation()
+    scheduler.process(transformation=derived_type_transformation, reverse=True)
 
     # Pull dimension definition from configuration
     horizontal = scheduler.config.dimensions.get('horizontal', None)
@@ -432,8 +437,8 @@ def convert(
     block_dim = scheduler.config.dimensions.get('block_dim', None)
 
     # First, remove all derived-type arguments; caller first!
-    if True: # remove_derived_args:
-        scheduler.process( DerivedTypeArgumentsTransformation() )
+    # if True: # remove_derived_args:
+    #     scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
     ##if 'scc' in mode:

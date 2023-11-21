@@ -185,6 +185,7 @@ class CCodegen(Stringifier):
         # Generate header with argument signature
         aptr = []
         for a in o.arguments:
+            print(f"a: {a} | type(a) = {type(a)} | pointer? {a.type.pointer} | isArray? {isinstance(a, Array)}")
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if isinstance(a, Array) > 0:
                 aptr += ['*'] # ['* restrict '] # v_
@@ -205,9 +206,9 @@ class CCodegen(Stringifier):
         if o.prefix:
             if "global" in o.prefix[0].lower():
                 prefix = "__global__ "
-                arguments = list(map(lambda x: x.replace('struct tecldp *yrecldp', 'struct TECLDP *yrecldp'), list(arguments)))
+                # arguments = list(map(lambda x: x.replace('struct tecldp *yrecldp', 'struct TECLDP *yrecldp'), list(arguments)))
                 header += [self.format_line(prefix, 'void ', o.name, '(', self.join_items(arguments), ');')] 
-                header += [self.format_line('#include "load_state.h"')]
+                # header += [self.format_line('#include "load_state.h"')]
                 header += [self.format_line('#include "', o.name, '_launch.h', '"')]
                 global_whatever = True
                 # arguments = list(map(lambda x: x.replace('struct tecldp *yrecldp', 'struct TECLDP *yrecldp'), list(arguments))) 
@@ -247,11 +248,11 @@ class CCodegen(Stringifier):
         if skip_decls:
             body += [self.format_line('printf("executing c launch ...\\n");')]
             body += [self.format_line('printf("ngptot: %i,  nproma: %i\\n", ngptot, nproma);')]
-            body += [self.format_line('struct TECLDP *helper_yrecldp = (struct TECLDP*)malloc(sizeof(struct TECLDP));')]
-            body += [self.format_line('load_state_helper(helper_yrecldp);')]
-            body += [self.format_line('struct TECLDP *d_yrecldp;')]
-            body += [self.format_line('cudaMalloc(&d_yrecldp, sizeof(struct TECLDP));')]
-            body += [self.format_line('cudaMemcpy(d_yrecldp, helper_yrecldp, sizeof(TECLDP), cudaMemcpyHostToDevice);')]
+            # body += [self.format_line('struct TECLDP *helper_yrecldp = (struct TECLDP*)malloc(sizeof(struct TECLDP));')]
+            # body += [self.format_line('load_state_helper(helper_yrecldp);')]
+            # body += [self.format_line('struct TECLDP *d_yrecldp;')]
+            # body += [self.format_line('cudaMalloc(&d_yrecldp, sizeof(struct TECLDP));')]
+            # body += [self.format_line('cudaMemcpy(d_yrecldp, helper_yrecldp, sizeof(TECLDP), cudaMemcpyHostToDevice);')]
             body += [self.format_line('dim3 blockdim(nproma, 1, 1);')]
             body += [self.format_line('dim3 griddim(ceil(((double)ngptot) / ((double)nproma)), 1, 1);')]
 
@@ -437,7 +438,7 @@ class CCodegen(Stringifier):
         assert not o.kwarguments
         if o.chevron is not None:
             chevron = f"<<<{','.join([str(elem) for elem in o.chevron])}>>>"
-            args = list(map(lambda x: x.replace('yrecldp', 'd_yrecldp'), list(args)))
+            # args = list(map(lambda x: x.replace('yrecldp', 'd_yrecldp'), list(args)))
         else:
             chevron = ""
         return self.format_line(o.name, chevron, '(', self.join_items(args), ');')

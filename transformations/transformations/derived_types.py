@@ -57,6 +57,9 @@ class DerivedTypeArgumentsTransformation(Transformation):
         super().__init__(**kwargs)
 
     def transform_subroutine(self, routine, **kwargs):
+
+        print(f"applying DerivedTypeArgumentsTransformation to routine: {routine.name}")
+
         role = kwargs.get('role')
         item = kwargs.get('item')
 
@@ -93,6 +96,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         if role == 'kernel':
             # Expand derived type arguments in kernel...
             trafo_data = self.expand_derived_args_kernel(routine)
+            print(f"trafo_data: {trafo_data}")
             if item:
                 item.trafo_data[self._key] = trafo_data
 
@@ -248,7 +252,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         Utility routine that yields the variable type for an expanded kernel variable
         """
         return var.type.clone(
-            intent=arg.type.intent, initial=None, allocatable=None,
+            intent=arg.type.intent, pointer=False, initial=None, allocatable=None,
             target=arg.type.target if not var.type.pointer else None
         )
 
@@ -270,8 +274,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         candidates = []
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                if any(v.type.pointer or v.type.allocatable or
-                       isinstance(v.type.dtype, DerivedType) for v in as_tuple(arg.variables)):
+                if True: # if any(v.type.pointer or v.type.allocatable or isinstance(v.type.dtype, DerivedType) for v in as_tuple(arg.variables)):
                     # Only include derived types with array members or nested derived types
                     candidates += [arg]
 
@@ -279,6 +282,9 @@ class DerivedTypeArgumentsTransformation(Transformation):
         vars_to_expand = [var for var in FindVariables(unique=False).visit(routine.ir) if var.parent]
         nested_parents = [var.parent for var in vars_to_expand if var.parent in vars_to_expand]
         vars_to_expand = [var for var in vars_to_expand if var not in nested_parents]
+        
+        print(f"vars_to_expand: {vars_to_expand}")
+        print(f"candidates: {candidates}")
 
         expansion_map = defaultdict(set)
         non_expansion_map = defaultdict(set)
@@ -292,6 +298,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
             elif declared_var in candidates:
                 non_expansion_map[declared_var].add(var)
 
+        print(f"non_expansion_map: {non_expansion_map}")
         # Update the expansion map by re-adding the derived type argument when
         # there are non-expanded members left
         # Here, we determine the ordering in the updated call signature

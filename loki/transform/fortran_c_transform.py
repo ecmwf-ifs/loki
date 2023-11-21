@@ -80,8 +80,8 @@ class FortranCTransformation(Transformation):
         for routine in module.subroutines:
             print_import_info(routine, "[0]")
 
-        for name, td in module.typedef_map.items():
-            self.c_structs[name.lower()] = self.c_struct_typedef(td)
+        # for name, td in module.typedef_map.items():
+        #     self.c_structs[name.lower()] = self.c_struct_typedef(td)
 
         if role == 'header':
             # Generate Fortran wrapper module
@@ -113,9 +113,9 @@ class FortranCTransformation(Transformation):
         if role == 'driver':
             return
 
-        for arg in routine.arguments:
-            if isinstance(arg.type.dtype, DerivedType):
-                self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
+        # for arg in routine.arguments:
+        #     if isinstance(arg.type.dtype, DerivedType):
+        #         self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
 
         if role == 'kernel':
             # print_import_info(routine, "[1]")
@@ -124,6 +124,8 @@ class FortranCTransformation(Transformation):
             contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
+            # module.spec.prepend((Import(module='iso_c_binding'),))
+            module.spec = Section(body=(Import(module='iso_c_binding'),)) 
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
             # print_import_info(routine, "[2]")
             # Generate C source file from Loki IR
@@ -160,12 +162,14 @@ class FortranCTransformation(Transformation):
 
     @staticmethod
     def iso_c_intrinsic_import(scope):
-        symbols = as_tuple(Variable(name=name, scope=scope) for name in ['c_int', 'c_double', 'c_float', 'c_ptr'])
+        symbols = as_tuple(Variable(name=name, scope=scope) for name in ['c_int', 'c_double', 'c_float', 'c_ptr']) # 'c_bool'
         isoc_import = Import(module='iso_c_binding', symbols=symbols)
         return isoc_import
 
     @staticmethod
     def iso_c_intrinsic_kind(_type, scope, is_array=False):
+        # if _type.dtype == BasicType.LOGICAL:
+        #     return Variable(name='c_bool', scope=scope)
         if _type.dtype == BasicType.INTEGER:
             return Variable(name='c_int', scope=scope)
         if _type.dtype == BasicType.REAL:
@@ -206,10 +210,12 @@ class FortranCTransformation(Transformation):
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
+        
         wrapper_spec.prepend(cls.iso_c_intrinsic_import(wrapper))
         wrapper_spec.append(struct.clone(parent=wrapper) for struct in c_structs.values())
         wrapper_spec.append(interface)
         wrapper.spec = wrapper_spec
+        wrapper.spec.prepend((Import(module='iso_c_binding'),))
 
         # Create the wrapper function with casts and interface invocation
         local_arg_map = OrderedDict()
@@ -305,7 +311,7 @@ class FortranCTransformation(Transformation):
 
                 getter.spec = Section(body=(Import(module=module.name, symbols=(v.clone(scope=getter), )), ))
                 isoctype = SymbolAttributes(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter))
-                if isoctype.kind in ['c_int', 'c_float', 'c_double']:
+                if isoctype.kind in ['c_int', 'c_float', 'c_double']: # 'c_bool'
                     getter.spec.append(Import(module='iso_c_binding', symbols=(isoctype.kind, )))
                 getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
                 getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
