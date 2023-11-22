@@ -79,12 +79,14 @@ are provided to create derived classes for specialisation of the actual hoisting
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',), key=key), reverse=True)
         scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
 """
-from loki.expression import FindVariables, SubstituteExpressions
-from loki.ir import CallStatement, Allocation, Deallocation
+from loki.expression import FindVariables, SubstituteExpressions, Scalar
+from loki.ir import CallStatement, Allocation, Deallocation, Import
 from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
 from loki.visitors import Transformer, FindNodes
 from loki.transform.transformation import Transformation
 from loki.transform.transform_utilities import single_variable_declaration
+from loki.bulk import GlobalVarImportItem, GenericImportItem
+# from loki.types import Scalar
 import loki.expression.symbols as sym
 
 
@@ -133,6 +135,8 @@ class HoistVariablesAnalysis(Transformation):
 
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
+        targets = kwargs.get('targets', ())
+        print(f"routine: {routine.name} - targets: {targets}")
         successors = kwargs.get('successors', ())
 
         item.trafo_data[self._key] = {}
@@ -150,6 +154,14 @@ class HoistVariablesAnalysis(Transformation):
         call_map = CaseInsensitiveDict((str(call.name), call) for call in calls)
 
         for child in successors:
+            if isinstance(child, GlobalVarImportItem) or isinstance(child, GenericImportItem):
+                continue
+            if child.routine.name.lower() in ['foedelta', 'foealfa', 'foeewm', 'foeeice', 'foeeliq', 'foeldcp', 'foeldcpm', 'foedem', 'fokoop']:
+                continue
+            print(f"child: {child} | {type(child)} | {type(child.routine)}")
+            # if child.routine is None or child.routine.name not in targets: # TODO: .... not in targets:
+            #     continue
+            print(f"routine: {routine.name} - child: {child}")
             arg_map = dict(call_map[child.routine.name].arg_iter())
             hoist_variables = []
             for var in child.trafo_data[self._key]["hoist_variables"]:
@@ -222,9 +234,26 @@ class HoistVariablesTransformation(Transformation):
         """
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        successors = kwargs.get('successors', ())
+        targets = kwargs.get('targets', None)
+        _successors = kwargs.get('successors', ())
+        successors = []
+        for child in _successors:
+            if isinstance(child, GlobalVarImportItem) or isinstance(child, GenericImportItem):
+                continue
+            if child.routine.name.lower() in ['foedelta', 'foealfa', 'foeewm', 'foeeice', 'foeeliq', 'foeldcp', 'foeldcpm', 'foedem', 'fokoop']:
+                continue
+            successors.append(child)
+
+        print(f"routine: {routine.name}")
+        imports = FindNodes(Import).visit(routine.spec)
+        for _import in imports:
+            print(f"import: {_import} | {type(_import)}")
+            for symbol in _import.symbols:
+                if isinstance(symbol, Scalar):
+                    print(f"   symbol: {symbol}")
+
         successor_map = CaseInsensitiveDict(
-            (successor.routine.name, successor) for successor in successors
+            (successor.routine.name, successor) for successor in successors # if successor.routine is not None and successor.routine in targets
         )
 
         if self._key not in item.trafo_data:

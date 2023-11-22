@@ -58,7 +58,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
-        print(f"applying DerivedTypeArgumentsTransformation to routine: {routine.name}")
+        # print(f"applying DerivedTypeArgumentsTransformation to routine: {routine.name}")
 
         role = kwargs.get('role')
         item = kwargs.get('item')
@@ -96,7 +96,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         if role == 'kernel':
             # Expand derived type arguments in kernel...
             trafo_data = self.expand_derived_args_kernel(routine)
-            print(f"trafo_data: {trafo_data}")
+            # print(f"trafo_data: {trafo_data}")
             if item:
                 item.trafo_data[self._key] = trafo_data
 
@@ -283,8 +283,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
         nested_parents = [var.parent for var in vars_to_expand if var.parent in vars_to_expand]
         vars_to_expand = [var for var in vars_to_expand if var not in nested_parents]
         
-        print(f"vars_to_expand: {vars_to_expand}")
-        print(f"candidates: {candidates}")
+        # print(f"vars_to_expand: {vars_to_expand}")
+        # print(f"candidates: {candidates}")
 
         expansion_map = defaultdict(set)
         non_expansion_map = defaultdict(set)
@@ -298,7 +298,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
             elif declared_var in candidates:
                 non_expansion_map[declared_var].add(var)
 
-        print(f"non_expansion_map: {non_expansion_map}")
+        # print(f"non_expansion_map: {non_expansion_map}")
         # Update the expansion map by re-adding the derived type argument when
         # there are non-expanded members left
         # Here, we determine the ordering in the updated call signature

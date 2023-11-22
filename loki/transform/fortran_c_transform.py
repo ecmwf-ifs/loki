@@ -65,7 +65,7 @@ class FortranCTransformation(Transformation):
         self.c_structs = OrderedDict()
 
     def transform_file(self, sourcefile, **kwargs):
-        print(f"CALLING transform_file on {sourcefile}")
+        # print(f"CALLING transform_file on {sourcefile}")
         for module in sourcefile.modules:
             self.transform_module(module, **kwargs)
 
@@ -74,7 +74,7 @@ class FortranCTransformation(Transformation):
 
     def transform_module(self, module, **kwargs):
         # path = Path(kwargs.get('path'))
-        print(f"CALLING transform_module on {module}")
+        # print(f"CALLING transform_module on {module}")
         path = self.path
         role = kwargs.get('role', 'kernel')
         for routine in module.subroutines:
@@ -302,20 +302,20 @@ class FortranCTransformation(Transformation):
 
         # Create getter methods for module-level variables (I know... :( )
         wrappers = []
-        for decl in FindNodes(VariableDeclaration).visit(module.spec):
-            for v in decl.symbols:
-                if isinstance(v.type.dtype, DerivedType) or v.type.pointer or v.type.allocatable:
-                    continue
-                gettername = f'{module.name.lower()}__get__{v.name.lower()}'
-                getter = Subroutine(name=gettername, bind=gettername, is_function=True, parent=wrapper_module)
+        # for decl in FindNodes(VariableDeclaration).visit(module.spec):
+        #     for v in decl.symbols:
+        #         if isinstance(v.type.dtype, DerivedType) or v.type.pointer or v.type.allocatable:
+        #             continue
+        #         gettername = f'{module.name.lower()}__get__{v.name.lower()}'
+        #         getter = Subroutine(name=gettername, bind=gettername, is_function=True, parent=wrapper_module)
 
-                getter.spec = Section(body=(Import(module=module.name, symbols=(v.clone(scope=getter), )), ))
-                isoctype = SymbolAttributes(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter))
-                if isoctype.kind in ['c_int', 'c_float', 'c_double']: # 'c_bool'
-                    getter.spec.append(Import(module='iso_c_binding', symbols=(isoctype.kind, )))
-                getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
-                getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
-                wrappers += [getter]
+        #         getter.spec = Section(body=(Import(module=module.name, symbols=(v.clone(scope=getter), )), ))
+        #         isoctype = SymbolAttributes(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter))
+        #         if isoctype.kind in ['c_int', 'c_float', 'c_double']: # 'c_bool'
+        #             getter.spec.append(Import(module='iso_c_binding', symbols=(isoctype.kind, )))
+        #         getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
+        #         getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
+        #         wrappers += [getter]
         wrapper_module.contains = Section(body=(Intrinsic('CONTAINS'), *wrappers))
 
         # Create function interface definitions for module functions
@@ -462,9 +462,9 @@ class FortranCTransformation(Transformation):
         # and thus need to be known before we can fetch them via getters.
         inline_constant_parameters(kernel, external_only=True)
 
-        if self.inline_elementals:
-            # Inline known elemental function via expression substitution
-            inline_elemental_functions(kernel)
+        # if self.inline_elementals:
+        #     # Inline known elemental function via expression substitution
+        #     inline_elemental_functions(kernel)
 
         # for arg in routine.arguments:
         #     try:
@@ -500,17 +500,17 @@ class FortranCTransformation(Transformation):
             ]
             for im in kernel.imports
         }
-        print(f"adding variables: {as_tuple(flatten(list(module_variables.values())))}")
+        # print(f"adding variables: {as_tuple(flatten(list(module_variables.values())))}")
         kernel.variables += as_tuple(flatten(list(module_variables.values())))
 
         # Create calls to getter routines for module variables
-        getter_calls = []
-        for module, variables in module_variables.items():
-            for var in variables:
-                getter = f'{module}__get__{var.name.lower()}'
-                vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
-                getter_calls += [vget]
-        kernel.body.prepend(getter_calls)
+        # getter_calls = []
+        # for module, variables in module_variables.items():
+        #     for var in variables:
+        #         getter = f'{module}__get__{var.name.lower()}'
+        #         vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
+        #         getter_calls += [vget]
+        # kernel.body.prepend(getter_calls)
 
         # Change imports to C header includes
         import_map = {}
@@ -543,7 +543,7 @@ class FortranCTransformation(Transformation):
 
         # Force pointer on reference-passed arguments
         for arg in kernel.arguments:
-            print(f"arg: {arg}")
+            # print(f"arg: {arg}")
             try:
                 if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                     _type = arg.type.clone(pointer=True)
@@ -553,7 +553,8 @@ class FortranCTransformation(Transformation):
                         _type = _type.clone(dtype=typedef.dtype)
                     kernel.symbol_attrs[arg.name] = _type
             except Exception as e:
-                print(f"for arg: {arg} - {e}")
+                pass
+                # print(f"for arg: {arg} - {e}")
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',

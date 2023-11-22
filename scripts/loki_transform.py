@@ -30,7 +30,7 @@ from loki.types import BasicType
 
 # pylint: disable=wrong-import-order
 from transformations.argument_shape import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
-from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
+from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation, GlobalVarOffloadTransformationLowLevel, GlobalVarHoistingTransformation
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
@@ -424,8 +424,11 @@ def convert(
 
     inline_trafo = type("InlineTrafo", (Transformation, object), {
         "transform_subroutine": lambda self, routine, **kwargs: inline_elemental_kernel(routine, **kwargs)})()
-    # scheduler.process(transformation=inline_trafo)
-    
+    scheduler.process(transformation=inline_trafo)
+   
+    global_var_hoisting_trafo = GlobalVarHoistingTransformation()
+    scheduler.process(transformation=global_var_hoisting_trafo, reverse=True)
+
     # Derived type transformation ...
     # TODO: reintroduce
     derived_type_transformation = DerivedTypeArgumentsTransformation()
@@ -507,9 +510,9 @@ def convert(
             derived_types=derived_types
         ))
 
-    if True: # global_var_offload:
-        scheduler.process(transformation=GlobalVarOffloadTransformation(),
-                          item_filter=(SubroutineItem, GlobalVarImportItem), reverse=True)
+    # if True: # global_var_offload:
+    #     scheduler.process(transformation=GlobalVarOffloadTransformationLowLevel(),
+    #                       item_filter=(SubroutineItem, GlobalVarImportItem), reverse=True)
 
     if mode in ['idem-stack', 'scc-stack']:
         if frontend == Frontend.OMNI:
