@@ -37,12 +37,16 @@ from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
 from loki.transformations.sanitise import SanitiseTransformation
 from loki.transformations.single_column import (
     ExtractSCATransformation, CLAWTransformation,
     SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline,
-    HoistTemporaryArraysDeviceAllocatableTransformation
+    HoistTemporaryArraysDeviceAllocatableTransformation,
+    SCCBaseTransformation, SCCDevectorTransformation,
+    SCCRevectorTransformation, SCCDemoteTransformation,
+    SCCAnnotateTransformation
 )
 from loki.transformations.transpile import FortranCTransformation
 
@@ -70,7 +74,7 @@ def cli(debug):
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
                   ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
+                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -304,6 +308,25 @@ def convert(
             trim_vector_sections=trim_vector_sections )
         scheduler.process( pipeline )
 
+    if mode == 'scc-raw-stack':
+        # Apply the basic SCC transformation set
+        scheduler.process( SCCBaseTransformation(
+            horizontal=horizontal, directive=directive
+        ))
+        scheduler.process( SCCDevectorTransformation(
+            horizontal=horizontal, trim_vector_sections=trim_vector_sections
+        ))
+        scheduler.process( SCCDemoteTransformation(horizontal=horizontal))
+        scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
+
+        scheduler.process( SCCAnnotateTransformation(
+            horizontal=horizontal, directive=directive, block_dim=block_dim
+        ))
+
+        transformation = TemporariesRawStackTransformation(
+            block_dim=block_dim, horizontal=horizontal, directive=directive
+        )
+        scheduler.process(transformation=transformation)
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         # These transformations requires complex constructor arguments,
