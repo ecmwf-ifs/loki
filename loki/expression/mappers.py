@@ -597,7 +597,7 @@ class LokiIdentityMapper(IdentityMapper):
         if expr.scope is None:
             if parent is expr.parent and not is_type_changed:
                 return expr
-            elif not is_type_changed:
+            if not is_type_changed:
                 return expr.clone(parent=parent)
             return expr.clone(parent=parent, type=new_type)
 
