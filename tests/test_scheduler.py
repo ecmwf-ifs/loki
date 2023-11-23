@@ -630,6 +630,59 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
         cg_path.with_suffix('.pdf').unlink()
 
 
+@pytest.mark.parametrize('strict', [True, False])
+def test_scheduler_graph_multiple_separate_enrich_fail(here, config, frontend, strict):
+    """
+    Tests that explicit enrichment in "strict" mode will fail because it can't
+    find ext_driver
+
+    projA: driverB -> kernelB -> compute_l1<replicated> -> compute_l2
+                         |
+                     <ext_driver>
+
+    projB:            ext_driver -> ext_kernelfail
+    """
+    projA = here/'sources/projA'
+
+    configA = config.copy()
+    configA['default']['strict'] = strict
+    configA['routine'] = [
+        {
+            'name': 'kernelB',
+            'role': 'kernel',
+            'ignore': ['ext_driver'],
+            'enrich': ['ext_driver'],
+        },
+    ]
+
+    if strict:
+        with pytest.raises(FileNotFoundError):
+            Scheduler(
+                paths=[projA], includes=projA/'include', config=configA,
+                seed_routines=['driverB'], frontend=frontend
+            )
+    else:
+        schedulerA = Scheduler(
+            paths=[projA], includes=projA/'include', config=configA,
+            seed_routines=['driverB'], frontend=frontend
+        )
+
+        expected_itemsA = [
+            'driverB_mod#driverB', 'kernelB_mod#kernelB',
+            'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2',
+        ]
+        expected_dependenciesA = [
+            ('driverB_mod#driverB', 'kernelB_mod#kernelB'),
+            ('kernelB_mod#kernelB', 'compute_l1_mod#compute_l1'),
+            ('compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2'),
+        ]
+
+        assert all(n in schedulerA.items for n in expected_itemsA)
+        assert all(e in schedulerA.dependencies for e in expected_dependenciesA)
+        assert 'ext_driver' not in schedulerA.items
+        assert 'ext_kernel' not in schedulerA.items
+
+
 def test_scheduler_module_dependency(here, config, frontend):
     """
     Ensure dependency chasing is done correctly, even with surboutines

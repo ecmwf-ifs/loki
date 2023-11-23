@@ -418,7 +418,8 @@ class Scheduler:
             warning(f'Scheduler could not find routine {routine}')
             if self.config.default['strict']:
                 raise RuntimeError(f'Scheduler could not find routine {routine}')
-        elif len(candidates) != 1:
+            return None
+        if len(candidates) != 1:
             warning(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
             if self.config.default['strict']:
                 raise RuntimeError(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
