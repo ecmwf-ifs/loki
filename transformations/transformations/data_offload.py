@@ -981,7 +981,7 @@ class GlobalVarOffloadTransformationLowLevel(Transformation):
                 warning(f'[Loki::GlobalVarOffload] Derived-type offload not supported for CUDA Fortran - {routine}')
 
 
-# TODO: this is neither recursive nor elegant ...
+# TODO: this not elegant and doesn't take renames use, only: var_x => var_y into account ...
 class GlobalVarHoistingTransformation(Transformation):
 
     _key = 'GlobalVarHoistingTransformationLowLevel'
@@ -999,73 +999,69 @@ class GlobalVarHoistingTransformation(Transformation):
             item.trafo_data[self._key] = {}
 
         successors = kwargs.get('successors', ())
-        if role == 'driver':
-            self.process_driver(routine, successors)
+        
+        self.process_routine(routine, successors)
         if role == 'kernel':
             self.process_kernel(routine, successors, item)
 
-
-    def add_arguments(self, routine, successors, args):
+    def process_routine(self, routine, successors):
+        module_dic = {}
+        args_map = {}
+        for successor in successors:
+            symbols = []
+            for module in successor.trafo_data[self._key]:
+                # symbols = list(successor.trafo_data[self._key][module].symbols)
+                print(f"module: {module} - symbols: {symbols}")
+                if module not in module_dic:
+                    module_dic[module] = {}
+                    module_dic[module]["module"] = successor.trafo_data[self._key][module]
+                    print(f"adding symbols: {symbols} to module: {module}")
+                    module_dic[module]["symbols"] = list(successor.trafo_data[self._key][module].symbols) # symbols
+                else:
+                    print(f"adding symbols: {symbols} extend to module: {module}")
+                    module_dic[module]["symbols"].extend(list(successor.trafo_data[self._key][module].symbols)) # symbols)
+                if successor not in args_map:
+                    args_map[successor] = list(successor.trafo_data[self._key][module].symbols) # symbols
+                else:
+                    args_map[successor].extend(list(successor.trafo_data[self._key][module].symbols)) # symbols)
+        
         calls = FindNodes(CallStatement).visit(routine.body)
         call_map = {}
         for successor in successors:
             for call in calls:
                 if successor.routine.name == call.name:
-                    call_map[call] = call.clone(arguments=call.arguments + as_tuple(args[successor]))
-                    if args[successor] and args[successor][0] not in successor.routine.arguments:
-                        successor.routine.arguments += as_tuple([arg.clone(type=arg.type.clone(intent="in")) for arg in args[successor]])
-        routine.body = Transformer(call_map).visit(routine.body)
-
-    def process_driver(self, routine, successors):
-        module_dic = {}
-        calls = FindNodes(CallStatement).visit(routine)
-        args_map = {}
-        for item in successors:
-            for module in item.trafo_data[self._key][item]:
-                if module not in module_dic:
-                    module_dic[module] = {}
-                    module_dic[module]["module"] = item.trafo_data[self._key][item][module]
-                    module_dic[module]["symbols"] = list(item.trafo_data[self._key][item][module].symbols)
-                else:
-                    module_dic[module]["symbols"].extend(list(item.trafo_data[self._key][item][module].symbols))
-                if item not in args_map:
-                    args_map[item] = list(item.trafo_data[self._key][item][module].symbols)
-                else:
-                    args_map[item].extend(list(item.trafo_data[self._key][item][module].symbols))
-        self.add_arguments(routine, successors, args_map)
+                    call_map[call] = call.clone(arguments=call.arguments + as_tuple(args_map[successor]))
+                    if args_map[successor] and args_map[successor][0] not in successor.routine.arguments:
+                        successor.routine.arguments += as_tuple([arg.clone(type=arg.type.clone(intent="in")) for arg in args_map[successor]])
+        if call_map:
+            routine.body = Transformer(call_map).visit(routine.body)
 
         imports = FindNodes(Import).visit(routine.body)
         another_import_map = {i.module: i for i in imports}
         import_map = {}
-        for key in module_dic:
-            if key not in [_import.module for _import in imports]:
-                routine.spec.prepend(module_dic[key]["module"].clone(symbols=module_dic[key]["symbols"]))
+        for _module in module_dic:
+            print(f"module in module_dic : {_module} - symbols: {module_dic[_module]['symbols']}")
+            if _module not in [_import.module for _import in imports]:
+                print(f"add here ...")
+                if module_dic[_module]["symbols"]:
+                    routine.spec.prepend(module_dic[_module]["module"].clone(symbols=module_dic[_module]["symbols"]))
             else:
-                _symbols = as_tuple(module_dic[key]["symbols"]) + another_import_map[key].symbols
-                import_map[another_import_map[key]] = another_import_map[key].clone(symbols=as_tuple(set(_symbols)))
+                print(f"add with additionally: {another_import_map[_module].symbols}")
+                _symbols = as_tuple(module_dic[_module]["symbols"]) + another_import_map[_module].symbols
+                import_map[another_import_map[_module]] = another_import_map[_module].clone(symbols=as_tuple(set(_symbols)))
 
         routine.spec = Transformer(import_map).visit(routine.spec)
-        # for _import in imports:
-        #     if _import.module in [key for key in module_dic]:
-        #         ...
-        #     else:
-        #         routine.spec.append()
-
-        
-            # print(f"to be hoisted imports: {item.trafo_data[self._key][item]}")
 
     def process_kernel(self, routine, successors, item):
-        item.trafo_data[self._key][item] = {}
+        
+        item.trafo_data[self._key] = {}
         imports = FindNodes(Import).visit(routine.spec)
         import_map = {}
         for _import in imports:
             imported_scalars = []
             not_relevant_symbols = []
-            # print(f"import: {_import} | {type(_import)}")
             for symbol in _import.symbols:
-                # TODO: not only scalars ...
                 if isinstance(symbol, Scalar):
-                    # print(f"   symbol: {symbol}")
                     imported_scalars.append(symbol)
                 else:
                     not_relevant_symbols.append(symbol)
@@ -1075,8 +1071,10 @@ class GlobalVarHoistingTransformation(Transformation):
                 else:
                     import_map[_import] = _import.clone(symbols=as_tuple(not_relevant_symbols))
             else:
-                print(f"keeping import {_import.module}")
-            item.trafo_data[self._key][item][_import.module] = _import.clone(symbols=as_tuple(imported_scalars))
+                pass
+            # if imported_scalars:
+            print(f"setting trafo data for module {_import.module} - {as_tuple(imported_scalars)} | {_import.clone(symbols=as_tuple(imported_scalars))}")
+            item.trafo_data[self._key][_import.module] = _import.clone(symbols=as_tuple(imported_scalars))
         routine.spec = Transformer(import_map).visit(routine.spec)
 
 

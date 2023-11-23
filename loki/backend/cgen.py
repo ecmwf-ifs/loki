@@ -185,7 +185,7 @@ class CCodegen(Stringifier):
         # Generate header with argument signature
         aptr = []
         for a in o.arguments:
-            print(f"a: {a} | type(a) = {type(a)} | pointer? {a.type.pointer} | isArray? {isinstance(a, Array)}")
+            # print(f"a: {a} | type(a) = {type(a)} | pointer? {a.type.pointer} | isArray? {isinstance(a, Array)}")
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if isinstance(a, Array) > 0:
                 aptr += ['*'] # ['* restrict '] # v_

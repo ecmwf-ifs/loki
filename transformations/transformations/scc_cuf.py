@@ -391,7 +391,7 @@ def _insert_stack_at_loki_pragma(routine, insert):
     for pragma in FindNodes(ir.Pragma).visit(routine.body):
         if pragma.keyword == 'acc' and 'copy-data' in pragma.content:
             pragma_map[pragma] = insert
-            print(f"replacing pragma: {pragma} with {insert}")
+            # print(f"replacing pragma: {pragma} with {insert}")
     if pragma_map:
         routine.body = Transformer(pragma_map).visit(routine.body)
         return True
@@ -502,25 +502,25 @@ def driver_device_variables(routine, targets=None):
         copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
 
     if copy_pragmas:
-        print(f"copy pragmas: {copy_pragmas}")
+        # print(f"copy pragmas: {copy_pragmas}")
         # _insert_stack_at_loki_pragma(routine, as_tuple(copy_pragmas))
         pragma_map = {}
         for pragma in FindNodes(ir.Pragma).visit(routine.body):
-            print(f"here pragma: {pragma.keyword} {pragma.content}")
+            # print(f"here pragma: {pragma.keyword} {pragma.content}")
             if pragma.content == 'data' and 'loki' == pragma.keyword:
                 pragma_map[pragma] = as_tuple(copy_pragmas)
-                print(f"replacing pragma: {pragma.content} with {copy_pragmas}")
+                # print(f"replacing pragma: {pragma.content} with {copy_pragmas}")
         if pragma_map:
-            print(f"calling transformer ...")
+            # print(f"calling transformer ...")
             routine.body = Transformer(pragma_map).visit(routine.body)
     if copy_end_pragmas:
         pragma_map = {}
         for pragma in FindNodes(ir.Pragma).visit(routine.body):
             if pragma.content == 'end data' and 'loki' == pragma.keyword:
                 pragma_map[pragma] = as_tuple(copy_end_pragmas)
-                print(f"replacing pragma: {pragma.content} with {copy_end_pragmas}")
+                # print(f"replacing pragma: {pragma.content} with {copy_end_pragmas}")
         if pragma_map:
-            print(f"calling transformer ...")
+            # print(f"calling transformer ...")
             routine.body = Transformer(pragma_map).visit(routine.body)
 
     if False: # TODO: changes due to low-level C 
@@ -617,7 +617,7 @@ def driver_launch_configuration(routine, block_dim, targets=None):
         Tuple of subroutine call names that are processed in this traversal
     """
 
-    print("SccCuf driver launch configuration ...")
+    # print("SccCuf driver launch configuration ...")
     d_type = SymbolAttributes(types.DerivedType("DIM3"))
     routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="GRIDDIM", type=d_type),
                                                         sym.Variable(name="BLOCKDIM", type=d_type))))
@@ -625,7 +625,7 @@ def driver_launch_configuration(routine, block_dim, targets=None):
     mapper = {}
     for loop in FindNodes(ir.Loop).visit(routine.body):
         # TODO: fix/check: do not use _aliases
-        print(f"  {loop.variable} vs. {block_dim.index} / {block_dim._aliases}")
+        # print(f"  {loop.variable} vs. {block_dim.index} / {block_dim._aliases}")
         if loop.variable == block_dim.index or loop.variable in block_dim._aliases:
             mapper[loop] = loop.body
             kernel_within = False
