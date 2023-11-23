@@ -558,7 +558,7 @@ class Scheduler:
             item.source.make_complete(**build_args)
 
 
-    @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
+    @Timer(logger=info, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
         """
         Enrich subroutine calls for inter-procedural transformations
