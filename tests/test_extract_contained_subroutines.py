@@ -5,10 +5,12 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki import (
-    Sourcefile, FindVariables, FindNodes, CallStatement,
-    Import,
+from loki.sourcefile import Sourcefile
+from loki.expression import FindVariables
+from loki.ir import (
+    CallStatement, Import,
 )
+from loki.visitors import FindNodes
 from loki.transform import (
     extract_contained_subroutines
 )
