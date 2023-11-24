@@ -135,7 +135,6 @@ class TemporariesRawStackTransformation(Transformation):
 
         self.stack_type_kind = 'JPRB'
         if item:
-            print(item)
             if (real_kind := item.config.get('real_kind', None)):
                 self.stack_type_kind = real_kind
 
@@ -149,10 +148,6 @@ class TemporariesRawStackTransformation(Transformation):
             if item:
                 stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
                 item.trafo_data[self._key]['stack_size'] = stack_size
-
-            print(routine)
-            print(stack_size)
-            print()
 
 
     def apply_pool_allocator_to_temporaries(self, routine, item=None):
@@ -407,9 +402,6 @@ class TemporariesRawStackTransformation(Transformation):
                 }
                 if expr_map:
                     expr_map = recursive_expression_map_update(expr_map)
-                    for e in expr_map:
-                        print(e, expr_map[e])
-                        print()
                     successor_stack_size = SubstituteExpressions(expr_map).visit(successor_stack_size)
                 stack_sizes += [successor_stack_size]
 
