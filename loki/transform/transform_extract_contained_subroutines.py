@@ -44,7 +44,7 @@ def extract_contained_subroutine(routine, name):
     ldecls = FindNodes(VariableDeclaration).visit(inner.spec)
     limports_vars = FindVariables().visit(FindNodes(Import).visit(inner.spec))
     lvars = list(reduce(lambda x, y: x + y, (decl.symbols for decl in ldecls))) 
-    lvars = set(var.clone() for var in lvars + list(limports_vars))
+    lvars = set(var for var in lvars + list(limports_vars))
     lvar_names = [var.name.lower() for var in lvars]
 
     # Find all variables (names), including also:
@@ -54,11 +54,11 @@ def extract_contained_subroutine(routine, name):
     # 4. Array dimension variables.
     all_vars_body = FindVariables().visit(inner.body)
     all_vars_spec = FindVariables().visit(inner.spec)
-    all_vars = set(var.clone() for var in all_vars_body.union(all_vars_spec))
+    all_vars = set(var for var in all_vars_body.union(all_vars_spec))
     kinds = set()
     for var in all_vars:
         if var.type.kind:
-            kinds.add(var.type.kind.clone())
+            kinds.add(var.type.kind)
     all_vars = all_vars.union(kinds)
 
     # Get the names of all global variables from the perspective of `inner`. 
@@ -68,12 +68,14 @@ def extract_contained_subroutine(routine, name):
         # For example for variable named `a%b%c`, 
         # the global variable we want is `a`, not `a%b%c` itself.
         varname = var.name.lower()
-        vartmp = var.clone()
+        vartmp = var
         while vartmp.parent is not None:
             varname = vartmp.parent.name.lower()
             vartmp = vartmp.parent
         if not varname in lvar_names: # Only add variables that are not defined locally.
             gvar_names.add(varname)
+         
+
 
     # `gvar_names` might still contain inline calls to functions (say, log or exp) 
     # that show up as variables. Here they get removed.
@@ -93,7 +95,7 @@ def extract_contained_subroutine(routine, name):
     # NOTE: It is very important to process `gvar_names` as a list (with an order) because the
     # following loop may add new items that to `gvar_names` that need to be resolved. 
     for gn in gvar_names:  
-        same_named_globals = [var.clone() for var in outer_spec_vars if var.name.lower() == gn]
+        same_named_globals = [var for var in outer_spec_vars if var.name.lower() == gn]
         if len(same_named_globals) != 1:
             # If the code crashes to the next assert, there is a bug in the implementation of this function.
             assert len(same_named_globals) == 0 
@@ -132,7 +134,7 @@ def extract_contained_subroutine(routine, name):
             # Global is an import, so need to add the import. 
             # Change the import to only include the symbols that are needed. 
             matching_import = routine.import_map[var.name] 
-            imports_to_add.append(matching_import.clone(symbols = (var.clone(),)))
+            imports_to_add.append(matching_import.clone(symbols = (var,)))
 
     # Change `inner` to take the globals as argument or add the corresponding import
     # for the global. After these lines, `inner` should have no global variables or there is a bug. 
