@@ -346,7 +346,10 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Name` has no children.
         """
-        return sym.Variable(name=o.tostr(), parent=kwargs.get('parent'))
+        name = o.tostr()
+        parent = kwargs.get('parent')
+        scope = kwargs.get('scope', None)
+        return sym.Variable(name=name, parent=parent, scope=scope)
 
     def visit_Type_Name(self, o, **kwargs):
         """
@@ -394,6 +397,7 @@ class FParser2IR(GenericVisitor):
         var = self.visit(o.children[0], **kwargs)
         for c in o.children[1:]:
             parent = var
+            kwargs['parent'] = parent
             var = self.visit(c, **kwargs)
             if isinstance(var, sym.InlineCall):
                 # This is a function call with a type-bound procedure, so we need to
@@ -569,7 +573,7 @@ class FParser2IR(GenericVisitor):
                 type_kwargs = _type.__dict__.copy()
                 return_type = SymbolAttributes(_type.dtype) if _type.dtype is not None else None
                 external_type = scope.symbol_attrs.lookup(var.name)
-                if external_type is None:
+                if external_type is None or BasicType.DEFERRED:
                     type_kwargs['dtype'] = ProcedureType(
                         var.name, is_function=return_type is not None, return_type=return_type
                     )
@@ -577,7 +581,8 @@ class FParser2IR(GenericVisitor):
                     type_kwargs['dtype'] = external_type.dtype
                 scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
 
-            variables = tuple(var.rescope(scope=scope) for var in variables)
+            variables = tuple(var.clone(scope=scope) for var in variables)
+
             return ir.ProcedureDeclaration(
                 symbols=variables, external=True, source=kwargs.get('source'), label=kwargs.get('label')
             )
@@ -840,15 +845,17 @@ class FParser2IR(GenericVisitor):
         scope = kwargs['scope']
         for var in symbols:
             _type = scope.symbol_attrs.lookup(var.name)
-            if _type is None:
+            if _type is None or BasicType.DEFERRED:
                 dtype = ProcedureType(var.name, is_function=False)
             else:
                 dtype = _type.dtype
             scope.symbol_attrs[var.name] = SymbolAttributes(dtype, external=True)
 
-        symbols = tuple(v.rescope(scope=scope) for v in symbols)
-        declaration = ir.ProcedureDeclaration(symbols=symbols, external=True,
-                                              source=kwargs.get('source'), label=kwargs.get('label'))
+        # Update the symbol after inferring the ProcedureType
+        symbols = tuple(s.clone(scope=scope) for s in symbols)
+        declaration = ir.ProcedureDeclaration(
+            symbols=symbols, external=True, source=kwargs.get('source'), label=kwargs.get('label')
+        )
         return declaration
 
     visit_External_Name_List = visit_List
@@ -1701,7 +1708,7 @@ class FParser2IR(GenericVisitor):
         routine = None
         if parent is not None and name in parent.symbol_attrs:
             proc_type = kwargs['scope'].symbol_attrs[name]
-            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+            if proc_type and isinstance(proc_type.dtype, ProcedureType):
                 routine = proc_type.dtype.procedure
                 if not routine._incomplete:
                     return_type = proc_type.dtype.return_type
@@ -1721,26 +1728,6 @@ class FParser2IR(GenericVisitor):
 
         # ...and there shouldn't be anything after the construct
         assert end_subroutine_stmt_index + 1 == len(o.children)
-
-        # We make sure the subroutine objects for all member routines are
-        # instantiated before parsing the actual spec and body of the parent routine.
-        # This way, all procedure types should exist and any use of their symbol
-        # (e.g. in a CallStatement) should have type.dtype.procedure initialized correctly
-        contains_ast = get_child(o, Fortran2003.Internal_Subprogram_Part)
-        if contains_ast is not None:
-            member_asts = [
-                c for c in contains_ast.children
-                if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
-            ]
-            # Note that we overwrite this variable subsequently with the fully parsed subroutines
-            # where the visit-method for the subroutine/function statement will pick out the existing
-            # subroutine objects using the weakref pointers stored in the symbol table.
-            # I know, it's not pretty but alternatively we could hand down this array as part of
-            # kwargs but that feels like carrying around a lot of bulk, too.
-            contains = [
-                self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)[0]
-                for c in member_asts
-            ]
 
         # Hack: Collect all spec and body parts and use all but the
         # last body as spec. Reason is that Fparser misinterprets statement
@@ -1765,6 +1752,7 @@ class FParser2IR(GenericVisitor):
         spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
         # Now all declarations are well-defined and we can parse the member routines
+        contains_ast = get_child(o, Fortran2003.Internal_Subprogram_Part)
         if contains_ast is not None:
             contains = self.visit(contains_ast, **kwargs)
         else:
@@ -1832,7 +1820,7 @@ class FParser2IR(GenericVisitor):
             name=name, args=args, docstring=docs, spec=spec,
             body=body, contains=contains, ast=o, prefix=prefix, bind=bind,
             result_name=result_name, is_function=is_function,
-            rescope_symbols=True, source=source, incomplete=False
+            rescope_symbols=False, source=source, incomplete=False
         )
 
         # Once statement functions are in place, we need to update the original declaration symbol
@@ -1889,7 +1877,8 @@ class FParser2IR(GenericVisitor):
         if o.children[2] is None:
             args = ()
         else:
-            dummy_arg_list = self.visit(o.children[2], **kwargs)
+            # Important: Dummy strings are not scoped, so do not pass on kwargs/scope!
+            dummy_arg_list = self.visit(o.children[2])
             args = tuple(str(arg) for arg in dummy_arg_list)
 
         # Parse suffix, such as result name or language binding specs
@@ -2946,6 +2935,8 @@ class FParser2IR(GenericVisitor):
 
                 # Update the type in the local scope and return stmt func node
                 symbol_attrs[str(stmt_func.variable)] = _create_stmt_func_type(stmt_func)
+                # Update the variable symbol type after inserting into scope
+                stmt_func._update(variable=stmt_func.variable.clone())
                 return stmt_func
 
         # Return Assignment node if we don't have to deal with the stupid side of Fortran!

@@ -822,6 +822,10 @@ class Variable:
         if scope is not None and _type is None:
             # Determine type information from scope if not provided explicitly
             _type = cls._get_type_from_scope(name, scope, kwargs.get('parent'))
+
+            # Check if the symbol has been defined in a parent scope before
+            kwargs['scope'] = scope.get_symbol_scope(name) or scope
+
         kwargs['type'] = _type
 
         if _type and isinstance(_type.dtype, ProcedureType):
