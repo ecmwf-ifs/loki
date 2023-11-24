@@ -10,11 +10,11 @@ from loki import (
     Import,
 )
 from loki.transform import (
-    lift_contained_subroutines
+    extract_contained_subroutines
 )
 import pytest
 
-def test_basic_scalar():
+def test_extract_contained_subroutines_basic_scalar():
     """
     Tests that a global scalar is correctly added as argument of `inner`.
     """
@@ -35,19 +35,18 @@ def test_basic_scalar():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = lift_contained_subroutines(src.routines[0])
-    assert len(routines) == 2
-    assert routines[1].name == "inner"
-    assert routines[0].name == "outer"
-    inner = routines[1]
-    outer = routines[0]
+    routines = extract_contained_subroutines(src.routines[0])
+    assert len(routines) == 1
+    assert routines[0].name == "inner"
+    inner = routines[0]
+    outer = src.routines[0]
     assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'x' in (var.name for var in inner.arguments)
 
     call = FindNodes(CallStatement).visit(outer.body)[0]
     assert 'x' in (var.name for var in call.arguments)
 
-def test_basic_array():
+def test_extract_contained_subroutines_basic_array():
     """
     Tests that a global array variable (and a scalar) is correctly added as argument of `inner`.
     """
@@ -70,10 +69,10 @@ def test_basic_array():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = lift_contained_subroutines(src.routines[0])
-    assert len(routines) == 2
-    inner = routines[1]
-    outer = routines[0]
+    routines = extract_contained_subroutines(src.routines[0])
+    assert len(routines) == 1
+    inner = routines[0]
+    outer = src.routines[0]
     assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'x' in (var.name for var in inner.arguments)
     assert 'arr' in (var.name for var in FindVariables().visit(inner.spec))
@@ -83,7 +82,7 @@ def test_basic_array():
     assert 'x' in (var.name for var in call.arguments)
     assert 'arr' in (var.name for var in call.arguments)
 
-def test_basic_import():
+def test_extract_contained_subroutines_basic_import():
     """
     Tests that a global imported binding is correctly introduced to the contained subroutine.
     """
@@ -105,10 +104,10 @@ def test_basic_import():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = lift_contained_subroutines(src.routines[0])
-    assert len(routines) == 2
-    outer = routines[0]
-    inner = routines[1]
+    routines = extract_contained_subroutines(src.routines[0])
+    assert len(routines) == 1
+    outer = src.routines[0]
+    inner = routines[0]
     imports = FindNodes(Import).visit(inner.spec)
     assert len(imports) == 1
     constants_import = imports[0]
@@ -117,7 +116,7 @@ def test_basic_import():
     assert constants_import.symbols[0].name == "c2" # Note, the binding 'c1' is NOT brought to the contained subroutine.
     assert not 'c2' in (var.name for var in inner.arguments)
 
-def test_recursive_definition():
+def test_extract_contained_subroutines_recursive_definition():
     """
     Tests that whenever a global in the contained subroutine depends on another global variable, both are introduced as arguments,
     even if there is no explicit reference to the latter.
@@ -139,10 +138,10 @@ def test_recursive_definition():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = lift_contained_subroutines(src.routines[0])
-    assert len(routines) == 2
-    outer = routines[0]
-    inner = routines[1]
+    routines = extract_contained_subroutines(src.routines[0])
+    assert len(routines) == 1
+    outer = src.routines[0]
+    inner = routines[0]
     assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'x' in (var.name for var in inner.arguments)
     assert 'klon' in (var.name for var in FindVariables().visit(inner.spec))
@@ -156,7 +155,7 @@ def test_recursive_definition():
     klon = inner.variable_map['klon']
     assert klon.type.intent == "in"
 
-def test_recursive_definition_import():
+def test_extract_contained_subroutines_recursive_definition_import():
     """
     Tests that whenever globals in the contained subroutine depend on imported bindings, 
     the globals are introduced as arguments, and the imports are added to the contained subroutine. 
@@ -181,10 +180,10 @@ def test_recursive_definition_import():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = lift_contained_subroutines(src.routines[0])
-    assert len(routines) == 2
-    outer = routines[0]
-    inner = routines[1]
+    routines = extract_contained_subroutines(src.routines[0])
+    assert len(routines) == 1
+    outer = src.routines[0]
+    inner = routines[0]
     assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'x' in (var.name for var in inner.arguments)
     assert 'ii' in (var.name for var in FindVariables().visit(inner.spec))
@@ -206,7 +205,7 @@ def test_recursive_definition_import():
     assert "jpim" in symbols
     assert len(symbols) == 2
 
-def test_derived_type_field():
+def test_extract_contained_subroutines_derived_type_field():
     """
     Test that when a derived type field, i.e 'a%b' is a global in the scope of the contained subroutine,
     the derived type itself, that is, 'a', is introduced as an the argument in the transformation.
@@ -230,9 +229,9 @@ def test_derived_type_field():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = lift_contained_subroutines(src.routines[0])
-    outer = routines[0]
-    inner = routines[1]
+    routines = extract_contained_subroutines(src.routines[0])
+    outer = src.routines[0]
+    inner = routines[0]
     assert 'xtyp' in (var.name for var in FindVariables().visit(inner.spec))
     assert 'xtyp' in (var.name for var in inner.arguments)
     assert 'ytyp' in (var.name for var in FindVariables().visit(inner.spec))
@@ -255,7 +254,7 @@ def test_derived_type_field():
     assert "your_type" in symbols
     assert len(symbols) == 2
 
-def test_intent():
+def test_extract_contained_subroutines_intent():
     """
     This test is just to document the current behaviour: when a global is introduced as an argument to the lifted contained subroutine,
     its intent will be 'inout', unless the intent is specified in the parent subroutine. 
@@ -279,10 +278,10 @@ def test_intent():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = lift_contained_subroutines(src.routines[0])
-    assert len(routines) == 2
-    outer = routines[0]
-    inner = routines[1]
+    routines = extract_contained_subroutines(src.routines[0])
+    assert len(routines) == 1
+    outer = src.routines[0]
+    inner = routines[0]
     assert inner.variable_map['v'].type.intent == "in"
     assert inner.variable_map['x'].type.intent == "inout"
     assert inner.variable_map['p'].type.intent == "out"
@@ -292,7 +291,7 @@ def test_intent():
     assert outer.variable_map['x'].type.intent is None 
     assert outer.variable_map['p'].type.intent == "out"
 
-def test_undefined_in_parent():
+def test_extract_contained_subroutines_undefined_in_parent():
     """
     This test is just to document current behaviour: an exception is raised if a global inside the contained subroutine does not
     have a definition in the parent scope.
@@ -313,10 +312,10 @@ def test_undefined_in_parent():
     """
     src = Sourcefile.from_source(fcode)
     with pytest.raises(Exception):
-        routines = lift_contained_subroutines(src.routines[0])
+        routines = extract_contained_subroutines(src.routines[0])
 
 
-def test_multiple_contained_subroutines():
+def test_extract_contained_subroutines_multiple_contained_subroutines():
     """
     Basic test to check that multiple contained subroutines can also be handled.
     """
@@ -344,14 +343,13 @@ def test_multiple_contained_subroutines():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = lift_contained_subroutines(src.routines[0])
-    assert len(routines) == 3
-    assert routines[0].name == "outer"
-    assert routines[1].name == "inner1"
-    assert routines[2].name == "inner2"
-    outer = routines[0]
-    inner1 = routines[1]
-    inner2 = routines[2]
+    routines = extract_contained_subroutines(src.routines[0])
+    assert len(routines) == 2
+    assert routines[0].name == "inner1"
+    assert routines[1].name == "inner2"
+    outer = src.routines[0]
+    inner1 = routines[0]
+    inner2 = routines[1]
     assert 'x' in (var.name for var in FindVariables().visit(inner1.spec))
     assert 'x' in (var.name for var in inner1.arguments)
     assert 'gx' in (var.name for var in FindVariables().visit(inner2.spec))
