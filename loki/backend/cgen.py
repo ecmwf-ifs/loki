@@ -22,6 +22,8 @@ def c_intrinsic_type(_type):
     if _type.dtype == BasicType.LOGICAL:
         return 'int'
     if _type.dtype == BasicType.INTEGER:
+        if _type.parameter:
+            return 'const int'
         return 'int'
     if _type.dtype == BasicType.REAL:
         if str(_type.kind) in ['real32']:
@@ -175,7 +177,7 @@ class CCodegen(Stringifier):
         # print(f"visit_Subroutine: prefix: {o.prefix}")
         
         # Some boilerplate imports...
-        standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h', 'cuda.h']
+        standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h', 'cuda.h', 'cuda_runtime.h']
         header = [self.format_line('#include <', name, '>') for name in standard_imports]
 
         # ...and imports from the spec
@@ -184,20 +186,33 @@ class CCodegen(Stringifier):
 
         # Generate header with argument signature
         aptr = []
+        bptr = []
         for a in o.arguments:
             # print(f"a: {a} | type(a) = {type(a)} | pointer? {a.type.pointer} | isArray? {isinstance(a, Array)}")
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if isinstance(a, Array) > 0:
-                aptr += ['*'] # ['* restrict '] # v_
+                if a.type.intent.lower() == "in":
+                    bptr += ['const ']
+                else:
+                    bptr += ['']
+                if "global" in o.prefix[0].lower():
+                    aptr += ['* __restrict__ '] # ['* restrict '] # v_
+                else:
+                    aptr += ['* ']
             elif isinstance(a.type.dtype, DerivedType):
                 aptr += ['*']
+                bptr += ['']
             elif a.type.pointer:
                 aptr += ['*']
+                bptr += ['']
             else:
                 aptr += ['']
+                bptr += ['']
+        # arguments = [f'{a}{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
+        #              for b, a, p in zip(bptr, o.arguments, aptr)]
         arguments = [f'{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
                      for a, p in zip(o.arguments, aptr)]
-        
+
         prefix = ''
         extern = ''
         postfix = ''
@@ -259,6 +274,8 @@ class CCodegen(Stringifier):
         # Fill the body
         body += [self.visit(o.body, skip_decls=skip_decls, **kwargs)]
         # body += [self.format_line('return 0;')]
+        if skip_decls:
+            body += [self.format_line('cudaDeviceSynchronize();')]
 
         # Close everything off
         self.depth -= 1
@@ -327,6 +344,9 @@ class CCodegen(Stringifier):
                 initial = f' = {self.visit(v.initial, **kwargs)}'
             if v.type.pointer or v.type.allocatable:
                 var = '*' + var
+            # if initial:
+            #     variables += [f'const {var}{initial}']
+            # else:
             variables += [f'{var}{initial}']
         if not variables:
             return None

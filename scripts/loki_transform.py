@@ -311,7 +311,7 @@ def inline_elemental_kernel(routine, **kwargs):
 @cli.command()
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
-                  ['idem', 'c', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                  ['idem', 'c-parametrise', 'c-hoist', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
                    'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
@@ -502,11 +502,11 @@ def convert(
         )
         scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
 
-    if mode in ['c', 'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
+    if mode in ['c-parametrise', 'c-hoist', 'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         derived_types = scheduler.config.derived_types
         scheduler.process( SccCufTransformation(
             horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            transformation_type='hoist', # 'parametrise', # mode.replace('cuf-', ''),
+            transformation_type=mode.replace('c-', ''), #'parametrise', #'hoist', # 'parametrise', # mode.replace('cuf-', ''),
             derived_types=derived_types
         ))
 
@@ -529,11 +529,11 @@ def convert(
             block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
         )
         scheduler.process(transformation=transformation, reverse=True)
-    if mode == 'cuf-parametrise':
+    if mode == 'cuf-parametrise' or mode == "c-parametrise":
         dic2p = scheduler.config.dic2p
         transformation = ParametriseTransformation(dic2p=dic2p)
         scheduler.process(transformation=transformation)
-    if mode == "cuf-hoist" or mode == "c":
+    if mode == "cuf-hoist" or mode == "c-hoist":
         vertical = scheduler.config.dimensions['vertical']
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(
             dim_vars=(vertical.size,)), reverse=True
