@@ -311,7 +311,7 @@ def test_extract_contained_subroutines_undefined_in_parent():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         routines = extract_contained_subroutines(src.routines[0])
 
 
