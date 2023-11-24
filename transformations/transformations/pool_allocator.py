@@ -477,7 +477,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # Build expression for array size in bytes
         dim = arr.dimensions[0]
         for d in arr.dimensions[1:]:
-            dim = Product((dim, d))
+            if isinstance(d, RangeIndex):
+                dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), IntLiteral(1))))))
+            else:
+                dim = Product((dim, d))
         arr_size = Product((dim, InlineCall(Variable(name='C_SIZEOF'),
                                             parameters=as_tuple(self._get_c_sizeof_arg(arr)))))
 
