@@ -1812,11 +1812,12 @@ class FParser2IR(GenericVisitor):
             rescope_symbols=True, source=source, incomplete=False
         )
 
-        # Once statement functions are in place, we need to update the original declaration symbol
+        # Once statement functions are in place, we need to update the original declaration so that it
+        # contains ProcedureSymbols rather than Scalars
         for decl in FindNodes(ir.VariableDeclaration).visit(spec):
             if any(routine.symbol_attrs[s.name].is_stmt_func for s in decl.symbols):
-                assert all(routine.symbol_attrs[s.name].is_stmt_func for s in decl.symbols)
-                decl._update(symbols=tuple(s.clone() for s in decl.symbols))
+                decl._update(symbols=tuple(s.clone() if routine.symbol_attrs[s.name].is_stmt_func else s
+                                           for s in decl.symbols))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
