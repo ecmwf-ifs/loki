@@ -315,13 +315,11 @@ class TemporariesRawStackTransformation(Transformation):
         dim = arr.dimensions[0]
         for d in arr.dimensions[1:]:
             dim = Product((dim, d))
-        arr_size = Product((dim, InlineCall(Variable(name='C_SIZEOF'),
-                                            parameters=as_tuple(self._get_c_sizeof_arg(arr)))))
 
         # Increment stack size
-        stack_size = simplify(Sum((stack_size, arr_size)))
+        stack_size = simplify(Sum((stack_size, dim)))
 
-        ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, arr_size)))
+        ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, dim)))
         if self.check_bounds:
             stack_size_check = Conditional(
                 condition=Comparison(stack_ptr, '>', stack_end), inline=True,
@@ -329,28 +327,6 @@ class TemporariesRawStackTransformation(Transformation):
             )
             return ([ptr_assignment, ptr_increment, stack_size_check], stack_size)
         return ([ptr_assignment, ptr_increment], stack_size)
-
-
-    def _get_c_sizeof_arg(self, arr):
-        """
-        Return an inline declaration of an intrinsic type, to be used as an argument to
-        `C_SIZEOF`.
-        """
-
-        if arr.type.dtype == BasicType.REAL:
-            param = Cast(name='REAL', expression=IntLiteral(1))
-        elif arr.type.dtype == BasicType.INTEGER:
-            param = Cast(name='INT', expression=IntLiteral(1))
-        elif arr.type.dtype == BasicType.CHARACTER:
-            param = Cast(name='CHAR', expression=IntLiteral(1))
-        elif arr.type.dtype == BasicType.LOGICAL:
-            param = Cast(name='LOGICAL', expression=LogicLiteral('.TRUE.'))
-        elif arr.type.dtype == BasicType.COMPLEX:
-            param = Cast(name='CMPLX', expression=(IntLiteral(1), IntLiteral(1)))
-
-        param.kind = getattr(arr.type, 'kind', None)
-
-        return param
 
 
     def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):
