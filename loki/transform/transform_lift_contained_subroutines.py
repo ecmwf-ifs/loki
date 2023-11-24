@@ -16,8 +16,8 @@ from loki.transform import resolve_associates
 
 def lift_contained_subroutines(routine):
     """
-    This transform creates "standalone" `Subroutine`s from the contained subroutines of `routine`.
-    A list of `Subroutine`s is returned, where the first `Subroutine` is the modified parent (i.e `routine` itself),
+    This transform creates "standalone" :any:`Subroutine`s from the contained subroutines of ``routine``.
+    A list of :any:`Subroutine`s is returned, where the first :any:`Subroutine` is the modified parent (i.e ``routine`` itself),
     and the modified contained subroutines come next.
     In summary, this function does the following transforms:
     1. all global bindings from the point of view of the contained subroutine(s) are introduced 
@@ -25,43 +25,40 @@ def lift_contained_subroutines(routine):
     2. all calls to the contained subroutines in parent are modified accordingly.
 
     As a basic example of this transformation, the Fortran subroutine:
-    ```
-    subroutine outer()
-        integer :: y
-        integer :: o
-        o = 0
-        y = 1
-        call inner(o)
-        contains
-        subroutine inner(o)
-           integer, intent(inout) :: o
-           integer :: x
-           x = 4
-           o = x + y ! Note, 'y' is "global" here!
-        end subroutine inner
-    end subroutine outer
-    ```
+    .. code-block::
+        subroutine outer()
+            integer :: y
+            integer :: o
+            o = 0
+            y = 1
+            call inner(o)
+            contains
+            subroutine inner(o)
+               integer, intent(inout) :: o
+               integer :: x
+               x = 4
+               o = x + y ! Note, 'y' is "global" here!
+            end subroutine inner
+        end subroutine outer
     is transformed to (modified) parent:
-    ```
-    subroutine outer()
-        integer :: y
-        integer :: o
-        o = 0
-        y = 1
-        call inner(o, y) ! 'y' now passed as argument.
-        contains
-    end subroutine outer
-    ```
+    .. code-block::
+        subroutine outer()
+            integer :: y
+            integer :: o
+            o = 0
+            y = 1
+            call inner(o, y) ! 'y' now passed as argument.
+            contains
+        end subroutine outer
     and the (modified) child:
-    ```
-    subroutine inner(o, y)
-           integer, intent(inout) :: o
-           integer, intent(inout) :: y
-           integer :: x
-           x = 4
-           o = x + y ! Note, 'y' is no longer "global"
-    end subroutine inner
-    ```
+    .. code-block::
+        subroutine inner(o, y)
+               integer, intent(inout) :: o
+               integer, intent(inout) :: y
+               integer :: x
+               x = 4
+               o = x + y ! Note, 'y' is no longer "global"
+        end subroutine inner
     """
 
     def find_var_defining_import(varname: str, impos):
