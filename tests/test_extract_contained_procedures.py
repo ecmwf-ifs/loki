@@ -5,23 +5,22 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import pytest
 from loki.sourcefile import Sourcefile
 from loki.expression import FindVariables, FindInlineCalls
 from loki.ir import (
     CallStatement, Import,
 )
-from loki.visitors import FindNodes 
+from loki.visitors import FindNodes
 from loki.transform import (
     extract_contained_procedures
 )
 from loki.subroutine import Subroutine
-import pytest
 
 def test_extract_contained_procedures_basic_scalar():
     """
     Tests that a global scalar is correctly added as argument of `inner`.
     """
-    
     fcode = """
         subroutine outer()
             implicit none
@@ -78,7 +77,7 @@ def test_extract_contained_procedures_contains_emptied():
     """
     src = Sourcefile.from_source(fcode)
     outer = src.routines[0]
-    routines = extract_contained_procedures(outer)
+    extract_contained_procedures(outer)
     # NOTE: Functions in Loki are also typed as Subroutines.
     assert not any(isinstance(r, Subroutine) for r in outer.contains.body)
 
@@ -142,7 +141,6 @@ def test_extract_contained_procedures_basic_import():
     src = Sourcefile.from_source(fcode)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
-    outer = src.routines[0]
     inner = routines[0]
     imports = FindNodes(Import).visit(inner.spec)
     assert len(imports) == 1
@@ -154,7 +152,8 @@ def test_extract_contained_procedures_basic_import():
 
 def test_extract_contained_procedures_recursive_definition():
     """
-    Tests that whenever a global in the contained subroutine depends on another global variable, both are introduced as arguments,
+    Tests that whenever a global in the contained subroutine depends on another
+    global variable, both are introduced as arguments,
     even if there is no explicit reference to the latter.
     """
     fcode = """
@@ -187,7 +186,7 @@ def test_extract_contained_procedures_recursive_definition():
     assert 'x' in (var.name for var in call.arguments)
     assert 'klon' in (var.name for var in call.arguments)
 
-    # Test that intent of 'klon' is also 'in' inside inner (because intent is given in parent). 
+    # Test that intent of 'klon' is also 'in' inside inner (because intent is given in parent).
     klon = inner.variable_map['klon']
     assert klon.type.intent == "in"
 
@@ -292,8 +291,9 @@ def test_extract_contained_procedures_derived_type_field():
 
 def test_extract_contained_procedures_intent():
     """
-    This test is just to document the current behaviour: when a global is introduced as an argument to the lifted contained subroutine,
-    its intent will be 'inout', unless the intent is specified in the parent subroutine. 
+    This test is just to document the current behaviour: when a global is
+    introduced as an argument to the lifted contained subroutine,
+    its intent will be 'inout', unless the intent is specified in the parent subroutine.
     """
     fcode = """
         subroutine outer(v)
@@ -322,14 +322,15 @@ def test_extract_contained_procedures_intent():
     assert inner.variable_map['x'].type.intent == "inout"
     assert inner.variable_map['p'].type.intent == "out"
 
-    # Also check that the intents don't change in the parent. 
+    # Also check that the intents don't change in the parent.
     assert outer.variable_map['v'].type.intent == "in"
-    assert outer.variable_map['x'].type.intent is None 
+    assert outer.variable_map['x'].type.intent is None
     assert outer.variable_map['p'].type.intent == "out"
 
 def test_extract_contained_procedures_undefined_in_parent():
     """
-    This test is just to document current behaviour: an exception is raised if a global inside the contained subroutine does not
+    This test is just to document current behaviour:
+    an exception is raised if a global inside the contained subroutine does not
     have a definition in the parent scope.
     """
     fcode = """
@@ -348,7 +349,7 @@ def test_extract_contained_procedures_undefined_in_parent():
     """
     src = Sourcefile.from_source(fcode)
     with pytest.raises(RuntimeError):
-        routines = extract_contained_procedures(src.routines[0])
+        extract_contained_procedures(src.routines[0])
 
 
 def test_extract_contained_procedures_multiple_contained_procedures():
@@ -400,7 +401,6 @@ def test_extract_contained_procedures_basic_scalar_function():
     """
     Basic test for scalars highlighting that the inner procedure may also be a function. 
     """
-    
     fcode = """
         subroutine outer()
             implicit none
@@ -433,7 +433,6 @@ def test_extract_contained_procedures_basic_scalar_function_both():
     """
     Basic test for scalars highlighting that the outer and inner procedure may be functions. 
     """
-    
     fcode = """
         function outer() result(outer_res)
             implicit none
