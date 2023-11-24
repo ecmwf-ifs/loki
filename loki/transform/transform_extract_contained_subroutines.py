@@ -5,11 +5,17 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki import (
-    Subroutine, FindNodes, FindVariables,
+from loki.subroutine import Subroutine
+from loki.expression import (
+    FindVariables,
+    FindInlineCalls,
+)
+from loki.ir import (
     CallStatement, VariableDeclaration, Import,
-    FindInlineCalls, Transformer, CaseInsensitiveDict,
-    DerivedType
+    CaseInsensitiveDict, DerivedType
+)
+from loki.visitors import (
+    Transformer, FindNodes, 
 )
 from functools import reduce
 from loki.transform import resolve_associates
