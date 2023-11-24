@@ -31,14 +31,6 @@ def extract_contained_subroutine(routine, name):
     """
         TODO: Update docs of this function.
     """
-
-    def find_var_defining_import(varname: str, impos):
-        for impo in impos: 
-            varnames_in_import = [var.name.lower() for var in FindVariables().visit(impo)]
-            if varname.lower() in varnames_in_import:
-                return impo.clone()
-        raise Exception(f"variable '{varname}' was not found from the specified import objects.")
-
     inner = routine.subroutine_map[name] # Fetch the subroutine to extract (or crash with 'KeyError').
     resolve_associates(inner) # Resolving associate statements is done to simplify logic in future steps.
 
@@ -139,7 +131,7 @@ def extract_contained_subroutine(routine, name):
         else:
             # Global is an import, so need to add the import. 
             # Change the import to only include the symbols that are needed. 
-            matching_import = find_var_defining_import(var.name, outer_imports)
+            matching_import = routine.import_map[var.name] 
             imports_to_add.append(matching_import.clone(symbols = (var.clone(),)))
 
     # Change `inner` to take the globals as argument or add the corresponding import
