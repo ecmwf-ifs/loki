@@ -83,7 +83,7 @@ def extract_contained_procedure(procedure, name):
 
     This function does the following transforms:
     1. all global bindings from the point of view of the contained procedure are introduced
-    as imports or dummy arguments to the modified contained procedures returned from this function.
+    as imports or dummy arguments to the modified contained procedure returned from this function.
     2. all calls or invocations of the contained procedure in the parent are modified accordingly.
 
     See also the "driver" function ``extract_contained_procedures``, which applies this function to each
