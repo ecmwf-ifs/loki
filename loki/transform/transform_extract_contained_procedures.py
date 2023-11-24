@@ -19,22 +19,77 @@ from loki.visitors import (
 from functools import reduce
 from loki.transform import resolve_associates
 
-def extract_contained_procedures(routine):
+def extract_contained_procedures(procedure):
     """
-        TODO: Update the docs of this function.
-    """
-    new_routines = []
-    for r in routine.subroutines:
-        new_routines += [extract_contained_procedure(routine, r.name)]
-    newbody = tuple(r for r in routine.contains.body if not isinstance(r, Subroutine))
-    routine.contains = routine.contains.clone(body = newbody)
-    return new_routines
+    This transform creates "standalone" :any:`Subroutine`s from the contained procedures (subroutines or functions) of ``procedure``.
 
-def extract_contained_procedure(routine, name):
+    A list of :any:`Subroutine`s corresponding to each contained subroutine of ``procedure`` is returned and ``procedure`` itself is
+    modified (see below).
+    This function does the following transforms:
+    1. all global bindings from the point of view of the contained procedures(s) are introduced 
+    as imports or dummy arguments to the modified contained procedures(s) to make them standalone.
+    2. all calls or invocations of the contained procedures in parent are modified accordingly.
+    3. All procedures are removed from the CONTAINS block of ``procedure``. 
+
+    As a basic example of this transformation, the Fortran subroutine:
+    .. code-block::
+        subroutine outer()
+            integer :: y
+            integer :: o
+            o = 0
+            y = 1
+            call inner(o)
+            contains
+            subroutine inner(o)
+               integer, intent(inout) :: o
+               integer :: x
+               x = 4
+               o = x + y ! Note, 'y' is "global" here!
+            end subroutine inner
+        end subroutine outer
+    is modified to:
+    .. code-block:: 
+        subroutine outer()
+            integer :: y
+            integer :: o
+            o = 0
+            y = 1
+            call inner(o, y) ! 'y' now passed as argument.
+            contains
+        end subroutine outer
+    and the (modified) child:
+    .. code-block::
+        subroutine inner(o, y)
+               integer, intent(inout) :: o
+               integer, intent(inout) :: y
+               integer :: x
+               x = 4
+               o = x + y ! Note, 'y' is no longer "global"
+        end subroutine inner
+    is returned.
     """
-        TODO: Update docs of this function.
+    new_procedures = []
+    for r in procedure.subroutines:
+        new_procedures += [extract_contained_procedure(procedure, r.name)]
+
+    # Remove all subroutines (or functions) from the CONTAINS section.
+    newbody = tuple(r for r in procedure.contains.body if not isinstance(r, Subroutine))
+    procedure.contains = procedure.contains.clone(body = newbody)
+    return new_procedures
+
+def extract_contained_procedure(procedure, name):
     """
-    inner = routine.subroutine_map[name] # Fetch the subroutine to extract (or crash with 'KeyError').
+    Extract a single contained procedure with name ``name`` from the parent procedure ``procedure``.
+
+    This function does the following transforms:
+    1. all global bindings from the point of view of the contained procedure are introduced 
+    as imports or dummy arguments to the modified contained procedures returned from this function. 
+    2. all calls or invocations of the contained procedure in the parent are modified accordingly.
+
+    See also the "driver" function ``extract_contained_procedures``, which applies this function to each
+    contained procedure of a parent procedure and additionally empties the CONTAINS section of subroutines.
+    """
+    inner = procedure.subroutine_map[name] # Fetch the subprocedure to extract (or crash with 'KeyError').
     resolve_associates(inner) # Resolving associate statements is done to simplify logic in future steps.
 
     # Find all local variables names. 
@@ -73,10 +128,10 @@ def extract_contained_procedure(routine, name):
     inline_call_names = set([call.name.lower() for call in FindInlineCalls().visit(inner.body)])
     gvar_names = gvar_names.difference(inline_call_names)
 
-    defs_to_add = [] # List of new arguments that should be added to the inner routine. 
-    imports_to_add = [] # List of imports that should be added to the inner routine. 
-    outer_spec_vars = FindVariables().visit(routine.spec) 
-    outer_imports = FindNodes(Import).visit(routine.spec)
+    defs_to_add = [] # List of new arguments that should be added to the inner procedure. 
+    imports_to_add = [] # List of imports that should be added to the inner procedure. 
+    outer_spec_vars = FindVariables().visit(procedure.spec) 
+    outer_imports = FindNodes(Import).visit(procedure.spec)
     outer_import_vars = FindVariables().visit(outer_imports)
     outer_import_names = [var.name.lower() for var in outer_import_vars]
     
@@ -93,7 +148,7 @@ def extract_contained_procedure(routine, name):
             assert len(same_named_globals) == 0 
             msg = f"Could not resolve symbol '{gn}' "\
             f"in the contained subroutine '{inner.name}'. "\
-            f"The symbol '{gn}' is undefined in the parent subroutine '{routine.name}'."
+            f"The symbol '{gn}' is undefined in the parent subroutine '{procedure.name}'."
             raise RuntimeError(msg)
 
         var = same_named_globals[0].rescope(inner) 
@@ -101,7 +156,7 @@ def extract_contained_procedure(routine, name):
             # Global is not an import, so it needs to be added as an argument. 
 
             # If there is no intent, set intent as 'inout', so that variable can be (possibly) modified inside
-            # the lifted `inner` routine. Without further analysis, it is not possibly to
+            # the extracted `inner` procedure. Without further analysis, it is not possibly to
             # say whether this is the "true" intent.
             if not var.type.intent:
                 var.type = var.type.clone(intent = 'inout') 
@@ -125,7 +180,7 @@ def extract_contained_procedure(routine, name):
         else:
             # Global is an import, so need to add the import. 
             # Change the import to only include the symbols that are needed. 
-            matching_import = routine.import_map[var.name] 
+            matching_import = procedure.import_map[var.name] 
             imports_to_add.append(matching_import.clone(symbols = (var,)))
 
     # Change `inner` to take the globals as argument or add the corresponding import
@@ -144,14 +199,14 @@ def extract_contained_procedure(routine, name):
         'transformer': SubstituteExpressions if inner.is_function else Transformer
     }
     call_transmap = {}
-    all_calls = m['call_finder'].visit(routine.body)
+    all_calls = m['call_finder'].visit(procedure.body)
     inner_calls = (call for call in all_calls if call.routine == inner)
     for call in inner_calls:
         newargs = getattr(call, m['argname']) + tuple(map(lambda x: x.clone(dimensions = None), defs_to_add)) 
         call_transmap[call] = call.clone(**{m['argname']: newargs}) 
 
     # Transform calls in parent.
-    routine.body = m['transformer'](call_transmap).visit(routine.body)
+    procedure.body = m['transformer'](call_transmap).visit(procedure.body)
 
     return inner
 
