@@ -1678,26 +1678,49 @@ class FParser2IR(GenericVisitor):
           declared inside the procedure)
         * :class:`fparser.two.Fortran2003.End_Subroutine_Stmt` (the final statement)
         """
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
+
         # Find start and end of construct
         subroutine_stmt = get_child(o, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt))
         subroutine_stmt_index = o.children.index(subroutine_stmt)
         end_subroutine_stmt = get_child(o, (Fortran2003.End_Subroutine_Stmt, Fortran2003.End_Function_Stmt))
         end_subroutine_stmt_index = o.children.index(end_subroutine_stmt)
 
+        # Extract source object for construct
+        lines = (subroutine_stmt.item.span[0], end_subroutine_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+
+        # Get the procedure type and signature preamble
+        is_function = isinstance(subroutine_stmt, Fortran2003.Function_Stmt)
+        prefix, result_name, name, args, bind, return_type = self.visit(subroutine_stmt, **kwargs)
+
+        parent = kwargs['scope']
+
+        # Check if the Subroutine node has been created before by looking it up in the scope
+        routine = None
+        if parent is not None and name in parent.symbol_attrs:
+            proc_type = kwargs['scope'].symbol_attrs[name]
+            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+                routine = proc_type.dtype.procedure
+                if not routine._incomplete:
+                    return_type = proc_type.dtype.return_type
+
+        # Otherwise instantiate the object
+        if not routine:
+            routine = Subroutine(
+                name=name, args=args, prefix=prefix, bind=bind, result_name=result_name,
+                is_function=is_function, parent=kwargs['scope']
+            )
+
+        # Hand the new object down as the scope
+        kwargs['scope'] = routine
+
         # Everything before the construct
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:subroutine_stmt_index])
 
         # ...and there shouldn't be anything after the construct
         assert end_subroutine_stmt_index + 1 == len(o.children)
-
-        # Instantiate the object
-        (routine, return_type) = self.visit(subroutine_stmt, **kwargs)
-        kwargs['scope'] = routine
-
-        # Extract source object for construct
-        lines = (subroutine_stmt.item.span[0], end_subroutine_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
 
         # We make sure the subroutine objects for all member routines are
         # instantiated before parsing the actual spec and body of the parent routine.
@@ -1806,9 +1829,9 @@ class FParser2IR(GenericVisitor):
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
         routine.__initialize__(
-            name=routine.name, args=routine._dummies, docstring=docs, spec=spec,
-            body=body, contains=contains, ast=o, prefix=routine.prefix, bind=routine.bind,
-            result_name=routine.result_name, is_function=routine.is_function,
+            name=name, args=args, docstring=docs, spec=spec,
+            body=body, contains=contains, ast=o, prefix=prefix, bind=bind,
+            result_name=result_name, is_function=is_function,
             rescope_symbols=True, source=source, incomplete=False
         )
 
@@ -1849,8 +1872,6 @@ class FParser2IR(GenericVisitor):
         * suffix :class:`fparser.two.Fortran2003.Suffix` or language binding
           spec :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
         """
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
-
         # Parse the prefix
         prefix = ()
         return_type = None
@@ -1863,18 +1884,6 @@ class FParser2IR(GenericVisitor):
 
         name = self.visit(o.children[1], **kwargs)
         name = name.name
-
-        # Check if the Subroutine node has been created before by looking it up in the scope
-        routine = None
-        if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
-            proc_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
-            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
-                routine = proc_type.dtype.procedure
-                if not routine._incomplete:
-                    # We return the existing object right away, unless it exists from a
-                    # previous incomplete parse for which we have to make sure we get a
-                    # full parse first
-                    return (routine, proc_type.dtype.return_type)
 
         # Build the dummy argument list
         if o.children[2] is None:
@@ -1891,22 +1900,7 @@ class FParser2IR(GenericVisitor):
             result = None
             bind = None if o.children[3] is None else self.visit(o.children[3], **kwargs)
 
-        # Instantiate the object
-        is_function = isinstance(o, Fortran2003.Function_Stmt)
-        if routine is None:
-            routine = Subroutine(
-                name=name, args=args, prefix=prefix, bind=bind, result_name=result,
-                is_function=is_function, parent=kwargs['scope']
-            )
-        else:
-            routine.__initialize__(
-                name=name, args=args, docstring=routine.docstring, spec=routine.spec,
-                body=routine.body, contains=routine.contains, prefix=prefix, bind=bind,
-                result_name=result, is_function=is_function, ast=routine._ast,
-                source=routine._source, incomplete=routine._incomplete
-            )
-
-        return (routine, return_type)
+        return prefix, result, name, args, bind, return_type
 
     visit_Function_Stmt = visit_Subroutine_Stmt
     visit_Subroutine_Name = visit_Name
