@@ -6,17 +6,18 @@
 # nor does it submit to any jurisdiction.
 
 from loki.sourcefile import Sourcefile
-from loki.expression import FindVariables
+from loki.expression import FindVariables, FindInlineCalls
 from loki.ir import (
     CallStatement, Import,
 )
-from loki.visitors import FindNodes
+from loki.visitors import FindNodes 
 from loki.transform import (
-    extract_contained_subroutines
+    extract_contained_procedures
 )
+from loki.subroutine import Subroutine
 import pytest
 
-def test_extract_contained_subroutines_basic_scalar():
+def test_extract_contained_procedures_basic_scalar():
     """
     Tests that a global scalar is correctly added as argument of `inner`.
     """
@@ -37,7 +38,7 @@ def test_extract_contained_subroutines_basic_scalar():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = extract_contained_subroutines(src.routines[0])
+    routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     assert routines[0].name == "inner"
     inner = routines[0]
@@ -48,7 +49,40 @@ def test_extract_contained_subroutines_basic_scalar():
     call = FindNodes(CallStatement).visit(outer.body)[0]
     assert 'x' in (var.name for var in call.arguments)
 
-def test_extract_contained_subroutines_basic_array():
+def test_extract_contained_procedures_contains_emptied():
+    """
+    Tests that the contains section does not contain any functions or subroutines after processing. 
+    """
+    fcode = """
+        subroutine outer()
+            implicit none
+            integer :: x
+            x = 42
+            call inner()
+            contains
+            subroutine inner()
+                integer :: y
+                integer :: z
+                y = 1
+                z = x + y
+            end subroutine inner
+            function f() result(res)
+                integer :: y
+                integer :: z
+                integer :: res
+                y = 1
+                z = y
+                res = 2 * z
+            end function f
+        end subroutine outer 
+    """
+    src = Sourcefile.from_source(fcode)
+    outer = src.routines[0]
+    routines = extract_contained_procedures(outer)
+    # NOTE: Functions in Loki are also typed as Subroutines.
+    assert not any(isinstance(r, Subroutine) for r in outer.contains.body)
+
+def test_extract_contained_procedures_basic_array():
     """
     Tests that a global array variable (and a scalar) is correctly added as argument of `inner`.
     """
@@ -71,7 +105,7 @@ def test_extract_contained_subroutines_basic_array():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = extract_contained_subroutines(src.routines[0])
+    routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     inner = routines[0]
     outer = src.routines[0]
@@ -84,7 +118,7 @@ def test_extract_contained_subroutines_basic_array():
     assert 'x' in (var.name for var in call.arguments)
     assert 'arr' in (var.name for var in call.arguments)
 
-def test_extract_contained_subroutines_basic_import():
+def test_extract_contained_procedures_basic_import():
     """
     Tests that a global imported binding is correctly introduced to the contained subroutine.
     """
@@ -106,7 +140,7 @@ def test_extract_contained_subroutines_basic_import():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = extract_contained_subroutines(src.routines[0])
+    routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
@@ -118,7 +152,7 @@ def test_extract_contained_subroutines_basic_import():
     assert constants_import.symbols[0].name == "c2" # Note, the binding 'c1' is NOT brought to the contained subroutine.
     assert not 'c2' in (var.name for var in inner.arguments)
 
-def test_extract_contained_subroutines_recursive_definition():
+def test_extract_contained_procedures_recursive_definition():
     """
     Tests that whenever a global in the contained subroutine depends on another global variable, both are introduced as arguments,
     even if there is no explicit reference to the latter.
@@ -140,7 +174,7 @@ def test_extract_contained_subroutines_recursive_definition():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = extract_contained_subroutines(src.routines[0])
+    routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
@@ -157,7 +191,7 @@ def test_extract_contained_subroutines_recursive_definition():
     klon = inner.variable_map['klon']
     assert klon.type.intent == "in"
 
-def test_extract_contained_subroutines_recursive_definition_import():
+def test_extract_contained_procedures_recursive_definition_import():
     """
     Tests that whenever globals in the contained subroutine depend on imported bindings, 
     the globals are introduced as arguments, and the imports are added to the contained subroutine. 
@@ -182,7 +216,7 @@ def test_extract_contained_subroutines_recursive_definition_import():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = extract_contained_subroutines(src.routines[0])
+    routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
@@ -207,7 +241,7 @@ def test_extract_contained_subroutines_recursive_definition_import():
     assert "jpim" in symbols
     assert len(symbols) == 2
 
-def test_extract_contained_subroutines_derived_type_field():
+def test_extract_contained_procedures_derived_type_field():
     """
     Test that when a derived type field, i.e 'a%b' is a global in the scope of the contained subroutine,
     the derived type itself, that is, 'a', is introduced as an the argument in the transformation.
@@ -231,7 +265,7 @@ def test_extract_contained_subroutines_derived_type_field():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = extract_contained_subroutines(src.routines[0])
+    routines = extract_contained_procedures(src.routines[0])
     outer = src.routines[0]
     inner = routines[0]
     assert 'xtyp' in (var.name for var in FindVariables().visit(inner.spec))
@@ -256,7 +290,7 @@ def test_extract_contained_subroutines_derived_type_field():
     assert "your_type" in symbols
     assert len(symbols) == 2
 
-def test_extract_contained_subroutines_intent():
+def test_extract_contained_procedures_intent():
     """
     This test is just to document the current behaviour: when a global is introduced as an argument to the lifted contained subroutine,
     its intent will be 'inout', unless the intent is specified in the parent subroutine. 
@@ -280,7 +314,7 @@ def test_extract_contained_subroutines_intent():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = extract_contained_subroutines(src.routines[0])
+    routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
@@ -293,7 +327,7 @@ def test_extract_contained_subroutines_intent():
     assert outer.variable_map['x'].type.intent is None 
     assert outer.variable_map['p'].type.intent == "out"
 
-def test_extract_contained_subroutines_undefined_in_parent():
+def test_extract_contained_procedures_undefined_in_parent():
     """
     This test is just to document current behaviour: an exception is raised if a global inside the contained subroutine does not
     have a definition in the parent scope.
@@ -314,10 +348,10 @@ def test_extract_contained_subroutines_undefined_in_parent():
     """
     src = Sourcefile.from_source(fcode)
     with pytest.raises(RuntimeError):
-        routines = extract_contained_subroutines(src.routines[0])
+        routines = extract_contained_procedures(src.routines[0])
 
 
-def test_extract_contained_subroutines_multiple_contained_subroutines():
+def test_extract_contained_procedures_multiple_contained_procedures():
     """
     Basic test to check that multiple contained subroutines can also be handled.
     """
@@ -345,7 +379,7 @@ def test_extract_contained_subroutines_multiple_contained_subroutines():
         end subroutine outer 
     """
     src = Sourcefile.from_source(fcode)
-    routines = extract_contained_subroutines(src.routines[0])
+    routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 2
     assert routines[0].name == "inner1"
     assert routines[1].name == "inner2"
@@ -361,3 +395,69 @@ def test_extract_contained_subroutines_multiple_contained_subroutines():
     assert 'x' in (var.name for var in call.arguments)
     call = [call for call in FindNodes(CallStatement).visit(outer.body) if call.name == "inner2"][0]
     assert 'gx' in (var.name for var in call.arguments)
+
+def test_extract_contained_procedures_basic_scalar_function():
+    """
+    Basic test for scalars highlighting that the inner procedure may also be a function. 
+    """
+    
+    fcode = """
+        subroutine outer()
+            implicit none
+            integer :: x
+            integer :: y
+            x = 42
+            y = inner()
+            contains
+            function inner() result(z)
+                integer :: y
+                integer :: z
+                y = 1
+                z = x + y
+            end function inner
+        end subroutine outer 
+    """
+    src = Sourcefile.from_source(fcode)
+    routines = extract_contained_procedures(src.routines[0])
+    assert len(routines) == 1
+    assert routines[0].name == "inner"
+    inner = routines[0]
+    outer = src.routines[0]
+    assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
+    assert 'x' in (var.name for var in inner.arguments)
+
+    call = list(FindInlineCalls().visit(outer.body))[0]
+    assert 'x' in (var.name for var in call.parameters)
+
+def test_extract_contained_procedures_basic_scalar_function_both():
+    """
+    Basic test for scalars highlighting that the outer and inner procedure may be functions. 
+    """
+    
+    fcode = """
+        function outer() result(outer_res)
+            implicit none
+            integer :: x
+            integer :: outer_res
+            x = 42
+            outer_res = inner()
+            contains
+            function inner() result(z)
+                integer :: y
+                integer :: z
+                y = 1
+                z = x + y
+            end function inner
+        end function outer 
+    """
+    src = Sourcefile.from_source(fcode)
+    routines = extract_contained_procedures(src.routines[0])
+    assert len(routines) == 1
+    assert routines[0].name == "inner"
+    inner = routines[0]
+    outer = src.routines[0]
+    assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
+    assert 'x' in (var.name for var in inner.arguments)
+
+    call = list(FindInlineCalls().visit(outer.body))[0]
+    assert 'x' in (var.name for var in call.parameters)
