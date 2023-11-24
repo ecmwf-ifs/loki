@@ -550,7 +550,7 @@ end module kernel_mod
     stack_size = f'max(c_sizeof(real(1, kind={kind_real}))*nlon + c_sizeof(real(1, kind={kind_real}))*nlon*nz + '
     stack_size += f'2*c_sizeof(int(1, kind={kind_int}))*nlon + c_sizeof(logical(true, kind={kind_log}))*nz,'
     stack_size += f'3*c_sizeof(real(1, kind={kind_real}))*nlon*nz + '
-    stack_size += f'c_sizeof(real(1,kind={kind_real}))*nlon)/c_sizeof(real(1, kind=jprb))'
+    stack_size += f'c_sizeof(real(1, kind={kind_real}))*nlon)/c_sizeof(real(1, kind=jprb))'
     check_stack_created_in_driver(driver, stack_size, calls[0], 2)
 
     # Has the data sharing been updated?
