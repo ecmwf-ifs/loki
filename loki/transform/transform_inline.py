@@ -190,24 +190,18 @@ def inline_elemental_functions(routine):
     routine.spec = Transformer(import_map).visit(routine.spec)
 
 
-def inline_internal_routine(routine, child):
+def map_call_to_procedure_body(call, caller):
     """
-    Inline an individual internal :any:`Subroutine` at source level.
-
-    This will replace all :any:`Call` objects to the specified
-    subroutine with an adjusted equivalent of the member routines'
-    body. For this, argument matching, including partial dimension
-    matching for array references is performed, and all
-    member-specific declarations are hoisted to the containing
-    :any:`Subroutine`.
+    Resolve arguments of a call and map to the called procedure body.
 
     Parameters
     ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to inline all calls to the member routine
-    child : :any:`Subroutine`
-        The contained internal subroutine to be inlined in the parent
+    call : :any:`CallStatment` or :any:`InlineCall`
+         Call object that defines the argument mapping
+    caller : :any:`Subroutine`
+         Procedure (scope) into which the callee's body gets mapped
     """
+
     # pylint: disable=import-outside-toplevel,cyclic-import
     from loki.transform import recursive_expression_map_update
 
@@ -228,6 +222,80 @@ def inline_internal_routine(routine, child):
             new_dimensions[indices[index]] = dim
 
         return val.clone(dimensions=tuple(new_dimensions))
+
+    # Get callee from the procedure type
+    callee = call.routine
+    if callee is BasicType.DEFERRED:
+        error(
+            '[Loki::TransformInline] Need procedure definition to resolve '
+            f'call to {call.name} from {caller}'
+        )
+        raise RuntimeError('Procedure definition not found! ')
+
+    argmap = {}
+    callee_vars = FindVariables().visit(callee.body)
+
+    # Match dimension indexes between the argument and the given value
+    # for all occurences of the argument in the body
+    for arg, val in call.arg_map.items():
+        if isinstance(arg, sym.Array):
+            # Resolve implicit dimension ranges of the passed value,
+            # eg. when passing a two-dimensional array `a` as `call(arg=a)`
+            # Check if val is a DeferredTypeSymbol, as it does not have a `dimensions` attribute
+            if not isinstance(val, sym.DeferredTypeSymbol) and val.dimensions:
+                qualified_value = val
+            else:
+                qualified_value = val.clone(
+                    dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
+                )
+
+            # If sequence association (scalar-to-array argument passing) is used,
+            # we cannot determine the right re-mapped iteration space, so we bail here!
+            if not any(isinstance(d, sym.Range) for d in qualified_value.dimensions):
+                error(
+                    '[Loki::TransformInline] Cannot find free dimension resolving '
+                    f' array argument for value "{qualified_value}"'
+                )
+                raise RuntimeError(
+                    f'[Loki::TransformInline] Cannot resolve procedure call to {call.name}'
+                )
+            arg_vars = tuple(v for v in callee_vars if v.name == arg.name)
+            argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
+        else:
+            argmap[arg] = val
+
+    # Recursive update of the map in case of nested variables to map
+    argmap = recursive_expression_map_update(argmap, max_iterations=10)
+
+    # Substitute argument calls into a copy of the body
+    callee_body = SubstituteExpressions(argmap, rebuild_scopes=True).visit(
+        callee.body.body, scope=caller
+    )
+
+    # Inline substituted body within a pair of marker comments
+    comment = Comment(f'! [Loki] inlined child subroutine: {callee.name}')
+    c_line = Comment('! =========================================')
+    return (comment, c_line) + as_tuple(callee_body) + (c_line, )
+
+
+def inline_internal_routine(routine, child):
+    """
+    Inline an individual internal :any:`Subroutine` at source level.
+
+    This will replace all :any:`Call` objects to the specified
+    subroutine with an adjusted equivalent of the member routines'
+    body. For this, argument matching, including partial dimension
+    matching for array references is performed, and all
+    member-specific declarations are hoisted to the containing
+    :any:`Subroutine`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to inline all calls to the member routine
+    child : :any:`Subroutine`
+        The contained internal subroutine to be inlined in the parent
+    """
 
     # Prevent shadowing of child's variables by renaming them a priori
     parent_variables = routine.variable_map
@@ -253,51 +321,11 @@ def inline_internal_routine(routine, child):
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
     routine.spec.append(decls)
 
+    # Resolve the call by mapping arguments into the called procedure's body
     call_map = {}
     for call in FindNodes(CallStatement).visit(routine.body):
         if call.routine == child:
-            argmap = {}
-            child_vars = FindVariables().visit(child.body)
-
-            # Match dimension indexes between the argument and the given value
-            # for all occurences of the argument in the body
-            for arg, val in call.arg_map.items():
-                if isinstance(arg, sym.Array):
-                    # Resolve implicit dimension ranges of the passed value,
-                    # eg. when passing a two-dimensional array `a` as `call(arg=a)`
-                    # Check if val is a DeferredTypeSymbol, as it does not have a `dimensions` attribute
-                    if not isinstance(val, sym.DeferredTypeSymbol) and val.dimensions:
-                        qualified_value = val
-                    else:
-                        qualified_value = val.clone(
-                            dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
-                        )
-
-                    # If sequence association (scalar-to-array argument passing) is used,
-                    # we cannot determine the right re-mapped iteration space, so we bail here!
-                    if not any(isinstance(d, sym.Range) for d in qualified_value.dimensions):
-                        error(
-                            '[Loki::TransformInline] Cannot find free dimension resolving '
-                            f' array argument for value "{qualified_value}"'
-                        )
-                        raise RuntimeError('[Loki::TransformInline] Unable to resolve subroutine call to internal child routine')
-                    arg_vars = tuple(v for v in child_vars if v.name == arg.name)
-                    argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
-                else:
-                    argmap[arg] = val
-
-            # Recursive update of the map in case of nested variables to map
-            argmap = recursive_expression_map_update(argmap, max_iterations=10)
-
-            # Substitute argument calls into a copy of the body
-            child_body = SubstituteExpressions(argmap, rebuild_scopes=True).visit(
-                child.body.body, scope=routine
-            )
-
-            # Inline substituted body within a pair of marker comments
-            comment = Comment(f'! [Loki] inlined child subroutine: {child.name}')
-            c_line = Comment('! =========================================')
-            call_map[call] = (comment, c_line) + as_tuple(child_body) + (c_line, )
+            call_map[call] = map_call_to_procedure_body(call, routine)
 
     # Replace calls to child procedure with the child's body
     routine.body = Transformer(call_map).visit(routine.body)
