@@ -381,6 +381,7 @@ subroutine routine_b(
     ! arg2
     j
 )
+    use parkind1, only : jpim
     implicit none
     integer, intent(in) :: i, j
     integer b
@@ -391,16 +392,17 @@ subroutine routine_b(
     call routine_a()
 contains
 !abc ^$^**
+    integer(kind=jpim) function contained_e(i)
+        integer, intent(in) :: i
+        contained_e = i
+    end function
+
     subroutine contained_c(i)
         integer, intent(in) :: i
         integer c
         c = 5
     end subroutine contained_c
     ! cc£$^£$^
-    integer function contained_e(i)
-        integer, intent(in) :: i
-        contained_e = i
-    end function
 
     subroutine contained_d(i)
         integer, intent(in) :: i
@@ -415,7 +417,7 @@ end subroutine routine_b
     assert not routine.is_function
     assert routine.arguments == ()
     assert routine.argnames == []
-    assert [r.name for r in routine.subroutines] == ['contained_c', 'contained_e', 'contained_d']
+    assert [r.name for r in routine.subroutines] == ['contained_e', 'contained_c', 'contained_d']
 
     contained_c = routine['contained_c']
     assert contained_c.name == 'contained_c'
@@ -1487,7 +1489,7 @@ end module fypp_mod
 
 
 @pytest.mark.parametrize(
-    'frontend', 
+    'frontend',
     available_frontends(include_regex=True, xfail=[(OMNI, 'OMNI may segfault on empty files')])
 )
 @pytest.mark.parametrize('fcode', ['', '\n', '\n\n\n\n'])
