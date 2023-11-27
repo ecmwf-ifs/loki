@@ -24,7 +24,7 @@ from loki.logging import warning, error
 
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
-    'inline_member_procedures'
+    'inline_internal_procedures', 'inline_member_procedures'
 ]
 
 
@@ -190,9 +190,9 @@ def inline_elemental_functions(routine):
     routine.spec = Transformer(import_map).visit(routine.spec)
 
 
-def inline_member_routine(routine, member):
+def inline_internal_routine(routine, child):
     """
-    Inline an individual member :any:`Subroutine` at source level.
+    Inline an individual internal :any:`Subroutine` at source level.
 
     This will replace all :any:`Call` objects to the specified
     subroutine with an adjusted equivalent of the member routines'
@@ -205,8 +205,8 @@ def inline_member_routine(routine, member):
     ----------
     routine : :any:`Subroutine`
         The subroutine in which to inline all calls to the member routine
-    member : :any:`Subroutine`
-        The contained member subroutine to be inlined in the parent
+    child : :any:`Subroutine`
+        The contained internal subroutine to be inlined in the parent
     """
     # pylint: disable=import-outside-toplevel,cyclic-import
     from loki.transform import recursive_expression_map_update
@@ -229,35 +229,35 @@ def inline_member_routine(routine, member):
 
         return val.clone(dimensions=tuple(new_dimensions))
 
-    # Prevent shadowing of member variables by renaming them a priori
+    # Prevent shadowing of child's variables by renaming them a priori
     parent_variables = routine.variable_map
     duplicate_locals = tuple(
-        v for v in member.variables
-        if v.name in parent_variables and v.name.lower() not in member._dummies
+        v for v in child.variables
+        if v.name in parent_variables and v.name.lower() not in child._dummies
     )
     shadow_mapper = SubstituteExpressions(
-        {v: v.clone(name=f'{member.name}_{v.name}') for v in duplicate_locals}
+        {v: v.clone(name=f'{child.name}_{v.name}') for v in duplicate_locals}
     )
-    member.spec = shadow_mapper.visit(member.spec)
+    child.spec = shadow_mapper.visit(child.spec)
 
     var_map = {}
     duplicate_locals_names = {dl.name.lower() for dl in duplicate_locals}
-    for v in FindVariables(unique=False).visit(member.body):
+    for v in FindVariables(unique=False).visit(child.body):
         if v.name.lower() in duplicate_locals_names:
-            var_map[v] = v.clone(name=f'{member.name}_{v.name}')
-    member.body = SubstituteExpressions(var_map).visit(member.body)
+            var_map[v] = v.clone(name=f'{child.name}_{v.name}')
+    child.body = SubstituteExpressions(var_map).visit(child.body)
 
     # Get local variable declarations and hoist them
-    decls = FindNodes(VariableDeclaration).visit(member.spec)
-    decls = tuple(d for d in decls if all(s.name.lower() not in member._dummies for s in d.symbols))
+    decls = FindNodes(VariableDeclaration).visit(child.spec)
+    decls = tuple(d for d in decls if all(s.name.lower() not in child._dummies for s in d.symbols))
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
     routine.spec.append(decls)
 
     call_map = {}
     for call in FindNodes(CallStatement).visit(routine.body):
-        if call.routine == member:
+        if call.routine == child:
             argmap = {}
-            member_vars = FindVariables().visit(member.body)
+            child_vars = FindVariables().visit(child.body)
 
             # Match dimension indexes between the argument and the given value
             # for all occurences of the argument in the body
@@ -280,8 +280,8 @@ def inline_member_routine(routine, member):
                             '[Loki::TransformInline] Cannot find free dimension resolving '
                             f' array argument for value "{qualified_value}"'
                         )
-                        raise RuntimeError('[Loki::TransformInline] Unable to resolve member subroutine call')
-                    arg_vars = tuple(v for v in member_vars if v.name == arg.name)
+                        raise RuntimeError('[Loki::TransformInline] Unable to resolve subroutine call to internal child routine')
+                    arg_vars = tuple(v for v in child_vars if v.name == arg.name)
                     argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
                 else:
                     argmap[arg] = val
@@ -290,27 +290,27 @@ def inline_member_routine(routine, member):
             argmap = recursive_expression_map_update(argmap, max_iterations=10)
 
             # Substitute argument calls into a copy of the body
-            member_body = SubstituteExpressions(argmap, rebuild_scopes=True).visit(
-                member.body.body, scope=routine
+            child_body = SubstituteExpressions(argmap, rebuild_scopes=True).visit(
+                child.body.body, scope=routine
             )
 
             # Inline substituted body within a pair of marker comments
-            comment = Comment(f'! [Loki] inlined member subroutine: {member.name}')
+            comment = Comment(f'! [Loki] inlined child subroutine: {child.name}')
             c_line = Comment('! =========================================')
-            call_map[call] = (comment, c_line) + as_tuple(member_body) + (c_line, )
+            call_map[call] = (comment, c_line) + as_tuple(child_body) + (c_line, )
 
-    # Replace calls to member with the member's body
+    # Replace calls to child procedure with the child's body
     routine.body = Transformer(call_map).visit(routine.body)
     # Can't use transformer to replace subroutine, so strip it manually
-    contains_body = tuple(n for n in routine.contains.body if not n == member)
+    contains_body = tuple(n for n in routine.contains.body if not n == child)
     routine.contains._update(body=contains_body)
 
 
-def inline_member_procedures(routine):
+def inline_internal_procedures(routine):
     """
-    Inline all member subroutines contained in an individual :any:`Subroutine`.
+    Inline internal subroutines contained in an individual :any:`Subroutine`.
 
-    Please note that member functions are not yet supported!
+    Please note that internal functions are not yet supported!
 
     Parameters
     ----------
@@ -319,9 +319,13 @@ def inline_member_procedures(routine):
     """
 
     # Run through all members and invoke individual inlining transforms
-    for member in routine.members:
-        if member.is_function:
+    for child in routine.members:
+        if child.is_function:
             # TODO: Implement for functions!!!
-            warning('[Loki::inline] Inlining member functions is not yet supported, only subroutines!')
+            warning('[Loki::inline] Inlining internal functions is not yet supported, only subroutines!')
         else:
-            inline_member_routine(routine, member)
+            inline_member_routine(routine, child)
+
+inline_member_routine = inline_internal_routine
+
+inline_member_procedures = inline_internal_procedures
