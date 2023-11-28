@@ -5,9 +5,11 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import defaultdict
+
 from loki.transform.transformation import Transformation
 from loki.transform.transform_utilities import recursive_expression_map_update
-from loki.expression import Array
+from loki.expression import Array, Scalar
 from loki.types import DerivedType, BasicType
 from loki.analyse import dataflow_analysis_attached
 from loki.expression.symbolic import is_dimension_constant, simplify
@@ -109,7 +111,7 @@ class TemporariesRawStackTransformation(Transformation):
     def __init__(self, block_dim,
                  stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
-                 stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}',
+                 stack_argument_name='PSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}', local_int_var_name_pattern='JD_{name}',
                  directive=None, check_bounds=True, key=None, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
@@ -121,6 +123,7 @@ class TemporariesRawStackTransformation(Transformation):
         self.stack_argument_name = stack_argument_name
         self.stack_local_var_name = stack_local_var_name
         self.local_ptr_var_name_pattern = local_ptr_var_name_pattern
+        self.local_int_var_name_pattern = local_int_var_name_pattern
         self.directive = directive
         self.check_bounds = check_bounds
 
@@ -144,6 +147,10 @@ class TemporariesRawStackTransformation(Transformation):
         successors = kwargs.get('successors', ())
 
         if role == 'kernel':
+
+            for arg in routine.arguments:
+                print(arg, arg.type, arg.__class__)
+
             stack_size = self.apply_raw_stack_allocator_to_temporaries(routine, item=item)
             if item:
                 stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
@@ -201,9 +208,19 @@ class TemporariesRawStackTransformation(Transformation):
 
         # Create Cray pointer declarations and "stack allocations"
         declarations = []
+        integers = []
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
+
+        int_type = SymbolAttributes(dtype=BasicType.INTEGER)
         for arr in temporary_arrays:
+
+            
+            integer_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine)
+            print(integer_var)
+            integers += [integer_var]
+
+
             ptr_var = Variable(name=self.local_ptr_var_name_pattern.format(name=arr.name), scope=routine)
             declarations += [Intrinsic(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
             allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr, stack_size)
@@ -214,10 +231,32 @@ class TemporariesRawStackTransformation(Transformation):
                 if _kind in routine.imported_symbols:
                     item.trafo_data[self._key]['kind_imports'][_kind] = routine.import_map[_kind.name].module.lower()
 
+        routine.variables += as_tuple(integers)
         routine.spec.append(declarations)
         routine.body.prepend(allocations)
 
         return stack_size
+
+
+    def import_allocation_types(self, routine, item):
+        """
+        Import all the variable types used in allocations.
+        """
+
+        new_imports = defaultdict(set)
+        for s, m in item.trafo_data[self._key]['kind_imports'].items():
+            new_imports[m] |= set(as_tuple(s))
+
+        import_map = {i.module.lower(): i for i in routine.imports}
+        for mod, symbs in new_imports.items():
+            if mod in import_map:
+                import_map[mod]._update(symbols=as_tuple(set(import_map[mod].symbols + as_tuple(symbs))))
+            else:
+                _symbs = [s for s in symbs if not (s.name.lower() in routine.variable_map or
+                                                   s.name.lower() in routine.imported_symbol_map)]
+                if _symbs:
+                    imp = Import(module=mod, symbols=as_tuple(_symbs))
+                    routine.spec.prepend(imp)
 
 
     def _get_local_stack_var(self, routine):
@@ -245,8 +284,8 @@ class TemporariesRawStackTransformation(Transformation):
         if self.stack_argument_name in routine.arguments:
             return routine.variable_map[self.stack_argument_name]
 
-        stack_type = SymbolAttributes(dtype=DerivedType(name=self.stack_type_name), intent='inout')
-        stack_arg = Variable(name=self.stack_argument_name, type=stack_type, scope=routine)
+        stack_type = SymbolAttributes(dtype=BasicType.REAL, intent='inout')
+        stack_arg = Array(name=self.stack_argument_name, type=stack_type, scope=routine)
 
         # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
         # in device code
