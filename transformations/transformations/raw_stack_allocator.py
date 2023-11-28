@@ -144,13 +144,13 @@ class TemporariesRawStackTransformation(Transformation):
         successors = kwargs.get('successors', ())
 
         if role == 'kernel':
-            stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
+            stack_size = self.apply_raw_stack_allocator_to_temporaries(routine, item=item)
             if item:
                 stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
                 item.trafo_data[self._key]['stack_size'] = stack_size
 
 
-    def apply_pool_allocator_to_temporaries(self, routine, item=None):
+    def apply_raw_stack_allocator_to_temporaries(self, routine, item=None):
         """
         Apply pool allocator to local temporary arrays
 
