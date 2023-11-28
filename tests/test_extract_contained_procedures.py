@@ -142,12 +142,8 @@ def test_extract_contained_procedures_basic_import():
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     inner = routines[0]
-    imports = FindNodes(Import).visit(inner.spec)
-    assert len(imports) == 1
-    constants_import = imports[0]
-    assert constants_import.module == "constants"
-    assert len(constants_import.symbols) == 1
-    assert constants_import.symbols[0].name == "c2" # Note, the binding 'c1' is NOT brought to the contained subroutine.
+    assert "c2" in inner.import_map.keys()
+    assert not "c1" in inner.import_map.keys()
     assert not 'c2' in (var.name for var in inner.arguments)
 
 def test_extract_contained_procedures_recursive_definition():
@@ -239,6 +235,50 @@ def test_extract_contained_procedures_recursive_definition_import():
     assert "jprb" in symbols
     assert "jpim" in symbols
     assert len(symbols) == 2
+
+def test_extract_contained_procedures_kind_resolution():
+    """
+    Tests that an unresolved kind parameter in inner scope is resolved from import in outer scope.
+    """
+    fcode = """
+        subroutine outer()
+            implicit none
+            use parkind1, only: jpim
+            call inner()
+            contains
+            subroutine inner()
+                integer(kind = jpim) :: y
+                integer :: z
+                z = y
+            end subroutine inner
+        end subroutine outer 
+    """
+    src = Sourcefile.from_source(fcode)
+    routines = extract_contained_procedures(src.routines[0])
+    inner = routines[0]
+    assert "jpim" in inner.import_map.keys()
+
+def test_extract_contained_procedures_derived_type_resolution():
+    """
+    Tests that an unresolved derived type in inner scope is resolved from import in outer scope.
+    """
+    fcode = """
+        subroutine outer()
+            implicit none
+            use stuff, only: mytype
+            call inner()
+            contains
+            subroutine inner()
+                type(mytype) :: y
+                integer :: z
+                z = y%a
+            end subroutine inner
+        end subroutine outer 
+    """
+    src = Sourcefile.from_source(fcode)
+    routines = extract_contained_procedures(src.routines[0])
+    inner = routines[0]
+    assert "mytype" in inner.import_map.keys()
 
 def test_extract_contained_procedures_derived_type_field():
     """
@@ -343,7 +383,7 @@ def test_extract_contained_procedures_undefined_in_parent():
             subroutine inner()
                 integer :: y
                 y = 1
-                z = x + y ! 'z' undefined in contained subroutine and parent.
+                z = x + y + g + f ! 'z', 'g', 'f' undefined in contained subroutine and parent.
             end subroutine inner
         end subroutine outer 
     """
