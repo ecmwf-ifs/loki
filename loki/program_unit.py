@@ -8,10 +8,12 @@
 from abc import abstractmethod
 
 from loki import ir
+from loki.expression import Variable
 from loki.frontend import Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source
+from loki.logging import debug
 from loki.scope import Scope
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
-from loki.types import ProcedureType
+from loki.types import BasicType, DerivedType, ProcedureType
 from loki.visitors import FindNodes, Transformer
 
 
@@ -255,6 +257,86 @@ class ProgramUnit(Scope):
 
         if not has_parent:
             self._reset_parent(None)
+
+    def enrich(self, definitions, recurse=False):
+        """
+        Enrich the current scope with inter-procedural annotations
+
+        This updates the :any:`SymbolAttributes` in the scope's :any:`SymbolTable`
+        with :data:`definitions` for all imported symbols.
+
+        Note that :any:`Subroutine.enrich` expands this to interface-declared calls.
+
+        Parameters
+        ----------
+        definitions : list of :any:`ProgramUnit`
+            A list of all available definitions
+        recurse : bool, optional
+            Enrich contained scopes
+        """
+        definitions_map = CaseInsensitiveDict((r.name, r) for r in as_tuple(definitions))
+
+        for imprt in self.imports:
+            if not (module := definitions_map.get(imprt.module)):
+                # Skip modules that are not available in the definitions list
+                continue
+
+            # Build a list of symbols that are imported
+            if imprt.symbols:
+                # Import only symbols listed in the only list
+                symbols = imprt.symbols
+            else:
+                # Import all symbols
+                rename_list = CaseInsensitiveDict((k, v) for k, v in as_tuple(imprt.rename_list))
+                symbols = [
+                    Variable(name=rename_list.get(symbol.name, symbol.name), scope=self)
+                    for symbol in module.symbols
+                ]
+
+            updated_symbol_attrs = {}
+            for symbol in symbols:
+                # Take care of renaming upon import
+                local_name = symbol.name
+                remote_name = symbol.type.use_name or local_name
+                remote_node = module[remote_name]
+
+                if hasattr(remote_node, 'procedure_type'):
+                    # This is a subroutine/function defined in the remote module
+                    updated_symbol_attrs[local_name] = symbol.type.clone(
+                        dtype=remote_node.procedure_type, imported=True, module=module
+                    )
+                elif hasattr(remote_node, 'dtype'):
+                    # This is a derived type defined in the remote module
+                    updated_symbol_attrs[local_name] = symbol.type.clone(
+                        dtype=remote_node.dtype, imported=True, module=module
+                    )
+                elif hasattr(remote_node, 'type'):
+                    # This is a global variable or interface import
+                    updated_symbol_attrs[local_name] = remote_node.type.clone(
+                        imported=True, module=module, use_name=symbol.type.use_name
+                    )
+                else:
+                    debug('Cannot enrich import of %s from module %s', local_name, module.name)
+            self.symbol_attrs.update(updated_symbol_attrs)
+
+        # Update any symbol table entries that have been inherited from the parent
+        if self.parent:
+            updated_symbol_attrs = {}
+            for name, attrs in self.symbol_attrs.items():
+                if name not in self.parent.symbol_attrs:
+                    continue
+
+                if attrs.imported and not attrs.module:
+                    updated_symbol_attrs[name] = self.parent.symbol_attrs[name]
+                elif isinstance(attrs.dtype, ProcedureType) and attrs.dtype.procedure is BasicType.DEFERRED:
+                    updated_symbol_attrs[name] = self.parent.symbol_attrs[name]
+                elif isinstance(attrs.dtype, DerivedType) and attrs.dtype.typedef is BasicType.DEFERRED:
+                    updated_symbol_attrs[name] = attrs.clone(dtype=self.parent.symbol_attrs[name].dtype)
+            self.symbol_attrs.update(updated_symbol_attrs)
+
+        if recurse:
+            for routine in self.subroutines:
+                routine.enrich(definitions, recurse=True)
 
     def clone(self, **kwargs):
         """

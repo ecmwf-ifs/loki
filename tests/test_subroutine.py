@@ -1493,8 +1493,7 @@ subroutine subroutine_stmt_func(a, b)
     integer, intent(in) :: a
     integer, intent(out) :: b
     integer :: array(a)
-    integer :: i, j
-    integer :: plus, minus
+    integer :: i, j, plus, minus
     plus(i, j) = i + j
     minus(i, j) = i - j
     integer :: mult
@@ -1995,9 +1994,9 @@ end subroutine driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_enrich_calls_explicit_interface(frontend):
+def test_enrich_explicit_interface(frontend):
     """
-    Test enrich_calls points to the actual routine and not the symbol declared
+    Test enrich points to the actual routine and not the symbol declared
     in an explicit interface.
     """
 
@@ -2036,7 +2035,7 @@ def test_enrich_calls_explicit_interface(frontend):
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
 
-    driver.enrich_calls(routines=(kernel,))
+    driver.enrich(kernel)
 
     # check if call is enriched correctly
     calls = FindNodes(CallStatement).visit(driver.body)

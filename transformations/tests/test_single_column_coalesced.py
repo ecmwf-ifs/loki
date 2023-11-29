@@ -347,7 +347,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+    driver.enrich(kernel)  # Attach kernel source to driver call
 
     driver_item = SubroutineItem(name='#column_driver', source=driver_source)
     kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
@@ -669,7 +669,7 @@ def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+    driver.enrich(kernel)  # Attach kernel source to driver call
 
     # Test OpenACC annotations on non-hoisted version
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
@@ -766,7 +766,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+    driver.enrich(kernel)  # Attach kernel source to driver call
 
     driver_item = SubroutineItem(name='#column_driver', source=driver_source)
     kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
@@ -893,8 +893,8 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
     outer_kernel = Subroutine.from_source(fcode_outer_kernel, frontend=frontend)
     inner_kernel = Subroutine.from_source(fcode_inner_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    outer_kernel.enrich_calls(inner_kernel)  # Attach kernel source to driver call
-    driver.enrich_calls(outer_kernel)  # Attach kernel source to driver call
+    outer_kernel.enrich(inner_kernel)  # Attach kernel source to driver call
+    driver.enrich(outer_kernel)  # Attach kernel source to driver call
 
     # Test SCC transform for plain nested kernel
     scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
@@ -1306,7 +1306,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
-    routine.enrich_calls(source.all_subroutines)
+    routine.enrich(source.all_subroutines)
 
     data_offload = DataOffloadTransformation(remove_openmp=True)
     data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
@@ -1408,7 +1408,7 @@ def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['some_kernel']
     inlined_routine = source['some_inlined_kernel']
-    routine.enrich_calls((inlined_routine,))
+    routine.enrich((inlined_routine,))
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
@@ -1721,3 +1721,79 @@ def test_single_column_coalesced_vector_section_trim_complex(frontend, horizonta
     else:
         assert assign in loop.body
         assert(len(FindNodes(Assignment).visit(loop.body)) == 4)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('inline_members', [False, True])
+@pytest.mark.parametrize('resolve_sequence_association', [False, True])
+def test_single_column_coalesced_inline_and_sequence_association(frontend, horizontal,
+                                                                 inline_members, resolve_sequence_association):
+    """
+    Test the combinations of routine inlining and sequence association
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(nlon, start, end)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       real, dimension(nlon) :: work
+
+       call contained_kernel(work(1))
+
+     contains
+
+       subroutine contained_kernel(work)
+          implicit none
+
+          real, dimension(nlon) :: work
+          integer :: jl
+
+          do jl = start, end
+             work(jl) = 1.
+          enddo
+
+       end subroutine contained_kernel
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal,
+                                          inline_members=inline_members,
+                                          resolve_sequence_association=resolve_sequence_association)
+
+    #Not really doing anything for contained routines
+    if (not inline_members and not resolve_sequence_association):
+        scc_transform.apply(routine, role='kernel')
+
+        assert len(routine.members) == 1
+        assert not FindNodes(Loop).visit(routine.body)
+
+    #Should fail because it can't resolve sequence association
+    elif (inline_members and not resolve_sequence_association):
+        with pytest.raises(RuntimeError) as e_info:
+            scc_transform.apply(routine, role='kernel')
+        assert(e_info.exconly() ==
+               'RuntimeError: [Loki::TransformInline] Unable to resolve member subroutine call')
+
+    #Check that the call is properly modified
+    elif (not inline_members and resolve_sequence_association):
+        scc_transform.apply(routine, role='kernel')
+
+        assert len(routine.members) == 1
+        call = FindNodes(CallStatement).visit(routine.body)[0]
+        assert fgen(call).lower() == 'call contained_kernel(work(1:nlon))'
+
+    #Check that the contained subroutine has been inlined
+    else:
+        scc_transform.apply(routine, role='kernel')
+
+        assert len(routine.members) == 0
+
+        loop = FindNodes(Loop).visit(routine.body)[0]
+        assert loop.variable == 'jl'
+        assert loop.bounds == 'start:end'
+
+        assign = FindNodes(Assignment).visit(loop.body)[0]
+        assert fgen(assign).lower() == 'work(jl) = 1.'

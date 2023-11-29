@@ -452,3 +452,16 @@ def test_fortran_reader_iterate(here):
     for _ in reader:
         iterated_code += reader.source_from_current_line().string + '\n'
     assert sanitize_empty_lines_and_comments(fcode) == iterated_code
+
+
+@pytest.mark.parametrize('fcode', ['', '\n'])
+def test_fortran_reader_empty(fcode):
+    """Test :any:`FortranReader` for empty strings"""
+    reader = FortranReader(fcode)
+    assert isinstance(reader, FortranReader)
+    assert not reader.source_lines
+    assert not reader.sanitized_lines
+    source = reader.to_source()
+    assert isinstance(source, Source)
+    assert source.lines == (1, 1)
+    assert source.string == ''

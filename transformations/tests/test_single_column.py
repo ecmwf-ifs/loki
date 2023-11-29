@@ -147,7 +147,7 @@ def test_extract_sca_nested_level_zero(frontend, horizontal):
   END SUBROUTINE compute_level_zero
 """, frontend=frontend)
 
-    source['compute_column'].enrich_calls(routines=level_zero.all_subroutines)
+    source['compute_column'].enrich(level_zero.all_subroutines)
 
     # Apply single-column extraction trasnformation in topological order
     sca_transform = ExtractSCATransformation(horizontal=horizontal)
@@ -208,7 +208,7 @@ def test_extract_sca_nested_level_one(frontend, horizontal):
   END SUBROUTINE compute_level_one
 """, frontend=frontend)
 
-    source['compute_column'].enrich_calls(routines=level_one.all_subroutines)
+    source['compute_column'].enrich(level_one.all_subroutines)
 
     # Apply single-column extraction trasnformation in topological order
     sca_transform = ExtractSCATransformation(horizontal=horizontal)

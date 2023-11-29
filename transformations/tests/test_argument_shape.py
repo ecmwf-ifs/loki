@@ -49,7 +49,7 @@ def test_argument_shape_simple(frontend):
 
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+    driver.enrich(kernel)  # Attach kernel source to driver call
 
     # Ensure initial call uses implicit argument shapes
     calls = FindNodes(CallStatement).visit(driver.body)
@@ -107,9 +107,9 @@ def test_argument_shape_nested(frontend):
 
     kernel_b = Subroutine.from_source(fcode_kernel_b, frontend=frontend)
     kernel_a = Subroutine.from_source(fcode_kernel_a, frontend=frontend)
-    kernel_a.enrich_calls(kernel_b)  # Attach kernel source to call
+    kernel_a.enrich(kernel_b)  # Attach kernel source to call
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel_a)  # Attach kernel source to call
+    driver.enrich(kernel_a)  # Attach kernel source to call
 
     # Ensure initial call uses implicit argument shapes
     calls = FindNodes(CallStatement).visit(driver.body)
@@ -204,15 +204,15 @@ def test_argument_shape_multiple(frontend):
 
     kernel_b = Subroutine.from_source(fcode_kernel_b, frontend=frontend)
     kernel_a1 = Subroutine.from_source(fcode_kernel_a1, frontend=frontend)
-    kernel_a1.enrich_calls(kernel_b)  # Attach kernel source to call
+    kernel_a1.enrich(kernel_b)  # Attach kernel source to call
     kernel_a2 = Subroutine.from_source(fcode_kernel_a2, frontend=frontend)
-    kernel_a2.enrich_calls(kernel_b)  # Attach kernel source to call
+    kernel_a2.enrich(kernel_b)  # Attach kernel source to call
     kernel_a3 = Subroutine.from_source(fcode_kernel_a3, frontend=frontend)
-    kernel_a3.enrich_calls(kernel_b)  # Attach kernel source to call
+    kernel_a3.enrich(kernel_b)  # Attach kernel source to call
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel_a1)  # Attach kernel source to call
-    driver.enrich_calls(kernel_a2)  # Attach kernel source to call
-    driver.enrich_calls(kernel_a3)  # Attach kernel source to call
+    driver.enrich(kernel_a1)  # Attach kernel source to call
+    driver.enrich(kernel_a2)  # Attach kernel source to call
+    driver.enrich(kernel_a3)  # Attach kernel source to call
 
     # Ensure initial call uses implicit argument shapes
     calls = FindNodes(CallStatement).visit(driver.body)
@@ -304,12 +304,12 @@ def test_argument_shape_transformation(frontend):
     # Manually create subroutines and attach call-signature info
     kernel_b = Subroutine.from_source(fcode_kernel_b, frontend=frontend)
     kernel_a1 = Subroutine.from_source(fcode_kernel_a1, frontend=frontend)
-    kernel_a1.enrich_calls(kernel_b)  # Attach kernel source to call
+    kernel_a1.enrich(kernel_b)  # Attach kernel source to call
     kernel_a2 = Subroutine.from_source(fcode_kernel_a2, frontend=frontend)
-    kernel_a2.enrich_calls(kernel_b)  # Attach kernel source to call
+    kernel_a2.enrich(kernel_b)  # Attach kernel source to call
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel_a1)  # Attach kernel source to call
-    driver.enrich_calls(kernel_a2)  # Attach kernel source to call
+    driver.enrich(kernel_a1)  # Attach kernel source to call
+    driver.enrich(kernel_a2)  # Attach kernel source to call
 
     # Ensure initial call uses implicit argument shapes
     calls = FindNodes(CallStatement).visit(driver.body)
