@@ -347,7 +347,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+    driver.enrich(kernel)  # Attach kernel source to driver call
 
     driver_item = SubroutineItem(name='#column_driver', source=driver_source)
     kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
@@ -669,7 +669,7 @@ def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
 """
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+    driver.enrich(kernel)  # Attach kernel source to driver call
 
     # Test OpenACC annotations on non-hoisted version
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
@@ -766,7 +766,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
-    driver.enrich_calls(kernel)  # Attach kernel source to driver call
+    driver.enrich(kernel)  # Attach kernel source to driver call
 
     driver_item = SubroutineItem(name='#column_driver', source=driver_source)
     kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
@@ -893,8 +893,8 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
     outer_kernel = Subroutine.from_source(fcode_outer_kernel, frontend=frontend)
     inner_kernel = Subroutine.from_source(fcode_inner_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    outer_kernel.enrich_calls(inner_kernel)  # Attach kernel source to driver call
-    driver.enrich_calls(outer_kernel)  # Attach kernel source to driver call
+    outer_kernel.enrich(inner_kernel)  # Attach kernel source to driver call
+    driver.enrich(outer_kernel)  # Attach kernel source to driver call
 
     # Test SCC transform for plain nested kernel
     scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
@@ -1306,7 +1306,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
-    routine.enrich_calls(source.all_subroutines)
+    routine.enrich(source.all_subroutines)
 
     data_offload = DataOffloadTransformation(remove_openmp=True)
     data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
@@ -1408,7 +1408,7 @@ def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['some_kernel']
     inlined_routine = source['some_inlined_kernel']
-    routine.enrich_calls((inlined_routine,))
+    routine.enrich((inlined_routine,))
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
