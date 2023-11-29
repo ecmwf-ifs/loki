@@ -278,9 +278,9 @@ def map_call_to_procedure_body(call, caller):
     return (comment, c_line) + as_tuple(callee_body) + (c_line, )
 
 
-def inline_internal_routine(routine, child):
+def inline_subroutine_calls(routine, calls, callee):
     """
-    Inline an individual internal :any:`Subroutine` at source level.
+    Inline a set of call to an individual :any:`Subroutine` at source level.
 
     This will replace all :any:`Call` objects to the specified
     subroutine with an adjusted equivalent of the member routines'
@@ -293,45 +293,45 @@ def inline_internal_routine(routine, child):
     ----------
     routine : :any:`Subroutine`
         The subroutine in which to inline all calls to the member routine
-    child : :any:`Subroutine`
-        The contained internal subroutine to be inlined in the parent
+    calls : tuple or list of :any:`CallStatement`
+    callee : :any:`Subroutine`
+        The called target subroutine to be inlined in the parent
     """
 
-    # Prevent shadowing of child's variables by renaming them a priori
+    # Ensure we process sets of calls to the same callee
+    assert all(call.routine == callee for call in calls)
+
+    # Prevent shadowing of callee's variables by renaming them a priori
     parent_variables = routine.variable_map
     duplicate_locals = tuple(
-        v for v in child.variables
-        if v.name in parent_variables and v.name.lower() not in child._dummies
+        v for v in callee.variables
+        if v.name in parent_variables and v.name.lower() not in callee._dummies
     )
     shadow_mapper = SubstituteExpressions(
-        {v: v.clone(name=f'{child.name}_{v.name}') for v in duplicate_locals}
+        {v: v.clone(name=f'{callee.name}_{v.name}') for v in duplicate_locals}
     )
-    child.spec = shadow_mapper.visit(child.spec)
+    callee.spec = shadow_mapper.visit(callee.spec)
 
     var_map = {}
     duplicate_locals_names = {dl.name.lower() for dl in duplicate_locals}
-    for v in FindVariables(unique=False).visit(child.body):
+    for v in FindVariables(unique=False).visit(callee.body):
         if v.name.lower() in duplicate_locals_names:
-            var_map[v] = v.clone(name=f'{child.name}_{v.name}')
-    child.body = SubstituteExpressions(var_map).visit(child.body)
+            var_map[v] = v.clone(name=f'{callee.name}_{v.name}')
+    callee.body = SubstituteExpressions(var_map).visit(callee.body)
 
     # Get local variable declarations and hoist them
-    decls = FindNodes(VariableDeclaration).visit(child.spec)
-    decls = tuple(d for d in decls if all(s.name.lower() not in child._dummies for s in d.symbols))
+    decls = FindNodes(VariableDeclaration).visit(callee.spec)
+    decls = tuple(d for d in decls if all(s.name.lower() not in callee._dummies for s in d.symbols))
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
     routine.spec.append(decls)
 
     # Resolve the call by mapping arguments into the called procedure's body
-    call_map = {}
-    for call in FindNodes(CallStatement).visit(routine.body):
-        if call.routine == child:
-            call_map[call] = map_call_to_procedure_body(call, routine)
+    call_map = {
+        call: map_call_to_procedure_body(call, caller=routine) for call in calls
+    }
 
     # Replace calls to child procedure with the child's body
     routine.body = Transformer(call_map).visit(routine.body)
-    # Can't use transformer to replace subroutine, so strip it manually
-    contains_body = tuple(n for n in routine.contains.body if not n == child)
-    routine.contains._update(body=contains_body)
 
 
 def inline_internal_procedures(routine):
@@ -352,8 +352,15 @@ def inline_internal_procedures(routine):
             # TODO: Implement for functions!!!
             warning('[Loki::inline] Inlining internal functions is not yet supported, only subroutines!')
         else:
-            inline_member_routine(routine, child)
+            calls = tuple(
+                call for call in FindNodes(CallStatement).visit(routine.body)
+                if call.routine == child
+            )
+            inline_subroutine_calls(routine, calls, child)
 
-inline_member_routine = inline_internal_routine
+            # Can't use transformer to replace subroutine, so strip it manually
+            contains_body = tuple(n for n in routine.contains.body if not n == child)
+            routine.contains._update(body=contains_body)
+
 
 inline_member_procedures = inline_internal_procedures
