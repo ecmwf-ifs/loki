@@ -13,7 +13,7 @@ from loki.expression import Array, Scalar
 from loki.types import DerivedType, BasicType
 from loki.analyse import dataflow_analysis_attached
 from loki.expression.symbolic import is_dimension_constant, simplify
-from loki.expression.symbols import Variable, Literal, Product, Sum, InlineCall, Cast, IntLiteral, LogicLiteral
+from loki.expression.symbols import Variable, Literal, Product, Sum, InlineCall, Cast, IntLiteral, LogicLiteral, RangeIndex
 from loki.expression.mappers import DetachScopesMapper
 from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
 from loki.types import SymbolAttributes
@@ -108,13 +108,14 @@ class TemporariesRawStackTransformation(Transformation):
 
     _key = 'TemporariesRawStackTransformation'
 
-    def __init__(self, block_dim,
+    def __init__(self, block_dim, horizontal,
                  stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
                  stack_argument_name='PSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}', local_int_var_name_pattern='JD_{name}',
                  directive=None, check_bounds=True, key=None, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
+        self.horizontal = horizontal
         self.stack_type_name = stack_type_name
         self.stack_ptr_name = stack_ptr_name
         self.stack_end_name = stack_end_name
@@ -198,33 +199,54 @@ class TemporariesRawStackTransformation(Transformation):
             if not all(is_dimension_constant(d) for d in var.shape)
         ]
 
+        # Filter out variables whose first dimension is not horizontal
+        temporary_arrays = [
+            var for var in temporary_arrays if (
+            isinstance(var.shape[0], Scalar) and
+            var.shape[0].name.lower() == self.horizontal.size.lower())
+        ]
+
         # Create stack argument and local stack var
         stack_var = self._get_local_stack_var(routine)
-        stack_arg = self._get_stack_arg(routine)
-        allocations = [Assignment(lhs=stack_var, rhs=stack_arg)]
+
+        stack_type = SymbolAttributes(dtype=BasicType.REAL, intent='inout', 
+                                      shape=(RangeIndex((None, None)), RangeIndex((None, None))))
+
+        stack_arg = Array(name=self.stack_argument_name, 
+                          type=stack_type, scope=routine)
 
         # Determine size of temporary arrays
         stack_size = Literal(0)
 
         # Create Cray pointer declarations and "stack allocations"
-        declarations = []
         integers = []
-        stack_ptr = self._get_stack_ptr(routine)
-        stack_end = self._get_stack_end(routine)
+        allocations = []
+        old_int_var = IntLiteral(0)
+        old_dim = IntLiteral(0)
 
         int_type = SymbolAttributes(dtype=BasicType.INTEGER)
         for arr in temporary_arrays:
 
             
-            integer_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine)
-            print(integer_var)
-            integers += [integer_var]
+            int_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine, type=int_type)
+            integers += [int_var]
 
+            if arr.dimensions[0].name.lower() == self.horizontal.size.lower():
+                dim = IntLiteral(1)
+            else:
+                raise RuntimeError('Found non-horizontal dimension in _create_stack_allocation')
 
-            ptr_var = Variable(name=self.local_ptr_var_name_pattern.format(name=arr.name), scope=routine)
-            declarations += [Intrinsic(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
-            allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr, stack_size)
-            allocations += allocation
+            for d in arr.dimensions[1:]:
+                if isinstance(d, RangeIndex):
+                    dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), IntLiteral(1))))))
+                else:
+                    dim = Product((dim, d))
+
+            stack_size = simplify(Sum((stack_size, dim)))
+            allocations += [Assignment(lhs=int_var, rhs=simplify(Sum((old_int_var, old_dim))))]
+
+            old_int_var = int_var
+            old_dim = dim
 
             # Store type information of temporary allocation
             if item and (_kind := arr.type.kind):
@@ -232,31 +254,18 @@ class TemporariesRawStackTransformation(Transformation):
                     item.trafo_data[self._key]['kind_imports'][_kind] = routine.import_map[_kind.name].module.lower()
 
         routine.variables += as_tuple(integers)
-        routine.spec.append(declarations)
         routine.body.prepend(allocations)
 
+        stack_arg = stack_arg.clone(dimensions=((Variable(name=self.horizontal.size, scope=routine), stack_size)))
+
+        # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
+        # in device code
+        arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
+        if arg_pos:
+            routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg,) + routine.arguments[arg_pos[0]:]
+        else:
+            routine.arguments += (stack_arg,)
         return stack_size
-
-
-    def import_allocation_types(self, routine, item):
-        """
-        Import all the variable types used in allocations.
-        """
-
-        new_imports = defaultdict(set)
-        for s, m in item.trafo_data[self._key]['kind_imports'].items():
-            new_imports[m] |= set(as_tuple(s))
-
-        import_map = {i.module.lower(): i for i in routine.imports}
-        for mod, symbs in new_imports.items():
-            if mod in import_map:
-                import_map[mod]._update(symbols=as_tuple(set(import_map[mod].symbols + as_tuple(symbs))))
-            else:
-                _symbs = [s for s in symbs if not (s.name.lower() in routine.variable_map or
-                                                   s.name.lower() in routine.imported_symbol_map)]
-                if _symbs:
-                    imp = Import(module=mod, symbols=as_tuple(_symbs))
-                    routine.spec.prepend(imp)
 
 
     def _get_local_stack_var(self, routine):
@@ -321,7 +330,7 @@ class TemporariesRawStackTransformation(Transformation):
         )
 
 
-    def _create_stack_allocation(self, stack_ptr, stack_end, ptr_var, arr, stack_size):
+    def _create_stack_allocation(self, int_var, old_int_var, old_dim, arr, stack_size):
         """
         Utility routine to "allocate" a temporary array on the pool allocator's "stack"
 
@@ -331,10 +340,6 @@ class TemporariesRawStackTransformation(Transformation):
         ----------
         stack_ptr : :any:`Variable`
             The stack pointer variable
-        stack_end : :any:`Variable`
-            The pointer variable that points to the end of the stack, used to verify stack size
-        ptr_var : :any:`Variable`
-            The pointer variable to use for the temporary array
         arr : :any:`Variable`
             The temporary array to allocate on the pool allocator's "stack"
         stack_size : :any:`Variable`
@@ -348,24 +353,29 @@ class TemporariesRawStackTransformation(Transformation):
             :any:`Conditional` that verifies that the stack is big enough
         """
 
-        ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
+        print('horizontal size: ', self.horizontal.size)
 
-        # Build expression for array size in bytes
-        dim = arr.dimensions[0]
+        # Build expression for array size in bytes.
+        # Assert first dimension is horizontal
+        if arr.dimensions[0].name.lower() == self.horizontal.size.lower():
+            dim = IntLiteral(1)
+        else:
+            raise RuntimeError('Found non-horizontal dimension in _create_stack_allocation')
+
         for d in arr.dimensions[1:]:
-            dim = Product((dim, d))
+            if isinstance(d, RangeIndex):
+                dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), IntLiteral(1))))))
+            else:
+                dim = Product((dim, d))
 
+        print('stack_size: ', stack_size)
+        print('dim: ', dim)
         # Increment stack size
         stack_size = simplify(Sum((stack_size, dim)))
 
-        ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, dim)))
-        if self.check_bounds:
-            stack_size_check = Conditional(
-                condition=Comparison(stack_ptr, '>', stack_end), inline=True,
-                body=(Intrinsic('STOP'),), else_body=None
-            )
-            return ([ptr_assignment, ptr_increment, stack_size_check], stack_size)
-        return ([ptr_assignment, ptr_increment], stack_size)
+        int_increment = Assignment(lhs=int_var, rhs=Sum((old_int_var, dim)))
+        print('stack_size: ', stack_size)
+        return int_increment, dim, stack_size
 
 
     def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):

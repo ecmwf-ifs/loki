@@ -272,7 +272,7 @@ def convert(
 
     if mode == 'scc-raw-stack':
         transformation = TemporariesRawStackTransformation(
-            block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
+            block_dim=block_dim, horizontal=horizontal, directive=directive, check_bounds='scc' not in mode
         )
         scheduler.process(transformation=transformation, reverse=True)
 
