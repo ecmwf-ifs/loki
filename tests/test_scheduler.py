@@ -2265,3 +2265,73 @@ def test_scheduler_unqualified_imports(config):
 
     assert item.enable_imports
     assert item.children == ('other_routine',)
+
+
+def test_scheduler_disable_wildcard(here, config):
+
+    fcode_mod = """
+module field_mod
+  type field2d
+    contains
+    procedure :: init => field_init
+  end type
+
+  type field3d
+    contains
+    procedure :: init => field_init
+  end type
+
+  contains
+    subroutine field_init()
+
+    end subroutine
+end module
+"""
+
+    fcode_driver = """
+subroutine my_driver
+  use field_mod, only: field2d, field3d, field_init
+implicit none
+
+  type(field2d) :: a, b
+  type(field3d) :: c, d
+
+  call a%init()
+  call b%init()
+  call c%init()
+  call field_init(d)
+end subroutine my_driver
+"""
+
+    # Set up the test files
+    dirname = here/'test_scheduler_disable_wildcard'
+    dirname.mkdir(exist_ok=True)
+    modfile = dirname/'field_mod.F90'
+    modfile.write_text(fcode_mod)
+    testfile = dirname/'test.F90'
+    testfile.write_text(fcode_driver)
+
+    config['default']['disable'] = ['*%init']
+
+    scheduler = Scheduler(paths=dirname, seed_routines=['my_driver'], config=config)
+
+    expected_items = [
+        '#my_driver', 'field_mod#field_init',
+    ]
+    expected_dependencies = [
+        ('#my_driver', 'field_mod#field_init'),
+    ]
+
+    assert all(n in scheduler.items for n in expected_items)
+    assert all(e in scheduler.dependencies for e in expected_dependencies)
+
+    assert 'field_mod#field2d%init' not in scheduler.items
+    assert 'field_mod#field3d%init' not in scheduler.items
+
+    # Clean up
+    try:
+        modfile.unlink()
+        testfile.unlink()
+        dirname.rmdir()
+    except FileNotFoundError:
+        pass
