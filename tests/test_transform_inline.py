@@ -17,7 +17,8 @@ from loki import (
 from loki.ir import Assignment
 from loki.transform import (
     inline_elemental_functions, inline_constant_parameters,
-    replace_selected_kind, inline_member_procedures
+    replace_selected_kind, inline_member_procedures,
+    inline_marked_subroutines
 )
 from loki.expression import symbols as sym
 
@@ -607,3 +608,75 @@ end subroutine acraneb_transt
 
     assocs = FindNodes(Associate).visit(routine.body)
     assert len(assocs) == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No header information in test')]))
+def test_inline_marked_subroutines(frontend):
+    """ Test subroutine inlining via marker pragmas. """
+
+    fcode_driver = """
+subroutine test_pragma_inline(a, b)
+  use util_mod, only: add_one, add_a_to_b
+  implicit none
+
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer, parameter :: n = 3
+  integer :: i
+
+  do i=1, n
+    !$loki inline
+    call add_one(a(i))
+  end do
+
+  !$loki inline
+  call add_a_to_b(a(:), b(:), 3)
+
+  do i=1, n
+    call add_one(b(i))
+  end do
+
+end subroutine test_pragma_inline
+    """
+
+    fcode_module = """
+module util_mod
+
+contains
+  subroutine add_one(a)
+    real(kind=8), intent(inout) :: a
+    a = a + 1
+  end subroutine add_one
+
+  subroutine add_a_to_b(a, b, n)
+    real(kind=8), intent(inout) :: a(:), b(:)
+    integer, intent(in) :: n
+
+    do i = 1, n
+      a(i) = a(i) + b(i)
+    end do
+  end subroutine add_a_to_b
+end module util_mod
+"""
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend)
+    driver.enrich(module)
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert calls[0].routine == module['add_one']
+    assert calls[1].routine == module['add_a_to_b']
+    assert calls[2].routine == module['add_one']
+
+    inline_marked_subroutines(routine=driver)
+
+    # Check inlined loops and assignments
+    assert len(FindNodes(Loop).visit(driver.body)) == 3
+    assign = FindNodes(Assignment).visit(driver.body)
+    assert len(assign) == 2
+    assert assign[0].lhs == 'a(i)' and assign[0].rhs == 'a(i) + 1'
+    assert assign[1].lhs == 'a(i)' and assign[1].rhs == 'a(i) + b(i)'
+
+    # Check that the last call is left untouched
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 1
+    assert calls[0].routine.name == 'add_one'
+    assert calls[0].arguments == ('b(i)',)

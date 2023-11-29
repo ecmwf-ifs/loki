@@ -10,6 +10,8 @@ Collection of utility routines to perform code-level force-inlining.
 
 
 """
+from collections import defaultdict
+
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, LokiIdentityMapper
@@ -20,11 +22,13 @@ from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
 from loki.logging import warning, error
+from loki.pragma_utils import pragmas_attached, is_loki_pragma
 
 
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
-    'inline_internal_procedures', 'inline_member_procedures'
+    'inline_internal_procedures', 'inline_member_procedures',
+    'inline_marked_subroutines'
 ]
 
 
@@ -364,3 +368,35 @@ def inline_internal_procedures(routine):
 
 
 inline_member_procedures = inline_internal_procedures
+
+
+def inline_marked_subroutines(routine):
+    """
+    Inline :any:`Subroutine` objects guided by pragma annotations.
+
+    When encountering :any:`CallStatement` objects that are marked with a
+    ``!$loki inline`` pragma, this utility will attempt to replace the call
+    with the body of the called procedure and remap all passed arguments
+    into the calling procedures scope.
+
+    Please note that this utility requires :any:`CallStatement` objects
+    to be "enriched" with external type information.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to look for pragma-marked procedures to inline
+    """
+
+    with pragmas_attached(routine, node_type=CallStatement):
+
+        # Group the marked calls by callee routine
+        call_sets = defaultdict(list)
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if is_loki_pragma(call.pragma, starts_with='inline'):
+                call_sets[call.routine].append(call)
+
+        # Trigger per-call inlining on collected sets
+        for callee, calls in call_sets.items():
+            if callee:  # Skip the unattached calls (collected under None)
+                inline_subroutine_calls(routine, calls, callee)
