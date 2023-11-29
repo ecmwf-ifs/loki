@@ -454,7 +454,7 @@ contains
         integer, parameter :: jprb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, klon, klev
         real(kind=jprb), intent(inout) :: field2(klon,klev)
-        real(kind=jprb) :: tmp1(2*klon, klev), tmp2(klon, klev)
+        real(kind=jprb) :: tmp1(2*klon, klev), tmp2(klon, 0:klev)
         integer :: jk, jl
 
         do jk=1,klev
@@ -520,7 +520,7 @@ end module kernel_mod
     # pylint: disable-next=line-too-long
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == f'c_sizeof(real(1, kind={kind_real}))*klon + c_sizeof(real(1, kind={kind_real}))*klev*klon + 2*c_sizeof(int(1, kind={kind_int}))*klon + c_sizeof(logical(true, kind={kind_log}))*klev'
     # pylint: disable-next=line-too-long
-    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == f'3*c_sizeof(real(1, kind={kind_real}))*klev*klon'
+    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == f'3*c_sizeof(real(1, kind={kind_real}))*klev*klon + c_sizeof(real(1, kind={kind_real}))*klon'
     assert all(v.scope is None for v in
                                FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size']))
     assert all(v.scope is None for v in
@@ -549,7 +549,8 @@ end module kernel_mod
 
     stack_size = f'max(c_sizeof(real(1, kind={kind_real}))*nlon + c_sizeof(real(1, kind={kind_real}))*nlon*nz + '
     stack_size += f'2*c_sizeof(int(1, kind={kind_int}))*nlon + c_sizeof(logical(true, kind={kind_log}))*nz,'
-    stack_size += f'3*c_sizeof(real(1, kind={kind_real}))*nz*nlon)/c_sizeof(real(1, kind=jprb))'
+    stack_size += f'3*c_sizeof(real(1, kind={kind_real}))*nlon*nz + '
+    stack_size += f'c_sizeof(real(1, kind={kind_real}))*nlon)/c_sizeof(real(1, kind=jprb))'
     check_stack_created_in_driver(driver, stack_size, calls[0], 2)
 
     # Has the data sharing been updated?
@@ -617,7 +618,7 @@ end module kernel_mod
             elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
                 # Stack increment for tmp1
                 assign_idx['tmp1_stack_incr'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim2 == _size:
+            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs:
                 # Stack increment for tmp2
                 assign_idx['tmp2_stack_incr'] = idx
 
