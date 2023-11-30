@@ -8,7 +8,7 @@
 from loki.subroutine import Subroutine
 from loki.expression import (
     FindVariables, FindInlineCalls, SubstituteExpressions,
-    DeferredTypeSymbol, Array, IntLiteral
+    DeferredTypeSymbol, Array
 )
 from loki.ir import (
     CallStatement, DerivedType
@@ -16,6 +16,7 @@ from loki.ir import (
 from loki.visitors import (
     Transformer, FindNodes,
 )
+__all__ = ['extract_contained_procedures', 'extract_contained_procedure']
 
 def extract_contained_procedures(procedure):
     """
@@ -105,7 +106,7 @@ def extract_contained_procedure(procedure, name):
     # Produce a list of variables defined in the scope of `procedure` that need to be resolved in `inner`'s scope
     # by introducing them as dummy arguments.
     # The second line drops any derived type fields, don't want them, since want to resolve the derived type itself.
-    vars_to_resolve = [v for v in FindVariables().visit(inner.body) if v.scope == procedure]
+    vars_to_resolve = [v for v in FindVariables().visit(inner.body) if v.scope is procedure]
     vars_to_resolve = [v for v in vars_to_resolve if not v.parent]
 
     # Save any `DeferredTypeSymbol`s for later, they are in fact defined through imports in `procedure`,
@@ -114,25 +115,21 @@ def extract_contained_procedure(procedure, name):
 
     # Lookup the definition of the variables in `vars_to_resolve` from the scope of `procedure`.
     # This provides maximal information on them.
-    vars_to_resolve = [procedure.variable_map[v.name] for v in vars_to_resolve \
-        if v.name in procedure.variable_map.keys()]
+    vars_to_resolve = [proc_var for v in vars_to_resolve if \
+        (proc_var := procedure.variable_map.get(v.name))]
 
     # For each array in `vars_to_resolve`, append any non-literal shape variables to `vars_to_resolve`,
     # if not already there.
     arr_shapes = []
-    for shape in (v.shape for v in vars_to_resolve if isinstance(v, Array)):
-        for s in shape:
-            if not isinstance(s, IntLiteral):
-                arr_shapes.append(s)
+    for var in vars_to_resolve:
+        if isinstance(var, Array):
+            # Dropping variables with parents here to handle the case that the array dimension(s)
+            # are defined through the field of a derived type.
+            arr_shapes += list(v for v in FindVariables().visit(var.shape) if not v.parent)
     for v in arr_shapes:
-        if not v.name in (var.name for var in vars_to_resolve):
+        if v.name not in vars_to_resolve:
             vars_to_resolve.append(v)
-
-    # 1. Rescope `vars_to_resolve` into scope of `inner`.
-    # 2. Set the intent of `vars_to_resolve` to "inout" unless specified otherwise in `procedure` scope.
-    vars_to_resolve = [v.rescope(inner) for v in vars_to_resolve]
-    newtypes = map(lambda x: x.type if x.type.intent else x.type.clone(intent = "inout"), vars_to_resolve)
-    vars_to_resolve = tuple(v.clone(type = typ) for v, typ in zip(vars_to_resolve, newtypes))
+    vars_to_resolve = tuple(vars_to_resolve)
 
     ## PRODUCING IMPORTS TO INTRODUCE TO `inner`.
     # Get all variables from `inner.spec`. Need to search them for resolving kinds and derived types for
@@ -147,7 +144,7 @@ def extract_contained_procedure(procedure, name):
     # Produce kinds appearing in `vars_to_resolve` or in `inner.spec` that need to be resolved
     # from imports of `procedure`.
     kind_imports_to_add = tuple(v.type.kind for v in vars_to_resolve + inner_spec_vars \
-        if v.type.kind and v.type.kind.scope == procedure)
+        if v.type.kind and v.type.kind.scope is procedure)
 
     # Produce all imports to add.
     # Here the imports are also tidied to only import what is strictly necessary, and with single
@@ -170,29 +167,32 @@ def extract_contained_procedure(procedure, name):
 
     ## MAKING THE CHANGES TO `inner`
     # Change `inner` to take `vars_to_resolve` as dummy arguments and add all necessary imports.
-    # After these lines, `inner` should be self-contained or there is a bug.
-    inner.arguments += tuple(vars_to_resolve)
-    inner.variables += tuple(vars_to_resolve)
+    # Here also rescoping all variables to the scope of `inner` and specifying intent as "inout",
+    # if not set in `procedure` scope.
+    # Note: After these lines, `inner` should be self-contained or there is a bug.
+    inner.arguments += tuple(
+        v.clone(type=v.type.clone(intent=v.type.intent or 'inout'), scope=inner)
+        for v in vars_to_resolve
+    )
     inner.spec.prepend(imports_to_add)
 
     ## TRANSFORMING CALLS TO `inner` in `procedure`.
-    # Construct transformation map to modify all calls / function invocations to `inner` in the parent to
-    # include `vars_to_resolve`.
+    # The resolved variables are all added as keyword arguments to each call.
+    # (to avoid further modification of the call if it already happens to contain kwargs).
     # Here any dimensions in the variables are dropped, since they should not appear in the call.
-    # Functions need to be treated differently than Subroutines, hence the "mapping object" `m`.
-    m = {
-        'call_finder': FindInlineCalls() if inner.is_function else FindNodes(CallStatement),
-        'argname': 'parameters' if inner.is_function else 'arguments',
-        'transformer': SubstituteExpressions if inner.is_function else Transformer
-    }
-    call_transmap = {}
-    all_calls = m['call_finder'].visit(procedure.body)
-    inner_calls = (call for call in all_calls if call.routine == inner)
-    for call in inner_calls:
-        newargs = getattr(call, m['argname']) + tuple(map(lambda x: x.clone(dimensions = None), vars_to_resolve))
-        call_transmap[call] = call.clone(**{m['argname']: newargs})
-
-    # Transform calls in parent.
-    procedure.body = m['transformer'](call_transmap).visit(procedure.body)
+    # Note that functions need different visitors and mappers than subroutines.
+    call_map = {}
+    if inner.is_function:
+        for call in FindInlineCalls().visit(procedure.body):
+            if call.routine is inner:
+                newkwargs = tuple((v.name, v.clone(dimensions = None, scope = procedure)) for v in vars_to_resolve)
+                call_map[call] = call.clone(kw_parameters = call.kwarguments + newkwargs)
+        procedure.body = SubstituteExpressions(call_map).visit(procedure.body)
+    else:
+        for call in FindNodes(CallStatement).visit(procedure.body):
+            if call.routine is inner:
+                newkwargs = tuple((v.name, v.clone(dimensions = None, scope = procedure)) for v in vars_to_resolve)
+                call_map[call] = call.clone(kwarguments = tuple(call.kwarguments) + newkwargs)
+        procedure.body = Transformer(call_map).visit(procedure.body)
 
     return inner

@@ -6,8 +6,9 @@
 # nor does it submit to any jurisdiction.
 
 import pytest
+from conftest import available_frontends
 from loki.sourcefile import Sourcefile
-from loki.expression import FindVariables, FindInlineCalls
+from loki.expression import FindInlineCalls
 from loki.ir import (
     CallStatement, Import,
 )
@@ -17,7 +18,8 @@ from loki.transform import (
 )
 from loki.subroutine import Subroutine
 
-def test_extract_contained_procedures_basic_scalar():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_basic_scalar(frontend):
     """
     Tests that a global scalar is correctly added as argument of `inner`.
     """
@@ -34,23 +36,23 @@ def test_extract_contained_procedures_basic_scalar():
                 y = 1
                 z = x + y
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     assert routines[0].name == "inner"
     inner = routines[0]
     outer = src.routines[0]
-    assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'x' in (var.name for var in inner.arguments)
+    assert 'x' in inner.arguments
 
     call = FindNodes(CallStatement).visit(outer.body)[0]
-    assert 'x' in (var.name for var in call.arguments)
+    assert 'x' in (arg[0] for arg in call.kwarguments)
 
-def test_extract_contained_procedures_contains_emptied():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_contains_emptied(frontend):
     """
-    Tests that the contains section does not contain any functions or subroutines after processing. 
+    Tests that the contains section does not contain any functions or subroutines after processing.
     """
     fcode = """
         subroutine outer()
@@ -73,15 +75,16 @@ def test_extract_contained_procedures_contains_emptied():
                 z = y
                 res = 2 * z
             end function f
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     outer = src.routines[0]
     extract_contained_procedures(outer)
     # NOTE: Functions in Loki are also typed as Subroutines.
     assert not any(isinstance(r, Subroutine) for r in outer.contains.body)
 
-def test_extract_contained_procedures_basic_array():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_basic_array(frontend):
     """
     Tests that a global array variable (and a scalar) is correctly added as argument of `inner`.
     """
@@ -101,23 +104,82 @@ def test_extract_contained_procedures_basic_array():
                 y = 1
                 z = x + y + arr(1)
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     inner = routines[0]
     outer = src.routines[0]
-    assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'x' in (var.name for var in inner.arguments)
-    assert 'arr' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'arr' in (var.name for var in inner.arguments)
+    assert 'x' in inner.arguments
+    assert 'arr(3)' in inner.arguments
 
     call = FindNodes(CallStatement).visit(outer.body)[0]
-    assert 'x' in (var.name for var in call.arguments)
-    assert 'arr' in (var.name for var in call.arguments)
+    kwargdict = dict(call.kwarguments)
+    assert kwargdict['x'] == 'x'
+    assert kwargdict['arr'] == 'arr'
 
-def test_extract_contained_procedures_basic_import():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_existing_call_args(frontend):
+    """
+    Tests that variable resolution process works correctly when the parent contains a call to
+    the extracted function that already has some calling arguments.
+    Test also that new args are introduced as kw arguments.
+    """
+
+    fcode = """
+        subroutine outer()
+            implicit none
+            integer :: x
+            integer :: y
+            integer :: z
+            real :: arr(3)
+            arr = 71.0
+            x = 42
+            y = 1
+            call inner(x, y)
+            call inner(x, y = 1)
+            ! Note, 'call inner(y = 1, x)' is disallowed by Fortran and not tested.
+            call inner(x = 1, y = 1)
+            call inner(y = 1, x = 1)
+            contains
+            subroutine inner(x, y)
+                integer, intent(in) :: x
+                integer, intent(in) :: y
+                z = x + y + arr(1)
+            end subroutine inner
+        end subroutine outer
+    """
+    src = Sourcefile.from_source(fcode, frontend = frontend)
+    outer = src.routines[0]
+    extract_contained_procedures(outer)
+    calls = FindNodes(CallStatement).visit(outer.body)
+
+    for call in calls:
+        kwargdict = dict(call.kwarguments)
+        assert kwargdict['arr'] == 'arr'
+        assert kwargdict['z'] == 'z'
+
+    assert 'x' == calls[0].arguments[0]
+    assert 'y' == calls[0].arguments[1]
+    assert len(calls[0].arguments) == 2
+
+    assert 'x' == calls[1].arguments[0]
+    assert len(calls[1].arguments) == 1
+    assert 'y' in tuple(arg[0] for arg in calls[1].kwarguments)
+
+    assert len(calls[2].arguments) == 0
+    kwargdict = dict(calls[2].kwarguments)
+    assert kwargdict['x'] == 1
+    assert kwargdict['y'] == 1
+
+    assert len(calls[3].arguments) == 0
+    kwargdict = dict(calls[3].kwarguments)
+    assert kwargdict['x'] == 1
+    assert kwargdict['y'] == 1
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_basic_import(frontend):
     """
     Tests that a global imported binding is correctly introduced to the contained subroutine.
     """
@@ -136,69 +198,98 @@ def test_extract_contained_procedures_basic_import():
                 y = 1
                 z = x + y + c2
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     inner = routines[0]
-    assert "c2" in inner.import_map.keys()
-    assert not "c1" in inner.import_map.keys()
-    assert not 'c2' in (var.name for var in inner.arguments)
+    assert "c2" in inner.import_map
+    assert "c1" not in inner.import_map
+    assert 'c2' not in inner.arguments
 
-def test_extract_contained_procedures_recursive_definition():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_recursive_definition(frontend):
     """
     Tests that whenever a global in the contained subroutine depends on another
     global variable, both are introduced as arguments,
     even if there is no explicit reference to the latter.
     """
     fcode = """
-        subroutine outer(klon)
+        subroutine outer(klon, klev, mt)
+            use type_mod, only: mytype
             implicit none
             integer, intent(in) :: klon
+            integer, intent(in) :: klev
+            type(mytype), intent(in) :: mt
+            integer :: somearr(klon, mt%a%b)
             integer :: x(klon)
-            x(klon - 1) = 42 
+            integer :: somevar(klon, klev + 1)
+
+            x(klon - 1) = 42
             call inner()
             contains
             subroutine inner()
                 integer :: y
                 integer :: z
                 y = 1
-                z = x(1) + y
+                z = x(1) + y + somevar(1, 1) - somearr(1, 1)
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
-    assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'x' in (var.name for var in inner.arguments)
-    assert 'klon' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'klon' in (var.name for var in inner.arguments)
+    assert 'x(klon)' in inner.arguments
+    assert 'somevar(klon, klev + 1)' in inner.arguments
+    assert 'klon' in inner.arguments
+    assert 'klev' in inner.arguments
+    assert 'mt' in inner.arguments
+    assert 'mt%a' not in inner.arguments
+    assert 'mt%a%b' not in inner.arguments
 
     call = FindNodes(CallStatement).visit(outer.body)[0]
-    assert 'x' in (var.name for var in call.arguments)
-    assert 'klon' in (var.name for var in call.arguments)
+    kwargdict = dict(call.kwarguments)
+    assert kwargdict['x'] == 'x'
+    assert kwargdict['klon'] == 'klon'
+    assert kwargdict['somearr'] == 'somearr'
+    assert kwargdict['somevar'] == 'somevar'
+    assert kwargdict['klev'] == 'klev'
+    assert kwargdict['mt'] == 'mt'
+    assert 'mt%a' not in kwargdict
+    assert 'mt%a%b' not in kwargdict
 
-    # Test that intent of 'klon' is also 'in' inside inner (because intent is given in parent).
+    assert 'x' not in call.arguments
+    assert 'klon' not in call.arguments
+    assert 'somearr' not in call.arguments
+    assert 'somevar' not in call.arguments
+    assert 'klev' not in call.arguments
+    assert 'mt' not in call.arguments
+    assert 'mt%a' not in call.arguments
+    assert 'mt%a%b' not in call.arguments
+
+    # Test that intent of 'klon' and 'klev' is also 'in' inside inner (because intent is given in parent).
     klon = inner.variable_map['klon']
+    klev = inner.variable_map['klev']
     assert klon.type.intent == "in"
+    assert klev.type.intent == "in"
 
-def test_extract_contained_procedures_recursive_definition_import():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_recursive_definition_import(frontend):
     """
-    Tests that whenever globals in the contained subroutine depend on imported bindings, 
-    the globals are introduced as arguments, and the imports are added to the contained subroutine. 
+    Tests that whenever globals in the contained subroutine depend on imported bindings,
+    the globals are introduced as arguments, and the imports are added to the contained subroutine.
     """
     fcode = """
         subroutine outer()
             implicit none
-            use parkind1, only: jprb, jpim 
+            use parkind1, only: jprb, jpim
             real(kind=jprb) :: x(3)
             integer(kind=jpim) :: ii(30)
             ii = 72
-            x(1) = 42 
+            x(1) = 42
             call inner()
             contains
             subroutine inner()
@@ -208,20 +299,19 @@ def test_extract_contained_procedures_recursive_definition_import():
                 ii(4) = 2
                 z = x(1) + y
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
-    assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'x' in (var.name for var in inner.arguments)
-    assert 'ii' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'ii' in (var.name for var in inner.arguments)
+    assert 'x(3)' in inner.arguments
+    assert 'ii(30)' in inner.arguments
     call = FindNodes(CallStatement).visit(outer.body)[0]
-    assert 'x' in (var.name for var in call.arguments)
-    assert 'ii' in (var.name for var in call.arguments)
+    kwargdict = dict(call.kwarguments)
+    assert kwargdict['x'] == 'x'
+    assert kwargdict['ii'] == 'ii'
 
     imports = FindNodes(Import).visit(inner.spec)
     modules = set()
@@ -236,7 +326,8 @@ def test_extract_contained_procedures_recursive_definition_import():
     assert "jpim" in symbols
     assert len(symbols) == 2
 
-def test_extract_contained_procedures_kind_resolution():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_kind_resolution(frontend):
     """
     Tests that an unresolved kind parameter in inner scope is resolved from import in outer scope.
     """
@@ -251,14 +342,15 @@ def test_extract_contained_procedures_kind_resolution():
                 integer :: z
                 z = y
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     inner = routines[0]
-    assert "jpim" in inner.import_map.keys()
+    assert "jpim" in inner.import_map
 
-def test_extract_contained_procedures_derived_type_resolution():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_derived_type_resolution(frontend):
     """
     Tests that an unresolved derived type in inner scope is resolved from import in outer scope.
     """
@@ -273,14 +365,15 @@ def test_extract_contained_procedures_derived_type_resolution():
                 integer :: z
                 z = y%a
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     inner = routines[0]
-    assert "mytype" in inner.import_map.keys()
+    assert "mytype" in inner.import_map
 
-def test_extract_contained_procedures_derived_type_field():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_derived_type_field(frontend):
     """
     Test that when a derived type field, i.e 'a%b' is a global in the scope of the contained subroutine,
     the derived type itself, that is, 'a', is introduced as an the argument in the transformation.
@@ -301,20 +394,19 @@ def test_extract_contained_procedures_derived_type_field():
                 ytyp%val%b = 10.0
                 z = y + ytyp%something_else
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     outer = src.routines[0]
     inner = routines[0]
-    assert 'xtyp' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'xtyp' in (var.name for var in inner.arguments)
-    assert 'ytyp' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'ytyp' in (var.name for var in inner.arguments)
+    assert 'xtyp' in inner.arguments
+    assert 'ytyp' in inner.arguments
 
     call = FindNodes(CallStatement).visit(outer.body)[0]
-    assert 'xtyp' in (var.name for var in call.arguments)
-    assert 'ytyp' in (var.name for var in call.arguments)
+    kwargdict = dict(call.kwarguments)
+    assert kwargdict['xtyp'] == 'xtyp'
+    assert kwargdict['ytyp'] == 'ytyp'
 
     imports = FindNodes(Import).visit(inner.spec)
     modules = set()
@@ -329,11 +421,12 @@ def test_extract_contained_procedures_derived_type_field():
     assert "your_type" in symbols
     assert len(symbols) == 2
 
-def test_extract_contained_procedures_intent():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_intent(frontend):
     """
     This test is just to document the current behaviour: when a global is
-    introduced as an argument to the lifted contained subroutine,
-    its intent will be 'inout', unless the intent is specified in the parent subroutine.
+    introduced as an argument to the extracted contained procedure,
+    its intent will be 'inout', unless the intent is specified in the parent procedure.
     """
     fcode = """
         subroutine outer(v)
@@ -351,9 +444,9 @@ def test_extract_contained_procedures_intent():
                 y = 1
                 z = x(1) + v + y + p
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
@@ -367,10 +460,11 @@ def test_extract_contained_procedures_intent():
     assert outer.variable_map['x'].type.intent is None
     assert outer.variable_map['p'].type.intent == "out"
 
-def test_extract_contained_procedures_undefined_in_parent():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_undefined_in_parent(frontend):
     """
     This test is just to document current behaviour:
-    an exception is raised if a global inside the contained subroutine does not
+    an exception is raised if a global inside the contained procedure does not
     have a definition in the parent scope.
     """
     fcode = """
@@ -385,16 +479,16 @@ def test_extract_contained_procedures_undefined_in_parent():
                 y = 1
                 z = x + y + g + f ! 'z', 'g', 'f' undefined in contained subroutine and parent.
             end subroutine inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     with pytest.raises(RuntimeError):
         extract_contained_procedures(src.routines[0])
 
-
-def test_extract_contained_procedures_multiple_contained_procedures():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_multiple_contained_procedures(frontend):
     """
-    Basic test to check that multiple contained subroutines can also be handled.
+    Basic test to check that multiple contained procedures can also be handled.
     """
     fcode = """
         subroutine outer()
@@ -417,9 +511,9 @@ def test_extract_contained_procedures_multiple_contained_procedures():
                 gy = 1
                 gz = gx + gy
             end subroutine inner2
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 2
     assert routines[0].name == "inner1"
@@ -427,19 +521,18 @@ def test_extract_contained_procedures_multiple_contained_procedures():
     outer = src.routines[0]
     inner1 = routines[0]
     inner2 = routines[1]
-    assert 'x' in (var.name for var in FindVariables().visit(inner1.spec))
-    assert 'x' in (var.name for var in inner1.arguments)
-    assert 'gx' in (var.name for var in FindVariables().visit(inner2.spec))
-    assert 'gx' in (var.name for var in inner2.arguments)
+    assert 'x' in inner1.arguments
+    assert 'gx' in inner2.arguments
 
     call = [call for call in FindNodes(CallStatement).visit(outer.body) if call.name == "inner1"][0]
-    assert 'x' in (var.name for var in call.arguments)
+    assert 'x' in (arg[0] for arg in call.kwarguments)
     call = [call for call in FindNodes(CallStatement).visit(outer.body) if call.name == "inner2"][0]
-    assert 'gx' in (var.name for var in call.arguments)
+    assert 'gx' in (arg[0] for arg in call.kwarguments)
 
-def test_extract_contained_procedures_basic_scalar_function():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_basic_scalar_function(frontend):
     """
-    Basic test for scalars highlighting that the inner procedure may also be a function. 
+    Basic test for scalars highlighting that the inner procedure may also be a function.
     """
     fcode = """
         subroutine outer()
@@ -455,23 +548,23 @@ def test_extract_contained_procedures_basic_scalar_function():
                 y = 1
                 z = x + y
             end function inner
-        end subroutine outer 
+        end subroutine outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     assert routines[0].name == "inner"
     inner = routines[0]
     outer = src.routines[0]
-    assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'x' in (var.name for var in inner.arguments)
+    assert 'x' in inner.arguments
 
     call = list(FindInlineCalls().visit(outer.body))[0]
-    assert 'x' in (var.name for var in call.parameters)
+    assert 'x' in call.kw_parameters
 
-def test_extract_contained_procedures_basic_scalar_function_both():
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_contained_procedures_basic_scalar_function_both(frontend):
     """
-    Basic test for scalars highlighting that the outer and inner procedure may be functions. 
+    Basic test for scalars highlighting that the outer and inner procedure may be functions.
     """
     fcode = """
         function outer() result(outer_res)
@@ -487,16 +580,15 @@ def test_extract_contained_procedures_basic_scalar_function_both():
                 y = 1
                 z = x + y
             end function inner
-        end function outer 
+        end function outer
     """
-    src = Sourcefile.from_source(fcode)
+    src = Sourcefile.from_source(fcode, frontend = frontend)
     routines = extract_contained_procedures(src.routines[0])
     assert len(routines) == 1
     assert routines[0].name == "inner"
     inner = routines[0]
     outer = src.routines[0]
-    assert 'x' in (var.name for var in FindVariables().visit(inner.spec))
-    assert 'x' in (var.name for var in inner.arguments)
+    assert 'x' in inner.arguments
 
     call = list(FindInlineCalls().visit(outer.body))[0]
-    assert 'x' in (var.name for var in call.parameters)
+    assert 'x' in call.kw_parameters
