@@ -7,7 +7,10 @@
 
 import re
 from loki.expression import symbols as sym
-from loki.transform import resolve_associates, inline_member_procedures, transform_sequence_association
+from loki.transform import (
+    resolve_associates, inline_member_procedures,
+    inline_marked_subroutines, transform_sequence_association
+)
 from loki import (
     Transformation, FindNodes, Transformer, info,
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
@@ -38,15 +41,23 @@ class SCCBaseTransformation(Transformation):
         ``'openacc'`` or ``None``.
     inline_members : bool
         Enable full source-inlining of member subroutines; default: False.
+    inline_marked : bool
+        Enable inlining for subroutines marked with ``!$loki inline``; default: True.
+    resolve_sequence_association : bool
+        Replace scalars that are passed to array arguments with array ranges; default: False.
     """
 
-    def __init__(self, horizontal, directive=None, inline_members=False, resolve_sequence_association=False):
+    def __init__(
+            self, horizontal, directive=None, inline_members=False,
+            inline_marked=True, resolve_sequence_association=False
+    ):
         self.horizontal = horizontal
 
         assert directive in [None, 'openacc']
         self.directive = directive
 
         self.inline_members = inline_members
+        self.inline_marked = inline_marked
         self.resolve_sequence_association = resolve_sequence_association
 
     @classmethod
@@ -296,9 +307,13 @@ class SCCBaseTransformation(Transformation):
         if self.resolve_sequence_association:
             transform_sequence_association(routine)
 
-        # Perform full source-inlining for member subroutines if so requested
+        # Perform full source-inlining for member subroutines
         if self.inline_members:
             inline_member_procedures(routine)
+
+        # Perform full source-inlining for pragma-marked subroutines
+        if self.inline_marked:
+            inline_marked_subroutines(routine)
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
