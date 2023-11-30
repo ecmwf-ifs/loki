@@ -67,8 +67,8 @@ class DependencyTransformation(Transformation):
 
     # This transformation recurses from the Sourcefile down
     recurse_to_modules = True
-    recurse_to_subroutines = True
-    recurse_to_contained_procedures = False
+    recurse_to_procedures = True
+    recurse_to_internal_procedures = False
 
 
     def __init__(self, suffix, mode='module', module_suffix=None, include_path=None,

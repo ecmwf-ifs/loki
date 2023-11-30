@@ -38,30 +38,32 @@ class Transformation:
     traversed before standalone :any:`Subroutine` objects.
 
     Classes inheriting from :any:`Transformation` may configure the
-    invocation and behaviour batch processing via a predefined set of
-    class attributes. These flags determine the underlying
+    invocation and behaviour during batch processing via a predefined
+    set of class attributes. These flags determine the underlying
     graph traversal when processing complex call trees and determine
     how the transformations are invoked for a given type of scheduler
     :any:`Item`.
 
-    * ``reverse_traversal`` :
+    Attributes
+    ----------
+    reverse_traversal : bool
         Forces scheduler traversal in reverse order from the leaf
         nodes upwards (default: ``False``).
-    * ``traverse_file_graph`` :
+    traverse_file_graph : bool
          Apply :any:`Transformation` to the :any:`Sourcefile` object
          corresponding to the :any:`Item` being processed, instead of
          the program unit in question (default: ``False``).
-    * ``item_filter`` :
+    item_filter : bool
         Filter by graph node types to prune the graph and change connectivity.
         By default, only calls to :any:`Subroutine` items are used to construct
         the graph.
-    * ``recurse_to_modules`` :
+    recurse_to_modules : bool
         Apply transformation to all :any:`Module` objects when processing
         a :any:`Sourcefile` (default ``False``)
-    * ``recurse_to_subroutines`` :
+    recurse_to_procedures : bool
         Apply transformation to all :any:`Subroutine` objects when processing
         :any:`Sourcefile` or :any:``Module`` objects (default ``False``)
-    * ``recurse_to_contained_procedures`` :
+    recurse_to_internal_procedures : bool
         Apply transformation to all internal :any:`Subroutine` objects
         when processing :any:`Subroutine` objects (default ``False``)
     """
@@ -77,8 +79,8 @@ class Transformation:
 
     # Recursion behaviour when invoking transformations via ``trafo.apply()``
     recurse_to_modules = False  # Recurse from Sourcefile to Module
-    recurse_to_subroutines = False  # Recurse from Sourcefile/Module to Subroutine
-    recurse_to_contained_procedures = False  # Recurse to subroutines in ``contains`` clause
+    recurse_to_procedures = False  # Recurse from Sourcefile/Module to subroutines and functions
+    recurse_to_internal_procedures = False  # Recurse to subroutines in ``contains`` clause
 
 
     def transform_subroutine(self, routine, **kwargs):
@@ -167,7 +169,7 @@ class Transformation:
         If the :attr:`recurse_to_modules` class property is set, it
         will also invoke :meth:`apply` on all :any:`Module` objects in
         this :any:`Sourcefile`. Likewise, if
-        :attr:`recurse_to_subroutines` is set, it will invoke
+        :attr:`recurse_to_procedures` is set, it will invoke
         :meth:`apply` on all free :any:`Subroutine` objects in this
         :any:`Sourcefile`.
 
@@ -211,8 +213,8 @@ class Transformation:
             for module in sourcefile.modules:
                 self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
 
-        # Recurse into subroutine, if configured
-        if self.recurse_to_subroutines:
+        # Recurse into procedures, if configured
+        if self.recurse_to_procedures:
             if items:
                 # Recursion into all subroutine items in the current file
                 for item in items:
@@ -250,8 +252,8 @@ class Transformation:
         # Apply the actual transformation for subroutines
         self.transform_subroutine(subroutine, **kwargs)
 
-        # Recurse to contained member subroutines
-        if self.recurse_to_contained_procedures:
+        # Recurse to internal procedures
+        if self.recurse_to_internal_procedures:
             for routine in subroutine.subroutines:
                 self.apply_subroutine(routine, **kwargs)
 
@@ -261,7 +263,7 @@ class Transformation:
 
         This calls :meth:`transform_module`.
 
-        If the :attr:`recurse_to_subroutines` class property is set,
+        If the :attr:`recurse_to_procedures` class property is set,
         it will also invoke :meth:`apply` on all :any:`Subroutine`
         objects in the ``contains`` clause of this :any:`Module`.
 
@@ -281,8 +283,8 @@ class Transformation:
         # Apply the actual transformation for modules
         self.transform_module(module, **kwargs)
 
-        # Recurse to subroutines contained in this module
-        if self.recurse_to_subroutines:
+        # Recurse to procedures contained in this module
+        if self.recurse_to_procedures:
             for routine in module.subroutines:
                 self.apply_subroutine(routine, **kwargs)
 
