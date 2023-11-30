@@ -133,7 +133,7 @@ class HoistVariablesAnalysis(Transformation):
 
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        successors = kwargs.get('successors', ())
+        successors = as_tuple(kwargs.get('successors'))
 
         item.trafo_data[self._key] = {}
 
@@ -150,7 +150,7 @@ class HoistVariablesAnalysis(Transformation):
         call_map = CaseInsensitiveDict((str(call.name), call) for call in calls)
 
         for child in successors:
-            arg_map = dict(call_map[child.routine.name].arg_iter())
+            arg_map = dict(call_map[child.local_name].arg_iter())
             hoist_variables = []
             for var in child.trafo_data[self._key]["hoist_variables"]:
                 if isinstance(var, sym.Array):
@@ -222,9 +222,9 @@ class HoistVariablesTransformation(Transformation):
         """
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        successors = kwargs.get('successors', ())
+        successors = as_tuple(kwargs.get('successors'))
         successor_map = CaseInsensitiveDict(
-            (successor.routine.name, successor) for successor in successors
+            (successor.local_name, successor) for successor in successors
         )
 
         if self._key not in item.trafo_data:

@@ -243,7 +243,10 @@ class FortranReader:
         """
         Create a :any:`Source` object with the content of the reader
         """
-        if include_padding:
+        if not self.source_lines:
+            string = ''
+            lines = (self.line_offset + 1, self.line_offset + 1)
+        elif include_padding:
             string = '\n'.join(self.source_lines)
             lines = (self.line_offset + 1, self.line_offset + len(self.source_lines))
         else:

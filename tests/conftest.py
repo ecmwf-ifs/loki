@@ -71,7 +71,9 @@ def jit_compile(source, filepath=None, objname=None):
         Return a specific object (module or subroutine) in :attr:`source`
     """
     if isinstance(source, Sourcefile):
-        filepath = source.filepath if filepath is None else Path(filepath)
+        filepath = source.path if filepath is None else Path(filepath)
+        if filepath is None:
+            filepath = Path(gettempdir()/filehash(source, prefix='', suffix='.f90'))
         source.write(path=filepath)
     else:
         source = fgen(source)

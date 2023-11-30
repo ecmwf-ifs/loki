@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from abc import abstractmethod
+from fnmatch import fnmatch
 try:
     from functools import cached_property
 except ImportError:
@@ -326,7 +327,8 @@ class Item:
 
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in self.members]
-        children = [c for c in children if c not in disabled]
+        for d in disabled:
+            children = [c for c in children if not fnmatch(c, d)]
 
         # Remove duplicates
         return as_tuple(dict.fromkeys(children))

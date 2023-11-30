@@ -266,6 +266,18 @@ class Scheduler:
         return as_tuple(self.item_graph.edges)
 
     @property
+    def definitions(self):
+        """
+        The list of definitions that the source files in the
+        callgraph provide
+        """
+        return tuple(
+            definition
+            for item in self.item_graph
+            for definition in item.source.definitions
+        )
+
+    @property
     def file_graph(self):
         """
         Alternative dependency graph based on relations between source files
@@ -406,7 +418,8 @@ class Scheduler:
             warning(f'Scheduler could not find routine {routine}')
             if self.config.default['strict']:
                 raise RuntimeError(f'Scheduler could not find routine {routine}')
-        elif len(candidates) != 1:
+            return None
+        if len(candidates) != 1:
             warning(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
             if self.config.default['strict']:
                 raise RuntimeError(f'Scheduler found multiple candidates for routine {routine}: {candidates}')
@@ -541,35 +554,37 @@ class Scheduler:
         """
         # Force the parsing of the routines
         build_args = self.build_args.copy()
-        build_args['definitions'] = as_tuple(build_args['definitions'])
+        build_args['definitions'] = as_tuple(build_args['definitions']) + self.definitions
         for item in reversed(list(nx.topological_sort(self.item_graph))):
             item.source.make_complete(**build_args)
-            build_args['definitions'] += item.source.definitions
 
-    @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
+
+    @Timer(logger=info, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
         """
         Enrich subroutine calls for inter-procedural transformations
         """
-        # Force the parsing of the routines in the call tree
+        definitions = self.definitions
         for item in self.item_graph:
             if not isinstance(item, SubroutineItem):
                 continue
 
-            # Enrich with all routines in the call tree
-            item.routine.enrich_calls(routines=self.routines)
-            item.routine.enrich_types(typedefs=self.typedefs)
+            # Enrich all modules and subroutines in the source file with
+            # the definitions of the scheduler's graph
+            for node in item.source.modules + item.source.subroutines:
+                node.enrich(definitions, recurse=True)
 
             # Enrich item with meta-info from outside of the callgraph
-            for routine in item.enrich:
-                lookup_name = self.find_routine(routine)
+            for name in as_tuple(item.enrich):
+                lookup_name = self.find_routine(name)
                 if not lookup_name:
-                    warning(f'Scheduler could not find file for enrichment:\n{routine}')
+                    warning(f'Scheduler could not find file for enrichment:\n{name}')
                     if self.config.default['strict']:
-                        raise FileNotFoundError(f'Source path not found for routine {routine}')
+                        raise FileNotFoundError(f'Source path not found for routine {name}')
                     continue
                 self.obj_map[lookup_name].make_complete(**self.build_args)
-                item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
+                for node in item.source.modules + item.source.subroutines:
+                    node.enrich(self.obj_map[lookup_name].definitions, recurse=True)
 
     def item_successors(self, item):
         """
