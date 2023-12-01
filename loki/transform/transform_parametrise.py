@@ -219,6 +219,7 @@ class ParametriseTransformation(Transformation):
                     else:
                         arguments.append(arg.clone(name=f'parametrised_{arg.name}'))
                 routine.arguments = arguments
+                # print(f"PARAMETRISE setting arguments: {arguments}, thus: {routine.arguments}")
                 # introduce sanity check
                 for key, value in reversed(dic2p.items()):
                     if f'parametrised_{key}' in routine.variable_map:
@@ -243,7 +244,9 @@ class ParametriseTransformation(Transformation):
                         routine.body.prepend(conditional)
                         routine.body.prepend(ir.Comment(f"! Sanity check for parametrised variable: {key}"))
             else:
-                routine.arguments = [arg for arg in routine.arguments if arg.name not in vars2p]
+                # print(f"PARAMETRISE else, setting arguments: {[arg for arg in routine.arguments if arg.name not in vars2p]}, thus: {routine.arguments}")
+                print(f"PARAMETRISE, routine.arguments {routine.name}: {routine.arguments}")
+                routine.arguments = [arg.clone() for arg in routine.arguments if arg.name not in vars2p]
 
             # remove variables to be parametrised from all call statements
             call_map = {}

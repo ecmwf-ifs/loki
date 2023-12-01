@@ -1,4 +1,4 @@
-# (C) Copyright 2018- ECMWF.
+# (C) Copyright 2018- ECMWFroutine.variable_map.
 # This software is licensed under the terms of the Apache Licence Version 2.0
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 # In applying this licence, ECMWF does not waive the privileges and immunities
@@ -15,7 +15,8 @@ from loki import ir
 from loki import (
     Transformation, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, SymbolAttributes,
-    CaseInsensitiveDict, as_tuple, flatten, types, DerivedType, BasicType
+    CaseInsensitiveDict, as_tuple, flatten, types, DerivedType, BasicType,
+    Reference, Dereference
 )
 
 from transformations.single_column_coalesced import SCCBaseTransformation
@@ -66,10 +67,20 @@ class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransfor
         _vars = [var.name for var in variables]
         # for var in variables:
         #     ...
-        # routine.body.prepend((ir.Pragma(keyword='acc', content=f'enter data create({", ".join(_vars)})'),))
-        routine.body.prepend((ir.Pragma(keyword='acc', content=f'data copy({", ".join(_vars)})'),))
+        # routine.body.prepend((ir.Pragma(keyword='acc', content=f'enter data create({", ".join(_vars)})'),))
+        # routine.body.prepend((ir.Pragma(keyword='acc', content=f'data copy({", ".join(_vars)})'),))
         # routine.body.append((ir.Pragma(keyword='acc', content=f'exit data delete({", ".join(_vars)})'),))
-        routine.body.append((ir.Pragma(keyword='acc', content=f'end data'),))
+        # routine.body.append((ir.Pragma(keyword='acc', content=f'end data'),))
+        pragma_map = {}
+        for pragma in FindNodes(ir.Pragma).visit(routine.body):
+            # print(f"here pragma: {pragma.keyword} {pragma.content}")
+            if pragma.content == 'data-hoist' and 'loki' == pragma.keyword:
+                print(f"create acc enter data create ...")
+                pragma_map[pragma] = ir.Pragma(keyword='acc', content=f'enter data create({", ".join(_vars)})')
+            if pragma.content == 'end data-hoist' and 'loki' == pragma.keyword:
+                pragma_map[pragma] = ir.Pragma(keyword='acc', content=f'exit data delete({", ".join(_vars)})')
+
+        routine.body = Transformer(pragma_map).visit(routine.body)
 
 def dynamic_local_arrays(routine, vertical):
     """
@@ -211,13 +222,33 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
         single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
 
     # This adds argument and variable declaration !
+    # if depth > 1:
     vtype = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
-    # new_argument = routine.variable_map[horizontal.size].clone(name=block_dim.size, type=vtype)
+    new_argument = routine.variable_map[horizontal.size].clone(name=block_dim.size, type=vtype)
     # routine.arguments = list(routine.arguments) + [new_argument]
 
-    vtype = routine.variable_map[horizontal.index].type.clone()
-    jblk_var = routine.variable_map[horizontal.index].clone(name=block_dim.index, type=vtype)
-    routine.spec.append(ir.VariableDeclaration((jblk_var,)))
+    if depth == 1:
+        # vtype = routine.variable_map[horizontal.index].type.clone()
+        jblk_var = routine.variable_map[horizontal.index].clone(name=block_dim.index) # , type=vtype)
+        tmp_var = jblk_var.clone(type=jblk_var.type.clone(intent=None))
+        routine.spec.append(ir.VariableDeclaration((tmp_var,)))
+        # routine.variables += (jblk_var,)
+    else:
+        vtype = routine.variable_map[horizontal.index].type.clone(intent="in")
+        jblk_var = routine.variable_map[horizontal.index].clone(name=block_dim.index) # , type=vtype)
+
+    new_arguments = [routine.variable_map[horizontal.index].clone(), jblk_var, new_argument]
+    call_map = {}
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
+        if call.name not in as_tuple(targets) or is_elemental(call.routine): #  or call.name == "CLOUDSC":
+            continue
+        _new_args = list(call.routine.arguments) + [arg.clone(type=arg.type.clone(intent="in"), scope=call.routine) for arg in new_arguments]
+        _new_call_args = list(call.arguments) + new_arguments
+        if new_arguments[0].name not in call.routine.arguments:
+            # _new_args = list(call.routine.arguments) + new_arguments
+            call.routine.arguments = as_tuple(_new_args) # [arg.clone(type=arg.type.clone(intent="in"), scope=call.routine) for arg in _new_args]) # [new_argument]
+        call_map[call] = call.clone(arguments=as_tuple(_new_call_args))
+    routine.body = Transformer(call_map).visit(routine.body)
 
     if depth == 1:
 
@@ -247,11 +278,14 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
             routine.body = ir.Section((jl_assignment, jblk_assignment, ir.Comment(''),
                             ir.Conditional(condition=condition, body=routine.body.body, else_body=())))
 
+    """
     elif depth > 1:
         vtype = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
         new_arguments = [routine.variable_map[horizontal.index].clone(type=vtype), jblk_var.clone(type=vtype)]
         routine.arguments = list(routine.arguments) + new_arguments
+    """
 
+    """
     for call in FindNodes(ir.CallStatement).visit(routine.body):
         if call.name not in as_tuple(targets):
             continue
@@ -259,18 +293,19 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
         if not is_elemental(call.routine):
             arguments = (routine.variable_map[block_dim.size], routine.variable_map[horizontal.index], jblk_var)
             call._update(arguments=call.arguments + arguments)
+    """
 
     variables = routine.variables
     arguments = routine.arguments
 
     relevant_local_arrays = []
-
     var_map = {}
     for var in variables:
         if var in arguments:
             if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
                 var_map[var] = var.clone(type=var.type.clone(value=True))
             elif isinstance(var, sym.Array):
+                # try:
                 dimensions = list(var.dimensions) + [routine.variable_map[block_dim.size]]
                 shape = list(var.shape) + [routine.variable_map[block_dim.size]]
                 vtype = var.type.clone(shape=as_tuple(shape))
@@ -300,8 +335,12 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
         if var.name in arguments_name:
             if isinstance(var, sym.Array):
                 dimensions = list(var.dimensions)
+                shape = list(var.type.shape)
                 dimensions.append(routine.variable_map[block_dim.index])
-                var_map[var] = var.clone(dimensions=as_tuple(dimensions)) # TODO: testing ,type=var.type.clone(shape=as_tuple(dimensions)))
+                if block_dim.size not in shape:
+                    shape.append(routine.variable_map[block_dim.size])
+                # var_map[var] = var.clone(dimensions=as_tuple(dimensions)) # TODO: testing ,type=var.type.clone(shape=as_tuple(dimensions)))
+                var_map[var] = var.clone(dimensions=as_tuple(dimensions),type=var.type.clone(shape=as_tuple(shape)))
         else:
             if transformation_type == 'hoist':
                 if var.name in relevant_local_arrays:
@@ -325,6 +364,32 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
                 else:
                     arguments.append(arg)
             call._update(arguments=as_tuple(arguments))
+
+    # TODO: this is new ...
+    call_map = {}
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
+        
+        if call.name not in as_tuple(targets):
+            continue
+        
+        arguments = []
+        if is_elemental(call.routine):
+            for arg in call.arguments:
+                if isinstance(arg, sym.Array):
+                    # arguments.append(arg.clone(type=arg.type.clone(asaddress=True)))
+                    arguments.append(Reference(arg))
+                else:
+                    arguments.append(arg)
+        else:
+            for arg in call.arguments:
+                if isinstance(arg, sym.Array):
+                    # arguments.append(arg.clone(type=arg.type.clone(ispointer=False)))
+                    arguments.append(Reference(arg))
+                else:
+                    arguments.append(arg)
+        # call._update(arguments=as_tuple(_arguments))
+        call_map[call] = call.clone(arguments=as_tuple(arguments))
+    routine.body = Transformer(call_map).visit(routine.body)
 
 
 def kernel_demote_private_locals(routine, horizontal, vertical):
@@ -391,7 +456,6 @@ def _insert_stack_at_loki_pragma(routine, insert):
     for pragma in FindNodes(ir.Pragma).visit(routine.body):
         if pragma.keyword == 'acc' and 'copy-data' in pragma.content:
             pragma_map[pragma] = insert
-            # print(f"replacing pragma: {pragma} with {insert}")
     if pragma_map:
         routine.body = Transformer(pragma_map).visit(routine.body)
         return True
@@ -424,12 +488,6 @@ def driver_device_variables(routine, targets=None):
         if call.name in as_tuple(targets)
     )
     for call in calls:
-        # print(f"call: {call.name}") # - args: {[arg.name for arg in call.arguments]}")
-        # for arg in call.arguments:
-        #     try:
-        #         print(f"  {arg}  | {arg.type.intent}")
-        #     except:
-        #         print(f"  {arg}")
         relevant_arrays.extend([arg for arg in call.arguments if isinstance(arg, sym.Array)])
 
     # Collect the three types of device data accesses from calls
@@ -453,12 +511,6 @@ def driver_device_variables(routine, targets=None):
             if isinstance(param, sym.Array) and param.type.intent.lower() == 'out':
                 outargs += (str(arg.name).lower(),)
 
-    # for call in FindNodes(ir.CallStatement).visit(routine.body):
-    #         if "CLOUDSC" in str(call.name):  # TODO: fix/check: very specific to CLOUDSC
-    #             insert_index = routine.body.body.index(call)
-    #             print(f"found insert_index: {insert_index}")
-    
-    
     # Sanitize data access categories to avoid double-counting variables
     inoutargs += tuple(v for v in inargs if v in outargs)
     inargs = tuple(v for v in inargs if v not in inoutargs)
@@ -469,13 +521,6 @@ def driver_device_variables(routine, targets=None):
     outargs = tuple(dict.fromkeys(outargs))
     inoutargs = tuple(dict.fromkeys(inoutargs))
 
-    # print(f"relevant_arrays: {relevant_arrays}")
-    # relevant_arrays = list(dict.fromkeys(relevant_arrays))
-    # copyin = [array.name for array in relevant_arrays if array.type.intent=="in"]
-    # copy = [array.name for array in relevant_arrays if array.type.intent=="inout"]
-    # copyout = [array.name for array in relevant_arrays if array.type.intent=="out"]
-    # for array in relevant_arrays:
-    #     ...
 
     copy_pragmas = []
     copy_end_pragmas = []
@@ -502,25 +547,19 @@ def driver_device_variables(routine, targets=None):
         copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
 
     if copy_pragmas:
-        # print(f"copy pragmas: {copy_pragmas}")
         # _insert_stack_at_loki_pragma(routine, as_tuple(copy_pragmas))
         pragma_map = {}
         for pragma in FindNodes(ir.Pragma).visit(routine.body):
-            # print(f"here pragma: {pragma.keyword} {pragma.content}")
             if pragma.content == 'data' and 'loki' == pragma.keyword:
                 pragma_map[pragma] = as_tuple(copy_pragmas)
-                # print(f"replacing pragma: {pragma.content} with {copy_pragmas}")
         if pragma_map:
-            # print(f"calling transformer ...")
             routine.body = Transformer(pragma_map).visit(routine.body)
     if copy_end_pragmas:
         pragma_map = {}
         for pragma in FindNodes(ir.Pragma).visit(routine.body):
             if pragma.content == 'end data' and 'loki' == pragma.keyword:
                 pragma_map[pragma] = as_tuple(copy_end_pragmas)
-                # print(f"replacing pragma: {pragma.content} with {copy_end_pragmas}")
         if pragma_map:
-            # print(f"calling transformer ...")
             routine.body = Transformer(pragma_map).visit(routine.body)
 
     if False: # TODO: changes due to low-level C 
@@ -625,7 +664,6 @@ def driver_launch_configuration(routine, block_dim, targets=None):
     mapper = {}
     for loop in FindNodes(ir.Loop).visit(routine.body):
         # TODO: fix/check: do not use _aliases
-        # print(f"  {loop.variable} vs. {block_dim.index} / {block_dim._aliases}")
         if loop.variable == block_dim.index or loop.variable in block_dim._aliases:
             mapper[loop] = loop.body
             kernel_within = False
@@ -658,8 +696,8 @@ def driver_launch_configuration(routine, block_dim, targets=None):
                 # BLOCKDIM
                 lhs = routine.variable_map["blockdim"]
                 rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
-                blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-
+                # TODO: of course this shouldn't be based on strings ...
+                blockdim_assignment = f'dim3 blockdim({step.name.lower()}, 1, 1);' # ir.Assignment(lhs=lhs, rhs=rhs)
                 # GRIDDIM
                 lhs = routine.variable_map["griddim"]
                 rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
@@ -669,14 +707,14 @@ def driver_launch_configuration(routine, block_dim, targets=None):
                                                                                                  expression=upper) /
                                                                                         sym.Cast(name="REAL",
                                                                                                  expression=step)))))
-                griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-                # mapper[loop] = (blockdim_assignment, griddim_assignment, loop.body)
+                # TODO: of course this shouldn't be based on strings ...                                                                                        
+                griddim_assignment = f'dim3 griddim(ceil(((double){upper.name.lower()})/((double){step.name.lower()})),1,1);' # ir.Assignment(lhs=lhs, rhs=rhs)
+                # mapper[loop] = (blockdim_assignment, griddim_assignment, loop.body)
                 mapper[loop] = loop.body
             else:
                 mapper[loop] = loop.body
-    # print(f"  mapper: {mapper}")
     routine.body = Transformer(mapper=mapper).visit(routine.body)
-    return upper, step, routine.variable_map[block_dim.size]
+    return upper, step, routine.variable_map[block_dim.size], blockdim_assignment, griddim_assignment
 
 
 def device_derived_types(routine, derived_types, targets=None):
@@ -877,7 +915,7 @@ class SccCufTransformation(Transformation):
         driver_device_variables(routine=routine, targets=targets)
         # remove block loop and generate launch configuration for CUF kernels
         # TODO: add to kernel calls as new arguments for launch configuration ...
-        upper, step, block_dim_size = driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
+        upper, step, block_dim_size, blockdim_assignment, griddim_assignment = driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
         
         call_map = {}
         for call in FindNodes(ir.CallStatement).visit(routine.body):
@@ -885,6 +923,10 @@ class SccCufTransformation(Transformation):
                 if upper.name not in call.routine.arguments and step.name not in call.routine.arguments:
                     call.routine.arguments = list(call.routine.arguments) + [upper, step, block_dim_size]
                     call_map[call] = call.clone(arguments=as_tuple(list(call.arguments) + [upper, step, block_dim_size]))
+                    # call.routine.body = (ir.Comment(text='Test Test Test Test aaaahhhh'), call.routine.body)
+                    # call.routine.body.prepend((ir.Pragma(keyword='loki', content='Test Test Test Test aaaahhhh'),))
+                    # call.routine.body.prepend((ir.Comment(text='Test Test Test Test aaaahhhh'),ir.Pragma(keyword='loki', content='Test'), ir.Comment(text='')))
+                    call.routine.spec.append((ir.Pragma(keyword='loki', content=f'blockdim {blockdim_assignment}'),ir.Pragma(keyword='loki', content=f'griddim {griddim_assignment}')))
         routine.body = Transformer(call_map).visit(routine.body)
 
         # increase heap size (only for version with dynamic memory allocation on device)

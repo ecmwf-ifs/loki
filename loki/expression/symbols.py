@@ -38,7 +38,7 @@ __all__ = [
     # Internal nodes
     'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
     'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
-    'StringSubscript',
+    'StringSubscript', 'Reference', 'Dereference'
 ]
 
 # pylint: disable=abstract-method,too-many-lines
@@ -127,6 +127,8 @@ class TypedSymbol:
         self.parent = kwargs.pop('parent', None)
         self.scope = kwargs.pop('scope', None)
         self.case_sensitive = kwargs.pop('case_sensitive', False)
+        self.ispointer = kwargs.pop('ispointer', False)
+        self.asaddress = kwargs.pop('asaddress', False)
 
         # Use provided type or try to determine from scope
         self._type = None
@@ -492,6 +494,8 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     def __init__(self, symbol, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.case_sensitive = False
+        self.ispointer = False
+        self.asaddress = False
         self._symbol = symbol
 
     def __getstate__(self):
@@ -1210,7 +1214,6 @@ class LiteralList(pmbl.AlgebraicLeaf):
     def __getinitargs__(self):
         return (self.elements, self.dtype)
 
-
 class InlineDo(pmbl.AlgebraicLeaf):
     """
     An inlined do, e.g., implied-do as used in array constructors
@@ -1383,6 +1386,35 @@ class Cast(pmbl.Call):
     @property
     def name(self):
         return self.function.name
+
+class Reference(pmbl.Expression):
+
+    init_arg_names = ('expression',)
+
+    def __init__(self, expression):
+        assert isinstance(expression, pmbl.Expression)
+        self.expression = expression
+   
+    def __getinitargs__(self):
+        return self.expression,
+
+    mapper_method = intern('map_c_reference')
+    make_stringifier = loki_make_stringifier
+
+
+class Dereference(pmbl.Expression):
+
+    init_arg_names = ('expression', )
+
+    def __getinitargs__(self):
+        return (self.expression, )
+
+    def __init__(self, expression):
+        assert isinstance(expression, pmbl.Expression)
+        self.expression = expression
+
+    mapper_method = intern('map_c_dereference')
+    make_stringifier = loki_make_stringifier
 
 
 class Range(StrCompareMixin, pmbl.Slice):

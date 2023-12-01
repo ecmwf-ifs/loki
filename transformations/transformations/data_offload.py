@@ -1024,7 +1024,10 @@ class GlobalVarHoistingTransformation(Transformation):
                     args_map[successor] = list(successor.trafo_data[self._key][module].symbols) # symbols
                 else:
                     args_map[successor].extend(list(successor.trafo_data[self._key][module].symbols)) # symbols)
-        
+       
+        if not args_map:
+            return
+
         calls = FindNodes(CallStatement).visit(routine.body)
         call_map = {}
         for successor in successors:

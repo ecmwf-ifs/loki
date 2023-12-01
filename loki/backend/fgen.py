@@ -91,6 +91,10 @@ class FCodeMapper(LokiStringifyMapper):
         if expr.step is None or str(expr.step) == '1':
             children = children[:-1]
         return self.parenthesize_if_needed(self.join(',', children), enclosing_prec, PREC_NONE)
+    
+    # def map_operation(self, expr, enclosing_prec, *args, **kwargs):
+    #     print(f"FCodeMapper map_operation: {expr.expression}")
+    #     return str(expr.expression)
 
     # Suppress Pymbolics's conservative default bracketing by override
     # the multiplicative primitives to exclude `Product` and
@@ -290,7 +294,7 @@ class FortranCodegen(Stringifier):
             for k, v in get_pragma_parameters(o, only_loki_pragmas=False).items():
                 if v:
                     # Need to filter all old line continuations
-                    values = [i.replace('&', '').strip().split(' ') for i in as_tuple(v)]
+                    values = [i.replace('&', '').strip().split(' ') if i else '' for i in as_tuple(v)]
                     # v can be a list if the key occurs more than once
                     items += flatten([(k + '(', *i, ')') for i in values])
                 else:
