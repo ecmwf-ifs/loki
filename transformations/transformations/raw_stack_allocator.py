@@ -19,12 +19,21 @@ from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
 from loki.types import SymbolAttributes
 from loki.ir import Assignment, Intrinsic, CallStatement
 from loki.tools import as_tuple
-from loki.visitors import FindNodes
+from loki.visitors import FindNodes, Transformer
 from loki.bulk import SubroutineItem
 
 from loki import fgen
 
 __all__ = ['TemporariesRawStackTransformation']
+
+
+def _get_extent(d):
+
+    if isinstance(d, RangeIndex):
+        if d.lower == IntLiteral(1):
+            return d.upper
+        return Sum((d.upper, Product((-1,d.lower)), IntLiteral(1)))
+    return d
 
 
 class TemporariesRawStackTransformation(Transformation):
@@ -121,6 +130,7 @@ class TemporariesRawStackTransformation(Transformation):
         if key:
             self._key = key
 
+
     def transform_subroutine(self, routine, **kwargs):
 
         role = kwargs['role']
@@ -138,6 +148,7 @@ class TemporariesRawStackTransformation(Transformation):
         successors = kwargs.get('successors', ())
 
         self.horizontal_var = Variable(name=self.horizontal.size, scope=routine)
+        self.role = role
 
         if role == 'kernel':
 
@@ -145,6 +156,40 @@ class TemporariesRawStackTransformation(Transformation):
             if item:
                 stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
                 item.trafo_data[self._key]['stack_size'] = stack_size
+
+        if role == 'driver':
+
+            stack_size = self._determine_stack_size(routine, successors, item=item)
+            self.create_stack(routine, stack_size)
+
+        self.insert_stack_in_calls(routine, targets)
+
+
+    def insert_stack_in_calls(self, routine, targets):
+
+        call_map = {}
+        stack_var = self._get_stack_var(routine)
+
+        print(routine)
+        print('lalala')
+        for call in FindNodes(CallStatement).visit(routine.body):
+            print('   ', call)
+            if call.name in targets and self.stack_argument_name in (a.name for a in call.routine.arguments):
+                arguments = call.arguments
+                call_map[call] = call.clone(arguments=arguments + (stack_var,))
+        print()
+
+        if call_map:
+            routine.body = Transformer(call_map).visit(routine.body)
+
+
+    def create_stack(self, routine, stack_size):
+
+        stack_var = self._get_stack_var(routine)
+
+        stack_type = stack_var.type.clone(shape=(self.horizontal_var, stack_size))
+        stack_var = stack_var.clone(type=stack_type, dimensions=stack_type.shape)
+        routine.variables = routine.variables + (stack_var,)
 
 
     def apply_raw_stack_allocator_to_temporaries(self, routine, item=None):
@@ -161,11 +206,7 @@ class TemporariesRawStackTransformation(Transformation):
 
         temporary_arrays = self._filter_temporary_arrays(routine)
 
-        stack_type = SymbolAttributes(dtype=BasicType.REAL, intent='inout',
-                                      shape=(RangeIndex((None, None)), RangeIndex((None, None))))
-
-        stack_arg = Array(name=self.stack_argument_name,
-                          type=stack_type, scope=routine)
+        stack_arg = self._get_stack_var(routine)
 
         # Determine size of temporary arrays
         stack_size = Literal(0)
@@ -186,10 +227,7 @@ class TemporariesRawStackTransformation(Transformation):
             dim = IntLiteral(1)
 
             for d in arr.dimensions[1:]:
-                if isinstance(d, RangeIndex):
-                    dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), IntLiteral(1))))))
-                else:
-                    dim = Product((dim, d))
+                dim = Product((dim, _get_extent(d)))
 
             stack_size = simplify(Sum((stack_size, dim)))
             allocations += [Assignment(lhs=int_var, rhs=simplify(Sum((old_int_var, old_dim))))]
@@ -219,6 +257,13 @@ class TemporariesRawStackTransformation(Transformation):
             routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg,) + routine.arguments[arg_pos[0]:]
         else:
             routine.arguments += (stack_arg,)
+
+        print()
+        print('apply_raw_stack_allocator_to_temporaries:')
+        print(routine)
+        for a in routine.arguments:
+            print(a)
+        print()
 
         return stack_size
 
@@ -283,14 +328,7 @@ class TemporariesRawStackTransformation(Transformation):
                     for i,d in enumerate(t.dimensions[1:]):
                         d_offset = Sum((d, Product((-1,IntLiteral(1)))))
                         for j in range(0,i):
-
-                            s = t.shape[j+1]
-                            if isinstance(t.shape[j+1], RangeIndex):
-                                shape_size = Sum((s.upper, Product((-1,s.lower)), IntLiteral(1)))
-                            else:
-                                shape_size = s
-
-                            d_offset = Product((d_offset, shape_size))
+                            d_offset = Product((d_offset, _get_extent(t.shape[j+1])))
                         offset = Sum((offset, d_offset))
 
                     stack_dimensions[1] = simplify(Sum((int_var, offset)))
@@ -303,7 +341,7 @@ class TemporariesRawStackTransformation(Transformation):
 
                     stack_size = IntLiteral(1)
                     for s in t.shape[1:]:
-                        stack_size = Product((stack_size, s))
+                        stack_size = Product((stack_size, _get_extent(s)))
                     stack_dimensions[1] = RangeIndex((Sum((int_var,IntLiteral(1))), Sum((int_var, simplify(stack_size)))))
             else:
 
@@ -311,7 +349,7 @@ class TemporariesRawStackTransformation(Transformation):
 
                 stack_size = IntLiteral(1)
                 for s in t.shape[1:]:
-                    stack_size = Product((stack_size, s))
+                    stack_size = Product((stack_size, _get_extent(s)))
                 stack_dimensions[1] = RangeIndex((Sum((int_var,IntLiteral(1))), Sum((int_var, simplify(stack_size)))))
 
             temp_map[t] = stack_arg.clone(dimensions=as_tuple(stack_dimensions))
@@ -341,8 +379,6 @@ class TemporariesRawStackTransformation(Transformation):
             association, an :any:`Assignment` for the stack pointer increment, and a
             :any:`Conditional` that verifies that the stack is big enough
         """
-
-        print('horizontal size: ', self.horizontal.size)
 
         # Build expression for array size in bytes.
         # Assert first dimension is horizontal
@@ -437,3 +473,20 @@ class TemporariesRawStackTransformation(Transformation):
         stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
         return stack_size
 
+
+    def _get_stack_var(self, routine):
+
+        if self.role == 'kernel':
+            stack_name = self.stack_argument_name
+            stack_intent = 'INOUT'
+
+        if self.role == 'driver':
+            stack_name = self.stack_storage_name
+            stack_intent = None
+
+        stack_type = SymbolAttributes(dtype=BasicType.REAL,
+                                      kind=self.stack_type_kind,
+                                      intent=stack_intent,
+                                      shape=(RangeIndex((None, None))))
+
+        return Array(name=stack_name, type=stack_type, scope=routine)
