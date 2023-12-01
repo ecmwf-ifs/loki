@@ -191,15 +191,14 @@ class Transformation:
         role = kwargs.pop('role', None)
         targets = kwargs.pop('targets', None)
 
-        if 'items' in kwargs:
+        if items:
             # TODO: This special logic is required for the
             # DependencyTransformation to capture certain corner
             # cases. Once the module wrapping is split into its
             # own transformation, we can probably simplify this.
 
             # We consider the sourcefile to be a "kernel" file if all items are kernels
-            if all(item.role == 'kernel' for item in items):
-                role = 'kernel'
+            role = 'kernel' if all(item.role == 'kernel' for item in items) else 'driver'
 
             if targets is None:
                 # We collect the targets for file/module-level imports from all items
