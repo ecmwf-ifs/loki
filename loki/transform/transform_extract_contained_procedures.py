@@ -75,7 +75,7 @@ def extract_contained_procedures(procedure):
 
     # Remove all subroutines (or functions) from the CONTAINS section.
     newbody = tuple(r for r in procedure.contains.body if not isinstance(r, Subroutine))
-    procedure.contains = procedure.contains.clone(body = newbody)
+    procedure.contains = procedure.contains.clone(body=newbody)
     return new_procedures
 
 def extract_contained_procedure(procedure, name):
@@ -158,11 +158,11 @@ def extract_contained_procedure(procedure, name):
             # Have already encountered module name, modify existing.
             matching_import = matching_import[0]
             imports_to_add.remove(matching_import)
-            newimport = matching_import.clone(symbols = tuple(set(matching_import.symbols + imp.symbols)))
+            newimport = matching_import.clone(symbols=tuple(set(matching_import.symbols + imp.symbols)))
         else:
             # Have not encountered the module yet, add new one.
             newsyms = tuple(s for s in imp.symbols if s.name == val.name)
-            newimport = imp.clone(symbols = newsyms)
+            newimport = imp.clone(symbols=newsyms)
         imports_to_add.append(newimport)
 
     ## MAKING THE CHANGES TO `inner`
@@ -185,14 +185,14 @@ def extract_contained_procedure(procedure, name):
     if inner.is_function:
         for call in FindInlineCalls().visit(procedure.body):
             if call.routine is inner:
-                newkwargs = tuple((v.name, v.clone(dimensions = None, scope = procedure)) for v in vars_to_resolve)
-                call_map[call] = call.clone(kw_parameters = call.kwarguments + newkwargs)
+                newkwargs = tuple((v.name, v.clone(dimensions=None, scope=procedure)) for v in vars_to_resolve)
+                call_map[call] = call.clone(kw_parameters=call.kwarguments + newkwargs)
         procedure.body = SubstituteExpressions(call_map).visit(procedure.body)
     else:
         for call in FindNodes(CallStatement).visit(procedure.body):
             if call.routine is inner:
-                newkwargs = tuple((v.name, v.clone(dimensions = None, scope = procedure)) for v in vars_to_resolve)
-                call_map[call] = call.clone(kwarguments = tuple(call.kwarguments) + newkwargs)
+                newkwargs = tuple((v.name, v.clone(dimensions=None, scope=procedure)) for v in vars_to_resolve)
+                call_map[call] = call.clone(kwarguments=tuple(call.kwarguments) + newkwargs)
         procedure.body = Transformer(call_map).visit(procedure.body)
 
     return inner
