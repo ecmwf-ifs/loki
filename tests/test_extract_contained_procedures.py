@@ -113,7 +113,10 @@ def test_extract_contained_procedures_basic_array(frontend):
     inner = routines[0]
     outer = src.routines[0]
     assert 'x' in inner.arguments
-    assert 'arr(3)' in inner.arguments
+    if frontend == OMNI:
+        assert 'arr(1:3)' in inner.arguments
+    else:
+        assert 'arr(3)' in inner.arguments
 
     call = FindNodes(CallStatement).visit(outer.body)[0]
     kwargdict = dict(call.kwarguments)
