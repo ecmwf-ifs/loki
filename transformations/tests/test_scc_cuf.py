@@ -297,7 +297,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
     scheduler.process(transformation=cuf_transform)
 
     # Transformation: Analysis
-    scheduler.process(transformation=HoistTemporaryArraysAnalysis(), reverse=True)
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis())
     # Transformation: Synthesis
     scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
 

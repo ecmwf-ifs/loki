@@ -1489,14 +1489,15 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
 
     class LoggingTransformation(Transformation):
 
+        reverse_traversal = reverse
+
+        traverse_file_graph = use_file_graph
+
         def __init__(self):
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            if 'item' in kwargs:
-                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
-            else:
-                self.record += [sourcefile.path.name]
+            self.record += [sourcefile.path.name]
 
         def transform_module(self, module, **kwargs):
             self.record += [kwargs['item'].name + '::' + module.name]
@@ -1505,9 +1506,7 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
             self.record += [kwargs['item'].name + '::' + routine.name]
 
     transformation = LoggingTransformation()
-    scheduler.process(
-        transformation=transformation, reverse=reverse, use_file_graph=use_file_graph
-    )
+    scheduler.process(transformation=transformation)
 
     if reverse:
         assert transformation.record == flatten(expected[::-1])
@@ -1553,14 +1552,15 @@ end module member_mod
 
     class LoggingTransformation(Transformation):
 
+        reverse_traversal = reverse
+
+        traverse_file_graph = use_file_graph
+
         def __init__(self):
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            if 'item' in kwargs:
-                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
-            else:
-                self.record += [sourcefile.path.name]
+            self.record += [sourcefile.path.name]
 
         def transform_module(self, module, **kwargs):
             self.record += [kwargs['item'].name + '::' + module.name]
@@ -1569,9 +1569,7 @@ end module member_mod
             self.record += [kwargs['item'].name + '::' + routine.name]
 
     transformation = LoggingTransformation()
-    scheduler.process(
-        transformation=transformation, reverse=reverse, use_file_graph=use_file_graph,
-    )
+    scheduler.process(transformation=transformation)
 
     if use_file_graph:
         expected = ['member_mod.F90']

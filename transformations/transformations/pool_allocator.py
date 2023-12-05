@@ -103,6 +103,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
     _key = 'TemporariesPoolAllocatorTransformation'
 
+    # Traverse call tree in reverse when using Scheduler
+    reverse_traversal = True
+
     def __init__(self, block_dim,
                  stack_module_name='STACK_MOD', stack_type_name='STACK', stack_ptr_name='L',
                  stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',

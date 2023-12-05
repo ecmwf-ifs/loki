@@ -9,9 +9,7 @@ from pathlib import Path
 import pytest
 
 from conftest import available_frontends
-from loki import (
-    Scheduler, FindNodes, Pragma, Import, SubroutineItem, GlobalVarImportItem
-)
+from loki import Scheduler, FindNodes, Pragma, Import
 
 from transformations import GlobalVarOffloadTransformation
 
@@ -50,8 +48,7 @@ def test_transformation_global_var_import(here, config, frontend):
     ]
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
-    scheduler.process(transformation=GlobalVarOffloadTransformation(),
-                      item_filter=(SubroutineItem, GlobalVarImportItem), reverse=True)
+    scheduler.process(transformation=GlobalVarOffloadTransformation())
 
     item_map = {item.name: item for item in scheduler.items}
     driver_item = item_map['#driver']
@@ -128,8 +125,7 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
     ]
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
-    scheduler.process(transformation=GlobalVarOffloadTransformation(),
-                      item_filter=(SubroutineItem, GlobalVarImportItem), reverse=True)
+    scheduler.process(transformation=GlobalVarOffloadTransformation())
 
     item_map = {item.name: item for item in scheduler.items}
     driver_item = item_map['#driver_derived_type']

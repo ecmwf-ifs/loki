@@ -386,7 +386,7 @@ def test_argument_shape_transformation_import(frontend, here):
     scheduler = Scheduler(paths=here/'sources/projArgShape', config=config, frontend=frontend,
                           definitions=definitions)
     scheduler.process(transformation=ArgumentArrayShapeAnalysis())
-    scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
+    scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
     item_map = {item.name: item for item in scheduler.items}
     driver = item_map['driver_mod#driver'].source['driver']

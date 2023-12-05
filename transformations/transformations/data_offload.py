@@ -8,7 +8,7 @@
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
     CallStatement, Pragma, Array, as_tuple, Transformer, warning, BasicType,
-    GlobalVarImportItem, dataflow_analysis_attached, Import,
+    SubroutineItem, GlobalVarImportItem, dataflow_analysis_attached, Import,
     Comment, Variable, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict
 )
 
@@ -286,6 +286,13 @@ class GlobalVarOffloadTransformation(Transformation):
     """
 
     _key = 'GlobalVarOffloadTransformation'
+
+    # Traverse call tree in reverse when using Scheduler
+    reverse_traversal = True
+
+    # Include module variable imports in the underlying graph
+    # connectivity for traversal with the Scheduler
+    item_filter = (SubroutineItem, GlobalVarImportItem)
 
     def __init__(self, key=None):
         if key:
