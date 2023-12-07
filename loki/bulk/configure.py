@@ -124,7 +124,7 @@ class TransformationConfig:
         keyword-argument notation.
     """
 
-    _re_dimension = re.compile(r'\%dimensions?\.(.*)\%')
+    _re_dimension = re.compile(r'\%dimensions\.(.*?)\%')
 
     def __init__(self, name, module, classname=None, path=None, options=None):
         self.name = name
@@ -139,7 +139,7 @@ class TransformationConfig:
 
         The format of the string replacement matches the TOML
         configuration.  It will attempt to replace ``%dimensions.dim_name%``
-        with a :any:`Dimension` found in :param dimensions:
+        with a :any:`Dimension` found in :data:`dimensions`:
 
         Parameters
         ----------
