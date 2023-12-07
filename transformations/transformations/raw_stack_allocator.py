@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from collections import defaultdict
+from pymbolic.primitives import Expression
 
 from loki.transform.transformation import Transformation
 from loki.transform.transform_utilities import recursive_expression_map_update
@@ -170,14 +171,10 @@ class TemporariesRawStackTransformation(Transformation):
         call_map = {}
         stack_var = self._get_stack_var(routine)
 
-        print(routine)
-        print('lalala')
         for call in FindNodes(CallStatement).visit(routine.body):
-            print('   ', call)
             if call.name in targets and self.stack_argument_name in (a.name for a in call.routine.arguments):
                 arguments = call.arguments
                 call_map[call] = call.clone(arguments=arguments + (stack_var,))
-        print()
 
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
@@ -258,13 +255,6 @@ class TemporariesRawStackTransformation(Transformation):
         else:
             routine.arguments += (stack_arg,)
 
-        print()
-        print('apply_raw_stack_allocator_to_temporaries:')
-        print(routine)
-        for a in routine.arguments:
-            print(a)
-        print()
-
         return stack_size
 
 
@@ -320,7 +310,7 @@ class TemporariesRawStackTransformation(Transformation):
         for t in temp_arrays:
 
             if t.dimensions:
-                if all(isinstance(d, Scalar) for d in t.dimensions):
+                if all(isinstance(d, (Scalar, Expression)) for d in t.dimensions):
                     stack_dimensions[0] = t.dimensions[0]
 
                     offset = IntLiteral(1)
@@ -343,6 +333,11 @@ class TemporariesRawStackTransformation(Transformation):
                     for s in t.shape[1:]:
                         stack_size = Product((stack_size, _get_extent(s)))
                     stack_dimensions[1] = RangeIndex((Sum((int_var,IntLiteral(1))), Sum((int_var, simplify(stack_size)))))
+
+                else:
+
+                    raise RuntimeError(f'Unable to determine dimensions of {t}')
+
             else:
 
                 stack_dimensions[0] = horizontal_range
