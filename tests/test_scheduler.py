@@ -2352,33 +2352,30 @@ def test_transformation_config(config):
     assert not transformation.replace_ignore_items
 
 
-def test_transformation_config_with_dimension(config):
+def test_transformation_config_external_with_dimension(here, config):
     """
     Test instantiation of :any:`Transformation` from config with
     :any:`Dimension` argument.
     """
-    from transformations.single_column_coalesced import SCCBaseTransformation  # pylint: disable=import-outside-toplevel
-
     my_config = config.copy()
     my_config['dimensions'] = {
         'ij': {'size': 'n', 'index': 'i'}
     }
     my_config['transformations'] = {
-        'SCCBase': {
-            'classname': 'SCCBaseTransformation',
-            'module': 'transformations.single_column_coalesced',
-            'options': { 'horizontal': '%dimensions.ij%', 'directive': 'openacc'}
+        'CallMeRick': {
+            'classname': 'CallMeMaybeTrafo',
+            'module': 'call_me_trafo',
+            'path': str(here/'sources'),
+            'options': { 'name': 'Rick', 'horizontal': '%dimensions.ij%' }
         }
     }
     cfg = SchedulerConfig.from_dict(my_config)
-    assert cfg.transformations['SCCBase']
+    assert cfg.transformations['CallMeRick']
 
-    transformation = cfg.transformations['SCCBase']
-    # assert isinstance(transformation, SCCBaseTransformation)
-    # TODO: The above check can fail, even though the class is correct.
-    # So instead we check that the class names is correct (ouch!)
-    assert str(type(transformation)) == str(SCCBaseTransformation)
+    transformation = cfg.transformations['CallMeRick']
+    # We don't have the type, so simply check the class name
+    assert type(transformation).__name__ == 'CallMeMaybeTrafo'
+    assert transformation.name == 'Rick'
     assert isinstance(transformation.horizontal, Dimension)
     assert transformation.horizontal.size == 'n'
     assert transformation.horizontal.index == 'i'
-    assert transformation.directive == 'openacc'
