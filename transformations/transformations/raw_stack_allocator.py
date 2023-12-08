@@ -14,7 +14,7 @@ from loki.expression import Array, Scalar
 from loki.types import DerivedType, BasicType
 from loki.analyse import dataflow_analysis_attached
 from loki.expression.symbolic import is_dimension_constant, simplify
-from loki.expression.symbols import Variable, Literal, Product, Sum, InlineCall, Cast, IntLiteral, LogicLiteral, RangeIndex
+from loki.expression.symbols import Variable, Literal, Product, Sum, InlineCall, Cast, IntLiteral, LogicLiteral, RangeIndex, DeferredTypeSymbol
 from loki.expression.mappers import DetachScopesMapper
 from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
 from loki.types import SymbolAttributes
@@ -35,6 +35,23 @@ def _get_extent(d):
             return d.upper
         return Sum((d.upper, Product((-1,d.lower)), IntLiteral(1)))
     return d
+
+
+def _check_contiguous_access(t):
+
+    all_ranges = True
+
+    for d, s in zip(t.dimensions[:-1], t.shape[:-1]):
+
+        if isinstance(d, RangeIndex):
+            if not all_ranges:
+                return False
+            if _get_extent(d) != _get_extent(s):
+                return False
+        else:
+            all_ranges = False
+
+    return True
 
 
 class TemporariesRawStackTransformation(Transformation):
@@ -114,16 +131,15 @@ class TemporariesRawStackTransformation(Transformation):
 
     def __init__(self, block_dim, horizontal,
                  stack_type_name='STACK',
-                 stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
-                 stack_argument_name='PSTACK', local_int_var_name_pattern='JD_{name}',
+                 stack_size_name='ISTSZ', stack_name='STACK',
+                 local_int_var_name_pattern='JD_{name}',
                  directive=None, check_bounds=True, key=None, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
         self.horizontal = horizontal
         self.stack_type_name = stack_type_name
         self.stack_size_name = stack_size_name
-        self.stack_storage_name = stack_storage_name
-        self.stack_argument_name = stack_argument_name
+        self.stack_name = stack_name
         self.local_int_var_name_pattern = local_int_var_name_pattern
         self.directive = directive
         self.check_bounds = check_bounds
@@ -149,30 +165,32 @@ class TemporariesRawStackTransformation(Transformation):
         successors = kwargs.get('successors', ())
 
         self.horizontal_var = Variable(name=self.horizontal.size, scope=routine)
+        self.horizontal_range = RangeIndex((IntLiteral(1), self.horizontal_var))
         self.role = role
 
         if role == 'kernel':
 
-            stack_size = self.apply_raw_stack_allocator_to_temporaries(routine, item=item)
-            if item:
-                stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
-                item.trafo_data[self._key]['stack_size'] = stack_size
+            stack_dict = self.apply_raw_stack_allocator_to_temporaries(routine, item=item)
+#            if item:
+#                stack_dict = self._determine_stack_size(routine, successors, stack_dict, item=item)
+#                item.trafo_data[self._key]['stack_dict'] = stack_dict
 
-        if role == 'driver':
+#        if role == 'driver':
 
-            stack_size = self._determine_stack_size(routine, successors, item=item)
-            self.create_stack(routine, stack_size)
+#            stack_dict = self._determine_stack_size(routine, successors, item=item)
+#            self.create_stack(routine, stack_size)
 
-        self.insert_stack_in_calls(routine, targets)
+#        self.insert_stack_in_calls(routine, targets)
 
 
     def insert_stack_in_calls(self, routine, targets):
 
         call_map = {}
-        stack_var = self._get_stack_var(routine)
+        stack_var = self._get_stack_var(routine, BasicType.REAL, DeferredTypeSymbol('JPRB'))
+
 
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.name in targets and self.stack_argument_name in (a.name for a in call.routine.arguments):
+            if call.name in targets and stack_var.name in (a.name for a in call.routine.arguments):
                 arguments = call.arguments
                 call_map[call] = call.clone(arguments=arguments + (stack_var,))
 
@@ -202,60 +220,76 @@ class TemporariesRawStackTransformation(Transformation):
         """
 
         temporary_arrays = self._filter_temporary_arrays(routine)
-
-        stack_arg = self._get_stack_var(routine)
-
-        # Determine size of temporary arrays
-        stack_size = Literal(0)
+        temporary_array_dict = self._sort_arrays_by_type(temporary_arrays)
 
         integers = []
         allocations = []
         var_map = {}
 
-        old_int_var = IntLiteral(0)
-        old_dim = IntLiteral(0)
 
-        int_type = SymbolAttributes(dtype=BasicType.INTEGER)
-        for arr in temporary_arrays:
+        stack_dict = {}
+        stack_set = set()
 
-            int_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine, type=int_type)
-            integers += [int_var]
+        int_type = SymbolAttributes(dtype=BasicType.INTEGER, kind=DeferredTypeSymbol('JPIM'))
+        for dtype in temporary_array_dict:
 
-            dim = IntLiteral(1)
+            if dtype not in stack_dict.keys():
+                stack_dict[dtype] = {}
 
-            for d in arr.dimensions[1:]:
-                dim = Product((dim, _get_extent(d)))
+            for kind in temporary_array_dict[dtype]:
 
-            stack_size = simplify(Sum((stack_size, dim)))
-            allocations += [Assignment(lhs=int_var, rhs=simplify(Sum((old_int_var, old_dim))))]
+                if kind not in stack_dict[dtype].keys():
+                    stack_dict[dtype][kind] = Literal(0)
 
-            old_int_var = int_var
-            old_dim = dim
+                # Store type information of temporary allocation
+                if item:
+                    if kind in routine.imported_symbols:
+                        item.trafo_data[self._key]['kind_imports'][kind] = routine.import_map[kind.name].module.lower()
 
-            # Store type information of temporary allocation
-            if item and (_kind := arr.type.kind):
-                if _kind in routine.imported_symbols:
-                    item.trafo_data[self._key]['kind_imports'][_kind] = routine.import_map[_kind.name].module.lower()
+                stack_arg = self._get_stack_var(routine, dtype, kind)
+                old_int_var = IntLiteral(0)
+                old_dim = IntLiteral(0)
 
-            temp_map = self._map_temporary_array(arr, int_var, routine, stack_arg)
-            var_map = {**var_map, **temp_map}
+                for arr in temporary_array_dict[dtype][kind]:
 
-        routine.body = SubstituteExpressions(var_map).visit(routine.body)
+                    int_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine, type=int_type)
+                    integers += [int_var]
 
-        routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
-        routine.body.prepend(allocations)
+                    dim = IntLiteral(1)
 
-        stack_arg = stack_arg.clone(dimensions=((self.horizontal_var, stack_size)))
+                    for d in arr.dimensions[1:]:
+                        dim = Product((dim, _get_extent(d)))
 
-        # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
-        # in device code
-        arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
-        if arg_pos:
-            routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg,) + routine.arguments[arg_pos[0]:]
-        else:
-            routine.arguments += (stack_arg,)
+                    stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], dim)))
+                    allocations += [Assignment(lhs=int_var, rhs=simplify(Sum((old_int_var, old_dim))))]
 
-        return stack_size
+                    old_int_var = int_var
+                    old_dim = dim
+
+                    temp_map = self._map_temporary_array(arr, int_var, routine, stack_arg)
+                    var_map = {**var_map, **temp_map}
+                    stack_set.add(stack_arg)
+
+
+        if var_map:
+
+            routine.body = SubstituteExpressions(var_map).visit(routine.body)
+
+            routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
+            routine.body.prepend(allocations)
+
+            for stack_arg in stack_set:
+                new_stack_arg = stack_arg.clone(dimensions=((self.horizontal_var, stack_dict[stack_arg.type.dtype][stack_arg.type.kind])))
+
+                # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
+                # in device code
+                arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
+                if arg_pos:
+                    routine.arguments = routine.arguments[:arg_pos[0]] + (new_stack_arg,) + routine.arguments[arg_pos[0]:]
+                else:
+                    routine.arguments += (new_stack_arg,)
+
+        return stack_dict
 
 
     def _filter_temporary_arrays(self, routine):
@@ -299,18 +333,37 @@ class TemporariesRawStackTransformation(Transformation):
         return temporary_arrays
 
 
+    def _sort_arrays_by_type(self, arrays):
+
+        type_dict = {}
+
+        for a in arrays:
+            if a.type.dtype in type_dict.keys():
+                if a.type.kind in type_dict[a.type.dtype].keys():
+                    type_dict[a.type.dtype][a.type.kind] += [a]
+                else:
+                    type_dict[a.type.dtype][a.type.kind] = [a]
+            else:
+                type_dict[a.type.dtype] = {a.type.kind: [a]}
+
+        return type_dict
+
+
     def _map_temporary_array(self, temp_array, int_var, routine, stack_arg):
 
         temp_arrays = [v for v in FindVariables().visit(routine.body) if v.name == temp_array.name]
 
         temp_map = {}
         stack_dimensions = [None, None]
-        horizontal_range = RangeIndex((IntLiteral(1), self.horizontal_var))
+
+        scalar_types = (Scalar, Sum, Product, IntLiteral)
 
         for t in temp_arrays:
 
             if t.dimensions:
-                if all(isinstance(d, (Scalar, Expression)) for d in t.dimensions):
+
+                if all(isinstance(d, scalar_types) for d in t.dimensions):
+
                     stack_dimensions[0] = t.dimensions[0]
 
                     offset = IntLiteral(1)
@@ -323,24 +376,33 @@ class TemporariesRawStackTransformation(Transformation):
 
                     stack_dimensions[1] = simplify(Sum((int_var, offset)))
 
-                elif (all(isinstance(d, RangeIndex) for d in t.dimensions) and
-                      t.dimensions[0] == horizontal_range and 
-                      all((d == s or d == RangeIndex((None,None))) for d,s in zip(t.dimensions[1:], t.shape[1:]))):
+                elif _check_contiguous_access(t):
 
-                    stack_dimensions[0] = horizontal_range
+                    stack_dimensions[0] = self.horizontal_range
 
                     stack_size = IntLiteral(1)
-                    for s in t.shape[1:]:
+                    for s in t.shape[1:-1]:
                         stack_size = Product((stack_size, _get_extent(s)))
-                    stack_dimensions[1] = RangeIndex((Sum((int_var,IntLiteral(1))), Sum((int_var, simplify(stack_size)))))
+
+                    if isinstance(t.dimensions[-1], scalar_types):
+                        lower_factor = simplify(Sum((t.dimensions[-1], Product((-1,IntLiteral(1))))))
+                        upper_factor = t.dimensions[-1]
+                    else:
+                        lower_factor = simplify(Sum((t.dimensions[-1].lower, Product((-1,IntLiteral(1))))))
+                        upper_factor = t.dimensions[-1].upper
+
+                    lower = simplify(Sum((int_var, IntLiteral(1), Product((lower_factor, stack_size)))))
+                    upper = simplify(Sum((int_var, Product((upper_factor, stack_size)))))
+
+                    stack_dimensions[1] = RangeIndex((lower, upper))
 
                 else:
 
-                    raise RuntimeError(f'Unable to determine dimensions of {t}')
+                    raise RuntimeError(f'Discontiguous access of array {t}')
 
             else:
 
-                stack_dimensions[0] = horizontal_range
+                stack_dimensions[0] = self.horizontal_range
 
                 stack_size = IntLiteral(1)
                 for s in t.shape[1:]:
@@ -395,7 +457,7 @@ class TemporariesRawStackTransformation(Transformation):
         return int_increment, dim, stack_size
 
 
-    def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):
+    def _determine_stack_size(self, routine, successors, local_stack_dict=None, item=None):
         """
         Utility routine to determine the stack size required for the given :data:`routine`,
         including calls to subroutines
@@ -432,20 +494,21 @@ class TemporariesRawStackTransformation(Transformation):
         # Collect stack sizes for successors
         # Note that we need to translate the names of variables used in the expressions to the
         # local names according to the call signature
-        stack_sizes = []
+        stack_dicts = []
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
-                successor_stack_size = successor_map[call.name].trafo_data[self._key]['stack_size']
+                successor_stack_dicts = successor_map[call.name].trafo_data[self._key]['stack_dict']
                 # Replace any occurence of routine arguments in the stack size expression
                 arg_map = dict(call.arg_iter())
-                expr_map = {
-                    expr: DetachScopesMapper()(arg_map[expr]) for expr in FindVariables().visit(successor_stack_size)
-                    if expr in arg_map
-                }
-                if expr_map:
-                    expr_map = recursive_expression_map_update(expr_map)
-                    successor_stack_size = SubstituteExpressions(expr_map).visit(successor_stack_size)
-                stack_sizes += [successor_stack_size]
+                for stack in successor_stack_dict:
+                    expr_map = {
+                        expr: DetachScopesMapper()(arg_map[expr]) for expr in FindVariables().visit(successor_stack_dict[stack])
+                        if expr in arg_map
+                    }
+                    if expr_map:
+                        expr_map = recursive_expression_map_update(expr_map)
+                        successor_stack_size = SubstituteExpressions(expr_map).visit(successor_stack_size)
+                    stack_sizes += [successor_stack_size]
 
         # Unwind "max" expressions from successors and inject the local stack size into the expressions
         stack_sizes = [
@@ -469,19 +532,34 @@ class TemporariesRawStackTransformation(Transformation):
         return stack_size
 
 
-    def _get_stack_var(self, routine):
+    type_dict = {BasicType.REAL: {'kernel': 'P', 'driver': 'Z'},
+                 BasicType.LOGICAL: {'kernel': 'LD', 'driver': 'LL'},
+                 BasicType.INTEGER: {'kernel': 'K', 'driver': 'I'}}
+    kind_dict = {DeferredTypeSymbol('JPRT'): 'T',
+                 DeferredTypeSymbol('JPRS'): 'S',
+                 DeferredTypeSymbol('JPRM'): 'M',
+                 DeferredTypeSymbol('JPRB'): 'B',
+                 DeferredTypeSymbol('JPRD'): 'D',
+                 DeferredTypeSymbol('JPIT'): 'T',
+                 DeferredTypeSymbol('JPIS'): 'S',
+                 DeferredTypeSymbol('JPIM'): 'M',
+                 DeferredTypeSymbol('JPIB'): 'B',
+                 DeferredTypeSymbol('JPIA'): 'A',
+                 None: ''}
+
+    def _get_stack_var(self, routine, dtype, kind):
+
+        stack_name = self.type_dict[dtype][self.role] + self.kind_dict[kind] + self.stack_name
 
         if self.role == 'kernel':
-            stack_name = self.stack_argument_name
             stack_intent = 'INOUT'
 
         if self.role == 'driver':
-            stack_name = self.stack_storage_name
             stack_intent = None
 
-        stack_type = SymbolAttributes(dtype=BasicType.REAL,
-                                      kind=self.stack_type_kind,
-                                      intent=stack_intent,
-                                      shape=(RangeIndex((None, None))))
+        stack_type = SymbolAttributes(dtype = dtype,
+                                      kind = kind,
+                                      intent = stack_intent,
+                                      shape = (RangeIndex((None, None))))
 
         return Array(name=stack_name, type=stack_type, scope=routine)
