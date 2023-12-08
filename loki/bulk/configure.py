@@ -164,7 +164,7 @@ class TransformationConfig:
 
         # Check for and return Transformation class
         if not hasattr(mod, self.classname):
-            raise RuntimeError('Failed to load Transformation class!')
+            raise RuntimeError(f'Failed to load Transformation class: {self.classname}')
 
         # Attempt to instantiate transformation from config
         try:

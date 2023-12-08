@@ -2351,6 +2351,37 @@ def test_transformation_config(config):
     assert transformation.module_suffix == '_roll'
     assert not transformation.replace_ignore_items
 
+    # Test for errors when failing to instantiate a transformation
+    bad_config = config.copy()
+    bad_config['transformations'] = {
+        'DependencyTrafo': {  # <= typo
+            'module': 'loki.transform',
+            'options': {}
+        }
+    }
+    with pytest.raises(RuntimeError):
+        cfg = SchedulerConfig.from_dict(bad_config)
+
+    worse_config = config.copy()
+    worse_config['transformations'] = {
+        'DependencyTransform': {
+            'module': 'loki.transformats',  # <= typo
+            'options': {}
+        }
+    }
+    with pytest.raises(ModuleNotFoundError):
+        cfg = SchedulerConfig.from_dict(worse_config)
+
+    worst_config = config.copy()
+    worst_config['transformations'] = {
+        'DependencyTransform': {
+            'module': 'loki.transform',
+            'options': {'hello': 'Dave'}
+        }
+    }
+    with pytest.raises(RuntimeError):
+        cfg = SchedulerConfig.from_dict(worst_config)
+
 
 def test_transformation_config_external_with_dimension(here, config):
     """
