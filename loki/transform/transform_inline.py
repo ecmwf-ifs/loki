@@ -327,6 +327,8 @@ def inline_subroutine_calls(routine, calls, callee):
     decls = FindNodes(VariableDeclaration).visit(callee.spec)
     decls = tuple(d for d in decls if all(s.name.lower() not in callee._dummies for s in d.symbols))
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
+    # Rescope the declaration symbols
+    decls = tuple(d.clone(symbols=tuple(s.clone(scope=routine) for s in d.symbols)) for d in decls)
     routine.spec.append(decls)
 
     # Resolve the call by mapping arguments into the called procedure's body
