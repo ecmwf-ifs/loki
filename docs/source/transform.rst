@@ -82,6 +82,7 @@ to grow in the future:
    loki.transform.build_system_transform.CMakePlanner
    loki.transform.build_system_transform.FileWriteTransformation
    loki.transform.dependency_transform.DependencyTransformation
+   loki.transform.dependency_transform.ModuleWrapTransformation
    loki.transform.fortran_c_transform.FortranCTransformation
    loki.transform.fortran_max_transform.FortranMaxTransformation
    loki.transform.fortran_python_transform.FortranPythonTransformation

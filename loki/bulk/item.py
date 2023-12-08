@@ -442,7 +442,7 @@ class Item:
             for name in qualified_names
         )
 
-    @property
+    @cached_property
     def targets(self):
         """
         Set of "active" child routines that are part of the transformation

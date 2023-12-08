@@ -61,7 +61,7 @@ from loki import (
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, Variable, GenericImportItem, GlobalVarImportItem, flatten,
-    CaseInsensitiveDict
+    CaseInsensitiveDict, ModuleWrapTransformation
 )
 
 
@@ -840,8 +840,12 @@ def test_scheduler_dependencies_ignore(here, frontend):
     assert all(n in schedulerB.items for n in ['ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'])
 
     # Apply dependency injection transformation and ensure only the root driver is not transformed
-    dependency = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    schedulerA.process(transformation=dependency)
+    transformations = (
+        ModuleWrapTransformation(module_suffix='_mod'),
+        DependencyTransformation(suffix='_test', module_suffix='_mod')
+    )
+    for transformation in transformations:
+        schedulerA.process(transformation)
 
     assert schedulerA.items[0].source.all_subroutines[0].name == 'driverB'
     assert schedulerA.items[1].source.all_subroutines[0].name == 'kernelB_test'
@@ -849,10 +853,12 @@ def test_scheduler_dependencies_ignore(here, frontend):
     assert schedulerA.items[3].source.all_subroutines[0].name == 'compute_l2_test'
 
     # For the second target lib, we want the driver to be converted
-    schedulerB.process(transformation=dependency)
+    for transformation in transformations:
+        schedulerB.process(transformation=transformation)
 
     # Repeat processing to ensure DependencyTransform is idempotent
-    schedulerB.process(transformation=dependency)
+    for transformation in transformations:
+        schedulerB.process(transformation=transformation)
 
     assert schedulerB.items[0].source.all_subroutines[0].name == 'ext_driver_test'
     assert schedulerB.items[1].source.all_subroutines[0].name == 'ext_kernel_test'

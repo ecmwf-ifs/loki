@@ -17,13 +17,12 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info,
-    GlobalVarImportItem
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info
 )
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, FortranCTransformation, FileWriteTransformation,
+    DependencyTransformation, ModuleWrapTransformation, FortranCTransformation, FileWriteTransformation,
     ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing
 )
 
@@ -264,11 +263,9 @@ def convert(
         scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    scheduler.process( ModuleWrapTransformation(module_suffix='_MOD') )
     mode = mode.replace('-', '_')  # Sanitize mode string
-    dependency = DependencyTransformation(
-        suffix=f'_{mode.upper()}', mode='module', module_suffix='_MOD'
-    )
-    scheduler.process(transformation=dependency)
+    scheduler.process( DependencyTransformation(suffix=f'_{mode.upper()}', module_suffix='_MOD') )
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(
@@ -341,7 +338,9 @@ def transpile(build, header, source, driver, cpp, include, define, frontend, xmo
         transformation.apply(h, role='header', path=build)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
-    dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
+    module_wrap = ModuleWrapTransformation(module_suffix='_MOD')
+    kernel.apply(module_wrap, role='kernel', targets=())
+    dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
     kernel.apply(dependency, role='kernel', targets=())
     kernel.write(path=Path(build)/kernel.path.with_suffix('.c.F90').name)
 
