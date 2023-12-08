@@ -49,15 +49,8 @@ class SchedulerConfig:
         self.dimensions = dimensions
         self.enable_imports = enable_imports
 
-        if isinstance(routines, dict):
-            self.routines = CaseInsensitiveDict(routines)
-        else:
-            self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
-
-        if isinstance(transformation_configs, dict):
-            self.transformation_configs = transformation_configs
-        else:
-            self.transformation_configs = dict((r.name, r) for r in as_tuple(transformation_configs))
+        self.routines = CaseInsensitiveDict(routines)
+        self.transformation_configs = transformation_configs
 
         # Resolve the dimensions for trafo configurations
         for cfg in self.transformation_configs.values():
