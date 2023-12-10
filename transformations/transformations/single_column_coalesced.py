@@ -313,7 +313,9 @@ class SCCBaseTransformation(Transformation):
 
         # Perform full source-inlining for pragma-marked subroutines
         if self.inline_marked:
-            inline_marked_subroutines(routine)
+            # When inlining we allow the horizontal dimension to alias, so that
+            # the de/re-vectorisation captures the shared vector dimension.
+            inline_marked_subroutines(routine, allowed_aliases=(self.horizontal.index,))
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls

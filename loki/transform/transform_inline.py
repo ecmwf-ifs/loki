@@ -282,7 +282,7 @@ def map_call_to_procedure_body(call, caller):
     return (comment, c_line) + as_tuple(callee_body) + (c_line, )
 
 
-def inline_subroutine_calls(routine, calls, callee):
+def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     """
     Inline a set of call to an individual :any:`Subroutine` at source level.
 
@@ -300,26 +300,32 @@ def inline_subroutine_calls(routine, calls, callee):
     calls : tuple or list of :any:`CallStatement`
     callee : :any:`Subroutine`
         The called target subroutine to be inlined in the parent
+    allowed_aliases : tuple or list of str or :any:`Expression`, optional
+        List of variables that will not be renamed in the parent scope, even
+        if they alias with a local declaration.
     """
+    allowed_aliases = as_tuple(allowed_aliases)
 
     # Ensure we process sets of calls to the same callee
     assert all(call.routine == callee for call in calls)
 
     # Prevent shadowing of callee's variables by renaming them a priori
     parent_variables = routine.variable_map
-    duplicate_locals = tuple(
+    duplicates = tuple(
         v for v in callee.variables
         if v.name in parent_variables and v.name.lower() not in callee._dummies
     )
+    # Filter out allowed aliases to prevent suffixing
+    duplicates = tuple(v for v in duplicates if v.name not in allowed_aliases)
     shadow_mapper = SubstituteExpressions(
-        {v: v.clone(name=f'{callee.name}_{v.name}') for v in duplicate_locals}
+        {v: v.clone(name=f'{callee.name}_{v.name}') for v in duplicates}
     )
     callee.spec = shadow_mapper.visit(callee.spec)
 
     var_map = {}
-    duplicate_locals_names = {dl.name.lower() for dl in duplicate_locals}
+    duplicate_names = {dl.name.lower() for dl in duplicates}
     for v in FindVariables(unique=False).visit(callee.body):
-        if v.name.lower() in duplicate_locals_names:
+        if v.name.lower() in duplicate_names:
             var_map[v] = v.clone(name=f'{callee.name}_{v.name}')
     callee.body = SubstituteExpressions(var_map).visit(callee.body)
 
@@ -372,7 +378,7 @@ def inline_internal_procedures(routine):
 inline_member_procedures = inline_internal_procedures
 
 
-def inline_marked_subroutines(routine):
+def inline_marked_subroutines(routine, allowed_aliases=None):
     """
     Inline :any:`Subroutine` objects guided by pragma annotations.
 
@@ -388,6 +394,9 @@ def inline_marked_subroutines(routine):
     ----------
     routine : :any:`Subroutine`
         The subroutine in which to look for pragma-marked procedures to inline
+    allowed_aliases : tuple or list of str or :any:`Expression`, optional
+        List of variables that will not be renamed in the parent scope, even
+        if they alias with a local declaration.
     """
 
     with pragmas_attached(routine, node_type=CallStatement):
@@ -401,4 +410,6 @@ def inline_marked_subroutines(routine):
         # Trigger per-call inlining on collected sets
         for callee, calls in call_sets.items():
             if callee:  # Skip the unattached calls (collected under None)
-                inline_subroutine_calls(routine, calls, callee)
+                inline_subroutine_calls(
+                    routine, calls, callee, allowed_aliases=allowed_aliases
+                )
