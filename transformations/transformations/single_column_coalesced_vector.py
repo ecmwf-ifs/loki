@@ -72,46 +72,45 @@ class SCCDevectorTransformation(Transformation):
 
         _scope_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
 
-        # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
-        calls = FindNodes(ir.CallStatement).visit(section)
-        pragmas = [pragma for pragma in FindNodes(ir.Pragma).visit(section) if pragma.keyword.lower() == "loki" and
-                   pragma.content.lower() == "separator"]
-        separator_nodes = pragmas
+        # Identify outer "scopes" by collecting separator nodes and
+        # translating them up to the outermost layer
 
-        for call in calls:
+        # Collect explicit separator pragmas and reductions
+        separator_nodes = tuple(
+            pragma for pragma in FindNodes(ir.Pragma).visit(section)
+            if is_loki_pragma(pragma, starts_with=(
+                    'separator', 'vector-reduction', 'end vector-reduction'
+            ))
+        )
 
-            # check if calls have been enriched
-            if not call.routine is BasicType.DEFERRED:
-                # check if called routine is marked as sequential
-                if SCCBaseTransformation.check_routine_pragmas(routine=call.routine, directive=None):
-                    continue
+        # Collect vector-level calls that are not marked as `seq`
+        separator_nodes += tuple(
+            call for call in FindNodes(ir.CallStatement).visit(section)
+            if not call.routine is BasicType.DEFERRED and
+            not SCCBaseTransformation.check_routine_pragmas(call.routine, directive=None)
+        )
 
-            if call in section:
-                # If the call is at the current section's level, it's a separator
-                separator_nodes.append(call)
-
+        # Translate all separator nodes to the highest control flow level
+        root_separators = []
+        for node in separator_nodes:
+            if node in section:
+                root_separators.append(node)
             else:
                 # If the call is deeper in the IR tree, it's highest ancestor is used
-                ancestors = flatten(FindScopes(call).visit(section))
+                ancestors = flatten(FindScopes(node).visit(section))
                 ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_node_types)]
                 if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
-                    separator_nodes.append(ancestor_scopes[0])
-
-        for pragma in FindNodes(ir.Pragma).visit(section):
-            # Reductions over thread-parallel regions should be marked as a separator node
-            if (is_loki_pragma(pragma, starts_with='vector-reduction') or
-                is_loki_pragma(pragma, starts_with='end vector-reduction')):
-                separator_nodes.append(pragma)
+                    root_separators.append(ancestor_scopes[0])
 
         # Extract contiguous node sections between separator nodes
-        assert all(n in section for n in separator_nodes)
-        subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
+        assert all(n in section for n in root_separators)
+        subsections = [as_tuple(s) for s in split_at(section, lambda n: n in root_separators)]
 
         # Filter sub-sections that do not use the horizontal loop index variable
         subsections = [s for s in subsections if horizontal.index in list(FindVariables().visit(s))]
 
         # Recurse on all separator nodes that might contain further vector sections
-        for separator in separator_nodes:
+        for separator in root_separators:
 
             if isinstance(separator, ir.Loop):
                 subsec_body = cls.extract_vector_sections(separator.body, horizontal)
