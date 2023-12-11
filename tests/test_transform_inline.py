@@ -12,7 +12,8 @@ import numpy as np
 from conftest import jit_compile, jit_compile_lib, available_frontends
 from loki import (
     Builder, Module, Subroutine, FindNodes, Import, FindVariables,
-    CallStatement, Loop, BasicType, DerivedType, Associate, OMNI
+    CallStatement, Loop, BasicType, DerivedType, Associate, OMNI,
+    Conditional, FindInlineCalls
 )
 from loki.ir import Assignment
 from loki.transform import (
@@ -680,3 +681,73 @@ end module util_mod
     assert len(calls) == 1
     assert calls[0].routine.name == 'add_one'
     assert calls[0].arguments == ('b(i)',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No header information in test')]))
+def test_inline_marked_routine_with_optionals(frontend):
+    """ Test subroutine inlining via marker pragmas with omitted optionals. """
+
+    fcode_driver = """
+subroutine test_pragma_inline_optionals(a, b)
+  use util_mod, only: add_one
+  implicit none
+
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer, parameter :: n = 3
+  integer :: i
+
+  do i=1, n
+    !$loki inline
+    call add_one(a(i), two=2.0)
+  end do
+
+  do i=1, n
+    !$loki inline
+    call add_one(b(i))
+  end do
+
+end subroutine test_pragma_inline_optionals
+    """
+
+    fcode_module = """
+module util_mod
+
+contains
+  subroutine add_one(a, two)
+    real(kind=8), intent(inout) :: a
+    real(kind=8), optional, intent(inout) :: two
+    a = a + 1
+
+    if (present(two)) then
+      a = a + two
+    end if
+  end subroutine add_one
+end module util_mod
+"""
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend)
+    driver.enrich(module)
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert calls[0].routine == module['add_one']
+    assert calls[1].routine == module['add_one']
+
+    inline_marked_subroutines(routine=driver)
+
+    # Check inlined loops and assignments
+    assert len(FindNodes(Loop).visit(driver.body)) == 2
+    assign = FindNodes(Assignment).visit(driver.body)
+    assert len(assign) == 4
+    assert assign[0].lhs == 'a(i)' and assign[0].rhs == 'a(i) + 1'
+    assert assign[1].lhs == 'a(i)' and assign[1].rhs == 'a(i) + 2.0'
+    assert assign[2].lhs == 'b(i)' and assign[2].rhs == 'b(i) + 1'
+    # TODO: This is a problem, since it's not declared anymore
+    assert assign[3].lhs == 'b(i)' and assign[3].rhs == 'b(i) + two'
+
+    # Check that the PRESENT checks have been resolved
+    assert len(FindNodes(CallStatement).visit(driver.body)) == 0
+    assert len(FindInlineCalls().visit(driver.body)) == 0
+    checks = FindNodes(Conditional).visit(driver.body)
+    assert len(checks) == 2
+    assert checks[0].condition == 'True'
+    assert checks[1].condition == 'False'

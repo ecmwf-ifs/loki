@@ -268,6 +268,16 @@ def map_call_to_procedure_body(call, caller):
         else:
             argmap[arg] = val
 
+    # Deal with PRESENT check for optional arguments
+    present_checks = tuple(
+        check for check in FindInlineCalls().visit(callee.body) if check.function == 'PRESENT'
+    )
+    present_map = {
+        check: sym.Literal('.true.') if check.arguments[0] in call.arg_map else sym.Literal('.false.')
+        for check in present_checks
+    }
+    argmap.update(present_map)
+
     # Recursive update of the map in case of nested variables to map
     argmap = recursive_expression_map_update(argmap, max_iterations=10)
 
