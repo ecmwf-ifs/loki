@@ -148,6 +148,25 @@ class TemporariesRawStackTransformation(Transformation):
             self._key = key
 
 
+    int_type = SymbolAttributes(dtype=BasicType.INTEGER, kind=DeferredTypeSymbol('JPIM'))
+
+    type_name_dict = {BasicType.REAL: {'kernel': 'P', 'driver': 'Z'},
+                      BasicType.LOGICAL: {'kernel': 'LD', 'driver': 'LL'},
+                      BasicType.INTEGER: {'kernel': 'K', 'driver': 'I'}}
+
+    kind_name_dict = {DeferredTypeSymbol('JPRT'): 'T',
+                      DeferredTypeSymbol('JPRS'): 'S',
+                      DeferredTypeSymbol('JPRM'): 'M',
+                      DeferredTypeSymbol('JPRB'): 'B',
+                      DeferredTypeSymbol('JPRD'): 'D',
+                      DeferredTypeSymbol('JPIT'): 'T',
+                      DeferredTypeSymbol('JPIS'): 'S',
+                      DeferredTypeSymbol('JPIM'): 'M',
+                      DeferredTypeSymbol('JPIB'): 'B',
+                      DeferredTypeSymbol('JPIA'): 'A',
+                      None: ''}
+
+
     def transform_subroutine(self, routine, **kwargs):
 
         role = kwargs['role']
@@ -171,15 +190,15 @@ class TemporariesRawStackTransformation(Transformation):
         if role == 'kernel':
 
             stack_dict = self.apply_raw_stack_allocator_to_temporaries(routine, item=item)
-#            if item:
-#                stack_dict = self._determine_stack_size(routine, successors, stack_dict, item=item)
-#                item.trafo_data[self._key]['stack_dict'] = stack_dict
+            if item:
+                stack_dict = self._determine_stack_size(routine, successors, stack_dict, item=item)
+                item.trafo_data[self._key]['stack_dict'] = stack_dict
 
-#        if role == 'driver':
+        if role == 'driver':
 
-#            stack_dict = self._determine_stack_size(routine, successors, item=item)
-#            self.create_stack(routine, stack_size)
+            stack_dict = self._determine_stack_size(routine, successors, item=item)
 
+        self.create_stacks(routine, stack_dict)
 #        self.insert_stack_in_calls(routine, targets)
 
 
@@ -198,13 +217,36 @@ class TemporariesRawStackTransformation(Transformation):
             routine.body = Transformer(call_map).visit(routine.body)
 
 
-    def create_stack(self, routine, stack_size):
+    def create_stacks(self, routine, stack_dict):
 
-        stack_var = self._get_stack_var(routine)
+        stack_vars = []
+        for dtype in stack_dict:
+            for kind in stack_dict[dtype]:
 
-        stack_type = stack_var.type.clone(shape=(self.horizontal_var, stack_size))
-        stack_var = stack_var.clone(type=stack_type, dimensions=stack_type.shape)
-        routine.variables = routine.variables + (stack_var,)
+                if self.role == 'kernel':
+                    int_name = 'K_' + self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + '_STACK_SIZE'
+                    stack_int = Scalar(name=int_name, scope=routine, type=self.int_type.clone(intent='IN'))
+                    stack_size = stack_int
+                    stack_vars += [stack_int]
+                else:
+                    stack_size = stack_dict[dtype][kind]
+                
+
+                stack_var = self._get_stack_var(routine, dtype, kind)
+
+                stack_type = stack_var.type.clone(shape=(self.horizontal_var, stack_size))
+                stack_vars += [stack_var.clone(type=stack_type, dimensions=stack_type.shape)]
+
+        if self.role == 'kernel':
+            # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
+            # in device code
+            arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
+            if arg_pos:
+                routine.arguments = routine.arguments[:arg_pos[0]] + as_tuple(stack_vars) + routine.arguments[arg_pos[0]:]
+            else:
+                routine.arguments += as_tuple(stack_vars)
+        else:
+            routine.variables = routine.variables + as_tuple(stack_vars)
 
 
     def apply_raw_stack_allocator_to_temporaries(self, routine, item=None):
@@ -230,7 +272,8 @@ class TemporariesRawStackTransformation(Transformation):
         stack_dict = {}
         stack_set = set()
 
-        int_type = SymbolAttributes(dtype=BasicType.INTEGER, kind=DeferredTypeSymbol('JPIM'))
+        end_int = IntLiteral(1)
+
         for dtype in temporary_array_dict:
 
             if dtype not in stack_dict.keys():
@@ -252,7 +295,7 @@ class TemporariesRawStackTransformation(Transformation):
 
                 for arr in temporary_array_dict[dtype][kind]:
 
-                    int_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine, type=int_type)
+                    int_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine, type=self.int_type)
                     integers += [int_var]
 
                     dim = IntLiteral(1)
@@ -271,23 +314,19 @@ class TemporariesRawStackTransformation(Transformation):
                     stack_set.add(stack_arg)
 
 
+
+
         if var_map:
 
             routine.body = SubstituteExpressions(var_map).visit(routine.body)
+            end_int = simplify(Sum((old_int_var, old_dim, IntLiteral(1))))
 
-            routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
-            routine.body.prepend(allocations)
+        end_int_var = Scalar(name=self.local_int_var_name_pattern.format(name='STACK_END'), scope=routine, type=self.int_type)
+        integers += [end_int_var]
+        allocations += [Assignment(lhs=end_int_var, rhs=end_int)]
 
-            for stack_arg in stack_set:
-                new_stack_arg = stack_arg.clone(dimensions=((self.horizontal_var, stack_dict[stack_arg.type.dtype][stack_arg.type.kind])))
-
-                # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
-                # in device code
-                arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
-                if arg_pos:
-                    routine.arguments = routine.arguments[:arg_pos[0]] + (new_stack_arg,) + routine.arguments[arg_pos[0]:]
-                else:
-                    routine.arguments += (new_stack_arg,)
+        routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
+        routine.body.prepend(allocations)
 
         return stack_dict
 
@@ -494,62 +533,70 @@ class TemporariesRawStackTransformation(Transformation):
         # Collect stack sizes for successors
         # Note that we need to translate the names of variables used in the expressions to the
         # local names according to the call signature
-        stack_dicts = []
+        stack_dict = {}
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
-                successor_stack_dicts = successor_map[call.name].trafo_data[self._key]['stack_dict']
+                successor_stack_dict = successor_map[call.name].trafo_data[self._key]['stack_dict']
+
                 # Replace any occurence of routine arguments in the stack size expression
                 arg_map = dict(call.arg_iter())
-                for stack in successor_stack_dict:
-                    expr_map = {
-                        expr: DetachScopesMapper()(arg_map[expr]) for expr in FindVariables().visit(successor_stack_dict[stack])
-                        if expr in arg_map
-                    }
-                    if expr_map:
-                        expr_map = recursive_expression_map_update(expr_map)
-                        successor_stack_size = SubstituteExpressions(expr_map).visit(successor_stack_size)
-                    stack_sizes += [successor_stack_size]
+                for dtype in successor_stack_dict:
+                    for kind in successor_stack_dict[dtype]:
+                        successor_stack_size = SubstituteExpressions(arg_map).visit(successor_stack_dict[dtype][kind])
+
+                        if dtype in stack_dict:
+                            if kind in stack_dict[dtype]:
+                                if successor_stack_size not in stack_dict[dtype][kind]:
+                                    stack_dict[dtype][kind] += [successor_stack_size]
+                            else:
+                                stack_dict[dtype][kind] = [successor_stack_size]
+                        else:
+                            stack_dict[dtype] = {kind: [successor_stack_size]}
+
+
+        if not stack_dict:
+            # Return only the local stack size if there are no callees
+            return local_stack_dict or {}
 
         # Unwind "max" expressions from successors and inject the local stack size into the expressions
-        stack_sizes = [
-            d for s in stack_sizes
-            for d in (s.parameters if isinstance(s, InlineCall) and s.function == 'MAX' else [s])
-        ]
-        if local_stack_size:
-            local_stack_size = DetachScopesMapper()(simplify(local_stack_size))
-            stack_sizes = [simplify(Sum((local_stack_size, s))) for s in stack_sizes]
+        for dtype in stack_dict:
+            for kind in stack_dict[dtype]:
+                new_list = []
+                for stack_size in stack_dict[dtype][kind]:
+                    if (isinstance(stack_size, InlineCall) and stack_size.function == 'MAX'):
+                        new_list += [s for s in stack_size.parameters]
+                    else:
+                        new_list += [stack_size]
+                stack_dict[dtype][kind] = new_list
 
-        if not stack_sizes:
-            # Return only the local stack size if there are no callees
-            return local_stack_size or Literal(0)
+        if local_stack_dict:
+            for dtype in local_stack_dict:
+                for kind in local_stack_dict[dtype]:
+                    local_stack_dict[dtype][kind] = DetachScopesMapper()(simplify(local_stack_dict[dtype][kind]))
 
-        if len(stack_sizes) == 1:
-            # For a single successor, it is sufficient to add the local stack size to the expression
-            return stack_sizes[0]
+                    if dtype in stack_dict:
+                        if kind in stack_dict[dtype]:
+                            stack_dict[dtype][kind] = [simplify(Sum((local_stack_dict[dtype][kind], s))) for s in stack_dict[dtype][kind]]
+                        else:
+                            stack_dict[dtype][kind] = [local_stack_dict[dtype][kind]]
+                    else:
+                        stack_dict[dtype] = {kind: [local_stack_dict[dtype][kind]]}
 
-        # Re-build the max expressions, taking into account the local stack size and calls to successors
-        stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
-        return stack_size
 
+        for dtype in stack_dict:
+            for kind in stack_dict[dtype]:
+                if len(stack_dict[dtype][kind]) == 1:
+                    stack_dict[dtype][kind] = stack_dict[dtype][kind][0]
+                else:
+                    stack_dict[dtype][kind] = InlineCall(function = Variable(name = 'MAX'), 
+                                                         parameters = as_tuple(stack_dict[dtype][kind]))
 
-    type_dict = {BasicType.REAL: {'kernel': 'P', 'driver': 'Z'},
-                 BasicType.LOGICAL: {'kernel': 'LD', 'driver': 'LL'},
-                 BasicType.INTEGER: {'kernel': 'K', 'driver': 'I'}}
-    kind_dict = {DeferredTypeSymbol('JPRT'): 'T',
-                 DeferredTypeSymbol('JPRS'): 'S',
-                 DeferredTypeSymbol('JPRM'): 'M',
-                 DeferredTypeSymbol('JPRB'): 'B',
-                 DeferredTypeSymbol('JPRD'): 'D',
-                 DeferredTypeSymbol('JPIT'): 'T',
-                 DeferredTypeSymbol('JPIS'): 'S',
-                 DeferredTypeSymbol('JPIM'): 'M',
-                 DeferredTypeSymbol('JPIB'): 'B',
-                 DeferredTypeSymbol('JPIA'): 'A',
-                 None: ''}
+        return stack_dict
+
 
     def _get_stack_var(self, routine, dtype, kind):
 
-        stack_name = self.type_dict[dtype][self.role] + self.kind_dict[kind] + self.stack_name
+        stack_name = self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + self.stack_name
 
         if self.role == 'kernel':
             stack_intent = 'INOUT'
