@@ -10,9 +10,12 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, clean_test, available_frontends
-from loki import Subroutine
+from loki import Subroutine, FindNodes, Assignment
 from loki.expression import symbols as sym
-from loki.transform import promote_variables, demote_variables, normalize_range_indexing
+from loki.transform import (
+        promote_variables, demote_variables, normalize_range_indexing,
+        invert_array_indices, flatten_arrays
+        )
 
 
 @pytest.fixture(scope='module', name='here')
@@ -315,3 +318,93 @@ end subroutine transform_demote_dimension_arguments
     assert np.all(vec1 == 3) and np.sum(vec1) == 3
     assert np.all(vec2 == 2) and np.sum(vec2) == 6
     assert np.all(matrix == 16) and np.sum(matrix) == 32
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_flatten_arrays(here, frontend):
+    """
+    Test flattening or arrays, meaning converting multi-dimensional
+    arrays to one-dimensional arrays including corresponding
+    index arithmetic.
+    """
+    fcode = """
+    subroutine transform_flatten_arrays(x1, x2, x3, x4, l1, l2, l3, l4)
+        implicit none
+        integer :: i1, i2, i3, i4
+        integer, intent(in) :: l1, l2, l3, l4
+        integer, intent(inout) :: x1(l1), x2(l2, l1), x3(l3, l2, l1), x4(l4, l3, l2, l1)
+        
+        do i1=1,l1
+            x1(i1) = 2 * l1
+            do i2=1,l2
+                x2(i2, i1) = 2 * l2
+                do i3=1,l3
+                    x3(i3, i2, i1) = 2 * l3
+                    do i4=1,l4
+                        x4(i4, i3, i2, i1) = 2 * l4
+                    end do
+                end do
+            end do
+        end do
+        
+        
+    end subroutine transform_flatten_arrays
+    """
+
+    def init_arguments(l1, l2, l3, l4, flattened=False):
+        x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
+        x2 = np.zeros(shape=(l2*l1) if flattened else (l2,l1,), order='F', dtype=np.int32)
+        x3 = np.zeros(shape=(l3*l2*l1) if flattened else (l3,l2,l1,), order='F', dtype=np.int32)
+        x4 = np.zeros(shape=(l4*l3*l2*l1) if flattened else (l4,l3,l2,l1,), order='F', dtype=np.int32)
+        return x1, x2, x3, x4
+
+    def validate_arguments(x1, x2, x3, x4, l1, l2, l3, l4):
+        assert np.all(x1 == 2 * l1)
+        assert np.all(x2 == 2 * l2)
+        assert np.all(x3 == 2 * l3)
+        assert np.all(x4 == 2 * l4)
+
+    def validate_routine(routine):
+        assignments = FindNodes(Assignment).visit(routine.body)
+        lhs = [assignment.lhs for assignment in assignments]
+        dims = [_lhs.dimensions for _lhs in lhs]
+        assert all(len(dim) == 1 for dim in dims)
+        assert dims[1][0].children[0] == 'i2'
+        assert dims[2][0].children[0] == 'i3'
+        assert dims[3][0].children[0] == 'i4'
+
+    l1 = 2
+    l2 = 4
+    l3 = 6
+    l4 = 8
+    # Test the original implementation
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_range_indexing(routine) # Fix OMNI nonsense
+    filepath = here/(f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4)
+    function(x1, x2, x3, x4, l1, l2, l3, l4)
+    validate_arguments(x1, x2, x3, x4, l1, l2, l3, l4)
+
+    f_routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_range_indexing(f_routine) # Fix OMNI nonsense
+    flatten_arrays(routine=f_routine, order='F', start_index=1)
+    filepath = here/(f'{f_routine.name}_flattened_F_{frontend}.f90')
+    function = jit_compile(f_routine, filepath=filepath, objname=routine.name)
+    x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4, flattened=True)
+    function(x1, x2, x3, x4, l1, l2, l3, l4)
+    validate_arguments(x1, x2, x3, x4, l1, l2, l3, l4)
+    validate_routine(f_routine)
+
+    c_routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_range_indexing(c_routine) # Fix OMNI nonsense
+    invert_array_indices(c_routine)
+    flatten_arrays(routine=c_routine, order='C', start_index=1)
+    filepath = here/(f'{c_routine.name}_flattened_C_{frontend}.f90')
+    function = jit_compile(c_routine, filepath=filepath, objname=routine.name)
+    x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4, flattened=True)
+    function(x1, x2, x3, x4, l1, l2, l3, l4)
+    validate_arguments(x1, x2, x3, x4, l1, l2, l3, l4)
+    validate_routine(c_routine)
+
+    assert f_routine.body == c_routine.body
