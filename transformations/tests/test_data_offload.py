@@ -55,7 +55,7 @@ def test_data_offload_region_openacc(frontend, assume_deviceptr):
 """
     driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
-    driver.enrich_calls(kernel)
+    driver.enrich(kernel)
 
     driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr), role='driver',
                  targets=['kernel_routine'])
@@ -129,7 +129,7 @@ def test_data_offload_region_complex_remove_openmp(frontend):
 """
     driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
-    driver.enrich_calls(kernel)
+    driver.enrich(kernel)
 
     offload_transform = DataOffloadTransformation(remove_openmp=True)
     driver.apply(offload_transform, role='driver', targets=['kernel_routine'])
@@ -200,7 +200,7 @@ def test_data_offload_region_multiple(frontend):
 """
     driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
-    driver.enrich_calls(kernel)
+    driver.enrich(kernel)
 
     driver.apply(DataOffloadTransformation(), role='driver', targets=['kernel_routine'])
 

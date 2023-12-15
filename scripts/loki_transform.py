@@ -17,13 +17,12 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info,
-    GlobalVarImportItem
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info
 )
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, FortranCTransformation, FileWriteTransformation,
+    DependencyTransformation, ModuleWrapTransformation, FortranCTransformation, FileWriteTransformation,
     ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing
 )
 
@@ -184,7 +183,7 @@ def convert(
     # Backward insert argument shapes (for surface routines)
     if derive_argument_array_shape:
         scheduler.process(transformation=ArgumentArrayShapeAnalysis())
-        scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation(), reverse=True)
+        scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
@@ -227,9 +226,7 @@ def convert(
         # Apply recursive hoisting of local temporary arrays.
         # This requires a first analysis pass to run in reverse
         # direction through the call graph to gather temporary arrays.
-        scheduler.process( HoistTemporaryArraysAnalysis(
-            dim_vars=(vertical.size,)), reverse=True
-        )
+        scheduler.process( HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)) )
         scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
@@ -241,8 +238,7 @@ def convert(
         ))
 
     if global_var_offload:
-        scheduler.process(transformation=GlobalVarOffloadTransformation(),
-                          item_filter=(SubroutineItem, GlobalVarImportItem), reverse=True)
+        scheduler.process(transformation=GlobalVarOffloadTransformation())
 
     if mode in ['idem-stack', 'scc-stack']:
         if frontend == Frontend.OMNI:
@@ -255,19 +251,16 @@ def convert(
             scheduler.process( NormalizeRangeIndexingTransformation() )
 
         directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
-        transformation = TemporariesPoolAllocatorTransformation(
+        scheduler.process(transformation=TemporariesPoolAllocatorTransformation(
             block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
-        )
-        scheduler.process(transformation=transformation, reverse=True)
+        ))
     if mode == 'cuf-parametrise':
         dic2p = scheduler.config.dic2p
         transformation = ParametriseTransformation(dic2p=dic2p)
         scheduler.process(transformation=transformation)
     if mode == "cuf-hoist":
         vertical = scheduler.config.dimensions['vertical']
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(
-            dim_vars=(vertical.size,)), reverse=True
-        )
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
         scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
 
     if mode == 'scc-raw-stack':
@@ -277,21 +270,15 @@ def convert(
         scheduler.process(transformation=transformation, reverse=True)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    scheduler.process( ModuleWrapTransformation(module_suffix='_MOD') )
     mode = mode.replace('-', '_')  # Sanitize mode string
-    dependency = DependencyTransformation(
-        suffix=f'_{mode.upper()}', mode='module', module_suffix='_MOD'
-    )
-    scheduler.process(transformation=dependency, use_file_graph=True)
+    scheduler.process( DependencyTransformation(suffix=f'_{mode.upper()}', module_suffix='_MOD') )
 
     # Write out all modified source files into the build directory
-    if global_var_offload:
-        item_filter = (SubroutineItem, GlobalVarImportItem)
-    else:
-        item_filter = SubroutineItem
-    scheduler.process(
-        transformation=FileWriteTransformation(builddir=build, mode=mode, cuf='cuf' in mode),
-        use_file_graph=True, item_filter=item_filter
-    )
+    scheduler.process(transformation=FileWriteTransformation(
+        builddir=build, mode=mode, cuf='cuf' in mode,
+        include_module_var_imports=global_var_offload
+    ))
 
 
 @cli.command()
@@ -339,7 +326,7 @@ def transpile(build, header, source, driver, cpp, include, define, frontend, xmo
                                   frontend=frontend)
     driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
     # Ensure that the kernel calls have all meta-information
-    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
+    driver[driver_name].enrich(kernel[kernel_name])
 
     kernel_item = SubroutineItem(f'#{kernel_name.lower()}', source=kernel)
     driver_item = SubroutineItem(f'#{driver_name.lower()}', source=driver)
@@ -358,7 +345,9 @@ def transpile(build, header, source, driver, cpp, include, define, frontend, xmo
         transformation.apply(h, role='header', path=build)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
-    dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
+    module_wrap = ModuleWrapTransformation(module_suffix='_MOD')
+    kernel.apply(module_wrap, role='kernel', targets=())
+    dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
     kernel.apply(dependency, role='kernel', targets=())
     kernel.write(path=Path(build)/kernel.path.with_suffix('.c.F90').name)
 

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from loki.logging import info
 from loki.transform.transformation import Transformation
+from loki.bulk.item import SubroutineItem, GlobalVarImportItem
 
 __all__ = ['CMakePlanner', 'FileWriteTransformation']
 
@@ -129,12 +130,33 @@ class FileWriteTransformation(Transformation):
         omitted, it will preserve the original file type.
     cuf : bool, optional
         Use CUF (CUDA Fortran) backend instead of Fortran backend.
+    include_module_var_imports : bool, optional
+        Flag to force the :any:`Scheduler` traversal graph to recognise
+        module variable imports and write the modified module files.
     """
-    def __init__(self, builddir=None, mode='loki', suffix=None, cuf=False):
+
+    # This transformation is applied over the file graph
+    traverse_file_graph = True
+
+    def __init__(
+            self, builddir=None, mode='loki', suffix=None, cuf=False,
+            include_module_var_imports=False
+    ):
         self.builddir = Path(builddir)
         self.mode = mode
         self.suffix = suffix
         self.cuf = cuf
+        self.include_module_var_imports = include_module_var_imports
+
+    @property
+    def item_filter(self):
+        """
+        Override ``item_filter`` to configure whether module variable
+        imports are honoured in the :any:`Scheduler` traversal.
+        """
+        if self.include_module_var_imports:
+            return (SubroutineItem, GlobalVarImportItem)
+        return SubroutineItem
 
     def transform_file(self, sourcefile, **kwargs):
         item = kwargs.get('item', None)

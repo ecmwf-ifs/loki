@@ -4,10 +4,10 @@ import pytest
 
 from conftest import available_frontends
 from loki import (
-    gettempdir, OMNI, OFP, Sourcefile, CallStatement, Import,
+    gettempdir, OMNI, OFP, Sourcefile, CallStatement, Import, Interface,
     FindNodes, FindInlineCalls, Intrinsic, Scheduler, SchedulerConfig
 )
-from loki.transform import DependencyTransformation
+from loki.transform import DependencyTransformation, ModuleWrapTransformation
 
 
 @pytest.fixture(scope='module', name='here')
@@ -77,7 +77,7 @@ END SUBROUTINE driver
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(transformation)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['#driver'].source
@@ -149,7 +149,7 @@ END MODULE DRIVER_MOD
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver_mod.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(transformation)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['driver_mod#driver'].source
@@ -213,7 +213,7 @@ END SUBROUTINE kernel
         header_file.unlink()
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='strict', include_path=here)
+    transformation = DependencyTransformation(suffix='_test', include_path=here)
     kernel['kernel'].apply(transformation, role='kernel')
     driver['driver'].apply(transformation, role='driver', targets='kernel')
 
@@ -265,14 +265,17 @@ SUBROUTINE kernel(a, b, c)
 END SUBROUTINE kernel
     """.strip()
 
-    # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    transformations = (
+        ModuleWrapTransformation(module_suffix='_mod'),
+        DependencyTransformation(suffix='_test', module_suffix='_mod')
+    )
 
     if use_scheduler:
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        for transformation in transformations:
+            scheduler.process(transformation)
 
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
@@ -281,8 +284,9 @@ END SUBROUTINE kernel
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
-        kernel.apply(transformation, role='kernel')
-        driver['driver'].apply(transformation, role='driver', targets='kernel')
+        for transformation in transformations:
+            kernel.apply(transformation, role='kernel')
+            driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -310,7 +314,8 @@ END SUBROUTINE kernel
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('use_scheduler', [False, True])
-def test_dependency_transformation_replace_interface(frontend, use_scheduler, tempdir, config):
+@pytest.mark.parametrize('module_wrap', [True, False])
+def test_dependency_transformation_replace_interface(frontend, use_scheduler, module_wrap, tempdir, config):
     """
     Test injection of suffixed kernels defined in interface block
     into unchanged driver routines automatic module wrapping of the kernel.
@@ -342,13 +347,17 @@ END SUBROUTINE kernel
     """.strip()
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    transformations = []
+    if module_wrap:
+        transformations += [ModuleWrapTransformation(module_suffix='_mod')]
+    transformations += [DependencyTransformation(suffix='_test', include_path=tempdir, module_suffix='_mod')]
 
     if use_scheduler:
         (tempdir/'kernel.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        for transformation in transformations:
+            scheduler.process(transformation)
 
         kernel = scheduler['#kernel'].source
         driver = scheduler['#driver'].source
@@ -357,41 +366,51 @@ END SUBROUTINE kernel
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
-        kernel.apply(transformation, role='kernel')
-        driver['driver'].apply(transformation, role='driver', targets='kernel')
+        for transformation in transformations:
+            kernel.apply(transformation, role='kernel')
+            driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
-    assert len(kernel.subroutines) == 0
-    assert len(kernel.all_subroutines) == 1
+    if module_wrap:
+        assert len(kernel.subroutines) == 0
+        assert len(kernel.all_subroutines) == 1
+        assert len(kernel.modules) == 1
+        assert kernel.modules[0].name == 'kernel_test_mod'
+        assert kernel['kernel_test_mod'] == kernel.modules[0]
+    else:
+        assert len(kernel.subroutines) == 1
+        assert len(kernel.modules) == 0
     assert kernel.all_subroutines[0].name == 'kernel_test'
     assert kernel['kernel_test'] == kernel.all_subroutines[0]
-    assert len(kernel.modules) == 1
-    assert kernel.modules[0].name == 'kernel_test_mod'
-    assert kernel['kernel_test_mod'] == kernel.modules[0]
 
     # Check that the driver name has not changed
     assert len(driver.modules) == 0
     assert len(driver.subroutines) == 1
     assert driver.subroutines[0].name == 'driver'
 
-    # Check that calls and imports have been diverted to the re-generated routine
+    # Check that calls have been diverted to the re-generated routine
     calls = FindNodes(CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver'].spec)
-    assert len(imports) == 1
-    if frontend == OMNI:
-        assert imports[0].module == 'kernel_test_mod'
-        assert 'kernel_test' in [str(s) for s in imports[0].symbols]
-    else:
-        assert imports[0].module == 'KERNEL_test_mod'
-        assert 'KERNEL_test' in [str(s) for s in imports[0].symbols]
 
-    # Check that the newly generated USE statement appears before IMPLICIT NONE
-    nodes = FindNodes((Intrinsic, Import)).visit(driver['driver'].spec)
-    assert len(nodes) == 2
-    assert isinstance(nodes[1], Intrinsic)
-    assert nodes[1].text.lower() == 'implicit none'
+    if module_wrap:
+        # Check that imports have been generated
+        imports = FindNodes(Import).visit(driver['driver'].spec)
+        assert len(imports) == 1
+        assert imports[0].module.lower() == 'kernel_test_mod'
+        assert 'kernel_test' in imports[0].symbols
+
+        # Check that the newly generated USE statement appears before IMPLICIT NONE
+        nodes = FindNodes((Intrinsic, Import)).visit(driver['driver'].spec)
+        assert len(nodes) == 2
+        assert isinstance(nodes[1], Intrinsic)
+        assert nodes[1].text.lower() == 'implicit none'
+
+    else:
+        # Check that the interface has been updated
+        intfs = FindNodes(Interface).visit(driver['driver'].spec)
+        assert len(intfs) == 1
+        assert intfs[0].symbols == ('kernel_test',)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -426,9 +445,13 @@ END FUNCTION kernel
 """, frontend=frontend)
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver['driver'].apply(transformation, role='driver', targets='kernel')
+    transformations = (
+        ModuleWrapTransformation(module_suffix='_mod'),
+        DependencyTransformation(suffix='_test', module_suffix='_mod')
+    )
+    for transformation in transformations:
+        kernel.apply(transformation, role='kernel')
+        driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -494,9 +517,13 @@ END FUNCTION kernel
 """, frontend=frontend)
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    kernel.apply(transformation, role='kernel')
-    driver['driver'].apply(transformation, role='driver', targets='kernel')
+    transformations = (
+        ModuleWrapTransformation(module_suffix='_mod'),
+        DependencyTransformation(suffix='_test', module_suffix='_mod')
+    )
+    for transformation in transformations:
+        kernel.apply(transformation, role='kernel')
+        driver['driver'].apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -576,7 +603,7 @@ END SUBROUTINE driver
         (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
         (tempdir/'driver.F90').write_text(driver_fcode)
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
-        scheduler.process(transformation, use_file_graph=True)
+        scheduler.process(transformation)
 
         kernel = scheduler['kernel_mod#kernel'].source
         driver = scheduler['#driver'].source
@@ -667,8 +694,12 @@ END MODULE header_mod
     # Make sure the header var item exists
     assert 'header_mod#header_var' in scheduler.items
 
-    transformation = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    scheduler.process(transformation, use_file_graph=True)
+    transformations = (
+        ModuleWrapTransformation(module_suffix='_mod'),
+        DependencyTransformation(suffix='_test', module_suffix='_mod')
+    )
+    for transformation in transformations:
+        scheduler.process(transformation)
 
     kernel = scheduler['kernel_mod#kernel'].source
     header = scheduler['header_mod#header_var'].source

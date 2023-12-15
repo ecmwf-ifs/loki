@@ -60,7 +60,8 @@ from loki import (
     fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
-    Import, Variable, GenericImportItem, GlobalVarImportItem, flatten
+    Import, Variable, GenericImportItem, GlobalVarImportItem, flatten,
+    CaseInsensitiveDict, ModuleWrapTransformation
 )
 
 
@@ -120,6 +121,25 @@ class VisGraphWrapper:
     @property
     def edges(self):
         return list(self._re_edges.findall(self.text))
+
+
+def test_scheduler_enrichment(here, config, frontend):
+    projA = here/'sources/projA'
+
+    scheduler = Scheduler(
+        paths=projA, includes=projA/'include', config=config,
+        seed_routines=['driverA'], frontend=frontend
+    )
+
+    for item in scheduler.item_graph:
+        if not isinstance(item, SubroutineItem):
+            continue
+        dependency_map = CaseInsensitiveDict(
+            (item_.local_name, item_) for item_ in scheduler.item_successors(item)
+        )
+        for call in FindNodes(CallStatement).visit(item.routine.body):
+            if call_item := dependency_map.get(str(call.name)):
+                assert call.routine is call_item.routine
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
@@ -610,6 +630,59 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
         cg_path.with_suffix('.pdf').unlink()
 
 
+@pytest.mark.parametrize('strict', [True, False])
+def test_scheduler_graph_multiple_separate_enrich_fail(here, config, frontend, strict):
+    """
+    Tests that explicit enrichment in "strict" mode will fail because it can't
+    find ext_driver
+
+    projA: driverB -> kernelB -> compute_l1<replicated> -> compute_l2
+                         |
+                     <ext_driver>
+
+    projB:            ext_driver -> ext_kernelfail
+    """
+    projA = here/'sources/projA'
+
+    configA = config.copy()
+    configA['default']['strict'] = strict
+    configA['routine'] = [
+        {
+            'name': 'kernelB',
+            'role': 'kernel',
+            'ignore': ['ext_driver'],
+            'enrich': ['ext_driver'],
+        },
+    ]
+
+    if strict:
+        with pytest.raises(FileNotFoundError):
+            Scheduler(
+                paths=[projA], includes=projA/'include', config=configA,
+                seed_routines=['driverB'], frontend=frontend
+            )
+    else:
+        schedulerA = Scheduler(
+            paths=[projA], includes=projA/'include', config=configA,
+            seed_routines=['driverB'], frontend=frontend
+        )
+
+        expected_itemsA = [
+            'driverB_mod#driverB', 'kernelB_mod#kernelB',
+            'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2',
+        ]
+        expected_dependenciesA = [
+            ('driverB_mod#driverB', 'kernelB_mod#kernelB'),
+            ('kernelB_mod#kernelB', 'compute_l1_mod#compute_l1'),
+            ('compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2'),
+        ]
+
+        assert all(n in schedulerA.items for n in expected_itemsA)
+        assert all(e in schedulerA.dependencies for e in expected_dependenciesA)
+        assert 'ext_driver' not in schedulerA.items
+        assert 'ext_kernel' not in schedulerA.items
+
+
 def test_scheduler_module_dependency(here, config, frontend):
     """
     Ensure dependency chasing is done correctly, even with surboutines
@@ -767,8 +840,12 @@ def test_scheduler_dependencies_ignore(here, frontend):
     assert all(n in schedulerB.items for n in ['ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'])
 
     # Apply dependency injection transformation and ensure only the root driver is not transformed
-    dependency = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
-    schedulerA.process(transformation=dependency)
+    transformations = (
+        ModuleWrapTransformation(module_suffix='_mod'),
+        DependencyTransformation(suffix='_test', module_suffix='_mod')
+    )
+    for transformation in transformations:
+        schedulerA.process(transformation)
 
     assert schedulerA.items[0].source.all_subroutines[0].name == 'driverB'
     assert schedulerA.items[1].source.all_subroutines[0].name == 'kernelB_test'
@@ -776,10 +853,12 @@ def test_scheduler_dependencies_ignore(here, frontend):
     assert schedulerA.items[3].source.all_subroutines[0].name == 'compute_l2_test'
 
     # For the second target lib, we want the driver to be converted
-    schedulerB.process(transformation=dependency)
+    for transformation in transformations:
+        schedulerB.process(transformation=transformation)
 
     # Repeat processing to ensure DependencyTransform is idempotent
-    schedulerB.process(transformation=dependency)
+    for transformation in transformations:
+        schedulerB.process(transformation=transformation)
 
     assert schedulerB.items[0].source.all_subroutines[0].name == 'ext_driver_test'
     assert schedulerB.items[1].source.all_subroutines[0].name == 'ext_kernel_test'
@@ -1416,14 +1495,15 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
 
     class LoggingTransformation(Transformation):
 
+        reverse_traversal = reverse
+
+        traverse_file_graph = use_file_graph
+
         def __init__(self):
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            if 'item' in kwargs:
-                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
-            else:
-                self.record += [sourcefile.path.name]
+            self.record += [sourcefile.path.name]
 
         def transform_module(self, module, **kwargs):
             self.record += [kwargs['item'].name + '::' + module.name]
@@ -1432,9 +1512,7 @@ def test_scheduler_traversal_order(here, config, frontend, use_file_graph, rever
             self.record += [kwargs['item'].name + '::' + routine.name]
 
     transformation = LoggingTransformation()
-    scheduler.process(
-        transformation=transformation, reverse=reverse, use_file_graph=use_file_graph
-    )
+    scheduler.process(transformation=transformation)
 
     if reverse:
         assert transformation.record == flatten(expected[::-1])
@@ -1480,14 +1558,15 @@ end module member_mod
 
     class LoggingTransformation(Transformation):
 
+        reverse_traversal = reverse
+
+        traverse_file_graph = use_file_graph
+
         def __init__(self):
             self.record = []
 
         def transform_file(self, sourcefile, **kwargs):
-            if 'item' in kwargs:
-                self.record += [kwargs['item'].name + '::' + sourcefile.path.name]
-            else:
-                self.record += [sourcefile.path.name]
+            self.record += [sourcefile.path.name]
 
         def transform_module(self, module, **kwargs):
             self.record += [kwargs['item'].name + '::' + module.name]
@@ -1496,9 +1575,7 @@ end module member_mod
             self.record += [kwargs['item'].name + '::' + routine.name]
 
     transformation = LoggingTransformation()
-    scheduler.process(
-        transformation=transformation, reverse=reverse, use_file_graph=use_file_graph,
-    )
+    scheduler.process(transformation=transformation)
 
     if use_file_graph:
         expected = ['member_mod.F90']
@@ -1643,6 +1720,8 @@ end subroutine driver
         assert isinstance(call.name.type.dtype, ProcedureType)
         assert call.name.parent
         assert isinstance(call.name.parent.type.dtype, DerivedType)
+        assert isinstance(call.routine, Subroutine)
+        assert isinstance(call.name.type.dtype.procedure, Subroutine)
 
     assert isinstance(calls[0].name.parent, Scalar)
     assert calls[0].name.parent.type.dtype.name == 'third_type'
@@ -2190,3 +2269,73 @@ def test_scheduler_unqualified_imports(config):
 
     assert item.enable_imports
     assert item.children == ('other_routine',)
+
+
+def test_scheduler_disable_wildcard(here, config):
+
+    fcode_mod = """
+module field_mod
+  type field2d
+    contains
+    procedure :: init => field_init
+  end type
+
+  type field3d
+    contains
+    procedure :: init => field_init
+  end type
+
+  contains
+    subroutine field_init()
+
+    end subroutine
+end module
+"""
+
+    fcode_driver = """
+subroutine my_driver
+  use field_mod, only: field2d, field3d, field_init
+implicit none
+
+  type(field2d) :: a, b
+  type(field3d) :: c, d
+
+  call a%init()
+  call b%init()
+  call c%init()
+  call field_init(d)
+end subroutine my_driver
+"""
+
+    # Set up the test files
+    dirname = here/'test_scheduler_disable_wildcard'
+    dirname.mkdir(exist_ok=True)
+    modfile = dirname/'field_mod.F90'
+    modfile.write_text(fcode_mod)
+    testfile = dirname/'test.F90'
+    testfile.write_text(fcode_driver)
+
+    config['default']['disable'] = ['*%init']
+
+    scheduler = Scheduler(paths=dirname, seed_routines=['my_driver'], config=config)
+
+    expected_items = [
+        '#my_driver', 'field_mod#field_init',
+    ]
+    expected_dependencies = [
+        ('#my_driver', 'field_mod#field_init'),
+    ]
+
+    assert all(n in scheduler.items for n in expected_items)
+    assert all(e in scheduler.dependencies for e in expected_dependencies)
+
+    assert 'field_mod#field2d%init' not in scheduler.items
+    assert 'field_mod#field3d%init' not in scheduler.items
+
+    # Clean up
+    try:
+        modfile.unlink()
+        testfile.unlink()
+        dirname.rmdir()
+    except FileNotFoundError:
+        pass

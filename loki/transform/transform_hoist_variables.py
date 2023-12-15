@@ -46,7 +46,7 @@ using
 .. code-block:: python
 
     # Transformation: Analysis
-    scheduler.process(transformation=HoistTemporaryArraysAnalysis(), reverse=True)
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis())
     # Transformation: Synthesis
     scheduler.process(transformation=HoistVariablesTransformation())
 
@@ -73,10 +73,10 @@ are provided to create derived classes for specialisation of the actual hoisting
     .. code-block:: python
 
         key = "UniqueKey"
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('b',), key=key), reverse=True)
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('b',), key=key))
         scheduler.process(transformation=HoistTemporaryArraysTransformation(key=key))
         key = "AnotherUniqueKey"
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',), key=key), reverse=True)
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',), key=key))
         scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
 """
 from loki.expression import FindVariables, SubstituteExpressions
@@ -100,9 +100,6 @@ class HoistVariablesAnalysis(Transformation):
     Create a derived class and override :func:`find_variables<HoistVariablesAnalysis.find_variables>`
     to define which variables to be hoisted.
 
-    .. note::
-        To be applied **reversed**, in order to recursively find all variables to be hoisted.
-
     Parameters
     ----------
     key : str
@@ -111,6 +108,9 @@ class HoistVariablesAnalysis(Transformation):
     """
 
     _key = 'HoistVariablesTransformation'
+
+    # Apply in reverse order to recursively find all variables to be hoisted.
+    reverse_traversal = True
 
     def __init__(self, key=None):
         if key is not None:
@@ -324,6 +324,9 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
         Variables to be within the dimensions of the arrays to be hoisted. If not provided, no checks will be done
         for the array dimensions.
     """
+
+    # Apply in reverse order to recursively find all variables to be hoisted.
+    reverse_traversal = True
 
     def __init__(self, key=None, dim_vars=None, **kwargs):
         super().__init__(key=key, **kwargs)
