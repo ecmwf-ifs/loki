@@ -31,6 +31,10 @@ __all__ = ['TemporariesRawStackTransformation']
 def _get_extent(d):
 
     if isinstance(d, RangeIndex):
+
+        if (d.lower is None or d.upper is None):
+            raise RuntimeError(f'Trying to get extent of unbounded RangeIndex {d}')
+
         if d.lower == IntLiteral(1):
             return d.upper
         return Sum((d.upper, Product((-1,d.lower)), IntLiteral(1)))
@@ -46,6 +50,8 @@ def _check_contiguous_access(t):
         if isinstance(d, RangeIndex):
             if not all_ranges:
                 return False
+            if d.upper is None and d.lower is None:
+                continue
             if _get_extent(d) != _get_extent(s):
                 return False
         else:
@@ -272,7 +278,7 @@ class TemporariesRawStackTransformation(Transformation):
         stack_dict = {}
         stack_set = set()
 
-        end_int = IntLiteral(1)
+        stack_size = IntLiteral(1)
 
         for dtype in temporary_array_dict:
 
@@ -319,11 +325,11 @@ class TemporariesRawStackTransformation(Transformation):
         if var_map:
 
             routine.body = SubstituteExpressions(var_map).visit(routine.body)
-            end_int = simplify(Sum((old_int_var, old_dim, IntLiteral(1))))
+            stack_size = simplify(Sum((old_int_var, old_dim)))
 
-        end_int_var = Scalar(name=self.local_int_var_name_pattern.format(name='STACK_END'), scope=routine, type=self.int_type)
-        integers += [end_int_var]
-        allocations += [Assignment(lhs=end_int_var, rhs=end_int)]
+        stack_size_var = Scalar(name=self.local_int_var_name_pattern.format(name='STACK_SIZE'), scope=routine, type=self.int_type)
+        integers += [stack_size_var]
+        allocations += [Assignment(lhs=stack_size_var, rhs=stack_size)]
 
         routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
         routine.body.prepend(allocations)
