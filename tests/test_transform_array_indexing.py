@@ -9,19 +9,26 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test, available_frontends
-from loki import Subroutine, FindNodes, Assignment
+from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
+from loki import Subroutine, FindVariables, Array
 from loki.expression import symbols as sym
 from loki.transform import (
         promote_variables, demote_variables, normalize_range_indexing,
-        invert_array_indices, flatten_arrays
+        invert_array_indices, flatten_arrays,
+        normalize_array_access
         )
-
+from loki.transform import (
+    FortranCTransformation
+    )
+from loki.build import Builder
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
 
+@pytest.fixture(scope='module', name='builder')
+def fixture_builder(here):
+    return Builder(source_dirs=here, build_dir=here/'build')
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_promote_variable_scalar(here, frontend):
@@ -319,38 +326,133 @@ end subroutine transform_demote_dimension_arguments
     assert np.all(vec2 == 2) and np.sum(vec2) == 6
     assert np.all(matrix == 16) and np.sum(matrix) == 32
 
-
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_flatten_arrays(here, frontend):
+@pytest.mark.parametrize('start_index', (0, 1, 5))
+def test_normalize_array_access(here, frontend, start_index):
     """
     Test flattening or arrays, meaning converting multi-dimensional
     arrays to one-dimensional arrays including corresponding
     index arithmetic.
     """
-    fcode = """
+    fcode = f"""
+    subroutine transform_normalize_array_access(x1, x2, x3, x4, l1, l2, l3, l4)
+        implicit none
+        integer :: i1, i2, i3, i4, c1, c2, c3, c4
+        integer, intent(in) :: l1, l2, l3, l4
+        integer, intent(inout) :: x1({start_index}:l1+{start_index}-1)
+        integer, intent(inout) :: x2({start_index}:l2+{start_index}-1, &
+         & {start_index}:l1+{start_index}-1)
+        integer, intent(inout) :: x3({start_index}:l3+{start_index}-1, &
+         & {start_index}:l2+{start_index}-1, {start_index}:l1+{start_index}-1)
+        integer, intent(inout) :: x4({start_index}:l4+{start_index}-1, &
+         & {start_index}:l3+{start_index}-1, {start_index}:l2+{start_index}-1, &
+         & {start_index}:l1+{start_index}-1)
+        c1 = 1
+        c2 = 1
+        c3 = 1
+        c4 = 1
+        x1({start_index}:l4+{start_index}-1) = 0
+        do i1={start_index},l1+{start_index}-1
+            x1(i1) = c1
+            do i2={start_index},l2+{start_index}-1
+                x2(i2, i1) = c2*10 + c1
+                do i3={start_index},l3+{start_index}-1
+                    x3(i3, i2, i1) = c3*100 + c2*10 + c1
+                    do i4={start_index},l4+{start_index}-1
+                        x4(i4, i3, i2, i1) = c4*1000 + c3*100 + c2*10 + c1
+                        c4 = c4 + 1
+                    end do
+                    c3 = c3 + 1
+                end do
+                c2 = c2 + 1
+            end do
+            c1 = c1 + 1
+        end do
+
+    end subroutine transform_normalize_array_access
+    """
+    def init_arguments(l1, l2, l3, l4):
+        x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
+        x2 = np.zeros(shape=(l2,l1,), order='F', dtype=np.int32)
+        x3 = np.zeros(shape=(l3,l2,l1,), order='F', dtype=np.int32)
+        x4 = np.zeros(shape=(l4,l3,l2,l1,), order='F', dtype=np.int32)
+        return x1, x2, x3, x4
+
+    def validate_routine(routine):
+        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)]
+        for arr in arrays:
+            assert all(not isinstance(shape, sym.RangeIndex) for shape in arr.shape)
+
+    l1 = 2
+    l2 = 3
+    l3 = 4
+    l4 = 5
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_range_indexing(routine) # Fix OMNI nonsense
+    filepath = here/(f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    orig_x1, orig_x2, orig_x3, orig_x4 = init_arguments(l1, l2, l3, l4)
+    function(orig_x1, orig_x2, orig_x3, orig_x4, l1, l2, l3, l4)
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_array_access(routine)
+    normalize_range_indexing(routine)
+    filepath = here/(f'{routine.name}_normalized_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4)
+    function(x1, x2, x3, x4, l1, l2, l3, l4)
+    validate_routine(routine)
+
+    assert (x1 == orig_x1).all()
+    assert (x2 == orig_x2).all()
+    assert (x3 == orig_x3).all()
+    assert (x4 == orig_x4).all()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('start_index', (0, 1, 5))
+def test_transform_flatten_arrays(here, frontend, builder, start_index):
+    """
+    Test flattening or arrays, meaning converting multi-dimensional
+    arrays to one-dimensional arrays including corresponding
+    index arithmetic.
+    """
+    fcode = f"""
     subroutine transform_flatten_arrays(x1, x2, x3, x4, l1, l2, l3, l4)
         implicit none
-        integer :: i1, i2, i3, i4
+        integer :: i1, i2, i3, i4, c1, c2, c3, c4
         integer, intent(in) :: l1, l2, l3, l4
-        integer, intent(inout) :: x1(l1), x2(l2, l1), x3(l3, l2, l1), x4(l4, l3, l2, l1)
-        
-        do i1=1,l1
-            x1(i1) = 2 * l1
-            do i2=1,l2
-                x2(i2, i1) = 2 * l2
-                do i3=1,l3
-                    x3(i3, i2, i1) = 2 * l3
-                    do i4=1,l4
-                        x4(i4, i3, i2, i1) = 2 * l4
+        integer, intent(inout) :: x1({start_index}:l1+{start_index}-1)
+        integer, intent(inout) :: x2({start_index}:l2+{start_index}-1, &
+         & {start_index}:l1+{start_index}-1)
+        integer, intent(inout) :: x3({start_index}:l3+{start_index}-1, &
+         & {start_index}:l2+{start_index}-1, {start_index}:l1+{start_index}-1)
+        integer, intent(inout) :: x4({start_index}:l4+{start_index}-1, &
+         & {start_index}:l3+{start_index}-1, {start_index}:l2+{start_index}-1, &
+         & {start_index}:l1+{start_index}-1)
+        c1 = 1
+        c2 = 1
+        c3 = 1
+        c4 = 1
+        do i1={start_index},l1+{start_index}-1
+            x1(i1) = c1
+            do i2={start_index},l2+{start_index}-1
+                x2(i2, i1) = c2*10 + c1
+                do i3={start_index},l3+{start_index}-1
+                    x3(i3, i2, i1) = c3*100 + c2*10 + c1
+                    do i4={start_index},l4+{start_index}-1
+                        x4(i4, i3, i2, i1) = c4*1000 + c3*100 + c2*10 + c1
+                        c4 = c4 + 1
                     end do
+                    c3 = c3 + 1
                 end do
+                c2 = c2 + 1
             end do
+            c1 = c1 + 1
         end do
-        
-        
+
     end subroutine transform_flatten_arrays
     """
-
     def init_arguments(l1, l2, l3, l4, flattened=False):
         x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
         x2 = np.zeros(shape=(l2*l1) if flattened else (l2,l1,), order='F', dtype=np.int32)
@@ -358,53 +460,75 @@ def test_transform_flatten_arrays(here, frontend):
         x4 = np.zeros(shape=(l4*l3*l2*l1) if flattened else (l4,l3,l2,l1,), order='F', dtype=np.int32)
         return x1, x2, x3, x4
 
-    def validate_arguments(x1, x2, x3, x4, l1, l2, l3, l4):
-        assert np.all(x1 == 2 * l1)
-        assert np.all(x2 == 2 * l2)
-        assert np.all(x3 == 2 * l3)
-        assert np.all(x4 == 2 * l4)
-
     def validate_routine(routine):
-        assignments = FindNodes(Assignment).visit(routine.body)
-        lhs = [assignment.lhs for assignment in assignments]
-        dims = [_lhs.dimensions for _lhs in lhs]
-        assert all(len(dim) == 1 for dim in dims)
-        assert dims[1][0].children[0] == 'i2'
-        assert dims[2][0].children[0] == 'i3'
-        assert dims[3][0].children[0] == 'i4'
+        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)]
+        assert all(len(arr.dimensions) == 1 for arr in arrays)
+        assert all(len(arr.shape) == 1 for arr in arrays)
 
     l1 = 2
-    l2 = 4
-    l3 = 6
-    l4 = 8
+    l2 = 3
+    l3 = 4
+    l4 = 5
     # Test the original implementation
     routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_range_indexing(routine) # Fix OMNI nonsense
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = here/(f'{routine.name}_{start_index}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
-    x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4)
-    function(x1, x2, x3, x4, l1, l2, l3, l4)
-    validate_arguments(x1, x2, x3, x4, l1, l2, l3, l4)
+    orig_x1, orig_x2, orig_x3, orig_x4 = init_arguments(l1, l2, l3, l4)
+    function(orig_x1, orig_x2, orig_x3, orig_x4, l1, l2, l3, l4)
 
+    # Test flattening order='F'
     f_routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_array_access(f_routine)
     normalize_range_indexing(f_routine) # Fix OMNI nonsense
     flatten_arrays(routine=f_routine, order='F', start_index=1)
-    filepath = here/(f'{f_routine.name}_flattened_F_{frontend}.f90')
+    filepath = here/(f'{f_routine.name}_{start_index}_flattened_F_{frontend}.f90')
     function = jit_compile(f_routine, filepath=filepath, objname=routine.name)
-    x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4, flattened=True)
-    function(x1, x2, x3, x4, l1, l2, l3, l4)
-    validate_arguments(x1, x2, x3, x4, l1, l2, l3, l4)
+    f_x1, f_x2, f_x3, f_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
+    function(f_x1, f_x2, f_x3, f_x4, l1, l2, l3, l4)
     validate_routine(f_routine)
 
+    assert (f_x1 == orig_x1.flatten()).all()
+    assert (f_x2 == orig_x2.flatten()).all()
+    assert (f_x3 == orig_x3.flatten()).all()
+    assert (f_x4 == orig_x4.flatten()).all()
+
+    # Test flattening order='C'
     c_routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_array_access(c_routine)
     normalize_range_indexing(c_routine) # Fix OMNI nonsense
     invert_array_indices(c_routine)
     flatten_arrays(routine=c_routine, order='C', start_index=1)
-    filepath = here/(f'{c_routine.name}_flattened_C_{frontend}.f90')
+    filepath = here/(f'{c_routine.name}_{start_index}_flattened_C_{frontend}.f90')
     function = jit_compile(c_routine, filepath=filepath, objname=routine.name)
-    x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4, flattened=True)
-    function(x1, x2, x3, x4, l1, l2, l3, l4)
-    validate_arguments(x1, x2, x3, x4, l1, l2, l3, l4)
+    c_x1, c_x2, c_x3, c_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
+    function(c_x1, c_x2, c_x3, c_x4, l1, l2, l3, l4)
     validate_routine(c_routine)
 
     assert f_routine.body == c_routine.body
+
+    assert (c_x1 == orig_x1.flatten()).all()
+    assert (c_x2 == orig_x2.flatten()).all()
+    assert (c_x3 == orig_x3.flatten()).all()
+    assert (c_x4 == orig_x4.flatten()).all()
+
+    # Test C transpilation (which includes flattening)
+    f2c_routine = Subroutine.from_source(fcode, frontend=frontend)
+    f2c = FortranCTransformation(order="C")
+    f2c.apply(source=f2c_routine, path=here)
+    libname = f'fc_{f2c_routine.name}_{start_index}_{frontend}'
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    fc_function = c_kernel.transform_flatten_arrays_fc_mod.transform_flatten_arrays_fc
+    f2c_x1, f2c_x2, f2c_x3, f2c_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
+    fc_function(f2c_x1, f2c_x2, f2c_x3, f2c_x4, l1, l2, l3, l4)
+    validate_routine(c_routine)
+
+    assert (f2c_x1 == orig_x1.flatten()).all()
+    assert (f2c_x2 == orig_x2.flatten()).all()
+    assert (f2c_x3 == orig_x3.flatten()).all()
+    assert (f2c_x4 == orig_x4.flatten()).all()
+
+    builder.clean()
+    clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()

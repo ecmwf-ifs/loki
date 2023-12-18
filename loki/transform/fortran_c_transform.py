@@ -12,7 +12,7 @@ from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_range_indexing,
-    flatten_arrays
+    normalize_array_access, flatten_arrays
 )
 from loki.transform.transform_associates import resolve_associates
 from loki.transform.transform_utilities import (
@@ -37,7 +37,6 @@ from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
 
-
 __all__ = ['FortranCTransformation']
 
 
@@ -51,8 +50,9 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, header_modules=None, inline_elementals=True):
+    def __init__(self, header_modules=None, inline_elementals=True, order='F'):
         self.inline_elementals = inline_elementals
+        self.order = order
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -369,13 +369,14 @@ class FortranCTransformation(Transformation):
 
         # Clean up Fortran vector notation
         resolve_vector_notation(kernel)
+        normalize_array_access(kernel)
         normalize_range_indexing(kernel)
 
         # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         invert_array_indices(kernel)
         shift_to_zero_indexing(kernel)
-        flatten_arrays(kernel, order="C", start_index=0)
+        flatten_arrays(kernel, order=self.order, start_index=0)
 
         # Inline all known parameters, since they can be used in declarations,
         # and thus need to be known before we can fetch them via getters.
