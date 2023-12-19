@@ -230,12 +230,9 @@ def convert(
         scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        derived_types = scheduler.config.derived_types
-        scheduler.process( SccCufTransformation(
-            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
-            transformation_type=mode.replace('cuf-', ''),
-            derived_types=derived_types
-        ))
+        # These transformations requires complex constructor arguments,
+        # so we use the file-based transformation configuration.
+        scheduler.process( transformation=scheduler.config.transformations[mode] )
 
     if global_var_offload:
         scheduler.process(transformation=GlobalVarOffloadTransformation())
@@ -254,10 +251,13 @@ def convert(
         scheduler.process(transformation=TemporariesPoolAllocatorTransformation(
             block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
         ))
+
     if mode == 'cuf-parametrise':
-        dic2p = scheduler.config.dic2p
-        transformation = ParametriseTransformation(dic2p=dic2p)
+        # This transformation requires complex constructora arguments,
+        # so we use the file-based transformation configuration.
+        transformation = scheduler.config.transformations['ParametriseTransformation']
         scheduler.process(transformation=transformation)
+
     if mode == "cuf-hoist":
         vertical = scheduler.config.dimensions['vertical']
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))

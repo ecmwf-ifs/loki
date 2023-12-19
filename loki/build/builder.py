@@ -5,15 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import sys
 from pathlib import Path
 from collections import deque
-from importlib import import_module, reload, invalidate_caches
 from operator import attrgetter
 import networkx as nx
 
 from loki.logging import default_logger
-from loki.tools import as_tuple, delete
+from loki.tools import as_tuple, delete, load_module
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
 from loki.build.header import Header
@@ -150,20 +148,7 @@ class Builder:
         """
         Handle import paths and load the compiled module
         """
-        if str(self.build_dir.absolute()) not in sys.path:
-            sys.path.insert(0, str(self.build_dir.absolute()))
-        if module in sys.modules:
-            reload(sys.modules[module])
-            return sys.modules[module]
-
-        try:
-            # Attempt to load module directly
-            return import_module(module)
-        except ModuleNotFoundError:
-            # If module caching interferes, try again with clean caches
-            invalidate_caches()
-            return import_module(module)
-
+        return load_module(module, path=self.build_dir.absolute())
 
     def wrap_and_load(self, sources, modname=None, build=True,
                       libs=None, lib_dirs=None, incl_dirs=None,

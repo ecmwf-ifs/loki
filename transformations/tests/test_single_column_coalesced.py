@@ -512,10 +512,9 @@ END MODULE kernel_mod
             'expand': True,
             'strict': True
         },
-        'routine': [{
-            'name': 'driver',
-            'role': 'driver'
-        }]
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
 

@@ -28,18 +28,16 @@ def fixture_config():
             'expand': True,
             'strict': True,
         },
-        'routine': [
-            {
-                'name': 'driver',
+        'routines': {
+            'driver': {
                 'role': 'driver',
                 'expand': True,
             },
-            {
-                'name': 'another_driver',
+            'another_driver': {
                 'role': 'driver',
                 'expand': True,
             },
-        ]
+        }
     }
 
 

@@ -64,9 +64,9 @@ def fixture_config(here):
     """
     default_config = {
         'default': {'role': 'kernel', 'expand': True, 'strict': True},
-        'routine': [
-            {'name': 'driverB', 'role': 'driver'},
-        ]
+        'routines': {
+            'driverB': {'role': 'driver'},
+        }
     }
     filepath = here/'test_cmake_loki.config'
     filepath.write_text(toml.dumps(default_config))
