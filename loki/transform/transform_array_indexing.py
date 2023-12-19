@@ -560,13 +560,13 @@ def flatten_arrays(routine, order='F', start_index=1):
             return new_dims(new_dim, shape[:-1])
         return dim
 
-    if order == 'F':
+    if order == 'C':
         array_map = {
             var: var.clone(dimensions=new_dims(var.dimensions[::-1], var.shape[::-1]))
             for var in FindVariables().visit(routine.body)
             if isinstance(var, sym.Array) and var.shape and len(var.shape)
         }
-    elif order == 'C':
+    elif order == 'F':
         array_map = {
             var: var.clone(dimensions=new_dims(var.dimensions, var.shape))
             for var in FindVariables().visit(routine.body)

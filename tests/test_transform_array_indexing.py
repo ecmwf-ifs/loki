@@ -328,7 +328,7 @@ end subroutine transform_demote_dimension_arguments
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('start_index', (0, 1, 5))
-def test_normalize_array_access(here, frontend, start_index):
+def test_transform_normalize_array_access(here, frontend, start_index):
     """
     Test flattening or arrays, meaning converting multi-dimensional
     arrays to one-dimensional arrays including corresponding
@@ -460,6 +460,10 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
         x2 = np.zeros(shape=(l2*l1) if flattened else (l2,l1,), order='F', dtype=np.int32)
         x3 = np.zeros(shape=(l3*l2*l1) if flattened else (l3,l2,l1,), order='F', dtype=np.int32)
         x4 = np.zeros(shape=(l4*l3*l2*l1) if flattened else (l4,l3,l2,l1,), order='F', dtype=np.int32)
+        #x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
+        #x2 = np.zeros(shape=(l2*l1) if flattened else (l1,l2), order='F', dtype=np.int32)
+        #x3 = np.zeros(shape=(l3*l2*l1) if flattened else (l1,l2,l3), order='F', dtype=np.int32)
+        #x4 = np.zeros(shape=(l4*l3*l2*l1) if flattened else (l1,l2,l3,l4), order='F', dtype=np.int32)
         return x1, x2, x3, x4
 
     def validate_routine(routine):
@@ -492,10 +496,10 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     validate_routine(f_routine)
     clean_test(filepath)
 
-    assert (f_x1 == orig_x1.flatten()).all()
-    assert (f_x2 == orig_x2.flatten()).all()
-    assert (f_x3 == orig_x3.flatten()).all()
-    assert (f_x4 == orig_x4.flatten()).all()
+    assert (f_x1 == orig_x1.flatten(order='F')).all()
+    assert (f_x2 == orig_x2.flatten(order='F')).all()
+    assert (f_x3 == orig_x3.flatten(order='F')).all()
+    assert (f_x4 == orig_x4.flatten(order='F')).all()
 
     # Test flattening order='C'
     c_routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -512,14 +516,14 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
 
     assert f_routine.body == c_routine.body
 
-    assert (c_x1 == orig_x1.flatten()).all()
-    assert (c_x2 == orig_x2.flatten()).all()
-    assert (c_x3 == orig_x3.flatten()).all()
-    assert (c_x4 == orig_x4.flatten()).all()
+    assert (c_x1 == orig_x1.flatten(order='F')).all()
+    assert (c_x2 == orig_x2.flatten(order='F')).all()
+    assert (c_x3 == orig_x3.flatten(order='F')).all()
+    assert (c_x4 == orig_x4.flatten(order='F')).all()
 
     # Test C transpilation (which includes flattening)
     f2c_routine = Subroutine.from_source(fcode, frontend=frontend)
-    f2c = FortranCTransformation(order="C")
+    f2c = FortranCTransformation()
     f2c.apply(source=f2c_routine, path=here)
     libname = f'fc_{f2c_routine.name}_{start_index}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
@@ -528,10 +532,10 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     fc_function(f2c_x1, f2c_x2, f2c_x3, f2c_x4, l1, l2, l3, l4)
     validate_routine(c_routine)
 
-    assert (f2c_x1 == orig_x1.flatten()).all()
-    assert (f2c_x2 == orig_x2.flatten()).all()
-    assert (f2c_x3 == orig_x3.flatten()).all()
-    assert (f2c_x4 == orig_x4.flatten()).all()
+    assert (f2c_x1 == orig_x1.flatten(order='F')).all()
+    assert (f2c_x2 == orig_x2.flatten(order='F')).all()
+    assert (f2c_x3 == orig_x3.flatten(order='F')).all()
+    assert (f2c_x4 == orig_x4.flatten(order='F')).all()
 
     builder.clean()
     clean_test(filepath)

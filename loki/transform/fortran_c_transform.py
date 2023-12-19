@@ -50,9 +50,8 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, header_modules=None, inline_elementals=True, order='F'):
+    def __init__(self, header_modules=None, inline_elementals=True):
         self.inline_elementals = inline_elementals
-        self.order = order
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -376,7 +375,7 @@ class FortranCTransformation(Transformation):
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         invert_array_indices(kernel)
         shift_to_zero_indexing(kernel)
-        flatten_arrays(kernel, order=self.order, start_index=0)
+        flatten_arrays(kernel, order='C', start_index=0)
 
         # Inline all known parameters, since they can be used in declarations,
         # and thus need to be known before we can fetch them via getters.
