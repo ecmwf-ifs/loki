@@ -11,6 +11,7 @@ Collection of utilities to perform Dead Code Elimination.
 from loki.visitors import Transformer
 from loki.expression.symbolic import simplify
 from loki.tools import flatten, as_tuple
+from loki.ir import Conditional
 
 
 __all__ = ['dead_code_elimination', 'DeadCodeEliminationTransformer']
@@ -63,4 +64,5 @@ class DeadCodeEliminationTransformer(Transformer):
         if condition == 'False':
             return else_body
 
-        return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)))
+        has_elseif = isinstance(else_body, Conditional)
+        return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
