@@ -7,6 +7,7 @@
 
 import os
 import re
+import sys
 import pickle
 import shutil
 import fnmatch
@@ -14,6 +15,7 @@ import tempfile
 from functools import wraps
 from hashlib import md5
 from pathlib import Path
+from importlib import import_module, reload, invalidate_caches
 
 from loki.logging import debug, info
 from loki.tools.util import as_tuple, flatten
@@ -22,7 +24,7 @@ from loki.config import config
 
 __all__ = [
     'gettempdir', 'filehash', 'delete', 'find_paths', 'find_files',
-    'disk_cached'
+    'disk_cached', 'load_module'
 ]
 
 
@@ -146,3 +148,22 @@ def disk_cached(argname, suffix='cache'):
             return res
         return cached
     return decorator
+
+
+def load_module(module, path=None):
+    """
+    Handle import paths and load the compiled module
+    """
+    if path and str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+    if module in sys.modules:
+        reload(sys.modules[module])
+        return sys.modules[module]
+
+    try:
+        # Attempt to load module directly
+        return import_module(module)
+    except ModuleNotFoundError:
+        # If module caching interferes, try again with clean caches
+        invalidate_caches()
+        return import_module(module)

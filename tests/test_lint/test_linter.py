@@ -429,24 +429,24 @@ def test_linter_lint_files_glob(here, rules, counter, exclude, files, max_worker
 
 
 @pytest.mark.parametrize('counter,routines,files', [
-    (5, [{'name': 'driverA', 'role': 'driver'}], [
+    (5, {'driverA': {'role': 'driver'}}, [
         'module/driverA_mod.f90',
         'module/kernelA_mod.F90',
         'module/compute_l1_mod.f90',
         'source/another_l1.F90',
         'source/another_l2.F90'
     ]),
-    (3, [
-        {'name': 'another_l1', 'role': 'driver'},
-        {'name': 'compute_l1', 'role': 'driver'}
-    ], [
+    (3, {
+        'another_l1': {'role': 'driver'},
+        'compute_l1': {'role': 'driver'}
+    }, [
         'source/another_l1.F90',
         'module/compute_l1_mod.f90',
         'source/another_l2.F90',
     ]),
-    (2, [
-        {'name': 'another_l1', 'role': 'driver'}
-    ], [
+    (2, {
+        'another_l1': {'role': 'driver'}
+    }, [
         'source/another_l1.F90',
         'source/another_l2.F90'
     ]),
@@ -477,7 +477,7 @@ def test_linter_lint_files_scheduler(here, rules, counter, routines, files):
                 'strict': False,
                 'block': ['compute_l2']
             },
-            'routine': routines
+            'routines': routines
         }
     }
 
@@ -497,9 +497,7 @@ def test_linter_lint_files_scheduler(here, rules, counter, routines, files):
             'expand': True,
             'strict': True,
         },
-        'routine': [{
-            'name': 'other_routine',
-        }]
+        'routines': {'other_routine': {}}
     }},
     {'include': ['linter_lint_files_fix.F90']}
 ])
@@ -573,9 +571,7 @@ end subroutine OTHER_ROUTINE
             'expand': True,
             'strict': True
         },
-        'routine': [{
-            'name': 'other_routine',
-        }]
+        'routines': {'other_routine': {}}
     }},
     {'include': ['*.F90']}
 ])

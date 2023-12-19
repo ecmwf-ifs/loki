@@ -34,13 +34,12 @@ def fixture_config():
             'expand': True,
             'strict': True,
         },
-        'routines': [
-            {
-                'name': 'driver',
+        'routines': {
+            'driver': {
                 'role': 'driver',
                 'expand': True,
             },
-        ]
+        }
     }
 
 

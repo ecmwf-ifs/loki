@@ -184,10 +184,9 @@ end module kernel_mod
             'expand': True,
             'strict': True
         },
-        'routine': [{
-            'name': 'driver',
-            'role': 'driver',
-        }]
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
     }
 
     if frontend == FP and not generate_driver_stack:
@@ -489,10 +488,9 @@ end module kernel_mod
             'expand': True,
             'strict': True
         },
-        'routine': [{
-            'name': 'driver',
-            'role': 'driver',
-        }]
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend,
                           definitions=definitions)
@@ -765,11 +763,9 @@ end module kernel_mod
             'expand': True,
             'strict': True
         },
-        'routine': [{
-            'name': 'driver',
-            'role': 'driver',
-            'real_kind': 'jwrb',
-        }]
+        'routines': {
+            'driver': {'role': 'driver', 'real_kind': 'jwrb'}
+        }
     }
 
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend,
@@ -988,9 +984,9 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
             'expand': True,
             'strict': True
         },
-        'routine': [{
-            'name': 'kernel',
-        }]
+        'routines': {
+            'kernel': {}
+        }
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
     if frontend == OMNI:

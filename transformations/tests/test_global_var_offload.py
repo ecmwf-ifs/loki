@@ -40,12 +40,9 @@ def test_transformation_global_var_import(here, config, frontend):
 
     my_config = config.copy()
     my_config['default']['enable_imports'] = True
-    my_config['routine'] = [
-        {
-            'name': 'driver',
-            'role': 'driver'
-        }
-    ]
+    my_config['routines'] = {
+        'driver': {'role': 'driver'}
+    }
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
     scheduler.process(transformation=GlobalVarOffloadTransformation())
@@ -117,12 +114,9 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
 
     my_config = config.copy()
     my_config['default']['enable_imports'] = True
-    my_config['routine'] = [
-        {
-            'name': 'driver_derived_type',
-            'role': 'driver'
-        }
-    ]
+    my_config['routines'] = {
+        'driver_derived_type': {'role': 'driver'}
+    }
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
     scheduler.process(transformation=GlobalVarOffloadTransformation())

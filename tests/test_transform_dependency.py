@@ -32,10 +32,9 @@ def fixture_config():
             'expand': True,
             'strict': True
         },
-        'routine': [{
-            'name': 'driver',
-            'role': 'driver',
-        }]
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
     }
 
 
