@@ -5,28 +5,24 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from collections import defaultdict
-from pymbolic.primitives import Expression
+import re
 
 from loki.transform.transformation import Transformation
-from loki.transform.transform_utilities import recursive_expression_map_update
 from loki.expression import Array, Scalar
 from loki.types import DerivedType, BasicType
 from loki.analyse import dataflow_analysis_attached
 from loki.expression.symbolic import is_dimension_constant, simplify
-from loki.expression.symbols import Variable, Literal, Product, Sum, InlineCall, Cast, IntLiteral, LogicLiteral, RangeIndex, DeferredTypeSymbol
+from loki.expression.symbols import Variable, Literal, Product, Sum, InlineCall, IntLiteral, RangeIndex, DeferredTypeSymbol
 from loki.expression.mappers import DetachScopesMapper
 from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
 from loki.types import SymbolAttributes
-from loki.ir import Assignment, Intrinsic, CallStatement
+from loki.ir import Assignment, CallStatement, Pragma
 from loki.tools import as_tuple
 from loki.visitors import FindNodes, Transformer
 from loki.bulk import SubroutineItem
-
-from loki import fgen
+from loki.pragma_utils import get_pragma_parameters
 
 __all__ = ['TemporariesRawStackTransformation']
-
 
 one = IntLiteral(1)
 
@@ -210,6 +206,23 @@ class TemporariesRawStackTransformation(Transformation):
 
             self.create_stacks_driver(routine, stack_dict, successors)
 
+        self.move_pragma_to_end_of_spec(routine)
+
+
+    def move_pragma_to_end_of_spec(self, routine):
+
+        spec_pragmas = FindNodes(Pragma).visit(routine.spec)
+
+        pragma_map = {}
+
+        pragmas = []
+        for p in spec_pragmas:
+            pragma_map[p] = None
+            pragmas += [p]
+
+        routine.spec = Transformer(pragma_map).visit(routine.spec)
+        routine.spec.append(as_tuple(pragmas))
+
 
     def _get_stack_int_name(self, prefix, dtype, kind, suffix):
         return prefix + '_' + self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + '_' + suffix
@@ -247,9 +260,15 @@ class TemporariesRawStackTransformation(Transformation):
 
     def create_stacks_driver(self, routine, stack_dict, successors):
 
+
+        kgpblock = Scalar(name=self.block_dim.size, scope=routine, type=self.int_type)
+        jgpblock = Scalar(name=self.block_dim.index, scope=routine, type=self.int_type)
+        fulldim = (RangeIndex((None,None)), RangeIndex((None,None)))
         stack_vars = []
         stack_arg_dict = {}
         assignments = []
+        pragma_string = ''
+        pragma_data_start = None
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
 
@@ -257,18 +276,33 @@ class TemporariesRawStackTransformation(Transformation):
                 stack_size_var = Scalar(name=stack_size_name, scope=routine, type=self.int_type)
 
                 stack_var = self._get_stack_var(routine, dtype, kind)
-                stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine), stack_dict[dtype][kind]))
+                stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine), stack_dict[dtype][kind], kgpblock))
                 stack_var = stack_var.clone(type=stack_type)
 
-                stack_arg_dict[dtype] = {kind: (stack_size_var, stack_var)}
-
+                stack_arg_dict[dtype] = {kind: (stack_size_var, stack_var.clone(dimensions = fulldim+(jgpblock,)))}
                 stack_var = stack_var.clone(dimensions=stack_type.shape)
-                stack_vars += [stack_size_var, stack_var]
 
+                stack_vars += [stack_size_var, stack_var]
                 assignments += [Assignment(lhs=stack_size_var, rhs=stack_dict[dtype][kind])]
+                pragma_string += f'{stack_var.name}, '
+
+        if pragma_string:
+            pragma_string = pragma_string[:-2].lower()
+
+            if self.directive == 'openacc':
+                pragma_data_start = Pragma(keyword='acc', content=f'data create({pragma_string})')
+                pragma_data_end = Pragma(keyword='acc', content='end data')
+
+            elif self.directive == 'openmp':
+                pragma_data_start = Pragma(keyword='omp', content=f'target allocate({pragma_string})')
+                pragma_data_end = Pragma(keyword='omp', content='end target')
 
         routine.variables = routine.variables + as_tuple(stack_vars)
         routine.body.prepend(assignments)
+
+        if pragma_data_start:
+            routine.body.prepend(pragma_data_start)
+            routine.body.append(pragma_data_end)
 
         self.insert_stack_in_calls(routine, stack_arg_dict, successors)
 
@@ -277,6 +311,7 @@ class TemporariesRawStackTransformation(Transformation):
 
         stack_vars = []
         stack_arg_dict = {}
+        pragma_string = ''
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
 
@@ -293,7 +328,26 @@ class TemporariesRawStackTransformation(Transformation):
                 arg_dims = (self._get_horizontal_range(routine), RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
                 stack_arg_dict[dtype] = {kind: (Sum((stack_size_var, Product((-1, stack_used_var)))), stack_var.clone(dimensions = arg_dims))}
                 stack_vars += [stack_size_var, stack_var.clone(dimensions=stack_type.shape)]
+                pragma_string += f'{stack_var.name}, '
 
+        if pragma_string:
+            pragma_string = pragma_string[:-2].lower()
+
+            if self.directive == 'openacc':
+                acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
+                for pragma in acc_pragmas:
+                    if pragma.content.lower().startswith('data present'):
+                        present_pragma = pragma
+                        break
+                if present_pragma:
+                    pragma_map = {present_pragma: None}
+                    routine.body = Transformer(pragma_map).visit(routine.body)
+                    content = re.sub(r'\bpresent\(', f'present({pragma_string}, ', pragma.content.lower())
+                    present_pragma = present_pragma.clone(content = content)
+                else:
+                    present_pragma = Pragma(keyword='acc', content=f'data present({pragma_string})')
+                routine.body.prepend(present_pragma)
+        
 
         # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
         # in device code
@@ -348,28 +402,32 @@ class TemporariesRawStackTransformation(Transformation):
 
                 stack_arg = self._get_stack_var(routine, dtype, kind)
                 old_int_var = IntLiteral(0)
-                old_arr_size = IntLiteral(0)
+                old_array_size = ()
 
                 for arr in temporary_array_dict[dtype][kind]:
 
                     int_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine, type=self.int_type)
                     integers += [int_var]
 
-                    arr_size = one
+                    array_size = one
                     for d in arr.dimensions[1:]:
-                        arr_size = Product((arr_size, _get_extent(d)))
+                        array_size = simplify(Product((array_size, _get_extent(d))))
 
-                    stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], arr_size)))
-                    allocations += [Assignment(lhs=int_var, rhs=simplify(Sum((old_int_var, old_arr_size))))]
+                    stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], array_size)))
+                    allocations += [Assignment(lhs=int_var, rhs=Sum((old_int_var,) + old_array_size))]
 
                     old_int_var = int_var
-                    old_arr_size = arr_size
+                    if isinstance(array_size, Sum):
+                        old_array_size = array_size.children
+                    else:
+                        old_array_size = (array_size,)
+                        
 
                     temp_map = self._map_temporary_array(arr, int_var, routine, stack_arg)
                     var_map = {**var_map, **temp_map}
                     stack_set.add(stack_arg)
 
-                stack_used = simplify(Sum((int_var, arr_size)))
+                stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
             
@@ -530,14 +588,20 @@ class TemporariesRawStackTransformation(Transformation):
             offset = simplify(offset)
             stack_size = simplify(stack_size)
 
-            lower = Sum((int_var, offset))
+            if isinstance(offset, Sum):
+                lower = Sum((int_var,) + offset.children)
+            else:
+                lower = Sum((int_var, offset))
 
             if stack_size == one:
                 stack_dimensions[1] = lower
 
             else:
                 offset = simplify(Sum((offset, stack_size, Product((-1,one)))))
-                upper = Sum((int_var, offset))
+                if isinstance(offset, Sum):
+                    upper = Sum((int_var,) + offset.children)
+                else:
+                    upper = Sum((int_var, offset))
                 stack_dimensions[1] = RangeIndex((lower, upper))
 
             temp_map[t] = stack_arg.clone(dimensions=as_tuple(stack_dimensions))
