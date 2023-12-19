@@ -393,6 +393,7 @@ def test_normalize_array_access(here, frontend, start_index):
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     orig_x1, orig_x2, orig_x3, orig_x4 = init_arguments(l1, l2, l3, l4)
     function(orig_x1, orig_x2, orig_x3, orig_x4, l1, l2, l3, l4)
+    clean_test(filepath)
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_array_access(routine)
@@ -402,6 +403,7 @@ def test_normalize_array_access(here, frontend, start_index):
     x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4)
     function(x1, x2, x3, x4, l1, l2, l3, l4)
     validate_routine(routine)
+    clean_test(filepath)
 
     assert (x1 == orig_x1).all()
     assert (x2 == orig_x2).all()
@@ -476,6 +478,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     orig_x1, orig_x2, orig_x3, orig_x4 = init_arguments(l1, l2, l3, l4)
     function(orig_x1, orig_x2, orig_x3, orig_x4, l1, l2, l3, l4)
+    clean_test(filepath)
 
     # Test flattening order='F'
     f_routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -487,6 +490,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     f_x1, f_x2, f_x3, f_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
     function(f_x1, f_x2, f_x3, f_x4, l1, l2, l3, l4)
     validate_routine(f_routine)
+    clean_test(filepath)
 
     assert (f_x1 == orig_x1.flatten()).all()
     assert (f_x2 == orig_x2.flatten()).all()
@@ -504,6 +508,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     c_x1, c_x2, c_x3, c_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
     function(c_x1, c_x2, c_x3, c_x4, l1, l2, l3, l4)
     validate_routine(c_routine)
+    clean_test(filepath)
 
     assert f_routine.body == c_routine.body
 
