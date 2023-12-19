@@ -611,7 +611,7 @@ end subroutine acraneb_transt
     assert len(assocs) == 2
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No header information in test')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_marked_subroutines(frontend):
     """ Test subroutine inlining via marker pragmas. """
 
@@ -641,6 +641,7 @@ end subroutine test_pragma_inline
 
     fcode_module = """
 module util_mod
+implicit none
 
 contains
   subroutine add_one(a)
@@ -651,6 +652,7 @@ contains
   subroutine add_a_to_b(a, b, n)
     real(kind=8), intent(inout) :: a(:), b(:)
     integer, intent(in) :: n
+    integer :: i
 
     do i = 1, n
       a(i) = a(i) + b(i)
@@ -658,8 +660,8 @@ contains
   end subroutine add_a_to_b
 end module util_mod
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     module = Module.from_source(fcode_module, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich(module)
 
     calls = FindNodes(CallStatement).visit(driver.body)
@@ -667,7 +669,7 @@ end module util_mod
     assert calls[1].routine == module['add_a_to_b']
     assert calls[2].routine == module['add_one']
 
-    inline_marked_subroutines(routine=driver)
+    inline_marked_subroutines(routine=driver, allowed_aliases=('i',))
 
     # Check inlined loops and assignments
     assert len(FindNodes(Loop).visit(driver.body)) == 3
@@ -683,7 +685,7 @@ end module util_mod
     assert calls[0].arguments == ('b(i)',)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No header information in test')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_marked_routine_with_optionals(frontend):
     """ Test subroutine inlining via marker pragmas with omitted optionals. """
 
@@ -711,6 +713,7 @@ end subroutine test_pragma_inline_optionals
 
     fcode_module = """
 module util_mod
+implicit none
 
 contains
   subroutine add_one(a, two)
@@ -724,8 +727,8 @@ contains
   end subroutine add_one
 end module util_mod
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     module = Module.from_source(fcode_module, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich(module)
 
     calls = FindNodes(CallStatement).visit(driver.body)
