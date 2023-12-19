@@ -267,7 +267,7 @@ def convert(
         transformation = TemporariesRawStackTransformation(
             block_dim=block_dim, horizontal=horizontal, directive=directive, check_bounds='scc' not in mode
         )
-        scheduler.process(transformation=transformation, reverse=True)
+        scheduler.process(transformation=transformation)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     scheduler.process( ModuleWrapTransformation(module_suffix='_MOD') )

@@ -28,6 +28,8 @@ from loki import fgen
 __all__ = ['TemporariesRawStackTransformation']
 
 
+one = IntLiteral(1)
+
 def _get_extent(d):
 
     if isinstance(d, RangeIndex):
@@ -35,9 +37,9 @@ def _get_extent(d):
         if (d.lower is None or d.upper is None):
             raise RuntimeError(f'Trying to get extent of unbounded RangeIndex {d}')
 
-        if d.lower == IntLiteral(1):
+        if d.lower == one:
             return d.upper
-        return Sum((d.upper, Product((-1,d.lower)), IntLiteral(1)))
+        return Sum((d.upper, Product((-1,d.lower)), one))
     return d
 
 
@@ -58,7 +60,6 @@ def _check_contiguous_access(t):
             all_ranges = False
 
     return True
-
 
 class TemporariesRawStackTransformation(Transformation):
     """
@@ -135,6 +136,9 @@ class TemporariesRawStackTransformation(Transformation):
 
     _key = 'TemporariesRawStackTransformation'
 
+    # Traverse call tree in reverse when using Scheduler
+    reverse_traversal = True
+
     def __init__(self, block_dim, horizontal,
                  stack_type_name='STACK',
                  stack_size_name='ISTSZ', stack_name='STACK',
@@ -189,8 +193,6 @@ class TemporariesRawStackTransformation(Transformation):
 
         successors = kwargs.get('successors', ())
 
-        self.horizontal_var = Variable(name=self.horizontal.size, scope=routine)
-        self.horizontal_range = RangeIndex((IntLiteral(1), self.horizontal_var))
         self.role = role
 
         if role == 'kernel':
@@ -200,59 +202,108 @@ class TemporariesRawStackTransformation(Transformation):
                 stack_dict = self._determine_stack_size(routine, successors, stack_dict, item=item)
                 item.trafo_data[self._key]['stack_dict'] = stack_dict
 
+            self.create_stacks_kernel(routine, stack_dict, successors)
+
         if role == 'driver':
 
             stack_dict = self._determine_stack_size(routine, successors, item=item)
 
-        self.create_stacks(routine, stack_dict)
-#        self.insert_stack_in_calls(routine, targets)
+            self.create_stacks_driver(routine, stack_dict, successors)
 
 
-    def insert_stack_in_calls(self, routine, targets):
+    def _get_stack_int_name(self, prefix, dtype, kind, suffix):
+        return prefix + '_' + self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + '_' + suffix
 
+
+    def insert_stack_in_calls(self, routine, stack_arg_dict, successors):
+
+        successor_map = {successor.routine.name.lower(): successor for successor in successors
+                                                         if isinstance(successor, SubroutineItem)}
         call_map = {}
-        stack_var = self._get_stack_var(routine, BasicType.REAL, DeferredTypeSymbol('JPRB'))
-
 
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.name in targets and stack_var.name in (a.name for a in call.routine.arguments):
+            if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
+                successor_stack_dict = successor_map[call.name].trafo_data[self._key]['stack_dict']
+
+                call_stack_args = []
+
+                for dtype in successor_stack_dict:
+                    for kind in successor_stack_dict[dtype]:
+                        call_stack_args += list(stack_arg_dict[dtype][kind])
+
+                arg_pos = [call.routine.arguments.index(arg) for arg in call.routine.arguments if arg.type.optional]
+
                 arguments = call.arguments
-                call_map[call] = call.clone(arguments=arguments + (stack_var,))
+                if arg_pos:
+                    arguments = arguments[:arg_pos[0]] + as_tuple(stack_args) + arguments[arg_pos[0]:]
+                else:
+                    arguments += as_tuple(call_stack_args)
+
+                call_map[call] = call.clone(arguments=arguments)
 
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
 
 
-    def create_stacks(self, routine, stack_dict):
+    def create_stacks_driver(self, routine, stack_dict, successors):
 
         stack_vars = []
+        stack_arg_dict = {}
+        assignments = []
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
 
-                if self.role == 'kernel':
-                    int_name = 'K_' + self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + '_STACK_SIZE'
-                    stack_int = Scalar(name=int_name, scope=routine, type=self.int_type.clone(intent='IN'))
-                    stack_size = stack_int
-                    stack_vars += [stack_int]
-                else:
-                    stack_size = stack_dict[dtype][kind]
-                
+                stack_size_name = self._get_stack_int_name('J', dtype, kind, 'STACK_SIZE')
+                stack_size_var = Scalar(name=stack_size_name, scope=routine, type=self.int_type)
 
                 stack_var = self._get_stack_var(routine, dtype, kind)
+                stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine), stack_dict[dtype][kind]))
+                stack_var = stack_var.clone(type=stack_type)
 
-                stack_type = stack_var.type.clone(shape=(self.horizontal_var, stack_size))
-                stack_vars += [stack_var.clone(type=stack_type, dimensions=stack_type.shape)]
+                stack_arg_dict[dtype] = {kind: (stack_size_var, stack_var)}
 
-        if self.role == 'kernel':
-            # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
-            # in device code
-            arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
-            if arg_pos:
-                routine.arguments = routine.arguments[:arg_pos[0]] + as_tuple(stack_vars) + routine.arguments[arg_pos[0]:]
-            else:
-                routine.arguments += as_tuple(stack_vars)
+                stack_var = stack_var.clone(dimensions=stack_type.shape)
+                stack_vars += [stack_size_var, stack_var]
+
+                assignments += [Assignment(lhs=stack_size_var, rhs=stack_dict[dtype][kind])]
+
+        routine.variables = routine.variables + as_tuple(stack_vars)
+        routine.body.prepend(assignments)
+
+        self.insert_stack_in_calls(routine, stack_arg_dict, successors)
+
+
+    def create_stacks_kernel(self, routine, stack_dict, successors):
+
+        stack_vars = []
+        stack_arg_dict = {}
+        for dtype in stack_dict:
+            for kind in stack_dict[dtype]:
+
+                stack_size_name = self._get_stack_int_name('K', dtype, kind, 'STACK_SIZE')
+                stack_size_var = Scalar(name=stack_size_name, scope=routine, type=self.int_type.clone(intent='IN'))
+
+                stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
+                stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
+
+                stack_var = self._get_stack_var(routine, dtype, kind)
+                stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine), stack_size_var))
+                stack_var = stack_var.clone(type=stack_type)
+
+                arg_dims = (self._get_horizontal_range(routine), RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
+                stack_arg_dict[dtype] = {kind: (Sum((stack_size_var, Product((-1, stack_used_var)))), stack_var.clone(dimensions = arg_dims))}
+                stack_vars += [stack_size_var, stack_var.clone(dimensions=stack_type.shape)]
+
+
+        # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
+        # in device code
+        arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
+        if arg_pos:
+            routine.arguments = routine.arguments[:arg_pos[0]] + as_tuple(stack_vars) + routine.arguments[arg_pos[0]:]
         else:
-            routine.variables = routine.variables + as_tuple(stack_vars)
+            routine.arguments += as_tuple(stack_vars)
+
+        self.insert_stack_in_calls(routine, stack_arg_dict, successors)
 
 
     def apply_raw_stack_allocator_to_temporaries(self, routine, item=None):
@@ -278,7 +329,6 @@ class TemporariesRawStackTransformation(Transformation):
         stack_dict = {}
         stack_set = set()
 
-        stack_size = IntLiteral(1)
 
         for dtype in temporary_array_dict:
 
@@ -287,6 +337,7 @@ class TemporariesRawStackTransformation(Transformation):
 
             for kind in temporary_array_dict[dtype]:
 
+                stack_used = IntLiteral(0)
                 if kind not in stack_dict[dtype].keys():
                     stack_dict[dtype][kind] = Literal(0)
 
@@ -297,39 +348,37 @@ class TemporariesRawStackTransformation(Transformation):
 
                 stack_arg = self._get_stack_var(routine, dtype, kind)
                 old_int_var = IntLiteral(0)
-                old_dim = IntLiteral(0)
+                old_arr_size = IntLiteral(0)
 
                 for arr in temporary_array_dict[dtype][kind]:
 
                     int_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine, type=self.int_type)
                     integers += [int_var]
 
-                    dim = IntLiteral(1)
-
+                    arr_size = one
                     for d in arr.dimensions[1:]:
-                        dim = Product((dim, _get_extent(d)))
+                        arr_size = Product((arr_size, _get_extent(d)))
 
-                    stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], dim)))
-                    allocations += [Assignment(lhs=int_var, rhs=simplify(Sum((old_int_var, old_dim))))]
+                    stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], arr_size)))
+                    allocations += [Assignment(lhs=int_var, rhs=simplify(Sum((old_int_var, old_arr_size))))]
 
                     old_int_var = int_var
-                    old_dim = dim
+                    old_arr_size = arr_size
 
                     temp_map = self._map_temporary_array(arr, int_var, routine, stack_arg)
                     var_map = {**var_map, **temp_map}
                     stack_set.add(stack_arg)
 
-
-
+                stack_used = simplify(Sum((int_var, arr_size)))
+                stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
+                stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
+            
+                integers += [stack_used_var]
+                allocations += [Assignment(lhs=stack_used_var, rhs=stack_used)]
 
         if var_map:
 
             routine.body = SubstituteExpressions(var_map).visit(routine.body)
-            stack_size = simplify(Sum((old_int_var, old_dim)))
-
-        stack_size_var = Scalar(name=self.local_int_var_name_pattern.format(name='STACK_SIZE'), scope=routine, type=self.int_type)
-        integers += [stack_size_var]
-        allocations += [Assignment(lhs=stack_size_var, rhs=stack_size)]
 
         routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
         routine.body.prepend(allocations)
@@ -405,54 +454,91 @@ class TemporariesRawStackTransformation(Transformation):
 
         for t in temp_arrays:
 
+            offset = one
+            stack_size = one
+
             if t.dimensions:
 
-                if all(isinstance(d, scalar_types) for d in t.dimensions):
+                stack_dimensions[0] = t.dimensions[0]
 
-                    stack_dimensions[0] = t.dimensions[0]
-
-                    offset = IntLiteral(1)
-
-                    for i,d in enumerate(t.dimensions[1:]):
-                        d_offset = Sum((d, Product((-1,IntLiteral(1)))))
-                        for j in range(0,i):
-                            d_offset = Product((d_offset, _get_extent(t.shape[j+1])))
-                        offset = Sum((offset, d_offset))
-
-                    stack_dimensions[1] = simplify(Sum((int_var, offset)))
-
-                elif _check_contiguous_access(t):
-
-                    stack_dimensions[0] = self.horizontal_range
-
-                    stack_size = IntLiteral(1)
-                    for s in t.shape[1:-1]:
-                        stack_size = Product((stack_size, _get_extent(s)))
-
-                    if isinstance(t.dimensions[-1], scalar_types):
-                        lower_factor = simplify(Sum((t.dimensions[-1], Product((-1,IntLiteral(1))))))
-                        upper_factor = t.dimensions[-1]
-                    else:
-                        lower_factor = simplify(Sum((t.dimensions[-1].lower, Product((-1,IntLiteral(1))))))
-                        upper_factor = t.dimensions[-1].upper
-
-                    lower = simplify(Sum((int_var, IntLiteral(1), Product((lower_factor, stack_size)))))
-                    upper = simplify(Sum((int_var, Product((upper_factor, stack_size)))))
-
-                    stack_dimensions[1] = RangeIndex((lower, upper))
-
+                if (isinstance(t.dimensions[0], RangeIndex) and
+                    (t.dimensions[0] == self._get_horizontal_range(routine) or
+                    (t.dimensions[0].lower is None and t.dimensions[0].upper is None))):
+                    contiguous = True
                 else:
+                    contiguous = False
 
-                    raise RuntimeError(f'Discontiguous access of array {t}')
+                s_offset = one
+                for d, s in zip(t.dimensions[1:], t.shape[1:]):
+                
+                    if isinstance(s, RangeIndex):
+                        s_lower = s.lower
+                        s_upper = s.upper
+                        s_extent = Sum((s_upper, Product((-1, s_lower)), one))
+                    else:
+                        s_lower = one
+                        s_upper = s
+                        s_extent = s
+
+                    if isinstance(d, RangeIndex):
+
+                        if not contiguous:
+                            raise RuntimeError(f'Discontiguous access of array {t}')
+
+                        if d.lower is None:
+                            d_lower = s_lower
+                        else:
+                            d_lower = d.lower
+
+                        if d.upper is None:
+                            d_upper = s_upper
+                        else:
+                            d_upper = d.upper
+
+                        contiguous = (d_upper == s_upper) and (d_lower == s_lower) 
+
+                        stack_size = Product((stack_size, Sum((d_upper, Product((-1, d_lower)), one))))
+
+                    else:
+
+                        d_lower = d
+
+                    
+                    d_offset =  Sum((d_lower, Product((-1, s_lower))))
+
+                    offset = Sum((offset, Product((d_offset, s_offset))))
+
+                    s_offset = Product((s_offset, s_extent))
+
 
             else:
 
-                stack_dimensions[0] = self.horizontal_range
+                stack_dimensions[0] = self._get_horizontal_range(routine)
 
-                stack_size = IntLiteral(1)
                 for s in t.shape[1:]:
-                    stack_size = Product((stack_size, _get_extent(s)))
-                stack_dimensions[1] = RangeIndex((Sum((int_var,IntLiteral(1))), Sum((int_var, simplify(stack_size)))))
+                    if isinstance(s, RangeIndex):
+                        s_lower = s.lower
+                        s_upper = s.upper
+                        s_extent = Sum((s_upper, Product((-1, s_lower)), one))
+                    else:
+                        s_lower = one
+                        s_upper = s
+                        s_extent = s
+
+                    stack_size = Product((stack_size, s_extent))
+
+            offset = simplify(offset)
+            stack_size = simplify(stack_size)
+
+            lower = Sum((int_var, offset))
+
+            if stack_size == one:
+                stack_dimensions[1] = lower
+
+            else:
+                offset = simplify(Sum((offset, stack_size, Product((-1,one)))))
+                upper = Sum((int_var, offset))
+                stack_dimensions[1] = RangeIndex((lower, upper))
 
             temp_map[t] = stack_arg.clone(dimensions=as_tuple(stack_dimensions))
 
@@ -485,13 +571,13 @@ class TemporariesRawStackTransformation(Transformation):
         # Build expression for array size in bytes.
         # Assert first dimension is horizontal
         if arr.dimensions[0].name.lower() == self.horizontal.size.lower():
-            dim = IntLiteral(1)
+            dim = one
         else:
             raise RuntimeError('Found non-horizontal dimension in _create_stack_allocation')
 
         for d in arr.dimensions[1:]:
             if isinstance(d, RangeIndex):
-                dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), IntLiteral(1))))))
+                dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), one)))))
             else:
                 dim = Product((dim, d))
 
@@ -616,3 +702,10 @@ class TemporariesRawStackTransformation(Transformation):
                                       shape = (RangeIndex((None, None))))
 
         return Array(name=stack_name, type=stack_type, scope=routine)
+
+
+    def _get_horizontal_variable(self, routine):
+        return Variable(name=self.horizontal.size, scope=routine, type=self.int_type)
+
+    def _get_horizontal_range(self, routine):
+        return RangeIndex((one, self._get_horizontal_variable(routine)))
