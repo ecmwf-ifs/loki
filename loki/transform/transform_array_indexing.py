@@ -29,7 +29,7 @@ __all__ = [
     'resolve_vector_notation', 'normalize_range_indexing',
     'promote_variables', 'promote_nonmatching_variables',
     'promotion_dimensions_from_loop_nest', 'demote_variables',
-    'flatten_arrays', 'normalize_array_access'
+    'flatten_arrays', 'normalize_array_shape_and_access'
 ]
 
 
@@ -498,7 +498,7 @@ def demote_variables(routine, variable_names, dimensions):
 
     info(f'[Loki::Transform] Demoted variables in {routine.name}: {", ".join(variable_names)}')
 
-def normalize_array_access(routine):
+def normalize_array_shape_and_access(routine):
     """
     Shift all arrays to start counting at "1"
     """

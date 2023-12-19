@@ -15,7 +15,7 @@ from loki.expression import symbols as sym
 from loki.transform import (
         promote_variables, demote_variables, normalize_range_indexing,
         invert_array_indices, flatten_arrays,
-        normalize_array_access
+        normalize_array_shape_and_access
         )
 from loki.transform import (
     FortranCTransformation
@@ -328,14 +328,14 @@ end subroutine transform_demote_dimension_arguments
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('start_index', (0, 1, 5))
-def test_transform_normalize_array_access(here, frontend, start_index):
+def test_transform_normalize_array_shape_and_access(here, frontend, start_index):
     """
     Test flattening or arrays, meaning converting multi-dimensional
     arrays to one-dimensional arrays including corresponding
     index arithmetic.
     """
     fcode = f"""
-    subroutine transform_normalize_array_access(x1, x2, x3, x4, l1, l2, l3, l4)
+    subroutine transform_normalize_array_shape_and_access(x1, x2, x3, x4, l1, l2, l3, l4)
         implicit none
         integer :: i1, i2, i3, i4, c1, c2, c3, c4
         integer, intent(in) :: l1, l2, l3, l4
@@ -369,7 +369,7 @@ def test_transform_normalize_array_access(here, frontend, start_index):
             c1 = c1 + 1
         end do
 
-    end subroutine transform_normalize_array_access
+    end subroutine transform_normalize_array_shape_and_access
     """
     def init_arguments(l1, l2, l3, l4):
         x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
@@ -396,7 +396,7 @@ def test_transform_normalize_array_access(here, frontend, start_index):
     clean_test(filepath)
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_array_access(routine)
+    normalize_array_shape_and_access(routine)
     normalize_range_indexing(routine)
     filepath = here/(f'{routine.name}_normalized_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
@@ -460,10 +460,6 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
         x2 = np.zeros(shape=(l2*l1) if flattened else (l2,l1,), order='F', dtype=np.int32)
         x3 = np.zeros(shape=(l3*l2*l1) if flattened else (l3,l2,l1,), order='F', dtype=np.int32)
         x4 = np.zeros(shape=(l4*l3*l2*l1) if flattened else (l4,l3,l2,l1,), order='F', dtype=np.int32)
-        #x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
-        #x2 = np.zeros(shape=(l2*l1) if flattened else (l1,l2), order='F', dtype=np.int32)
-        #x3 = np.zeros(shape=(l3*l2*l1) if flattened else (l1,l2,l3), order='F', dtype=np.int32)
-        #x4 = np.zeros(shape=(l4*l3*l2*l1) if flattened else (l1,l2,l3,l4), order='F', dtype=np.int32)
         return x1, x2, x3, x4
 
     def validate_routine(routine):
@@ -486,7 +482,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
 
     # Test flattening order='F'
     f_routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_array_access(f_routine)
+    normalize_array_shape_and_access(f_routine)
     normalize_range_indexing(f_routine) # Fix OMNI nonsense
     flatten_arrays(routine=f_routine, order='F', start_index=1)
     filepath = here/(f'{f_routine.name}_{start_index}_flattened_F_{frontend}.f90')
@@ -503,7 +499,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
 
     # Test flattening order='C'
     c_routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_array_access(c_routine)
+    normalize_array_shape_and_access(c_routine)
     normalize_range_indexing(c_routine) # Fix OMNI nonsense
     invert_array_indices(c_routine)
     flatten_arrays(routine=c_routine, order='C', start_index=1)

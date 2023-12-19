@@ -11,8 +11,8 @@ from collections import OrderedDict
 from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
-    resolve_vector_notation, normalize_range_indexing,
-    normalize_array_access, flatten_arrays
+    resolve_vector_notation, normalize_array_shape_and_access,
+    flatten_arrays
 )
 from loki.transform.transform_associates import resolve_associates
 from loki.transform.transform_utilities import (
@@ -368,8 +368,7 @@ class FortranCTransformation(Transformation):
 
         # Clean up Fortran vector notation
         resolve_vector_notation(kernel)
-        normalize_array_access(kernel)
-        normalize_range_indexing(kernel)
+        normalize_array_shape_and_access(kernel)
 
         # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
