@@ -113,7 +113,7 @@ def cli(debug):
               help='Replace array arguments passed as scalars with arrays.')
 @click.option('--derive-argument-array-shape/--no-derive-argument-array-shape', default=False,
               help="Recursively derive explicit shape dimension for argument arrays")
-@click.option('--eliminate_dead_code/--no-eliminate_dead_code', default=True,
+@click.option('--eliminate-dead-code/--no-eliminate-dead-code', default=True,
               help='Perform dead code elimination, where unreachable branches are trimmed from the code.')
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
