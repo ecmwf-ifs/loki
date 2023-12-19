@@ -326,7 +326,7 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
         if v.name in parent_variables and v.name.lower() not in callee._dummies
     )
     # Filter out allowed aliases to prevent suffixing
-    duplicates = tuple(v for v in duplicates if v.name not in allowed_aliases)
+    duplicates = tuple(v for v in duplicates if v.symbol not in allowed_aliases)
     shadow_mapper = SubstituteExpressions(
         {v: v.clone(name=f'{callee.name}_{v.name}') for v in duplicates}
     )

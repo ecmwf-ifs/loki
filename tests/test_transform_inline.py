@@ -669,7 +669,7 @@ end module util_mod
     assert calls[1].routine == module['add_a_to_b']
     assert calls[2].routine == module['add_one']
 
-    inline_marked_subroutines(routine=driver, allowed_aliases=('i',))
+    inline_marked_subroutines(routine=driver, allowed_aliases=('I',))
 
     # Check inlined loops and assignments
     assert len(FindNodes(Loop).visit(driver.body)) == 3
