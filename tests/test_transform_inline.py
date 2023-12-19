@@ -520,6 +520,57 @@ end subroutine outer
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_internal_routines_aliasing_declaration(frontend):
+    """
+    Test declaration splitting when inlining internal procedures.
+    """
+    fcode = """
+subroutine outer()
+  integer :: z
+  integer :: jlon
+  z = 0
+  jlon = 0
+
+  call inner(z)
+
+  jlon = z + 4
+contains
+  subroutine inner(z)
+    integer, intent(inout) :: z
+    integer :: jlon, jg ! These two need to get separated
+    jlon = 1
+    jg = 2
+    z = jlon + jg
+  end subroutine inner
+end subroutine outer
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check outer and inner variables
+    assert len(routine.variable_map) == 2
+    assert 'z' in routine.variable_map
+    assert 'jlon' in routine.variable_map
+
+    assert len(routine['inner'].variable_map) == 3
+    assert 'z' in routine['inner'].variable_map
+    assert 'jlon' in routine['inner'].variable_map
+    assert 'jg' in routine['inner'].variable_map
+
+    inline_member_procedures(routine, allowed_aliases=('jlon',))
+
+    assert len(routine.variable_map) == 3
+    assert 'z' in routine.variable_map
+    assert 'jlon' in routine.variable_map
+    assert 'jg' in routine.variable_map
+
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 6
+    assert assigns[2].lhs == 'jlon' and assigns[2].rhs == '1'
+    assert assigns[3].lhs == 'jg' and assigns[3].rhs == '2'
+    assert assigns[4].lhs == 'z' and assigns[4].rhs == 'jlon + jg'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_member_routines_sequence_assoc(frontend):
     """
     Test inlining of member subroutines in the presence of sequence

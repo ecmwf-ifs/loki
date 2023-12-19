@@ -24,6 +24,8 @@ from loki.tools import as_tuple
 from loki.logging import warning, error
 from loki.pragma_utils import pragmas_attached, is_loki_pragma
 
+from loki.transform.transform_utilities import single_variable_declaration
+
 
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
@@ -339,6 +341,10 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
             var_map[v] = v.clone(name=f'{callee.name}_{v.name}')
     callee.body = SubstituteExpressions(var_map).visit(callee.body)
 
+    # Separate allowed aliases from other variables to ensure clean hoisting
+    if allowed_aliases:
+        single_variable_declaration(callee, variables=allowed_aliases)
+
     # Get local variable declarations and hoist them
     decls = FindNodes(VariableDeclaration).visit(callee.spec)
     decls = tuple(d for d in decls if all(s.name.lower() not in callee._dummies for s in d.symbols))
@@ -356,7 +362,7 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     routine.body = Transformer(call_map).visit(routine.body)
 
 
-def inline_internal_procedures(routine):
+def inline_internal_procedures(routine, allowed_aliases=None):
     """
     Inline internal subroutines contained in an individual :any:`Subroutine`.
 
@@ -366,6 +372,9 @@ def inline_internal_procedures(routine):
     ----------
     routine : :any:`Subroutine`
         The subroutine in which to inline all member routines
+    allowed_aliases : tuple or list of str or :any:`Expression`, optional
+        List of variables that will not be renamed in the parent scope, even
+        if they alias with a local declaration.
     """
 
     # Run through all members and invoke individual inlining transforms
@@ -378,7 +387,7 @@ def inline_internal_procedures(routine):
                 call for call in FindNodes(CallStatement).visit(routine.body)
                 if call.routine == child
             )
-            inline_subroutine_calls(routine, calls, child)
+            inline_subroutine_calls(routine, calls, child, allowed_aliases=allowed_aliases)
 
             # Can't use transformer to replace subroutine, so strip it manually
             contains_body = tuple(n for n in routine.contains.body if not n == child)
