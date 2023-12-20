@@ -14,7 +14,7 @@ from collections import defaultdict
 
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, LokiIdentityMapper
+    SubstituteExpressions, LokiIdentityMapper,
 )
 from loki.ir import Import, Comment, Assignment, VariableDeclaration, CallStatement
 from loki.expression import symbols as sym
@@ -334,11 +334,24 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     )
     callee.spec = shadow_mapper.visit(callee.spec)
 
-    var_map = {}
     duplicate_names = {dl.name.lower() for dl in duplicates}
-    for v in FindVariables(unique=False).visit(callee.body):
-        if v.name.lower() in duplicate_names:
-            var_map[v] = v.clone(name=f'{callee.name}_{v.name}')
+    need_rename = tuple(v for v in FindVariables(unique=False).visit(callee.body) \
+                        if v.name.lower() in duplicate_names)
+    nonarr_map = {}
+    for v in need_rename:
+        if not isinstance(v, sym.Array):
+            # Non-arrays handled by just changing name.
+            nonarr_map[v] = v.clone(name=f'{callee.name}_{v.name}')
+
+    var_map = {}
+    for v in need_rename:
+        if isinstance(v, sym.Array):
+            # Arrays require special handling, since their dimensions may contain variables
+            # that themselves also need to change.
+            replacement = v.clone(name=f'{callee.name}_{v.name}',
+                                  dimensions = SubstituteExpressions(nonarr_map).visit(v.dimensions))
+            var_map[v] = replacement
+    var_map.update(nonarr_map)
     callee.body = SubstituteExpressions(var_map).visit(callee.body)
 
     # Separate allowed aliases from other variables to ensure clean hoisting
