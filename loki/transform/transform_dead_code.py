@@ -64,5 +64,5 @@ class DeadCodeEliminationTransformer(Transformer):
         if condition == 'False':
             return else_body
 
-        has_elseif = isinstance(else_body, Conditional)
+        has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
