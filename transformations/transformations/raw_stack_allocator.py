@@ -26,106 +26,45 @@ __all__ = ['TemporariesRawStackTransformation']
 
 one = IntLiteral(1)
 
-def _get_extent(d):
-
-    if isinstance(d, RangeIndex):
-
-        if (d.lower is None or d.upper is None):
-            raise RuntimeError(f'Trying to get extent of unbounded RangeIndex {d}')
-
-        if d.lower == one:
-            return d.upper
-        return Sum((d.upper, Product((-1,d.lower)), one))
-    return d
-
-
-def _check_contiguous_access(t):
-
-    all_ranges = True
-
-    for d, s in zip(t.dimensions[:-1], t.shape[:-1]):
-
-        if isinstance(d, RangeIndex):
-            if not all_ranges:
-                return False
-            if d.upper is None and d.lower is None:
-                continue
-            if _get_extent(d) != _get_extent(s):
-                return False
-        else:
-            all_ranges = False
-
-    return True
 
 class TemporariesRawStackTransformation(Transformation):
     """
-    Transformation to inject a pool allocator that allocates a large scratch space per block
-    on the driver and maps temporary arrays in kernels to this scratch space
-
-    It is built on top of a derived type declared in a separate Fortran module (by default
-    called ``stack_mod``), which should simply be commited to the target code base and included
-    into the list of source files for transformed targets. It should look similar to this:
-
-    .. code-block:: Fortran
-
-        MODULE STACK_MOD
-            IMPLICIT NONE
-            TYPE STACK
-                INTEGER*8 :: L, U
-            END TYPE
-            PRIVATE
-            PUBLIC :: STACK
-        END MODULE
-
-    It provides two integer variables, ``L`` and ``U``, which are used as a stack pointer and
-    stack end pointer, respectively. Naming is flexible and can be changed via options to the transformation.
+    Transformation to inject stack arrays at the driver level. These, as well 
+    as corresponding sizes are passed on to the kernels. Any temporary arrays with
+    the horizontal dimension as lead dimension are then allocated as offsets
+    in the stack array.
 
     The transformation needs to be applied in reverse order, which will do the following for each **kernel**:
 
-    * Import the ``STACK`` derived type
-    * Add an argument to the kernel call signature to pass the stack derived type
-    * Create a local copy of the stack derived type inside the kernel
-    * Determine the combined size of all local arrays that are to be allocated by the pool allocator,
+    * Add arguments to the kernel call signature to pass the stack arrays and their (free) size
+    * Determine the combined size of all local arrays that are to be allocated on the stack,
       taking into account calls to nested kernels. This is reported in :any:`Item`'s ``trafo_data``.
-    * Inject Cray pointer assignments and stack pointer increments for all temporaries
+    * Replace any access to temporary arrays with the corresponding offsets in the stack array
     * Pass the local copy of the stack derived type as argument to any nested kernel calls
-
-    By default, all local array arguments are allocated by the pool allocator, but this can be restricted
-    to include only those that have at least one dimension matching one of those provided in :data:`allocation_dims`.
 
     In a **driver** routine, the transformation will:
 
     * Determine the required scratch space from ``trafo_data``
-    * Allocate the scratch space to that size
+    * Allocate the stack arrays
     * Insert data transfers (for OpenACC offloading)
     * Insert data sharing clauses into OpenMP or OpenACC pragmas
-    * Assign stack base pointer and end pointer for each block (identified via :data:`block_dim`)
-    * Pass the stack argument to kernel calls
+    * Pass the stack arrays and sizes into the kernel calls
 
     Parameters
     ----------
+    horizontal: :any:`Dimension`
+        :any:`Dimension` object to define the horizontal dimension
     block_dim : :any:`Dimension`
         :any:`Dimension` object to define the blocking dimension
-        to use for hoisted column arrays if hoisting is enabled.
-    stack_type_name : str, optional
-        Name of the derived type for the stack definition (default: ``'STACK'``)
-    stack_size_name : str, optional
-        Name of the variable that holds the size of the scratch space in the
-        driver (default: ``'ISTSZ'``)
-    stack_storage_name : str, optional
+    stack_name : str, optional
         Name of the scratch space variable that is allocated in the
-        driver (default: ``'ZSTACK'``)
-    stack_argument_name : str, optional
-        Name of the stack argument that is added to kernels (default: ``'YDSTACK'``)
+        driver (default: ``'STACK'``)
     local_int_var_name_pattern : str, optional
         Python format string pattern for the name of the integer variable
         for each temporary (default: ``'JD_{name}'``)
     directive : str, optional
         Can be ``'openmp'`` or ``'openacc'``. If given, insert data sharing clauses for
         the stack derived type, and insert data transfer statements (for OpenACC only).
-    check_bounds : bool, optional
-        Insert bounds-checks in the kernel to make sure the allocated stack size is not
-        exceeded (default: `True`)
     key : str, optional
         Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
@@ -136,19 +75,15 @@ class TemporariesRawStackTransformation(Transformation):
     reverse_traversal = True
 
     def __init__(self, block_dim, horizontal,
-                 stack_type_name='STACK',
-                 stack_size_name='ISTSZ', stack_name='STACK',
+                 stack_name='STACK',
                  local_int_var_name_pattern='JD_{name}',
-                 directive=None, check_bounds=True, key=None, **kwargs):
+                 directive=None, key=None, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
         self.horizontal = horizontal
-        self.stack_type_name = stack_type_name
-        self.stack_size_name = stack_size_name
         self.stack_name = stack_name
         self.local_int_var_name_pattern = local_int_var_name_pattern
         self.directive = directive
-        self.check_bounds = check_bounds
 
         if key:
             self._key = key
@@ -386,13 +321,13 @@ class TemporariesRawStackTransformation(Transformation):
 
         for dtype in temporary_array_dict:
 
-            if dtype not in stack_dict.keys():
+            if dtype not in stack_dict:
                 stack_dict[dtype] = {}
 
             for kind in temporary_array_dict[dtype]:
 
                 stack_used = IntLiteral(0)
-                if kind not in stack_dict[dtype].keys():
+                if kind not in stack_dict[dtype]:
                     stack_dict[dtype][kind] = Literal(0)
 
                 # Store type information of temporary allocation
@@ -400,18 +335,22 @@ class TemporariesRawStackTransformation(Transformation):
                     if kind in routine.imported_symbols:
                         item.trafo_data[self._key]['kind_imports'][kind] = routine.import_map[kind.name].module.lower()
 
-                stack_arg = self._get_stack_var(routine, dtype, kind)
+                stack_var = self._get_stack_var(routine, dtype, kind)
                 old_int_var = IntLiteral(0)
                 old_array_size = ()
 
-                for arr in temporary_array_dict[dtype][kind]:
+                for array in temporary_array_dict[dtype][kind]:
 
-                    int_var = Scalar(name=self.local_int_var_name_pattern.format(name=arr.name), scope=routine, type=self.int_type)
+                    int_var = Scalar(name=self.local_int_var_name_pattern.format(name=array.name), scope=routine, type=self.int_type)
                     integers += [int_var]
 
                     array_size = one
-                    for d in arr.dimensions[1:]:
-                        array_size = simplify(Product((array_size, _get_extent(d))))
+                    for d in array.shape[1:]:
+                        if isinstance(d, RangeIndex):
+                            d_extent = Sum((d.upper, Product((-1,d.lower)), one))
+                        else:
+                            d_extent = d
+                        array_size = simplify(Product((array_size, d_extent)))
 
                     stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], array_size)))
                     allocations += [Assignment(lhs=int_var, rhs=Sum((old_int_var,) + old_array_size))]
@@ -423,9 +362,9 @@ class TemporariesRawStackTransformation(Transformation):
                         old_array_size = (array_size,)
                         
 
-                    temp_map = self._map_temporary_array(arr, int_var, routine, stack_arg)
+                    temp_map = self._map_temporary_array(array, int_var, routine, stack_var)
                     var_map = {**var_map, **temp_map}
-                    stack_set.add(stack_arg)
+                    stack_set.add(stack_var)
 
                 stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
@@ -486,12 +425,16 @@ class TemporariesRawStackTransformation(Transformation):
 
 
     def _sort_arrays_by_type(self, arrays):
+        """
+        Go through list of arrays and map each array
+        to its type and kind in the the dict type_dict
+        """
 
         type_dict = {}
 
         for a in arrays:
-            if a.type.dtype in type_dict.keys():
-                if a.type.kind in type_dict[a.type.dtype].keys():
+            if a.type.dtype in type_dict:
+                if a.type.kind in type_dict[a.type.dtype]:
                     type_dict[a.type.dtype][a.type.kind] += [a]
                 else:
                     type_dict[a.type.dtype][a.type.kind] = [a]
@@ -501,7 +444,13 @@ class TemporariesRawStackTransformation(Transformation):
         return type_dict
 
 
-    def _map_temporary_array(self, temp_array, int_var, routine, stack_arg):
+    def _map_temporary_array(self, temp_array, int_var, routine, stack_var):
+        """
+        Find all instances of temporary array, temp_array, in routine and
+        map them to to the corresponding position in stack stack_var.
+        Position in stack is stored in int_var, but dimension offset must be calculated.
+        Returns a dict mapping all instances of temp_array to corresponding stack position.
+        """
 
         temp_arrays = [v for v in FindVariables().visit(routine.body) if v.name == temp_array.name]
 
@@ -604,52 +553,9 @@ class TemporariesRawStackTransformation(Transformation):
                     upper = Sum((int_var, offset))
                 stack_dimensions[1] = RangeIndex((lower, upper))
 
-            temp_map[t] = stack_arg.clone(dimensions=as_tuple(stack_dimensions))
+            temp_map[t] = stack_var.clone(dimensions=as_tuple(stack_dimensions))
 
         return temp_map
-
-
-    def _create_stack_allocation(self, int_var, old_int_var, old_dim, arr, stack_size):
-        """
-        Utility routine to "allocate" a temporary array on the pool allocator's "stack"
-
-        This creates the pointer assignment, stack pointer increment and adds a stack size check.
-
-        Parameters
-        ----------
-        stack_ptr : :any:`Variable`
-            The stack pointer variable
-        arr : :any:`Variable`
-            The temporary array to allocate on the pool allocator's "stack"
-        stack_size : :any:`Variable`
-            The size in bytes of the pool allocator's "stack"
-
-        Returns
-        -------
-        list
-            The IR nodes to add for the stack allocation: an :any:`Assignment` for the pointer
-            association, an :any:`Assignment` for the stack pointer increment, and a
-            :any:`Conditional` that verifies that the stack is big enough
-        """
-
-        # Build expression for array size in bytes.
-        # Assert first dimension is horizontal
-        if arr.dimensions[0].name.lower() == self.horizontal.size.lower():
-            dim = one
-        else:
-            raise RuntimeError('Found non-horizontal dimension in _create_stack_allocation')
-
-        for d in arr.dimensions[1:]:
-            if isinstance(d, RangeIndex):
-                dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), one)))))
-            else:
-                dim = Product((dim, d))
-
-        # Increment stack size
-        stack_size = simplify(Sum((stack_size, dim)))
-
-        int_increment = Assignment(lhs=int_var, rhs=Sum((old_int_var, dim)))
-        return int_increment, dim, stack_size
 
 
     def _determine_stack_size(self, routine, successors, local_stack_dict=None, item=None):
@@ -663,15 +569,15 @@ class TemporariesRawStackTransformation(Transformation):
             The subroutine object for which to determine the stack size
         successors : list of :any:`Item`
             The items corresponding to successor routines called from :data:`routine`
-        local_stack_size : :any:`Expression`, optional
-            The stack size required for temporaries in :data:`routine`
+        local_stack_dict : :any:`dict`, optional
+            dict mapping type and kind to the corresponding number of elements used
         item : :any:`Item`
             Scheduler work item corresponding to routine.
 
         Returns
         -------
-        :any:`Expression` :
-            The expression representing the required stack size.
+        :any:`dict` :
+            dict with required stack size mapped to type and kind
         """
 
         # Collect variable kind imports from successors
@@ -751,6 +657,11 @@ class TemporariesRawStackTransformation(Transformation):
 
 
     def _get_stack_var(self, routine, dtype, kind):
+        """
+        Get a stack variable with a name determined by
+        the type_name_dict and kind_name_dict.
+        Type.intent is determined by whether the routine is a kernel or driver
+        """
 
         stack_name = self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + self.stack_name
 
@@ -769,7 +680,13 @@ class TemporariesRawStackTransformation(Transformation):
 
 
     def _get_horizontal_variable(self, routine):
+        """
+        Get a scalar int variable corresponding to horizontal dimension with routine as scope
+        """
         return Variable(name=self.horizontal.size, scope=routine, type=self.int_type)
 
     def _get_horizontal_range(self, routine):
+        """
+        Get a RangeIndex from one to horizontal dimension
+        """
         return RangeIndex((one, self._get_horizontal_variable(routine)))
