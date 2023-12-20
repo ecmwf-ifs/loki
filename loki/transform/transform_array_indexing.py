@@ -28,7 +28,8 @@ __all__ = [
     'shift_to_zero_indexing', 'invert_array_indices',
     'resolve_vector_notation', 'normalize_range_indexing',
     'promote_variables', 'promote_nonmatching_variables',
-    'promotion_dimensions_from_loop_nest', 'demote_variables'
+    'promotion_dimensions_from_loop_nest', 'demote_variables',
+    'flatten_arrays', 'normalize_array_shape_and_access'
 ]
 
 
@@ -496,3 +497,86 @@ def demote_variables(routine, variable_names, dimensions):
     routine.spec = Transformer(decl_map).visit(routine.spec)
 
     info(f'[Loki::Transform] Demoted variables in {routine.name}: {", ".join(variable_names)}')
+
+def normalize_array_shape_and_access(routine):
+    """
+    Shift all arrays to start counting at "1"
+    """
+    def is_range_index(dim):
+        return isinstance(dim, sym.RangeIndex) and not dim.lower == 1
+
+    vmap = {}
+    for v in FindVariables(unique=False).visit(routine.body):
+        if isinstance(v, sym.Array):
+            new_dims = []
+            for i, d in enumerate(v.shape):
+                if isinstance(d, sym.RangeIndex):
+                    if isinstance(v.dimensions[i], sym.RangeIndex):
+                        start = simplify(v.dimensions[i].start - d.start + 1) if d.start is not None else None
+                        stop = simplify(v.dimensions[i].stop - d.start + 1) if d.stop is not None else None
+                        new_dims += [sym.RangeIndex((start, stop, d.step))]
+                    else:
+                        start = simplify(v.dimensions[i] - d.start + 1) if d.start is not None else None
+                        new_dims += [start]
+                else:
+                    new_dims += [v.dimensions[i]]
+            vmap[v] = v.clone(dimensions=as_tuple(new_dims))
+    routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+    vmap = {}
+    for v in routine.variables:
+        if isinstance(v, sym.Array):
+            new_dims = [sym.RangeIndex((1, simplify(d.upper - d.lower + 1)))
+                if is_range_index(d) else d for d in v.dimensions]
+            new_shape = [sym.RangeIndex((1, simplify(d.upper - d.lower + 1)))
+                if is_range_index(d) else d for d in v.shape]
+            new_type = v.type.clone(shape=as_tuple(new_shape))
+            vmap[v] = v.clone(dimensions=as_tuple(new_dims), type=new_type)
+    routine.variables = [vmap.get(v, v) for v in routine.variables]
+    normalize_range_indexing(routine)
+
+
+def flatten_arrays(routine, order='F', start_index=1):
+    """
+    Flatten arrays, converting multi-dimensional arrays to
+    one-dimensional arrays.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which the variables should be promoted.
+    order : str
+        Assume Fortran (F) vs. C memory/array order.
+    start_index : int
+        Assume array indexing starts with `start_index`.
+    """
+    def new_dims(dim, shape):
+        if len(dim) > 1:
+            if isinstance(shape[-2], sym.RangeIndex):
+                raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening!')
+            _dim = (sym.Sum((dim[-2], sym.Product((shape[-2], dim[-1] - start_index)))),)
+            new_dim = dim[:-2]
+            new_dim += _dim
+            return new_dims(new_dim, shape[:-1])
+        return dim
+
+    if order == 'C':
+        array_map = {
+            var: var.clone(dimensions=new_dims(var.dimensions[::-1], var.shape[::-1]))
+            for var in FindVariables().visit(routine.body)
+            if isinstance(var, sym.Array) and var.shape and len(var.shape)
+        }
+    elif order == 'F':
+        array_map = {
+            var: var.clone(dimensions=new_dims(var.dimensions, var.shape))
+            for var in FindVariables().visit(routine.body)
+            if isinstance(var, sym.Array) and var.shape and len(var.shape)
+        }
+    else:
+        raise ValueError(f'Unsupported array order "{order}"')
+
+    routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
+    routine.variables = [v.clone(dimensions=as_tuple(sym.Product(v.shape)),
+                                 type=v.type.clone(shape=as_tuple(sym.Product(v.shape))))
+                         if isinstance(v, sym.Array) else v for v in routine.variables]

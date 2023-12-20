@@ -158,9 +158,8 @@ class CCodegen(Stringifier):
         # Generate header with argument signature
         aptr = []
         for a in o.arguments:
-            # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if isinstance(a, Array) > 0:
-                aptr += ['* restrict v_']
+                aptr += ['* restrict ']
             elif isinstance(a.type.dtype, DerivedType):
                 aptr += ['*']
             elif a.type.pointer:
@@ -175,18 +174,6 @@ class CCodegen(Stringifier):
 
         # ...and generate the spec without imports and argument declarations
         body = [self.visit(o.spec, skip_imports=True, skip_argument_declarations=True, **kwargs)]
-
-        # Generate the array casts for pointer arguments
-        if any(isinstance(a, Array) for a in o.arguments):
-            body += [self.format_line('/* Array casts for pointer arguments */')]
-            for a in o.arguments:
-                if isinstance(a, Array):
-                    dtype = self.visit(a.type, **kwargs)
-                    # str(d).lower() is a bad hack to ensure caps-alignment
-                    outer_dims = ''.join(f'[{self.visit(d, **kwargs).lower()}]'
-                                         for d in a.dimensions[1:])
-                    body += [self.format_line(dtype, ' (*', a.name.lower(), ')', outer_dims, ' = (',
-                                              dtype, ' (*)', outer_dims, ') v_', a.name.lower(), ';')]
 
         # Fill the body
         body += [self.visit(o.body, **kwargs)]
