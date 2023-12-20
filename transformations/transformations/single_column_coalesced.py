@@ -314,7 +314,7 @@ class SCCBaseTransformation(Transformation):
 
         # Perform full source-inlining for member subroutines
         if self.inline_members:
-            inline_member_procedures(routine)
+            inline_member_procedures(routine, allowed_aliases=(self.horizontal.index,))
 
         # Perform full source-inlining for pragma-marked subroutines
         if self.inline_marked:
