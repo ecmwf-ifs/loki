@@ -599,7 +599,7 @@ def test_inline_member_routines_indexing_of_shadowed_array(frontend):
 
     end subroutine outer
     """
-    routine = Subroutine.from_source(fcode)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
     inline_member_procedures(routine)
     innerloop = FindNodes(Loop).visit(routine.body)[1]
     innerloopvars = FindVariables().visit(innerloop)
