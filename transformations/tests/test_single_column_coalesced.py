@@ -1774,7 +1774,7 @@ def test_single_column_coalesced_inline_and_sequence_association(frontend, horiz
         with pytest.raises(RuntimeError) as e_info:
             scc_transform.apply(routine, role='kernel')
         assert(e_info.exconly() ==
-               'RuntimeError: [Loki::TransformInline] Unable to resolve member subroutine call')
+               'RuntimeError: [Loki::TransformInline] Cannot resolve procedure call to contained_kernel')
 
     #Check that the call is properly modified
     elif (not inline_members and resolve_sequence_association):

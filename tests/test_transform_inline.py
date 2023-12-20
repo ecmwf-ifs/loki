@@ -12,12 +12,14 @@ import numpy as np
 from conftest import jit_compile, jit_compile_lib, available_frontends
 from loki import (
     Builder, Module, Subroutine, FindNodes, Import, FindVariables,
-    CallStatement, Loop, BasicType, DerivedType, Associate, OMNI
+    CallStatement, Loop, BasicType, DerivedType, Associate, OMNI,
+    Conditional, FindInlineCalls
 )
 from loki.ir import Assignment
 from loki.transform import (
     inline_elemental_functions, inline_constant_parameters,
-    replace_selected_kind, inline_member_procedures
+    replace_selected_kind, inline_member_procedures,
+    inline_marked_subroutines
 )
 from loki.expression import symbols as sym
 
@@ -518,6 +520,57 @@ end subroutine outer
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_internal_routines_aliasing_declaration(frontend):
+    """
+    Test declaration splitting when inlining internal procedures.
+    """
+    fcode = """
+subroutine outer()
+  integer :: z
+  integer :: jlon
+  z = 0
+  jlon = 0
+
+  call inner(z)
+
+  jlon = z + 4
+contains
+  subroutine inner(z)
+    integer, intent(inout) :: z
+    integer :: jlon, jg ! These two need to get separated
+    jlon = 1
+    jg = 2
+    z = jlon + jg
+  end subroutine inner
+end subroutine outer
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check outer and inner variables
+    assert len(routine.variable_map) == 2
+    assert 'z' in routine.variable_map
+    assert 'jlon' in routine.variable_map
+
+    assert len(routine['inner'].variable_map) == 3
+    assert 'z' in routine['inner'].variable_map
+    assert 'jlon' in routine['inner'].variable_map
+    assert 'jg' in routine['inner'].variable_map
+
+    inline_member_procedures(routine, allowed_aliases=('jlon',))
+
+    assert len(routine.variable_map) == 3
+    assert 'z' in routine.variable_map
+    assert 'jlon' in routine.variable_map
+    assert 'jg' in routine.variable_map
+
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 6
+    assert assigns[2].lhs == 'jlon' and assigns[2].rhs == '1'
+    assert assigns[3].lhs == 'jg' and assigns[3].rhs == '2'
+    assert assigns[4].lhs == 'z' and assigns[4].rhs == 'jlon + jg'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_member_routines_sequence_assoc(frontend):
     """
     Test inlining of member subroutines in the presence of sequence
@@ -607,3 +660,148 @@ end subroutine acraneb_transt
 
     assocs = FindNodes(Associate).visit(routine.body)
     assert len(assocs) == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_marked_subroutines(frontend):
+    """ Test subroutine inlining via marker pragmas. """
+
+    fcode_driver = """
+subroutine test_pragma_inline(a, b)
+  use util_mod, only: add_one, add_a_to_b
+  implicit none
+
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer, parameter :: n = 3
+  integer :: i
+
+  do i=1, n
+    !$loki inline
+    call add_one(a(i))
+  end do
+
+  !$loki inline
+  call add_a_to_b(a(:), b(:), 3)
+
+  do i=1, n
+    call add_one(b(i))
+  end do
+
+end subroutine test_pragma_inline
+    """
+
+    fcode_module = """
+module util_mod
+implicit none
+
+contains
+  subroutine add_one(a)
+    real(kind=8), intent(inout) :: a
+    a = a + 1
+  end subroutine add_one
+
+  subroutine add_a_to_b(a, b, n)
+    real(kind=8), intent(inout) :: a(:), b(:)
+    integer, intent(in) :: n
+    integer :: i
+
+    do i = 1, n
+      a(i) = a(i) + b(i)
+    end do
+  end subroutine add_a_to_b
+end module util_mod
+"""
+    module = Module.from_source(fcode_module, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich(module)
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert calls[0].routine == module['add_one']
+    assert calls[1].routine == module['add_a_to_b']
+    assert calls[2].routine == module['add_one']
+
+    inline_marked_subroutines(routine=driver, allowed_aliases=('I',))
+
+    # Check inlined loops and assignments
+    assert len(FindNodes(Loop).visit(driver.body)) == 3
+    assign = FindNodes(Assignment).visit(driver.body)
+    assert len(assign) == 2
+    assert assign[0].lhs == 'a(i)' and assign[0].rhs == 'a(i) + 1'
+    assert assign[1].lhs == 'a(i)' and assign[1].rhs == 'a(i) + b(i)'
+
+    # Check that the last call is left untouched
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 1
+    assert calls[0].routine.name == 'add_one'
+    assert calls[0].arguments == ('b(i)',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_marked_routine_with_optionals(frontend):
+    """ Test subroutine inlining via marker pragmas with omitted optionals. """
+
+    fcode_driver = """
+subroutine test_pragma_inline_optionals(a, b)
+  use util_mod, only: add_one
+  implicit none
+
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer, parameter :: n = 3
+  integer :: i
+
+  do i=1, n
+    !$loki inline
+    call add_one(a(i), two=2.0)
+  end do
+
+  do i=1, n
+    !$loki inline
+    call add_one(b(i))
+  end do
+
+end subroutine test_pragma_inline_optionals
+    """
+
+    fcode_module = """
+module util_mod
+implicit none
+
+contains
+  subroutine add_one(a, two)
+    real(kind=8), intent(inout) :: a
+    real(kind=8), optional, intent(inout) :: two
+    a = a + 1
+
+    if (present(two)) then
+      a = a + two
+    end if
+  end subroutine add_one
+end module util_mod
+"""
+    module = Module.from_source(fcode_module, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich(module)
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert calls[0].routine == module['add_one']
+    assert calls[1].routine == module['add_one']
+
+    inline_marked_subroutines(routine=driver)
+
+    # Check inlined loops and assignments
+    assert len(FindNodes(Loop).visit(driver.body)) == 2
+    assign = FindNodes(Assignment).visit(driver.body)
+    assert len(assign) == 4
+    assert assign[0].lhs == 'a(i)' and assign[0].rhs == 'a(i) + 1'
+    assert assign[1].lhs == 'a(i)' and assign[1].rhs == 'a(i) + 2.0'
+    assert assign[2].lhs == 'b(i)' and assign[2].rhs == 'b(i) + 1'
+    # TODO: This is a problem, since it's not declared anymore
+    assert assign[3].lhs == 'b(i)' and assign[3].rhs == 'b(i) + two'
+
+    # Check that the PRESENT checks have been resolved
+    assert len(FindNodes(CallStatement).visit(driver.body)) == 0
+    assert len(FindInlineCalls().visit(driver.body)) == 0
+    checks = FindNodes(Conditional).visit(driver.body)
+    assert len(checks) == 2
+    assert checks[0].condition == 'True'
+    assert checks[1].condition == 'False'

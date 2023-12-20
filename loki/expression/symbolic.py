@@ -496,13 +496,16 @@ class Simplification(enum.Flag):
         Flatten             Flatten sub-sums and distribute products.
         IntegerArithmetic   Perform arithmetic on integer literals (addition and multiplication).
         CollectCoefficients Combine summands as far as possible.
+        LogicEvaluation     Resolve logically fully determinate expressions, like ``1 == 1`` or ``1 == 6``
         ALL                 All of the above.
     """
     Flatten = enum.auto()
     IntegerArithmetic = enum.auto()
     CollectCoefficients = enum.auto()
+    LogicEvaluation = enum.auto()
 
-    ALL = Flatten | IntegerArithmetic | CollectCoefficients  # pylint: disable=unsupported-binary-operation
+    # pylint: disable-next=unsupported-binary-operation
+    ALL = Flatten | IntegerArithmetic | CollectCoefficients | LogicEvaluation
 
 
 class SimplifyMapper(LokiIdentityMapper):
@@ -565,6 +568,36 @@ class SimplifyMapper(LokiIdentityMapper):
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
     map_parenthesised_div = map_quotient
+
+    def map_comparison(self, expr, *args, **kwargs):
+        left = self.rec(expr.left, *args, **kwargs)
+        right = self.rec(expr.right, *args, **kwargs)
+
+        if self.enabled_simplifications & Simplification.LogicEvaluation:
+            if is_constant(left) and is_constant(right):
+                if expr.operator == '==' and left == right:
+                    return sym.LogicLiteral('True')
+                return sym.LogicLiteral('False')
+
+        return sym.Comparison(operator=expr.operator, left=left, right=right)
+
+    def map_logical_and(self, expr, *args, **kwargs):
+        children = tuple(self.rec(child, *args, **kwargs) for child in expr.children)
+        if all(isinstance(c, sym.LogicLiteral) for c in children):
+            if all(c == 'True' for c in children):
+                return sym.LogicLiteral('True')
+            return sym.LogicLiteral('False')
+
+        return sym.LogicalAnd(children)
+
+    def map_logical_or(self, expr, *args, **kwargs):
+        children = tuple(self.rec(child, *args, **kwargs) for child in expr.children)
+        if all(isinstance(c, sym.LogicLiteral) for c in children):
+            if any(c == 'True' for c in children):
+                return sym.LogicLiteral('True')
+            return sym.LogicLiteral('False')
+
+        return sym.LogicalOr(children)
 
 
 def simplify(expr, enabled_simplifications=Simplification.ALL):
