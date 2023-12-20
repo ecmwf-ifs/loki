@@ -320,7 +320,7 @@ def convert(
 
 @cli.command('plan')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack']))
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
@@ -353,6 +353,8 @@ def plan(mode, config, header, source, build, root, cpp, directive, frontend, ca
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False, preprocess=cpp)
+
+    mode = mode.replace('-', '_')  # Sanitize mode string
 
     # Construct the transformation plan as a set of CMake lists of source files
     scheduler.write_cmake_plan(filepath=plan_file, mode=mode, buildpath=build, rootpath=root)
