@@ -940,7 +940,8 @@ end subroutine transpile_expressions
 
     # Make sure minus signs are represented correctly in the C code
     ccode = cgen(routine)
-    assert 'vector[i - 1 - 1]' in ccode  # double minus due to index shift to 0
+    # double minus due to index shift to 0
+    assert 'vector[i - 1 - 1]' in ccode or 'vector[-1 + i - 1]' in ccode
     assert 'vector[i - 1]' in ccode
     assert '-scalar' in ccode  # scalar with negative sign
 
