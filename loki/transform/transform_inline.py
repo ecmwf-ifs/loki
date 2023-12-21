@@ -24,8 +24,10 @@ from loki.tools import as_tuple
 from loki.logging import warning, error
 from loki.pragma_utils import pragmas_attached, is_loki_pragma
 
-from loki.transform.transform_utilities import single_variable_declaration
-
+from loki.transform.transform_utilities import (
+    single_variable_declaration,
+    recursive_expression_map_update
+)
 
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
@@ -208,9 +210,6 @@ def map_call_to_procedure_body(call, caller):
          Procedure (scope) into which the callee's body gets mapped
     """
 
-    # pylint: disable=import-outside-toplevel,cyclic-import
-    from loki.transform import recursive_expression_map_update
-
     def _map_unbound_dims(var, val):
         """
         Maps all unbound dimension ranges in the passed array value
@@ -339,6 +338,7 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     for v in FindVariables(unique=False).visit(callee.body):
         if v.name.lower() in duplicate_names:
             var_map[v] = v.clone(name=f'{callee.name}_{v.name}')
+    var_map = recursive_expression_map_update(var_map)
     callee.body = SubstituteExpressions(var_map).visit(callee.body)
 
     # Separate allowed aliases from other variables to ensure clean hoisting

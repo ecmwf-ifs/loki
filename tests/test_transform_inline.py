@@ -569,6 +569,41 @@ end subroutine outer
     assert assigns[3].lhs == 'jg' and assigns[3].rhs == '2'
     assert assigns[4].lhs == 'z' and assigns[4].rhs == 'jlon + jg'
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_routines_indexing_of_shadowed_array(frontend):
+    """
+    Test special case of inlining of member subroutines when inlined routine contains
+    shadowed array and array indices. 
+    In particular, this test checks that also the variables indexing
+    the array in the inlined result get renamed correctly.
+    """
+    fcode = """
+    subroutine outer(klon)
+        integer :: jg, jlon
+        integer :: arr(3, 3)
+
+        jg = 70000
+        call inner2()
+
+        contains
+
+        subroutine inner2()
+            integer :: jlon, jg 
+            integer :: arr(3, 3)
+            do jg=1,3
+                do jlon=1,3
+                   arr(jlon, jg) = 11 
+                end do
+            end do
+        end subroutine inner2
+
+    end subroutine outer
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    inline_member_procedures(routine)
+    innerloop = FindNodes(Loop).visit(routine.body)[1]
+    innerloopvars = FindVariables().visit(innerloop)
+    assert 'inner2_arr(inner2_jlon,inner2_jg)' in innerloopvars
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_member_routines_sequence_assoc(frontend):
