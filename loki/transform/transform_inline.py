@@ -14,7 +14,7 @@ from collections import defaultdict
 
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, LokiIdentityMapper,
+    SubstituteExpressions, LokiIdentityMapper
 )
 from loki.ir import Import, Comment, Assignment, VariableDeclaration, CallStatement
 from loki.expression import symbols as sym
@@ -24,8 +24,10 @@ from loki.tools import as_tuple
 from loki.logging import warning, error
 from loki.pragma_utils import pragmas_attached, is_loki_pragma
 
-from loki.transform.transform_utilities import single_variable_declaration
-
+from loki.transform.transform_utilities import (
+    single_variable_declaration,
+    recursive_expression_map_update
+)
 
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
@@ -208,9 +210,6 @@ def map_call_to_procedure_body(call, caller):
          Procedure (scope) into which the callee's body gets mapped
     """
 
-    # pylint: disable=import-outside-toplevel,cyclic-import
-    from loki.transform import recursive_expression_map_update
-
     def _map_unbound_dims(var, val):
         """
         Maps all unbound dimension ranges in the passed array value
@@ -334,24 +333,12 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     )
     callee.spec = shadow_mapper.visit(callee.spec)
 
-    duplicate_names = {dl.name.lower() for dl in duplicates}
-    need_rename = tuple(v for v in FindVariables(unique=False).visit(callee.body) \
-                        if v.name.lower() in duplicate_names)
-    nonarr_map = {}
-    for v in need_rename:
-        if not isinstance(v, sym.Array):
-            # Non-arrays handled by just changing name.
-            nonarr_map[v] = v.clone(name=f'{callee.name}_{v.name}')
-
     var_map = {}
-    for v in need_rename:
-        if isinstance(v, sym.Array):
-            # Arrays require special handling, since their dimensions may contain variables
-            # that themselves also need to change.
-            replacement = v.clone(name=f'{callee.name}_{v.name}',
-                                  dimensions = SubstituteExpressions(nonarr_map).visit(v.dimensions))
-            var_map[v] = replacement
-    var_map.update(nonarr_map)
+    duplicate_names = {dl.name.lower() for dl in duplicates}
+    for v in FindVariables(unique=False).visit(callee.body):
+        if v.name.lower() in duplicate_names:
+            var_map[v] = v.clone(name=f'{callee.name}_{v.name}')
+    var_map = recursive_expression_map_update(var_map)
     callee.body = SubstituteExpressions(var_map).visit(callee.body)
 
     # Separate allowed aliases from other variables to ensure clean hoisting
