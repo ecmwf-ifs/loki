@@ -359,7 +359,6 @@ class GlobalVarOffloadTransformation(Transformation):
         """
         Add offload and/or copy-back directives for the imported variables.
         """
-
         update_device = ()
         update_host = ()
 
@@ -370,7 +369,7 @@ class GlobalVarOffloadTransformation(Transformation):
             'enter_data_create': 'enter data create',
         }
         for key, directive in key_directive_map.items():
-            variables = set.union(*[s.trafo_data.get(self._key, {}).get(key) for s in successors], set())
+            variables = set.union(*[s.trafo_data.get(self._key, {}).get(key, {}) for s in successors], set())
             if variables:
                 update_device += (Pragma(keyword='acc', content=f'{directive}({",".join(variables)})'),)
 
@@ -379,7 +378,7 @@ class GlobalVarOffloadTransformation(Transformation):
             'acc_copyout': 'update self'
         }
         for key, directive in key_directive_map.items():
-            variables = set.union(*[s.trafo_data.get(self._key, {}).get(key) for s in successors], set())
+            variables = set.union(*[s.trafo_data.get(self._key, {}).get(key, {}) for s in successors], set())
             if variables:
                 update_host += (Pragma(keyword='acc', content=f'{directive}({",".join(variables)})'),)
 
@@ -429,14 +428,17 @@ class GlobalVarOffloadTransformation(Transformation):
             new_imports += as_tuple(Import(k, symbols=tuple(Variable(name=s, scope=routine) for s in v)))
 
         # add new imports to driver subroutine sepcification
-        import_pos = 0
-        if (old_imports := FindNodes(Import).visit(routine.spec)):
-            import_pos = routine.spec.body.index(old_imports[-1]) + 1
-        if new_imports:
-            routine.spec.insert(import_pos, Comment(text=
+        #import_pos = 0
+        #if (old_imports := FindNodes(Import).visit(routine.spec)):
+        #    import_pos = routine.spec.body.index(old_imports[-1]) + 1
+        #if new_imports:
+        #    routine.spec.insert(import_pos, Comment(text=
+        #       '![Loki::GlobalVarOffload].....Adding global variables to driver symbol table for offload instructions'))
+        #    import_pos += 1
+        #    routine.spec.insert(import_pos, new_imports)
+        routine.spec.prepend(new_imports)
+        routine.spec.prepend(Comment(text=
                '![Loki::GlobalVarOffload].....Adding global variables to driver symbol table for offload instructions'))
-            import_pos += 1
-            routine.spec.insert(import_pos, new_imports)
 
     def process_kernel(self, routine, successors, item):
         """
