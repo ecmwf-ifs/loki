@@ -428,14 +428,6 @@ class GlobalVarOffloadTransformation(Transformation):
             new_imports += as_tuple(Import(k, symbols=tuple(Variable(name=s, scope=routine) for s in v)))
 
         # add new imports to driver subroutine sepcification
-        #import_pos = 0
-        #if (old_imports := FindNodes(Import).visit(routine.spec)):
-        #    import_pos = routine.spec.body.index(old_imports[-1]) + 1
-        #if new_imports:
-        #    routine.spec.insert(import_pos, Comment(text=
-        #       '![Loki::GlobalVarOffload].....Adding global variables to driver symbol table for offload instructions'))
-        #    import_pos += 1
-        #    routine.spec.insert(import_pos, new_imports)
         routine.spec.prepend(new_imports)
         routine.spec.prepend(Comment(text=
                '![Loki::GlobalVarOffload].....Adding global variables to driver symbol table for offload instructions'))
