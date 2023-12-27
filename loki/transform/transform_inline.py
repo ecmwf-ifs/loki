@@ -397,7 +397,7 @@ def inline_internal_procedures(routine, allowed_aliases=None):
 inline_member_procedures = inline_internal_procedures
 
 
-def inline_marked_subroutines(routine, allowed_aliases=None):
+def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True):
     """
     Inline :any:`Subroutine` objects guided by pragma annotations.
 
@@ -416,15 +416,20 @@ def inline_marked_subroutines(routine, allowed_aliases=None):
     allowed_aliases : tuple or list of str or :any:`Expression`, optional
         List of variables that will not be renamed in the parent scope, even
         if they alias with a local declaration.
+    remove_imports : bool
+        Strip unused import symbols after inlining (optional, default: True)
     """
 
     with pragmas_attached(routine, node_type=CallStatement):
 
         # Group the marked calls by callee routine
         call_sets = defaultdict(list)
+        no_call_sets = defaultdict(list)
         for call in FindNodes(CallStatement).visit(routine.body):
             if is_loki_pragma(call.pragma, starts_with='inline'):
                 call_sets[call.routine].append(call)
+            else:
+                no_call_sets[call.routine].append(call)
 
         # Trigger per-call inlining on collected sets
         for callee, calls in call_sets.items():
@@ -432,3 +437,18 @@ def inline_marked_subroutines(routine, allowed_aliases=None):
                 inline_subroutine_calls(
                     routine, calls, callee, allowed_aliases=allowed_aliases
                 )
+
+    # Remove imported symbols that have become obsolete
+    if remove_imports:
+        callees = tuple(callee.procedure_symbol for callee in call_sets.keys())
+        not_inlined = tuple(callee.procedure_symbol for callee in no_call_sets.keys())
+
+        import_map = {}
+        for impt in FindNodes(Import).visit(routine.spec):
+            if any(s.name in callees for s in impt.symbols):
+                new_symbols = tuple(
+                    s for s in impt.symbols if s.name not in callees or s.name in not_inlined
+                )
+                # Remove import if no further symbols used, otherwise clone with new symbols
+                import_map[impt] = impt.clone(symbols=new_symbols) if new_symbols else None
+        routine.spec = Transformer(import_map).visit(routine.spec)

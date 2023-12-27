@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
+from itertools import product
 import pytest
 import numpy as np
 
@@ -697,8 +698,10 @@ end subroutine acraneb_transt
     assert len(assocs) == 2
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_marked_subroutines(frontend):
+@pytest.mark.parametrize(
+    'frontend,remove_imports', product(available_frontends(), (True, False))
+)
+def test_inline_marked_subroutines(frontend, remove_imports):
     """ Test subroutine inlining via marker pragmas. """
 
     fcode_driver = """
@@ -755,7 +758,9 @@ end module util_mod
     assert calls[1].routine == module['add_a_to_b']
     assert calls[2].routine == module['add_one']
 
-    inline_marked_subroutines(routine=driver, allowed_aliases=('I',))
+    inline_marked_subroutines(
+        routine=driver, allowed_aliases=('I',), remove_imports=remove_imports
+    )
 
     # Check inlined loops and assignments
     assert len(FindNodes(Loop).visit(driver.body)) == 3
@@ -770,9 +775,18 @@ end module util_mod
     assert calls[0].routine.name == 'add_one'
     assert calls[0].arguments == ('b(i)',)
 
+    imports = FindNodes(Import).visit(driver.spec)
+    assert len(imports) == 1
+    if remove_imports:
+        assert imports[0].symbols == ('add_one',)
+    else:
+        assert imports[0].symbols == ('add_one', 'add_a_to_b')
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_marked_routine_with_optionals(frontend):
+
+@pytest.mark.parametrize(
+    'frontend,remove_imports', product(available_frontends(), (True, False))
+)
+def test_inline_marked_routine_with_optionals(frontend, remove_imports):
     """ Test subroutine inlining via marker pragmas with omitted optionals. """
 
     fcode_driver = """
@@ -821,7 +835,7 @@ end module util_mod
     assert calls[0].routine == module['add_one']
     assert calls[1].routine == module['add_one']
 
-    inline_marked_subroutines(routine=driver)
+    inline_marked_subroutines(routine=driver, remove_imports=remove_imports)
 
     # Check inlined loops and assignments
     assert len(FindNodes(Loop).visit(driver.body)) == 2
@@ -840,3 +854,6 @@ end module util_mod
     assert len(checks) == 2
     assert checks[0].condition == 'True'
     assert checks[1].condition == 'False'
+
+    imports = FindNodes(Import).visit(driver.spec)
+    assert len(imports) == 0 if remove_imports else 1
