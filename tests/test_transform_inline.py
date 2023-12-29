@@ -14,13 +14,13 @@ from conftest import jit_compile, jit_compile_lib, available_frontends
 from loki import (
     Builder, Module, Subroutine, FindNodes, Import, FindVariables,
     CallStatement, Loop, BasicType, DerivedType, Associate, OMNI,
-    Conditional, FindInlineCalls
+    Conditional, FindInlineCalls, OFP
 )
 from loki.ir import Assignment
 from loki.transform import (
     inline_elemental_functions, inline_constant_parameters,
     replace_selected_kind, inline_member_procedures,
-    inline_marked_subroutines
+    inline_marked_subroutines, InlineTransformation
 )
 from loki.expression import symbols as sym
 
@@ -857,3 +857,89 @@ end module util_mod
 
     imports = FindNodes(Import).visit(driver.spec)
     assert len(imports) == 0 if remove_imports else 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_transformation(frontend):
+    """Test combining recursive inlining via :any:`InliningTransformation`."""
+
+    fcode_module = """
+module one_mod
+  real(kind=8), parameter :: one = 1.0
+end module one_mod
+"""
+
+    fcode_inner = """
+subroutine add_one_and_two(a)
+  use one_mod, only: one
+  implicit none
+
+  real(kind=8), intent(inout) :: a
+
+  a = a + one
+
+  a = add_two(a)
+
+contains
+  elemental function add_two(x)
+    real(kind=8), intent(in) :: x
+    real(kind=8) :: add_two
+
+    add_two = x + 2.0
+  end function add_two
+end subroutine add_one_and_two
+"""
+
+    fcode = """
+subroutine test_inline_pragma(a, b)
+  implicit none
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer, parameter :: n = 3
+  integer :: i
+
+#include "add_one_and_two.intfb.h"
+
+  do i=1, n
+    !$loki inline
+    call add_one_and_two(a(i))
+  end do
+
+  do i=1, n
+    !$loki inline
+    call add_one_and_two(b(i))
+  end do
+
+end subroutine test_inline_pragma
+"""
+    module = Module.from_source(fcode_module, frontend=frontend)
+    inner = Subroutine.from_source(fcode_inner, definitions=module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine.enrich(inner)
+
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True
+    )
+
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 2
+    assert all(c.routine == inner for c in calls)
+
+    # Apply to the inner subroutine first to resolve parameter and calls
+    trafo.apply(inner)
+
+    assigns = FindNodes(Assignment).visit(inner.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'a' and assigns[0].rhs == 'a + 1.0'
+    assert assigns[1].lhs == 'a' and assigns[1].rhs == 'a + 2.0'
+
+    # Apply to the outer routine, but with resolved body of the inner
+    trafo.apply(routine)
+
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 0
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 4
+    assert assigns[0].lhs == 'a(i)' and assigns[0].rhs == 'a(i) + 1.0'
+    assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
+    assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
+    assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
