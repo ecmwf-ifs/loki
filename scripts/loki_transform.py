@@ -22,8 +22,9 @@ from loki import (
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, ModuleWrapTransformation, FortranCTransformation, FileWriteTransformation,
-    HoistTemporaryArraysAnalysis, normalize_range_indexing
+    DependencyTransformation, ModuleWrapTransformation, FortranCTransformation,
+    FileWriteTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
+    InlineTransformation
 )
 
 # pylint: disable=wrong-import-order
@@ -185,6 +186,16 @@ def convert(
     else:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
 
+    # Perform source-inlining either from CLI arguments or from config
+    inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
+    if not inline_trafo:
+        inline_trafo = InlineTransformation(
+            inline_internals=inline_members, inline_marked=inline_marked,
+            resolve_sequence_association=resolve_sequence_association,
+            eliminate_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index
+        )
+    scheduler.process(transformation=inline_trafo)
+
     # Backward insert argument shapes (for surface routines)
     if derive_argument_array_shape:
         scheduler.process(transformation=ArgumentArrayShapeAnalysis())
@@ -215,10 +226,7 @@ def convert(
     if mode in ['scc', 'scc-hoist', 'scc-stack']:
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
-            horizontal=horizontal, directive=directive,
-            inline_members=inline_members, inline_marked=inline_marked,
-            resolve_sequence_association=resolve_sequence_association,
-            eliminate_dead_code=eliminate_dead_code
+            horizontal=horizontal, directive=directive
         ))
         scheduler.process( SCCDevectorTransformation(
             horizontal=horizontal, trim_vector_sections=trim_vector_sections
