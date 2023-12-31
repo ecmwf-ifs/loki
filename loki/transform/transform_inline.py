@@ -28,6 +28,7 @@ from loki.subroutine import Subroutine
 from loki.transform.transformation import Transformation
 from loki.transform.transform_dead_code import dead_code_elimination
 from loki.transform.transform_sequence_association import transform_sequence_association
+from loki.transform.transform_associates import resolve_associates
 from loki.transform.transform_utilities import (
     single_variable_declaration,
     recursive_expression_map_update
@@ -59,6 +60,8 @@ class InlineTransformation(Transformation):
     inline_marked : bool
         Inline :any:`Subroutine` objects marked by pragma annotations;
         default: True.
+    resolve_associate_mappings : bool
+        Resolve ASSOCIATE mappings in body of processed subroutines; default: True.
     resolve_sequence_association : bool
         Replace scalars that are passed to array arguments with array
         ranges; default: False.
@@ -81,7 +84,7 @@ class InlineTransformation(Transformation):
     def __init__(
             self, inline_constants=False, inline_elementals=True,
             inline_internals=False, inline_marked=True,
-            resolve_sequence_association=False,
+            resolve_associate_mappings=True, resolve_sequence_association=False,
             eliminate_dead_code=True, allowed_aliases=None,
             remove_imports=True, external_only=True
     ):
@@ -89,6 +92,8 @@ class InlineTransformation(Transformation):
         self.inline_elementals = inline_elementals
         self.inline_internals = inline_internals
         self.inline_marked = inline_marked
+
+        self.resolve_associate_mappings = resolve_associate_mappings
         self.resolve_sequence_association = resolve_sequence_association
         self.eliminate_dead_code = eliminate_dead_code
 
@@ -97,6 +102,11 @@ class InlineTransformation(Transformation):
         self.external_only = external_only
 
     def transform_subroutine(self, routine, **kwargs):
+
+        # Associates at the highest level, so they don't interfere
+        # with the sections we need to do for detecting subroutine calls
+        if self.resolve_associate_mappings:
+            resolve_associates(routine)
 
         # Transform arrays passed with scalar syntax to array syntax
         if self.resolve_sequence_association:
@@ -525,6 +535,9 @@ def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True
         call_sets = defaultdict(list)
         no_call_sets = defaultdict(list)
         for call in FindNodes(CallStatement).visit(routine.body):
+            if call.routine == BasicType.DEFERRED:
+                continue
+
             if is_loki_pragma(call.pragma, starts_with='inline'):
                 call_sets[call.routine].append(call)
             else:
