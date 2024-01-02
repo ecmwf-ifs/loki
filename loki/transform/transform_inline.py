@@ -557,6 +557,10 @@ def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True
 
         import_map = {}
         for impt in FindNodes(Import).visit(routine.spec):
+            # Remove interface header imports
+            if any(f'{c.name.lower()}.intfb.h' == impt.module for c in callees):
+                import_map[impt] = None
+
             if any(s.name in callees for s in impt.symbols):
                 new_symbols = tuple(
                     s for s in impt.symbols if s.name not in callees or s.name in not_inlined
