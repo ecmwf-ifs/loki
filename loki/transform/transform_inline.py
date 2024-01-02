@@ -287,7 +287,10 @@ def inline_elemental_functions(routine):
 
     exprmap = {}
     for call in FindInlineCalls().visit(routine.body):
-        if call.procedure_type is not BasicType.DEFERRED:
+        if call.procedure_type is BasicType.DEFERRED:
+            continue
+
+        if call.procedure_type.is_function and call.procedure_type.is_elemental:
             # Map each call to its substitutions, as defined by the
             # recursive inline substitution mapper
             exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
@@ -301,7 +304,7 @@ def inline_elemental_functions(routine):
     # Remove all module imports that have become obsolete now
     import_map = {}
     for im in FindNodes(Import).visit(routine.spec):
-        if all(hasattr(s, 'type') and s.type.dtype in removed_functions for s in im.symbols):
+        if im.symbols and all(hasattr(s, 'type') and s.type.dtype in removed_functions for s in im.symbols):
             import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)
 

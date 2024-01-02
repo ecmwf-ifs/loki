@@ -859,7 +859,9 @@ end module util_mod
     assert len(imports) == 0 if remove_imports else 1
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    (OFP, 'Prefix/elemental support not implemented'))
+)
 def test_inline_transformation(frontend):
     """Test combining recursive inlining via :any:`InliningTransformation`."""
 
