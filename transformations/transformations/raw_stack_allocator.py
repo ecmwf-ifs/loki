@@ -11,16 +11,17 @@ from loki.transform.transformation import Transformation
 from loki.expression import Array, Scalar
 from loki.types import DerivedType, BasicType
 from loki.analyse import dataflow_analysis_attached
-from loki.expression.symbolic import is_dimension_constant, simplify
-from loki.expression.symbols import Variable, Literal, Product, Sum, InlineCall, IntLiteral, RangeIndex, DeferredTypeSymbol
-from loki.expression.mappers import DetachScopesMapper
-from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
 from loki.types import SymbolAttributes
 from loki.ir import Assignment, CallStatement, Pragma
 from loki.tools import as_tuple
 from loki.visitors import FindNodes, Transformer
 from loki.bulk import SubroutineItem
-from loki.pragma_utils import get_pragma_parameters
+from loki.logging import warning
+from loki.expression.symbolic import is_dimension_constant, simplify
+from loki.expression.mappers import DetachScopesMapper
+from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
+from loki.expression.symbols import (
+    Variable, Literal, Product, Sum, InlineCall, IntLiteral, RangeIndex, DeferredTypeSymbol)
 
 __all__ = ['TemporariesRawStackTransformation']
 
@@ -29,7 +30,7 @@ one = IntLiteral(1)
 
 class TemporariesRawStackTransformation(Transformation):
     """
-    Transformation to inject stack arrays at the driver level. These, as well 
+    Transformation to inject stack arrays at the driver level. These, as well
     as corresponding sizes are passed on to the kernels. Any temporary arrays with
     the horizontal dimension as lead dimension are then allocated as offsets
     in the stack array.
@@ -112,7 +113,6 @@ class TemporariesRawStackTransformation(Transformation):
 
         role = kwargs['role']
         item = kwargs.get('item', None)
-        targets = kwargs.get('targets', None)
 
         self.stack_type_kind = 'JPRB'
         if item:
@@ -183,7 +183,7 @@ class TemporariesRawStackTransformation(Transformation):
 
                 arguments = call.arguments
                 if arg_pos:
-                    arguments = arguments[:arg_pos[0]] + as_tuple(stack_args) + arguments[arg_pos[0]:]
+                    arguments = arguments[:arg_pos[0]] + as_tuple(call_stack_args) + arguments[arg_pos[0]:]
                 else:
                     arguments += as_tuple(call_stack_args)
 
@@ -211,7 +211,8 @@ class TemporariesRawStackTransformation(Transformation):
                 stack_size_var = Scalar(name=stack_size_name, scope=routine, type=self.int_type)
 
                 stack_var = self._get_stack_var(routine, dtype, kind)
-                stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine), stack_dict[dtype][kind], kgpblock))
+                stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine),
+                                                         stack_dict[dtype][kind], kgpblock))
                 stack_var = stack_var.clone(type=stack_type)
 
                 stack_arg_dict[dtype] = {kind: (stack_size_var, stack_var.clone(dimensions = fulldim+(jgpblock,)))}
@@ -260,8 +261,10 @@ class TemporariesRawStackTransformation(Transformation):
                 stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine), stack_size_var))
                 stack_var = stack_var.clone(type=stack_type)
 
-                arg_dims = (self._get_horizontal_range(routine), RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
-                stack_arg_dict[dtype] = {kind: (Sum((stack_size_var, Product((-1, stack_used_var)))), stack_var.clone(dimensions = arg_dims))}
+                arg_dims = (self._get_horizontal_range(routine),
+                            RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
+                stack_arg_dict[dtype] = {kind: (Sum((stack_size_var, Product((-1, stack_used_var)))),
+                                                stack_var.clone(dimensions = arg_dims))}
                 stack_vars += [stack_size_var, stack_var.clone(dimensions=stack_type.shape)]
                 pragma_string += f'{stack_var.name}, '
 
@@ -277,12 +280,12 @@ class TemporariesRawStackTransformation(Transformation):
                 if present_pragma:
                     pragma_map = {present_pragma: None}
                     routine.body = Transformer(pragma_map).visit(routine.body)
-                    content = re.sub(r'\bpresent\(', f'present({pragma_string}, ', pragma.content.lower())
+                    content = re.sub(r'\bpresent\(', f'present({pragma_string}, ', present_pragma.content.lower())
                     present_pragma = present_pragma.clone(content = content)
                 else:
                     present_pragma = Pragma(keyword='acc', content=f'data present({pragma_string})')
                 routine.body.prepend(present_pragma)
-        
+
 
         # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
         # in device code
@@ -341,7 +344,8 @@ class TemporariesRawStackTransformation(Transformation):
 
                 for array in temporary_array_dict[dtype][kind]:
 
-                    int_var = Scalar(name=self.local_int_var_name_pattern.format(name=array.name), scope=routine, type=self.int_type)
+                    int_var = Scalar(name=self.local_int_var_name_pattern.format(name=array.name),
+                                     scope=routine, type=self.int_type)
                     integers += [int_var]
 
                     array_size = one
@@ -360,7 +364,6 @@ class TemporariesRawStackTransformation(Transformation):
                         old_array_size = array_size.children
                     else:
                         old_array_size = (array_size,)
-                        
 
                     temp_map = self._map_temporary_array(array, int_var, routine, stack_var)
                     var_map = {**var_map, **temp_map}
@@ -369,7 +372,7 @@ class TemporariesRawStackTransformation(Transformation):
                 stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
-            
+
                 integers += [stack_used_var]
                 allocations += [Assignment(lhs=stack_used_var, rhs=stack_used)]
 
@@ -457,8 +460,6 @@ class TemporariesRawStackTransformation(Transformation):
         temp_map = {}
         stack_dimensions = [None, None]
 
-        scalar_types = (Scalar, Sum, Product, IntLiteral)
-
         for t in temp_arrays:
 
             offset = one
@@ -468,16 +469,13 @@ class TemporariesRawStackTransformation(Transformation):
 
                 stack_dimensions[0] = t.dimensions[0]
 
-                if (isinstance(t.dimensions[0], RangeIndex) and
-                    (t.dimensions[0] == self._get_horizontal_range(routine) or
-                    (t.dimensions[0].lower is None and t.dimensions[0].upper is None))):
-                    contiguous = True
-                else:
-                    contiguous = False
+                contiguous = (isinstance(t.dimensions[0], RangeIndex) and
+                             (t.dimensions[0] == self._get_horizontal_range(routine) or
+                             (t.dimensions[0].lower is None and t.dimensions[0].upper is None)))
 
                 s_offset = one
                 for d, s in zip(t.dimensions[1:], t.shape[1:]):
-                
+
                     if isinstance(s, RangeIndex):
                         s_lower = s.lower
                         s_upper = s.upper
@@ -502,7 +500,7 @@ class TemporariesRawStackTransformation(Transformation):
                         else:
                             d_upper = d.upper
 
-                        contiguous = (d_upper == s_upper) and (d_lower == s_lower) 
+                        contiguous = (d_upper == s_upper) and (d_lower == s_lower)
 
                         stack_size = Product((stack_size, Sum((d_upper, Product((-1, d_lower)), one))))
 
@@ -510,7 +508,7 @@ class TemporariesRawStackTransformation(Transformation):
 
                         d_lower = d
 
-                    
+
                     d_offset =  Sum((d_lower, Product((-1, s_lower))))
 
                     offset = Sum((offset, Product((d_offset, s_offset))))
@@ -626,7 +624,7 @@ class TemporariesRawStackTransformation(Transformation):
                 new_list = []
                 for stack_size in stack_dict[dtype][kind]:
                     if (isinstance(stack_size, InlineCall) and stack_size.function == 'MAX'):
-                        new_list += [s for s in stack_size.parameters]
+                        new_list += list(stack_size.parameters)
                     else:
                         new_list += [stack_size]
                 stack_dict[dtype][kind] = new_list
@@ -638,7 +636,8 @@ class TemporariesRawStackTransformation(Transformation):
 
                     if dtype in stack_dict:
                         if kind in stack_dict[dtype]:
-                            stack_dict[dtype][kind] = [simplify(Sum((local_stack_dict[dtype][kind], s))) for s in stack_dict[dtype][kind]]
+                            stack_dict[dtype][kind] = [simplify(Sum((local_stack_dict[dtype][kind], s)))
+                                                       for s in stack_dict[dtype][kind]]
                         else:
                             stack_dict[dtype][kind] = [local_stack_dict[dtype][kind]]
                     else:
@@ -650,7 +649,7 @@ class TemporariesRawStackTransformation(Transformation):
                 if len(stack_dict[dtype][kind]) == 1:
                     stack_dict[dtype][kind] = stack_dict[dtype][kind][0]
                 else:
-                    stack_dict[dtype][kind] = InlineCall(function = Variable(name = 'MAX'), 
+                    stack_dict[dtype][kind] = InlineCall(function = Variable(name = 'MAX'),
                                                          parameters = as_tuple(stack_dict[dtype][kind]))
 
         return stack_dict
