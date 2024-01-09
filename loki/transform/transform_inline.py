@@ -10,6 +10,8 @@ Collection of utility routines to perform code-level force-inlining.
 
 
 """
+from collections import defaultdict
+
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, LokiIdentityMapper
@@ -20,11 +22,17 @@ from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
 from loki.logging import warning, error
+from loki.pragma_utils import pragmas_attached, is_loki_pragma
 
+from loki.transform.transform_utilities import (
+    single_variable_declaration,
+    recursive_expression_map_update
+)
 
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
-    'inline_member_procedures'
+    'inline_internal_procedures', 'inline_member_procedures',
+    'inline_marked_subroutines'
 ]
 
 
@@ -190,26 +198,17 @@ def inline_elemental_functions(routine):
     routine.spec = Transformer(import_map).visit(routine.spec)
 
 
-def inline_member_routine(routine, member):
+def map_call_to_procedure_body(call, caller):
     """
-    Inline an individual member :any:`Subroutine` at source level.
-
-    This will replace all :any:`Call` objects to the specified
-    subroutine with an adjusted equivalent of the member routines'
-    body. For this, argument matching, including partial dimension
-    matching for array references is performed, and all
-    member-specific declarations are hoisted to the containing
-    :any:`Subroutine`.
+    Resolve arguments of a call and map to the called procedure body.
 
     Parameters
     ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to inline all calls to the member routine
-    member : :any:`Subroutine`
-        The contained member subroutine to be inlined in the parent
+    call : :any:`CallStatment` or :any:`InlineCall`
+         Call object that defines the argument mapping
+    caller : :any:`Subroutine`
+         Procedure (scope) into which the callee's body gets mapped
     """
-    # pylint: disable=import-outside-toplevel,cyclic-import
-    from loki.transform import recursive_expression_map_update
 
     def _map_unbound_dims(var, val):
         """
@@ -229,99 +228,207 @@ def inline_member_routine(routine, member):
 
         return val.clone(dimensions=tuple(new_dimensions))
 
-    # Prevent shadowing of member variables by renaming them a priori
+    # Get callee from the procedure type
+    callee = call.routine
+    if callee is BasicType.DEFERRED:
+        error(
+            '[Loki::TransformInline] Need procedure definition to resolve '
+            f'call to {call.name} from {caller}'
+        )
+        raise RuntimeError('Procedure definition not found! ')
+
+    argmap = {}
+    callee_vars = FindVariables().visit(callee.body)
+
+    # Match dimension indexes between the argument and the given value
+    # for all occurences of the argument in the body
+    for arg, val in call.arg_map.items():
+        if isinstance(arg, sym.Array):
+            # Resolve implicit dimension ranges of the passed value,
+            # eg. when passing a two-dimensional array `a` as `call(arg=a)`
+            # Check if val is a DeferredTypeSymbol, as it does not have a `dimensions` attribute
+            if not isinstance(val, sym.DeferredTypeSymbol) and val.dimensions:
+                qualified_value = val
+            else:
+                qualified_value = val.clone(
+                    dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
+                )
+
+            # If sequence association (scalar-to-array argument passing) is used,
+            # we cannot determine the right re-mapped iteration space, so we bail here!
+            if not any(isinstance(d, sym.Range) for d in qualified_value.dimensions):
+                error(
+                    '[Loki::TransformInline] Cannot find free dimension resolving '
+                    f' array argument for value "{qualified_value}"'
+                )
+                raise RuntimeError(
+                    f'[Loki::TransformInline] Cannot resolve procedure call to {call.name}'
+                )
+            arg_vars = tuple(v for v in callee_vars if v.name == arg.name)
+            argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
+        else:
+            argmap[arg] = val
+
+    # Deal with PRESENT check for optional arguments
+    present_checks = tuple(
+        check for check in FindInlineCalls().visit(callee.body) if check.function == 'PRESENT'
+    )
+    present_map = {
+        check: sym.Literal('.true.') if check.arguments[0] in call.arg_map else sym.Literal('.false.')
+        for check in present_checks
+    }
+    argmap.update(present_map)
+
+    # Recursive update of the map in case of nested variables to map
+    argmap = recursive_expression_map_update(argmap, max_iterations=10)
+
+    # Substitute argument calls into a copy of the body
+    callee_body = SubstituteExpressions(argmap, rebuild_scopes=True).visit(
+        callee.body.body, scope=caller
+    )
+
+    # Inline substituted body within a pair of marker comments
+    comment = Comment(f'! [Loki] inlined child subroutine: {callee.name}')
+    c_line = Comment('! =========================================')
+    return (comment, c_line) + as_tuple(callee_body) + (c_line, )
+
+
+def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
+    """
+    Inline a set of call to an individual :any:`Subroutine` at source level.
+
+    This will replace all :any:`Call` objects to the specified
+    subroutine with an adjusted equivalent of the member routines'
+    body. For this, argument matching, including partial dimension
+    matching for array references is performed, and all
+    member-specific declarations are hoisted to the containing
+    :any:`Subroutine`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to inline all calls to the member routine
+    calls : tuple or list of :any:`CallStatement`
+    callee : :any:`Subroutine`
+        The called target subroutine to be inlined in the parent
+    allowed_aliases : tuple or list of str or :any:`Expression`, optional
+        List of variables that will not be renamed in the parent scope, even
+        if they alias with a local declaration.
+    """
+    allowed_aliases = as_tuple(allowed_aliases)
+
+    # Ensure we process sets of calls to the same callee
+    assert all(call.routine == callee for call in calls)
+
+    # Prevent shadowing of callee's variables by renaming them a priori
     parent_variables = routine.variable_map
-    duplicate_locals = tuple(
-        v for v in member.variables
-        if v.name in parent_variables and v.name.lower() not in member._dummies
+    duplicates = tuple(
+        v for v in callee.variables
+        if v.name in parent_variables and v.name.lower() not in callee._dummies
     )
+    # Filter out allowed aliases to prevent suffixing
+    duplicates = tuple(v for v in duplicates if v.symbol not in allowed_aliases)
     shadow_mapper = SubstituteExpressions(
-        {v: v.clone(name=f'{member.name}_{v.name}') for v in duplicate_locals}
+        {v: v.clone(name=f'{callee.name}_{v.name}') for v in duplicates}
     )
-    member.spec = shadow_mapper.visit(member.spec)
+    callee.spec = shadow_mapper.visit(callee.spec)
 
     var_map = {}
-    duplicate_locals_names = {dl.name.lower() for dl in duplicate_locals}
-    for v in FindVariables(unique=False).visit(member.body):
-        if v.name.lower() in duplicate_locals_names:
-            var_map[v] = v.clone(name=f'{member.name}_{v.name}')
-    member.body = SubstituteExpressions(var_map).visit(member.body)
+    duplicate_names = {dl.name.lower() for dl in duplicates}
+    for v in FindVariables(unique=False).visit(callee.body):
+        if v.name.lower() in duplicate_names:
+            var_map[v] = v.clone(name=f'{callee.name}_{v.name}')
+    var_map = recursive_expression_map_update(var_map)
+    callee.body = SubstituteExpressions(var_map).visit(callee.body)
+
+    # Separate allowed aliases from other variables to ensure clean hoisting
+    if allowed_aliases:
+        single_variable_declaration(callee, variables=allowed_aliases)
 
     # Get local variable declarations and hoist them
-    decls = FindNodes(VariableDeclaration).visit(member.spec)
-    decls = tuple(d for d in decls if all(s.name.lower() not in member._dummies for s in d.symbols))
+    decls = FindNodes(VariableDeclaration).visit(callee.spec)
+    decls = tuple(d for d in decls if all(s.name.lower() not in callee._dummies for s in d.symbols))
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
+    # Rescope the declaration symbols
+    decls = tuple(d.clone(symbols=tuple(s.clone(scope=routine) for s in d.symbols)) for d in decls)
     routine.spec.append(decls)
 
-    call_map = {}
-    for call in FindNodes(CallStatement).visit(routine.body):
-        if call.routine == member:
-            argmap = {}
-            member_vars = FindVariables().visit(member.body)
+    # Resolve the call by mapping arguments into the called procedure's body
+    call_map = {
+        call: map_call_to_procedure_body(call, caller=routine) for call in calls
+    }
 
-            # Match dimension indexes between the argument and the given value
-            # for all occurences of the argument in the body
-            for arg, val in call.arg_map.items():
-                if isinstance(arg, sym.Array):
-                    # Resolve implicit dimension ranges of the passed value,
-                    # eg. when passing a two-dimensional array `a` as `call(arg=a)`
-                    # Check if val is a DeferredTypeSymbol, as it does not have a `dimensions` attribute
-                    if not isinstance(val, sym.DeferredTypeSymbol) and val.dimensions:
-                        qualified_value = val
-                    else:
-                        qualified_value = val.clone(
-                            dimensions=tuple(sym.Range((None, None)) for _ in arg.shape)
-                        )
-
-                    # If sequence association (scalar-to-array argument passing) is used,
-                    # we cannot determine the right re-mapped iteration space, so we bail here!
-                    if not any(isinstance(d, sym.Range) for d in qualified_value.dimensions):
-                        error(
-                            '[Loki::TransformInline] Cannot find free dimension resolving '
-                            f' array argument for value "{qualified_value}"'
-                        )
-                        raise RuntimeError('[Loki::TransformInline] Unable to resolve member subroutine call')
-                    arg_vars = tuple(v for v in member_vars if v.name == arg.name)
-                    argmap.update((v, _map_unbound_dims(v, qualified_value)) for v in arg_vars)
-                else:
-                    argmap[arg] = val
-
-            # Recursive update of the map in case of nested variables to map
-            argmap = recursive_expression_map_update(argmap, max_iterations=10)
-
-            # Substitute argument calls into a copy of the body
-            member_body = SubstituteExpressions(argmap, rebuild_scopes=True).visit(
-                member.body.body, scope=routine
-            )
-
-            # Inline substituted body within a pair of marker comments
-            comment = Comment(f'! [Loki] inlined member subroutine: {member.name}')
-            c_line = Comment('! =========================================')
-            call_map[call] = (comment, c_line) + as_tuple(member_body) + (c_line, )
-
-    # Replace calls to member with the member's body
+    # Replace calls to child procedure with the child's body
     routine.body = Transformer(call_map).visit(routine.body)
-    # Can't use transformer to replace subroutine, so strip it manually
-    contains_body = tuple(n for n in routine.contains.body if not n == member)
-    routine.contains._update(body=contains_body)
 
 
-def inline_member_procedures(routine):
+def inline_internal_procedures(routine, allowed_aliases=None):
     """
-    Inline all member subroutines contained in an individual :any:`Subroutine`.
+    Inline internal subroutines contained in an individual :any:`Subroutine`.
 
-    Please note that member functions are not yet supported!
+    Please note that internal functions are not yet supported!
 
     Parameters
     ----------
     routine : :any:`Subroutine`
         The subroutine in which to inline all member routines
+    allowed_aliases : tuple or list of str or :any:`Expression`, optional
+        List of variables that will not be renamed in the parent scope, even
+        if they alias with a local declaration.
     """
 
     # Run through all members and invoke individual inlining transforms
-    for member in routine.members:
-        if member.is_function:
+    for child in routine.members:
+        if child.is_function:
             # TODO: Implement for functions!!!
-            warning('[Loki::inline] Inlining member functions is not yet supported, only subroutines!')
+            warning('[Loki::inline] Inlining internal functions is not yet supported, only subroutines!')
         else:
-            inline_member_routine(routine, member)
+            calls = tuple(
+                call for call in FindNodes(CallStatement).visit(routine.body)
+                if call.routine == child
+            )
+            inline_subroutine_calls(routine, calls, child, allowed_aliases=allowed_aliases)
+
+            # Can't use transformer to replace subroutine, so strip it manually
+            contains_body = tuple(n for n in routine.contains.body if not n == child)
+            routine.contains._update(body=contains_body)
+
+
+inline_member_procedures = inline_internal_procedures
+
+
+def inline_marked_subroutines(routine, allowed_aliases=None):
+    """
+    Inline :any:`Subroutine` objects guided by pragma annotations.
+
+    When encountering :any:`CallStatement` objects that are marked with a
+    ``!$loki inline`` pragma, this utility will attempt to replace the call
+    with the body of the called procedure and remap all passed arguments
+    into the calling procedures scope.
+
+    Please note that this utility requires :any:`CallStatement` objects
+    to be "enriched" with external type information.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to look for pragma-marked procedures to inline
+    allowed_aliases : tuple or list of str or :any:`Expression`, optional
+        List of variables that will not be renamed in the parent scope, even
+        if they alias with a local declaration.
+    """
+
+    with pragmas_attached(routine, node_type=CallStatement):
+
+        # Group the marked calls by callee routine
+        call_sets = defaultdict(list)
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if is_loki_pragma(call.pragma, starts_with='inline'):
+                call_sets[call.routine].append(call)
+
+        # Trigger per-call inlining on collected sets
+        for callee, calls in call_sets.items():
+            if callee:  # Skip the unattached calls (collected under None)
+                inline_subroutine_calls(
+                    routine, calls, callee, allowed_aliases=allowed_aliases
+                )

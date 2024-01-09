@@ -188,6 +188,25 @@ def test_simplify_collect_coefficients(source, ref):
 
 @pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
+    ('1 == 1', 'True'),
+    ('2 == 1', 'False'),
+    ('1 + 1 == 2', '1 + 1 == 2'),  # Not true without integer arithmetic
+    ('.true. .and. .true.', 'True'),
+    ('.true. .and. .false.', 'False'),
+    ('.true. .or. .false.', 'True'),
+    ('.false. .or. .false.', 'False'),
+    ('2 == 1 .and. 1 == 1', 'False'),
+    ('2 == 1 .or. 1 == 1', 'True'),
+])
+def test_simplify_logic_evaluation(source, ref):
+    scope = Scope()
+    expr = parse_fparser_expression(source, scope)
+    expr = simplify(expr, enabled_simplifications=Simplification.LogicEvaluation)
+    assert str(expr) == ref
+
+
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
+@pytest.mark.parametrize('source, ref', [
     ('5 * (4 + 3 * (2 + 1) )', '65'),
     ('1 - (-1 - (-1 - (-1 - (-1 - 1) - 1) - 1) - 1) - 1', '0'),
     ('5 + a * (3 - b * (2 + c)) * 5 - 4', '1 + 15*a - 10*a*b - 5*a*b*c'),
@@ -201,7 +220,9 @@ def test_simplify_collect_coefficients(source, ref):
     ('1*a*b + 0*a*b', 'a*b'),
     ('n+(((-1)*1)*n)', '0'),
     ('5 + a * (3 - b * (2 + c) / 7) * 5 - 4', '1 + 15*a - 10*a*b / 7 - 5*a*b*c / 7'),
-    ('(5 + 3) * a - 8 * a / 2 + a * ((7 - 1) / 3)', '6*a')
+    ('(5 + 3) * a - 8 * a / 2 + a * ((7 - 1) / 3)', '6*a'),
+    ('(5 + 3) == 8', 'True'),
+    ('42 == 666', 'False'),
 ])
 def test_simplify(source,ref):
     scope = Scope()

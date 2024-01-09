@@ -21,3 +21,4 @@ from loki.transform.transform_hoist_variables import * # noqa
 from loki.transform.transform_parametrise import * # noqa
 from loki.transform.transform_extract_contained_procedures import * # noqa
 from loki.transform.transform_sequence_association import * # noqa
+from loki.transform.transform_dead_code import * # noqa

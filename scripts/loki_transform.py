@@ -108,15 +108,19 @@ def cli(debug):
               help="Remove derived-type arguments and replace with canonical arguments")
 @click.option('--inline-members/--no-inline-members', default=False,
               help='Inline member functions for SCC-class transformations.')
+@click.option('--inline-marked/--no-inline-marked', default=True,
+              help='Inline pragma-marked subroutines for SCC-class transformations.')
 @click.option('--resolve-sequence-association/--no-resolve-sequence-association', default=False,
               help='Replace array arguments passed as scalars with arrays.')
 @click.option('--derive-argument-array-shape/--no-derive-argument-array-shape', default=False,
               help="Recursively derive explicit shape dimension for argument arrays")
+@click.option('--eliminate-dead-code/--no-eliminate-dead-code', default=True,
+              help='Perform dead code elimination, where unreachable branches are trimmed from the code.')
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
-        global_var_offload, remove_derived_args, inline_members, resolve_sequence_association,
-        derive_argument_array_shape
+        global_var_offload, remove_derived_args, inline_members, inline_marked,
+        resolve_sequence_association, derive_argument_array_shape, eliminate_dead_code
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -211,7 +215,9 @@ def convert(
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
             horizontal=horizontal, directive=directive,
-            inline_members=inline_members, resolve_sequence_association=resolve_sequence_association
+            inline_members=inline_members, inline_marked=inline_marked,
+            resolve_sequence_association=resolve_sequence_association,
+            eliminate_dead_code=eliminate_dead_code
         ))
         scheduler.process( SCCDevectorTransformation(
             horizontal=horizontal, trim_vector_sections=trim_vector_sections
