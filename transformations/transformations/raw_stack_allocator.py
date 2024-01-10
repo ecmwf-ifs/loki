@@ -627,7 +627,7 @@ class TemporariesRawStackTransformation(Transformation):
                         new_list += list(stack_size.parameters)
                     else:
                         new_list += [stack_size]
-                stack_dict[dtype][kind] = new_list
+                stack_sizes = new_list
 
         if local_stack_dict:
             for dtype in local_stack_dict:
@@ -646,10 +646,9 @@ class TemporariesRawStackTransformation(Transformation):
         for (dtype, kind_dict) in stack_dict.items():
             for (kind, stacks) in kind_dict.items():
                 if len(stacks) == 1:
-                    stack_dict[dtype][kind] = stack_dict[dtype][kind][0]
+                    kind_dict[kind] = stacks[0]
                 else:
-                    stack_dict[dtype][kind] = InlineCall(function = Variable(name = 'MAX'),
-                                                         parameters = as_tuple(stack_dict[dtype][kind]))
+                    kind_dict[kind] = InlineCall(function = Variable(name = 'MAX'), parameters = as_tuple(stacks))
 
         return stack_dict
 
