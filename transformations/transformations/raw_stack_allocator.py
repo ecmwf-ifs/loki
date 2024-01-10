@@ -322,12 +322,12 @@ class TemporariesRawStackTransformation(Transformation):
         stack_set = set()
 
 
-        for dtype in temporary_array_dict:
+        for (dtype, kind_dict) in temporary_array_dict.items():
 
             if dtype not in stack_dict:
                 stack_dict[dtype] = {}
 
-            for kind in temporary_array_dict[dtype]:
+            for (kind, arrays) in kind_dict.items():
 
                 stack_used = IntLiteral(0)
                 if kind not in stack_dict[dtype]:
@@ -342,7 +342,7 @@ class TemporariesRawStackTransformation(Transformation):
                 old_int_var = IntLiteral(0)
                 old_array_size = ()
 
-                for array in temporary_array_dict[dtype][kind]:
+                for array in arrays:
 
                     int_var = Scalar(name=self.local_int_var_name_pattern.format(name=array.name),
                                      scope=routine, type=self.int_type)
@@ -619,10 +619,10 @@ class TemporariesRawStackTransformation(Transformation):
             return local_stack_dict or {}
 
         # Unwind "max" expressions from successors and inject the local stack size into the expressions
-        for dtype in stack_dict:
-            for kind in stack_dict[dtype]:
+        for (dtype, kind_dict) in stack_dict.items():
+            for (kind, stack_sizes) in kind_dict.items():
                 new_list = []
-                for stack_size in stack_dict[dtype][kind]:
+                for stack_size in stack_sizes:
                     if (isinstance(stack_size, InlineCall) and stack_size.function == 'MAX'):
                         new_list += list(stack_size.parameters)
                     else:
@@ -643,10 +643,9 @@ class TemporariesRawStackTransformation(Transformation):
                     else:
                         stack_dict[dtype] = {kind: [local_stack_dict[dtype][kind]]}
 
-
-        for dtype in stack_dict:
-            for kind in stack_dict[dtype]:
-                if len(stack_dict[dtype][kind]) == 1:
+        for (dtype, kind_dict) in stack_dict.items():
+            for (kind, stacks) in kind_dict.items():
+                if len(stacks) == 1:
                     stack_dict[dtype][kind] = stack_dict[dtype][kind][0]
                 else:
                     stack_dict[dtype][kind] = InlineCall(function = Variable(name = 'MAX'),
