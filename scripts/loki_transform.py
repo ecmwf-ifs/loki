@@ -24,7 +24,7 @@ from loki import (
 from loki.transform import (
     DependencyTransformation, ModuleWrapTransformation, FortranCTransformation,
     FileWriteTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
-    InlineTransformation
+    InlineTransformation, SanitiseTransformation
 )
 
 # pylint: disable=wrong-import-order
@@ -186,12 +186,19 @@ def convert(
     else:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
 
+    # Perform general source sanitisation steps to level the playing field
+    sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
+    if not sanitise_trafo:
+        sanitise_trafo = SanitiseTransformation(
+            resolve_sequence_association=resolve_sequence_association,
+        )
+    scheduler.process(transformation=sanitise_trafo)
+
     # Perform source-inlining either from CLI arguments or from config
     inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
     if not inline_trafo:
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
-            resolve_sequence_association=resolve_sequence_association,
             eliminate_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index
         )
     scheduler.process(transformation=inline_trafo)
