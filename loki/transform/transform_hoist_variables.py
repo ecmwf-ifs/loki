@@ -309,15 +309,16 @@ class HoistVariablesTransformation(Transformation):
 
     def kernel_call_argument_remapping(self, routine, call, variables):
         """
-        Callback method to re-map hoisted arguments kernels calls except
-        for the driver-level routine.
+        Callback method to re-map hoisted arguments in kernel-to-kernel calls.
+        
         The callback will simply add all the hoisted variable arrays to the call
         without dimension range symbols.
         This callback is used to adjust the argument variable mapping, so that
         the call signature can be adjusted to the declaration
-        scheme of subclassed variants of the basic hoisting tnansformation.
+        scheme of subclassed variants of the basic hoisting transformation.
         Potentially, different variants of the hoist transformation can override
-        the behaviour here to map to a differnt call invocation scheme.
+        the behaviour here to map to a different call invocation scheme.
+        
         Parameters
         ----------
         routine : :any:`Subroutine`
