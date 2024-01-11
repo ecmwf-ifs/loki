@@ -5,15 +5,16 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from itertools import chain
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
-    CallStatement, Pragma, Array, as_tuple, Transformer, warning, BasicType,
+    CallStatement, Pragma, Scalar, Array, as_tuple, Transformer, warning, BasicType,
     SubroutineItem, GlobalVarImportItem, dataflow_analysis_attached, Import,
     Comment, Variable, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict
 )
 
 
-__all__ = ['DataOffloadTransformation', 'GlobalVarOffloadTransformation']
+__all__ = ['DataOffloadTransformation', 'GlobalVariableAnalysis', 'GlobalVarOffloadTransformation']
 
 
 class DataOffloadTransformation(Transformation):
@@ -190,6 +191,160 @@ class DataOffloadTransformation(Transformation):
                         pragma_map[r.pragma_post] = None
 
         routine.body = Transformer(pragma_map).visit(routine.body)
+
+
+class GlobalVariableAnalysis(Transformation):
+    """
+    Transformation pass to analyse the declaration and use of (global) module variables.
+
+    This analysis is a requirement before applying :any:`GlobalVarOffloadTransformation`.
+
+    Collect data in :any:`Item.trafo_data` for :any:`SubroutineItem` and
+    :any:`GlobalVarImportItem` items and store analysis results under the
+    provided :data:`key` (default: ``'GlobalVariableAnalysis'``) in the
+    items' ``trafo_data``.
+
+    For procedures, use the the Loki dataflow analysis functionality to compile
+    a list of used and/or defined variables (i.e., read and/or written).
+    Store these under the keys ``'uses_symbols'`` and ``'defines_symbols'``, respectively.
+
+    For modules/:any:`GlobalVarImportItem`, store the list of variables declared in the
+    module under the key ``'declares'`` and out of this the subset of variables that
+    need offloading to device under the key ``'offload'``.
+
+    Note that in every case, the full variable symbols are stored to allow access to
+    type information in transformations using the analysis data.
+
+    The generated trafo_data has the following schema::
+
+        GlobalVarImportItem: {
+            'declares': set(Variable, Variable, ...),
+            'offload': set(Variable, ...)
+        }
+
+        SubroutineItem: {
+            'uses_symbols': set( (Variable, '<module_name>'), (Variable, '<module_name>'), ...),
+            'defines_symbols': set((Variable, '<module_name>'), (Variable, '<module_name>'), ...)
+        }
+
+    Parameters
+    ----------
+    key : str, optional
+        Specify a different identifier under which trafo_data is stored
+    """
+
+    _key = 'GlobalVariableAnalysis'
+    """Default identifier for trafo_data entry"""
+
+    reverse_traversal = True
+    """Traversal from the leaves upwards, i.e., modules with global variables are processed first,
+    then kernels using them before the driver."""
+
+    item_filter = (SubroutineItem, GlobalVarImportItem)
+    """Process procedures and modules with global variable declarations."""
+
+    def __init__(self, key=None):
+        if key:
+            self._key = key
+
+    def transform_module(self, module, **kwargs):
+        if 'item' not in kwargs:
+            raise RuntimeError('Cannot apply GlobalVariableAnalysis without item to store analysis data')
+
+        item = kwargs['item']
+
+        if not isinstance(item, GlobalVarImportItem):
+            raise RuntimeError('Module transformation applied for non-module item')
+
+        # Gather all module variables and filter out parameters
+        variables = {var for var in module.variables if not var.type.parameter}
+
+        # Initialize and store trafo data
+        item.trafo_data[self._key] = {
+            'declares': variables,
+            'offload': set()
+        }
+
+    def transform_subroutine(self, routine, **kwargs):
+        if 'item' not in kwargs:
+            raise RuntimeError('Cannot apply GlobalVariableAnalysis without item to store analysis data')
+        if 'successors' not in kwargs:
+            raise RuntimeError('Cannot apply GlobalVariableAnalysis without successors to store offload analysis data')
+
+        item = kwargs['item']
+        successors = kwargs['successors']
+
+        # Gather all symbols imported in this routine or parent scopes
+        import_map = CaseInsensitiveDict()
+        scope = routine
+        while scope:
+            import_map.update(scope.import_map)
+            scope = scope.parent
+
+        with dataflow_analysis_attached(routine):
+            # Gather read and written symbols that have been imported
+            uses_imported_symbols = {
+                var for var in routine.body.uses_symbols
+                if var.name in import_map or (var.parent and var.parents[0].name in import_map)
+            }
+            defines_imported_symbols = {
+                var for var in routine.body.defines_symbols
+                if var.name in import_map or (var.parent and var.parents[0].name in import_map)
+            }
+
+            # Filter out type and procedure imports by restricting to Scalar and Array symbols
+            uses_imported_symbols = {var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))}
+            defines_imported_symbols = {var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))}
+
+            # Discard parameters (which are read-only by definition)
+            uses_imported_symbols = {var for var in uses_imported_symbols if not var.type.parameter}
+
+            def _map_var_to_module(var):
+                if var.parent:
+                    module = var.parents[0].type.module
+                    module_var = module.variable_map[var.parents[0].name]
+                    dimensions = getattr(module_var, 'dimensions', None)
+                    for child in chain(var.parents[1:], (var,)):
+                        module_var = child.clone(
+                            name=f'{module_var.name}%{child.name}',
+                            parent=module_var,
+                            scope=module_var.scope
+                        )
+                    return (module_var.clone(dimensions=dimensions), module.name.lower())
+                else:
+                    module = var.type.module
+                return (module.variable_map[var.name], module.name.lower())
+
+            # Store symbol lists in trafo data
+            item.trafo_data[self._key] = {}
+            item.trafo_data[self._key]['uses_symbols'] = {
+                _map_var_to_module(var) for var in uses_imported_symbols
+            }
+            item.trafo_data[self._key]['defines_symbols'] = {
+                _map_var_to_module(var) for var in defines_imported_symbols
+            }
+
+        # Propagate offload requirement to the items of the global variables
+        successors_map = CaseInsensitiveDict(
+            (item.name, item) for item in successors if isinstance(item, GlobalVarImportItem)
+        )
+        for var, module in chain(
+            item.trafo_data[self._key]['uses_symbols'],
+            item.trafo_data[self._key]['defines_symbols']
+        ):
+            if var.parent:
+                successor = successors_map[f'{module}#{var.parents[0].name}']
+            else:
+                successor = successors_map[f'{module}#{var.name}']
+            successor.trafo_data[self._key]['offload'].add(var)
+
+        # Amend analysis data with data from successors
+        # Note: This is a temporary workaround for the incomplete list of successor items
+        # provided by the current scheduler implementation
+        for successor in successors:
+            if isinstance(successor, SubroutineItem):
+                item.trafo_data[self._key]['uses_symbols'] |= successor.trafo_data[self._key]['uses_symbols']
+                item.trafo_data[self._key]['defines_symbols'] |= successor.trafo_data[self._key]['defines_symbols']
 
 
 class GlobalVarOffloadTransformation(Transformation):
