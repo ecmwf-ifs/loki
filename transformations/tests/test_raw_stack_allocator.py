@@ -95,6 +95,7 @@ module kernel1_mod
     real(kind=jprb), intent(in), dimension(nlon, klev) :: pzz
 
     real(kind=jprb), dimension(nlon, klev) :: zzx
+    real(kind=selected_real_kind(13,300)), dimension(nlon, klev) :: zzx
     logical, dimension(nlon, klev) :: zzl
 
     integer :: jl, jlev
@@ -230,7 +231,6 @@ end module kernel3_mod
     assert transformation._key in kernel1_item.trafo_data
 
     real_stack_size = 'MAX(klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband, 2*klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband)'
-
     logical_stack_size = 'klev'
 
     real = BasicType.REAL

@@ -20,6 +20,7 @@ from loki.logging import warning
 from loki.expression.symbolic import is_dimension_constant, simplify
 from loki.expression.mappers import DetachScopesMapper
 from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
+from loki.backend.fgen import fgen
 from loki.expression.symbols import (
     Variable, Literal, Product, Sum, InlineCall, IntLiteral, RangeIndex, DeferredTypeSymbol)
 
@@ -107,6 +108,16 @@ class TemporariesRawStackTransformation(Transformation):
                       DeferredTypeSymbol('JPIB'): 'B',
                       DeferredTypeSymbol('JPIA'): 'A',
                       None: ''}
+
+    real_kind_dict = {(IntLiteral(2),  IntLiteral(1)):   DeferredTypeSymbol('JPRT'),
+                      (IntLiteral(4),  IntLiteral(2)):   DeferredTypeSymbol('JPRS'),
+                      (IntLiteral(6),  IntLiteral(37)):  DeferredTypeSymbol('JPRM'),
+                      (IntLiteral(13), IntLiteral(300)): DeferredTypeSymbol('JPRD')}
+
+    int_kind_dict = {(IntLiteral(2)):  DeferredTypeSymbol('JPIT'),
+                     (IntLiteral(4)):  DeferredTypeSymbol('JPIS'),
+                     (IntLiteral(6)):  DeferredTypeSymbol('JPIM'),
+                     (IntLiteral(12)): DeferredTypeSymbol('JPIB')}
 
 
     def transform_subroutine(self, routine, **kwargs):
@@ -215,7 +226,10 @@ class TemporariesRawStackTransformation(Transformation):
                                                          stack_dict[dtype][kind], kgpblock))
                 stack_var = stack_var.clone(type=stack_type)
 
-                stack_arg_dict[dtype] = {kind: (stack_size_var, stack_var.clone(dimensions = fulldim+(jgpblock,)))}
+                if dtype in stack_arg_dict:
+                    stack_arg_dict[dtype][kind] = (stack_size_var, stack_var.clone(dimensions = fulldim+(jgpblock,)))
+                else:
+                    stack_arg_dict[dtype] = {kind: (stack_size_var, stack_var.clone(dimensions = fulldim+(jgpblock,)))}
                 stack_var = stack_var.clone(dimensions=stack_type.shape)
 
                 stack_vars += [stack_size_var, stack_var]
@@ -263,8 +277,12 @@ class TemporariesRawStackTransformation(Transformation):
 
                 arg_dims = (self._get_horizontal_range(routine),
                             RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
-                stack_arg_dict[dtype] = {kind: (Sum((stack_size_var, Product((-1, stack_used_var)))),
-                                                stack_var.clone(dimensions = arg_dims))}
+                if dtype in stack_arg_dict:
+                    stack_arg_dict[dtype][kind] = (Sum((stack_size_var, Product((-1, stack_used_var)))),
+                                                   stack_var.clone(dimensions = arg_dims))
+                else:
+                    stack_arg_dict[dtype] = {kind: (Sum((stack_size_var, Product((-1, stack_used_var)))),
+                                                    stack_var.clone(dimensions = arg_dims))}
                 stack_vars += [stack_size_var, stack_var.clone(dimensions=stack_type.shape)]
                 pragma_string += f'{stack_var.name}, '
 
@@ -427,6 +445,29 @@ class TemporariesRawStackTransformation(Transformation):
         return temporary_arrays
 
 
+    def _translate_selected_kinds(self, kind):
+
+        if isinstance(kind, InlineCall):
+            if kind.name == 'SELECTED_REAL_KIND':
+                return self.real_kind_dict[kind.parameters]
+
+            if kind.name == 'SELECTED_INT_KIND':
+                return self.int_kind_dict[kind.parameters]
+
+        return kind
+
+
+    def _get_kind_name(self, kind):
+
+        if isinstance(kind, InlineCall):
+            kind_name = kind.name
+            for p in kind.parameters:
+                kind_name += '_' + fgen(p)
+            return kind_name
+
+        return(fgen(kind))
+
+
     def _sort_arrays_by_type(self, arrays):
         """
         Go through list of arrays and map each array
@@ -436,13 +477,15 @@ class TemporariesRawStackTransformation(Transformation):
         type_dict = {}
 
         for a in arrays:
+            print(self._get_kind_name(a.type.kind))
+            a_kind = self._translate_selected_kinds(a.type.kind)
             if a.type.dtype in type_dict:
-                if a.type.kind in type_dict[a.type.dtype]:
-                    type_dict[a.type.dtype][a.type.kind] += [a]
+                if a_kind in type_dict[a.type.dtype]:
+                    type_dict[a.type.dtype][a_kind] += [a]
                 else:
-                    type_dict[a.type.dtype][a.type.kind] = [a]
+                    type_dict[a.type.dtype][a_kind] = [a]
             else:
-                type_dict[a.type.dtype] = {a.type.kind: [a]}
+                type_dict[a.type.dtype] = {a_kind: [a]}
 
         return type_dict
 
@@ -659,6 +702,11 @@ class TemporariesRawStackTransformation(Transformation):
         the type_name_dict and kind_name_dict.
         Type.intent is determined by whether the routine is a kernel or driver
         """
+
+        xyz = InlineCall(function = DeferredTypeSymbol('SELECTED_REAL_KIND'), 
+                         parameters = (IntLiteral(13), IntLiteral(300)))
+
+        kind = self._translate_selected_kinds(kind)
 
         stack_name = self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + self.stack_name
 
