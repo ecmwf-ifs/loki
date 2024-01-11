@@ -14,6 +14,8 @@ from loki.dimension import Dimension
 from loki.bulk import Scheduler, SchedulerConfig
 from loki.frontend.util import OMNI, FP, OFP
 from loki.backend.fgen import fgen
+from loki.types import BasicType
+from loki.expression.symbols import DeferredTypeSymbol
 
 from conftest import available_frontends
 
@@ -231,17 +233,20 @@ end module kernel3_mod
 
     logical_stack_size = 'klev'
 
+    real = BasicType.REAL
+    logical = BasicType.LOGICAL
+    jprb = DeferredTypeSymbol('JPRB')
+
     stack_dict = kernel1_item.trafo_data[transformation._key]['stack_dict']
-    for dtype in stack_dict:
-        print(dtype)
-        for kind in stack_dict[dtype]:
-            print(kind)
-            print(fgen(stack_dict[dtype][kind]))
-            print(real_stack_size)
-            print(fgen(stack_dict[dtype][kind]) == real_stack_size)
-            print(fgen(stack_dict[dtype][kind]) == logical_stack_size)
-            print()
-        print()
+
+    assert real in stack_dict
+    assert jprb in stack_dict[real]
+    assert fgen(stack_dict[real][jprb]) == real_stack_size
+
+    assert logical in stack_dict
+    assert None in stack_dict[logical]
+    assert fgen(stack_dict[logical][None]) == logical_stack_size
+
 
     rmtree(basedir)
 
