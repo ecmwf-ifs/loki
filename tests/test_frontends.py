@@ -810,6 +810,35 @@ END SUBROUTINE SOME_ROUTINE
     assert source.ir.body[1].source.string.startswith('SUBROUTINE')
 
 
+def test_regex_raw_source_with_cpp_incomplete():
+    """
+    Verify that unparsed source appears inside matched objects if
+    parser classes are used to restrict the matching
+    """
+    fcode = """
+SUBROUTINE driver(a, b, c)
+  INTEGER, INTENT(INOUT) :: a, b, c
+
+#include "kernel.intfb.h"
+
+  CALL kernel(a, b ,c)
+END SUBROUTINE driver
+    """.strip()
+    parser_classes = RegexParserClass.ProgramUnitClass
+    source = Sourcefile.from_source(fcode, frontend=REGEX, parser_classes=parser_classes)
+
+    assert len(source.ir.body) == 1
+    driver = source['driver']
+    assert isinstance(driver, Subroutine)
+    assert not driver.docstring
+    assert not driver.body
+    assert not driver.contains
+    assert driver.spec and len(driver.spec.body) == 1
+    assert isinstance(driver.spec.body[0], RawSource)
+    assert 'INTEGER, INTENT' in driver.spec.body[0].text
+    assert '#include' in driver.spec.body[0].text
+
+
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'Non-standard notation needs full preprocessing')]
 ))

@@ -183,22 +183,21 @@ class Pattern:
         filtered_candidates = [
             candidate for candidate in filtered_candidates if candidate.parser_class & parser_classes
         ]
-        if not filtered_candidates:
-            return []
 
         ir_ = []
         last_match = -1
-        for idx, _ in enumerate(reader):
-            for candidate in filtered_candidates:
-                match = candidate.match(reader, parser_classes=parser_classes, scope=scope)
-                if match:
-                    if last_match - idx > 1:
-                        span = (reader.sanitized_spans[last_match + 1], reader.sanitized_spans[idx])
-                        source = reader.source_from_sanitized_span(span)
-                        ir_ += [ir.RawSource(source.string, source=source)]
-                    last_match = idx
-                    ir_ += [match]
-                    break
+        if filtered_candidates:
+            for idx, _ in enumerate(reader):
+                for candidate in filtered_candidates:
+                    match = candidate.match(reader, parser_classes=parser_classes, scope=scope)
+                    if match:
+                        if last_match - idx > 1:
+                            span = (reader.sanitized_spans[last_match + 1], reader.sanitized_spans[idx])
+                            source = reader.source_from_sanitized_span(span)
+                            ir_ += [ir.RawSource(source.string, source=source)]
+                        last_match = idx
+                        ir_ += [match]
+                        break
 
         if head is not None and ir_:
             ir_ = [ir.RawSource(text=head.string, source=head)] + ir_
