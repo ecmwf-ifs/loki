@@ -253,9 +253,14 @@ class HoistVariablesTransformation(Transformation):
 
             successor_item = successor_map[str(call.routine.name)]
             hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
-            call_map[call] = self.driver_call_argument_remapping(
-                routine=routine, call=call, variables=hoisted_variables
-            )
+            if role == "driver":
+                call_map[call] = self.driver_call_argument_remapping(
+                    routine=routine, call=call, variables=hoisted_variables
+                )
+            elif role == "kernel":
+                call_map[call] = self.kernel_call_argument_remapping(
+                    routine=routine, call=call, variables=hoisted_variables
+                )
 
         routine.body = Transformer(call_map).visit(routine.body)
 
@@ -289,6 +294,30 @@ class HoistVariablesTransformation(Transformation):
         Potentially, different variants of the hoist transformation can override
         the behaviour here to map to a differnt call invocation scheme.
 
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The subroutine to add the variable declaration to.
+        call : :any:`CallStatement`
+            Call object to which hoisted variables will be added.
+        variables : tuple of :any:`Variable`
+            The tuple of variables to be declared.
+        """
+        # pylint: disable=unused-argument
+        new_args = tuple(v.clone(dimensions=None) for v in variables)
+        return call.clone(arguments=call.arguments + new_args)
+
+    def kernel_call_argument_remapping(self, routine, call, variables):
+        """
+        Callback method to re-map hoisted arguments kernels calls except
+        for the driver-level routine.
+        The callback will simply add all the hoisted variable arrays to the call
+        without dimension range symbols.
+        This callback is used to adjust the argument variable mapping, so that
+        the call signature can be adjusted to the declaration
+        scheme of subclassed variants of the basic hoisting tnansformation.
+        Potentially, different variants of the hoist transformation can override
+        the behaviour here to map to a differnt call invocation scheme.
         Parameters
         ----------
         routine : :any:`Subroutine`
