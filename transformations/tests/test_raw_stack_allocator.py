@@ -255,13 +255,13 @@ end module kernel3_mod
     assert real in stack_dict
 
     if frontend == OMNI:
+        assert srk in stack_dict[real]
+        assert fgen(stack_dict[real][srk]) == srk_stack_size
+    else:
         assert jprb in stack_dict[real]
         assert fgen(stack_dict[real][jprb]) == jprb_stack_size
         assert srk in stack_dict[real]
         assert fgen(stack_dict[real][srk]) == klev_stack_size
-    else:
-        assert srk in stack_dict[real]
-        assert fgen(stack_dict[real][srk]) == srk_stack_size
 
     assert logical in stack_dict
     assert None in stack_dict[logical]
