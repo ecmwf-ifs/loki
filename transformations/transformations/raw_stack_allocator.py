@@ -97,28 +97,6 @@ class TemporariesRawStackTransformation(Transformation):
                       BasicType.LOGICAL: {'kernel': 'LD', 'driver': 'LL'},
                       BasicType.INTEGER: {'kernel': 'K', 'driver': 'I'}}
 
-    kind_name_dict = {DeferredTypeSymbol('JPRT'): 'T',
-                      DeferredTypeSymbol('JPRS'): 'S',
-                      DeferredTypeSymbol('JPRM'): 'M',
-                      DeferredTypeSymbol('JPRB'): 'B',
-                      DeferredTypeSymbol('JPRD'): 'D',
-                      DeferredTypeSymbol('JPIT'): 'T',
-                      DeferredTypeSymbol('JPIS'): 'S',
-                      DeferredTypeSymbol('JPIM'): 'M',
-                      DeferredTypeSymbol('JPIB'): 'B',
-                      DeferredTypeSymbol('JPIA'): 'A',
-                      None: ''}
-
-    real_kind_dict = {(IntLiteral(2),  IntLiteral(1)):   DeferredTypeSymbol('JPRT'),
-                      (IntLiteral(4),  IntLiteral(2)):   DeferredTypeSymbol('JPRS'),
-                      (IntLiteral(6),  IntLiteral(37)):  DeferredTypeSymbol('JPRM'),
-                      (IntLiteral(13), IntLiteral(300)): DeferredTypeSymbol('JPRD')}
-
-    int_kind_dict = {(IntLiteral(2)):  DeferredTypeSymbol('JPIT'),
-                     (IntLiteral(4)):  DeferredTypeSymbol('JPIS'),
-                     (IntLiteral(6)):  DeferredTypeSymbol('JPIM'),
-                     (IntLiteral(12)): DeferredTypeSymbol('JPIB')}
-
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -171,7 +149,8 @@ class TemporariesRawStackTransformation(Transformation):
 
 
     def _get_stack_int_name(self, prefix, dtype, kind, suffix):
-        return prefix + '_' + self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + '_' + suffix
+        return (prefix + '_' + self.type_name_dict[dtype][self.role] + '_' + 
+                self._get_kind_name(kind) + '_' + suffix).replace('__', '_')
 
 
     def insert_stack_in_calls(self, routine, stack_arg_dict, successors):
@@ -445,18 +424,6 @@ class TemporariesRawStackTransformation(Transformation):
         return temporary_arrays
 
 
-    def _translate_selected_kinds(self, kind):
-
-        if isinstance(kind, InlineCall):
-            if kind.name == 'SELECTED_REAL_KIND':
-                return self.real_kind_dict[kind.parameters]
-
-            if kind.name == 'SELECTED_INT_KIND':
-                return self.int_kind_dict[kind.parameters]
-
-        return kind
-
-
     def _get_kind_name(self, kind):
 
         if isinstance(kind, InlineCall):
@@ -477,15 +444,13 @@ class TemporariesRawStackTransformation(Transformation):
         type_dict = {}
 
         for a in arrays:
-            print(self._get_kind_name(a.type.kind))
-            a_kind = self._translate_selected_kinds(a.type.kind)
             if a.type.dtype in type_dict:
-                if a_kind in type_dict[a.type.dtype]:
-                    type_dict[a.type.dtype][a_kind] += [a]
+                if a.type.kind in type_dict[a.type.dtype]:
+                    type_dict[a.type.dtype][a.type.kind] += [a]
                 else:
-                    type_dict[a.type.dtype][a_kind] = [a]
+                    type_dict[a.type.dtype][a.type.kind] = [a]
             else:
-                type_dict[a.type.dtype] = {a_kind: [a]}
+                type_dict[a.type.dtype] = {a.type.kind: [a]}
 
         return type_dict
 
@@ -703,12 +668,8 @@ class TemporariesRawStackTransformation(Transformation):
         Type.intent is determined by whether the routine is a kernel or driver
         """
 
-        xyz = InlineCall(function = DeferredTypeSymbol('SELECTED_REAL_KIND'), 
-                         parameters = (IntLiteral(13), IntLiteral(300)))
-
-        kind = self._translate_selected_kinds(kind)
-
-        stack_name = self.type_name_dict[dtype][self.role] + self.kind_name_dict[kind] + self.stack_name
+        stack_name = self.type_name_dict[dtype][self.role] + '_' + self._get_kind_name(kind) + '_' + self.stack_name
+        stack_name = stack_name.replace('__', '_')
 
         if self.role == 'kernel':
             stack_intent = 'INOUT'

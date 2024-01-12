@@ -15,7 +15,7 @@ from loki.bulk import Scheduler, SchedulerConfig
 from loki.frontend.util import OMNI, FP, OFP
 from loki.backend.fgen import fgen
 from loki.types import BasicType
-from loki.expression.symbols import DeferredTypeSymbol
+from loki.expression.symbols import DeferredTypeSymbol, InlineCall, IntLiteral
 
 from conftest import available_frontends
 
@@ -95,7 +95,7 @@ module kernel1_mod
     real(kind=jprb), intent(in), dimension(nlon, klev) :: pzz
 
     real(kind=jprb), dimension(nlon, klev) :: zzx
-    real(kind=selected_real_kind(13,300)), dimension(nlon, klev) :: zzx
+    real(kind=selected_real_kind(13,300)), dimension(nlon, klev) :: zzy
     logical, dimension(nlon, klev) :: zzl
 
     integer :: jl, jlev
@@ -104,6 +104,7 @@ module kernel1_mod
       do jlev = 1, klev
         zzl(jl, jlev) = .false.
         zzx(jl, jlev) = pzz(jl, jlev)
+        zzy(jl, jlev) = pzz(jl, jlev)
       enddo
     enddo
 
@@ -230,22 +231,34 @@ end module kernel3_mod
 
     assert transformation._key in kernel1_item.trafo_data
 
-    real_stack_size = 'MAX(klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband, 2*klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband)'
-    logical_stack_size = 'klev'
+    jprb_stack_size = 'MAX(klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband, '\
+                        '2*klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband)'
+    srk_stack_size = 'MAX(2*klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband, '\
+                         '3*klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband)'
+    klev_stack_size = 'klev'
 
     real = BasicType.REAL
     logical = BasicType.LOGICAL
     jprb = DeferredTypeSymbol('JPRB')
+    srk = InlineCall(function = DeferredTypeSymbol(name = 'SELECTED_REAL_KIND'), 
+                     parameters = (IntLiteral(13), IntLiteral(300)))
 
     stack_dict = kernel1_item.trafo_data[transformation._key]['stack_dict']
 
     assert real in stack_dict
-    assert jprb in stack_dict[real]
-    assert fgen(stack_dict[real][jprb]) == real_stack_size
+
+    if frontend == OMNI:
+        assert jprb in stack_dict[real]
+        assert fgen(stack_dict[real][jprb]) == jprb_stack_size
+        assert srk in stack_dict[real]
+        assert fgen(stack_dict[real][srk]) == klev_stack_size
+    else:
+        assert srk in stack_dict[real]
+        assert fgen(stack_dict[real][srk]) == srk_stack_size
 
     assert logical in stack_dict
     assert None in stack_dict[logical]
-    assert fgen(stack_dict[logical][None]) == logical_stack_size
+    assert fgen(stack_dict[logical][None]) == klev_stack_size
 
 
     rmtree(basedir)
