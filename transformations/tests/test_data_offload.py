@@ -15,7 +15,7 @@ from loki import (
     gettempdir, Scheduler, OMNI, Import
 )
 from conftest import available_frontends
-from transformations import DataOffloadTransformation, GlobalVariableAnalysis, NewGlobalVarOffloadTransformation
+from transformations import DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
 
 
 @pytest.fixture(scope='module', name='here')
@@ -453,7 +453,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
         frontend=frontend, xmods=(global_variable_analysis_code,)
     )
     scheduler.process(GlobalVariableAnalysis(key=key))
-    scheduler.process(NewGlobalVarOffloadTransformation(key=key))
+    scheduler.process(GlobalVarOffloadTransformation(key=key))
     driver = scheduler['#driver'].routine
 
     # Verify imports have been added to the driver
@@ -517,7 +517,7 @@ def test_transformation_global_var_import(here, config, frontend):
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
     scheduler.process(transformation=GlobalVariableAnalysis())
-    scheduler.process(transformation=NewGlobalVarOffloadTransformation())
+    scheduler.process(transformation=GlobalVarOffloadTransformation())
 
     driver = scheduler['#driver'].routine
     moduleA = scheduler['modulea#var0'].scope
@@ -585,7 +585,7 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
     scheduler.process(transformation=GlobalVariableAnalysis())
-    scheduler.process(transformation=NewGlobalVarOffloadTransformation())
+    scheduler.process(transformation=GlobalVarOffloadTransformation())
 
     driver = scheduler['#driver_derived_type'].routine
     module = scheduler['module_derived_type#p'].scope
