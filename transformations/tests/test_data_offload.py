@@ -241,11 +241,11 @@ def test_data_offload_region_multiple(frontend):
 @pytest.fixture(name='global_variable_analysis_code')
 def fixture_global_variable_analysis_code():
     fcode = {
-        #----------
-        'header_mod': (
-        #----------
+        #------------------------------
+        'global_var_analysis_header_mod': (
+        #------------------------------
 """
-module header_mod
+module global_var_analysis_header_mod
     implicit none
 
     integer, parameter :: nval = 5
@@ -253,14 +253,14 @@ module header_mod
 
     integer :: iarr(nfld)
     real :: rarr(nval, nfld)
-end module header_mod
+end module global_var_analysis_header_mod
 """
         ).strip(),
-        #--------
-        'data_mod': (
-        #--------
+        #----------------------------
+        'global_var_analysis_data_mod': (
+        #----------------------------
 """
-module data_mod
+module global_var_analysis_data_mod
     implicit none
 
     real, allocatable :: rdata(:,:,:)
@@ -277,22 +277,22 @@ contains
         integer, intent(inout) :: i
         i = i + 1
     end subroutine some_routine
-end module data_mod
+end module global_var_analysis_data_mod
 """
         ).strip(),
-        #----------
-        'kernel_mod': (
-        #----------
+        #------------------------------
+        'global_var_analysis_kernel_mod': (
+        #------------------------------
 """
-module kernel_mod
-    use header_mod, only: rarr
-    use data_mod, only: some_routine, some_type
+module global_var_analysis_kernel_mod
+    use global_var_analysis_header_mod, only: rarr
+    use global_var_analysis_data_mod, only: some_routine, some_type
 
     implicit none
 
 contains
     subroutine kernel_a(arg, tt)
-        use header_mod, only: iarr, nval, nfld
+        use global_var_analysis_header_mod, only: iarr, nval, nfld
 
         real, intent(inout) :: arg(:,:)
         type(some_type), intent(in) :: tt
@@ -309,8 +309,8 @@ contains
     end subroutine kernel_a
 
     subroutine kernel_b(arg)
-        use header_mod, only: iarr, nfld
-        use data_mod, only: rdata, tt
+        use global_var_analysis_header_mod, only: iarr, nfld
+        use global_var_analysis_data_mod, only: rdata, tt
 
         real, intent(inout) :: arg(:,:)
         integer :: i
@@ -323,7 +323,7 @@ contains
             endif
         enddo
     end subroutine kernel_b
-end module kernel_mod
+end module global_var_analysis_kernel_mod
 """
         ).strip(),
         #-------
@@ -331,8 +331,8 @@ end module kernel_mod
         #-------
 """
 subroutine driver(arg)
-    use kernel_mod, only: kernel_a, kernel_b
-    use data_mod, only: tt
+    use global_var_analysis_kernel_mod, only: kernel_a, kernel_b
+    use global_var_analysis_data_mod, only: tt
     implicit none
 
     real, intent(inout) :: arg(:,:)
@@ -381,54 +381,58 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
     nfld_dim = '1:3' if frontend == OMNI else 'nfld'
     nval_dim = '1:5' if frontend == OMNI else 'nval'
     expected_trafo_data = {
-        'header_mod#nval': {
+        'global_var_analysis_header_mod#nval': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
             'offload': set()
         },
-        'header_mod#nfld': {
+        'global_var_analysis_header_mod#nfld': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
             'offload': set()
         },
-        'header_mod#iarr': {
+        'global_var_analysis_header_mod#iarr': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
             'offload': {f'iarr({nfld_dim})'}
         },
-        'header_mod#rarr': {
+        'global_var_analysis_header_mod#rarr': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
             'offload': {f'rarr({nval_dim}, {nfld_dim})'}
         },
-        'data_mod#rdata': {
+        'global_var_analysis_data_mod#rdata': {
             'declares': {'rdata(:, :, :)', 'tt'},
             'offload': {'rdata(:, :, :)'}
         },
-        'data_mod#tt': {
+        'global_var_analysis_data_mod#tt': {
             'declares': {'rdata(:, :, :)', 'tt'},
             'offload': {'tt', 'tt%vals'}
         },
-        'data_mod#some_routine': {'defines_symbols': set(), 'uses_symbols': set()},
-        'kernel_mod#kernel_a': {
+        'global_var_analysis_data_mod#some_routine': {'defines_symbols': set(), 'uses_symbols': set()},
+        'global_var_analysis_kernel_mod#kernel_a': {
             'defines_symbols': set(),
-            'uses_symbols': {(f'iarr({nfld_dim})', 'header_mod'), (f'rarr({nval_dim}, {nfld_dim})', 'header_mod')}
-        },
-        'kernel_mod#kernel_b': {
-            'defines_symbols': {('rdata(:, :, :)', 'data_mod')},
             'uses_symbols': {
-                ('rdata(:, :, :)', 'data_mod'), ('tt', 'data_mod'), ('tt%vals', 'data_mod'),
-                (f'iarr({nfld_dim})', 'header_mod')
+                (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
+                (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
+            }
+        },
+        'global_var_analysis_kernel_mod#kernel_b': {
+            'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
+            'uses_symbols': {
+                ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
+                ('tt%vals', 'global_var_analysis_data_mod'), (f'iarr({nfld_dim})', 'global_var_analysis_header_mod')
             }
         },
         '#driver': {
-            'defines_symbols': {('rdata(:, :, :)', 'data_mod')},
+            'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
             'uses_symbols': {
-                ('rdata(:, :, :)', 'data_mod'), ('tt', 'data_mod'), ('tt%vals', 'data_mod'),
-                (f'iarr({nfld_dim})', 'header_mod'), (f'rarr({nval_dim}, {nfld_dim})', 'header_mod')
+                ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
+                ('tt%vals', 'global_var_analysis_data_mod'), (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
+                (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
             }
         }
     }
 
-    assert set(scheduler.items) == set(expected_trafo_data) | {'data_mod#some_type'}
+    assert set(scheduler.items) == set(expected_trafo_data) | {'global_var_analysis_data_mod#some_type'}
     for item in scheduler.items:
-        if item == 'data_mod#some_type':
+        if item == 'global_var_analysis_data_mod#some_type':
             continue
         for trafo_data_key, trafo_data_value in item.trafo_data[key].items():
             assert (
@@ -458,8 +462,8 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
 
     # Verify imports have been added to the driver
     expected_imports = {
-        'header_mod': {'iarr', 'rarr'},
-        'data_mod': {'rdata'}
+        'global_var_analysis_header_mod': {'iarr', 'rarr'},
+        'global_var_analysis_data_mod': {'rdata'}
     }
 
     # We need to check only the first imports as they have to be prepended
@@ -487,8 +491,8 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
 
     # Verify declarations have been added to the header modules
     expected_declarations = {
-        'header_mod': {'iarr', 'rarr'},
-        'data_mod': {'rdata', 'tt'}
+        'global_var_analysis_header_mod': {'iarr', 'rarr'},
+        'global_var_analysis_data_mod': {'rdata', 'tt'}
     }
 
     modules = {
