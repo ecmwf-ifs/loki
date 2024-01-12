@@ -33,7 +33,36 @@ def fixture_horizontal():
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal):
 
-    fcode_driver = f"""
+    fcode_parkind_mod = """
+module parkind1
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, parameter :: jpim = selected_int_kind(9)
+  integer, parameter :: jplm = jpim
+end module parkind1
+    """.strip()
+
+    fcode_yomphy_mod = """
+module yomphy
+  use parkind1, only: jpim
+  implicit none
+  type tphy
+    integer(kind=jpim) :: n_spband
+  end type tphy
+end module yomphy
+    """.strip()
+
+    fcode_mf_phys_mod = """
+module model_physics_mf_mod
+  use yomphy, only: tphy
+  implicit none
+  type model_physics_mf_type
+    type(tphy) :: yrphy
+  end type model_physics_mf_type
+end module model_physics_mf_mod
+    """.strip()
+
+    fcode_driver = """
 module driver_mod
   contains
   subroutine driver(nlon, klev, nb, ydml_phy_mf)
@@ -71,7 +100,7 @@ module driver_mod
 end module driver_mod
     """.strip()
 
-    fcode_kernel1 = f"""
+    fcode_kernel1 = """
 module kernel1_mod
   contains
   subroutine kernel1(ydml_phy_mf, nlon, klev, jstart, jend, pzz)
@@ -108,25 +137,25 @@ module kernel1_mod
       enddo
     enddo
 
-    call kernel2(ydml_phy_mf%yrphy3, nlon, klev, jstart, jend)
-    call kernel3(ydml_phy_mf%yrphy3, nlon, klev, jstart, jend, pzz)
+    call kernel2(ydml_phy_mf%yrphy, nlon, klev, jstart, jend)
+    call kernel3(ydml_phy_mf%yrphy, nlon, klev, jstart, jend, pzz)
 
   end subroutine kernel1
 end module kernel1_mod
     """.strip()
 
-    fcode_kernel2 = f"""
+    fcode_kernel2 = """
 module kernel2_mod
   contains
-  subroutine kernel2(ydphy3, nlon, klev, jstart, jend)
+  subroutine kernel2(ydphy, nlon, klev, jstart, jend)
 
       use parkind1, only: jpim, jprb
 
-      use yomphy3, only:  tphy3
+      use yomphy, only:  tphy
 
       implicit none
 
-      type(tphy3), intent(in) :: ydphy3
+      type(tphy), intent(in) :: ydphy
 
       integer(kind=jpim), intent(in) :: nlon
       integer(kind=jpim), intent(in) :: klev
@@ -135,10 +164,10 @@ module kernel2_mod
 
       integer(kind=jpim) :: jb, jlev, jl
 
-      real(kind=jprb) :: zde1(nlon, 0:klev, ydphy3%n_spband)
-      real(kind=jprb) :: zde2(nlon, klev, ydphy3%n_spband)
+      real(kind=jprb) :: zde1(nlon, 0:klev, ydphy%n_spband)
+      real(kind=jprb) :: zde2(nlon, klev, ydphy%n_spband)
 
-      do jb = 1, ydphy3%n_spband
+      do jb = 1, ydphy%n_spband
         do jlev = 1, klev
           do jl = jstart, jend
 
@@ -153,18 +182,18 @@ module kernel2_mod
 end module kernel2_mod
     """.strip()
 
-    fcode_kernel3 = f"""
+    fcode_kernel3 = """
 module kernel3_mod
   contains
-  subroutine kernel3(ydphy3, nlon, klev, jstart, jend, pzz)
+  subroutine kernel3(ydphy, nlon, klev, jstart, jend, pzz)
 
       use parkind1, only: jpim, jprb
 
-      use yomphy3, only:  tphy3
+      use yomphy, only:  tphy
 
       implicit none
 
-      type(tphy3), intent(in) :: ydphy3
+      type(tphy), intent(in) :: ydphy
 
       integer(kind=jpim), intent(in) :: nlon
       integer(kind=jpim), intent(in) :: klev
@@ -175,12 +204,12 @@ module kernel3_mod
 
       integer(kind=jpim) :: jb, jlev, jl
 
-      real(kind=jprb) :: zde1(nlon, 0:klev, ydphy3%n_spband)
-      real(kind=jprb) :: zde2(nlon, klev, ydphy3%n_spband)
+      real(kind=jprb) :: zde1(nlon, 0:klev, ydphy%n_spband)
+      real(kind=jprb) :: zde2(nlon, klev, ydphy%n_spband)
       real(kind=jprb) :: zde3(nlon, 1:klev)
 
 
-      do jb = 1, ydphy3%n_spband
+      do jb = 1, ydphy%n_spband
         zde1(:, 0, jb) = 0._jprb
         zde2(:, :, jb) = 0._jprb
         do jlev = 1, klev
@@ -218,7 +247,19 @@ end module kernel3_mod
         }
     }
 
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    if frontend == OMNI:
+        (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
+        parkind_mod = Sourcefile.from_file(basedir/'parkind_mod.F90', frontend=frontend)
+        (basedir/'yomphy_mod.F90').write_text(fcode_yomphy_mod)
+        yomphy_mod = Sourcefile.from_file(basedir/'yomphy_mod.F90', frontend=frontend)
+        (basedir/'mf_phys_mod.F90').write_text(fcode_mf_phys_mod)
+        mf_phys_mod = Sourcefile.from_file(basedir/'mf_phys_mod.F90', frontend=frontend)
+        definitions = parkind_mod.definitions + yomphy_mod.definitions + mf_phys_mod.definitions
+    else:
+        definitions = ()
+
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend,
+                          definitions=definitions)
 
     if frontend == OMNI:
         for item in scheduler.items:
@@ -231,10 +272,10 @@ end module kernel3_mod
 
     assert transformation._key in kernel1_item.trafo_data
 
-    jprb_stack_size = 'MAX(klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband, '\
-                        '2*klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband)'
-    srk_stack_size = 'MAX(2*klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband, '\
-                         '3*klev + ydml_phy_mf%yrphy3%n_spband + 2*klev*ydml_phy_mf%yrphy3%n_spband)'
+    jprb_stack_size = 'MAX(klev + ydml_phy_mf%yrphy%n_spband + 2*klev*ydml_phy_mf%yrphy%n_spband, '\
+                        '2*klev + ydml_phy_mf%yrphy%n_spband + 2*klev*ydml_phy_mf%yrphy%n_spband)'
+    srk_stack_size = 'MAX(2*klev + ydml_phy_mf%yrphy%n_spband + 2*klev*ydml_phy_mf%yrphy%n_spband, '\
+                         '3*klev + ydml_phy_mf%yrphy%n_spband + 2*klev*ydml_phy_mf%yrphy%n_spband)'
     klev_stack_size = 'klev'
 
     real = BasicType.REAL
