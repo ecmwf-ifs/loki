@@ -336,10 +336,11 @@ class GlobalVariableAnalysis(Transformation):
             item.trafo_data[self._key]['defines_symbols']
         ):
             if var.parent:
-                successor = successors_map[f'{module}#{var.parents[0].name}']
+                successor = successors_map.get(f'{module}#{var.parents[0].name}')
             else:
-                successor = successors_map[f'{module}#{var.name}']
-            successor.trafo_data[self._key]['offload'].add(var)
+                successor = successors_map.get(f'{module}#{var.name}')
+            if successor:
+                successor.trafo_data[self._key]['offload'].add(var)
 
         # Amend analysis data with data from successors
         # Note: This is a temporary workaround for the incomplete list of successor items
