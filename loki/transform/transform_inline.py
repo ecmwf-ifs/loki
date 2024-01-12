@@ -127,6 +127,16 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         raise NotImplementedError
 
     def map_scalar(self, expr, *args, **kwargs):
+         symbol = self.rec(expr._symbol, *args, **kwargs)
+         # This is tricky as a rebuilt of the symbol will yield Scalar, Array, ProcedureSymbol etc
+         # but with no rebuilt it may return VariableSymbol. Therefore we need to return the
+         # original expression if the underlying symbol is unchanged
+         if symbol is expr._symbol:
+             return expr
+         return symbol
+
+    # def map_scalar(self, expr, *args, **kwargs):
+    def map_deferred_type_symbol(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
 
         scope = kwargs.get('scope') or expr.scope
@@ -135,7 +145,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
             return expr.clone(scope=scope, type=expr.type.clone(), parent=parent)
         return expr.clone(parent=parent)
 
-    map_deferred_type_symbol = map_scalar
+    # map_deferred_type_symbol = map_scalar
 
     def map_array(self, expr, *args, **kwargs):
         if expr.dimensions:

@@ -59,9 +59,10 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, use_c_ptr=False):
+    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None):
         self.inline_elementals = inline_elementals
         self.use_c_ptr = use_c_ptr
+        self.path = Path(path) if path is not None else None
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -74,7 +75,10 @@ class FortranCTransformation(Transformation):
             self.transform_subroutine(routine, **kwargs)
 
     def transform_module(self, module, **kwargs):
-        path = Path(kwargs.get('path'))
+        if self.path is None:
+            path = Path(kwargs.get('path'))
+        else:
+            path = self.path
         role = kwargs.get('role', 'kernel')
 
         for name, td in module.typedef_map.items():
@@ -95,8 +99,14 @@ class FortranCTransformation(Transformation):
             self.transform_subroutine(routine, **kwargs)
 
     def transform_subroutine(self, routine, **kwargs):
-        path = Path(kwargs.get('path'))
+        if self.path is None:
+            path = Path(kwargs.get('path'))
+        else:
+            path = self.path
         role = kwargs.get('role', 'kernel')
+
+        if role == 'driver':
+            return
 
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
@@ -124,7 +134,11 @@ class FortranCTransformation(Transformation):
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:
-            variables = derived.dtype.typedef.variables
+            try:
+                variables = derived.dtype.typedef.variables
+            except:
+                print(f"EXCEPTION! derived: {derived} | {derived.dtype}")
+                variables = []
         declarations = []
         for v in variables:
             ctype = v.type.clone(kind=self.iso_c_intrinsic_kind(v.type, typedef))
