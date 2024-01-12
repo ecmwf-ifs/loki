@@ -606,7 +606,7 @@ class GlobalVarOffloadTransformation(Transformation):
                 '![Loki::GlobalVarOffloadTransformation] ---------------------------------------'
             )))
             for module, variables in missing_imports_map.items():
-                symbols = tuple(var.rescope(scope=routine) for var in variables)
+                symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
                 routine.spec.prepend(Import(module=module, symbols=symbols))
 
             routine.spec.prepend(Comment(text=(
