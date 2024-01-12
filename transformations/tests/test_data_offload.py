@@ -14,7 +14,7 @@ from loki import (
     gettempdir, Scheduler, OMNI
 )
 from conftest import available_frontends
-from transformations import DataOffloadTransformation, GlobalVariableAnalysis
+from transformations import DataOffloadTransformation, GlobalVariableAnalysis, NewGlobalVarOffloadTransformation
 
 
 @pytest.fixture(name='config')
@@ -431,3 +431,69 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
                     for v in trafo_data_value
                 ) == sorted(expected_trafo_data[item.name][trafo_data_key])
             )
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('key', (None, 'foobar'))
+def test_global_variable_offload(frontend, key, config, global_variable_analysis_code):
+
+    config['routines'] = {
+        'driver': {'role': 'driver'}
+    }
+    config['default']['enable_imports'] = True
+
+    scheduler = Scheduler(
+        paths=(global_variable_analysis_code,), config=config, seed_routines='driver',
+        frontend=frontend, xmods=(global_variable_analysis_code,)
+    )
+    scheduler.process(GlobalVariableAnalysis(key=key))
+    scheduler.process(NewGlobalVarOffloadTransformation(key=key))
+    driver = scheduler['#driver'].routine
+
+    # Verify imports have been added to the driver
+    expected_imports = {
+        'header_mod': {'iarr', 'rarr'},
+        'data_mod': {'rdata'}
+    }
+
+    # We need to check only the first imports as they have to be prepended
+    for import_ in driver.imports[:len(expected_imports)]:
+        assert {var.name.lower() for var in import_.symbols} == expected_imports[import_.module.lower()]
+
+    expected_h2d_pragmas = {
+        'update device': {'iarr', 'rdata', 'rarr'},
+        'enter data copyin': {'tt%vals'}
+    }
+    expected_d2h_pragmas = {
+        'update self': {'rdata'}
+    }
+
+    acc_pragmas = [p for p in FindNodes(Pragma).visit(driver.ir) if p.keyword.lower() == 'acc']
+    assert len(acc_pragmas) == len(expected_h2d_pragmas) + len(expected_d2h_pragmas)
+    for pragma in acc_pragmas[:len(expected_h2d_pragmas)]:
+        command, variables = pragma.content.lower().split('(')
+        assert command.strip() in expected_h2d_pragmas
+        assert set(variables.strip()[:-1].strip().split(',')) == expected_h2d_pragmas[command.strip()]
+    for pragma in acc_pragmas[len(expected_h2d_pragmas):]:
+        command, variables = pragma.content.lower().split('(')
+        assert command.strip() in expected_d2h_pragmas
+        assert set(variables.strip()[:-1].strip().split(',')) == expected_d2h_pragmas[command.strip()]
+
+    # Verify declarations have been added to the header modules
+    expected_declarations = {
+        'header_mod': {'iarr', 'rarr'},
+        'data_mod': {'rdata', 'tt'}
+    }
+
+    modules = {
+        name: scheduler[f'{name}#{list(vars)[0]}'].source[name]
+        for name, vars in expected_declarations.items()
+    }
+
+    for name, module in modules.items():
+        acc_pragmas = [p for p in FindNodes(Pragma).visit(module.spec) if p.keyword.lower() == 'acc']
+        variables = {
+            pragma.content.lower().split('(')[-1].strip()[:-1].strip()
+            for pragma in acc_pragmas
+        }
+        assert variables == expected_declarations[name]

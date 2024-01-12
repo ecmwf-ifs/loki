@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import defaultdict
 from itertools import chain
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
@@ -14,7 +15,10 @@ from loki import (
 )
 
 
-__all__ = ['DataOffloadTransformation', 'GlobalVariableAnalysis', 'GlobalVarOffloadTransformation']
+__all__ = [
+    'DataOffloadTransformation', 'GlobalVariableAnalysis',
+    'NewGlobalVarOffloadTransformation', 'GlobalVarOffloadTransformation'
+]
 
 
 class DataOffloadTransformation(Transformation):
@@ -311,8 +315,7 @@ class GlobalVariableAnalysis(Transformation):
                             scope=module_var.scope
                         )
                     return (module_var.clone(dimensions=dimensions), module.name.lower())
-                else:
-                    module = var.type.module
+                module = var.type.module
                 return (module.variable_map[var.name], module.name.lower())
 
             # Store symbol lists in trafo data
@@ -345,6 +348,270 @@ class GlobalVariableAnalysis(Transformation):
             if isinstance(successor, SubroutineItem):
                 item.trafo_data[self._key]['uses_symbols'] |= successor.trafo_data[self._key]['uses_symbols']
                 item.trafo_data[self._key]['defines_symbols'] |= successor.trafo_data[self._key]['defines_symbols']
+
+
+class NewGlobalVarOffloadTransformation(Transformation):
+    """
+    Transformation to insert offload directives for module variables used in device routines
+
+    Currently, only OpenACC data offloading is supported.
+
+    This requires a prior analysis pass with :any:`GlobalVariableAnalysis` to collect
+    the relevant global variable use information.
+
+    The offload directives are inserted by replacing ``!$loki update_device`` and
+    ``!$loki update_host`` pragmas in the driver's source code. Importantly, no offload
+    directives are added if these pragmas have not been added to the original source code!
+
+    For global variables, the device-side declarations are added in :meth:`transform_module`.
+    For driver procedures, the data offload and pull-back directives are added in
+    the utility method :meth:`process_driver`, which is invoked by :meth:`transform_subroutine`.
+
+    For example, the following code:
+
+    .. code-block:: fortran
+
+        module moduleB
+           real :: var2
+           real :: var3
+        end module moduleB
+
+        module moduleC
+           real :: var4
+           real :: var5
+        end module moduleC
+
+        subroutine driver()
+        implicit none
+
+        !$loki update_device
+        !$acc serial
+        call kernel()
+        !$acc end serial
+        !$loki update_host
+
+        end subroutine driver
+
+        subroutine kernel()
+        use moduleB, only: var2,var3
+        use moduleC, only: var4,var5
+        implicit none
+        !$acc routine seq
+
+        var4 = var2
+        var5 = var3
+
+        end subroutine kernel
+
+    is transformed to:
+
+    .. code-block:: fortran
+
+        module moduleB
+           real :: var2
+           real :: var3
+          !$acc declare create(var2)
+          !$acc declare create(var3)
+        end module moduleB
+
+        module moduleC
+           real :: var4
+           real :: var5
+          !$acc declare create(var4)
+          !$acc declare create(var5)
+        end module moduleC
+
+        subroutine driver()
+        implicit none
+
+        !$acc update device( var2,var3 )
+        !$acc serial
+        call kernel()
+        !$acc end serial
+        !$acc update self( var4,var5 )
+
+        end subroutine driver
+
+    Nested Fortran derived-types and arrays of derived-types are not currently supported.
+    If such an import is encountered, only the device-side declaration will be added to the
+    relevant module file, and the offload instructions will have to manually be added afterwards.
+    """
+
+    # Include module variable imports in the underlying graph
+    # connectivity for traversal with the Scheduler
+    item_filter = (SubroutineItem, GlobalVarImportItem)
+
+    def __init__(self, key=None):
+        self._key = key or GlobalVariableAnalysis._key
+
+    def transform_module(self, module, **kwargs):
+        """
+        Add device-side declarations for imported variables
+        """
+        if 'item' not in kwargs:
+            raise RuntimeError('Cannot apply GlobalVarOffloadTransformation without trafo_data in item')
+
+        item = kwargs['item']
+
+        if not isinstance(item, GlobalVarImportItem):
+            raise RuntimeError('Module transformation applied for non-module item')
+
+        # Check for already declared offloads
+        acc_pragmas = [pragma for pragma in FindNodes(Pragma).visit(module.spec) if pragma.keyword.lower() == 'acc']
+        acc_pragma_parameters = get_pragma_parameters(acc_pragmas, starts_with='declare', only_loki_pragmas=False)
+        declared_variables = set(flatten([
+            v.replace(' ','').lower().split()
+            for v in as_tuple(acc_pragma_parameters.get('create'))
+        ]))
+
+        # Build list of symbols to be offloaded
+        offload_variables = {
+            var.parents[0] if var.parent else var
+            for var in item.trafo_data[self._key].get('offload', ())
+        }
+
+        if (invalid_vars := offload_variables - set(module.variables)):
+            raise RuntimeError(f'Invalid variables in offload analysis: {", ".join(v.name for v in invalid_vars)}')
+
+        # Add ACC declare pragma for offload variables that are not yet declared
+        offload_variables = offload_variables - declared_variables
+        if offload_variables:
+            module.spec.append(
+                Pragma(keyword='acc', content=f'declare create({",".join(v.name for v in offload_variables)})')
+            )
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Add data offload and pull-back directives to the driver
+        """
+        role = kwargs.get('role')
+        successors = kwargs.get('successors', ())
+
+        if role == 'driver':
+            self.process_driver(routine, successors)
+
+    def process_driver(self, routine, successors):
+        """
+        Add data offload and pullback directives
+
+        List of variables that requires offloading is obtained from the analysis data
+        stored for each successor in :data:`successors`.
+        """
+        # Empty lists for update directives
+        update_device = ()
+        update_host = ()
+
+        # Combine analysis data across successor items
+        defines_symbols = set()
+        uses_symbols = set()
+        for item in successors:
+            defines_symbols |= item.trafo_data.get(self._key, {}).get('defines_symbols', set())
+            uses_symbols |= item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+
+        # Filter out arrays of derived types and nested derived types
+        # For these, automatic offloading is currently not supported
+        exclude_symbols = set()
+        for var_, module in chain(defines_symbols, uses_symbols):
+            var = var_.parents[0] if var_.parent else var_
+            if not isinstance(var.type.dtype, DerivedType):
+                continue
+            if isinstance(var, Array):
+                exclude_symbols.add(var)
+                warning((
+                    '[Loki::GlobalVarOffloadTransformation] '
+                    f'Automatic offloading of derived type arrays not implemented: {var} in {routine.name}'
+                ))
+            if any(isinstance(v.type.dtype, DerivedType) for v in var.type.dtype.typedef.variables):
+                exclude_symbols.add(var)
+                warning((
+                    '[Loki::GlobalVarOffloadTransformation] '
+                    f'Automatic offloading of nested derived types not implemented: {var} in {routine.name}'
+                ))
+
+        uses_symbols = {
+            (var, module) for var, module in uses_symbols
+            if var not in exclude_symbols and not (var.parent and var.parents[0] in exclude_symbols)
+        }
+        defines_symbols = {
+            (var, module) for var, module in defines_symbols
+            if var not in exclude_symbols and not (var.parent and var.parents[0] in exclude_symbols)
+        }
+
+        # All variables that are used in a kernel need a host-to-device transfer
+        if uses_symbols:
+            update_variables = {
+                v for v, _ in uses_symbols
+                if not (v.parent or isinstance(v.type.dtype, DerivedType))
+            }
+            copyin_variables = {v for v, _ in uses_symbols if v.parent}
+            if update_variables:
+                update_device += (
+                    Pragma(keyword='acc', content=f'update device({",".join(v.name for v in update_variables)})'),
+                )
+            if copyin_variables:
+                update_device += (
+                    Pragma(keyword='acc', content=f'enter data copyin({",".join(v.name for v in copyin_variables)})'),
+                )
+
+        # All variables that are written in a kernel need a device-to-host transfer
+        if defines_symbols:
+            update_variables = {v for v, _ in defines_symbols if not v.parent}
+            copyout_variables = {v for v, _ in defines_symbols if v.parent}
+            create_variables = {
+                v for v in copyout_variables
+                if v not in uses_symbols and v.type.allocatable
+            }
+            if update_variables:
+                update_host += (
+                    Pragma(keyword='acc', content=f'update self({",".join(v.name for v in update_variables)})'),
+                )
+            if copyout_variables:
+                update_host += (
+                    Pragma(keyword='acc', content=f'exit data copyout({",".join(v.name for v in copyout_variables)})'),
+                )
+            if create_variables:
+                update_device += (
+                    Pragma(keyword='acc', content=f'enter data create({",".join(v.name for v in create_variables)})'),
+                )
+
+        # Replace Loki pragmas with acc data/update pragmas
+        pragma_map = {}
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            if pragma.keyword == 'loki':
+                if 'update_device' in pragma.content:
+                    pragma_map[pragma] = update_device or None
+                if 'update_host' in pragma.content:
+                    pragma_map[pragma] = update_host or None
+
+        routine.body = Transformer(pragma_map).visit(routine.body)
+
+        # Add imports for offload variables
+        offload_map = defaultdict(set)
+        for var, module in chain(uses_symbols, defines_symbols):
+            offload_map[module].add(var.parents[0] if var.parent else var)
+
+        import_map = CaseInsensitiveDict()
+        scope = routine
+        while scope:
+            import_map.update(scope.import_map)
+            scope = scope.parent
+
+        missing_imports_map = defaultdict(set)
+        for module, variables in offload_map.items():
+            missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
+
+        if missing_imports_map:
+            routine.spec.prepend(Comment(text=(
+                '![Loki::GlobalVarOffloadTransformation] ---------------------------------------'
+            )))
+            for module, variables in missing_imports_map.items():
+                symbols = tuple(var.rescope(scope=routine) for var in variables)
+                routine.spec.prepend(Import(module=module, symbols=symbols))
+
+            routine.spec.prepend(Comment(text=(
+                '![Loki::GlobalVarOffloadTransformation] '
+                '-------- Added global variable imports for offload directives -----------'
+            )))
 
 
 class GlobalVarOffloadTransformation(Transformation):

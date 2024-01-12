@@ -11,7 +11,7 @@ import pytest
 from conftest import available_frontends
 from loki import Scheduler, FindNodes, Pragma, Import
 
-from transformations import GlobalVarOffloadTransformation
+from transformations import GlobalVariableAnalysis, NewGlobalVarOffloadTransformation
 
 
 @pytest.fixture(scope='module', name='here')
@@ -45,7 +45,8 @@ def test_transformation_global_var_import(here, config, frontend):
     }
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
-    scheduler.process(transformation=GlobalVarOffloadTransformation())
+    scheduler.process(transformation=GlobalVariableAnalysis())
+    scheduler.process(transformation=NewGlobalVarOffloadTransformation())
 
     item_map = {item.name: item for item in scheduler.items}
     driver_item = item_map['#driver']
@@ -119,7 +120,8 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
     }
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
-    scheduler.process(transformation=GlobalVarOffloadTransformation())
+    scheduler.process(transformation=GlobalVariableAnalysis())
+    scheduler.process(transformation=NewGlobalVarOffloadTransformation())
 
     item_map = {item.name: item for item in scheduler.items}
     driver_item = item_map['#driver_derived_type']
@@ -161,10 +163,10 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
 
     # check for device-side declarations
     pragmas = FindNodes(Pragma).visit(module.spec)
-    assert len(pragmas) == 4
+    assert len(pragmas) == 3
     assert all(p.keyword == 'acc' for p in pragmas)
     assert all('declare create' in p.content for p in pragmas)
-    assert 'p_array' in pragmas[0].content
-    assert 'g' in pragmas[1].content
-    assert 'p0' in pragmas[2].content
-    assert 'p' in pragmas[3].content
+    assert 'p' in pragmas[0].content
+    # Note: g is not offloaded because it is not used by the kernel (albeit imported)
+    assert 'p0' in pragmas[1].content
+    assert 'p_array' in pragmas[2].content
