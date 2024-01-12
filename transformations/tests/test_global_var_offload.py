@@ -37,27 +37,19 @@ def test_transformation_global_var_import(here, config, frontend):
     """
     Test the generation of offload instructions of global variable imports.
     """
-
-    my_config = config.copy()
-    my_config['default']['enable_imports'] = True
-    my_config['routines'] = {
+    config['default']['enable_imports'] = True
+    config['routines'] = {
         'driver': {'role': 'driver'}
     }
 
-    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=NewGlobalVarOffloadTransformation())
 
-    item_map = {item.name: item for item in scheduler.items}
-    driver_item = item_map['#driver']
-    driver = driver_item.source['driver']
-
-    moduleA_item = item_map['modulea#var0']
-    moduleA = moduleA_item.source['moduleA']
-    moduleB_item = item_map['moduleb#var2']
-    moduleB = moduleB_item.source['moduleB']
-    moduleC_item = item_map['modulec#var4']
-    moduleC = moduleC_item.source['moduleC']
+    driver = scheduler['#driver'].routine
+    moduleA = scheduler['modulea#var0'].scope
+    moduleB = scheduler['moduleb#var2'].scope
+    moduleC = scheduler['modulec#var4'].scope
 
     # check that global variables have been added to driver symbol table
     imports = FindNodes(Import).visit(driver.spec)
@@ -113,22 +105,17 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
     Test the generation of offload instructions of derived-type global variable imports.
     """
 
-    my_config = config.copy()
-    my_config['default']['enable_imports'] = True
-    my_config['routines'] = {
+    config['default']['enable_imports'] = True
+    config['routines'] = {
         'driver_derived_type': {'role': 'driver'}
     }
 
-    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=my_config, frontend=frontend)
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=NewGlobalVarOffloadTransformation())
 
-    item_map = {item.name: item for item in scheduler.items}
-    driver_item = item_map['#driver_derived_type']
-    driver = driver_item.source['driver_derived_type']
-
-    module_item = item_map['module_derived_type#p']
-    module = module_item.source['module_derived_type']
+    driver = scheduler['#driver_derived_type'].routine
+    module = scheduler['module_derived_type#p'].scope
 
     # check that global variables have been added to driver symbol table
     imports = FindNodes(Import).visit(driver.spec)
