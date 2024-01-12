@@ -245,6 +245,13 @@ end module kernel3_mod
 
     stack_dict = kernel1_item.trafo_data[transformation._key]['stack_dict']
 
+    print('stack_dict')
+    for dtype in stack_dict:
+        print(' ', dtype)
+        for kind in stack_dict[dtype]:
+            print(' ', ' ', kind)
+            print(' ', ' ', ' ', stack_dict[dtype][kind])
+
     assert real in stack_dict
 
     if frontend == OMNI:
