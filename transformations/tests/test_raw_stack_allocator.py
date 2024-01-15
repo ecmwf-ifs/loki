@@ -131,9 +131,9 @@ module kernel1_mod
 
     integer :: jl, jlev
 
+    zzl = .false.
     do jl =1, nlon
       do jlev = 1, klev
-        zzl(jl, jlev) = .false.
         zzx(jl, jlev) = pzz(jl, jlev)
         zzy(jl, jlev) = pzz(jl, jlev)
       enddo
@@ -270,6 +270,7 @@ end module kernel3_mod
     transformation = TemporariesRawStackTransformation(block_dim=block_dim, horizontal=horizontal)
     scheduler.process(transformation=transformation)
 
+    driver_item  = scheduler['driver_mod#driver']
     kernel1_item = scheduler['kernel1_mod#kernel1']
 
     assert transformation._key in kernel1_item.trafo_data
@@ -288,13 +289,6 @@ end module kernel3_mod
 
     stack_dict = kernel1_item.trafo_data[transformation._key]['stack_dict']
 
-#    print('stack_dict')
-#    for dtype in stack_dict:
-#        print(' ', dtype)
-#        for kind in stack_dict[dtype]:
-#            print(' ', ' ', kind)
-#            print(' ', ' ', ' ', stack_dict[dtype][kind])
-
     assert real in stack_dict
 
     if frontend == OMNI:
@@ -310,6 +304,49 @@ end module kernel3_mod
     assert None in stack_dict[logical]
     assert fgen(stack_dict[logical][None]) == klev_stack_size
 
+#    print()
+#    print(fgen(driver_item.routine))
+#    print()
+#    print(fgen(kernel1_item.routine))
+#    print()
+
+    driver = driver_item.routine
+#    for v in driver.variable_map:
+#        print(v)
+#    print()
+
+    assert 'j_ll_stack_size' in driver.variable_map
+    assert 'll_stack' in driver.variable_map
+
+    assert 'j_z_selected_real_kind_13_300_stack_size' in driver.variable_map
+    assert 'z_selected_real_kind_13_300_stack' in driver.variable_map
+
+    if not frontend == OMNI:
+        assert 'j_z_jprb_stack_size' in driver.variable_map
+        assert 'z_jprb_stack' in driver.variable_map
+
+    kernel1 = kernel1_item.routine
+#    print(kernel1)
+#    for v in kernel1.variable_map:
+#        print(v)
+#    print()
+
+    assert 'j_p_selected_real_kind_13_300_stack_used' in kernel1.variable_map
+    assert 'k_p_selected_real_kind_13_300_stack_size' in kernel1.variable_map
+    assert 'p_selected_real_kind_13_300_stack' in kernel1.variable_map
+
+    assert 'j_ld_stack_used' in kernel1.variable_map
+    assert 'k_ld_stack_size' in kernel1.variable_map
+    assert 'ld_stack' in kernel1.variable_map
+
+    if not frontend == OMNI:
+        assert 'j_p_jprb_stack_used' in kernel1.variable_map
+        assert 'k_p_jprb_stack_size' in kernel1.variable_map
+        assert 'p_jprb_stack' in kernel1.variable_map
+
+    assert 'jd_zzx' in kernel1.variable_map
+    assert 'jd_zzy' in kernel1.variable_map
+    assert 'jd_zzl' in kernel1.variable_map
 
     rmtree(basedir)
 
