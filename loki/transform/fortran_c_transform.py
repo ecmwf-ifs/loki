@@ -134,11 +134,7 @@ class FortranCTransformation(Transformation):
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:
-            try:
-                variables = derived.dtype.typedef.variables
-            except:
-                print(f"EXCEPTION! derived: {derived} | {derived.dtype}")
-                variables = []
+            variables = derived.dtype.typedef.variables
         declarations = []
         for v in variables:
             ctype = v.type.clone(kind=self.iso_c_intrinsic_kind(v.type, typedef))

@@ -574,7 +574,6 @@ class LokiIdentityMapper(IdentityMapper):
         if recurse_to_declaration_attributes:
             old_type = expr.type
             kind = self.rec(old_type.kind, *args, **kwargs)
-            new_type = old_type
 
             if expr.scope and expr.name == old_type.initial:
                 # FIXME: This is a hack to work around situations where a constant
