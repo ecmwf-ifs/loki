@@ -15,6 +15,7 @@ from loki.bulk import Scheduler, SchedulerConfig
 from loki.frontend.util import OMNI, FP, OFP
 from loki.backend.fgen import fgen
 from loki.types import BasicType
+from loki.sourcefile import Sourcefile
 from loki.expression.symbols import DeferredTypeSymbol, InlineCall, IntLiteral
 
 from conftest import available_frontends
