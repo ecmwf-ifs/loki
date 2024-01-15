@@ -31,3 +31,4 @@ from loki.transformations.transform_region import * # noqa
 from loki.transformations.pool_allocator import * # noqa
 from loki.transformations.utilities import * # noqa
 from loki.transformations.block_index_transformations import * # noqa
+from loki.transform.derived_type_deepcopy import * # noqa
