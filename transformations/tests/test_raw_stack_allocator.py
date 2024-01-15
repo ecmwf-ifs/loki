@@ -15,9 +15,11 @@ from loki.bulk import Scheduler, SchedulerConfig
 from loki.frontend.util import OMNI, FP, OFP
 from loki.backend.fgen import fgen
 from loki.types import BasicType
+from loki.ir import CallStatement
 from loki.sourcefile import Sourcefile
 from loki.expression.symbols import DeferredTypeSymbol, InlineCall, IntLiteral
 from loki.transform.transform_array_indexing import normalize_range_indexing
+from loki.visitors.find import FindNodes
 
 from conftest import available_frontends
 
@@ -304,16 +306,8 @@ end module kernel3_mod
     assert None in stack_dict[logical]
     assert fgen(stack_dict[logical][None]) == klev_stack_size
 
-#    print()
-#    print(fgen(driver_item.routine))
-#    print()
-#    print(fgen(kernel1_item.routine))
-#    print()
-
     driver = driver_item.routine
-#    for v in driver.variable_map:
-#        print(v)
-#    print()
+    kernel1 = kernel1_item.routine
 
     assert 'j_ll_stack_size' in driver.variable_map
     assert 'll_stack' in driver.variable_map
@@ -324,12 +318,6 @@ end module kernel3_mod
     if not frontend == OMNI:
         assert 'j_z_jprb_stack_size' in driver.variable_map
         assert 'z_jprb_stack' in driver.variable_map
-
-    kernel1 = kernel1_item.routine
-#    print(kernel1)
-#    for v in kernel1.variable_map:
-#        print(v)
-#    print()
 
     assert 'j_p_selected_real_kind_13_300_stack_used' in kernel1.variable_map
     assert 'k_p_selected_real_kind_13_300_stack_size' in kernel1.variable_map
@@ -348,5 +336,16 @@ end module kernel3_mod
     assert 'jd_zzy' in kernel1.variable_map
     assert 'jd_zzl' in kernel1.variable_map
 
-    rmtree(basedir)
+    calls = FindNodes(CallStatement).visit(driver.body)
 
+#    print()
+#    print(fgen(driver))
+#    print()
+#    print(fgen(kernel1))
+#    print()
+#
+#    print(driver)
+#    for call in calls:
+#        print(call)
+
+    rmtree(basedir)

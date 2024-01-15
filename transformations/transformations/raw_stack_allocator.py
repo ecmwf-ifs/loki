@@ -103,11 +103,7 @@ class TemporariesRawStackTransformation(Transformation):
         role = kwargs['role']
         item = kwargs.get('item', None)
 
-        self.stack_type_kind = 'JPRB'
         if item:
-            if (real_kind := item.config.get('real_kind', None)):
-                self.stack_type_kind = real_kind
-
             # Initialize set to store kind imports
             item.trafo_data[self._key] = {'kind_imports': {}}
 
