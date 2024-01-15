@@ -17,6 +17,7 @@ from loki.backend.fgen import fgen
 from loki.types import BasicType
 from loki.sourcefile import Sourcefile
 from loki.expression.symbols import DeferredTypeSymbol, InlineCall, IntLiteral
+from loki.transform.transform_array_indexing import normalize_range_indexing
 
 from conftest import available_frontends
 
@@ -287,12 +288,12 @@ end module kernel3_mod
 
     stack_dict = kernel1_item.trafo_data[transformation._key]['stack_dict']
 
-    print('stack_dict')
-    for dtype in stack_dict:
-        print(' ', dtype)
-        for kind in stack_dict[dtype]:
-            print(' ', ' ', kind)
-            print(' ', ' ', ' ', stack_dict[dtype][kind])
+#    print('stack_dict')
+#    for dtype in stack_dict:
+#        print(' ', dtype)
+#        for kind in stack_dict[dtype]:
+#            print(' ', ' ', kind)
+#            print(' ', ' ', ' ', stack_dict[dtype][kind])
 
     assert real in stack_dict
 
