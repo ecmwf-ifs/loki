@@ -23,12 +23,14 @@ from loki import (
 # Get generalized transformations provided by Loki
 from loki.transform import (
     DependencyTransformation, ModuleWrapTransformation, FortranCTransformation, FileWriteTransformation,
-    ParametriseTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing
+    HoistTemporaryArraysAnalysis, normalize_range_indexing
 )
 
 # pylint: disable=wrong-import-order
 from transformations.argument_shape import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
-from transformations.data_offload import DataOffloadTransformation, GlobalVarOffloadTransformation
+from transformations.data_offload import (
+    DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
+)
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
@@ -240,6 +242,7 @@ def convert(
         scheduler.process( transformation=scheduler.config.transformations[mode] )
 
     if global_var_offload:
+        scheduler.process(transformation=GlobalVariableAnalysis())
         scheduler.process(transformation=GlobalVarOffloadTransformation())
 
     if mode in ['idem-stack', 'scc-stack']:
