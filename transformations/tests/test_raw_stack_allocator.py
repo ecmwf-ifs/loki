@@ -15,7 +15,7 @@ from loki.bulk import Scheduler, SchedulerConfig
 from loki.frontend.util import OMNI, FP, OFP
 from loki.backend.fgen import fgen
 from loki.types import BasicType
-from loki.ir import CallStatement
+from loki.ir import CallStatement, Assignment
 from loki.sourcefile import Sourcefile
 from loki.expression.symbols import DeferredTypeSymbol, InlineCall, IntLiteral
 from loki.transform.transform_array_indexing import normalize_range_indexing
@@ -34,8 +34,9 @@ def fixture_block_dim():
 def fixture_horizontal():
     return Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
 
+@pytest.mark.parametrize('directive', ['openacc'])
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal):
+def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive):
 
     fcode_parkind_mod = """
 module parkind1
@@ -269,7 +270,7 @@ end module kernel3_mod
         for item in scheduler.items:
             normalize_range_indexing(item.routine)
 
-    transformation = TemporariesRawStackTransformation(block_dim=block_dim, horizontal=horizontal)
+    transformation = TemporariesRawStackTransformation(block_dim=block_dim, horizontal=horizontal, directive=directive)
     scheduler.process(transformation=transformation)
 
     driver_item  = scheduler['driver_mod#driver']
@@ -286,7 +287,7 @@ end module kernel3_mod
     real = BasicType.REAL
     logical = BasicType.LOGICAL
     jprb = DeferredTypeSymbol('JPRB')
-    srk = InlineCall(function = DeferredTypeSymbol(name = 'SELECTED_REAL_KIND'), 
+    srk = InlineCall(function = DeferredTypeSymbol(name = 'SELECTED_REAL_KIND'),
                      parameters = (IntLiteral(13), IntLiteral(300)))
 
     stack_dict = kernel1_item.trafo_data[transformation._key]['stack_dict']
@@ -336,16 +337,70 @@ end module kernel3_mod
     assert 'jd_zzy' in kernel1.variable_map
     assert 'jd_zzl' in kernel1.variable_map
 
+    print()
+    print(fgen(driver))
+    print()
+    print(fgen(kernel1))
+    print()
+
     calls = FindNodes(CallStatement).visit(driver.body)
 
-#    print()
-#    print(fgen(driver))
-#    print()
-#    print(fgen(kernel1))
-#    print()
-#
-#    print(driver)
-#    for call in calls:
-#        print(call)
+    if frontend == OMNI:
+        assert calls[0].arguments == ('ydml_phy_mf', 'nlon', 'klev', 'jstart', 'jend', 'zzz',
+        'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE', 'Z_SELECTED_REAL_KIND_13_300_STACK(:, :, b)',
+        'J_LL_STACK_SIZE', 'LL_STACK(:, :, b)')
+    else:
+        assert calls[0].arguments == ('ydml_phy_mf', 'nlon', 'klev', 'jstart', 'jend', 'zzz',
+        'J_Z_jprb_STACK_SIZE', 'Z_jprb_STACK(:, :, b)',
+        'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE', 'Z_SELECTED_REAL_KIND_13_300_STACK(:, :, b)',
+        'J_LL_STACK_SIZE', 'LL_STACK(:, :, b)')
+
+    if frontend == OMNI:
+        assert kernel1.arguments == ('ydml_phy_mf', 'nlon', 'klev', 'jstart', 'jend', 'pzz(nlon, klev)',
+        'K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE',
+        'P_SELECTED_REAL_KIND_13_300_STACK(nlon, K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE)',
+        'K_LD_STACK_SIZE', 'LD_STACK(nlon, K_LD_STACK_SIZE)')
+    else:
+        assert kernel1.arguments == ('ydml_phy_mf', 'nlon', 'klev', 'jstart', 'jend', 'pzz(nlon, klev)',
+        'K_P_jprb_STACK_SIZE', 'P_jprb_STACK(nlon, K_P_jprb_STACK_SIZE)',
+        'K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE',
+        'P_SELECTED_REAL_KIND_13_300_STACK(nlon, K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE)',
+        'K_LD_STACK_SIZE', 'LD_STACK(nlon, K_LD_STACK_SIZE)')
+
+    calls = FindNodes(CallStatement).visit(kernel1.body)
+
+    if frontend == OMNI:
+        assert calls[0].arguments == ('ydml_phy_mf%yrphy', 'nlon', 'klev', 'jstart', 'jend',
+        'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE', 'Z_SELECTED_REAL_KIND_13_300_STACK(:, :, b)',
+        'J_LL_STACK_SIZE', 'LL_STACK(:, :, b)')
+    else:
+        assert calls[0].arguments == ('ydml_phy_mf%yrphy', 'nlon', 'klev', 'jstart', 'jend',
+        'K_P_jprb_STACK_SIZE - J_P_jprb_STACK_USED',
+        'P_jprb_STACK(1:nlon, J_P_jprb_STACK_USED + 1:K_P_jprb_STACK_SIZE)',)
+
+    assignments = FindNodes(Assignment).visit(driver.body)
+
+    lhs = [a.lhs for a in assignments]
+
+    assert 'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE' in lhs
+    assert 'J_LL_STACK_SIZE' in lhs
+    if not frontend == OMNI:
+        assert 'J_Z_jprb_STACK_SIZE' in lhs
+
+    for a in assignments:
+
+        if a.lhs == 'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE':
+            if frontend == OMNI:
+                assert fgen(a.rhs) == srk_stack_size
+            else:
+                assert fgen(a.rhs) == klev_stack_size
+
+        if a.lhs == 'J_LL_STACK_SIZE':
+            assert fgen(a.rhs) == klev_stack_size
+
+        if a.lhs == 'J_Z_jprb_STACK_SIZE':
+            assert fgen(a.rhs) == jprb_stack_size
+
+        
 
     rmtree(basedir)

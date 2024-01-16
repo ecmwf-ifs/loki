@@ -265,6 +265,7 @@ class TemporariesRawStackTransformation(Transformation):
             pragma_string = pragma_string[:-2].lower()
 
             if self.directive == 'openacc':
+                present_pragma = None
                 acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
                 for pragma in acc_pragmas:
                     if pragma.content.lower().startswith('data present'):
@@ -275,9 +276,13 @@ class TemporariesRawStackTransformation(Transformation):
                     routine.body = Transformer(pragma_map).visit(routine.body)
                     content = re.sub(r'\bpresent\(', f'present({pragma_string}, ', present_pragma.content.lower())
                     present_pragma = present_pragma.clone(content = content)
+                    pragma_data_end = None
                 else:
                     present_pragma = Pragma(keyword='acc', content=f'data present({pragma_string})')
+                    pragma_data_end = Pragma(keyword='acc', content='end data')
+
                 routine.body.prepend(present_pragma)
+                routine.body.append(pragma_data_end)
 
 
         # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
