@@ -15,7 +15,7 @@ from loki.bulk import Scheduler, SchedulerConfig
 from loki.frontend.util import OMNI, FP, OFP
 from loki.backend.fgen import fgen
 from loki.types import BasicType
-from loki.ir import CallStatement, Assignment
+from loki.ir import CallStatement, Assignment, Pragma
 from loki.sourcefile import Sourcefile
 from loki.expression.symbols import DeferredTypeSymbol, InlineCall, IntLiteral
 from loki.transform.transform_array_indexing import normalize_range_indexing
@@ -34,7 +34,7 @@ def fixture_block_dim():
 def fixture_horizontal():
     return Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
 
-@pytest.mark.parametrize('directive', ['openacc'])
+@pytest.mark.parametrize('directive', ['openacc', 'openmp'])
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive):
 
@@ -371,7 +371,9 @@ end module kernel3_mod
 
     if frontend == OMNI:
         assert calls[0].arguments == ('ydml_phy_mf%yrphy', 'nlon', 'klev', 'jstart', 'jend',
-        'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE', 'Z_SELECTED_REAL_KIND_13_300_STACK(:, :, b)',
+        'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE', 
+        'Z_SELECTED_REAL_KIND_13_300_STACK'/
+        '(1:nlon, J_P_selected_real_kind_13_300_STACK_USED + 1:K_P_selected_real_kind_13_300_STACK_SIZE)',
         'J_LL_STACK_SIZE', 'LL_STACK(:, :, b)')
     else:
         assert calls[0].arguments == ('ydml_phy_mf%yrphy', 'nlon', 'klev', 'jstart', 'jend',
@@ -401,6 +403,14 @@ end module kernel3_mod
         if a.lhs == 'J_Z_jprb_STACK_SIZE':
             assert fgen(a.rhs) == jprb_stack_size
 
-        
+    if directive in ['openacc', 'openmp']:
+        pragmas = FindNodes(Pragma).visit(driver.body)
+
+        if directive == 'openacc':
+            assert pragmas[0].content == 'data create(z_jprb_stack, z_selected_real_kind_13_300_stack, ll_stack)'
+
+        if directive == 'openmp':
+            assert pragmas[0].content == 'target allocate(z_jprb_stack, z_selected_real_kind_13_300_stack, ll_stack)'
+
 
     rmtree(basedir)

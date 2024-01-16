@@ -145,7 +145,7 @@ class TemporariesRawStackTransformation(Transformation):
 
 
     def _get_stack_int_name(self, prefix, dtype, kind, suffix):
-        return (prefix + '_' + self.type_name_dict[dtype][self.role] + '_' + 
+        return (prefix + '_' + self.type_name_dict[dtype][self.role] + '_' +
                 self._get_kind_name(kind) + '_' + suffix).replace('__', '_')
 
 
