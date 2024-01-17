@@ -1,5 +1,5 @@
 module typebound_other
-    use typebound_header, header => header_type
+    use typebound_header, only: header => header_type
 
     implicit none
 
@@ -8,6 +8,12 @@ module typebound_other
     contains
       procedure :: member => other_member
     end type other_type
+
+    type outer_type
+      type(other_type) :: other
+    contains
+      procedure :: nested_call
+    end type outer_type
 
 contains
 
@@ -18,5 +24,12 @@ contains
         call member_routine(m)
         call self%var(i)%member_routine(m)
     end subroutine other_member
+
+    subroutine nested_call(self, m)
+      class(outer_type) :: self
+      integer, intent(in) :: m
+      call self%other%var(1)%member_routine(m)
+      call self%other%var(2)%member_routine(m)
+    end subroutine nested_call
 
 end module typebound_other

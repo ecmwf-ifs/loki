@@ -1071,15 +1071,18 @@ end module typebound_item
     some_type = module.typedef_map['some_type']
 
     proc_bindings = {
-        'routine': 'module_routine',
+        'routine': ('module_routine',),
         'some_routine': None,
         'other_routine': None,
         'routine1': None,
-        'routine2': 'routine'
+        'routine2': ('routine',)
     }
     assert len(proc_bindings) == len(some_type.variables)
     assert all(proc in some_type.variables for proc in proc_bindings)
-    assert all(some_type.variable_map[proc].type.initial == init for proc, init in proc_bindings.items())
+    assert all(
+        some_type.variable_map[proc].type.bind_names == bind
+        for proc, bind in proc_bindings.items()
+    )
 
 
 def test_regex_typedef_generic():
@@ -1124,8 +1127,8 @@ end module typebound_header
     header_type = module.typedef_map['header_type']
 
     proc_bindings = {
-        'member_routine': 'header_member_routine',
-        'routine_real': 'header_routine_real',
+        'member_routine': ('header_member_routine',),
+        'routine_real': ('header_routine_real',),
         'routine_integer': None,
         'routine': ('routine_real', 'routine_integer')
     }
@@ -1135,9 +1138,6 @@ end module typebound_header
         (
             header_type.variable_map[proc].type.bind_names == bind
             and header_type.variable_map[proc].type.initial is None
-        ) if isinstance(bind, tuple) else (
-            header_type.variable_map[proc].type.bind_names is None
-            and header_type.variable_map[proc].type.initial == bind
         )
         for proc, bind in proc_bindings.items()
     )
@@ -1204,6 +1204,11 @@ end subroutine test
     calls = FindNodes(CallStatement).visit(source['test'].ir)
     assert [call.name for call in calls] == ['RANDOM_CALL_0', 'random_call_2']
 
+    variable_map_test = source['test'].variable_map
+    v_in_type = variable_map_test['v_in'].type
+    assert v_in_type.dtype is BasicType.REAL
+    assert v_in_type.kind == 'jprb'
+
 
 def test_regex_variable_declaration(here):
     """
@@ -1213,7 +1218,7 @@ def test_regex_variable_declaration(here):
     source = Sourcefile.from_file(filepath, frontend=REGEX)
 
     driver = source['driver']
-    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived', 'x', 'i')
+    assert driver.variables == ('constant', 'obj', 'obj2', 'header', 'other_obj', 'derived', 'x', 'i')
     assert source['module_routine'].variables == ('m',)
     assert source['other_routine'].variables == ('self', 'm', 'j')
     assert source['routine'].variables == ('self',)

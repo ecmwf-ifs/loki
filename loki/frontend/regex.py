@@ -42,6 +42,7 @@ class RegexParserClass(Flag):
     pattern matching can be switched on and off for some pattern classes, and thus the overall
     parse time reduced.
     """
+    EmptyClass = 0
     ProgramUnitClass = auto()
     InterfaceClass = auto()
     ImportClass = auto()
@@ -774,8 +775,8 @@ class ProcedureBindingPattern(Pattern):
                 symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
             else:
                 type_ = SymbolAttributes(ProcedureType(name=s[1]))
-                initial = sym.Variable(name=s[1], type=type_, scope=scope.parent)
-                symbols += [sym.Variable(name=s[0], type=type_.clone(initial=initial), scope=scope)]
+                bind_name = sym.Variable(name=s[1], type=type_, scope=scope.parent)
+                symbols += [sym.Variable(name=s[0], type=type_.clone(bind_names=(bind_name,)), scope=scope)]
 
         return ir.ProcedureDeclaration(symbols=symbols, source=reader.source_from_current_line())
 
@@ -898,7 +899,8 @@ class VariableDeclarationPattern(Pattern):
     def __init__(self):
         super().__init__(
             r'^(((?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\))|' # TYPE or CLASS keyword with typename
-            r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))(\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
+            r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))'
+            r'(?P<param>\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
             r'(?:[ \t]*,[ \t]*[a-z]+(?:\((.(\(.*\))?)*?\))?)*'  # Optional attributes
             r'(?:[ \t]*::)?'  # Optional `::` delimiter
             r'[ \t]*'  # Some white space
@@ -929,6 +931,11 @@ class VariableDeclarationPattern(Pattern):
         else:
             type_ = SymbolAttributes(BasicType.from_str(match['basic_type']))
         assert type_
+
+        if match['param']:
+            param = match['param'].strip().strip('()').split('=')
+            if len(param) == 1 or param[0].lower() == 'kind':
+                type_ = type_.clone(kind=sym.Variable(name=param[-1], scope=scope))
 
         variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
         variables = re.sub(r'=(?:>)?[^,]*(?=,|$)', r'', variables) # Remove initialization
