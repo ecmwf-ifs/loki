@@ -301,4 +301,4 @@ class Module(ProgramUnit):
         Returns :any:`Subroutine` and :any:`TypeDef` nodes declared
         in this module
         """
-        return self.subroutines + self.typedefs + self.variables
+        return self.subroutines + self.typedefs + self.variables + self.interfaces

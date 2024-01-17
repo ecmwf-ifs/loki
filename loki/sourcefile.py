@@ -463,6 +463,13 @@ class Sourcefile:
         """
         return self.modules + self.subroutines
 
+    def __contains__(self, name):
+        """
+        Check if a module, type, or subroutine with the given name is declared
+        inside this sourcefile
+        """
+        return self[name] is not None
+
     def __getitem__(self, name):
         name = name.lower()
         for module in self.modules:
@@ -477,6 +484,9 @@ class Sourcefile:
             for typedef in module.typedefs:
                 if name == typedef.name.lower():
                     return typedef
+            for interface in module.interfaces:
+                if name in interface.symbols:
+                    return interface
 
         return None
 

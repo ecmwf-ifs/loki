@@ -655,6 +655,16 @@ def test_regex_sourcefile_from_file_parser_classes(here):
         assert not routine.imports
     assert not sourcefile['bar'].typedefs
 
+    # Validate that a re-parse with same parser classes does not change anything
+    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+    assert sourcefile._incomplete
+    assert sourcefile._parser_classes == RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass
+    for module in sourcefile.modules:
+        assert not module.imports
+    for routine in sourcefile.all_subroutines:
+        assert not routine.imports
+    assert not sourcefile['bar'].typedefs
+
     # Incremental addition of imports
     sourcefile.make_complete(
         frontend=REGEX,
@@ -729,7 +739,19 @@ def test_regex_sourcefile_from_file_parser_classes(here):
         else:
             assert not sourcefile[unit].imports
 
+    # Check access via properties
+    assert 'bar' in sourcefile
+    assert 'food' in sourcefile['bar']
     assert sorted(sourcefile['bar'].typedef_map) == ['food', 'organic']
+    assert sourcefile['bar'].definitions == sourcefile['bar'].typedefs + ('i_am_dim',)
+    assert 'cooking_method' in sourcefile['bar']['food']
+    assert 'foobar' not in sourcefile['bar']['food']
+    assert sourcefile['bar']['food'].interface_symbols == ()
+
+    # Check that triggering a full parse works from nested scopes
+    assert sourcefile['bar']._incomplete
+    sourcefile['bar']['food'].make_complete()
+    assert not sourcefile['bar']._incomplete
 
 
 def test_regex_raw_source():
