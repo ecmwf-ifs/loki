@@ -12,7 +12,7 @@ import pytest
 from loki.tools import gettempdir
 from loki.dimension import Dimension
 from loki.bulk import Scheduler, SchedulerConfig
-from loki.frontend.util import OMNI, FP, OFP
+from loki.frontend.util import OMNI
 from loki.backend.fgen import fgen
 from loki.types import BasicType
 from loki.ir import CallStatement, Assignment, Pragma

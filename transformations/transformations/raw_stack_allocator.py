@@ -434,7 +434,7 @@ class TemporariesRawStackTransformation(Transformation):
                 kind_name += '_' + fgen(p)
             return kind_name
 
-        return(fgen(kind))
+        return fgen(kind)
 
 
     def _sort_arrays_by_type(self, arrays):
