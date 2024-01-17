@@ -225,9 +225,6 @@ def convert(
         ))
         scheduler.process( SCCDemoteTransformation(horizontal=horizontal))
         scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
-        scheduler.process( SCCAnnotateTransformation(
-            horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
-        ))
 
     if mode == 'scc-hoist':
         # Apply recursive hoisting of local temporary arrays.
@@ -235,6 +232,10 @@ def convert(
         # direction through the call graph to gather temporary arrays.
         scheduler.process( HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)) )
         scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
+
+    scheduler.process( SCCAnnotateTransformation(
+            horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
+    ))
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         # These transformations requires complex constructor arguments,
