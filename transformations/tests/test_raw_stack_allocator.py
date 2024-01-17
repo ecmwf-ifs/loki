@@ -373,7 +373,7 @@ end module kernel3_mod
         assert calls[0].arguments == ('ydml_phy_mf%yrphy', 'nlon', 'klev', 'jstart', 'jend',
         'K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE - J_P_SELECTED_REAL_KIND_13_300_STACK_USED', 
         'P_SELECTED_REAL_KIND_13_300_STACK'\
-        '(1:nlon, J_P_selected_real_kind_13_300_STACK_USED + 1:K_P_selected_real_kind_13_300_STACK_SIZE)',
+        '(1:nlon, J_P_SELECTED_REAL_KIND_13_300_STACK_USED + 1:K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE)',
         'J_LL_STACK_SIZE', 'LL_STACK(:, :, b)')
     else:
         assert calls[0].arguments == ('ydml_phy_mf%yrphy', 'nlon', 'klev', 'jstart', 'jend',
