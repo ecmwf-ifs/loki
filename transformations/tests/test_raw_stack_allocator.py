@@ -346,70 +346,109 @@ end module kernel3_mod
     calls = FindNodes(CallStatement).visit(driver.body)
 
     if frontend == OMNI:
-        assert calls[0].arguments == ('ydml_phy_mf', 'nlon', 'klev', 'jstart', 'jend', 'zzz',
-        'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE', 'Z_SELECTED_REAL_KIND_13_300_STACK(:, :, b)',
-        'J_LL_STACK_SIZE', 'LL_STACK(:, :, b)')
+        assert fgen(calls[0].arguments).lower() == 'ydml_phy_mf\n'\
+        'nlon\n'\
+        'klev\n'\
+        'jstart\n'\
+        'jend\n'\
+        'zzz\n'\
+        'j_z_selected_real_kind_13_300_stack_size\n'\
+        'z_selected_real_kind_13_300_stack(:, :, b)\n'\
+        'j_ll_stack_size\n'\
+        'll_stack(:, :, b)'
     else:
-        assert calls[0].arguments == ('ydml_phy_mf', 'nlon', 'klev', 'jstart', 'jend', 'zzz',
-        'J_Z_jprb_STACK_SIZE', 'Z_jprb_STACK(:, :, b)',
-        'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE', 'Z_SELECTED_REAL_KIND_13_300_STACK(:, :, b)',
-        'J_LL_STACK_SIZE', 'LL_STACK(:, :, b)')
+        assert fgen(calls[0].arguments).lower() == 'ydml_phy_mf\n'\
+        'nlon\n'\
+        'klev\n'\
+        'jstart\n'\
+        'jend\n'\
+        'zzz\n'\
+        'j_z_jprb_stack_size\n'\
+        'z_jprb_stack(:, :, b)\n'\
+        'j_z_selected_real_kind_13_300_stack_size\n'\
+        'z_selected_real_kind_13_300_stack(:, :, b)\n'\
+        'j_ll_stack_size\n'\
+        'll_stack(:, :, b)'
 
     if frontend == OMNI:
-        assert kernel1.arguments == ('ydml_phy_mf', 'nlon', 'klev', 'jstart', 'jend', 'pzz(nlon, klev)',
-        'K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE',
-        'P_SELECTED_REAL_KIND_13_300_STACK(nlon, K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE)',
-        'K_LD_STACK_SIZE', 'LD_STACK(nlon, K_LD_STACK_SIZE)')
+        assert fgen(kernel1.arguments).lower() == 'ydml_phy_mf\n'\
+        'nlon\n'\
+        'klev\n'\
+        'jstart\n'\
+        'jend\n'\
+        'pzz(nlon, klev)\n'\
+        'k_p_selected_real_kind_13_300_stack_size\n'\
+        'p_selected_real_kind_13_300_stack(nlon, k_p_selected_real_kind_13_300_stack_size)\n'\
+        'k_ld_stack_size\n'\
+        'ld_stack(nlon, k_ld_stack_size)'
     else:
-        assert kernel1.arguments == ('ydml_phy_mf', 'nlon', 'klev', 'jstart', 'jend', 'pzz(nlon, klev)',
-        'K_P_jprb_STACK_SIZE', 'P_jprb_STACK(nlon, K_P_jprb_STACK_SIZE)',
-        'K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE',
-        'P_SELECTED_REAL_KIND_13_300_STACK(nlon, K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE)',
-        'K_LD_STACK_SIZE', 'LD_STACK(nlon, K_LD_STACK_SIZE)')
+        assert fgen(kernel1.arguments).lower() == 'ydml_phy_mf\n'\
+        'nlon\n'\
+        'klev\n'\
+        'jstart\n'\
+        'jend\n'\
+        'pzz(nlon, klev)\n'\
+        'k_p_jprb_stack_size\n'\
+        'p_jprb_stack(nlon, k_p_jprb_stack_size)\n'\
+        'k_p_selected_real_kind_13_300_stack_size\n'\
+        'p_selected_real_kind_13_300_stack(nlon, k_p_selected_real_kind_13_300_stack_size)\n'\
+        'k_ld_stack_size\n'\
+        'ld_stack(nlon, k_ld_stack_size)'
 
     calls = FindNodes(CallStatement).visit(kernel1.body)
 
     if frontend == OMNI:
-        assert calls[0].arguments == ('ydml_phy_mf%yrphy', 'nlon', 'klev', 'jstart', 'jend',
-        'K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE - J_P_SELECTED_REAL_KIND_13_300_STACK_USED', 
-        'P_SELECTED_REAL_KIND_13_300_STACK'\
-        '(1:nlon, J_P_SELECTED_REAL_KIND_13_300_STACK_USED + 1:K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE)',
-        'J_LL_STACK_SIZE', 'LL_STACK(:, :, b)')
+        assert fgen(calls[0].arguments).lower() == 'ydml_phy_mf%yrphy\n'\
+        'nlon\n'\
+        'klev\n'\
+        'jstart\n'\
+        'jend\n'\
+        'k_p_selected_real_kind_13_300_stack_size - j_p_selected_real_kind_13_300_stack_used\n'\
+        'p_selected_real_kind_13_300_stack'\
+        '(1:nlon, j_p_selected_real_kind_13_300_stack_used + 1:k_p_selected_real_kind_13_300_stack_size)\n'\
+        'j_ll_stack_size\n'\
+        'll_stack(:, :, b)'
     else:
-        assert calls[0].arguments == ('ydml_phy_mf%yrphy', 'nlon', 'klev', 'jstart', 'jend',
-        'K_P_jprb_STACK_SIZE - J_P_jprb_STACK_USED',
-        'P_jprb_STACK(1:nlon, J_P_jprb_STACK_USED + 1:K_P_jprb_STACK_SIZE)',)
+        assert fgen(calls[0].arguments).lower() == 'ydml_phy_mf%yrphy\n'\
+        'nlon\n'\
+        'klev\n'\
+        'jstart\n'\
+        'jend\n'\
+        'k_p_jprb_stack_size - j_p_jprb_stack_used\n'\
+        'p_jprb_stack(1:nlon, j_p_jprb_stack_used + 1:k_p_jprb_stack_size)'
 
     assignments = FindNodes(Assignment).visit(driver.body)
 
-    lhs = [a.lhs for a in assignments]
+    lhs = [fgen(a.lhs).lower() for a in assignments]
 
-    assert 'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE' in lhs
-    assert 'J_LL_STACK_SIZE' in lhs
+    assert 'j_z_selected_real_kind_13_300_stack_size' in lhs
+    assert 'j_ll_stack_size' in lhs
     if not frontend == OMNI:
-        assert 'J_Z_jprb_STACK_SIZE' in lhs
+        assert 'j_z_jprb_stack_size' in lhs
 
     for a in assignments:
 
-        if a.lhs == 'J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE':
+        if fgen(a.lhs).lower() == 'j_z_selected_real_kind_13_300_stack_size':
             if frontend == OMNI:
-                assert fgen(a.rhs) == srk_stack_size
+                assert fgen(a.rhs).lower() == srk_stack_size.lower()
             else:
-                assert fgen(a.rhs) == klev_stack_size
+                assert fgen(a.rhs).lower() == klev_stack_size.lower()
 
-        if a.lhs == 'J_LL_STACK_SIZE':
-            assert fgen(a.rhs) == klev_stack_size
+        if fgen(a.lhs).lower() == 'j_ll_stack_size':
+            assert fgen(a.rhs).lower() == klev_stack_size.lower()
 
-        if a.lhs == 'J_Z_jprb_STACK_SIZE':
-            assert fgen(a.rhs) == jprb_stack_size
+        if fgen(a.lhs).lower() == 'j_z_jprb_stack_size':
+            assert fgen(a.rhs).lower() == jprb_stack_size.lower()
 
     if directive in ['openacc', 'openmp']:
         pragmas = FindNodes(Pragma).visit(driver.body)
 
         if directive == 'openacc':
-            assert pragmas[0].content == 'data create(z_jprb_stack, z_selected_real_kind_13_300_stack, ll_stack)'
+            assert pragmas[0].content.lower() == 'data create(z_jprb_stack, '\
+                                                 'z_selected_real_kind_13_300_stack, ll_stack)'
 
         if directive == 'openmp':
-            assert pragmas[0].content == 'target allocate(z_jprb_stack, z_selected_real_kind_13_300_stack, ll_stack)'
+            assert pragmas[0].content.lower() == 'target allocate(z_jprb_stack, '\
+                                                 'z_selected_real_kind_13_300_stack, ll_stack)'
 
     rmtree(basedir)
