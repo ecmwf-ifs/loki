@@ -17,7 +17,7 @@ import shutil
 from codetiming import Timer
 
 from loki.build import workqueue
-from loki.bulk import Scheduler, SchedulerConfig
+from loki.bulk import Scheduler, SchedulerConfig, Item
 from loki.config import config as loki_config
 from loki.lint.reporter import (
     FileReport, RuleReport, Reporter, LazyTextfile,
@@ -250,6 +250,8 @@ class LinterTransformation(Transformation):
 
     # This transformation is applied over the file graph
     traverse_file_graph = True
+
+    item_filter = Item  # Include everything in the dependency tree
 
     def __init__(self, linter, key=None, **kwargs):
         self.linter = linter
