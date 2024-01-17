@@ -337,12 +337,6 @@ end module kernel3_mod
     assert 'jd_zzy' in kernel1.variable_map
     assert 'jd_zzl' in kernel1.variable_map
 
-    print()
-    print(fgen(driver))
-    print()
-    print(fgen(kernel1))
-    print()
-
     calls = FindNodes(CallStatement).visit(driver.body)
 
     if frontend == OMNI:
