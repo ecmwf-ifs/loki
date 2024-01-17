@@ -405,9 +405,7 @@ end module kernel3_mod
         'jend\n'\
         'k_p_selected_real_kind_13_300_stack_size - j_p_selected_real_kind_13_300_stack_used\n'\
         'p_selected_real_kind_13_300_stack'\
-        '(1:nlon, j_p_selected_real_kind_13_300_stack_used + 1:k_p_selected_real_kind_13_300_stack_size)\n'\
-        'j_ll_stack_size\n'\
-        'll_stack(:, :, b)'
+        '(1:nlon, j_p_selected_real_kind_13_300_stack_used + 1:k_p_selected_real_kind_13_300_stack_size)\n'
     else:
         assert fgen(calls[0].arguments).lower() == 'ydml_phy_mf%yrphy\n'\
         'nlon\n'\
