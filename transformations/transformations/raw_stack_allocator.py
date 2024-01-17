@@ -126,23 +126,6 @@ class TemporariesRawStackTransformation(Transformation):
 
             self.create_stacks_driver(routine, stack_dict, successors)
 
-        self.move_pragma_to_end_of_spec(routine)
-
-
-    def move_pragma_to_end_of_spec(self, routine):
-
-        spec_pragmas = FindNodes(Pragma).visit(routine.spec)
-
-        pragma_map = {}
-
-        pragmas = []
-        for p in spec_pragmas:
-            pragma_map[p] = None
-            pragmas += [p]
-
-        routine.spec = Transformer(pragma_map).visit(routine.spec)
-        routine.spec.append(as_tuple(pragmas))
-
 
     def _get_stack_int_name(self, prefix, dtype, kind, suffix):
         return (prefix + '_' + self.type_name_dict[dtype][self.role] + '_' +
