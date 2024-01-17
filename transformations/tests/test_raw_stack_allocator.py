@@ -436,11 +436,17 @@ end module kernel3_mod
         pragmas = FindNodes(Pragma).visit(driver.body)
 
         if directive == 'openacc':
-            assert pragmas[0].content.lower() == 'data create(z_jprb_stack, '\
-                                                 'z_selected_real_kind_13_300_stack, ll_stack)'
+            if frontend == OMNI:
+                assert pragmas[0].content.lower() == 'data create(z_selected_real_kind_13_300_stack, ll_stack)'
+            else:
+                assert pragmas[0].content.lower() == 'data create(z_jprb_stack, '\
+                                                     'z_selected_real_kind_13_300_stack, ll_stack)'
 
         if directive == 'openmp':
-            assert pragmas[0].content.lower() == 'target allocate(z_jprb_stack, '\
-                                                 'z_selected_real_kind_13_300_stack, ll_stack)'
+            if frontend == OMNI:
+                assert pragmas[0].content.lower() == 'target allocate(z_selected_real_kind_13_300_stack, ll_stack)'
+            else:
+                assert pragmas[0].content.lower() == 'target allocate(z_jprb_stack, '\
+                                                     'z_selected_real_kind_13_300_stack, ll_stack)'
 
     rmtree(basedir)
