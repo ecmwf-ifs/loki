@@ -169,7 +169,8 @@ class TemporariesRawStackTransformation(Transformation):
 
                 arguments = call.arguments
                 if arg_pos:
-                    arguments = arguments[:arg_pos[0]] + as_tuple(call_stack_args) + arguments[arg_pos[0]:]
+                    arg_pos = min(arg_pos) - len(call_stack_args)
+                    arguments = arguments[:arg_pos] + as_tuple(call_stack_args) + arguments[arg_pos:]
                 else:
                     arguments += as_tuple(call_stack_args)
 
