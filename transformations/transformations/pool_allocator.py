@@ -92,6 +92,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     # Traverse call tree in reverse when using Scheduler
     reverse_traversal = True
 
+    process_ignored_items = True
+
     def __init__(self, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
                  stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
                  local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
