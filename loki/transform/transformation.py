@@ -66,6 +66,10 @@ class Transformation:
     recurse_to_internal_procedures : bool
         Apply transformation to all internal :any:`Subroutine` objects
         when processing :any:`Subroutine` objects (default ``False``)
+    process_ignored_items : bool
+        Apply transformation to "ignored" :any:`Item` objects for analysis.
+        This might be needed if IPO-information needs to be passed across
+        library boundaries.
     """
 
     # Forces scheduler traversal in reverse order from the leaf nodes upwards
@@ -82,6 +86,8 @@ class Transformation:
     recurse_to_procedures = False  # Recurse from Sourcefile/Module to subroutines and functions
     recurse_to_internal_procedures = False  # Recurse to subroutines in ``contains`` clause
 
+    # Option to process "ignored" items for analysis
+    process_ignored_items = False
 
     def transform_subroutine(self, routine, **kwargs):
         """

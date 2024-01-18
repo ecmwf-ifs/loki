@@ -827,8 +827,10 @@ def test_scheduler_dependencies_ignore(here, frontend):
         'driverB_mod#driverB', 'kernelB_mod#kernelB',
         'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2'
     ])
-    assert 'ext_driver_mod#ext_driver' not in schedulerA.items
-    assert 'ext_kernel_mod#ext_kernel' not in schedulerA.items
+    assert 'ext_driver_mod#ext_driver' in schedulerA.items
+    assert 'ext_kernel_mod#ext_kernel' in schedulerA.items
+    assert schedulerA['ext_driver_mod#ext_driver'].ignored
+    assert schedulerA['ext_kernel_mod#ext_kernel'].ignored
 
     assert all(n in schedulerB.items for n in ['ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'])
 
@@ -843,7 +845,9 @@ def test_scheduler_dependencies_ignore(here, frontend):
     assert schedulerA.items[0].source.all_subroutines[0].name == 'driverB'
     assert schedulerA.items[1].source.all_subroutines[0].name == 'kernelB_test'
     assert schedulerA.items[2].source.all_subroutines[0].name == 'compute_l1_test'
-    assert schedulerA.items[3].source.all_subroutines[0].name == 'compute_l2_test'
+    assert schedulerA.items[3].source.all_subroutines[0].name == 'ext_driver'
+    assert schedulerA.items[4].source.all_subroutines[0].name == 'compute_l2_test'
+    assert schedulerA.items[5].source.all_subroutines[0].name == 'ext_kernel'
 
     # For the second target lib, we want the driver to be converted
     for transformation in transformations:

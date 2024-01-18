@@ -369,12 +369,11 @@ class Scheduler:
 
             # Append child to work queue if expansion is configured
             if item.expand:
-                # Do not propagate to dependencies marked as "ignore"
-                # Note that, unlike blackisted items, "ignore" items
-                # are still marked as targets during bulk-processing,
-                # so that calls to "ignore" routines will be renamed.
-                if child.local_name in item.ignore:
-                    continue
+                # Mark children as "ignored", which means they may be
+                # used for certain analysis passes, but are not part
+                # of the injected changes for this batch-transformation
+                if item.ignored or child.local_name in item.ignore:
+                    child.ignored = True
 
                 if child not in self.item_map:
                     new_items += [child]
@@ -575,9 +574,15 @@ class Scheduler:
                             continue
 
                     _item = items[0]
+                    if _item.ignored and not transformation.process_ignored_items:
+                        continue
+
                     transformation.apply(items[0].source, items=items)
             else:
                 for item in traversal:
+                    if item.ignored and not transformation.process_ignored_items:
+                        continue
+
                     if item_filter and not isinstance(item, item_filter):
                         continue
 
@@ -709,6 +714,9 @@ class Scheduler:
         sources_to_transform = []
 
         for item in self.items:
+            if item.ignored:
+                continue
+
             sourcepath = item.path.resolve()
             newsource = sourcepath.with_suffix(f'.{mode.lower()}.F90')
             if buildpath:
