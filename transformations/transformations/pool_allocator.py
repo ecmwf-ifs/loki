@@ -13,8 +13,7 @@ from loki import (
     SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, LogicLiteral,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Cast,
     Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation, is_dimension_constant,
-    Loop, Pragma, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached,
-    Comment
+    Loop, Pragma, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -56,8 +55,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     block_dim : :any:`Dimension`
         :any:`Dimension` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
-    stack_type_name : str, optional
-        Name of the derived type for the stack definition (default: ``'STACK'``)
     stack_ptr_name : str, optional
         Name of the stack pointer variable to be appended to the generic 
         stack name (default: ``'L'``) resulting in e.g., ``'<stack name>_L'``
@@ -95,13 +92,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     # Traverse call tree in reverse when using Scheduler
     reverse_traversal = True
 
-    def __init__(self, block_dim, stack_type_name='STACK', stack_ptr_name='L',
-                 stack_end_name='U', stack_size_name='ISTSZ', stack_storage_name='ZSTACK',
-                 stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK', local_ptr_var_name_pattern='IP_{name}',
-                 stack_int_type_kind=IntLiteral(8), directive=None, check_bounds=True, key=None, **kwargs):
+    def __init__(self, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
+                 stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
+                 local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
+                 check_bounds=True, key=None, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
-        self.stack_type_name = stack_type_name
         self.stack_ptr_name = stack_ptr_name
         self.stack_end_name = stack_end_name
         self.stack_size_name = stack_size_name
@@ -109,7 +105,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.stack_argument_name = stack_argument_name
         self.stack_local_var_name = stack_local_var_name
         self.local_ptr_var_name_pattern = local_ptr_var_name_pattern
-        self.stack_int_type_kind = stack_int_type_kind # TODO: add assertion?
+        self.stack_int_type_kind = stack_int_type_kind
         self.directive = directive
         self.check_bounds = check_bounds
 
@@ -205,7 +201,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return routine.variable_map[f'{self.stack_local_var_name}_{self.stack_end_name}']
 
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, kind=self.stack_int_type_kind)
-        stack_var_end = Variable(name=f'{self.stack_local_var_name}_{self.stack_end_name}', type=stack_type, scope=routine)
+        var_name = f'{self.stack_local_var_name}_{self.stack_end_name}'
+        stack_var_end = Variable(name=var_name, type=stack_type, scope=routine)
         routine.variables += (stack_var_end,)
         return stack_var_end
 
@@ -220,14 +217,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return routine.variable_map[f'{self.stack_argument_name}_{self.stack_ptr_name}']
 
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
-        stack_arg = Variable(name=f'{self.stack_argument_name}_{self.stack_ptr_name}', type=stack_type, scope=routine)
-        # in device code
+        var_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
+        stack_arg = Variable(name=var_name, type=stack_type, scope=routine)
         arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
         if arg_pos:
             routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg,) + routine.arguments[arg_pos[0]:]
         else:
             routine.arguments += (stack_arg,)
-        
+
         return stack_arg
 
     def _get_stack_arg_end(self, routine):
@@ -241,7 +238,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return routine.variable_map[f'{self.stack_argument_name}_{self.stack_end_name}']
 
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
-        stack_arg_end = Variable(name=f'{self.stack_argument_name}_{self.stack_end_name}', type=stack_type, scope=routine)
+        var_name = f'{self.stack_argument_name}_{self.stack_end_name}'
+        stack_arg_end = Variable(name=var_name, type=stack_type, scope=routine)
         arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
         if arg_pos:
             routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg_end,) + routine.arguments[arg_pos[0]:]
@@ -293,7 +291,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         else:
             # Create a variable for the stack size and assign the size
-            stack_size_var = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER, kind=self.stack_int_type_kind))
+            stack_size_var_type = SymbolAttributes(BasicType.INTEGER, kind=self.stack_int_type_kind)
+            stack_size_var = Variable(name=self.stack_size_name, type=stack_size_var_type)
 
             # Retrieve kind parameter of stack storage
             _kind = routine.symbol_map.get(f'{self.stack_type_kind}', None) or Variable(name=self.stack_type_kind)
@@ -603,7 +602,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
                     if 'private' in [p.lower() for p in parameters]:
                         var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
-                        content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str} ', pragma.content.lower())
+                        content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str} ',
+                                pragma.content.lower())
                     else:
                         var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
                         content = pragma.content + f' private({stack_var.name}{var_end_str})'
@@ -617,7 +617,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
                     if 'private' in [p.lower() for p in parameters]:
                         var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
-                        content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str}', pragma.content.lower())
+                        content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str}',
+                                pragma.content.lower())
                     else:
                         var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
                         content = pragma.content + f' private({stack_var.name}{var_end_str})'
@@ -707,8 +708,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 if call.name in [s for i in FindNodes(Interface).visit(routine.spec) for s in i.symbols]:
                     _ = self._get_stack_arg(call.routine)
 
-                if call.routine != BasicType.DEFERRED and f'{self.stack_argument_name}_{self.stack_ptr_name}' in call.routine.arguments:
-                    arg_idx = call.routine.arguments.index(f'{self.stack_argument_name}_{self.stack_ptr_name}')
+                stack_argument_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
+                if call.routine != BasicType.DEFERRED and stack_argument_name in call.routine.arguments:
+                    arg_idx = call.routine.arguments.index(stack_argument_name)
                     arguments = call.arguments
                     call_map[call] = call.clone(arguments=arguments[:arg_idx] + new_vars + arguments[arg_idx:])
 

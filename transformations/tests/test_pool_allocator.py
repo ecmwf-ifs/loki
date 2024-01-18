@@ -24,12 +24,6 @@ def fixture_block_dim():
     return Dimension(name='block_dim', size='nb', index='b')
 
 
-def check_stack_module_import(routine):
-    # assert any(import_.module.lower() == 'stack_mod' for import_ in routine.imports)
-    # assert 'stack' in routine.imported_symbols
-    pass
-
-
 def check_c_sizeof_import(routine):
     assert any(import_.module.lower() == 'iso_c_binding' for import_ in routine.imports)
     assert 'c_sizeof' in routine.imported_symbols
@@ -59,7 +53,6 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
     loops = FindNodes(Loop).visit(driver.body)
     assert len(loops) == num_block_loops
     assignments = FindNodes(Assignment).visit(loops[0].body)
-    # assert len(assignments) == 4
     assert assignments[0].lhs == 'ylstack_l'
     assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
     assert 'zstack(1, b)' in assignments[0].rhs.parameters
@@ -283,19 +276,24 @@ end module kernel_mod
     assert len(calls) == 1
     if nclv_param:
         if check_bounds:
-            assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+            expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+            assert calls[0].arguments == expected_args
         else:
-            assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l')
+            expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l')
+            assert calls[0].arguments == expected_args
     else:
         if check_bounds:
-            assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+            expected_args = ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+            assert calls[0].arguments == expected_args
         else:
-            assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l')
+            expected_args = ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l')
+            assert calls[0].arguments == expected_args
 
     if generate_driver_stack:
         check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, check_bounds=check_bounds)
     else:
-        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, kind_real=kind_real, check_bounds=check_bounds)
+        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, kind_real=kind_real,
+                check_bounds=check_bounds)
 
     #
     # A few checks on the kernel
@@ -629,7 +627,8 @@ end module kernel_mod
                 assign_idx['tmp2_stack_incr'] = idx
 
         expected_assign_in_order = [
-            'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign', 'tmp2_stack_incr'
+            'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign',
+            'tmp2_stack_incr'
         ]
         assert set(expected_assign_in_order) == set(assign_idx.keys())
 
@@ -910,7 +909,8 @@ end module kernel_mod
                 assign_idx['tmp2_stack_incr'] = idx
 
         expected_assign_in_order = [
-            'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign', 'tmp2_stack_incr'
+            'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign',
+            'tmp2_stack_incr'
         ]
         assert set(expected_assign_in_order) == set(assign_idx.keys())
 
@@ -1004,7 +1004,7 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
     scheduler.process(transformation=transformation)
     item = scheduler['kernel_mod#kernel']
     kernel = item.routine
-    
+
     # Has the stack been added to the arguments?
     assert 'ydstack_l' in kernel.arguments
     assert 'ydstack_u' in kernel.arguments
