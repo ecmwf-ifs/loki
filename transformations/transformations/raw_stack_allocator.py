@@ -42,22 +42,21 @@ class TemporariesRawStackTransformation(Transformation):
     * Determine the combined size of all local arrays that are to be allocated on the stack,
       taking into account calls to nested kernels. This is reported in :any:`Item`'s ``trafo_data``.
     * Replace any access to temporary arrays with the corresponding offsets in the stack array
-    * Pass the local copy of the stack derived type as argument to any nested kernel calls
+    * Pass the stack arrays as arguments to any nested kernel calls
 
     In a **driver** routine, the transformation will:
 
     * Determine the required scratch space from ``trafo_data``
     * Allocate the stack arrays
-    * Insert data transfers (for OpenACC offloading)
     * Insert data sharing clauses into OpenMP or OpenACC pragmas
     * Pass the stack arrays and sizes into the kernel calls
 
     Parameters
     ----------
-    horizontal: :any:`Dimension`
-        :any:`Dimension` object to define the horizontal dimension
     block_dim : :any:`Dimension`
         :any:`Dimension` object to define the blocking dimension
+    horizontal: :any:`Dimension`
+        :any:`Dimension` object to define the horizontal dimension
     stack_name : str, optional
         Name of the scratch space variable that is allocated in the
         driver (default: ``'STACK'``)
@@ -128,30 +127,53 @@ class TemporariesRawStackTransformation(Transformation):
 
 
     def _get_stack_int_name(self, prefix, dtype, kind, suffix):
+        """
+        Construct the name string for stack used and size integers.
+        Replace double underscore with single if kind is None
+        """
         return (prefix + '_' + self.type_name_dict[dtype][self.role] + '_' +
                 self._get_kind_name(kind) + '_' + suffix).replace('__', '_')
 
 
     def insert_stack_in_calls(self, routine, stack_arg_dict, successors):
+        """
+        Insert stack arguments into calls to successor routines.
 
+        Parameters
+        ----------
+        routine : :any:'Subroutine
+            The routine in which to transform call statements
+        stack_arg_dict : dict
+            dict that maps dtype and kind to the sets of stack size variables
+            and their corresponding stack array variables
+        successors : list of :any:`Item`
+            The items corresponding to successor routines called from :data:`routine`
+        """
         successor_map = {successor.routine.name.lower(): successor for successor in successors
                                                          if isinstance(successor, SubroutineItem)}
         call_map = {}
 
+        #Loop over calls and check if they call a successor routine and if the
+        #transformation data is available
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_dict = successor_map[call.name].trafo_data[self._key]['stack_dict']
 
                 call_stack_args = []
 
+                #Loop over dtypes and kinds in successor arguments stacks
+                #and construct list of stack arguments
                 for dtype in successor_stack_dict:
                     for kind in successor_stack_dict[dtype]:
                         call_stack_args += list(stack_arg_dict[dtype][kind])
 
+                #Get position of optional arguments so we can place the stacks in front
                 arg_pos = [call.routine.arguments.index(arg) for arg in call.routine.arguments if arg.type.optional]
 
                 arguments = call.arguments
                 if arg_pos:
+                    #Stack arguments have already been added to the routine call signature
+                    #so we have to subtract the number of stack arguments from the optional position
                     arg_pos = min(arg_pos) - len(call_stack_args)
                     arguments = arguments[:arg_pos] + as_tuple(call_stack_args) + arguments[arg_pos:]
                 else:
@@ -164,11 +186,28 @@ class TemporariesRawStackTransformation(Transformation):
 
 
     def create_stacks_driver(self, routine, stack_dict, successors):
+        """
+        Create stack variables in the driver routine,
+        add pragma directives to create the stacks on the device (if self.directive),
+        and add the stack_variables to kernel call arguments.
 
+        Parameters
+        ----------
+        routine : :any:'Subroutine
+            The driver subroutine to get the stack_variables
+        stack_dict : dict
+            dict that maps dtype and kind to an expression for the required stack size
+        successors : list of :any:`Item`
+            The items corresponding to successor routines called from :data:`routine`
+        """
 
+        #Block variables
         kgpblock = Scalar(name=self.block_dim.size, scope=routine, type=self.int_type)
         jgpblock = Scalar(name=self.block_dim.index, scope=routine, type=self.int_type)
+
+        #Full dimensions for arguments
         fulldim = (RangeIndex((None,None)), RangeIndex((None,None)))
+
         stack_vars = []
         stack_arg_dict = {}
         assignments = []
@@ -177,46 +216,70 @@ class TemporariesRawStackTransformation(Transformation):
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
 
+                #Start integer names in the driver with 'J'
                 stack_size_name = self._get_stack_int_name('J', dtype, kind, 'STACK_SIZE')
                 stack_size_var = Scalar(name=stack_size_name, scope=routine, type=self.int_type)
 
+                #Create the stack variable and its type with the correct shape
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine),
                                                          stack_dict[dtype][kind], kgpblock))
                 stack_var = stack_var.clone(type=stack_type)
 
+                #Add the variables to the stack_arg_dict with dimensions (:,:,j_block)
                 if dtype in stack_arg_dict:
                     stack_arg_dict[dtype][kind] = (stack_size_var, stack_var.clone(dimensions = fulldim+(jgpblock,)))
                 else:
                     stack_arg_dict[dtype] = {kind: (stack_size_var, stack_var.clone(dimensions = fulldim+(jgpblock,)))}
                 stack_var = stack_var.clone(dimensions=stack_type.shape)
 
+                #Create stack_vars pair and assignment of the size variable
                 stack_vars += [stack_size_var, stack_var]
                 assignments += [Assignment(lhs=stack_size_var, rhs=stack_dict[dtype][kind])]
                 pragma_string += f'{stack_var.name}, '
 
-        if pragma_string:
-            pragma_string = pragma_string[:-2].lower()
+        #If self.directive, create or allocate stack on device
+        if self.directive:
+            if pragma_string:
+                pragma_string = pragma_string[:-2].lower()
 
-            if self.directive == 'openacc':
-                pragma_data_start = Pragma(keyword='acc', content=f'data create({pragma_string})')
-                pragma_data_end = Pragma(keyword='acc', content='end data')
+                if self.directive == 'openacc':
+                    pragma_data_start = Pragma(keyword='acc', content=f'data create({pragma_string})')
+                    pragma_data_end = Pragma(keyword='acc', content='end data')
 
-            elif self.directive == 'openmp':
-                pragma_data_start = Pragma(keyword='omp', content=f'target allocate({pragma_string})')
-                pragma_data_end = Pragma(keyword='omp', content='end target')
+                elif self.directive == 'openmp':
+                    pragma_data_start = Pragma(keyword='omp', content=f'target allocate({pragma_string})')
+                    pragma_data_end = Pragma(keyword='omp', content='end target')
 
+        #Add to routine
         routine.variables = routine.variables + as_tuple(stack_vars)
         routine.body.prepend(assignments)
 
-        if pragma_data_start:
-            routine.body.prepend(pragma_data_start)
-            routine.body.append(pragma_data_end)
+        #Add directives to beginning and end of routine.body
+        if self.directive:
+            if pragma_data_start:
+                routine.body.prepend(pragma_data_start)
+                routine.body.append(pragma_data_end)
 
+        #Insert variables in successor calls
         self.insert_stack_in_calls(routine, stack_arg_dict, successors)
 
 
     def create_stacks_kernel(self, routine, stack_dict, successors):
+        """
+        Create stack variables in kernel routine,
+        add pragma directives to create the stacks on the device (if self.directive),
+        and add the stack_variables to kernel call arguments.
+
+        Parameters
+        ----------
+        routine : :any:'Subroutine
+            The kernel subroutine to get the stack_variables
+        stack_dict : dict
+            dict that maps dtype and kind to an expression for the required stack size
+        successors : list of :any:`Item`
+            The items corresponding to successor routines called from :data:`routine`
+        """
 
         stack_vars = []
         stack_arg_dict = {}
@@ -224,16 +287,21 @@ class TemporariesRawStackTransformation(Transformation):
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
 
+                #Start arguments integer names in kernels with 'K'
                 stack_size_name = self._get_stack_int_name('K', dtype, kind, 'STACK_SIZE')
                 stack_size_var = Scalar(name=stack_size_name, scope=routine, type=self.int_type.clone(intent='IN'))
 
+                #Local variables start with 'J'
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
 
+                #Create the stack variable and its type with the correct shape
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine), stack_size_var))
                 stack_var = stack_var.clone(type=stack_type)
 
+                #Pass on the stack variable from stack_used + 1 to stack_size
+                #Pass stack_size - stack_used to stack size in called kernel
                 arg_dims = (self._get_horizontal_range(routine),
                             RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
                 if dtype in stack_arg_dict:
@@ -242,31 +310,35 @@ class TemporariesRawStackTransformation(Transformation):
                 else:
                     stack_arg_dict[dtype] = {kind: (Sum((stack_size_var, Product((-1, stack_used_var)))),
                                                     stack_var.clone(dimensions = arg_dims))}
+
+                #Create stack_vars pair
                 stack_vars += [stack_size_var, stack_var.clone(dimensions=stack_type.shape)]
                 pragma_string += f'{stack_var.name}, '
 
-        if pragma_string:
-            pragma_string = pragma_string[:-2].lower()
-
-            if self.directive == 'openacc':
-                present_pragma = None
-                acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
-                for pragma in acc_pragmas:
-                    if pragma.content.lower().startswith('data present'):
-                        present_pragma = pragma
-                        break
-                if present_pragma:
-                    pragma_map = {present_pragma: None}
-                    routine.body = Transformer(pragma_map).visit(routine.body)
-                    content = re.sub(r'\bpresent\(', f'present({pragma_string}, ', present_pragma.content.lower())
-                    present_pragma = present_pragma.clone(content = content)
-                    pragma_data_end = None
-                else:
-                    present_pragma = Pragma(keyword='acc', content=f'data present({pragma_string})')
-                    pragma_data_end = Pragma(keyword='acc', content='end data')
-
-                routine.body.prepend(present_pragma)
-                routine.body.append(pragma_data_end)
+        #If self.directive,s openacc, add present clauses
+        if self.directive:
+            if pragma_string:
+                pragma_string = pragma_string[:-2].lower()
+    
+                if self.directive == 'openacc':
+                    present_pragma = None
+                    acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
+                    for pragma in acc_pragmas:
+                        if pragma.content.lower().startswith('data present'):
+                            present_pragma = pragma
+                            break
+                    if present_pragma:
+                        pragma_map = {present_pragma: None}
+                        routine.body = Transformer(pragma_map).visit(routine.body)
+                        content = re.sub(r'\bpresent\(', f'present({pragma_string}, ', present_pragma.content.lower())
+                        present_pragma = present_pragma.clone(content = content)
+                        pragma_data_end = None
+                    else:
+                        present_pragma = Pragma(keyword='acc', content=f'data present({pragma_string})')
+                        pragma_data_end = Pragma(keyword='acc', content='end data')
+    
+                    routine.body.prepend(present_pragma)
+                    routine.body.append(pragma_data_end)
 
 
         # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
@@ -282,7 +354,7 @@ class TemporariesRawStackTransformation(Transformation):
 
     def apply_raw_stack_allocator_to_temporaries(self, routine, item=None):
         """
-        Apply pool allocator to local temporary arrays
+        Apply raw stack allocator to local temporary arrays
 
         This appends the relevant argument to the routine's dummy argument list and
         creates the assignment for the local copy of the stack type.
@@ -290,6 +362,11 @@ class TemporariesRawStackTransformation(Transformation):
         are mapped via Cray pointers to the pool-allocated memory region.
 
         The cumulative size of all temporary arrays is determined and returned.
+
+        Parameters
+        ----------
+        routine : :any:'Subroutine
+            Subroutine object to apply transformation to
         """
 
         temporary_arrays = self._filter_temporary_arrays(routine)
@@ -369,21 +446,22 @@ class TemporariesRawStackTransformation(Transformation):
 
 
     def _filter_temporary_arrays(self, routine):
+        """
+        Find all array variables in routine
+        and filter out arguments, unused variables, fixed size arrays,
+        and arrays whose lead dimension is not horizontal.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The subroutine object to get arrays from
+        """
 
         # Find all temporary arrays
         arguments = routine.arguments
         temporary_arrays = [
             var for var in routine.variables
             if isinstance(var, Array) and var not in arguments
-        ]
-
-        # Filter out derived-type objects. Partly because the possibility of derived-type
-        # nesting increases the complexity of determing allocation size, and partly because `C_SIZEOF`
-        # doesn't account for the size of allocatable/pointer members of derived-types.
-        if any(isinstance(var.type.dtype, DerivedType) for var in temporary_arrays):
-            warning(f'[Loki::PoolAllocator] Derived-type vars in {routine} not supported in pool allocator')
-        temporary_arrays = [
-            var for var in temporary_arrays if not isinstance(var.type.dtype, DerivedType)
         ]
 
         # Filter out unused vars
@@ -424,6 +502,10 @@ class TemporariesRawStackTransformation(Transformation):
         """
         Go through list of arrays and map each array
         to its type and kind in the the dict type_dict
+
+        Parameters
+        ----------
+        arrays : List of array objects
         """
 
         type_dict = {}
