@@ -479,19 +479,19 @@ end module kernel3_mod
         assert fgen(assignments[3].rhs).lower() == 'jd_zde3 + klev'
 
         assert fgen(assignments[4].lhs).lower() == 'p_selected_real_kind_13_300_stack(:, jd_zde1 + jb - klev + jb*klev)'
-        assert fgen(assignments[4].rhs).lower() == '0._selected_real_kind_13_300'
+        assert fgen(assignments[4].rhs).lower() == '0._jprb'
 
         assert fgen(assignments[5].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
                                                    '(:, jd_zde2 + 1 - klev + jb*klev:jd_zde2 + jb*klev)'
-        assert fgen(assignments[5].rhs).lower() == '0._selected_real_kind_13_300'
+        assert fgen(assignments[5].rhs).lower() == '0._jprb'
 
         assert fgen(assignments[6].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
                                                    '(jl, jd_zde1 + jlev + jb - klev + jb*klev)'
-        assert fgen(assignments[6].rhs).lower() == '1._selected_real_kind_13_300'
+        assert fgen(assignments[6].rhs).lower() == '1._jprb'
 
         assert fgen(assignments[7].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
                                                    '(jl, jd_zde2 + jlev - klev + jb*klev)'
-        assert fgen(assignments[7].rhs).lower() == '0._selected_real_kind_13_300'
+        assert fgen(assignments[7].rhs).lower() == '0._jprb'
 
         assert fgen(assignments[8].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
                                                    '(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
