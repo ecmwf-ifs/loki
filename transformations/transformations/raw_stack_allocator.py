@@ -272,7 +272,7 @@ class TemporariesRawStackTransformation(Transformation):
 
         Parameters
         ----------
-        routine : :any:'Subroutine
+        routine : :any:`Subroutine`
             The kernel subroutine to get the stack_variables
         stack_dict : dict
             dict that maps dtype and kind to an expression for the required stack size
@@ -366,8 +366,14 @@ class TemporariesRawStackTransformation(Transformation):
         ----------
         routine : :any:'Subroutine
             Subroutine object to apply transformation to
+
+        Returns
+        -------
+        stack_dict : :any:`dict`
+            dict with required stack size mapped to type and kind
         """
 
+        #Get all temporary dicts and sort them according to dtype and kind
         temporary_arrays = self._filter_temporary_arrays(routine)
         temporary_array_dict = self._sort_arrays_by_type(temporary_arrays)
 
@@ -387,6 +393,7 @@ class TemporariesRawStackTransformation(Transformation):
 
             for (kind, arrays) in kind_dict.items():
 
+                #Initialize stack_used to 0
                 stack_used = IntLiteral(0)
                 if kind not in stack_dict[dtype]:
                     stack_dict[dtype][kind] = Literal(0)
@@ -396,16 +403,19 @@ class TemporariesRawStackTransformation(Transformation):
                     if kind in routine.imported_symbols:
                         item.trafo_data[self._key]['kind_imports'][kind] = routine.import_map[kind.name].module.lower()
 
+                #Get the stack variable
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 old_int_var = IntLiteral(0)
                 old_array_size = ()
 
+                #Loop over arrays
                 for array in arrays:
 
                     int_var = Scalar(name=self.local_int_var_name_pattern.format(name=array.name),
                                      scope=routine, type=self.int_type)
                     integers += [int_var]
 
+                    #Computer array size
                     array_size = one
                     for d in array.shape[1:]:
                         if isinstance(d, RangeIndex):
@@ -414,30 +424,36 @@ class TemporariesRawStackTransformation(Transformation):
                             d_extent = d
                         array_size = simplify(Product((array_size, d_extent)))
 
+                    #Add to stack dict and list of allocations
                     stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], array_size)))
                     allocations += [Assignment(lhs=int_var, rhs=Sum((old_int_var,) + old_array_size))]
 
+                    #Store the old int variable to calculate offset for next array
                     old_int_var = int_var
                     if isinstance(array_size, Sum):
                         old_array_size = array_size.children
                     else:
                         old_array_size = (array_size,)
 
+                    #Map array instances to stack offsets
                     temp_map = self._map_temporary_array(array, int_var, routine, stack_var)
                     var_map = {**var_map, **temp_map}
                     stack_set.add(stack_var)
 
+                #Compute stack used
                 stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
 
+                #List up integers and allocations generated
                 integers += [stack_used_var]
                 allocations += [Assignment(lhs=stack_used_var, rhs=stack_used)]
 
+        #Substitute temporary arrays if any map
         if var_map:
-
             routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
+        #Add  variables to routines and allocations to body
         routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
         routine.body.prepend(allocations)
 
@@ -525,24 +541,46 @@ class TemporariesRawStackTransformation(Transformation):
         """
         Find all instances of temporary array, temp_array, in routine and
         map them to to the corresponding position in stack stack_var.
-        Position in stack is stored in int_var, but dimension offset must be calculated.
+        Position in stack is stored in int_var.
         Returns a dict mapping all instances of temp_array to corresponding stack position.
+
+        Parameters
+        ----------
+        temp_array : :any:`Variable`
+            Array to be mapped into stack array
+        int_var : :any:`Variable`
+            Integer variable corresponding to the position in of the array in the stack
+        routine : :any:`Subroutine`
+            The subroutine object to transform
+        stack_var : :any:`Variable`
+            The stack array variable
+
+        Returns
+        -------
+        temp_map : :any:`dict`
+            dict mapping variable instances to positions in the stack array
         """
 
+        #List instances of temp_array
         temp_arrays = [v for v in FindVariables().visit(routine.body) if v.name == temp_array.name]
 
         temp_map = {}
         stack_dimensions = [None, None]
 
+        #Loop over instances of temp_array
         for t in temp_arrays:
 
             offset = one
             stack_size = one
 
             if t.dimensions:
+                #If t has dimensions, we must compute the offsets in the stack
+                #taking each dimension into account
 
+                #First dimension is just horizontal
                 stack_dimensions[0] = t.dimensions[0]
 
+                #Check if lead dimension is contiguous
                 contiguous = (isinstance(t.dimensions[0], RangeIndex) and
                              (t.dimensions[0] == self._get_horizontal_range(routine) or
                              (t.dimensions[0].lower is None and t.dimensions[0].upper is None)))
@@ -550,6 +588,7 @@ class TemporariesRawStackTransformation(Transformation):
                 s_offset = one
                 for d, s in zip(t.dimensions[1:], t.shape[1:]):
 
+                    #Check if there are range indices in shape to account for
                     if isinstance(s, RangeIndex):
                         s_lower = s.lower
                         s_upper = s.upper
@@ -561,6 +600,8 @@ class TemporariesRawStackTransformation(Transformation):
 
                     if isinstance(d, RangeIndex):
 
+                        #If dimension is a rangeindex, compute the indices
+                        #Stop if there is any non contiguous access to the array
                         if not contiguous:
                             raise RuntimeError(f'Discontiguous access of array {t}')
 
@@ -574,15 +615,19 @@ class TemporariesRawStackTransformation(Transformation):
                         else:
                             d_upper = d.upper
 
+                        #Store if this dimension was contiguous
                         contiguous = (d_upper == s_upper) and (d_lower == s_lower)
 
+                        #Multiply stack_size by current dimension
                         stack_size = Product((stack_size, Sum((d_upper, Product((-1, d_lower)), one))))
 
                     else:
 
+                        #Only need a single index to compute offset
                         d_lower = d
 
 
+                    #Compute dimension and shape offsets
                     d_offset =  Sum((d_lower, Product((-1, s_lower))))
 
                     offset = Sum((offset, Product((d_offset, s_offset))))
@@ -591,6 +636,8 @@ class TemporariesRawStackTransformation(Transformation):
 
 
             else:
+                #If t does not have dimensions,
+                #we can just access (1:horizontal.size, 1:stack_size)
 
                 stack_dimensions[0] = self._get_horizontal_range(routine)
 
@@ -609,15 +656,18 @@ class TemporariesRawStackTransformation(Transformation):
             offset = simplify(offset)
             stack_size = simplify(stack_size)
 
+            #Add offset to int_var
             if isinstance(offset, Sum):
                 lower = Sum((int_var,) + offset.children)
             else:
                 lower = Sum((int_var, offset))
 
             if stack_size == one:
+                #If a single element is accessed, we only need a number
                 stack_dimensions[1] = lower
 
             else:
+                #Else we'll  have to construct a range index
                 offset = simplify(Sum((offset, stack_size, Product((-1,one)))))
                 if isinstance(offset, Sum):
                     upper = Sum((int_var,) + offset.children)
@@ -625,6 +675,7 @@ class TemporariesRawStackTransformation(Transformation):
                     upper = Sum((int_var, offset))
                 stack_dimensions[1] = RangeIndex((lower, upper))
 
+            #Finally add to the mapping
             temp_map[t] = stack_var.clone(dimensions=as_tuple(stack_dimensions))
 
         return temp_map
@@ -648,7 +699,7 @@ class TemporariesRawStackTransformation(Transformation):
 
         Returns
         -------
-        :any:`dict` :
+        stack_dict : :any:`dict`
             dict with required stack size mapped to type and kind
         """
 
@@ -703,6 +754,7 @@ class TemporariesRawStackTransformation(Transformation):
                         new_list += [stack_size]
                 stack_sizes = new_list
 
+        #Simplify the local stack sizes and add them to the stack_dict
         if local_stack_dict:
             for dtype in local_stack_dict:
                 for kind in local_stack_dict[dtype]:
@@ -717,6 +769,7 @@ class TemporariesRawStackTransformation(Transformation):
                     else:
                         stack_dict[dtype] = {kind: [local_stack_dict[dtype][kind]]}
 
+        #If several expressions, return MAX, else just add the expression
         for (dtype, kind_dict) in stack_dict.items():
             for (kind, stacks) in kind_dict.items():
                 if len(stacks) == 1:
@@ -730,8 +783,8 @@ class TemporariesRawStackTransformation(Transformation):
     def _get_stack_var(self, routine, dtype, kind):
         """
         Get a stack variable with a name determined by
-        the type_name_dict and kind_name_dict.
-        Type.intent is determined by whether the routine is a kernel or driver
+        the type_name_dict and _get_kind_name().
+        intent is determined by whether the routine is a kernel or driver
         """
 
         stack_name = self.type_name_dict[dtype][self.role] + '_' + self._get_kind_name(kind) + '_' + self.stack_name
