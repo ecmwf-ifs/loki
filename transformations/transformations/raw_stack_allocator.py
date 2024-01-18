@@ -9,14 +9,13 @@ import re
 
 from loki.transform.transformation import Transformation
 from loki.expression import Array, Scalar
-from loki.types import DerivedType, BasicType
+from loki.types import BasicType
 from loki.analyse import dataflow_analysis_attached
 from loki.types import SymbolAttributes
 from loki.ir import Assignment, CallStatement, Pragma
 from loki.tools import as_tuple
 from loki.visitors import FindNodes, Transformer
 from loki.bulk import SubroutineItem
-from loki.logging import warning
 from loki.expression.symbolic import is_dimension_constant, simplify
 from loki.expression.mappers import DetachScopesMapper
 from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
@@ -319,7 +318,7 @@ class TemporariesRawStackTransformation(Transformation):
         if self.directive:
             if pragma_string:
                 pragma_string = pragma_string[:-2].lower()
-    
+
                 if self.directive == 'openacc':
                     present_pragma = None
                     acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
@@ -336,7 +335,7 @@ class TemporariesRawStackTransformation(Transformation):
                     else:
                         present_pragma = Pragma(keyword='acc', content=f'data present({pragma_string})')
                         pragma_data_end = Pragma(keyword='acc', content='end data')
-    
+
                     routine.body.prepend(present_pragma)
                     routine.body.append(pragma_data_end)
 
