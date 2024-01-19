@@ -12,7 +12,7 @@ import pytest
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
-    fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
+    fgen, Sourcefile, Section, SubroutineItem, GlobalVarImportItem, pragma_regions_attached, PragmaRegion,
     is_loki_pragma, IntLiteral, RangeIndex, Comment, HoistTemporaryArraysAnalysis,
     gettempdir, Scheduler, SchedulerConfig
 )
@@ -760,24 +760,38 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
   END SUBROUTINE compute_column
 """
 
+    fcode_module = """
+module my_scaling_value_mod
+    implicit none
+    REAL :: c = 5.345
+end module my_scaling_value_mod
+""".strip()
+
     # Mimic the scheduler internal mechanis to apply the transformation cascade
     kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
     driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    module_source = Sourcefile.from_source(fcode_module, frontend=frontend)
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
+    module = module_source['my_scaling_value_mod']
+    kernel.enrich(module)
     driver.enrich(kernel)  # Attach kernel source to driver call
 
     driver_item = SubroutineItem(name='#column_driver', source=driver_source)
     kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
+    module_item = GlobalVarImportItem(name='my_scaling_value_mod#c', source=module_source)
 
     # Test OpenACC annotations on hoisted version
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
 
+    #for transform in scc_transform:
+    #    transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
+    #    transform.apply(kernel, role='kernel', item=kernel_item)
     for transform in scc_transform:
-        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-        transform.apply(kernel, role='kernel', item=kernel_item)
+        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'], successors=[kernel_item])
+        transform.apply(kernel, role='kernel', item=kernel_item, successors=[module_item])
 
     # Now apply the hoisting passes (anaylisis in reverse order)
     analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
