@@ -8,7 +8,7 @@
 import re
 from collections import  defaultdict
 from loki import (
-    as_tuple, warning, simplify, recursive_expression_map_update, get_pragma_parameters,
+    as_tuple, warning, debug, simplify, recursive_expression_map_update, get_pragma_parameters,
     Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
     SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, LogicLiteral,
     Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Cast,
@@ -24,7 +24,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     Transformation to inject a pool allocator that allocates a large scratch space per block
     on the driver and maps temporary arrays in kernels to this scratch space
 
-    The stack is provided via two integer variables, ``<stack name>_L`` and ``<stack name>U``, which are 
+    The stack is provided via two integer variables, ``<stack name>_L`` and ``<stack name>_U``, which are
     used as a stack pointer and stack end pointer, respectively. 
     Naming is flexible and can be changed via options to the transformation.
 
@@ -36,7 +36,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     * Determine the combined size of all local arrays that are to be allocated by the pool allocator,
       taking into account calls to nested kernels. This is reported in :any:`Item`'s ``trafo_data``.
     * Inject Cray pointer assignments and stack pointer increments for all temporaries
-    * Pass the local copyi/copies of the stack integer(s) as argument to any nested kernel calls
+    * Pass the local copy/copies of the stack integer(s) as argument to any nested kernel calls
 
     By default, all local array arguments are allocated by the pool allocator, but this can be restricted
     to include only those that have at least one dimension matching one of those provided in :data:`allocation_dims`.
@@ -60,7 +60,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack name (default: ``'L'``) resulting in e.g., ``'<stack name>_L'``
     stack_end_name : str, optional
         Name of the stack end pointer variable to be appendend to the generic
-        stack name (default: ``'U'``) resulting in e.g., ``'<stack_name>_L'``
+        stack name (default: ``'U'``) resulting in e.g., ``'<stack name>_L'``
     stack_size_name : str, optional
         Name of the variable that holds the size of the scratch space in the
         driver (default: ``'ISTSZ'``)
@@ -75,7 +75,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         Python format string pattern for the name of the Cray pointer variable
         for each temporary (default: ``'IP_{name}'``)
     stack_int_type_kind: :any:`Literal` or :any:`Variable`
-        Integer type kind used for the stack pointer variable(s) (default: ```'8'`` 
+        Integer type kind used for the stack pointer variable(s) (default: ``'8'``
         resulting in ``'INTEGER(KIND=8)'``)
     directive : str, optional
         Can be ``'openmp'`` or ``'openacc'``. If given, insert data sharing clauses for
@@ -108,6 +108,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.stack_int_type_kind = stack_int_type_kind
         self.directive = directive
         self.check_bounds = check_bounds
+
+        if self.stack_ptr_name == self.stack_end_name:
+            raise ValueError(f'"stack_ptr_name": "{self.stack_ptr_name}" and '
+                f'"stack_end_name": "{self.stack_end_name}" must be different!')
 
         if key:
             self._key = key
@@ -640,6 +644,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                         assign_pos = loop.body.index(assignment)
                         break
                 else:
+                    warning(
+                        f'{self.__class__.__name__}: '
+                        f'Could not find a block dimension for loop with variable {loop.variable} and '
+                        f'bounds {loop.bounds} in {routine.name}; no stack pointer assignment inserted!'
+                    )
                     continue
             else:
                 # block variable is the loop variable: pointer assignment can happen
@@ -647,7 +656,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 assign_pos = -1
 
             # Check for existing pointer assignment
-            if any(a.lhs == f'{self.stack_argument_name}_{self.stack_ptr_name}' for a in assignments):  # pylint: disable=no-member
+            if any(a.lhs == f'{self.stack_local_var_name}_{self.stack_ptr_name}' for a in assignments):
+                debug(
+                    f'{self.__class__.__name__}: '
+                    f'Stack (pointer) already exists within/for loop with variable {loop.variable} and '
+                    f'bounds {loop.bounds} in {routine.name}; thus no stack pointer assignment inserted!'
+                )
                 break
 
             ptr_assignment = Assignment(
@@ -674,7 +688,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_incr = Assignment(
                 lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
             )
-            # stack_incr = Comment(text="! this used to be the stack end?!")
             new_assignments = (ptr_assignment,)
             if self.check_bounds:
                 new_assignments += (stack_incr,)
@@ -684,11 +697,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         if loop_map:
             routine.body = Transformer(loop_map).visit(routine.body)
-        else:
-            warning(
-                f'{self.__class__.__name__}: '
-                f'Could not find a block dimension loop in {routine.name}; no stack pointer assignment inserted.'
-            )
 
     def inject_pool_allocator_into_calls(self, routine, targets):
         """

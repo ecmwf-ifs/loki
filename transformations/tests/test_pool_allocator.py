@@ -61,8 +61,8 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
             assert assignments[1].lhs == 'ylstack_u' and (
                     assignments[1].rhs == f'ylstack_l + istsz * c_sizeof(real(1, kind={kind_real}))')
         else:
-            assert assignments[3].lhs == 'ylstack_u' and (
-                    assignments[3].rhs == f'ylstack_l + c_sizeof(real(1, kind={kind_real}))*istsz')
+            assert assignments[1].lhs == 'ylstack_u' and (
+                    assignments[1].rhs == f'ylstack_l + c_sizeof(real(1, kind={kind_real}))*istsz')
 
     # Check that stack assignment happens before kernel call
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
