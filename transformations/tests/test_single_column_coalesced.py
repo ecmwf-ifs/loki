@@ -796,10 +796,17 @@ end module my_scaling_value_mod
     # Now apply the hoisting passes (anaylisis in reverse order)
     analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
     synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking)
-    analysis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
-    analysis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
+
+    # The try-except is for checking a situation where the analysis or synthesis part of SCC Hoist attempt
+    # to access a GlobalVarImportItem, which should not happen. Note that in case of a KeyError (which signifies
+    # the issue occurring), throwing an explicit pytest failure to signify that there is no bug in the test itself. 
+    try:
+        analysis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
+        analysis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
+        synthesis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
+        synthesis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
+    except KeyError('c'):
+        pytest.fail('SCC Hoist analysis and synthesis should not attempt to access `GlobalVarImportItem`s')
 
     annotate = SCCAnnotateTransformation(
         horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
