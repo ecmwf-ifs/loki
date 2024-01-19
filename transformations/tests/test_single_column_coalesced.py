@@ -786,9 +786,6 @@ end module my_scaling_value_mod
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
 
-    #for transform in scc_transform:
-    #    transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-    #    transform.apply(kernel, role='kernel', item=kernel_item)
     for transform in scc_transform:
         transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'], successors=[kernel_item])
         transform.apply(kernel, role='kernel', item=kernel_item, successors=[module_item])
@@ -799,7 +796,7 @@ end module my_scaling_value_mod
 
     # The try-except is for checking a bug where HoistTemporaryArraysAnalysis would
     # access a GlobalVarImportItem, which should not happen. Note that in case of a KeyError (which signifies
-    # the issue occurring), an explicit pytest failure is thrown to signify that there is no bug in the test itself. 
+    # the issue occurring), an explicit pytest failure is thrown to signify that there is no bug in the test itself.
     try:
         analysis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
     except KeyError:
