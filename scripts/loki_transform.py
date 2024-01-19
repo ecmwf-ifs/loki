@@ -233,9 +233,10 @@ def convert(
         scheduler.process( HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)) )
         scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
 
-    scheduler.process( SCCAnnotateTransformation(
-            horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
-    ))
+    if mode in ['scc', 'scc-hoist', 'scc-stack']:
+        scheduler.process( SCCAnnotateTransformation(
+                horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
+        ))
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         # These transformations requires complex constructor arguments,
