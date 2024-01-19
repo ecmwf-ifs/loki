@@ -796,10 +796,10 @@ end module my_scaling_value_mod
     # Now apply the hoisting passes (anaylisis in reverse order)
     analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
     synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking)
-    analysis.apply(kernel, role='kernel', item=kernel_item)
+    analysis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
     analysis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
     synthesis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(kernel, role='kernel', item=kernel_item)
+    synthesis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
 
     annotate = SCCAnnotateTransformation(
         horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
