@@ -100,6 +100,85 @@ end module transform_derived_type_arguments_mod
             assert member.type.dtype != BasicType.DEFERRED
 
 
+@pytest.mark.parametrize('all_derived_types', (False, True))
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_expansion_trivial_derived_type(frontend, all_derived_types):
+    fcode = """
+module transform_derived_type_arguments_mod
+
+    implicit none
+
+    type some_derived_type
+        real :: a
+        real :: b
+    end type some_derived_type
+
+contains
+
+    subroutine caller(z)
+        integer, intent(in) :: z
+        type(some_derived_type) :: t_io
+        type(some_derived_type) :: t_in, t_out
+        integer :: m, n
+        integer :: i, j
+
+        m = 100
+        n = 10
+
+        t_in%a = real(m-1)
+        t_in%b = real(n-1)
+
+        call kernel(m, n, t_io%a, t_io%b, t_in, t_out)
+
+    end subroutine caller
+
+    subroutine kernel(m, n, P_a, P_b, Q, R)
+        integer                , intent(in)    :: m, n
+        real, intent(inout)                    :: P_a, P_b
+        type(some_derived_type), intent(in)    :: Q
+        type(some_derived_type), intent(out)   :: R
+        integer :: j, k
+
+        R%a = P_a + Q%a
+        R%b = P_b - Q%b
+    end subroutine kernel
+end module transform_derived_type_arguments_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+
+    call_tree = [
+        SubroutineItem(name='transform_derived_type_arguments_mod#caller', source=source, config={'role': 'driver'}),
+        SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}),
+    ]
+
+    # Apply transformation
+    transformation = DerivedTypeArgumentsTransformation(all_derived_types=all_derived_types)
+    for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
+        transformation.apply(item.routine, role=item.role, item=item, successors=as_tuple(successor))
+
+    # all derived types, disregarding whether the derived type has pointer/allocatable/derived type members or not
+    if all_derived_types:
+        call_args = ('m', 'n', 't_io%a', 't_io%b', 't_in%a', 't_in%b', 't_out%a', 't_out%b')
+        kernel_args = ('m', 'n', 'P_a', 'P_b', 'Q_a', 'Q_b', 'R_a', 'R_b')
+    # only the derived type(s) with pointer/allocatable/derived type members, thus no changes expected!
+    else:
+        call_args = ('m', 'n', 't_io%a', 't_io%b', 't_in', 't_out')
+        kernel_args = ('m', 'n', 'P_a', 'P_b', 'Q', 'R')
+
+    call = FindNodes(CallStatement).visit(source['caller'].ir)[0]
+    assert call.name == 'kernel'
+    assert call.arguments == call_args
+    assert source['kernel'].arguments == kernel_args
+    assert all(v.type.intent for v in source['kernel'].arguments)
+
+    # Make sure rescoping hasn't accidentally overwritten the
+    # type information for local variables that have the same name
+    # as the shape of another variable
+    assert source['caller'].variable_map['m'].type.intent is None
+    assert source['caller'].variable_map['n'].type.intent is None
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_derived_type_arguments_expansion(frontend):
     fcode = f"""

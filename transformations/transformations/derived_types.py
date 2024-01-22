@@ -29,7 +29,7 @@ __all__ = ['DerivedTypeArgumentsTransformation', 'TypeboundProcedureCallTransfor
 class DerivedTypeArgumentsTransformation(Transformation):
     """
     Remove derived types from procedure signatures by replacing the
-    relevant derived type arguments by its member variables
+    (relevant) derived type arguments by its member variables
 
     .. note::
        This transformation requires a Scheduler traversal that
@@ -47,11 +47,22 @@ class DerivedTypeArgumentsTransformation(Transformation):
     the routine. The information about the expansion map is stored
     in the :any:`Item`'s ``trafo_data``.
     See :meth:`expand_derived_args_kernel` for more information.
+
+    Parameters
+    ----------
+    all_derived_types : bool, optional
+        Whether to remove all derived types from procedure signatures by
+        replacing the derived type arguments using its member variables or
+        only the "relevant" ones, referring to derived types with array
+        members or nested derived types (default: `False`).
+    key : str, optional
+        Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
 
     _key = 'DerivedTypeArgumentsTransformation'
 
-    def __init__(self, key=None, **kwargs):
+    def __init__(self, all_derived_types=False, key=None, **kwargs):
+        self.all_derived_types = all_derived_types
         if key is not None:
             self._key = key
         super().__init__(**kwargs)
@@ -270,9 +281,10 @@ class DerivedTypeArgumentsTransformation(Transformation):
         candidates = []
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                if any(v.type.pointer or v.type.allocatable or
+                if self.all_derived_types or any(v.type.pointer or v.type.allocatable or
                        isinstance(v.type.dtype, DerivedType) for v in as_tuple(arg.variables)):
                     # Only include derived types with array members or nested derived types
+                    # unless self.all_derived_types is True
                     candidates += [arg]
 
         # Inspect all derived type member use and determine their expansion
