@@ -12,13 +12,23 @@ A small set of utilities for offline analysis of control flow in IFS.
 
 
 """
-
+from enum import Enum, IntEnum, Flag, auto
 from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, FindNodes, CallStatement, flatten
+    Sourcefile, FindNodes, CallStatement, Loop, flatten, symbols as sym,
+    dataflow_analysis_attached, info
 )
+
+
+class Access(Flag):
+    RD = auto()
+    WR = auto()
+    # RDWR = auto()
+
+RD = Access.RD
+WR = Access.WR
 
 
 def driver_analyse_field_offload_accesses(routine):
@@ -27,12 +37,83 @@ def driver_analyse_field_offload_accesses(routine):
 
     
     """
-
     calls = FindNodes(CallStatement).visit(routine.body)
 
-    # Now what...?
+    # Get FIELD API arrays and implied access descriptors
+    accessor_calls = [c for c in calls if 'GET_DEVICE_DATA' in str(c).upper()]
+    field_map = {
+        c.arguments[0] : RD if str(c.name).endswith('RDONLY') else RD | WR
+        for c in accessor_calls
+    }
+
+    # Get arrays that are CALL arguments and derive access descriptors from callee
+    kernel_calls = [c for c in calls if 'GET_DEVICE_DATA' not in str(c.name)]
+    kernel_calls = [c for c in kernel_calls if 'DR_HOOK' not in str(c.name)]
+
+    argument_map ={}
+    _intent2access = {
+        'in' : RD, 'inout' : RD | WR, 'out' : WR
+    }
+    for call in kernel_calls:
+        arg_map = {
+            var.name : _intent2access[arg.type.intent]
+            for arg, var in call.arg_iter() if isinstance(arg, sym.Array)
+        }
+        # TODO: Check if already exists!
+        argument_map.update(arg_map)
+
+    # Get the local accesses in the driver loops
+    with dataflow_analysis_attached(routine):
+        loops = [
+            l for l in FindNodes(Loop).visit(routine.body)
+            if l.variable == 'JKGLO'
+        ]
+        assert len(loops) == 1
+        driver_loop = loops[0]
+
+        for v in driver_loop.uses_symbols:
+            if not isinstance(v, sym.Array):
+                continue
+
+            if v not in field_map:
+                continue
+
+            if v.name not in argument_map:
+                argument_map[v.name] = RD
+            else:
+                argument_map[v.name] |= RD
+
+        for v in driver_loop.defines_symbols:
+            if not isinstance(v, sym.Array):
+                continue
+
+            if v not in field_map:
+                continue
+
+            if v.name not in argument_map:
+                argument_map[v.name] = WR
+            else:
+                argument_map[v.name] |= WR
+
+    info('[Loki-anaylse] ===================================================')
+    info(f'[Loki-anaylse] ====    Field accesses:  {routine.name}      ====')
+    info('[Loki-anaylse] ===================================================')
     
-    from IPython import embed; embed()
+    # Compare declared access to analysis and complain
+    for arr, acc in field_map.items():
+        if not isinstance(arr, sym.Array):
+            continue
+
+        var = routine.variable_map[arr.name]
+        arg_acc = argument_map.get(var.name, None)
+        if not arg_acc:
+            continue
+
+        if not arg_acc == acc:
+            info(f'[Loki-anaylse] Field {var.name:<22} :: declared {acc:<12}  =>  usage {arg_acc}')
+
+    info('[Loki-anaylse] ===================================================')
+    info('[Loki-anaylse] ')
 
 
 @click.group()
@@ -64,7 +145,7 @@ def offload(source):
     driver.enrich(definitions=flatten([h.definitions for h in headers]))
 
     driver_analyse_field_offload_accesses(driver)
-
+    
 
 if __name__ == "__main__":
     cli()  # pylint: disable=no-value-for-parameter
