@@ -223,57 +223,60 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION )
+    set( options
+         NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS
+	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
+    )
     set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS )
 
-    cmake_parse_arguments( _PAR "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
+    cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
 
     if( _PAR_UNPARSED_ARGUMENTS )
         ecbuild_critical( "Unknown keywords given to loki_transform_target(): \"${_PAR_UNPARSED_ARGUMENTS}\"")
     endif()
 
-    if( NOT _PAR_TARGET )
+    if( NOT _PAR_T_TARGET )
         ecbuild_critical( "The call to loki_transform_target() doesn't specify the TARGET." )
     endif()
 
-    if( NOT _PAR_COMMAND )
-        set( _PAR_COMMAND "convert" )
+    if( NOT _PAR_T_COMMAND )
+        set( _PAR_T_COMMAND "convert" )
     endif()
 
-    if( NOT _PAR_PLAN )
+    if( NOT _PAR_T_PLAN )
         ecbuild_critical( "No PLAN specified for loki_transform_target()" )
     endif()
 
-    ecbuild_info( "[Loki] Loki scheduler:: target=${_PAR_TARGET} mode=${_PAR_MODE} frontend=${_PAR_FRONTEND}")
+    ecbuild_info( "[Loki] Loki scheduler:: target=${_PAR_T_TARGET} mode=${_PAR_T_MODE} frontend=${_PAR_T_FRONTEND}")
 
     # Ensure that changes to the config file trigger the planning stage
-    configure_file( ${_PAR_CONFIG} ${CMAKE_CURRENT_BINARY_DIR}/loki_${_PAR_TARGET}.config )
+    configure_file( ${_PAR_T_CONFIG} ${CMAKE_CURRENT_BINARY_DIR}/loki_${_PAR_T_TARGET}.config )
 
     # Create the bulk-transformation plan
     set( _PLAN_OPTIONS "" )
-    if( _PAR_CPP_PLAN )
+    if( _PAR_T_CPP_PLAN )
         list( APPEND _PLAN_OPTIONS CPP )
     endif()
-    if( _PAR_NO_PLAN_SOURCEDIR )
+    if( _PAR_T_NO_PLAN_SOURCEDIR )
         list( APPEND _PLAN_OPTIONS NO_SOURCEDIR )
     endif()
 
     loki_transform_plan(
-        MODE      ${_PAR_MODE}
-        CONFIG    ${_PAR_CONFIG}
-        FRONTEND  ${_PAR_FRONTEND}
-        SOURCES   ${_PAR_SOURCES}
-        PLAN      ${_PAR_PLAN}
-        CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_TARGET}
+        MODE      ${_PAR_T_MODE}
+        CONFIG    ${_PAR_T_CONFIG}
+        FRONTEND  ${_PAR_T_FRONTEND}
+        SOURCES   ${_PAR_T_SOURCES}
+        PLAN      ${_PAR_T_PLAN}
+        CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_T_TARGET}
         BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
         SOURCEDIR ${CMAKE_CURRENT_SOURCE_DIR}
         ${_PLAN_OPTIONS}
     )
 
     # Import the generated plan
-    include( ${_PAR_PLAN} )
-    ecbuild_info( "[Loki] Imported transformation plan: ${_PAR_PLAN}" )
+    include( ${_PAR_T_PLAN} )
+    ecbuild_info( "[Loki] Imported transformation plan: ${_PAR_T_PLAN}" )
     ecbuild_debug( "[Loki] Loki transform: ${LOKI_SOURCES_TO_TRANSFORM}" )
     ecbuild_debug( "[Loki] Loki append: ${LOKI_SOURCES_TO_APPEND}" )
     ecbuild_debug( "[Loki] Loki remove: ${LOKI_SOURCES_TO_REMOVE}" )
@@ -284,29 +287,33 @@ function( loki_transform_target )
 
         # Apply the bulk-transformation according to the plan
         set( _TRANSFORM_OPTIONS "" )
-        if( _PAR_CPP )
+        if( _PAR_T_CPP )
             list( APPEND _TRANSFORM_OPTIONS CPP )
         endif()
 
-        if( _PAR_INLINE_MEMBERS )
+        if( _PAR_T_INLINE_MEMBERS )
             list( APPEND _TRANSFORM_OPTIONS INLINE_MEMBERS )
         endif()
 
-        if( _PAR_RESOLVE_SEQUENCE_ASSOCIATION )
+        if( _PAR_T_RESOLVE_SEQUENCE_ASSOCIATION )
             list( APPEND _TRANSFORM_OPTIONS RESOLVE_SEQUENCE_ASSOCIATION )
         endif()
 
+        if( _PAR_T_DERIVE_ARGUMENT_ARRAY_SHAPE )
+            list( APPEND _TRANSFORM_OPTIONS DERIVE_ARGUMENT_ARRAY_SHAPE )
+        endif()
+
         loki_transform(
-            COMMAND   ${_PAR_COMMAND}
+            COMMAND   ${_PAR_T_COMMAND}
             OUTPUT    ${LOKI_SOURCES_TO_APPEND}
-            MODE      ${_PAR_MODE}
-            CONFIG    ${_PAR_CONFIG}
-            DIRECTIVE ${_PAR_DIRECTIVE}
-            FRONTEND  ${_PAR_FRONTEND}
+            MODE      ${_PAR_T_MODE}
+            CONFIG    ${_PAR_T_CONFIG}
+            DIRECTIVE ${_PAR_T_DIRECTIVE}
+            FRONTEND  ${_PAR_T_FRONTEND}
             BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
-            SOURCES   ${_PAR_SOURCES}
-            HEADERS   ${_PAR_HEADERS}
-            DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_HEADER} ${_PAR_CONFIG}
+            SOURCES   ${_PAR_T_SOURCES}
+            HEADERS   ${_PAR_T_HEADERS}
+            DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_T_HEADER} ${_PAR_T_CONFIG}
             ${_TRANSFORM_OPTIONS}
         )
     endif()
@@ -314,15 +321,15 @@ function( loki_transform_target )
     # Exclude source files that Loki has re-generated.
     # Note, this is done explicitly here because the HEADER_FILE_ONLY
     # property is not always being honoured by CMake.
-    get_target_property( _target_sources ${_PAR_TARGET} SOURCES )
+    get_target_property( _target_sources ${_PAR_T_TARGET} SOURCES )
     foreach( source ${LOKI_SOURCES_TO_REMOVE} )
         # get_property( source_deps SOURCE ${source} PROPERTY OBJECT_DEPENDS )
         list( FILTER _target_sources EXCLUDE REGEX ${source} )
     endforeach()
 
-    if( NOT _PAR_COPY_UNMODIFIED )
+    if( NOT _PAR_T_COPY_UNMODIFIED )
         # Update the target source list
-        set_property( TARGET ${_PAR_TARGET} PROPERTY SOURCES ${_target_sources} )
+        set_property( TARGET ${_PAR_T_TARGET} PROPERTY SOURCES ${_target_sources} )
     else()
         # Copy the unmodified source files to the build dir
         set( _target_sources_copy "" )
@@ -337,7 +344,7 @@ function( loki_transform_target )
         set_source_files_properties( ${_target_sources_copy} PROPERTIES GENERATED TRUE )
 
         # Update the target source list
-        set_property( TARGET ${_PAR_TARGET} PROPERTY SOURCES ${_target_sources_copy} )
+        set_property( TARGET ${_PAR_T_TARGET} PROPERTY SOURCES ${_target_sources_copy} )
     endif()
 
     if ( LOKI_APPEND_LENGTH GREATER 0 )
@@ -345,7 +352,7 @@ function( loki_transform_target )
         set_source_files_properties( ${LOKI_SOURCES_TO_APPEND} PROPERTIES GENERATED TRUE )
 
         # Add the Loki-generated sources to our target (CLAW is not called)
-        target_sources( ${_PAR_TARGET} PRIVATE ${LOKI_SOURCES_TO_APPEND} )
+        target_sources( ${_PAR_T_TARGET} PRIVATE ${LOKI_SOURCES_TO_APPEND} )
     endif()
 
     # Copy over compile flags for generated source. Note that this assumes
@@ -357,7 +364,7 @@ function( loki_transform_target )
         NEW_LIST ${LOKI_SOURCES_TO_APPEND}
     )
 
-    if( _PAR_COPY_UNMODIFIED )
+    if( _PAR_T_COPY_UNMODIFIED )
         loki_copy_compile_flags(
             ORIG_LIST ${_target_sources}
             NEW_LIST ${_target_sources_copy}
@@ -389,7 +396,8 @@ or
 
     set( options
          CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR GLOBAL_VAR_OFFLOAD
-         TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION
+         TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS
+	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
     )
     set( oneValueArgs
          MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH
