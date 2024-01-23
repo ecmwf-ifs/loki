@@ -18,7 +18,7 @@ import click
 
 from loki import (
     Sourcefile, FindNodes, CallStatement, Loop, flatten, symbols as sym,
-    dataflow_analysis_attached, info
+    dataflow_analysis_attached, info, warning
 )
 
 
@@ -61,8 +61,12 @@ def driver_analyse_field_offload_accesses(routine):
             var.name : _intent2access[arg.type.intent]
             for arg, var in call.arg_iter() if isinstance(arg, sym.Array)
         }
-        # TODO: Check if already exists!
-        argument_map.update(arg_map)
+        # Update full map, but check for existing entries
+        for v, acc in arg_map.items():
+            if v in argument_map:
+                argument_map[v] |= acc
+            else:
+                argument_map[v] = acc
 
     # Get the local accesses in the driver loops
     with dataflow_analysis_attached(routine):
@@ -112,7 +116,10 @@ def driver_analyse_field_offload_accesses(routine):
             continue
 
         if not arg_acc == acc:
-            info(f'[Loki-anaylse] Field {var.name:<22} :: declared {acc:<12}  =>  usage {arg_acc}')
+            if arg_acc == RD:
+                warning(f'[Loki-anaylse] Field {var.name:<22} :: declared {acc:<12}  =>  usage {arg_acc} !!!')
+            else:
+                info(f'[Loki-anaylse] Field {var.name:<22} :: declared {acc:<12}  =>  usage {arg_acc}')
 
     info('[Loki-anaylse] ===================================================')
     info('[Loki-anaylse] ')
