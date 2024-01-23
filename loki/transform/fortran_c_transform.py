@@ -31,7 +31,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
-    ProcedureSymbol
+    ProcedureSymbol, SubstituteExpressions, Dereference
 )
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
@@ -431,6 +431,7 @@ class FortranCTransformation(Transformation):
         convert_to_lower_case(kernel)
 
         # Force pointer on reference-passed arguments
+        var_map = {}
         for arg in kernel.arguments:
             if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 _type = arg.type.clone(pointer=True)
@@ -438,8 +439,10 @@ class FortranCTransformation(Transformation):
                     # Lower case type names for derived types
                     typedef = _type.dtype.typedef.clone(name=_type.dtype.typedef.name.lower())
                     _type = _type.clone(dtype=typedef.dtype)
+                var_map[arg] = Dereference(arg)
                 kernel.symbol_attrs[arg.name] = _type
-
+        if var_map:
+            routine.body = SubstituteExpressions(var_map).visit(routine.body)
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
                         'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
