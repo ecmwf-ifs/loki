@@ -41,26 +41,27 @@ __all__ = [
 
 class InlineTransformation(Transformation):
     """
-    :any:`Transformation` object to apply several types of source inlining
+    :any:`Transformation` class to apply several types of source inlining
     when batch-processing large source trees via the :any:`Scheduler`.
 
     Parameters
     ----------
     inline_constants : bool
         Replace instances of variables with known constant values by
-        :any:`Literal`; default: False.
+        :any:`Literal` (see :any:`inline_constant_parameters`); default: False.
     inline_elementals : bool
         Replaces :any:`InlineCall` expression to elemental functions
-        with the called function's body; default: True.
-    inline_internals : bool
-        Perform internal procedure inlining via
-        :method:`inline_internal_procedures`; default: False.
-    inline_marked : bool
-        Inline :any:`Subroutine` objects marked by pragma annotations;
+        with the called function's body (see :any:`inline_elemental_functions`);
         default: True.
+    inline_internals : bool
+        Inline internal procedure (see :any:`inline_internal_procedures`);
+        default: False.
+    inline_marked : bool
+        Inline :any:`Subroutine` objects marked by pragma annotations
+        (see :any:`inline_marked_subroutines`); default: True.
     eliminate_dead_code : bool
         Perform dead code elimination, where unreachable branches are
-        trimmed from the code; default@ True
+        trimmed from the code (see :any:`dead_code_elimination`); default: True
     allowed_aliases : tuple or list of str or :any:`Expression`, optional
         List of variables that will not be renamed in the parent scope during
         internal and pragma-driven inlining.
@@ -182,13 +183,6 @@ def inline_constant_parameters(routine, external_only=True):
     """
     Replace instances of variables with known constant values by `Literals`.
 
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-         Procedure in which to inline/resolve constant parameters.
-    external_only : bool, optional
-        Do not replace variables declared in the local scope (default: True)
-
     Notes
     -----
     The ``.type.initial`` property is used to derive the replacement
@@ -199,6 +193,13 @@ def inline_constant_parameters(routine, external_only=True):
     Variables that are replaced are also removed from their
     corresponding import statements, with empty import statements
     being removed alltogether.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+         Procedure in which to inline/resolve constant parameters.
+    external_only : bool, optional
+        Do not replace variables declared in the local scope (default: True)
     """
     # Find all variable instances in spec and body
     variables = FindVariables().visit(routine.ir)
