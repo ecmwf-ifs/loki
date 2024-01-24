@@ -12,7 +12,7 @@ import pytest
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
-    fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
+    fgen, Sourcefile, Section, SubroutineItem, GlobalVarImportItem, pragma_regions_attached, PragmaRegion,
     is_loki_pragma, IntLiteral, RangeIndex, Comment, HoistTemporaryArraysAnalysis,
     gettempdir, Scheduler, SchedulerConfig
 )
@@ -760,15 +760,26 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
   END SUBROUTINE compute_column
 """
 
+    fcode_module = """
+module my_scaling_value_mod
+    implicit none
+    REAL :: c = 5.345
+end module my_scaling_value_mod
+""".strip()
+
     # Mimic the scheduler internal mechanis to apply the transformation cascade
     kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
     driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    module_source = Sourcefile.from_source(fcode_module, frontend=frontend)
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
+    module = module_source['my_scaling_value_mod']
+    kernel.enrich(module)
     driver.enrich(kernel)  # Attach kernel source to driver call
 
     driver_item = SubroutineItem(name='#column_driver', source=driver_source)
     kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
+    module_item = GlobalVarImportItem(name='my_scaling_value_mod#c', source=module_source)
 
     # Test OpenACC annotations on hoisted version
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
@@ -776,16 +787,23 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
 
     for transform in scc_transform:
-        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-        transform.apply(kernel, role='kernel', item=kernel_item)
+        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'], successors=[kernel_item])
+        transform.apply(kernel, role='kernel', item=kernel_item, successors=[module_item])
 
     # Now apply the hoisting passes (anaylisis in reverse order)
     analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
     synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking)
-    analysis.apply(kernel, role='kernel', item=kernel_item)
+
+    # The try-except is for checking a bug where HoistTemporaryArraysAnalysis would
+    # access a GlobalVarImportItem, which should not happen. Note that in case of a KeyError (which signifies
+    # the issue occurring), an explicit pytest failure is thrown to signify that there is no bug in the test itself.
+    try:
+        analysis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
+    except KeyError:
+        pytest.fail('`HoistTemporaryArraysAnalysis` should not attempt to access `GlobalVarImportItem`s')
     analysis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
     synthesis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(kernel, role='kernel', item=kernel_item)
+    synthesis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
 
     annotate = SCCAnnotateTransformation(
         horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
