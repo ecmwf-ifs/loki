@@ -504,14 +504,16 @@ def normalize_array_shape_and_access(routine):
     """
     def is_explicit_range_index(dim):
         # return False if assumed sized array or lower dimension equals to 1
-        return (isinstance(dim, sym.RangeIndex) and not dim.lower == 1 and not dim is None
-                    and not dim.lower is None and not dim.upper is None)
+        # return (isinstance(dim, sym.RangeIndex) and not dim.lower == 1 and not dim is None
+        #             and not dim.lower is None and not dim.upper is None)
+        return (isinstance(dim, sym.RangeIndex)
+                and not (dim.lower == 1 or dim.lower is None or dim.upper is None))
 
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
         if isinstance(v, sym.Array):
             # skip if e.g., `array(len)`, passed as `call routine(array)`
-            if len(v.shape) != len(v.dimensions):
+            if not v.dimensions:
                 continue
             new_dims = []
             for i, d in enumerate(v.shape):
