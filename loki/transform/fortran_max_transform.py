@@ -51,9 +51,10 @@ class FortranMaxTransformation(Transformation):
         self.maxj_src = Path(kwargs.get('path')) / routine.name
         self.maxj_src.mkdir(exist_ok=True)
 
+        f2c_transformation = FortranCTransformation(use_c_ptr=False)
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                self.c_structs[arg.type.name.lower()] = FortranCTransformation.c_struct_typedef(arg.type)
+                self.c_structs[arg.type.name.lower()] = f2c_transformation.c_struct_typedef(arg.type)
 
         # Create a copy of the kernel and apply some common transformations
         routine = routine.clone()
@@ -70,7 +71,7 @@ class FortranMaxTransformation(Transformation):
         host_interface = self._generate_slic_interface(routine, maxj_kernel)
 
         # Generate Fortran wrapper module
-        wrapper = FortranCTransformation.generate_iso_c_wrapper_routine(
+        wrapper = f2c_transformation.generate_iso_c_wrapper_routine(
             host_interface, self.c_structs, bind_name=host_interface.name)
         self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
         contains = ir.Section(body=(ir.Intrinsic('CONTAINS'), wrapper))
