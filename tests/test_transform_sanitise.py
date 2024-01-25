@@ -11,9 +11,9 @@ from conftest import available_frontends
 from loki.frontend import OMNI
 from loki.ir import Assignment, Associate, CallStatement, Conditional
 
-from loki.transform import resolve_associates
+from loki.transform import resolve_associates, transform_sequence_association
 from loki import (
-    BasicType, FindNodes, Subroutine
+    BasicType, FindNodes, Subroutine, Module, FindNodes, fgen
 )
 
 
@@ -196,3 +196,61 @@ end subroutine transform_associates_nested_conditional
     assert assign.rhs.type.dtype == BasicType.DEFERRED
     assert assign.rhs.scope == routine
     assert assign.rhs.parent.scope == routine
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_sequence_assocaition_scalar_notation(frontend):
+    fcode = """
+module mod_a
+    implicit none
+
+    type type_b
+        integer :: c
+        integer :: d
+    end type type_b
+
+    type type_a
+        type(type_b) :: b
+    end type type_a
+
+contains
+
+    subroutine main()
+
+        type(type_a) :: a
+        integer :: k, m, n
+
+        real    :: array(10,10)
+
+        call sub_x(array(1, 1), 1)
+        call sub_x(array(2, 2), 2)
+        call sub_x(array(m, 1), k)
+        call sub_x(array(m-1, 1), k-1)
+        call sub_x(array(a%b%c, 1), a%b%d)
+
+    contains
+
+        subroutine sub_x(array, k)
+
+            integer, intent(in) :: k
+            real, intent(in)    :: array(k:n)
+
+        end subroutine sub_x
+
+    end subroutine main
+
+end module mod_a
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['main']
+
+    transform_sequence_association(routine)
+
+    calls = FindNodes(CallStatement).visit(routine.body)
+
+    assert fgen(calls[0]).lower() == 'call sub_x(array(1:10, 1), 1)'
+    assert fgen(calls[1]).lower() == 'call sub_x(array(2:10, 2), 2)'
+    assert fgen(calls[2]).lower() == 'call sub_x(array(m:10, 1), k)'
+    assert fgen(calls[3]).lower() == 'call sub_x(array(m - 1:10, 1), k - 1)'
+    assert fgen(calls[4]).lower() == 'call sub_x(array(a%b%c:10, 1), a%b%d)'
