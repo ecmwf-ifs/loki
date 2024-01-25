@@ -33,11 +33,10 @@ from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
     ProcedureSymbol
 )
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, SubstituteExpressions
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
-from loki import SubstituteExpressions
 
 __all__ = ['FortranCTransformation']
 
