@@ -406,7 +406,6 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
     def validate_routine(routine):
         arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)]
         for arr in arrays:
-            # print(f"arr: {arr} | {all(not isinstance(shape, sym.RangeIndex) for shape in arr.shape)}")
             assert all(not isinstance(shape, sym.RangeIndex) for shape in arr.shape)
 
     l1 = 2
