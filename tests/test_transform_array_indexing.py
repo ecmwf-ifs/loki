@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
-from loki import Subroutine, FindVariables, Array
+from loki import Module, Subroutine, FindVariables, Array
 from loki.expression import symbols as sym
 from loki.transform import (
         promote_variables, demote_variables, normalize_range_indexing,
@@ -330,12 +330,19 @@ end subroutine transform_demote_dimension_arguments
 @pytest.mark.parametrize('start_index', (0, 1, 5))
 def test_transform_normalize_array_shape_and_access(here, frontend, start_index):
     """
-    Test flattening or arrays, meaning converting multi-dimensional
-    arrays to one-dimensional arrays including corresponding
-    index arithmetic.
+    Test normalization of array shape and access, thus changing arrays with start 
+    index different than "1" to have start index "1".
+
+    E.g., ``x1(5:len)`` -> ```x1(1:len-4)`` 
     """
     fcode = f"""
-    subroutine transform_normalize_array_shape_and_access(x1, x2, x3, x4, l1, l2, l3, l4)
+    module transform_normalize_array_shape_and_access_mod
+    implicit none
+    
+    contains
+
+    subroutine transform_normalize_array_shape_and_access(x1, x2, x3, x4, assumed_x1, l1, l2, l3, l4)
+        ! use nested_routine_mod, only : nested_routine
         implicit none
         integer :: i1, i2, i3, i4, c1, c2, c3, c4
         integer, intent(in) :: l1, l2, l3, l4
@@ -347,10 +354,15 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
         integer, intent(inout) :: x4({start_index}:l4+{start_index}-1, &
          & {start_index}:l3+{start_index}-1, {start_index}:l2+{start_index}-1, &
          & {start_index}:l1+{start_index}-1)
+        integer, intent(inout) :: assumed_x1(l1)
         c1 = 1
         c2 = 1
         c3 = 1
         c4 = 1
+        do i1=1,l1
+            assumed_x1(i1) = c1
+            call nested_routine(assumed_x1, l1, c1)
+        end do
         x1({start_index}:l4+{start_index}-1) = 0
         do i1={start_index},l1+{start_index}-1
             x1(i1) = c1
@@ -368,48 +380,72 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
             end do
             c1 = c1 + 1
         end do
-
     end subroutine transform_normalize_array_shape_and_access
+
+    subroutine nested_routine(nested_x1, l1, c1)
+        implicit none
+        integer, intent(in) :: l1, c1
+        integer, intent(inout) :: nested_x1(:)
+        integer :: i1
+        do i1=1,l1
+            nested_x1(i1) = c1
+        end do
+    end subroutine nested_routine
+
+    end module transform_normalize_array_shape_and_access_mod
     """
+
     def init_arguments(l1, l2, l3, l4):
         x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
+        assumed_x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
         x2 = np.zeros(shape=(l2,l1,), order='F', dtype=np.int32)
         x3 = np.zeros(shape=(l3,l2,l1,), order='F', dtype=np.int32)
         x4 = np.zeros(shape=(l4,l3,l2,l1,), order='F', dtype=np.int32)
-        return x1, x2, x3, x4
+        return x1, x2, x3, x4, assumed_x1
 
     def validate_routine(routine):
         arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)]
         for arr in arrays:
+            # print(f"arr: {arr} | {all(not isinstance(shape, sym.RangeIndex) for shape in arr.shape)}")
             assert all(not isinstance(shape, sym.RangeIndex) for shape in arr.shape)
 
     l1 = 2
     l2 = 3
     l3 = 4
     l4 = 5
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine) # Fix OMNI nonsense
-    filepath = here/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-    orig_x1, orig_x2, orig_x3, orig_x4 = init_arguments(l1, l2, l3, l4)
-    function(orig_x1, orig_x2, orig_x3, orig_x4, l1, l2, l3, l4)
+    module = Module.from_source(fcode, frontend=frontend)
+    for routine in module.routines:
+        normalize_range_indexing(routine) # Fix OMNI nonsense
+    filepath = here/(f'transform_normalize_array_shape_and_access_{frontend}.f90')
+    # compile and test "original" module/function
+    mod = jit_compile(module, filepath=filepath, objname='transform_normalize_array_shape_and_access_mod')
+    function = getattr(mod, 'transform_normalize_array_shape_and_access')
+    orig_x1, orig_x2, orig_x3, orig_x4, orig_assumed_x1 = init_arguments(l1, l2, l3, l4)
+    function(orig_x1, orig_x2, orig_x3, orig_x4, orig_assumed_x1, l1, l2, l3, l4)
     clean_test(filepath)
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_array_shape_and_access(routine)
-    normalize_range_indexing(routine)
-    filepath = here/(f'{routine.name}_normalized_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-    x1, x2, x3, x4 = init_arguments(l1, l2, l3, l4)
-    function(x1, x2, x3, x4, l1, l2, l3, l4)
-    validate_routine(routine)
-    clean_test(filepath)
+    # apply `normalize_array_shape_and_access`
+    for routine in module.routines:
+        normalize_array_shape_and_access(routine)
 
+    filepath = here/(f'transform_normalize_array_shape_and_access_normalized_{frontend}.f90')
+    # compile and test "normalized" module/function
+    mod = jit_compile(module, filepath=filepath, objname='transform_normalize_array_shape_and_access_mod')
+    function = getattr(mod, 'transform_normalize_array_shape_and_access')
+    x1, x2, x3, x4, assumed_x1 = init_arguments(l1, l2, l3, l4)
+    function(x1, x2, x3, x4, assumed_x1, l1, l2, l3, l4)
+    clean_test(filepath)
+    # validate the routine "transform_normalize_array_shape_and_access"
+    validate_routine(module.subroutines[0])
+    # validate the nested routine to see whether the assumed size array got correctly handled
+    assert module.subroutines[1].variable_map['nested_x1'] == 'nested_x1(:)'
+
+    # check whether results generated by the "original" and "normalized" version agree
     assert (x1 == orig_x1).all()
+    assert (assumed_x1 == orig_assumed_x1).all()
     assert (x2 == orig_x2).all()
     assert (x3 == orig_x3).all()
     assert (x4 == orig_x4).all()
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('start_index', (0, 1, 5))
