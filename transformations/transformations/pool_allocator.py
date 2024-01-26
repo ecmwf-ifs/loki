@@ -307,16 +307,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
             stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(stack_type_bytes))
+            stack_type_bytes = InlineCall(function=Variable(name='MAX'),
+                                          parameters=(stack_type_bytes, Literal(8)), kw_parameters=())
             stack_size_assign = Assignment(lhs=stack_size_var, rhs=Quotient(stack_size, stack_type_bytes))
             body_prepend += [stack_size_assign]
 
             # Stack-size no longer guaranteed to be a multiple of 8-bytes, so we have to check here
             padding = Assignment(lhs=stack_size_var, rhs=Sum((stack_size_var, Literal(1))))
             stack_size_check = Conditional(
-                                 condition=LogicalNot(Comparison(InlineCall(Variable(name='MOD'),
-                                 parameters=(stack_size, stack_type_bytes)),
-                                 '==', Literal(0))), inline=True, body=(padding,),
-                                 else_body=None
+                condition=LogicalNot(Comparison(
+                    InlineCall(Variable(name='MOD'), parameters=(stack_size, stack_type_bytes)),
+                    '==', Literal(0))
+                ), inline=True, body=(padding,), else_body=None
             )
             body_prepend += [stack_size_check]
 
@@ -495,13 +497,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         # Build expression for array size in bytes
         dim = arr.dimensions[0]
+        if isinstance(dim, RangeIndex):
+            dim = Sum((dim.upper, Product((-1, dim.lower)), 1))
         for d in arr.dimensions[1:]:
-            if isinstance(d, RangeIndex):
-                dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), IntLiteral(1))))))
-            else:
-                dim = Product((dim, d))
-        arr_size = Product((dim, InlineCall(Variable(name='C_SIZEOF'),
-                                            parameters=as_tuple(self._get_c_sizeof_arg(arr)))))
+            _dim = d
+            if isinstance(_dim, RangeIndex):
+                _dim = Sum((_dim.upper, Product((-1, _dim.lower)), 1))
+            dim = Product((dim, _dim))
+        arr_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
+                                            parameters=as_tuple(self._get_c_sizeof_arg(arr)))
+        arr_type_bytes = InlineCall(function=Variable(name='MAX'),
+                    parameters=(arr_type_bytes, Literal(8)), kw_parameters=())
+        arr_size = Product((dim, arr_type_bytes))
 
         # Increment stack size
         stack_size = simplify(Sum((stack_size, arr_size)))
@@ -687,6 +694,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
             _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(_real_size_bytes))
+            _real_size_bytes = InlineCall(function=Variable(name='MAX'),
+                    parameters=(_real_size_bytes, Literal(8)), kw_parameters=())
             stack_incr = Assignment(
                 lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
             )
