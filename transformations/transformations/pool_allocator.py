@@ -122,7 +122,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         role = kwargs['role']
         item = kwargs.get('item', None)
-        targets = as_tuple(kwargs.get('targets', None))
+        ignore = item.ignore if item else ()
+        targets = kwargs.get('targets', None)
 
         self.stack_type_kind = 'JPRB'
         if item:
@@ -150,7 +151,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 self.import_allocation_types(routine, item)
             self.create_pool_allocator(routine, stack_size)
 
-        self.inject_pool_allocator_into_calls(routine, targets)
+        self.inject_pool_allocator_into_calls(routine, targets, ignore)
 
     @staticmethod
     def import_c_sizeof(routine):
@@ -721,7 +722,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if loop_map:
             routine.body = Transformer(loop_map).visit(routine.body)
 
-    def inject_pool_allocator_into_calls(self, routine, targets):
+    def inject_pool_allocator_into_calls(self, routine, targets, ignore):
         """
         Add the pool allocator argument into subroutine calls
         """
@@ -732,7 +733,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_var_end = self._get_local_stack_var_end(routine)
             new_vars += (stack_var_end,)
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.name in targets:
+            if call.name in targets or call.routine.name.lower() in ignore:
                # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
                # interface block rather than the Subroutine itself. This means we have to update the interface block
                # accordingly
