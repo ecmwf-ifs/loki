@@ -58,6 +58,7 @@ end subroutine routine_simple
     assert isinstance(routine.spec, Section)
     assert len(routine.docstring) == 1
     assert routine.docstring[0].text == '! This is the docstring'
+    assert routine.definitions == ()
 
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],

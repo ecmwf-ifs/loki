@@ -2,6 +2,9 @@
 Verify correct frontend behaviour and correct parsing of certain Fortran
 language features.
 """
+
+# pylint: disable=too-many-lines
+
 from pathlib import Path
 from time import perf_counter
 import numpy as np
@@ -620,9 +623,22 @@ def test_regex_sourcefile_from_file_parser_classes(here):
     assert not sourcefile.modules
     assert FindNodes(RawSource).visit(sourcefile.ir)
     assert sourcefile._incomplete
+    assert sourcefile._parser_classes == RegexParserClass.TypeDefClass
 
     # Incremental addition of program unit objects
     sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+    assert sourcefile._incomplete
+    assert sourcefile._parser_classes == RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass
+    # Note that the program unit objects don't include the TypeDefClass because it's lower in the hierarchy
+    # and was not matched previously
+    assert all(
+        module._parser_classes == RegexParserClass.ProgramUnitClass
+        for module in sourcefile.modules
+    )
+    assert all(
+        routine._parser_classes == RegexParserClass.ProgramUnitClass
+        for routine in sourcefile.routines
+    )
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
     assert {routine.name.lower() for routine in sourcefile.routines} == routine_names
@@ -639,10 +655,35 @@ def test_regex_sourcefile_from_file_parser_classes(here):
         assert not routine.imports
     assert not sourcefile['bar'].typedefs
 
+    # Validate that a re-parse with same parser classes does not change anything
+    sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+    assert sourcefile._incomplete
+    assert sourcefile._parser_classes == RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass
+    for module in sourcefile.modules:
+        assert not module.imports
+    for routine in sourcefile.all_subroutines:
+        assert not routine.imports
+    assert not sourcefile['bar'].typedefs
+
     # Incremental addition of imports
     sourcefile.make_complete(
         frontend=REGEX,
         parser_classes=RegexParserClass.ProgramUnitClass | RegexParserClass.ImportClass
+    )
+    assert sourcefile._parser_classes == (
+        RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.ImportClass
+    )
+    # Note that the program unit objects don't include the TypeDefClass because it's lower in the hierarchy
+    # and was not matched previously
+    assert all(
+        module._parser_classes == (
+            RegexParserClass.ProgramUnitClass | RegexParserClass.ImportClass
+        ) for module in sourcefile.modules
+    )
+    assert all(
+        routine._parser_classes == (
+            RegexParserClass.ProgramUnitClass | RegexParserClass.ImportClass
+        ) for routine in sourcefile.routines
     )
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
@@ -668,6 +709,15 @@ def test_regex_sourcefile_from_file_parser_classes(here):
 
     # Parse the rest
     sourcefile.make_complete(frontend=REGEX, parser_classes=RegexParserClass.AllClasses)
+    assert sourcefile._parser_classes == RegexParserClass.AllClasses
+    assert all(
+        module._parser_classes == RegexParserClass.AllClasses
+        for module in sourcefile.modules
+    )
+    assert all(
+        routine._parser_classes == RegexParserClass.AllClasses
+        for routine in sourcefile.routines
+    )
 
     assert {module.name.lower() for module in sourcefile.modules} == module_names
     assert {routine.name.lower() for routine in sourcefile.routines} == routine_names
@@ -689,7 +739,19 @@ def test_regex_sourcefile_from_file_parser_classes(here):
         else:
             assert not sourcefile[unit].imports
 
+    # Check access via properties
+    assert 'bar' in sourcefile
+    assert 'food' in sourcefile['bar']
     assert sorted(sourcefile['bar'].typedef_map) == ['food', 'organic']
+    assert sourcefile['bar'].definitions == sourcefile['bar'].typedefs + ('i_am_dim',)
+    assert 'cooking_method' in sourcefile['bar']['food']
+    assert 'foobar' not in sourcefile['bar']['food']
+    assert sourcefile['bar']['food'].interface_symbols == ()
+
+    # Check that triggering a full parse works from nested scopes
+    assert sourcefile['bar']._incomplete
+    sourcefile['bar']['food'].make_complete()
+    assert not sourcefile['bar']._incomplete
 
 
 def test_regex_raw_source():
@@ -768,6 +830,35 @@ END SUBROUTINE SOME_ROUTINE
     assert isinstance(source.ir.body[1], Subroutine)
     assert source.ir.body[1].source.lines == (5, 9)
     assert source.ir.body[1].source.string.startswith('SUBROUTINE')
+
+
+def test_regex_raw_source_with_cpp_incomplete():
+    """
+    Verify that unparsed source appears inside matched objects if
+    parser classes are used to restrict the matching
+    """
+    fcode = """
+SUBROUTINE driver(a, b, c)
+  INTEGER, INTENT(INOUT) :: a, b, c
+
+#include "kernel.intfb.h"
+
+  CALL kernel(a, b ,c)
+END SUBROUTINE driver
+    """.strip()
+    parser_classes = RegexParserClass.ProgramUnitClass
+    source = Sourcefile.from_source(fcode, frontend=REGEX, parser_classes=parser_classes)
+
+    assert len(source.ir.body) == 1
+    driver = source['driver']
+    assert isinstance(driver, Subroutine)
+    assert not driver.docstring
+    assert not driver.body
+    assert not driver.contains
+    assert driver.spec and len(driver.spec.body) == 1
+    assert isinstance(driver.spec.body[0], RawSource)
+    assert 'INTEGER, INTENT' in driver.spec.body[0].text
+    assert '#include' in driver.spec.body[0].text
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -1002,15 +1093,18 @@ end module typebound_item
     some_type = module.typedef_map['some_type']
 
     proc_bindings = {
-        'routine': 'module_routine',
+        'routine': ('module_routine',),
         'some_routine': None,
         'other_routine': None,
         'routine1': None,
-        'routine2': 'routine'
+        'routine2': ('routine',)
     }
     assert len(proc_bindings) == len(some_type.variables)
     assert all(proc in some_type.variables for proc in proc_bindings)
-    assert all(some_type.variable_map[proc].type.initial == init for proc, init in proc_bindings.items())
+    assert all(
+        some_type.variable_map[proc].type.bind_names == bind
+        for proc, bind in proc_bindings.items()
+    )
 
 
 def test_regex_typedef_generic():
@@ -1055,8 +1149,8 @@ end module typebound_header
     header_type = module.typedef_map['header_type']
 
     proc_bindings = {
-        'member_routine': 'header_member_routine',
-        'routine_real': 'header_routine_real',
+        'member_routine': ('header_member_routine',),
+        'routine_real': ('header_routine_real',),
         'routine_integer': None,
         'routine': ('routine_real', 'routine_integer')
     }
@@ -1066,9 +1160,6 @@ end module typebound_header
         (
             header_type.variable_map[proc].type.bind_names == bind
             and header_type.variable_map[proc].type.initial is None
-        ) if isinstance(bind, tuple) else (
-            header_type.variable_map[proc].type.bind_names is None
-            and header_type.variable_map[proc].type.initial == bind
         )
         for proc, bind in proc_bindings.items()
     )
@@ -1135,6 +1226,11 @@ end subroutine test
     calls = FindNodes(CallStatement).visit(source['test'].ir)
     assert [call.name for call in calls] == ['RANDOM_CALL_0', 'random_call_2']
 
+    variable_map_test = source['test'].variable_map
+    v_in_type = variable_map_test['v_in'].type
+    assert v_in_type.dtype is BasicType.REAL
+    assert v_in_type.kind == 'jprb'
+
 
 def test_regex_variable_declaration(here):
     """
@@ -1144,7 +1240,7 @@ def test_regex_variable_declaration(here):
     source = Sourcefile.from_file(filepath, frontend=REGEX)
 
     driver = source['driver']
-    assert driver.variables == ('obj', 'obj2', 'header', 'other_obj', 'derived', 'x', 'i')
+    assert driver.variables == ('constant', 'obj', 'obj2', 'header', 'other_obj', 'derived', 'x', 'i')
     assert source['module_routine'].variables == ('m',)
     assert source['other_routine'].variables == ('self', 'm', 'j')
     assert source['routine'].variables == ('self',)
@@ -1389,6 +1485,71 @@ end module my_mod
     assert len(source.all_subroutines) == 1
     assert source.all_subroutines[0].name == 'test'
     assert source.all_subroutines[0].source.lines == (4, 41)
+
+
+def test_regex_interface_module():
+    fcode = """
+module my_mod
+    implicit none
+    interface
+        subroutine ext1 (x, y, z)
+            real, dimension(100, 100), intent(inout) :: x, y, z
+        end subroutine ext1
+        subroutine ext2 (x, z)
+            real, intent(in) :: x
+            complex(kind = 4), intent(inout) :: z(2000)
+        end subroutine ext2
+        function ext3 (p, q)
+            logical ext3
+            integer, intent(in) :: p(1000)
+            logical, intent(in) :: q(1000)
+        end function ext3
+    end interface
+    interface sub
+        subroutine sub_int (a)
+            integer, intent(in) :: a(:)
+        end subroutine sub_int
+        subroutine sub_real (a)
+            real, intent(in) :: a(:)
+        end subroutine sub_real
+    end interface sub
+    interface func
+        module procedure func_int
+        module procedure func_real
+    end interface func
+contains
+    subroutine sub_int (a)
+        integer, intent(in) :: a(:)
+    end subroutine sub_int
+    subroutine sub_real (a)
+        real, intent(in) :: a(:)
+    end subroutine sub_real
+    integer module function func_int (a)
+        integer, intent(in) :: a(:)
+    end function func_int
+    real module function func_real (a)
+        real, intent(in) :: a(:)
+    end function func_real
+end module my_mod
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+
+    assert len(source.modules) == 1
+    assert source['my_mod'] is not None
+    assert not source['my_mod'].interfaces
+
+    source.make_complete(
+        frontend=REGEX,
+        parser_class=RegexParserClass.ProgramUnitClass | RegexParserClass.InterfaceClass
+    )
+    assert len(source['my_mod'].interfaces) == 3
+    assert source['my_mod'].symbols == (
+        'ext1', 'ext2', 'ext3',
+        'sub', 'sub_int', 'sub_real',
+        'func', 'func_int', 'func_real', 'func_int', 'func_real',
+        'sub_int', 'sub_real',
+        'func_int', 'func_real'
+    )
 
 
 def test_regex_function_inline_return_type():

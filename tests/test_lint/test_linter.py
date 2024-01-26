@@ -428,15 +428,15 @@ def test_linter_lint_files_glob(here, rules, counter, exclude, files, max_worker
     target_file_name.unlink(missing_ok=True)
 
 
-@pytest.mark.parametrize('counter,routines,files', [
-    (5, {'driverA': {'role': 'driver'}}, [
+@pytest.mark.parametrize('routines,files', [
+    ({'driverA': {'role': 'driver'}}, [
         'module/driverA_mod.f90',
         'module/kernelA_mod.F90',
         'module/compute_l1_mod.f90',
         'source/another_l1.F90',
         'source/another_l2.F90'
     ]),
-    (3, {
+    ({
         'another_l1': {'role': 'driver'},
         'compute_l1': {'role': 'driver'}
     }, [
@@ -444,14 +444,14 @@ def test_linter_lint_files_glob(here, rules, counter, exclude, files, max_worker
         'module/compute_l1_mod.f90',
         'source/another_l2.F90',
     ]),
-    (2, {
+    ({
         'another_l1': {'role': 'driver'}
     }, [
         'source/another_l1.F90',
         'source/another_l2.F90'
     ]),
 ])
-def test_linter_lint_files_scheduler(here, rules, counter, routines, files):
+def test_linter_lint_files_scheduler(here, rules, routines, files):
     basedir = here.parent/'sources/projA'
 
     class TestHandler(GenericHandler):
@@ -484,6 +484,7 @@ def test_linter_lint_files_scheduler(here, rules, counter, routines, files):
     handler = TestHandler()
     checked = lint_files(rules, config, handlers=[handler])
 
+    counter = len(files)
     assert checked == counter
     assert handler.counter == counter
     assert handler.files == files

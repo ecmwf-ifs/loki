@@ -67,13 +67,15 @@ class Module(ProgramUnit):
         Mark the object as incomplete, i.e. only partially parsed. This is
         typically the case when it was instantiated using the :any:`Frontend.REGEX`
         frontend and a full parse using one of the other frontends is pending.
+    parser_classes : :any:`RegexParserClass`, optional
+        Provide the list of parser classes used during incomplete regex parsing
     """
 
     def __init__(
             self, name=None, docstring=None, spec=None, contains=None,
             default_access_spec=None, public_access_spec=None, private_access_spec=None,
             ast=None, source=None, parent=None, symbol_attrs=None, rescope_symbols=False,
-            incomplete=False
+            incomplete=False, parser_classes=None
     ):
         super().__init__(parent=parent)
 
@@ -84,12 +86,12 @@ class Module(ProgramUnit):
             name=name, docstring=docstring, spec=spec, contains=contains,
             default_access_spec=default_access_spec, public_access_spec=public_access_spec,
             private_access_spec=private_access_spec, ast=ast, source=source,
-            rescope_symbols=rescope_symbols, incomplete=incomplete
+            rescope_symbols=rescope_symbols, incomplete=incomplete, parser_classes=parser_classes
         )
 
     def __initialize__(
             self, name=None, docstring=None, spec=None, contains=None,
-            ast=None, source=None, rescope_symbols=False, incomplete=False,
+            ast=None, source=None, rescope_symbols=False, incomplete=False, parser_classes=None,
             default_access_spec=None, public_access_spec=None, private_access_spec=None
     ):
         # Apply dimension pragma annotations to declarations
@@ -110,7 +112,7 @@ class Module(ProgramUnit):
 
         super().__initialize__(
             name=name, docstring=docstring, spec=spec, contains=contains, ast=ast,
-            source=source, rescope_symbols=rescope_symbols, incomplete=incomplete
+            source=source, rescope_symbols=rescope_symbols, incomplete=incomplete, parser_classes=parser_classes
         )
 
     @classmethod
@@ -299,4 +301,4 @@ class Module(ProgramUnit):
         Returns :any:`Subroutine` and :any:`TypeDef` nodes declared
         in this module
         """
-        return self.subroutines + self.typedefs + self.variables
+        return self.subroutines + self.typedefs + self.variables + self.interfaces

@@ -1256,3 +1256,66 @@ end subroutine driver
     assert b.type.imported
     assert a.type.module is modules[-1]
     assert b.type.module is modules[-1]
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_all_imports(frontend):
+    fcode = {
+        'header_a': (
+        #--------
+"""
+module module_all_imports_header_a_mod
+implicit none
+
+integer, parameter :: a = 1
+integer, parameter :: b = 2
+end module module_all_imports_header_a_mod
+"""
+        ).strip(),
+        'header_b': (
+        #--------
+"""
+module module_all_imports_header_b_mod
+implicit none
+
+integer, parameter :: a = 2
+integer, parameter :: b = 1
+end module module_all_imports_header_b_mod
+"""
+        ).strip(),
+        'routine': (
+        #-------
+"""
+module module_all_imports_routine_mod
+    use module_all_imports_header_a_mod, only: a
+    use module_all_imports_header_b_mod, only: b_b => b
+    implicit none
+contains
+    subroutine routine
+        use module_all_imports_header_a_mod, only: b
+        use module_all_imports_header_b_mod, only: a
+        implicit none
+        integer val
+        val = a + b + b_b
+    end subroutine routine
+end module module_all_imports_routine_mod
+"""
+        ).strip()
+    }
+
+    header_a = Module.from_source(fcode['header_a'], frontend=frontend)
+    header_b = Module.from_source(fcode['header_b'], frontend=frontend)
+    routine_mod = Module.from_source(fcode['routine'], definitions=(header_a, header_b), frontend=frontend)
+    routine = routine_mod['routine']
+
+    assert routine_mod.parents == ()
+    assert routine.parents == (routine_mod,)
+
+    assert routine_mod.all_imports == routine_mod.imports
+    assert routine.all_imports == routine.imports + routine_mod.imports
+
+    assert routine.symbol_map['a'].type.module is header_b
+    assert routine_mod.symbol_map['a'].type.module is header_a
+    assert routine.symbol_map['b'].type.module is header_a
+    assert routine_mod.symbol_map['b_b'].type.module is header_b
+    assert routine_mod.symbol_map['b_b'].type.use_name == 'b'

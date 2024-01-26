@@ -916,10 +916,10 @@ class FParser2IR(GenericVisitor):
             interface = return_type.dtype
             _type = SymbolAttributes(BasicType.DEFERRED, **attrs)
 
-        # Make sure any "initial" symbol (i.e. the procedure we're binding to) is in the right scope
-        if _type.initial is not None:
-            initial = AttachScopesMapper()(_type.initial, scope=scope)
-            _type = _type.clone(initial=initial)
+        # Make sure any "bind_names" symbol (i.e. the procedure we're binding to) is in the right scope
+        if _type.bind_names is not None:
+            bind_names = AttachScopesMapper()(_type.bind_names, scope=scope)
+            _type = _type.clone(bind_names=bind_names)
 
         # Update symbol table entries
         if return_type is None:

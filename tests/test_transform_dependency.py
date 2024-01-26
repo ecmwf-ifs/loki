@@ -51,6 +51,7 @@ MODULE kernel_mod
     INTEGER :: some_const
 CONTAINS
     SUBROUTINE kernel(a, b, c)
+    IMPLICIT NONE
     INTEGER, INTENT(INOUT) :: a, b, c
 
     a = 1
@@ -64,6 +65,7 @@ END MODULE kernel_mod
 SUBROUTINE driver(a, b, c)
     USE kernel_mod, only: kernel
     USE kernel_mod, only: some_const
+    IMPLICIT NONE
     INTEGER, INTENT(INOUT) :: a, b, c
 
     CALL kernel(a, b ,c)

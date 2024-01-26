@@ -9,7 +9,10 @@ from abc import abstractmethod
 
 from loki import ir
 from loki.expression import Variable
-from loki.frontend import Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source
+from loki.frontend import (
+    Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
+    RegexParserClass
+)
 from loki.logging import debug
 from loki.scope import Scope
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
@@ -54,16 +57,20 @@ class ProgramUnit(Scope):
         Mark the object as incomplete, i.e. only partially parsed. This is
         typically the case when it was instantiated using the :any:`Frontend.REGEX`
         frontend and a full parse using one of the other frontends is pending.
+    parser_classes : :any:`RegexParserClass`, optional
+        Provide the list of parser classes used during incomplete regex parsing
     """
 
     def __initialize__(self, name, docstring=None, spec=None, contains=None,
-                       ast=None, source=None, rescope_symbols=False, incomplete=False):
+                       ast=None, source=None, rescope_symbols=False, incomplete=False,
+                       parser_classes=None):
         # Common properties
         assert name and isinstance(name, str)
         self.name = name
         self._ast = ast
         self._source = source
         self._incomplete = incomplete
+        self._parser_classes = parser_classes
 
         # Bring arguments into shape
         if spec is not None and not isinstance(spec, ir.Section):
@@ -237,7 +244,11 @@ class ProgramUnit(Scope):
         frontend = frontend_args.pop('frontend', Frontend.FP)
         definitions = frontend_args.get('definitions')
         xmods = frontend_args.get('xmods')
-        parser_classes = frontend_args.get('parser_classes')
+        parser_classes = frontend_args.get('parser_classes', RegexParserClass.AllClasses)
+        if frontend == Frontend.REGEX and self._parser_classes:
+            if self._parser_classes == parser_classes:
+                return
+            parser_classes = parser_classes | self._parser_classes
 
         # If this object does not have a parent, we create a temporary parent scope
         # and make sure the node exists in the parent scope. This way, the existing
@@ -318,6 +329,11 @@ class ProgramUnit(Scope):
                 else:
                     debug('Cannot enrich import of %s from module %s', local_name, module.name)
             self.symbol_attrs.update(updated_symbol_attrs)
+
+            if imprt.symbols:
+                # Rebuild the symbols in the import's symbol list to obtain the correct
+                # expression nodes
+                imprt._update(symbols=tuple(symbol.clone() for symbol in imprt.symbols))
 
         # Update any symbol table entries that have been inherited from the parent
         if self.parent:
@@ -507,6 +523,17 @@ class ProgramUnit(Scope):
         return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
 
     @property
+    def all_imports(self):
+        """
+        Return the list of :any:`Import` in this unit and any parent scopes
+        """
+        imports = self.imports
+        scope = self
+        while (scope := scope.parent):
+            imports += scope.imports
+        return imports
+
+    @property
     def interfaces(self):
         """
         Return the list of :any:`Interface` declared in this unit
@@ -544,6 +571,15 @@ class ProgramUnit(Scope):
         List of symbols defined via an enum
         """
         return as_tuple(flatten(enum.symbols for enum in FindNodes(ir.Enumeration).visit(self.spec or ())))
+
+    @property
+    def definitions(self):
+        """
+        The list of IR nodes defined by this program unit.
+
+        Returns an empty tuple by default and can be overwritten by derived nodes.
+        """
+        return ()
 
     @property
     def symbols(self):
