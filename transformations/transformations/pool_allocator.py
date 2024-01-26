@@ -362,11 +362,23 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if variables_append:
             routine.variables += as_tuple(variables_append)
         if body_prepend:
-            routine.body.prepend(body_prepend)
+            if not self._insert_stack_at_loki_pragma(routine, body_prepend):
+                routine.body.prepend(body_prepend)
         if body_append:
             routine.body.append(body_append)
 
         return stack_storage, stack_size_var
+
+    @staticmethod
+    def _insert_stack_at_loki_pragma(routine, insert):
+        pragma_map = {}
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            if pragma.keyword == 'loki' and 'stack-insert' in pragma.content:
+                pragma_map[pragma] = insert
+        if pragma_map:
+            routine.body = Transformer(pragma_map).visit(routine.body)
+            return True
+        return False
 
     def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):
         """
