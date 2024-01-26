@@ -18,7 +18,7 @@ from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
 )
-from loki.transform.transform_associates import resolve_associates
+from loki.transform.transform_sanitise import resolve_associates
 from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics
 )

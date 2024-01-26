@@ -11,7 +11,7 @@ import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-  Subroutine, Module, FortranCTransformation, cgen
+    Subroutine, Module, FortranCTransformation, cgen, OFP
 )
 from loki.build import Builder
 
@@ -757,7 +757,9 @@ end subroutine transpile_multibody_conditionals
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OFP, 'Prefix/elemental support not implemented')]
+))
 def test_transpile_inline_elemental_functions(here, builder, frontend):
     """
     Test correct inlining of elemental functions in C transpilation.
@@ -819,7 +821,9 @@ end subroutine transpile_inline_elemental_functions
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OFP, 'Prefix/elemental support not implemented')]
+))
 def test_transpile_inline_elementals_recursive(here, builder, frontend):
     """
     Test correct inlining of nested elemental functions.

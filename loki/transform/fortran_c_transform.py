@@ -14,7 +14,7 @@ from loki.transform.transform_array_indexing import (
     resolve_vector_notation, normalize_array_shape_and_access,
     flatten_arrays
 )
-from loki.transform.transform_associates import resolve_associates
+from loki.transform.transform_sanitise import resolve_associates
 from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics, sanitise_imports
 )

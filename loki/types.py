@@ -251,6 +251,19 @@ class ProcedureType(DataType):
         return self.procedure.is_function
 
     @property
+    def is_elemental(self):
+        """
+        Return ``True`` if the procedure has the ``elemental`` prefix, otherwise ``False``
+        """
+        if self.procedure is BasicType.DEFERRED:
+            return False
+        if not hasattr(self.procedure, 'prefix'):
+            # StatementFunction objects have no prefix!
+            # This will be fixed once procedures are unified
+            return False
+        return 'elemental'.lower() in tuple(pre.lower() for pre in self.procedure.prefix)
+
+    @property
     def return_type(self):
         """
         The return type of the function (or `None`)

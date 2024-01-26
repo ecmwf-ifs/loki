@@ -14,7 +14,7 @@ from loki import (
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
     fgen, Sourcefile, Section, SubroutineItem, GlobalVarImportItem, pragma_regions_attached, PragmaRegion,
     is_loki_pragma, IntLiteral, RangeIndex, Comment, HoistTemporaryArraysAnalysis,
-    gettempdir, Scheduler, SchedulerConfig
+    gettempdir, Scheduler, SchedulerConfig, SanitiseTransformation, InlineTransformation
 )
 from conftest import available_frontends
 from transformations import (
@@ -1919,10 +1919,11 @@ def test_single_column_coalesced_vector_section_trim_complex(frontend, horizonta
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('inline_members', [False, True])
+@pytest.mark.parametrize('inline_internals', [False, True])
 @pytest.mark.parametrize('resolve_sequence_association', [False, True])
-def test_single_column_coalesced_inline_and_sequence_association(frontend, horizontal,
-                                                                 inline_members, resolve_sequence_association):
+def test_single_column_coalesced_inline_and_sequence_association(
+        frontend, horizontal, inline_internals, resolve_sequence_association
+):
     """
     Test the combinations of routine inlining and sequence association
     """
@@ -1954,26 +1955,36 @@ def test_single_column_coalesced_inline_and_sequence_association(frontend, horiz
 
     routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
-    scc_transform = SCCBaseTransformation(horizontal=horizontal,
-                                          inline_members=inline_members,
-                                          resolve_sequence_association=resolve_sequence_association)
+    # Remove sequence association via SanitiseTransform
+    sanitise_transform = SanitiseTransformation(
+        resolve_sequence_association=resolve_sequence_association
+    )
+    sanitise_transform.apply(routine, role='kernel')
+
+    # Create member inlining transformation to go along SCC
+    inline_transform = InlineTransformation(inline_internals=inline_internals)
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
 
     #Not really doing anything for contained routines
-    if (not inline_members and not resolve_sequence_association):
+    if (not inline_internals and not resolve_sequence_association):
+        inline_transform.apply(routine, role='kernel')
         scc_transform.apply(routine, role='kernel')
 
         assert len(routine.members) == 1
         assert not FindNodes(Loop).visit(routine.body)
 
     #Should fail because it can't resolve sequence association
-    elif (inline_members and not resolve_sequence_association):
+    elif (inline_internals and not resolve_sequence_association):
         with pytest.raises(RuntimeError) as e_info:
+            inline_transform.apply(routine, role='kernel')
             scc_transform.apply(routine, role='kernel')
         assert(e_info.exconly() ==
                'RuntimeError: [Loki::TransformInline] Cannot resolve procedure call to contained_kernel')
 
     #Check that the call is properly modified
-    elif (not inline_members and resolve_sequence_association):
+    elif (not inline_internals and resolve_sequence_association):
+        inline_transform.apply(routine, role='kernel')
         scc_transform.apply(routine, role='kernel')
 
         assert len(routine.members) == 1
@@ -1982,6 +1993,7 @@ def test_single_column_coalesced_inline_and_sequence_association(frontend, horiz
 
     #Check that the contained subroutine has been inlined
     else:
+        inline_transform.apply(routine, role='kernel')
         scc_transform.apply(routine, role='kernel')
 
         assert len(routine.members) == 0

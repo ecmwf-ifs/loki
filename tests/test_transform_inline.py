@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
+from itertools import product
 import pytest
 import numpy as np
 
@@ -13,13 +14,13 @@ from conftest import jit_compile, jit_compile_lib, available_frontends
 from loki import (
     Builder, Module, Subroutine, FindNodes, Import, FindVariables,
     CallStatement, Loop, BasicType, DerivedType, Associate, OMNI,
-    Conditional, FindInlineCalls
+    Conditional, FindInlineCalls, OFP
 )
 from loki.ir import Assignment
 from loki.transform import (
     inline_elemental_functions, inline_constant_parameters,
     replace_selected_kind, inline_member_procedures,
-    inline_marked_subroutines
+    inline_marked_subroutines, InlineTransformation
 )
 from loki.expression import symbols as sym
 
@@ -697,8 +698,10 @@ end subroutine acraneb_transt
     assert len(assocs) == 2
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_marked_subroutines(frontend):
+@pytest.mark.parametrize(
+    'frontend,remove_imports', product(available_frontends(), (True, False))
+)
+def test_inline_marked_subroutines(frontend, remove_imports):
     """ Test subroutine inlining via marker pragmas. """
 
     fcode_driver = """
@@ -755,7 +758,9 @@ end module util_mod
     assert calls[1].routine == module['add_a_to_b']
     assert calls[2].routine == module['add_one']
 
-    inline_marked_subroutines(routine=driver, allowed_aliases=('I',))
+    inline_marked_subroutines(
+        routine=driver, allowed_aliases=('I',), remove_imports=remove_imports
+    )
 
     # Check inlined loops and assignments
     assert len(FindNodes(Loop).visit(driver.body)) == 3
@@ -770,9 +775,18 @@ end module util_mod
     assert calls[0].routine.name == 'add_one'
     assert calls[0].arguments == ('b(i)',)
 
+    imports = FindNodes(Import).visit(driver.spec)
+    assert len(imports) == 1
+    if remove_imports:
+        assert imports[0].symbols == ('add_one',)
+    else:
+        assert imports[0].symbols == ('add_one', 'add_a_to_b')
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_marked_routine_with_optionals(frontend):
+
+@pytest.mark.parametrize(
+    'frontend,remove_imports', product(available_frontends(), (True, False))
+)
+def test_inline_marked_routine_with_optionals(frontend, remove_imports):
     """ Test subroutine inlining via marker pragmas with omitted optionals. """
 
     fcode_driver = """
@@ -821,7 +835,7 @@ end module util_mod
     assert calls[0].routine == module['add_one']
     assert calls[1].routine == module['add_one']
 
-    inline_marked_subroutines(routine=driver)
+    inline_marked_subroutines(routine=driver, remove_imports=remove_imports)
 
     # Check inlined loops and assignments
     assert len(FindNodes(Loop).visit(driver.body)) == 2
@@ -840,3 +854,94 @@ end module util_mod
     assert len(checks) == 2
     assert checks[0].condition == 'True'
     assert checks[1].condition == 'False'
+
+    imports = FindNodes(Import).visit(driver.spec)
+    assert len(imports) == 0 if remove_imports else 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    (OFP, 'Prefix/elemental support not implemented'))
+)
+def test_inline_transformation(frontend):
+    """Test combining recursive inlining via :any:`InliningTransformation`."""
+
+    fcode_module = """
+module one_mod
+  real(kind=8), parameter :: one = 1.0
+end module one_mod
+"""
+
+    fcode_inner = """
+subroutine add_one_and_two(a)
+  use one_mod, only: one
+  implicit none
+
+  real(kind=8), intent(inout) :: a
+
+  a = a + one
+
+  a = add_two(a)
+
+contains
+  elemental function add_two(x)
+    real(kind=8), intent(in) :: x
+    real(kind=8) :: add_two
+
+    add_two = x + 2.0
+  end function add_two
+end subroutine add_one_and_two
+"""
+
+    fcode = """
+subroutine test_inline_pragma(a, b)
+  implicit none
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer, parameter :: n = 3
+  integer :: i
+
+#include "add_one_and_two.intfb.h"
+
+  do i=1, n
+    !$loki inline
+    call add_one_and_two(a(i))
+  end do
+
+  do i=1, n
+    !$loki inline
+    call add_one_and_two(b(i))
+  end do
+
+end subroutine test_inline_pragma
+"""
+    module = Module.from_source(fcode_module, frontend=frontend)
+    inner = Subroutine.from_source(fcode_inner, definitions=module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine.enrich(inner)
+
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True
+    )
+
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 2
+    assert all(c.routine == inner for c in calls)
+
+    # Apply to the inner subroutine first to resolve parameter and calls
+    trafo.apply(inner)
+
+    assigns = FindNodes(Assignment).visit(inner.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'a' and assigns[0].rhs == 'a + 1.0'
+    assert assigns[1].lhs == 'a' and assigns[1].rhs == 'a + 2.0'
+
+    # Apply to the outer routine, but with resolved body of the inner
+    trafo.apply(routine)
+
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 0
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 4
+    assert assigns[0].lhs == 'a(i)' and assigns[0].rhs == 'a(i) + 1.0'
+    assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
+    assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
+    assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
