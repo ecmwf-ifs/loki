@@ -1498,3 +1498,33 @@ def test_frontend_empty_file(frontend, fcode):
     source = Sourcefile.from_source(fcode, frontend=frontend)
     assert isinstance(source.ir, Section)
     assert not source.to_fortran().strip()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pragma_line_continuation(frontend):
+    """
+    Test that multi-line pragmas are parsed and dealt with correctly.
+    """
+    fcode = """
+SUBROUTINE TOTO(A,B)
+
+IMPLICIT NONE
+REAL, INTENT(IN) :: A
+REAL, INTENT(INOUT) :: B
+
+!$ACC PARALLEL LOOP GANG &
+!$ACC& PRESENT(ZRDG_LCVQ,ZFLU_QSATS,ZRDG_CVGQ) &
+!$ACC& PRIVATE (JBLK) &
+!$ACC& VECTOR_LENGTH (YDCPG_OPTS%KLON)
+
+END SUBROUTINE TOTO
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'ACC'
+    assert 'PARALLEL' in pragmas[0].content
+    assert 'PRESENT' in pragmas[0].content
+    assert 'PRIVATE' in pragmas[0].content
+    assert 'VECTOR_LENGTH' in pragmas[0].content
