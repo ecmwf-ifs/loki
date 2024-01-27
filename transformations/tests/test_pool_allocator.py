@@ -297,19 +297,15 @@ end module kernel_mod
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
     if nclv_param:
-        if check_bounds:
-            expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
-            assert calls[0].arguments == expected_args
-        else:
-            expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l')
-            assert calls[0].arguments == expected_args
+        expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
     else:
-        if check_bounds:
-            expected_args = ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
-            assert calls[0].arguments == expected_args
-        else:
-            expected_args = ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l')
-            assert calls[0].arguments == expected_args
+        expected_args = ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)')
+    if check_bounds:
+        expected_kwargs = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
+    else:
+        expected_kwargs = (('YDSTACK_L', 'ylstack_l'),)
+    assert calls[0].arguments == expected_args
+    assert calls[0].kwarguments == expected_kwargs
 
     if generate_driver_stack:
         check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, check_bounds=check_bounds)
@@ -591,8 +587,10 @@ end module kernel_mod
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 2
-    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
-    assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
+    assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_U'))
+    assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)')
+    assert calls[1].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_U'))
 
     stack_size = f'max({tsize_real}*nlon + {tsize_real}*nlon*nz + '
     stack_size += f'2*{tsize_int}*nlon + {tsize_log}*nz,'
@@ -870,7 +868,8 @@ end module kernel_mod
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
+    assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
 
     stack_size = f'{tsize_real}*nlon/max(c_sizeof(real(1, kind=jwrb)), 8) +'
     stack_size += f'4*{tsize_real}*nlon*nz/max(c_sizeof(real(1, kind=jwrb)), 8) +'
@@ -913,7 +912,8 @@ end module kernel_mod
     #
     calls = FindNodes(CallStatement).visit(kernel_item.routine.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('start', 'end', 'klon', 'klev', 'field2', 'ylstack_l', 'ylstack_u')
+    assert calls[0].arguments == ('start', 'end', 'klon', 'klev', 'field2')
+    assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
 
     for count, item in enumerate([kernel_item, kernel2_item]):
         kernel = item.routine

@@ -226,11 +226,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
         var_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
         stack_arg = Variable(name=var_name, type=stack_type, scope=routine)
-        arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
-        if arg_pos:
-            routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg,) + routine.arguments[arg_pos[0]:]
-        else:
-            routine.arguments += (stack_arg,)
+        routine.arguments += (stack_arg,)
 
         return stack_arg
 
@@ -247,11 +243,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
         var_name = f'{self.stack_argument_name}_{self.stack_end_name}'
         stack_arg_end = Variable(name=var_name, type=stack_type, scope=routine)
-        arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
-        if arg_pos:
-            routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg_end,) + routine.arguments[arg_pos[0]:]
-        else:
-            routine.arguments += (stack_arg_end,)
+        routine.arguments += (stack_arg_end,)
 
         return stack_arg_end
 
@@ -727,11 +719,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         Add the pool allocator argument into subroutine calls
         """
         call_map = {}
+
+        # Careful to not use self._get_stack_arg, as it will
+        # inject a delaration which the driver cannot do!
         stack_var = self._get_local_stack_var(routine)
-        new_vars = (stack_var,)
+        stack_arg_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
+        new_arguments = (stack_var,)
+        new_kwarguments = ((stack_arg_name, stack_var),)
+
         if self.check_bounds:
             stack_var_end = self._get_local_stack_var_end(routine)
-            new_vars += (stack_var_end,)
+            stack_arg_end_name = f'{self.stack_argument_name}_{self.stack_end_name}'
+            new_arguments += (stack_var_end,)
+            new_kwarguments += ((stack_arg_end_name, stack_var_end),)
+
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in targets or call.routine.name.lower() in ignore:
                # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
@@ -740,11 +741,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 if call.name in [s for i in FindNodes(Interface).visit(routine.spec) for s in i.symbols]:
                     _ = self._get_stack_arg(call.routine)
 
-                stack_argument_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
-                if call.routine != BasicType.DEFERRED and stack_argument_name in call.routine.arguments:
-                    arg_idx = call.routine.arguments.index(stack_argument_name)
-                    arguments = call.arguments
-                    call_map[call] = call.clone(arguments=arguments[:arg_idx] + new_vars + arguments[arg_idx:])
+                if call.routine != BasicType.DEFERRED and stack_arg_name in call.routine.arguments:
+                    call_map[call] = call.clone(
+                        kwarguments=call.kwarguments + new_kwarguments
+                    )
 
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
@@ -754,7 +754,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         for call in FindInlineCalls().visit(routine.body):
             if call.name.lower() in [t.lower() for t in targets]:
                 parameters = call.parameters
-                call_map[call] = call.clone(parameters=parameters + new_vars)
+                call_map[call] = call.clone(parameters=parameters + new_arguments)
 
         if call_map:
             routine.body = SubstituteExpressions(call_map).visit(routine.body)
