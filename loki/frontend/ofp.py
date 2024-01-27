@@ -314,7 +314,7 @@ class OFP2IR(GenericVisitor):
         return as_tuple(value) or None, as_tuple(body)
 
     # TODO: Deal with line-continuation pragmas!
-    _re_pragma = re.compile(r'^\s*\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
+    _re_pragma = re.compile(r'^\s*\!\$(?P<keyword>\w+)\s*(?P<content>.*)', re.IGNORECASE)
 
     def visit_comment(self, o, **kwargs):
         match_pragma = self._re_pragma.search(kwargs['source'].string)
