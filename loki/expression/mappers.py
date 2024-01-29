@@ -307,14 +307,12 @@ class LokiWalkMapper(WalkMapper):
         self.rec(expr.bounds, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
-    # TODO: necessary?
     def map_c_reference(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
         self.rec(expr.expression, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
-    # TODO: necessary?
     def map_c_dereference(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return

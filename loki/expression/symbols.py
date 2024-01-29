@@ -1477,26 +1477,8 @@ class Reference(pmbl.Expression):
         assert isinstance(expression, pmbl.Expression)
         self.expression = expression
 
-    """
-    @property
-    def name(self):
-        return self.expression.name
-
-    @property
-    def type(self):
-        return self.expression.type
-
-    @property
-    def scope(self):
-        return self.expression.scope
-
-    @property
-    def initial(self):
-        return self.expression.initial
-
     mapper_method = intern('map_c_reference')
     make_stringifier = loki_make_stringifier
-    """
 
 
 class Dereference(pmbl.Expression):
@@ -1515,24 +1497,6 @@ class Dereference(pmbl.Expression):
     def __init__(self, expression):
         assert isinstance(expression, pmbl.Expression)
         self.expression = expression
-
-    """
-    @property
-    def name(self):
-        return self.expression.name
-
-    @property
-    def type(self):
-        return self.expression.type
-
-    @property
-    def scope(self):
-        return self.expression.scope
-
-    @property
-    def initial(self):
-        return self.expression.initial
-    """
 
     mapper_method = intern('map_c_dereference')
     make_stringifier = loki_make_stringifier
