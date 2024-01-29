@@ -165,9 +165,11 @@ def test_hoist_disable(here, frontend, config):
     """
 
     disable = ("device1", "device2")
-    config['routines']['kernel2'] = {'role': 'kernel', 'ignore': disable}
+    config['routines']['kernel2'] = {'role': 'kernel', 'block': disable}
     proj = here/'sources/projHoist'
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend
+    )
 
     # Transformation: Analysis
     scheduler.process(transformation=HoistVariablesAnalysis())
