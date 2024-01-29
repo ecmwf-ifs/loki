@@ -1471,7 +1471,7 @@ class Reference(pmbl.Expression):
     init_arg_names = ('expression',)
 
     def __getinitargs__(self):
-        return self.expression,
+        return (self.expression, )
 
     def __init__(self, expression):
         assert isinstance(expression, pmbl.Expression)

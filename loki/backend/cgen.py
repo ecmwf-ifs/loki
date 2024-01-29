@@ -110,7 +110,7 @@ class CCodeMapper(LokiStringifyMapper):
             enclosing_prec, PREC_NONE)
 
     def map_c_reference(self, expr, enclosing_prec, *args, **kwargs):
-        return self.format(' &%s', self.rec(expr.expression, PREC_NONE, *args, **kwargs)) 
+        return self.format(' &%s', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
 
     def map_c_dereference(self, expr, enclosing_prec, *args, **kwargs):
         parenthesize = '(' if expr.expression.parent is not None else ''
