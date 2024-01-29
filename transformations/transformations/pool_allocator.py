@@ -7,13 +7,23 @@
 
 import re
 from collections import  defaultdict
+
+from loki.expression import (
+    Quotient, IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
+    Product, InlineCall, Comparison, RangeIndex, Cast,
+    ProcedureSymbol, LogicalNot, simplify,
+)
+from loki.ir import (
+    Intrinsic, Assignment, Conditional, CallStatement, Import,
+    Allocation, Deallocation, Loop, Pragma
+)
 from loki import (
-    as_tuple, warning, debug, simplify, recursive_expression_map_update, get_pragma_parameters,
-    Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
-    SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, LogicLiteral,
-    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Cast,
-    Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation, is_dimension_constant,
-    Loop, Pragma, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
+    as_tuple, warning, debug, Transformation, FindNodes,
+    FindVariables, Transformer, SubstituteExpressions,
+    DetachScopesMapper, SymbolAttributes, BasicType, DerivedType,
+    is_dimension_constant, recursive_expression_map_update,
+    get_pragma_parameters, FindInlineCalls, Interface,
+    dataflow_analysis_attached
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
