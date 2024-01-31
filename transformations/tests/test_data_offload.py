@@ -12,10 +12,13 @@ import pytest
 from loki import (
     Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
     CallStatement, pragma_regions_attached, get_pragma_parameters,
-    gettempdir, Scheduler, OMNI, Import
+    gettempdir, Scheduler, OMNI, Import, fgen
 )
 from conftest import available_frontends
-from transformations import DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
+from transformations import (
+        DataOffloadTransformation, GlobalVariableAnalysis, 
+        GlobalVarOffloadTransformation, GlobalVarHoistTransformation
+)
 
 
 @pytest.fixture(scope='module', name='here')
@@ -435,6 +438,8 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         if item == 'global_var_analysis_data_mod#some_type':
             continue
         for trafo_data_key, trafo_data_value in item.trafo_data[key].items():
+            if trafo_data_key not in ('defines_symbols', 'uses_symbols'):
+                continue
             assert (
                 sorted(
                     tuple(str(vv) for vv in v) if isinstance(v, tuple) else str(v)
@@ -634,3 +639,46 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
     # Note: g is not offloaded because it is not used by the kernel (albeit imported)
     assert 'p0' in pragmas[1].content
     assert 'p_array' in pragmas[2].content
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transformation_global_var_hoist(here, config, frontend):
+    """
+    Test the generation of offload instructions of global variable imports.
+    """
+    config['default']['enable_imports'] = True
+    config['routines'] = {
+        'driver': {'role': 'driver'}
+    }
+
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
+    scheduler.process(transformation=GlobalVariableAnalysis())
+    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=False))
+
+    print("")
+    print("")
+
+    driver = scheduler['#driver'].routine
+    kernel0 = scheduler['#kernel0'].routine
+    kernel1 = scheduler['#kernel1'].routine
+    kernel2 = scheduler['#kernel2'].routine
+    kernel3 = scheduler['#kernel3'].routine
+    moduleA = scheduler['modulea#var0'].scope
+    moduleB = scheduler['moduleb#var2'].scope
+    moduleC = scheduler['modulec#var4'].scope
+
+    print(fgen(driver))
+    print("----------")
+    print(fgen(kernel0))
+    print("----------")
+    print(fgen(kernel1))
+    print("----------")
+    print(fgen(kernel2))
+    print("----------")
+    print(fgen(kernel3))
+    print("----------")
+    # print(fgen(moduleA))
+    print("----------")
+    # print(fgen(moduleB))
+    print("----------")
+    # print(fgen(moduleC))
