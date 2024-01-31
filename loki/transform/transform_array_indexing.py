@@ -502,15 +502,22 @@ def normalize_array_shape_and_access(routine):
     """
     Shift all arrays to start counting at "1"
     """
-    def is_range_index(dim):
-        return isinstance(dim, sym.RangeIndex) and not dim.lower == 1
+    def is_explicit_range_index(dim):
+        # return False if assumed sized array or lower dimension equals to 1
+        # return (isinstance(dim, sym.RangeIndex) and not dim.lower == 1 and not dim is None
+        #             and not dim.lower is None and not dim.upper is None)
+        return (isinstance(dim, sym.RangeIndex)
+                and not (dim.lower == 1 or dim.lower is None or dim.upper is None))
 
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
         if isinstance(v, sym.Array):
+            # skip if e.g., `array(len)`, passed as `call routine(array)`
+            if not v.dimensions:
+                continue
             new_dims = []
             for i, d in enumerate(v.shape):
-                if isinstance(d, sym.RangeIndex):
+                if is_explicit_range_index(d):
                     if isinstance(v.dimensions[i], sym.RangeIndex):
                         start = simplify(v.dimensions[i].start - d.start + 1) if d.start is not None else None
                         stop = simplify(v.dimensions[i].stop - d.start + 1) if d.stop is not None else None
@@ -520,16 +527,17 @@ def normalize_array_shape_and_access(routine):
                         new_dims += [start]
                 else:
                     new_dims += [v.dimensions[i]]
-            vmap[v] = v.clone(dimensions=as_tuple(new_dims))
+            if new_dims:
+                vmap[v] = v.clone(dimensions=as_tuple(new_dims))
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     vmap = {}
     for v in routine.variables:
         if isinstance(v, sym.Array):
             new_dims = [sym.RangeIndex((1, simplify(d.upper - d.lower + 1)))
-                if is_range_index(d) else d for d in v.dimensions]
+                if is_explicit_range_index(d) else d for d in v.dimensions]
             new_shape = [sym.RangeIndex((1, simplify(d.upper - d.lower + 1)))
-                if is_range_index(d) else d for d in v.shape]
+                if is_explicit_range_index(d) else d for d in v.shape]
             new_type = v.type.clone(shape=as_tuple(new_shape))
             vmap[v] = v.clone(dimensions=as_tuple(new_dims), type=new_type)
     routine.variables = [vmap.get(v, v) for v in routine.variables]
