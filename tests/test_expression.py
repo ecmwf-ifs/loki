@@ -1329,8 +1329,8 @@ end subroutine my_routine
 
 def test_nested_derived_type_substitution():
     """
-    Test that SubstituteExpressions can properly replace replace
-    scalar parents when type is not changed
+    Test that :any:`SubstituteExpressions` can properly replace scalar
+    parents when type is not changed
     """
 
     type_int = SymbolAttributes(dtype=BasicType.INTEGER)
