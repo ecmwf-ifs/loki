@@ -25,6 +25,7 @@ from loki.logging import warning, error
 from loki.pragma_utils import pragmas_attached, is_loki_pragma
 from loki.subroutine import Subroutine
 
+from loki.transform.transform_sanitise import transform_sequence_association
 from loki.transform.transformation import Transformation
 from loki.transform.transform_dead_code import dead_code_elimination
 from loki.transform.transform_utilities import (
@@ -79,20 +80,49 @@ class InlineTransformation(Transformation):
             self, inline_constants=False, inline_elementals=True,
             inline_internals=False, inline_marked=True,
             eliminate_dead_code=True, allowed_aliases=None,
-            remove_imports=True, external_only=True
+            remove_imports=True, external_only=True,
+            resolve_sequence_association=False
     ):
         self.inline_constants = inline_constants
         self.inline_elementals = inline_elementals
         self.inline_internals = inline_internals
         self.inline_marked = inline_marked
-
         self.eliminate_dead_code = eliminate_dead_code
-
         self.allowed_aliases = allowed_aliases
         self.remove_imports = remove_imports
         self.external_only = external_only
+        self.resolve_sequence_association = resolve_sequence_association
 
     def transform_subroutine(self, routine, **kwargs):
+
+        # Run an "inliner-specific" sequence association round 
+        # if i) requested by the user, ii) inlining is activated and 
+        # iii) there is something to be inlined. This local resolving sequence association
+        # exists because there are cases where a global one irrespective of inlining is
+        # undesirable.
+        if self.resolve_sequence_association:
+            resolved_seq_assoc = False
+            if self.inline_internals:
+                # Find out if routine has internal procedures and if so, 
+                # resolve sequence association as requested.
+                has_internals = len(routine.routines) > 0
+                if has_internals: 
+                    transform_sequence_association(routine)
+                    resolved_seq_assoc = True
+
+            if self.inline_marked and not resolved_seq_assoc:
+                # Find out if routine has calls that have been marked for inlining
+                # using a pragma.
+                has_marked = False
+                with pragmas_attached(routine, node_type=CallStatement):
+                    for call in FindNodes(CallStatement).visit(routine.body):
+                        if call.routine == BasicType.DEFERRED:
+                            continue
+                        if is_loki_pragma(call.pragma, starts_with='inline'):
+                            has_marked = True
+                            break
+                if has_marked:
+                    transform_sequence_association(routine)
 
         # Replace constant parameter variables with explicit values
         if self.inline_constants:

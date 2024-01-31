@@ -199,7 +199,8 @@ def convert(
     if not inline_trafo:
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
-            eliminate_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index
+            eliminate_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
+            resolve_sequence_association=resolve_sequence_association # TODO: Disable if already resolved in Sanitise.
         )
     scheduler.process(transformation=inline_trafo)
 
