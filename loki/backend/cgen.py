@@ -61,8 +61,8 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
         if expr.parent is not None:
-            parent = expr.parent
-            return self.format('%s).%s', parent, expr.basename)
+            parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
+            return self.format('%s.%s', parent, expr.basename)
         return self.format('%s', expr.name)
 
     def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
@@ -110,11 +110,10 @@ class CCodeMapper(LokiStringifyMapper):
             enclosing_prec, PREC_NONE)
 
     def map_c_reference(self, expr, enclosing_prec, *args, **kwargs):
-        return self.format(' &%s', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
+        return self.format(' (&%s)', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
 
     def map_c_dereference(self, expr, enclosing_prec, *args, **kwargs):
-        parenthesize = '(' if expr.expression.parent is not None else ''
-        return self.format(' %s*%s', parenthesize, self.rec(expr.expression, PREC_NONE, *args, **kwargs))
+        return self.format(' (*%s)', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
 
 
 class CCodegen(Stringifier):

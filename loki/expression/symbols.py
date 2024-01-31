@@ -254,7 +254,8 @@ class TypedSymbol:
 
     @parent.setter
     def parent(self, parent):
-        assert parent is None or isinstance(parent, (TypedSymbol, MetaSymbol))
+        assert parent is None or isinstance(parent, (TypedSymbol, MetaSymbol,
+            Reference, Dereference))
         self._parent = parent
 
     @property
@@ -1464,6 +1465,8 @@ class Reference(pmbl.Expression):
     """
     Internal representation of a Reference.
 
+    .. warning:: Experimental!
+
     **C/C++ only**, no corresponding concept in Fortran.
     Referencing refers to taking the address of an
     existing variable (to set a pointer variable).
@@ -1477,6 +1480,22 @@ class Reference(pmbl.Expression):
         assert isinstance(expression, pmbl.Expression)
         self.expression = expression
 
+    @property
+    def name(self):
+        return self.expression.name
+
+    @property
+    def type(self):
+        return self.expression.type
+
+    @property
+    def scope(self):
+        return self.expression.scope
+
+    @property
+    def initial(self):
+        return self.expression.initial
+
     mapper_method = intern('map_c_reference')
     make_stringifier = loki_make_stringifier
 
@@ -1484,6 +1503,8 @@ class Reference(pmbl.Expression):
 class Dereference(pmbl.Expression):
     """
     Internal representation of a Dereference.
+
+    .. warning:: Experimental!
 
     **C/C++ only**, no corresponding concept in Fortran.
     Dereferencing (a pointer) refers to retrieving the value
@@ -1497,6 +1518,22 @@ class Dereference(pmbl.Expression):
     def __init__(self, expression):
         assert isinstance(expression, pmbl.Expression)
         self.expression = expression
+
+    @property
+    def name(self):
+        return self.expression.name
+
+    @property
+    def type(self):
+        return self.expression.type
+
+    @property
+    def scope(self):
+        return self.expression.scope
+
+    @property
+    def initial(self):
+        return self.expression.initial
 
     mapper_method = intern('map_c_dereference')
     make_stringifier = loki_make_stringifier

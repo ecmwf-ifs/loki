@@ -31,8 +31,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
-    ProcedureSymbol, SubstituteExpressions, Dereference,
-    FindVariables
+    ProcedureSymbol, SubstituteExpressions, Dereference
 )
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
@@ -440,16 +439,8 @@ class FortranCTransformation(Transformation):
                     # Lower case type names for derived types
                     typedef = _type.dtype.typedef.clone(name=_type.dtype.typedef.name.lower())
                     _type = _type.clone(dtype=typedef.dtype)
-                else:
-                    var_map[arg] = Dereference(arg)
+                var_map[arg] = Dereference(arg)
                 kernel.symbol_attrs[arg.name] = _type
-        if var_map:
-            routine.body = SubstituteExpressions(var_map).visit(routine.body)
-        variables = FindVariables().visit(kernel.body)
-        var_map = {}
-        for var in variables:
-            if var.parent is not None:
-                var_map[var] = Dereference(var)
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}

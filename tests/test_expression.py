@@ -18,15 +18,17 @@ from conftest import (
     available_frontends, jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 )
 from loki import (
-    OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
+    OFP, OMNI, FP, Sourcefile, cgen, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
     DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList, FindInlineCalls,
-    AttachScopesMapper, FindTypedSymbols
+    AttachScopesMapper, FindTypedSymbols, Reference, Dereference
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
+
+# pylint: disable=too-many-lines
 
 
 @pytest.fixture(scope='module', name='here')
@@ -1482,3 +1484,37 @@ end module some_mod
 
     # Make sure the first expression finder still works
     assert find_ts.visit(source['other_routine'].body) == expected_ts
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_expression_c_de_reference(frontend):
+    """
+    Verify that ```Reference`` and ``Dereference`` work as expected.
+    Thus, being ignored by Fortran-like backends but not by C-like
+    backends.
+    """
+    fcode = """
+subroutine some_routine()
+implicit none
+  integer :: var_reference
+  integer :: var_dereference
+
+  var_reference = 1
+  var_dereference = 2
+end subroutine some_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    var_map = {routine.variable_map['var_reference']: Reference(routine.variable_map['var_reference']),
+            routine.variable_map['var_dereference']: Dereference(routine.variable_map['var_dereference'])}
+    routine.body = SubstituteExpressions(var_map).visit(routine.body)
+
+    f_str = fgen(routine).replace(' ', '')
+    assert 'var_reference=1' in f_str
+    assert 'var_dereference=2' in f_str
+    assert '*' not in f_str
+    assert '&' not in f_str
+
+    c_str = cgen(routine).replace(' ', '')
+    assert '(&var_reference)=1' in c_str
+    assert '(*var_dereference)=2' in c_str
