@@ -1327,6 +1327,21 @@ end subroutine my_routine
     assert assignment.lhs == 'var(j + 1)'
 
 
+def test_nested_derived_type_substitution():
+    """
+    Test that :any:`SubstituteExpressions` can properly replace scalar
+    parents when type is not changed
+    """
+
+    type_int = SymbolAttributes(dtype=BasicType.INTEGER)
+    original = symbols.Scalar(name='ydphy3')
+    expr = symbols.Scalar(name='n_spband', type=type_int, parent=symbols.Scalar(name='ydphy3'))
+    replace = symbols.Scalar(name='yrphy3', parent=symbols.Scalar(name='ydml_phy_mf'))
+    new_expr = SubstituteExpressions({original:replace}).visit(expr)
+
+    assert fgen(new_expr) == 'ydml_phy_mf%yrphy3%n_spband'
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_variable_in_declaration_initializer(frontend):
     """
