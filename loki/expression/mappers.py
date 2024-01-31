@@ -552,6 +552,7 @@ class LokiIdentityMapper(IdentityMapper):
         recurse_to_declaration_attributes = kwargs['recurse_to_declaration_attributes'] or expr.scope is None
         kwargs['recurse_to_declaration_attributes'] = False
 
+        new_type = expr.type
         if recurse_to_declaration_attributes:
             old_type = expr.type
             kind = self.rec(old_type.kind, *args, **kwargs)
@@ -597,8 +598,6 @@ class LokiIdentityMapper(IdentityMapper):
         if expr.scope is None:
             if parent is expr.parent and not is_type_changed:
                 return expr
-            if not is_type_changed:
-                return expr.clone(parent=parent)
             return expr.clone(parent=parent, type=new_type)
 
         if parent is expr.parent:
