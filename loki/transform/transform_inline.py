@@ -98,7 +98,7 @@ class InlineTransformation(Transformation):
         # Run an "inliner-specific" sequence association round 
         # if i) requested by the user, ii) inlining is activated and 
         # iii) there is something to be inlined. This local resolving sequence association
-        # exists because there are cases where a global one irrespective of inlining is
+        # exists because there are cases where the global one irrespective of inlining is
         # undesirable.
         if self.resolve_sequence_association:
             resolved_seq_assoc = False
