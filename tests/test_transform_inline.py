@@ -574,7 +574,7 @@ end subroutine outer
 def test_inline_member_routines_indexing_of_shadowed_array(frontend):
     """
     Test special case of inlining of member subroutines when inlined routine contains
-    shadowed array and array indices. 
+    shadowed array and array indices.
     In particular, this test checks that also the variables indexing
     the array in the inlined result get renamed correctly.
     """
@@ -589,11 +589,11 @@ def test_inline_member_routines_indexing_of_shadowed_array(frontend):
         contains
 
         subroutine inner2()
-            integer :: jlon, jg 
+            integer :: jlon, jg
             integer :: arr(3, 3)
             do jg=1,3
                 do jlon=1,3
-                   arr(jlon, jg) = 11 
+                   arr(jlon, jg) = 11
                 end do
             end do
         end subroutine inner2
@@ -974,25 +974,25 @@ module somemod
       x = 10.0
 
       call inner(y, x(1, 1)) ! Sequence association here for member routine.
-    
+
       !$loki inline
       call plusone(y, x(3, 3)) ! Marked for inlining.
 
       call minusone_second(y, x(1, 3)) ! Standard call with sequence association (never processed).
-    
+
       contains
-    
+
       subroutine inner(output, x)
         real, intent(inout) :: output
         real, intent(in) :: x(3)
-    
+
         output = x(2) + 2.0
-      end subroutine inner 
+      end subroutine inner
     end subroutine outer
 
 end module somemod
 """
-    # Test case that nothing happens if `resolve_sequence_association=True` 
+    # Test case that nothing happens if `resolve_sequence_association=True`
     # but inlining "marked" and "internals" is disabled.
     module = Module.from_source(fcode, frontend=frontend)
     trafo = InlineTransformation(
@@ -1002,12 +1002,12 @@ end module somemod
     outer = module["outer"]
     trafo.apply(outer)
     callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
-    assert 'plusone' in callnames 
+    assert 'plusone' in callnames
     assert 'inner' in callnames
     assert 'minusone_second' in callnames
 
-    # Test case that only marked processed if 
-    # `resolve_sequence_association=True` 
+    # Test case that only marked processed if
+    # `resolve_sequence_association=True`
     # `inline_marked=True`,
     # `inline_internals=False`
     module = Module.from_source(fcode, frontend=frontend)
@@ -1018,7 +1018,7 @@ end module somemod
     outer = module["outer"]
     trafo.apply(outer)
     callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
-    assert 'plusone' not in callnames 
+    assert 'plusone' not in callnames
     assert 'inner' in callnames
     assert 'minusone_second' in callnames
 
@@ -1033,7 +1033,7 @@ end module somemod
         trafo.apply(outer)
     callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
 
-    # Test case that sequence association is run and corresponding call inlined, avoiding crash. 
+    # Test case that sequence association is run and corresponding call inlined, avoiding crash.
     module = Module.from_source(fcode, frontend=frontend)
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
@@ -1042,11 +1042,11 @@ end module somemod
     outer = module["outer"]
     trafo.apply(outer)
     callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
-    assert 'plusone' in callnames 
+    assert 'plusone' in callnames
     assert 'inner' not in callnames
     assert 'minusone_second' in callnames
 
-    # Test case that everything is enabled. 
+    # Test case that everything is enabled.
     module = Module.from_source(fcode, frontend=frontend)
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
@@ -1055,11 +1055,11 @@ end module somemod
     outer = module["outer"]
     trafo.apply(outer)
     callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
-    assert 'plusone' not in callnames 
+    assert 'plusone' not in callnames
     assert 'inner' not in callnames
     assert 'minusone_second' in callnames
 
-    # Test case that a crash occurs if marked routine with sequence association is 
+    # Test case that a crash occurs if marked routine with sequence association is
     # attempted to inline without sequence association enabled.
     fcode = """
 module somemod
@@ -1069,7 +1069,7 @@ module somemod
     subroutine inner(output, x)
         real, intent(inout) :: output
         real, intent(in) :: x(3)
-    
+
         output = x(2) + 2.0
     end subroutine inner
 
@@ -1102,7 +1102,7 @@ end module somemod
     outer = module["outer"]
     trafo.apply(outer)
     assert len(FindNodes(CallStatement).visit(outer.body)) == 0
-    
+
     # Testing that ValueError is thrown if sequence association is requested with inlining,
     # but source code behind call is missing (not enough type information).
     fcode = """

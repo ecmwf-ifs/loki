@@ -119,7 +119,10 @@ def cli(debug):
               help=(
                 'Option to replace array arguments passed as scalars with arrays. ' +
                 'Choice `all` does replacement for all procedures as part of a global sanitisation transform. ' +
-                'Choice `inlined-only` applies replacement only for procedures that will be inlined as a result of specifying options `--inline-members` or `--inline-marked`. If inlining is deactivated, choice `inlined-only` has no effect.'
+                'Choice `inlined-only` applies replacement only for procedures ' +
+                'that will be inlined as a result of specifying options ' +
+                '`--inline-members` or `--inline-marked`. ' + 
+                'If inlining is deactivated, choice `inlined-only` has no effect.'
               ))
 @click.option('--derive-argument-array-shape/--no-derive-argument-array-shape', default=False,
               help="Recursively derive explicit shape dimension for argument arrays")

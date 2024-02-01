@@ -208,7 +208,7 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
                 if call.routine == BasicType.DEFERRED:
                     # NOTE: Throwing error here instead of continuing, because the user has explicitly
                     # asked sequence assoc to happen with inlining, so source for routine should be
-                    # found in calls to be inlined. 
+                    # found in calls to be inlined.
                     raise ValueError(
                         f"Cannot resolve sequence association for call to `{call.name}` " + 
                         f"to be inlined in routine `{routine.name}`, because " + 
