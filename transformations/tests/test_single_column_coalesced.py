@@ -12,9 +12,9 @@ import pytest
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
-    fgen, Sourcefile, Section, SubroutineItem, pragma_regions_attached, PragmaRegion,
+    fgen, Sourcefile, Section, SubroutineItem, GlobalVarImportItem, pragma_regions_attached, PragmaRegion,
     is_loki_pragma, IntLiteral, RangeIndex, Comment, HoistTemporaryArraysAnalysis,
-    gettempdir, Scheduler, SchedulerConfig
+    gettempdir, Scheduler, SchedulerConfig, SanitiseTransformation, InlineTransformation
 )
 from conftest import available_frontends
 from transformations import (
@@ -760,15 +760,26 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
   END SUBROUTINE compute_column
 """
 
+    fcode_module = """
+module my_scaling_value_mod
+    implicit none
+    REAL :: c = 5.345
+end module my_scaling_value_mod
+""".strip()
+
     # Mimic the scheduler internal mechanis to apply the transformation cascade
     kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
     driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    module_source = Sourcefile.from_source(fcode_module, frontend=frontend)
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
+    module = module_source['my_scaling_value_mod']
+    kernel.enrich(module)
     driver.enrich(kernel)  # Attach kernel source to driver call
 
     driver_item = SubroutineItem(name='#column_driver', source=driver_source)
     kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
+    module_item = GlobalVarImportItem(name='my_scaling_value_mod#c', source=module_source)
 
     # Test OpenACC annotations on hoisted version
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
@@ -776,16 +787,23 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
 
     for transform in scc_transform:
-        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-        transform.apply(kernel, role='kernel', item=kernel_item)
+        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'], successors=[kernel_item])
+        transform.apply(kernel, role='kernel', item=kernel_item, successors=[module_item])
 
     # Now apply the hoisting passes (anaylisis in reverse order)
     analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
     synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking)
-    analysis.apply(kernel, role='kernel', item=kernel_item)
+
+    # The try-except is for checking a bug where HoistTemporaryArraysAnalysis would
+    # access a GlobalVarImportItem, which should not happen. Note that in case of a KeyError (which signifies
+    # the issue occurring), an explicit pytest failure is thrown to signify that there is no bug in the test itself.
+    try:
+        analysis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
+    except KeyError:
+        pytest.fail('`HoistTemporaryArraysAnalysis` should not attempt to access `GlobalVarImportItem`s')
     analysis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
     synthesis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(kernel, role='kernel', item=kernel_item)
+    synthesis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
 
     annotate = SCCAnnotateTransformation(
         horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
@@ -1901,10 +1919,11 @@ def test_single_column_coalesced_vector_section_trim_complex(frontend, horizonta
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('inline_members', [False, True])
+@pytest.mark.parametrize('inline_internals', [False, True])
 @pytest.mark.parametrize('resolve_sequence_association', [False, True])
-def test_single_column_coalesced_inline_and_sequence_association(frontend, horizontal,
-                                                                 inline_members, resolve_sequence_association):
+def test_single_column_coalesced_inline_and_sequence_association(
+        frontend, horizontal, inline_internals, resolve_sequence_association
+):
     """
     Test the combinations of routine inlining and sequence association
     """
@@ -1936,26 +1955,36 @@ def test_single_column_coalesced_inline_and_sequence_association(frontend, horiz
 
     routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
-    scc_transform = SCCBaseTransformation(horizontal=horizontal,
-                                          inline_members=inline_members,
-                                          resolve_sequence_association=resolve_sequence_association)
+    # Remove sequence association via SanitiseTransform
+    sanitise_transform = SanitiseTransformation(
+        resolve_sequence_association=resolve_sequence_association
+    )
+    sanitise_transform.apply(routine, role='kernel')
+
+    # Create member inlining transformation to go along SCC
+    inline_transform = InlineTransformation(inline_internals=inline_internals)
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
 
     #Not really doing anything for contained routines
-    if (not inline_members and not resolve_sequence_association):
+    if (not inline_internals and not resolve_sequence_association):
+        inline_transform.apply(routine, role='kernel')
         scc_transform.apply(routine, role='kernel')
 
         assert len(routine.members) == 1
         assert not FindNodes(Loop).visit(routine.body)
 
     #Should fail because it can't resolve sequence association
-    elif (inline_members and not resolve_sequence_association):
+    elif (inline_internals and not resolve_sequence_association):
         with pytest.raises(RuntimeError) as e_info:
+            inline_transform.apply(routine, role='kernel')
             scc_transform.apply(routine, role='kernel')
         assert(e_info.exconly() ==
                'RuntimeError: [Loki::TransformInline] Cannot resolve procedure call to contained_kernel')
 
     #Check that the call is properly modified
-    elif (not inline_members and resolve_sequence_association):
+    elif (not inline_internals and resolve_sequence_association):
+        inline_transform.apply(routine, role='kernel')
         scc_transform.apply(routine, role='kernel')
 
         assert len(routine.members) == 1
@@ -1964,6 +1993,7 @@ def test_single_column_coalesced_inline_and_sequence_association(frontend, horiz
 
     #Check that the contained subroutine has been inlined
     else:
+        inline_transform.apply(routine, role='kernel')
         scc_transform.apply(routine, role='kernel')
 
         assert len(routine.members) == 0

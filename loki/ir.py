@@ -709,6 +709,18 @@ class Interface(InternalNode, _InterfaceBase):
             return (self.spec,) + symbols
         return symbols
 
+    @property
+    def symbol_map(self):
+        """
+        Map symbol name to symbol declared by this interface
+        """
+        return CaseInsensitiveDict(
+            (s.name.lower(), s) for s in self.symbols
+        )
+
+    def __contains__(self, name):
+        return name in self.symbol_map
+
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
         if self.abstract:
@@ -1514,6 +1526,22 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
         Map of imported symbol names to objects
         """
         return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
+
+    def __contains__(self, name):
+        """
+        Check if a symbol with the given name is declared in this type
+        """
+        return name in self.variables
+
+    @property
+    def interface_symbols(self):
+        """
+        Return the list of symbols declared via interfaces in this unit
+
+        This returns always an empty tuple since there are no interface declarations
+        allowed in typedefs.
+        """
+        return ()
 
     @property
     def dtype(self):

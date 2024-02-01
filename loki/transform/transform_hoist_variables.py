@@ -85,6 +85,7 @@ from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
 from loki.visitors import Transformer, FindNodes
 from loki.transform.transformation import Transformation
 from loki.transform.transform_utilities import single_variable_declaration
+from loki.bulk.item import SubroutineItem
 import loki.expression.symbols as sym
 
 
@@ -150,6 +151,8 @@ class HoistVariablesAnalysis(Transformation):
         call_map = CaseInsensitiveDict((str(call.name), call) for call in calls)
 
         for child in successors:
+            if not isinstance(child, SubroutineItem):
+                continue
             arg_map = dict(call_map[child.local_name].arg_iter())
             hoist_variables = []
             for var in child.trafo_data[self._key]["hoist_variables"]:

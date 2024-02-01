@@ -1398,3 +1398,6 @@ end module some_mod
         assert symbol.type.bind_names == (symbol,)
         assert symbol.scope is typedef
         assert symbol.type.bind_names[0].scope is module
+
+    assert typedef.imported_symbols == ()
+    assert not typedef.imported_symbol_map

@@ -24,22 +24,17 @@ def fixture_block_dim():
     return Dimension(name='block_dim', size='nb', index='b')
 
 
-def check_stack_module_import(routine):
-    assert any(import_.module.lower() == 'stack_mod' for import_ in routine.imports)
-    assert 'stack' in routine.imported_symbols
-
-
 def check_c_sizeof_import(routine):
     assert any(import_.module.lower() == 'iso_c_binding' for import_ in routine.imports)
     assert 'c_sizeof' in routine.imported_symbols
 
 
 def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_block_loops,
-                                  generate_driver_stack=True, kind_real='jprb'):
+                                  generate_driver_stack=True, kind_real='jprb', check_bounds=True):
     # Are stack size, storage and stack derived type declared?
     assert 'istsz' in driver.variables
     assert 'zstack(:,:)' in driver.variables
-    assert 'ylstack' in driver.variables
+    assert 'ylstack_l' in driver.variables
 
     # Is there an allocation and deallocation for the stack storage?
     allocations = FindNodes(Allocation).visit(driver.body)
@@ -58,16 +53,16 @@ def check_stack_created_in_driver(driver, stack_size, first_kernel_call, num_blo
     loops = FindNodes(Loop).visit(driver.body)
     assert len(loops) == num_block_loops
     assignments = FindNodes(Assignment).visit(loops[0].body)
-    assert len(assignments) == 2
-    assert assignments[0].lhs == 'ylstack%l'
+    assert assignments[0].lhs == 'ylstack_l'
     assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
     assert 'zstack(1, b)' in assignments[0].rhs.parameters
-    if generate_driver_stack:
-        assert assignments[1].lhs == 'ylstack%u' and (
-               assignments[1].rhs == f'ylstack%l + istsz * c_sizeof(real(1, kind={kind_real}))')
-    else:
-        assert assignments[1].lhs == 'ylstack%u' and (
-               assignments[1].rhs == f'ylstack%l + c_sizeof(real(1, kind={kind_real}))*istsz')
+    if check_bounds:
+        if generate_driver_stack:
+            assert assignments[1].lhs == 'ylstack_u' and (
+                    assignments[1].rhs == f'ylstack_l + istsz * c_sizeof(real(1, kind={kind_real}))')
+        else:
+            assert assignments[1].lhs == 'ylstack_u' and (
+                    assignments[1].rhs == f'ylstack_l + c_sizeof(real(1, kind={kind_real}))*istsz')
 
     # Check that stack assignment happens before kernel call
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
@@ -96,7 +91,8 @@ END MODULE
         fcode_stack_decl = f"""
         integer :: istsz
         REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-        type(stack) :: ylstack
+        integer(kind=8) :: ylstack_l
+        integer(kind=8) :: ylstack_u
 
         {'istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))' if nclv_param else 'istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+2*c_sizeof(real(1,kind=jprb))/c_sizeof(real(1,kind=jprb))'}
         ALLOCATE(ZSTACK(ISTSZ, nb))
@@ -105,15 +101,16 @@ END MODULE
         fcode_stack_decl = f"""
         integer :: istsz
         REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-        type(stack) :: ylstack
+        integer(kind=8) :: ylstack_l
+        {'integer(kind=8) :: ylstack_u' if check_bounds else ''}
 
         {'istsz = c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nclv*nlon/c_sizeof(real(1,kind=jprb))' if nclv_param else 'istsz = 3*c_sizeof(real(1,kind=jprb))*nlon/c_sizeof(real(1,kind=jprb))+c_sizeof(real(1,kind=jprb))*nlon*nz/c_sizeof(real(1,kind=jprb))+2*c_sizeof(real(1,kind=jprb))/c_sizeof(real(1,kind=jprb))'}
         ALLOCATE(ZSTACK(ISTSZ, nb))
         """
 
     fcode_stack_assign = """
-        ylstack%l = loc(zstack(1, b))
-        ylstack%u = ylstack%l + c_sizeof(real(1, kind=jprb)) * istsz
+        ylstack_l = loc(zstack(1, b))
+        ylstack_u = ylstack_l + c_sizeof(real(1, kind=jprb)) * istsz
     """
     fcode_stack_dealloc = "DEALLOCATE(ZSTACK)"
 
@@ -271,9 +268,6 @@ end module kernel_mod
     #
     driver = scheduler['#driver'].routine
 
-    # Has the stack module been imported?
-    check_stack_module_import(driver)
-
     # Has c_sizeof procedure been imported?
     check_c_sizeof_import(driver)
 
@@ -281,31 +275,45 @@ end module kernel_mod
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
     if nclv_param:
-        assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
+        if check_bounds:
+            expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+            assert calls[0].arguments == expected_args
+        else:
+            expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l')
+            assert calls[0].arguments == expected_args
     else:
-        assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
+        if check_bounds:
+            expected_args = ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+            assert calls[0].arguments == expected_args
+        else:
+            expected_args = ('1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l')
+            assert calls[0].arguments == expected_args
 
     if generate_driver_stack:
-        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack)
+        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, check_bounds=check_bounds)
     else:
-        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, kind_real=kind_real)
+        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, kind_real=kind_real,
+                check_bounds=check_bounds)
 
     #
     # A few checks on the kernel
     #
     kernel = kernel_item.routine
 
-    # Has the stack module been imported?
-    check_stack_module_import(kernel)
-
     # Has c_sizeof procedure been imported?
     check_c_sizeof_import(kernel)
 
     # Has the stack been added to the arguments?
-    assert 'ydstack' in kernel.arguments
+    # assert 'ydstack' in kernel.arguments
+    assert 'ydstack_l' in kernel.arguments
+    if check_bounds:
+        assert 'ydstack_u' in kernel.arguments
 
     # Is it being assigned to a local variable?
-    assert 'ylstack' in kernel.variables
+    # assert 'ylstack' in kernel.variables
+    assert 'ylstack_l' in kernel.variables
+    if check_bounds:
+        assert 'ylstack_u' in kernel.variables
 
     # Let's check for the relevant "allocations" happening in the right order
     if nclv_param:
@@ -314,17 +322,17 @@ end module kernel_mod
         tmp_indices = (1, 2, 3, 5)
     assign_idx = {}
     for idx, assign in enumerate(FindNodes(Assignment).visit(kernel.body)):
-        if assign.lhs == 'ylstack' and assign.rhs == 'ydstack':
+        if assign.lhs == 'ylstack_l' and assign.rhs == 'ydstack_l':
             # Local copy of stack status
             assign_idx['stack_assign'] = idx
-        elif str(assign.lhs).lower().startswith('ip_tmp') and assign.rhs == 'ylstack%l':
+        elif str(assign.lhs).lower().startswith('ip_tmp') and assign.rhs == 'ylstack_l':
             # Assign Cray pointer for tmp1, tmp2, tmp5 (and tmp3, tmp4 if no alloc_dims provided)
             for tmp_index in tmp_indices:
                 if f'ip_tmp{tmp_index}' == assign.lhs:
                     assign_idx[f'tmp{tmp_index}_ptr_assign'] = idx
-        elif assign.lhs == 'ylstack%l' and 'ylstack%l' in assign.rhs and 'c_sizeof' in assign.rhs:
+        elif assign.lhs == 'ylstack_l' and 'ylstack_l' in assign.rhs and 'c_sizeof' in assign.rhs:
             _size = str(assign.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
-            _size = _size.replace('ylstack%l + ', '')
+            _size = _size.replace('ylstack_l + ', '')
 
             # Stack increment for tmp1, tmp2, tmp5 (and tmp3, tmp4 if no alloc_dims provided)
             for tmp_index in tmp_indices:
@@ -351,12 +359,11 @@ end module kernel_mod
 
     # Check for stack size safeguards in generated code
     if check_bounds:
-        assert fcode.lower().count('if (ylstack%l > ylstack%u)') == len(tmp_indices)
+        assert fcode.lower().count('if (ylstack_l > ylstack_u)') == len(tmp_indices)
         assert fcode.lower().count('stop') == len(tmp_indices)
     else:
-        assert 'if (ylstack%l > ylstack%u)' not in fcode.lower()
+        assert 'if (ylstack_l > ylstack_u)' not in fcode.lower()
         assert 'stop' not in fcode.lower()
-
     rmtree(basedir)
 
 
@@ -529,9 +536,6 @@ end module kernel_mod
     #
     driver = scheduler['#driver'].routine
 
-    # Has the stack module been imported?
-    check_stack_module_import(driver)
-
     # Check if allocation type symbols have been imported
     if frontend != OMNI:
         assert Variable(name='jpim') in driver.imported_symbols
@@ -542,8 +546,8 @@ end module kernel_mod
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 2
-    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
-    assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)', 'ylstack')
+    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
+    assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
 
     stack_size = f'max(c_sizeof(real(1, kind={kind_real}))*nlon + c_sizeof(real(1, kind={kind_real}))*nlon*nz + '
     stack_size += f'2*c_sizeof(int(1, kind={kind_int}))*nlon + c_sizeof(logical(true, kind={kind_log}))*nz,'
@@ -580,14 +584,13 @@ end module kernel_mod
     for count, item in enumerate([kernel_item, kernel2_item]):
         kernel = item.routine
 
-        # Has the stack module been imported?
-        check_stack_module_import(kernel)
-
         # Has the stack been added to the arguments?
-        assert 'ydstack' in kernel.arguments
+        assert 'ydstack_l' in kernel.arguments
+        assert 'ydstack_u' in kernel.arguments
 
         # Is it being assigned to a local variable?
-        assert 'ylstack' in kernel.variables
+        assert 'ylstack_l' in kernel.variables
+        assert 'ylstack_u' in kernel.variables
 
         dim1 = f"{kernel.variable_map['tmp1'].shape[0]}"
         for v in kernel.variable_map['tmp1'].shape[1:]:
@@ -602,26 +605,30 @@ end module kernel_mod
             _size = str(ass.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
             _size = _size.replace(f'*c_sizeof(int(1, kind={kind_int}))', '')
             _size = _size.replace(f'*c_sizeof(logical(.true., kind={kind_log}))', '')
-            _size = _size.replace('ylstack%l + ', '')
+            _size = _size.replace('ylstack_l + ', '')
 
-            if ass.lhs == 'ylstack' and ass.rhs == 'ydstack':
+            if ass.lhs == 'ylstack_l' and ass.rhs == 'ydstack_l':
                 # Local copy of stack status
                 assign_idx['stack_assign'] = idx
-            elif ass.lhs == 'ip_tmp1' and ass.rhs == 'ylstack%l':
+            elif ass.lhs == 'ylstack_u' and ass.rhs == 'ydstack_u':
+                # Local copy of stack status
+                assign_idx['stack_assign_end'] = idx
+            elif ass.lhs == 'ip_tmp1' and ass.rhs == 'ylstack_l':
                 # ass Cray pointer for tmp1
                 assign_idx['tmp1_ptr_assign'] = idx
-            elif ass.lhs == 'ip_tmp2' and ass.rhs == 'ylstack%l':
+            elif ass.lhs == 'ip_tmp2' and ass.rhs == 'ylstack_l':
                 # ass Cray pointer for tmp2
                 assign_idx['tmp2_ptr_assign'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
                 # Stack increment for tmp1
                 assign_idx['tmp1_stack_incr'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and 'c_sizeof' in ass.rhs:
                 # Stack increment for tmp2
                 assign_idx['tmp2_stack_incr'] = idx
 
         expected_assign_in_order = [
-            'stack_assign', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign', 'tmp2_stack_incr'
+            'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign',
+            'tmp2_stack_incr'
         ]
         assert set(expected_assign_in_order) == set(assign_idx.keys())
 
@@ -635,10 +642,10 @@ end module kernel_mod
 
         # Check for stack size safegurads in generated code
         if count == 0:
-            assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 4
+            assert fcode.lower().count('if (ylstack_l > ylstack_u)') == 4
             assert fcode.lower().count('stop') == 4
         else:
-            assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
+            assert fcode.lower().count('if (ylstack_l > ylstack_u)') == 2
             assert fcode.lower().count('stop') == 2
 
     rmtree(basedir)
@@ -804,9 +811,6 @@ end module kernel_mod
     #
     driver = scheduler['#driver'].routine
 
-    # Has the stack module been imported?
-    check_stack_module_import(driver)
-
     # Check if allocation type symbols have been imported
     if frontend != OMNI:
         assert Variable(name='jpim') in driver.imported_symbols
@@ -816,7 +820,7 @@ end module kernel_mod
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack')
+    assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)', 'ylstack_l', 'ylstack_u')
 
     stack_size = f'c_sizeof(real(1, kind={kind_real}))*nlon/c_sizeof(real(1, kind=jwrb)) +'
     stack_size += f'4*c_sizeof(real(1, kind={kind_real}))*nlon*nz/c_sizeof(real(1, kind=jwrb)) +'
@@ -857,19 +861,18 @@ end module kernel_mod
     #
     calls = FindNodes(CallStatement).visit(kernel_item.routine.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('start', 'end', 'klon', 'klev', 'field2', 'ylstack')
+    assert calls[0].arguments == ('start', 'end', 'klon', 'klev', 'field2', 'ylstack_l', 'ylstack_u')
 
     for count, item in enumerate([kernel_item, kernel2_item]):
         kernel = item.routine
 
-        # Has the stack module been imported?
-        check_stack_module_import(kernel)
-
         # Has the stack been added to the arguments?
-        assert 'ydstack' in kernel.arguments
+        assert 'ydstack_l' in kernel.arguments
+        assert 'ydstack_u' in kernel.arguments
 
         # Is it being assigned to a local variable?
-        assert 'ylstack' in kernel.variables
+        assert 'ylstack_l' in kernel.variables
+        assert 'ylstack_u' in kernel.variables
 
         dim1 = f"{kernel.variable_map['tmp1'].shape[0]}"
         for v in kernel.variable_map['tmp1'].shape[1:]:
@@ -884,26 +887,30 @@ end module kernel_mod
             _size = str(ass.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
             _size = _size.replace(f'*c_sizeof(int(1, kind={kind_int}))', '')
             _size = _size.replace(f'*c_sizeof(logical(.true., kind={kind_log}))', '')
-            _size = _size.replace('ylstack%l + ', '')
+            _size = _size.replace('ylstack_l + ', '')
 
-            if ass.lhs == 'ylstack' and ass.rhs == 'ydstack':
+            if ass.lhs == 'ylstack_l' and ass.rhs == 'ydstack_l':
                 # Local copy of stack status
                 assign_idx['stack_assign'] = idx
-            elif ass.lhs == 'ip_tmp1' and ass.rhs == 'ylstack%l':
+            if ass.lhs == 'ylstack_u' and ass.rhs == 'ydstack_u':
+                # Local copy of stack status
+                assign_idx['stack_assign_end'] = idx
+            elif ass.lhs == 'ip_tmp1' and ass.rhs == 'ylstack_l':
                 # ass Cray pointer for tmp1
                 assign_idx['tmp1_ptr_assign'] = idx
-            elif ass.lhs == 'ip_tmp2' and ass.rhs == 'ylstack%l':
+            elif ass.lhs == 'ip_tmp2' and ass.rhs == 'ylstack_l':
                 # ass Cray pointer for tmp2
                 assign_idx['tmp2_ptr_assign'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
                 # Stack increment for tmp1
                 assign_idx['tmp1_stack_incr'] = idx
-            elif ass.lhs == 'ylstack%l' and 'ylstack%l' in ass.rhs and 'c_sizeof' in ass.rhs and dim2 == _size:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and 'c_sizeof' in ass.rhs and dim2 == _size:
                 # Stack increment for tmp2
                 assign_idx['tmp2_stack_incr'] = idx
 
         expected_assign_in_order = [
-            'stack_assign', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign', 'tmp2_stack_incr'
+            'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign',
+            'tmp2_stack_incr'
         ]
         assert set(expected_assign_in_order) == set(assign_idx.keys())
 
@@ -917,10 +924,10 @@ end module kernel_mod
 
         # Check for stack size safegurads in generated code
         if count == 0:
-            assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 4
+            assert fcode.lower().count('if (ylstack_l > ylstack_u)') == 4
             assert fcode.lower().count('stop') == 4
         else:
-            assert fcode.lower().count('if (ylstack%l > ylstack%u)') == 2
+            assert fcode.lower().count('if (ylstack_l > ylstack_u)') == 2
             assert fcode.lower().count('stop') == 2
 
     rmtree(basedir)
@@ -998,25 +1005,24 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
     item = scheduler['kernel_mod#kernel']
     kernel = item.routine
 
-    # Has the stack module been imported?
-    check_stack_module_import(kernel)
-
     # Has the stack been added to the arguments?
-    assert 'ydstack' in kernel.arguments
+    assert 'ydstack_l' in kernel.arguments
+    assert 'ydstack_u' in kernel.arguments
 
     # Is it being assigned to a local variable?
-    assert 'ylstack' in kernel.variables
+    assert 'ylstack_l' in kernel.variables
+    assert 'ylstack_u' in kernel.variables
 
     # Has the stack been added to the call statement at the correct location?
     calls = FindNodes(CallStatement).visit(kernel.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('klon', 'temp1', 'ylstack', 'temp2')
+    assert calls[0].arguments == ('klon', 'temp1', 'ylstack_l', 'ylstack_u', 'temp2')
 
     if not frontend == OFP:
         # Now repeat the checks for the inline call
         calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() in ('c_sizeof', 'real')]
         assert len(calls) == 1
-        assert calls[0].parameters == ('jl', 'ylstack')
+        assert calls[0].parameters == ('jl', 'ylstack_l', 'ylstack_u')
 
     assert 'Derived-type vars in Subroutine:: kernel not supported in pool allocator' in caplog.text
     rmtree(basedir)

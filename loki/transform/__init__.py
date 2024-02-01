@@ -8,7 +8,6 @@
 from loki.transform.transformation import * # noqa
 from loki.transform.transform_utilities import * # noqa
 from loki.transform.transform_array_indexing import * # noqa
-from loki.transform.transform_associates import * # noqa
 from loki.transform.transform_inline import * # noqa
 from loki.transform.transform_loop import * # noqa
 from loki.transform.transform_region import * # noqa
@@ -20,5 +19,5 @@ from loki.transform.build_system_transform import * # noqa
 from loki.transform.transform_hoist_variables import * # noqa
 from loki.transform.transform_parametrise import * # noqa
 from loki.transform.transform_extract_contained_procedures import * # noqa
-from loki.transform.transform_sequence_association import * # noqa
 from loki.transform.transform_dead_code import * # noqa
+from loki.transform.transform_sanitise import * # noqa

@@ -45,6 +45,8 @@ end module interface_spec_mod
     # Make sure basic properties are right
     assert interface.abstract is False
     assert interface.symbols == ('sub',)
+    assert 'sub' in interface
+    assert interface.symbol_map == {'sub': interface.symbols[0]}
 
     # Check the subroutine is there
     assert len(interface.body) == 1
@@ -55,6 +57,8 @@ end module interface_spec_mod
     assert 'interface' in code
     assert 'end interface' in code
     assert 'subroutine sub' in code
+
+    assert repr(interface) == 'Interface:: sub'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
@@ -287,6 +291,7 @@ end module interface_generic_spec_mod
     assert intf.spec == 'switch'
     assert intf.spec.type.dtype.is_generic is True
     assert 'INTERFACE SWITCH' in fgen(intf).upper()
+    assert repr(intf).upper() == 'INTERFACE SWITCH:: SWITCH, INT_SWITCH, REAL_SWITCH, COMPLEX_SWITCH'
 
     assert all(s in module.symbols for s in ('switch', 'int_switch', 'real_switch', 'complex_switch'))
 
@@ -462,6 +467,7 @@ end module my_interface_mod
     intf_sim_func = mod.interface_map['sim_func']
     assert intf_sim_func.abstract
     assert intf_sim_func.symbols[0].type.dtype.procedure is intf_sim_func.body[0]
+    assert repr(intf_sim_func).upper() == 'ABSTRACT INTERFACE:: SIM_FUNC'
 
     intf_sub2 = mod.interface_map['sub2']
     assert intf_sub2.symbols[0].type.dtype.procedure is intf_sub2.body[0]

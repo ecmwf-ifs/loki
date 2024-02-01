@@ -53,9 +53,10 @@ subroutine driver
     use typebound_other, only: other => other_type
     implicit none
 
+    integer, parameter :: constant = 2
     type(some_type), allocatable :: obj(:), obj2(:,:)
     type(header_type) :: header
-    type(other) :: other_obj, derived(2)
+    type(other) :: other_obj, derived(constant)
     real :: x
     integer :: i
 

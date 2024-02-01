@@ -275,6 +275,22 @@ class Scope:
         """
         return f'Scope<{id(self)}>'
 
+    @property
+    def parents(self):
+        """
+        All parent scopes enclosing the current scope, with the top-level
+        scope at the end of the list
+
+        Returns
+        -------
+        tuple
+            The list of parent scopes
+        """
+        parent = self.parent
+        if parent:
+            return parent.parents + (parent,)
+        return ()
+
     def rescope_symbols(self):
         """
         Make sure all symbols declared and used inside this node belong
@@ -282,6 +298,18 @@ class Scope:
         """
         from loki.expression import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
         AttachScopes().visit(self)
+
+    def make_complete(self, **frontend_args):
+        """
+        Trigger a re-parse of the object if incomplete to produce a full Loki IR
+
+        See :any:`ProgramUnit.make_complete` for more details.
+
+        This method relays the call only to the :attr:`parent`.
+        """
+        if hasattr(super(), 'make_complete'):
+            super().make_complete(**frontend_args)
+        self.parent.make_complete(**frontend_args)
 
     def clone(self, **kwargs):
         """

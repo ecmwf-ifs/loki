@@ -42,12 +42,14 @@ class RegexParserClass(Flag):
     pattern matching can be switched on and off for some pattern classes, and thus the overall
     parse time reduced.
     """
+    EmptyClass = 0
     ProgramUnitClass = auto()
+    InterfaceClass = auto()
     ImportClass = auto()
     TypeDefClass = auto()
     DeclarationClass = auto()
     CallClass = auto()
-    AllClasses = ProgramUnitClass | ImportClass | TypeDefClass | DeclarationClass | CallClass  # pylint: disable=unsupported-binary-operation
+    AllClasses = ProgramUnitClass | InterfaceClass | ImportClass | TypeDefClass | DeclarationClass | CallClass  # pylint: disable=unsupported-binary-operation
 
 
 class Pattern:
@@ -182,22 +184,21 @@ class Pattern:
         filtered_candidates = [
             candidate for candidate in filtered_candidates if candidate.parser_class & parser_classes
         ]
-        if not filtered_candidates:
-            return []
 
         ir_ = []
         last_match = -1
-        for idx, _ in enumerate(reader):
-            for candidate in filtered_candidates:
-                match = candidate.match(reader, parser_classes=parser_classes, scope=scope)
-                if match:
-                    if last_match - idx > 1:
-                        span = (reader.sanitized_spans[last_match + 1], reader.sanitized_spans[idx])
-                        source = reader.source_from_sanitized_span(span)
-                        ir_ += [ir.RawSource(source.string, source=source)]
-                    last_match = idx
-                    ir_ += [match]
-                    break
+        if filtered_candidates:
+            for idx, _ in enumerate(reader):
+                for candidate in filtered_candidates:
+                    match = candidate.match(reader, parser_classes=parser_classes, scope=scope)
+                    if match:
+                        if last_match - idx > 1:
+                            span = (reader.sanitized_spans[last_match + 1], reader.sanitized_spans[idx])
+                            source = reader.source_from_sanitized_span(span)
+                            ir_ += [ir.RawSource(source.string, source=source)]
+                        last_match = idx
+                        ir_ += [match]
+                        break
 
         if head is not None and ir_:
             ir_ = [ir.RawSource(text=head.string, source=head)] + ir_
@@ -446,7 +447,8 @@ class ModulePattern(Pattern):
             contains = None
 
         module.__initialize__(  # pylint: disable=unnecessary-dunder-call
-            name=module.name, spec=spec, contains=contains, source=module.source, incomplete=True
+            name=module.name, spec=spec, contains=contains, source=module.source, incomplete=True,
+            parser_classes=parser_classes
         )
 
         if match.span()[0] > 0:
@@ -537,7 +539,8 @@ class SubroutineFunctionPattern(Pattern):
 
         routine.__initialize__(  # pylint: disable=unnecessary-dunder-call
             name=routine.name, args=routine._dummies, is_function=routine.is_function,
-            prefix=prefix, spec=spec, contains=contains, source=routine.source, incomplete=True
+            prefix=prefix, spec=spec, contains=contains, source=routine.source,
+            incomplete=True, parser_classes=parser_classes
         )
 
         if match.span()[0] > 0:
@@ -552,7 +555,7 @@ class InterfacePattern(Pattern):
     Pattern to match :any:`Interface` objects
     """
 
-    parser_class = RegexParserClass.ProgramUnitClass
+    parser_class = RegexParserClass.InterfaceClass
 
     def __init__(self):
         super().__init__(
@@ -611,7 +614,7 @@ class ProcedureStatementPattern(Pattern):
     Pattern to match procedure statements in interfaces
     """
 
-    parser_class = RegexParserClass.ProgramUnitClass
+    parser_class = RegexParserClass.InterfaceClass
 
     def __init__(self):
         super().__init__(
@@ -772,8 +775,8 @@ class ProcedureBindingPattern(Pattern):
                 symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
             else:
                 type_ = SymbolAttributes(ProcedureType(name=s[1]))
-                initial = sym.Variable(name=s[1], type=type_, scope=scope.parent)
-                symbols += [sym.Variable(name=s[0], type=type_.clone(initial=initial), scope=scope)]
+                bind_name = sym.Variable(name=s[1], type=type_, scope=scope.parent)
+                symbols += [sym.Variable(name=s[0], type=type_.clone(bind_names=(bind_name,)), scope=scope)]
 
         return ir.ProcedureDeclaration(symbols=symbols, source=reader.source_from_current_line())
 
@@ -896,7 +899,8 @@ class VariableDeclarationPattern(Pattern):
     def __init__(self):
         super().__init__(
             r'^(((?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\))|' # TYPE or CLASS keyword with typename
-            r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))(\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
+            r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))'
+            r'(?P<param>\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
             r'(?:[ \t]*,[ \t]*[a-z]+(?:\((.(\(.*\))?)*?\))?)*'  # Optional attributes
             r'(?:[ \t]*::)?'  # Optional `::` delimiter
             r'[ \t]*'  # Some white space
@@ -927,6 +931,11 @@ class VariableDeclarationPattern(Pattern):
         else:
             type_ = SymbolAttributes(BasicType.from_str(match['basic_type']))
         assert type_
+
+        if match['param']:
+            param = match['param'].strip().strip('()').split('=')
+            if len(param) == 1 or param[0].lower() == 'kind':
+                type_ = type_.clone(kind=sym.Variable(name=param[-1], scope=scope))
 
         variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
         variables = re.sub(r'=(?:>)?[^,]*(?=,|$)', r'', variables) # Remove initialization

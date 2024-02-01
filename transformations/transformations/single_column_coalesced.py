@@ -7,11 +7,8 @@
 
 import re
 from loki.expression import symbols as sym
-from loki.transform import (
-    resolve_associates, inline_member_procedures,
-    inline_marked_subroutines, transform_sequence_association,
-    dead_code_elimination
-)
+from loki.transform import resolve_associates
+
 from loki import (
     Transformation, FindNodes, Transformer, info,
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
@@ -40,30 +37,13 @@ class SCCBaseTransformation(Transformation):
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
-    inline_members : bool
-        Enable full source-inlining of member subroutines; default: False.
-    inline_marked : bool
-        Enable inlining for subroutines marked with ``!$loki inline``; default: True.
-    resolve_sequence_association : bool
-        Replace scalars that are passed to array arguments with array ranges; default: False.
-    use_dead_code_elimination : bool
-        Perform dead code elimination, where unreachable branches are trimmed from the code.
     """
 
-    def __init__(
-            self, horizontal, directive=None, inline_members=False,
-            inline_marked=True, resolve_sequence_association=False,
-            eliminate_dead_code=True
-    ):
+    def __init__(self, horizontal, directive=None):
         self.horizontal = horizontal
 
         assert directive in [None, 'openacc']
         self.directive = directive
-
-        self.inline_members = inline_members
-        self.inline_marked = inline_marked
-        self.resolve_sequence_association = resolve_sequence_association
-        self.eliminate_dead_code = eliminate_dead_code
 
     @classmethod
     def check_routine_pragmas(cls, routine, directive):
@@ -308,26 +288,9 @@ class SCCBaseTransformation(Transformation):
         # Find the iteration index variable for the specified horizontal
         v_index = self.get_integer_variable(routine, name=self.horizontal.index)
 
-        # Transform arrays passed with scalar syntax to array syntax
-        if self.resolve_sequence_association:
-            transform_sequence_association(routine)
-
-        # Perform full source-inlining for member subroutines
-        if self.inline_members:
-            inline_member_procedures(routine, allowed_aliases=(self.horizontal.index,))
-
-        # Perform full source-inlining for pragma-marked subroutines
-        if self.inline_marked:
-            # When inlining we allow the horizontal dimension to alias, so that
-            # the de/re-vectorisation captures the shared vector dimension.
-            inline_marked_subroutines(routine, allowed_aliases=(self.horizontal.index,))
-
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
         resolve_associates(routine)
-
-        if self.eliminate_dead_code:
-            dead_code_elimination(routine)
 
         # Resolve WHERE clauses
         self.resolve_masked_stmts(routine, loop_variable=v_index)

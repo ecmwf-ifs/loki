@@ -314,7 +314,7 @@ class OFP2IR(GenericVisitor):
         return as_tuple(value) or None, as_tuple(body)
 
     # TODO: Deal with line-continuation pragmas!
-    _re_pragma = re.compile(r'^\s*\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
+    _re_pragma = re.compile(r'^\s*\!\$(?P<keyword>\w+)\s*(?P<content>.*)', re.IGNORECASE)
 
     def visit_comment(self, o, **kwargs):
         match_pragma = self._re_pragma.search(kwargs['source'].string)
@@ -1083,12 +1083,20 @@ class OFP2IR(GenericVisitor):
             spec = spec.rescope(scope=scope)
 
         body = []
+        # Sometimes, OFP gets it wrong and puts the declarations inside <declaration>,
+        # on other occasions it puts it inside <specification>...  ¯\_(ツ)_/¯
         grouped_elems = match_tag_sequence(o.find('body/specification/declaration'), [
             ('names', 'procedure-stmt'),
             ('function', ),
             ('subroutine', ),
             ('comment', ),
         ])
+        if not grouped_elems:
+            grouped_elems = match_tag_sequence(o.find('body/specification'), [
+                ('function',),
+                ('subroutine',),
+                ('comment',)
+            ])
 
         for group in grouped_elems:
             if len(group) == 1:
@@ -1365,7 +1373,7 @@ class OFP2IR(GenericVisitor):
                                source=kwargs['source'], status_var=kw_args.get('stat'))
 
     def visit_use(self, o, **kwargs):
-        name, module = self.visit(o.find('use-stmt'), **kwargs)
+        name, module, nature = self.visit(o.find('use-stmt'), **kwargs)
         scope = kwargs['scope']
         if o.find('only') is not None:
             # ONLY list given (import only selected symbols)
@@ -1422,7 +1430,7 @@ class OFP2IR(GenericVisitor):
                 })
             rename_list = tuple(rename_list.items()) if rename_list else None
         return ir.Import(module=name, symbols=symbols, rename_list=rename_list,
-                         label=kwargs['label'], source=kwargs['source'])
+                         nature=nature, label=kwargs['label'], source=kwargs['source'])
 
     def visit_only(self, o, **kwargs):
         count = int(o.find('only-list').get('count'))
@@ -1438,8 +1446,10 @@ class OFP2IR(GenericVisitor):
     def visit_use_stmt(self, o, **kwargs):
         name = o.attrib['id']
         if o.attrib['hasModuleNature'] != 'false':
-            self.warn_or_fail('module nature in USE statement not implemented')
-        return name, self.definitions.get(name)
+            self.warn_or_fail('Module nature in USE statement not implemented. Assuming INTRINSIC')
+            # Do not return module reference for intrinsic modules
+            return name, None, 'intrinsic'
+        return name, self.definitions.get(name), None
 
     def visit_directive(self, o, **kwargs):
         source = kwargs['source']
