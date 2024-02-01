@@ -71,6 +71,8 @@ class InlineTransformation(Transformation):
     external_only : bool, optional
         Do not replace variables declared in the local scope when
         inlining constants (default: True)
+    resolve_sequence_association: bool
+        Resolve sequence association for routines that contain calls to inline (default: False)
     """
 
     # Ensure correct recursive inlining by traversing from the leaves
@@ -95,34 +97,15 @@ class InlineTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
-        # Run an "inliner-specific" sequence association round 
-        # if i) requested by the user, ii) inlining is activated and 
-        # iii) there is something to be inlined. This local resolving sequence association
-        # exists because there are cases where the global one irrespective of inlining is
-        # undesirable.
+        # Resolve sequence association in calls that are about to be inlined.
+        # This step runs only if all of the following hold:
+        # 1) it is requested by the user
+        # 2) inlining is activated
+        # 3) there is something to be inlined. 
         if self.resolve_sequence_association:
-            resolved_seq_assoc = False
-            if self.inline_internals:
-                # Find out if routine has internal procedures and if so, 
-                # resolve sequence association as requested.
-                has_internals = len(routine.routines) > 0
-                if has_internals: 
-                    transform_sequence_association(routine)
-                    resolved_seq_assoc = True
-
-            if self.inline_marked and not resolved_seq_assoc:
-                # Find out if routine has calls that have been marked for inlining
-                # using a pragma.
-                has_marked = False
-                with pragmas_attached(routine, node_type=CallStatement):
-                    for call in FindNodes(CallStatement).visit(routine.body):
-                        if call.routine == BasicType.DEFERRED:
-                            continue
-                        if is_loki_pragma(call.pragma, starts_with='inline'):
-                            has_marked = True
-                            break
-                if has_marked:
-                    transform_sequence_association(routine)
+            resolve_sequence_association_for_inlined(
+                routine, self.inline_internals, self.inline_marked
+            )
 
         # Replace constant parameter variables with explicit values
         if self.inline_constants:
@@ -208,6 +191,23 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         rhs = self.rec(stmts[0].rhs, *args, **kwargs)
         return rhs
 
+def resolve_sequence_association_for_inlined(routine, inline_internals, inline_marked):
+    """
+    Resolve sequence association in calls to all member procedures (if `inline_internals = True`) 
+    or in calls to procedures that have been marked with an inline pragma (if `inline_marked = True`). 
+    If both `inline_internals` and `inline_marked` are `False`, no processing is done.
+    """
+    call_map = {}
+    with pragmas_attached(routine, node_type=CallStatement):
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if call.routine == BasicType.DEFERRED:
+                continue
+            if inline_marked and is_loki_pragma(call.pragma, starts_with='inline'):
+                transform_sequence_association_append_map(call_map, call)
+            if inline_internals and call.routine in routine.routines:
+                transform_sequence_association_append_map(call_map, call)
+    if call_map:
+        routine.body = Transformer(call_map).visit(routine.body)
 
 def inline_constant_parameters(routine, external_only=True):
     """

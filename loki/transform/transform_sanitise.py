@@ -24,7 +24,8 @@ from loki.transform.transformation import Transformation
 
 __all__ = [
     'SanitiseTransformation', 'resolve_associates',
-    'ResolveAssociatesTransformer', 'transform_sequence_association'
+    'ResolveAssociatesTransformer', 'transform_sequence_association',
+    'transform_sequence_association_append_map'
 ]
 
 
@@ -162,32 +163,39 @@ def transform_sequence_association(routine):
     calls = (c for c in FindNodes(CallStatement).visit(routine.body) if not c.procedure_type is BasicType.DEFERRED)
     call_map = {}
 
+    # Check all calls and record changes to `call_map` if necessary.
     for call in calls:
+        transform_sequence_association_append_map(call_map, call)
 
-        new_args = []
-
-        found_scalar = False
-        for dummy, arg in call.arg_map.items():
-            if check_if_scalar_syntax(arg, dummy):
-                found_scalar = True
-
-                n_dims = len(dummy.shape)
-                new_dims = []
-                for s, lower in zip(arg.shape[:n_dims], arg.dimensions[:n_dims]):
-
-                    if isinstance(s, RangeIndex):
-                        new_dims += [RangeIndex((lower, s.stop))]
-                    else:
-                        new_dims += [RangeIndex((lower, s))]
-
-                if len(arg.dimensions) > n_dims:
-                    new_dims += arg.dimensions[len(dummy.shape):]
-                new_args += [arg.clone(dimensions=as_tuple(new_dims)),]
-            else:
-                new_args += [arg,]
-
-        if found_scalar:
-            call_map[call] = call.clone(arguments = as_tuple(new_args))
-
+    # Fix sequence association in all calls in one go.
     if call_map:
         routine.body = Transformer(call_map).visit(routine.body)
+
+def transform_sequence_association_append_map(call_map, call):
+    """
+    Check if `call` contains the sequence association pattern in one of the arguments,
+    and if so, add the necessary transform data to `call_map`.
+    """
+    new_args = []
+    found_scalar = False
+    for dummy, arg in call.arg_map.items():
+        if check_if_scalar_syntax(arg, dummy):
+            found_scalar = True
+
+            n_dims = len(dummy.shape)
+            new_dims = []
+            for s, lower in zip(arg.shape[:n_dims], arg.dimensions[:n_dims]):
+
+                if isinstance(s, RangeIndex):
+                    new_dims += [RangeIndex((lower, s.stop))]
+                else:
+                    new_dims += [RangeIndex((lower, s))]
+
+            if len(arg.dimensions) > n_dims:
+                new_dims += arg.dimensions[len(dummy.shape):]
+            new_args += [arg.clone(dimensions=as_tuple(new_dims)),]
+        else:
+            new_args += [arg,]
+
+    if found_scalar:
+        call_map[call] = call.clone(arguments = as_tuple(new_args))
