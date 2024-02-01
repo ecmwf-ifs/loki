@@ -386,11 +386,11 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
     expected_trafo_data = {
         'global_var_analysis_header_mod#nval': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': set()
+            'offload': {'nval'}
         },
         'global_var_analysis_header_mod#nfld': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': set()
+            'offload': ['nfld']
         },
         'global_var_analysis_header_mod#iarr': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
@@ -412,6 +412,8 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         'global_var_analysis_kernel_mod#kernel_a': {
             'defines_symbols': set(),
             'uses_symbols': {
+                ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
+                ('nval', 'global_var_analysis_header_mod'),
                 (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
                 (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
             }
@@ -419,6 +421,7 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         'global_var_analysis_kernel_mod#kernel_b': {
             'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
             'uses_symbols': {
+                ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
                 ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
                 ('tt%vals', 'global_var_analysis_data_mod'), (f'iarr({nfld_dim})', 'global_var_analysis_header_mod')
             }
@@ -426,8 +429,10 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         '#driver': {
             'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
             'uses_symbols': {
-                ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
-                ('tt%vals', 'global_var_analysis_data_mod'), (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
+                ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
+                ('nval', 'global_var_analysis_header_mod'), ('rdata(:, :, :)', 'global_var_analysis_data_mod'),
+                ('tt', 'global_var_analysis_data_mod'), ('tt%vals', 'global_var_analysis_data_mod'),
+                (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
                 (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
             }
         }
@@ -438,8 +443,7 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         if item == 'global_var_analysis_data_mod#some_type':
             continue
         for trafo_data_key, trafo_data_value in item.trafo_data[key].items():
-            if trafo_data_key not in ('defines_symbols', 'uses_symbols'):
-                continue
+            print(f"item: {item} | trafo_data_key: {trafo_data_key}")
             assert (
                 sorted(
                     tuple(str(vv) for vv in v) if isinstance(v, tuple) else str(v)
@@ -654,7 +658,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
     scheduler.process(transformation=GlobalVariableAnalysis())
-    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters, ignore_modules=('modulec',)))
+    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters)) # , ignore_modules=('modulec',)))
 
     print("")
     print("")

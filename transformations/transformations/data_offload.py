@@ -211,8 +211,7 @@ class GlobalVariableAnalysis(Transformation):
     For procedures, use the the Loki dataflow analysis functionality to compile
     a list of used and/or defined variables (i.e., read and/or written).
     Store these under the keys ``'uses_symbols'`` and ``'defines_symbols'``,
-    respectively (and additionally ``'uses_parameters'`` for used symbols being 
-    compile time constants).
+    respectively.
 
     For modules/:any:`GlobalVarImportItem`, store the list of variables declared in the
     module under the key ``'declares'`` and out of this the subset of variables that
@@ -230,7 +229,6 @@ class GlobalVariableAnalysis(Transformation):
 
         SubroutineItem: {
             'uses_symbols': set( (Variable, '<module_name>'), (Variable, '<module_name>'), ...),
-            'uses_parameters': set( (Variable, '<module_name>'), (Variable, '<module_name>'), ...),
             'defines_symbols': set((Variable, '<module_name>'), (Variable, '<module_name>'), ...)
         }
 
@@ -303,11 +301,6 @@ class GlobalVariableAnalysis(Transformation):
             uses_imported_symbols = {var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))}
             defines_imported_symbols = {var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))}
 
-            # Discard parameters (which are read-only by definition)
-            # uses_imported_symbols = {var for var in uses_imported_symbols if not var.type.parameter}
-            uses_imported_parameters = {var for var in uses_imported_symbols if var.type.parameter}
-            uses_imported_symbols ^= uses_imported_parameters # TODO: does it matter, wether ^= or -= ???
-
             def _map_var_to_module(var):
                 if var.parent:
                     module = var.parents[0].type.module
@@ -327,9 +320,6 @@ class GlobalVariableAnalysis(Transformation):
             item.trafo_data[self._key] = {}
             item.trafo_data[self._key]['uses_symbols'] = {
                 _map_var_to_module(var) for var in uses_imported_symbols
-            }
-            item.trafo_data[self._key]['uses_parameters'] = {
-                _map_var_to_module(var) for var in uses_imported_parameters
             }
             item.trafo_data[self._key]['defines_symbols'] = {
                 _map_var_to_module(var) for var in defines_imported_symbols
@@ -356,7 +346,6 @@ class GlobalVariableAnalysis(Transformation):
         for successor in successors:
             if isinstance(successor, SubroutineItem):
                 item.trafo_data[self._key]['uses_symbols'] |= successor.trafo_data[self._key]['uses_symbols']
-                item.trafo_data[self._key]['uses_parameters'] |= successor.trafo_data[self._key]['uses_parameters']
                 item.trafo_data[self._key]['defines_symbols'] |= successor.trafo_data[self._key]['defines_symbols']
 
 
@@ -474,10 +463,10 @@ class GlobalVarOffloadTransformation(Transformation):
             for v in as_tuple(acc_pragma_parameters.get('create'))
         ]))
 
-        # Build list of symbols to be offloaded
+        # Build list of symbols to be offloaded (discard variables being parameter)
         offload_variables = {
             var.parents[0] if var.parent else var
-            for var in item.trafo_data[self._key].get('offload', ())
+            for var in item.trafo_data[self._key].get('offload', ()) if not var.type.parameter
         }
 
         if (invalid_vars := offload_variables - set(module.variables)):
@@ -517,6 +506,9 @@ class GlobalVarOffloadTransformation(Transformation):
         for item in successors:
             defines_symbols |= item.trafo_data.get(self._key, {}).get('defines_symbols', set())
             uses_symbols |= item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+            # discard variables being parameter
+            parameters = {(var, module) for var, module in uses_symbols if var.type.parameter}
+            uses_symbols ^= parameters
 
         # Filter out arrays of derived types and nested derived types
         # For these, automatic offloading is currently not supported
@@ -764,9 +756,11 @@ class GlobalVarHoistTransformation(Transformation):
             defines_symbols[item.routine.name] = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
             # uses_symbols |= item.trafo_data.get(self._key, {}).get('uses_symbols', set())
             uses_symbols[item.routine.name] = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
-            if self.hoist_parameters:
+            if not self.hoist_parameters:
+                parameters = {(var, module) for var, module in uses_symbols[item.routine.name] if var.type.parameter}
+                uses_symbols[item.routine.name] ^= parameters
                 # uses_symbols |= item.trafo_data.get(self._key, {}).get('uses_parameters', set())
-                uses_symbols[item.routine.name] |= item.trafo_data.get(self._key, {}).get('uses_parameters', set())
+                # uses_symbols[item.routine.name] |= item.trafo_data.get(self._key, {}).get('uses_parameters') # , set())
         return defines_symbols, uses_symbols
 
     def _append_call_arguments(self, routine, uses_symbols, defines_symbols):
@@ -792,7 +786,11 @@ class GlobalVarHoistTransformation(Transformation):
         all_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', set()) # set()
         all_defines_vars = [var.parents[0] if var.parent else var for var, _ in all_defines_symbols]
         all_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', set()) # set()
+        parameters = {(var, module) for var, module in all_uses_symbols if var.type.parameter}
+        if not self.hoist_parameters:
+            all_uses_symbols ^= parameters
         all_uses_vars = [var.parent[0] if var.parent else var for var, _ in all_uses_symbols]
+
         all_symbols = all_uses_symbols|all_defines_symbols
         new_arguments = []
         for var, module in all_symbols:
