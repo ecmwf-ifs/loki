@@ -659,20 +659,7 @@ class GlobalVarHoistTransformation(Transformation):
         for _, value in uses_symbols.items():
             all_uses_symbols |= value
         ##
-        # DONE: add to calls
-        offload_map = defaultdict(set)
-        # all_symbols = uses_symbols[key]|defines_symbols[key]
-        for key, _ in uses_symbols.items():
-            all_symbols = uses_symbols[key]|defines_symbols[key]
-            for var, module in all_symbols: #sorted(all_symbols, key=lambda symbol: symbol[0].name): # uses_symbols[key]|defines_symbols[key]:
-                offload_map[key].add(var.parents[0] if var.parent else var)
-        call_map = {}
-        calls = FindNodes(CallStatement).visit(routine.body)
-        for call in calls:
-            if call.routine.name in uses_symbols: # in chain(uses_symbols[call.routine.name], defines_symbols[call.routine.name]):
-                arguments = call.arguments
-                call_map[call] = call.clone(arguments=arguments + tuple(sorted([var.clone() for var in offload_map[call.routine.name]], key=lambda symbol: symbol.name))) # uses_symbols[call.routine.name]))
-        routine.body = Transformer(call_map).visit(routine.body)
+        self._append_call_arguments(routine, uses_symbols, defines_symbols)
         # DONE: append/add/adapt imports
         # Add imports for offload variables
         offload_map = defaultdict(set)
@@ -707,32 +694,10 @@ class GlobalVarHoistTransformation(Transformation):
         defines_symbols, uses_symbols = self._get_symbols(routine, successors) 
         # DONE: add to routine arguments
         # TODO: intent('out') is evil, just use 'intent('inout') like currently implemented?!
-        all_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', set()) # set()
-        all_defines_vars = [var.parents[0] if var.parent else var for var, _ in all_defines_symbols]
-        all_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', set()) # set()
-        all_uses_vars = [var.parent[0] if var.parent else var for var, _ in all_uses_symbols]
-        all_symbols = all_uses_symbols|all_defines_symbols
-        new_arguments = []
-        for var, _ in all_symbols:
-            new_arguments.append(var.parents[0] if var.parent else var)
-
-        new_arguments = [arg.clone(type=arg.type.clone(intent='inout' if arg in all_defines_vars else 'in', parameter=False, initial=None)) for arg in new_arguments]
-        routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
+        self._append_routine_arguments(routine, item)
         ###
         # DONE: add to calls
-        offload_map = defaultdict(set)
-        # all_symbols = uses_symbols[key]|defines_symbols[key]
-        for key, _ in uses_symbols.items():
-            all_symbols = uses_symbols[key]|defines_symbols[key]
-            for var, module in all_symbols: #sorted(all_symbols, key=lambda symbol: symbol[0].name): # uses_symbols[key]|defines_symbols[key]:
-                offload_map[key].add(var.parents[0] if var.parent else var)
-        call_map = {}
-        calls = FindNodes(CallStatement).visit(routine.body)
-        for call in calls:
-            if call.routine.name in uses_symbols: # in chain(uses_symbols[call.routine.name], defines_symbols[call.routine.name]):
-                arguments = call.arguments
-                call_map[call] = call.clone(arguments=arguments + tuple(sorted([var.clone() for var in offload_map[call.routine.name]], key=lambda symbol: symbol.name))) # uses_symbols[call.routine.name]))
-        routine.body = Transformer(call_map).visit(routine.body)
+        self._append_call_arguments(routine, uses_symbols, defines_symbols)
         ###
         # DONE: remove/adapt imports
         # Add imports for offload variables
@@ -783,3 +748,31 @@ class GlobalVarHoistTransformation(Transformation):
                 uses_symbols[item.routine.name] |= item.trafo_data.get(self._key, {}).get('uses_parameters', set())
         return defines_symbols, uses_symbols
 
+    def _append_call_arguments(self, routine, uses_symbols, defines_symbols):
+        # DONE: add to calls
+        offload_map = defaultdict(set)
+        # all_symbols = uses_symbols[key]|defines_symbols[key]
+        for key, _ in uses_symbols.items():
+            all_symbols = uses_symbols[key]|defines_symbols[key]
+            for var, module in all_symbols: #sorted(all_symbols, key=lambda symbol: symbol[0].name): # uses_symbols[key]|defines_symbols[key]:
+                offload_map[key].add(var.parents[0] if var.parent else var)
+        call_map = {}
+        calls = FindNodes(CallStatement).visit(routine.body)
+        for call in calls:
+            if call.routine.name in uses_symbols: # in chain(uses_symbols[call.routine.name], defines_symbols[call.routine.name]):
+                arguments = call.arguments
+                call_map[call] = call.clone(arguments=arguments + tuple(sorted([var.clone(dimensions=None) for var in offload_map[call.routine.name]], key=lambda symbol: symbol.name))) # uses_symbols[call.routine.name]))
+        routine.body = Transformer(call_map).visit(routine.body)
+
+    def _append_routine_arguments(self, routine, item):
+        all_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', set()) # set()
+        all_defines_vars = [var.parents[0] if var.parent else var for var, _ in all_defines_symbols]
+        all_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', set()) # set()
+        all_uses_vars = [var.parent[0] if var.parent else var for var, _ in all_uses_symbols]
+        all_symbols = all_uses_symbols|all_defines_symbols
+        new_arguments = []
+        for var, _ in all_symbols:
+            new_arguments.append(var.parents[0] if var.parent else var)
+        new_arguments = set(new_arguments) # remove duplicates
+        new_arguments = [arg.clone(type=arg.type.clone(intent='inout' if arg in all_defines_vars else 'in', parameter=False, initial=None)) for arg in new_arguments]
+        routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))

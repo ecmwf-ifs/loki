@@ -642,7 +642,8 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_global_var_hoist(here, config, frontend):
+@pytest.mark.parametrize('hoist_parameters', (False, True))
+def test_transformation_global_var_hoist(here, config, frontend, hoist_parameters):
     """
     Test the generation of offload instructions of global variable imports.
     """
@@ -653,7 +654,7 @@ def test_transformation_global_var_hoist(here, config, frontend):
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
     scheduler.process(transformation=GlobalVariableAnalysis())
-    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=False))
+    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters))
 
     print("")
     print("")
@@ -682,3 +683,28 @@ def test_transformation_global_var_hoist(here, config, frontend):
     # print(fgen(moduleB))
     print("----------")
     # print(fgen(moduleC))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('hoist_parameters', (False, True))
+def test_transformation_global_var_derived_type_hoist(here, config, frontend, hoist_parameters):
+    """
+    Test the generation of offload instructions of derived-type global variable imports.
+    """
+
+    config['default']['enable_imports'] = True
+    config['routines'] = {
+        'driver_derived_type': {'role': 'driver'}
+    }
+
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
+    scheduler.process(transformation=GlobalVariableAnalysis())
+    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters))
+
+    driver = scheduler['#driver_derived_type'].routine
+    kernel = scheduler['#kernel_derived_type'].routine
+    module = scheduler['module_derived_type#p'].scope
+    
+    print(fgen(driver))
+    print("--------------------")
+    print(fgen(kernel))
