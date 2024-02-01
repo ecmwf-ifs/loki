@@ -605,10 +605,13 @@ class FortranCodegen(Stringifier):
         if o.inline:
             # No indentation and only a single body node
             cond = self.visit(o.condition, **kwargs)
+            d = self.depth
+            self.depth = 0
             body = self.visit(o.body, **kwargs)
-            line = self.format_line(f'IF ({cond}) {body.lstrip()}')
-            # Ensure we run multi-line formatter, in case the body is complex
-            return self.join_lines(line)
+            self.depth = d
+            # Undo the indentation, so that we may re-format and re-indent
+            line = f'IF ({cond}) ' + ''.join(body.lstrip().split('&\n&'))
+            return self.format_line(line)
 
         name = kwargs.pop('name', f' {o.name}' if o.name else '')
         is_elseif = kwargs.pop('is_elseif', False)

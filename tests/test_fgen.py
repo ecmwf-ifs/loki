@@ -146,6 +146,8 @@ end subroutine test_fgen
     out = fgen(routine, linewidth=132)
     for line in out.splitlines():
         assert line.count('&') <= 2
+        if line.count('&') == 2:
+            assert len(line.split('&')[1]) > 60
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki likes only valid code')]))
