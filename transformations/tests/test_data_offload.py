@@ -654,7 +654,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
     scheduler.process(transformation=GlobalVariableAnalysis())
-    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters))
+    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters, ignore_modules=('modulec',)))
 
     print("")
     print("")

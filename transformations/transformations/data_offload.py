@@ -632,9 +632,13 @@ class GlobalVarHoistTransformation(Transformation):
     # connectivity for traversal with the Scheduler
     item_filter = (SubroutineItem,) #  GlobalVarImportItem)
 
-    def __init__(self, hoist_parameters=True, key=None):
+    def __init__(self, hoist_parameters=True, ignore_modules=None, key=None):
         self._key = key or GlobalVariableAnalysis._key
         self.hoist_parameters = hoist_parameters
+        if ignore_modules is None:
+            self.ignore_modules = ()
+        else:
+            self.ignore_modules = [module.lower() for module in ignore_modules]
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -664,6 +668,10 @@ class GlobalVarHoistTransformation(Transformation):
         # Add imports for offload variables
         offload_map = defaultdict(set)
         for var, module in chain(all_uses_symbols, all_defines_symbols):
+            print(f"{module.lower()} vs. {self.ignore_modules}")
+            if module.lower() in self.ignore_modules:
+                print(f"ignoring module: {module.lower()}")
+                continue
             offload_map[module].add(var.parents[0] if var.parent else var)
 
         import_map = CaseInsensitiveDict()
@@ -674,6 +682,9 @@ class GlobalVarHoistTransformation(Transformation):
 
         missing_imports_map = defaultdict(set)
         for module, variables in offload_map.items():
+            if module.lower() in self.ignore_modules:
+                print(f"ignoring module: {module.lower()}")
+                continue
             missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
 
         if missing_imports_map:
@@ -681,6 +692,9 @@ class GlobalVarHoistTransformation(Transformation):
                 '![Loki::GlobalVarHoistTransformation] ---------------------------------------'
             )))
             for module, variables in missing_imports_map.items():
+                if module.lower() in self.ignore_modules:
+                    print(f"ignoring module: {module.lower()}")
+                    continue
                 symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
                 routine.spec.prepend(Import(module=module, symbols=symbols))
 
@@ -706,6 +720,9 @@ class GlobalVarHoistTransformation(Transformation):
 
         offload_map = defaultdict(set)
         for var, module in chain(all_uses_symbols, all_defines_symbols):
+            if module.lower() in self.ignore_modules:
+                print(f"ignoring module: {module.lower()}")
+                continue
             offload_map[module].add(var.parents[0] if var.parent else var)
         
         import_map = CaseInsensitiveDict()
@@ -716,6 +733,10 @@ class GlobalVarHoistTransformation(Transformation):
 
         redundant_imports_map = defaultdict(set)
         for module, variables in offload_map.items():
+            # probably not necessary ...
+            #if module.lower() in self.ignore_modules:
+            #    print(f"ignoring module: {module.lower()}")
+            #    continue
             redundant_imports_map[module] |= {var for var in variables if var.name in import_map}
 
         import_map = {}
@@ -755,6 +776,9 @@ class GlobalVarHoistTransformation(Transformation):
         for key, _ in uses_symbols.items():
             all_symbols = uses_symbols[key]|defines_symbols[key]
             for var, module in all_symbols: #sorted(all_symbols, key=lambda symbol: symbol[0].name): # uses_symbols[key]|defines_symbols[key]:
+                if module.lower() in self.ignore_modules:
+                    print(f"ignoring module: {module.lower()}")
+                    continue
                 offload_map[key].add(var.parents[0] if var.parent else var)
         call_map = {}
         calls = FindNodes(CallStatement).visit(routine.body)
@@ -771,7 +795,10 @@ class GlobalVarHoistTransformation(Transformation):
         all_uses_vars = [var.parent[0] if var.parent else var for var, _ in all_uses_symbols]
         all_symbols = all_uses_symbols|all_defines_symbols
         new_arguments = []
-        for var, _ in all_symbols:
+        for var, module in all_symbols:
+            if module.lower() in self.ignore_modules:
+                print(f"ignoring module: {module.lower()}")
+                continue
             new_arguments.append(var.parents[0] if var.parent else var)
         new_arguments = set(new_arguments) # remove duplicates
         new_arguments = [arg.clone(type=arg.type.clone(intent='inout' if arg in all_defines_vars else 'in', parameter=False, initial=None)) for arg in new_arguments]
