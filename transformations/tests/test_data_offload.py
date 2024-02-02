@@ -12,11 +12,11 @@ import pytest
 from loki import (
     Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
     CallStatement, pragma_regions_attached, get_pragma_parameters,
-    gettempdir, Scheduler, OMNI, Import, fgen
+    gettempdir, Scheduler, OMNI, Import
 )
 from conftest import available_frontends
 from transformations import (
-        DataOffloadTransformation, GlobalVariableAnalysis, 
+        DataOffloadTransformation, GlobalVariableAnalysis,
         GlobalVarOffloadTransformation, GlobalVarHoistTransformation
 )
 
@@ -647,9 +647,10 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('hoist_parameters', (False, True))
-def test_transformation_global_var_hoist(here, config, frontend, hoist_parameters):
+@pytest.mark.parametrize('ignore_modules', (None, ('moduleb',)))
+def test_transformation_global_var_hoist(here, config, frontend, hoist_parameters, ignore_modules):
     """
-    Test the generation of offload instructions of global variable imports.
+    Test hoisting of global variable imports.
     """
     config['default']['enable_imports'] = True
     config['routines'] = {
@@ -658,42 +659,85 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
 
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
     scheduler.process(transformation=GlobalVariableAnalysis())
-    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters)) # , ignore_modules=('modulec',)))
-
-    print("")
-    print("")
+    scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters,
+        ignore_modules=ignore_modules))
 
     driver = scheduler['#driver'].routine
     kernel0 = scheduler['#kernel0'].routine
-    kernel1 = scheduler['#kernel1'].routine
-    kernel2 = scheduler['#kernel2'].routine
-    kernel3 = scheduler['#kernel3'].routine
-    moduleA = scheduler['modulea#var0'].scope
-    moduleB = scheduler['moduleb#var2'].scope
-    moduleC = scheduler['modulec#var4'].scope
+    kernel_map = {key: scheduler[f'#{key}'].routine for key in ['kernel1', 'kernel2', 'kernel3']}
 
-    print(fgen(driver))
-    print("----------")
-    print(fgen(kernel0))
-    print("----------")
-    print(fgen(kernel1))
-    print("----------")
-    print(fgen(kernel2))
-    print("----------")
-    print(fgen(kernel3))
-    print("----------")
-    # print(fgen(moduleA))
-    print("----------")
-    # print(fgen(moduleB))
-    print("----------")
-    # print(fgen(moduleC))
+    # symbols within each module
+    expected_symbols = {'modulea': ['var0', 'var1'], 'moduleb': ['var2', 'var3'],
+            'modulec': ['var4', 'var5']}
+    # expected intent of those variables (if hoisted)
+    var_intent_map = {'var0': 'in', 'var1': 'in', 'var2': 'in',
+            'var3': 'in', 'var4': 'inout', 'var5': 'inout', 'tmp': None}
+    # DRIVER
+    imports = FindNodes(Import).visit(driver.spec)
+    import_names = [_import.module.lower() for _import in imports]
+    # check driver imports
+    expected_driver_modules = ['modulec']
+    expected_driver_modules += ['moduleb'] if ignore_modules is None else []
+    if frontend != OMNI:
+        expected_driver_modules += ['modulea'] if hoist_parameters else []
+    assert len(imports) == len(expected_driver_modules)
+    assert sorted(expected_driver_modules) == sorted(import_names)
+    for _import in imports:
+        assert sorted([sym.name for sym in _import.symbols]) == expected_symbols[_import.module.lower()]
+    # check driver call
+    driver_calls = FindNodes(CallStatement).visit(driver.body)
+    expected_args = []
+    for module in expected_driver_modules:
+        expected_args.extend(expected_symbols[module])
+    assert [arg.name for arg in driver_calls[0].arguments] == sorted(expected_args)
+
+    originally = {'kernel1': ['modulea'], 'kernel2': ['moduleb'],
+            'kernel3': ['moduleb', 'modulec']}
+    # KERNEL0
+    assert [arg.name for arg in kernel0.arguments] == sorted(expected_args)
+    assert [arg.name for arg in kernel0.variables] == sorted(expected_args)
+    for var in kernel0.variables:
+        assert kernel0.variable_map[var.name.lower()].type.intent == var_intent_map[var.name.lower()]
+    kernel0_calls = FindNodes(CallStatement).visit(kernel0.body)
+    # KERNEL1 & KERNEL2 & KERNEL3
+    for call in kernel0_calls:
+        expected_args = []
+        expected_imports = []
+        kernel_expected_symbols = []
+        for module in originally[call.routine.name]:
+            # always, since at least 'some_func' is imported
+            if call.routine.name == 'kernel1' and module == 'modulea':
+                expected_imports.append(module)
+                kernel_expected_symbols.append('some_func')
+            if module in expected_driver_modules:
+                expected_args.extend(expected_symbols[module])
+            else:
+                # already added
+                if module != 'modulea':
+                    expected_imports.append(module)
+                kernel_expected_symbols.extend(expected_symbols[module])
+        assert len(expected_args) == len(call.arguments)
+        assert [arg.name for arg in call.arguments] == expected_args
+        assert [arg.name for arg in kernel_map[call.routine.name].arguments] == expected_args
+        for var in kernel_map[call.routine.name].variables:
+            var_intent = kernel_map[call.routine.name].variable_map[var.name.lower()].type.intent
+            assert var_intent == var_intent_map[var.name.lower()]
+        if call.routine.name in ['kernel1', 'kernel2']:
+            expected_args = ['tmp'] + expected_args
+        assert [arg.name for arg in kernel_map[call.routine.name].variables] == expected_args
+        kernel_imports = FindNodes(Import).visit(call.routine.spec)
+        assert sorted([_import.module.lower() for _import in kernel_imports]) == sorted(expected_imports)
+        imported_symbols = [] # _import.symbols for _import in kernel_imports]
+        for _import in kernel_imports:
+            imported_symbols.extend([sym.name.lower() for sym in _import.symbols])
+        assert sorted(imported_symbols) == sorted(kernel_expected_symbols)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('hoist_parameters', (False, True))
 def test_transformation_global_var_derived_type_hoist(here, config, frontend, hoist_parameters):
     """
-    Test the generation of offload instructions of derived-type global variable imports.
+    Test hoisting of derived-type global variable imports.
     """
 
     config['default']['enable_imports'] = True
@@ -707,8 +751,25 @@ def test_transformation_global_var_derived_type_hoist(here, config, frontend, ho
 
     driver = scheduler['#driver_derived_type'].routine
     kernel = scheduler['#kernel_derived_type'].routine
-    module = scheduler['module_derived_type#p'].scope
-    
-    print(fgen(driver))
-    print("--------------------")
-    print(fgen(kernel))
+
+    # DRIVER
+    imports = FindNodes(Import).visit(driver.spec)
+    assert len(imports) == 1
+    assert imports[0].module.lower() == 'module_derived_type'
+    assert sorted([sym.name.lower() for sym in imports[0].symbols]) == sorted(['p', 'p_array', 'p0'])
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 1
+    # KERNEL
+    assert [arg.name for arg in calls[0].arguments] == ['p', 'p0', 'p_array']
+    assert [arg.name for arg in kernel.arguments] == ['p', 'p0', 'p_array']
+    kernel_imports = FindNodes(Import).visit(kernel.spec)
+    assert len(kernel_imports) == 1
+    assert [sym.name.lower() for sym in kernel_imports[0].symbols] == ['g']
+    assert sorted([var.name for var in kernel.variables]) == ['i', 'j', 'p', 'p0', 'p_array']
+    assert kernel.variable_map['p_array'].type.allocatable
+    assert kernel.variable_map['p_array'].type.intent == 'inout'
+    assert kernel.variable_map['p_array'].type.dtype.name == 'point'
+    assert kernel.variable_map['p'].type.intent == 'inout'
+    assert kernel.variable_map['p'].type.dtype.name == 'point'
+    assert kernel.variable_map['p0'].type.intent == 'in'
+    assert kernel.variable_map['p0'].type.dtype.name == 'point'
