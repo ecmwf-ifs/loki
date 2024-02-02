@@ -386,11 +386,11 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
     expected_trafo_data = {
         'global_var_analysis_header_mod#nval': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': {'nval'}
+            'offload': set() if frontend == OMNI else {'nval'}
         },
         'global_var_analysis_header_mod#nfld': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': ['nfld']
+            'offload': set() if frontend == OMNI else ['nfld']
         },
         'global_var_analysis_header_mod#iarr': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
@@ -412,6 +412,8 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         'global_var_analysis_kernel_mod#kernel_a': {
             'defines_symbols': set(),
             'uses_symbols': {
+                ('iarr(1:3)', 'global_var_analysis_header_mod'), ('rarr(1:5, 1:3)', 'global_var_analysis_header_mod')
+            } if frontend == OMNI else {
                 ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
                 ('nval', 'global_var_analysis_header_mod'),
                 (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
@@ -421,6 +423,9 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         'global_var_analysis_kernel_mod#kernel_b': {
             'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
             'uses_symbols': {
+                ('iarr(1:3)', 'global_var_analysis_header_mod'), ('rdata(:, :, :)', 'global_var_analysis_data_mod'),
+                ('tt', 'global_var_analysis_data_mod'), ('tt%vals', 'global_var_analysis_data_mod')
+                } if frontend == OMNI else {
                 ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
                 ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
                 ('tt%vals', 'global_var_analysis_data_mod'), (f'iarr({nfld_dim})', 'global_var_analysis_header_mod')
@@ -429,6 +434,10 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         '#driver': {
             'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
             'uses_symbols': {
+                ('iarr(1:3)', 'global_var_analysis_header_mod'), ('rarr(1:5, 1:3)', 'global_var_analysis_header_mod'),
+                ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
+                ('tt%vals', 'global_var_analysis_data_mod')
+            } if frontend == OMNI else {
                 ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
                 ('nval', 'global_var_analysis_header_mod'), ('rdata(:, :, :)', 'global_var_analysis_data_mod'),
                 ('tt', 'global_var_analysis_data_mod'), ('tt%vals', 'global_var_analysis_data_mod'),
@@ -443,7 +452,6 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         if item == 'global_var_analysis_data_mod#some_type':
             continue
         for trafo_data_key, trafo_data_value in item.trafo_data[key].items():
-            print(f"item: {item} | trafo_data_key: {trafo_data_key}")
             assert (
                 sorted(
                     tuple(str(vv) for vv in v) if isinstance(v, tuple) else str(v)
