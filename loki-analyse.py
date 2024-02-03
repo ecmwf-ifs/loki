@@ -41,10 +41,17 @@ def driver_analyse_field_offload_accesses(routine):
 
     # Get FIELD API arrays and implied access descriptors
     accessor_calls = [c for c in calls if 'GET_DEVICE_DATA' in str(c).upper()]
-    field_map = {
-        c.arguments[0] : RD if str(c.name).endswith('RDONLY') else RD | WR
-        for c in accessor_calls
-    }
+    field_map = {}
+    field_map.update(
+        {c.arguments[0]: RD for c in accessor_calls if str(c.name).endswith('RDONLY')}
+    )
+    field_map.update(
+        {c.arguments[0]: WR | RD for c in accessor_calls if str(c.name).endswith('RDWR')}
+    )
+    field_map.update({
+        c.arguments[-1]: WR
+        for c in accessor_calls if len(c.arguments) == 2 and c.arguments[0] == 'WR'
+    })
 
     # Get arrays that are CALL arguments and derive access descriptors from callee
     kernel_calls = [c for c in calls if 'GET_DEVICE_DATA' not in str(c.name)]
