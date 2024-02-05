@@ -712,10 +712,7 @@ class GlobalVarHoistTransformation(Transformation):
     def __init__(self, hoist_parameters=False, ignore_modules=None, key=None):
         self._key = key or GlobalVariableAnalysis._key
         self.hoist_parameters = hoist_parameters
-        if ignore_modules is None:
-            self.ignore_modules = ()
-        else:
-            self.ignore_modules = [module.lower() for module in ignore_modules]
+        self.ignore_modules = [module.lower() for module in as_tuple(ignore_modules)]
 
     def transform_subroutine(self, routine, **kwargs):
         """
