@@ -742,12 +742,8 @@ class GlobalVarHoistTransformation(Transformation):
         self._append_call_arguments(routine, uses_symbols, defines_symbols)
 
         # combine/collect symbols disregarding routine
-        all_defines_symbols = set()
-        all_uses_symbols = set()
-        for _, value in defines_symbols.items():
-            all_defines_symbols |= value
-        for _, value in uses_symbols.items():
-            all_uses_symbols |= value
+        all_defines_symbols = set.union(*defines_symbols.values(), set())
+        all_uses_symbols = set.union(*uses_symbols.values(), set())
         # add imports for symbols hoisted
         symbol_map = defaultdict(set)
         for var, module in chain(all_uses_symbols, all_defines_symbols):
@@ -803,7 +799,9 @@ class GlobalVarHoistTransformation(Transformation):
             if module.lower() in self.ignore_modules:
                 continue
             symbol_map[module].add(var.parents[0] if var.parent else var)
-        import_map = CaseInsensitiveDict()
+        import_map = CaseInsensitiveDict(
+                (s.name, imprt) for imprt in routine.all_imports[::-1] for s in imprt.symbols
+                )
         scope = routine
         while scope:
             import_map.update(scope.import_map)
