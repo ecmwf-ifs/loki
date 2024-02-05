@@ -802,10 +802,6 @@ class GlobalVarHoistTransformation(Transformation):
         import_map = CaseInsensitiveDict(
                 (s.name, imprt) for imprt in routine.all_imports[::-1] for s in imprt.symbols
                 )
-        scope = routine
-        while scope:
-            import_map.update(scope.import_map)
-            scope = scope.parent
         redundant_imports_map = defaultdict(set)
         for module, variables in symbol_map.items():
             redundant = [var.parent[0] if var.parent else var for var in variables]
