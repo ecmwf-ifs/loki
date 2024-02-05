@@ -381,16 +381,31 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         key = GlobalVariableAnalysis._key
 
     # Validate the analysis trafo_data
-    nfld_dim = '1:3' if frontend == OMNI else 'nfld'
-    nval_dim = '1:5' if frontend == OMNI else 'nval'
+
+    # OMNI handles array indices and parameters differently
+    if frontend == OMNI:
+        nfld_dim = '1:3'
+        nval_dim = '1:5'
+        nfld_data = set()
+        nval_data = set()
+        nval_offload = set()
+        nfld_offload = set()
+    else:
+        nfld_dim = 'nfld'
+        nval_dim = 'nval'
+        nfld_data = {('nfld', 'global_var_analysis_header_mod')}
+        nval_data = {('nval', 'global_var_analysis_header_mod')}
+        nval_offload = {'nval'}
+        nfld_offload = {'nfld'}
+
     expected_trafo_data = {
         'global_var_analysis_header_mod#nval': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': set() if frontend == OMNI else {'nval'}
+            'offload': nval_offload
         },
         'global_var_analysis_header_mod#nfld': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': set() if frontend == OMNI else ['nfld']
+            'offload': nfld_offload
         },
         'global_var_analysis_header_mod#iarr': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
@@ -411,35 +426,22 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         'global_var_analysis_data_mod#some_routine': {'defines_symbols': set(), 'uses_symbols': set()},
         'global_var_analysis_kernel_mod#kernel_a': {
             'defines_symbols': set(),
-            'uses_symbols': {
-                ('iarr(1:3)', 'global_var_analysis_header_mod'), ('rarr(1:5, 1:3)', 'global_var_analysis_header_mod')
-            } if frontend == OMNI else {
-                ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
-                ('nval', 'global_var_analysis_header_mod'),
+            'uses_symbols': nval_data | nfld_data | {
                 (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
                 (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
             }
         },
         'global_var_analysis_kernel_mod#kernel_b': {
             'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
-            'uses_symbols': {
-                ('iarr(1:3)', 'global_var_analysis_header_mod'), ('rdata(:, :, :)', 'global_var_analysis_data_mod'),
-                ('tt', 'global_var_analysis_data_mod'), ('tt%vals', 'global_var_analysis_data_mod')
-                } if frontend == OMNI else {
-                ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
+            'uses_symbols': nfld_data | {
                 ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
                 ('tt%vals', 'global_var_analysis_data_mod'), (f'iarr({nfld_dim})', 'global_var_analysis_header_mod')
             }
         },
         '#driver': {
             'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
-            'uses_symbols': {
-                ('iarr(1:3)', 'global_var_analysis_header_mod'), ('rarr(1:5, 1:3)', 'global_var_analysis_header_mod'),
-                ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
-                ('tt%vals', 'global_var_analysis_data_mod')
-            } if frontend == OMNI else {
-                ('iarr(nfld)', 'global_var_analysis_header_mod'), ('nfld', 'global_var_analysis_header_mod'),
-                ('nval', 'global_var_analysis_header_mod'), ('rdata(:, :, :)', 'global_var_analysis_data_mod'),
+            'uses_symbols': nval_data | nfld_data | {
+                ('rdata(:, :, :)', 'global_var_analysis_data_mod'),
                 ('tt', 'global_var_analysis_data_mod'), ('tt%vals', 'global_var_analysis_data_mod'),
                 (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
                 (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
@@ -686,6 +688,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
     # check driver imports
     expected_driver_modules = ['modulec']
     expected_driver_modules += ['moduleb'] if ignore_modules is None else []
+    # OMNI handles parameters differently, ModuleA only contains parameters
     if frontend != OMNI:
         expected_driver_modules += ['modulea'] if hoist_parameters else []
     assert len(imports) == len(expected_driver_modules)
