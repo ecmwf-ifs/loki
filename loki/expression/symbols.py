@@ -1465,7 +1465,10 @@ class Reference(pmbl.Expression):
     """
     Internal representation of a Reference.
 
-    .. warning:: Experimental!
+    .. warning:: Experimental! Allowing compound
+        ``Reference(Variable(...))`` to appear
+        with behaviour akin to a symbol itself
+        for easier processing in mappers.
 
     **C/C++ only**, no corresponding concept in Fortran.
     Referencing refers to taking the address of an
@@ -1482,18 +1485,34 @@ class Reference(pmbl.Expression):
 
     @property
     def name(self):
+        """
+        Allowing the compound ``Reference(Variable(name))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
         return self.expression.name
 
     @property
     def type(self):
+        """
+        Allowing the compound ``Reference(Variable(type))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
         return self.expression.type
 
     @property
     def scope(self):
+        """
+        Allowing the compound ``Reference(Variable(scope))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
         return self.expression.scope
 
     @property
     def initial(self):
+        """
+        Allowing the compound ``Reference(Variable(initial))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
         return self.expression.initial
 
     mapper_method = intern('map_c_reference')
@@ -1504,7 +1523,10 @@ class Dereference(pmbl.Expression):
     """
     Internal representation of a Dereference.
 
-    .. warning:: Experimental!
+    .. warning:: Experimental! Allowing compound
+        ``Dereference(Variable(...))`` to appear
+        with behaviour akin to a symbol itself
+        for easier processing in mappers.
 
     **C/C++ only**, no corresponding concept in Fortran.
     Dereferencing (a pointer) refers to retrieving the value
@@ -1521,18 +1543,34 @@ class Dereference(pmbl.Expression):
 
     @property
     def name(self):
+        """
+        Allowing the compound ``Dereference(Variable(name))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
         return self.expression.name
 
     @property
     def type(self):
+        """
+        Allowing the compound ``Dereference(Variable(type))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
         return self.expression.type
 
     @property
     def scope(self):
+        """
+        Allowing the compound ``Dereference(Variable(scope))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
         return self.expression.scope
 
     @property
     def initial(self):
+        """
+        Allowing the compound ``Dereference(Variable(initial))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
         return self.expression.initial
 
     mapper_method = intern('map_c_dereference')

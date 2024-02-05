@@ -1518,3 +1518,21 @@ end subroutine some_routine
     c_str = cgen(routine).replace(' ', '')
     assert '(&var_reference)=1' in c_str
     assert '(*var_dereference)=2' in c_str
+
+    # now test processing in mappers (by renaming variables being "De/Referenced")
+    var_reference = routine.variable_map['var_reference']
+    var_dereference = routine.variable_map['var_dereference']
+    var_map = {var_reference: var_reference.clone(name='renamed_var_reference'),
+            var_dereference: var_dereference.clone(name='renamed_var_dereference')}
+    routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+    routine.body = SubstituteExpressions(var_map).visit(routine.body)
+
+    f_str = fgen(routine).replace(' ', '')
+    assert 'renamed_var_reference=1' in f_str
+    assert 'renamed_var_dereference=2' in f_str
+    assert '*' not in f_str
+    assert '&' not in f_str
+
+    c_str = cgen(routine).replace(' ', '')
+    assert '(&renamed_var_reference)=1' in c_str
+    assert '(*renamed_var_dereference)=2' in c_str
