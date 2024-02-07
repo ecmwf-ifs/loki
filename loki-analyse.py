@@ -124,6 +124,27 @@ def driver_analyse_field_offload_accesses(routine):
     info('[Loki-anaylse] ')
 
 
+def driver_analyse_field_access_overlap(routines):
+    """
+
+    """
+
+    field_access_map = {}
+    for routine in routines:
+
+        calls = FindNodes(CallStatement).visit(routine.body)
+
+        # Get FIELD API arrays and implied access descriptors
+        accessor_calls = [c for c in calls if 'GET_DEVICE_DATA' in str(c).upper()]
+        field_map = {
+            str(c.name.parent): suffix_map[str(c.name).split('_')[-1]] for c in accessor_calls
+        }
+        
+        field_access_map[routine.name] = field_map
+
+    from IPython import embed; embed()
+
+
 @click.group()
 def cli():
     pass
@@ -182,6 +203,12 @@ def offload(source):
     cloud_driver = cloud_layer['cloud_layer_loki']
     cloud_driver.enrich([cloudsc['cloudsc'], cloud_satadj['cloud_satadj']])
     driver_analyse_field_offload_accesses(cloud_driver)
+
+
+    driver_analyse_field_access_overlap(
+        [gwdrag_driver, turbulence_driver, convection_driver, cloud_driver]
+    )
+    # from IPython import embed; embed()
     
 
 if __name__ == "__main__":
