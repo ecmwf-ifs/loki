@@ -30,36 +30,20 @@ class Access(Flag):
 RD = Access.RD
 WR = Access.WR
 
-
-def driver_get_field_accesses(routine):
-    """
-    Extract a map of fields to :any:`Access`` descriptors from driver routine.
-    """
-
-    calls = FindNodes(CallStatement).visit(routine.body)
-
-    # Get FIELD API arrays and implied access descriptors
-    accessor_calls = [c for c in calls if 'GET_DEVICE_DATA' in str(c).upper()]
-    field_map = {}
-    field_map.update(
-        {c.arguments[0]: RD for c in accessor_calls if str(c.name).endswith('RDONLY')}
-    )
-    field_map.update(
-        {c.arguments[0]: WR | RD for c in accessor_calls if str(c.name).endswith('RDWR')}
-    )
-    field_map.update({
-        c.arguments[-1]: WR
-        for c in accessor_calls if len(c.arguments) == 2 and c.arguments[0] == 'WR'
-    })
-
-    return field_map
+suffix_map = {'RDONLY' : RD, 'WRONLY' : WR, 'RDWR' : WR | RD}
 
 
-def driver_analyse_field_offload_accesses(field_map, routine):
+def driver_analyse_field_offload_accesses(routine):
     """
     Check that offload accessors of FIELD API objects match the call intents.
     """
     calls = FindNodes(CallStatement).visit(routine.body)
+
+    # Get FIELD API arrays and implied access descriptors
+    accessor_calls = [c for c in calls if 'GET_DEVICE_DATA' in str(c).upper()]
+    field_map = {
+        c.arguments[-1]: suffix_map[str(c.name).split('_')[-1]] for c in accessor_calls
+    }
 
     # Get arrays that are CALL arguments and derive access descriptors from callee
     kernel_calls = [c for c in calls if 'GET_DEVICE_DATA' not in str(c.name)]
@@ -174,16 +158,14 @@ def offload(source):
     gwdrag_layer = Sourcefile.from_file(root/'arpifs/phys_ec/gwdrag_layer.F90')
     gwdrag_driver = gwdrag_layer['gwdrag_layer_loki']
     gwdrag_driver.enrich([gwdrag['gwdrag']])
-    gwdrag_field_map = driver_get_field_accesses(gwdrag_driver)
-    driver_analyse_field_offload_accesses(gwdrag_field_map, gwdrag_driver)
+    driver_analyse_field_offload_accesses(gwdrag_driver)
 
     # Turbulence parametrisation
     vdfouter = Sourcefile.from_file(root/'arpifs/phys_ec/vdfouter.F90')
     turbulence_layer = Sourcefile.from_file(root/'arpifs/phys_ec/turbulence_layer.F90')
     turbulence_driver = turbulence_layer['turbulence_layer_loki']
     turbulence_driver.enrich([vdfouter['vdfouter']])
-    turbulence_field_map = driver_get_field_accesses(turbulence_driver)
-    driver_analyse_field_offload_accesses(turbulence_field_map, turbulence_driver)
+    driver_analyse_field_offload_accesses(turbulence_driver)
 
     # Convection parametrisation
     cucalln = Sourcefile.from_file(root/'arpifs/phys_ec/cucalln.F90')
@@ -191,8 +173,7 @@ def offload(source):
     convection_layer = Sourcefile.from_file(root/'arpifs/phys_ec/convection_layer.F90')
     convection_driver = convection_layer['convection_layer_loki']
     convection_driver.enrich([cucalln['cucalln'], cuancape2['cuancape2']])
-    convection_field_map = driver_get_field_accesses(convection_driver)
-    driver_analyse_field_offload_accesses(convection_field_map, convection_driver)
+    driver_analyse_field_offload_accesses(convection_driver)
 
      # Cloud parametrisation
     cloudsc = Sourcefile.from_file(root/'arpifs/phys_ec/cloudsc.F90')
@@ -200,8 +181,7 @@ def offload(source):
     cloud_layer = Sourcefile.from_file(root/'arpifs/phys_ec/cloud_layer.F90')
     cloud_driver = cloud_layer['cloud_layer_loki']
     cloud_driver.enrich([cloudsc['cloudsc'], cloud_satadj['cloud_satadj']])
-    cloud_field_map = driver_get_field_accesses(cloud_driver)
-    driver_analyse_field_offload_accesses(cloud_field_map, cloud_driver)
+    driver_analyse_field_offload_accesses(cloud_driver)
     
 
 if __name__ == "__main__":
