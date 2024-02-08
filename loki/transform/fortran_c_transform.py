@@ -33,6 +33,7 @@ from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
     ProcedureSymbol, SubstituteExpressions, Dereference
 )
+from loki.expression import symbols as sym, SubstituteExpressions
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
@@ -44,14 +45,23 @@ class FortranCTransformation(Transformation):
     """
     Fortran-to-C transformation that translates the given routine
     into C and generates the corresponding ISO-C wrappers.
+
+    Parameters
+    ----------
+    inline_elementals : bool, optional
+        Inline known elemental function via expression substitution. Default is ``True``.
+    use_c_ptr : bool, optional
+        Use ``c_ptr`` for array declarations in the F2C wrapper and ``c_loc(...)`` to pass
+        the corresponding argument. Default is ``False``.
     """
     # pylint: disable=unused-argument
 
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, header_modules=None, inline_elementals=True):
+    def __init__(self, inline_elementals=True, use_c_ptr=False):
         self.inline_elementals = inline_elementals
+        self.use_c_ptr = use_c_ptr
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -105,8 +115,7 @@ class FortranCTransformation(Transformation):
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
             Sourcefile.to_file(source=cgen(c_kernel), path=self.c_path)
 
-    @classmethod
-    def c_struct_typedef(cls, derived):
+    def c_struct_typedef(self, derived):
         """
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
@@ -118,27 +127,31 @@ class FortranCTransformation(Transformation):
             variables = derived.dtype.typedef.variables
         declarations = []
         for v in variables:
-            ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type, typedef))
+            ctype = v.type.clone(kind=self.iso_c_intrinsic_kind(v.type, typedef))
             vnew = v.clone(name=v.basename.lower(), scope=typedef, type=ctype)
             declarations += (VariableDeclaration(symbols=(vnew,)),)
         typedef._update(body=as_tuple(declarations))
         return typedef
 
-    @staticmethod
-    def iso_c_intrinsic_import(scope):
-        symbols = as_tuple(Variable(name=name, scope=scope) for name in ['c_int', 'c_double', 'c_float'])
+    def iso_c_intrinsic_import(self, scope):
+        import_symbols = ['c_int', 'c_double', 'c_float']
+        if self.use_c_ptr:
+            import_symbols += ['c_ptr', 'c_loc']
+        symbols = as_tuple(Variable(name=name, scope=scope) for name in import_symbols)
         isoc_import = Import(module='iso_c_binding', symbols=symbols)
         return isoc_import
 
-    @staticmethod
-    def iso_c_intrinsic_kind(_type, scope):
+    def iso_c_intrinsic_kind(self, _type, scope, **kwargs):
+        is_array = kwargs.get('is_array', False)
         if _type.dtype == BasicType.INTEGER:
             return Variable(name='c_int', scope=scope)
         if _type.dtype == BasicType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return Variable(name='c_float', scope=scope)
-            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double', 'c_ptr'):
+                if self.use_c_ptr and is_array:
+                    return Variable(name='c_ptr', scope=scope)
                 return Variable(name='c_double', scope=scope)
         return None
 
@@ -156,17 +169,16 @@ class FortranCTransformation(Transformation):
                 return Variable(name='double', scope=scope)
         return None
 
-    @classmethod
-    def generate_iso_c_wrapper_routine(cls, routine, c_structs, bind_name=None):
+    def generate_iso_c_wrapper_routine(self, routine, c_structs, bind_name=None):
         wrapper = Subroutine(name=f'{routine.name}_fc')
 
         if bind_name is None:
             bind_name = f'{routine.name.lower()}_c'
-        interface = cls.generate_iso_c_interface(routine, bind_name, c_structs, scope=wrapper)
+        interface = self.generate_iso_c_interface(routine, bind_name, c_structs, scope=wrapper)
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
-        wrapper_spec.prepend(cls.iso_c_intrinsic_import(wrapper))
+        wrapper_spec.prepend(self.iso_c_intrinsic_import(wrapper))
         wrapper_spec.append(struct.clone(parent=wrapper) for struct in c_structs.values())
         wrapper_spec.append(interface)
         wrapper.spec = wrapper_spec
@@ -190,9 +202,33 @@ class FortranCTransformation(Transformation):
 
         arguments = tuple(local_arg_map[a] if a in local_arg_map else Variable(name=a)
                           for a in routine.argnames)
+        if self.use_c_ptr:
+            arg_map = {}
+            for arg in routine.arguments:
+                if isinstance(arg, Array):
+                    new_dims = tuple(sym.RangeIndex((None, None)) for _ in arg.dimensions)
+                    arg_map[arg] = arg.clone(dimensions=new_dims, type=arg.type.clone(target=True))
+            routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
+
+            call_arguments = []
+            for arg in routine.arguments:
+                if isinstance(arg, Array):
+                    new_arg = arg.clone(dimensions=None)
+                    c_loc = sym.InlineCall(
+                        function=sym.ProcedureSymbol(name="c_loc", scope=routine),
+                        parameters=(new_arg,))
+                    call_arguments.append(c_loc)
+                elif isinstance(arg.type.dtype, DerivedType):
+                    cvar = Variable(name=f'{arg.name}_c', type=ctype, scope=wrapper)
+                    call_arguments.append(cvar)
+                else:
+                    call_arguments.append(arg)
+        else:
+            call_arguments = arguments
+
         wrapper_body = casts_in
         wrapper_body += [
-            CallStatement(name=Variable(name=interface.body[0].name), arguments=arguments)  # pylint: disable=unsubscriptable-object
+            CallStatement(name=Variable(name=interface.body[0].name), arguments=call_arguments)  # pylint: disable=unsubscriptable-object
         ]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
@@ -205,8 +241,7 @@ class FortranCTransformation(Transformation):
         sanitise_imports(wrapper)
         return wrapper
 
-    @classmethod
-    def generate_iso_c_wrapper_module(cls, module):
+    def generate_iso_c_wrapper_module(self, module):
         """
         Generate the ISO-C wrapper module for a raw Fortran module.
 
@@ -219,7 +254,7 @@ class FortranCTransformation(Transformation):
 
         # Generate bind(c) intrinsics for module variables
         original_import = Import(module=module.name)
-        isoc_import = cls.iso_c_intrinsic_import(module)
+        isoc_import = self.iso_c_intrinsic_import(module)
         implicit_none = Intrinsic(text='implicit none')
         spec = [original_import, isoc_import, implicit_none]
 
@@ -233,7 +268,7 @@ class FortranCTransformation(Transformation):
                 getter = Subroutine(name=gettername, bind=gettername, is_function=True, parent=wrapper_module)
 
                 getter.spec = Section(body=(Import(module=module.name, symbols=(v.clone(scope=getter), )), ))
-                isoctype = SymbolAttributes(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter))
+                isoctype = SymbolAttributes(v.type.dtype, kind=self.iso_c_intrinsic_kind(v.type, getter))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getter.spec.append(Import(module='iso_c_binding', symbols=(isoctype.kind, )))
                 getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
@@ -253,7 +288,7 @@ class FortranCTransformation(Transformation):
                     # Only scalar, intent(in) arguments are pass by value
                     # Pass by reference for array types
                     value = isinstance(arg, Scalar) and arg.type.intent and arg.type.intent.lower() == 'in'
-                    kind = cls.iso_c_intrinsic_kind(arg.type, intf_fct)
+                    kind = self.iso_c_intrinsic_kind(arg.type, intf_fct)
                     ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
                     dimensions = arg.dimensions if isinstance(arg, Array) else None
                     var = Variable(name=arg.name, dimensions=dimensions, type=ctype, scope=intf_fct)
@@ -267,14 +302,13 @@ class FortranCTransformation(Transformation):
         sanitise_imports(wrapper_module)
         return wrapper_module
 
-    @classmethod
-    def generate_iso_c_interface(cls, routine, bind_name, c_structs, scope):
+    def generate_iso_c_interface(self, routine, bind_name, c_structs, scope):
         """
         Generate the ISO-C subroutine interface
         """
         intf_name = f'{routine.name}_iso_c'
         intf_routine = Subroutine(name=intf_name, body=None, args=(), parent=scope, bind=bind_name)
-        intf_spec = Section(body=as_tuple(cls.iso_c_intrinsic_import(intf_routine)))
+        intf_spec = Section(body=as_tuple(self.iso_c_intrinsic_import(intf_routine)))
         for im in FindNodes(Import).visit(routine.spec):
             if not im.c_import:
                 im_symbols = tuple(s.clone(scope=intf_routine) for s in im.symbols)
@@ -292,9 +326,18 @@ class FortranCTransformation(Transformation):
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
                 value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
-                kind = cls.iso_c_intrinsic_kind(arg.type, intf_routine)
-                ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
-            dimensions = arg.dimensions if isinstance(arg, Array) else None
+                kind = self.iso_c_intrinsic_kind(arg.type, intf_routine, is_array=isinstance(arg, Array))
+                if self.use_c_ptr:
+                    if isinstance(arg, Array):
+                        ctype = SymbolAttributes(DerivedType(name="c_ptr"), value=True, kind=None)
+                    else:
+                        ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
+                else:
+                    ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
+            if self.use_c_ptr:
+                dimensions = None
+            else:
+                dimensions = arg.dimensions if isinstance(arg, Array) else None
             var = Variable(name=arg.name, dimensions=dimensions, type=ctype, scope=intf_routine)
             intf_routine.variables += (var,)
             intf_routine.arguments += (var,)
