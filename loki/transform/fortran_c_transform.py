@@ -31,9 +31,9 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
-    ProcedureSymbol, SubstituteExpressions, Dereference
+    ProcedureSymbol, SubstituteExpressions, Dereference,
 )
-from loki.expression import symbols as sym, SubstituteExpressions
+from loki.expression import symbols as sym
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
