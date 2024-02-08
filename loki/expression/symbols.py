@@ -39,6 +39,8 @@ __all__ = [
     'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
     'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
     'StringSubscript',
+    # C/C++ concepts
+    'Reference', 'Dereference',
 ]
 
 # pylint: disable=abstract-method,too-many-lines
@@ -252,7 +254,8 @@ class TypedSymbol:
 
     @parent.setter
     def parent(self, parent):
-        assert parent is None or isinstance(parent, (TypedSymbol, MetaSymbol))
+        assert parent is None or isinstance(parent, (TypedSymbol, MetaSymbol,
+            Reference, Dereference))
         self._parent = parent
 
     @property
@@ -1457,3 +1460,118 @@ class StringSubscript(StrCompareMixin, pmbl.Subscript):
     @property
     def symbol(self):
         return self.aggregate
+
+class Reference(pmbl.Expression):
+    """
+    Internal representation of a Reference.
+
+    .. warning:: Experimental! Allowing compound
+        ``Reference(Variable(...))`` to appear
+        with behaviour akin to a symbol itself
+        for easier processing in mappers.
+
+    **C/C++ only**, no corresponding concept in Fortran.
+    Referencing refers to taking the address of an
+    existing variable (to set a pointer variable).
+    """
+    init_arg_names = ('expression',)
+
+    def __getinitargs__(self):
+        return (self.expression, )
+
+    def __init__(self, expression):
+        assert isinstance(expression, pmbl.Expression)
+        self.expression = expression
+
+    @property
+    def name(self):
+        """
+        Allowing the compound ``Reference(Variable(name))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
+        return self.expression.name
+
+    @property
+    def type(self):
+        """
+        Allowing the compound ``Reference(Variable(type))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
+        return self.expression.type
+
+    @property
+    def scope(self):
+        """
+        Allowing the compound ``Reference(Variable(scope))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
+        return self.expression.scope
+
+    @property
+    def initial(self):
+        """
+        Allowing the compound ``Reference(Variable(initial))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
+        return self.expression.initial
+
+    mapper_method = intern('map_c_reference')
+    make_stringifier = loki_make_stringifier
+
+
+class Dereference(pmbl.Expression):
+    """
+    Internal representation of a Dereference.
+
+    .. warning:: Experimental! Allowing compound
+        ``Dereference(Variable(...))`` to appear
+        with behaviour akin to a symbol itself
+        for easier processing in mappers.
+
+    **C/C++ only**, no corresponding concept in Fortran.
+    Dereferencing (a pointer) refers to retrieving the value
+    from a memory address (that is pointed by the pointer).
+    """
+    init_arg_names = ('expression', )
+
+    def __getinitargs__(self):
+        return (self.expression, )
+
+    def __init__(self, expression):
+        assert isinstance(expression, pmbl.Expression)
+        self.expression = expression
+
+    @property
+    def name(self):
+        """
+        Allowing the compound ``Dereference(Variable(name))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
+        return self.expression.name
+
+    @property
+    def type(self):
+        """
+        Allowing the compound ``Dereference(Variable(type))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
+        return self.expression.type
+
+    @property
+    def scope(self):
+        """
+        Allowing the compound ``Dereference(Variable(scope))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
+        return self.expression.scope
+
+    @property
+    def initial(self):
+        """
+        Allowing the compound ``Dereference(Variable(initial))`` to appear 
+        with behaviour akin to a symbol itself for easier processing in mappers.
+        """
+        return self.expression.initial
+
+    mapper_method = intern('map_c_dereference')
+    make_stringifier = loki_make_stringifier

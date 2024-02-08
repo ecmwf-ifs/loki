@@ -60,12 +60,10 @@ class CCodeMapper(LokiStringifyMapper):
             self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
-        # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
-        ptr = '*' if expr.type and expr.type.pointer else ''
         if expr.parent is not None:
             parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
-            return self.format('%s%s.%s', ptr, parent, expr.basename)
-        return self.format('%s%s', ptr, expr.name)
+            return self.format('%s.%s', parent, expr.basename)
+        return self.format('%s', expr.name)
 
     def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
@@ -110,6 +108,12 @@ class CCodeMapper(LokiStringifyMapper):
             self.format('pow(%s, %s)', self.rec(expr.base, PREC_NONE, *args, **kwargs),
                         self.rec(expr.exponent, PREC_NONE, *args, **kwargs)),
             enclosing_prec, PREC_NONE)
+
+    def map_c_reference(self, expr, enclosing_prec, *args, **kwargs):
+        return self.format(' (&%s)', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
+
+    def map_c_dereference(self, expr, enclosing_prec, *args, **kwargs):
+        return self.format(' (*%s)', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
 
 
 class CCodegen(Stringifier):
