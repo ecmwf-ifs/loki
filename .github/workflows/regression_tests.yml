@@ -90,6 +90,6 @@ jobs:
           ${{ secrets.BITBUCKET_HOSTKEY }}
           EOF
           eval `ssh-agent -s`
-          ssh-add - <<< '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}'
+          [ -n '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}' ] && ssh-add - <<< '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}'
           source loki-activate
           pytest --cov=transformations/transformations transformations/tests -k 'cloudsc or ecwam'
