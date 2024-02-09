@@ -45,6 +45,36 @@ class SCCBaseTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
+    @staticmethod
+    def check_array_dimensions_in_calls(routine):
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        for call in calls:
+            for arg in call.arguments:
+                if isinstance(arg, sym.Array):
+                    if any(dim == sym.RangeIndex((None, None)) for dim in arg.dimensions):
+                        return False
+        return True
+
+    @staticmethod
+    def remove_dimensions(routine):
+        arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
+        array_map = {}
+        for array in arrays:
+            if all(dim == sym.RangeIndex((None, None)) for dim in array.dimensions):
+                new_dimensions = None
+                array_map[array] = array.clone(dimensions=new_dimensions)
+        routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
+    @staticmethod
+    def explicit_dimensions(routine):
+        arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
+        array_map = {}
+        for array in arrays:
+            if not array.dimensions:
+                new_dimensions = (sym.RangeIndex((None, None)),) * len(array.shape)
+                array_map[array] = array.clone(dimensions=new_dimensions)
+        routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
     @classmethod
     def check_routine_pragmas(cls, routine, directive):
         """
