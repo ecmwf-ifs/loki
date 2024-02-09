@@ -17,7 +17,7 @@ from loki import (
 
 __all__ = [
     'DataOffloadTransformation', 'GlobalVariableAnalysis',
-    'GlobalVarOffloadTransformation'
+    'GlobalVarOffloadTransformation', 'GlobalVarHoistTransformation'
 ]
 
 
@@ -210,7 +210,8 @@ class GlobalVariableAnalysis(Transformation):
 
     For procedures, use the the Loki dataflow analysis functionality to compile
     a list of used and/or defined variables (i.e., read and/or written).
-    Store these under the keys ``'uses_symbols'`` and ``'defines_symbols'``, respectively.
+    Store these under the keys ``'uses_symbols'`` and ``'defines_symbols'``,
+    respectively.
 
     For modules/:any:`GlobalVarImportItem`, store the list of variables declared in the
     module under the key ``'declares'`` and out of this the subset of variables that
@@ -299,9 +300,6 @@ class GlobalVariableAnalysis(Transformation):
             # Filter out type and procedure imports by restricting to Scalar and Array symbols
             uses_imported_symbols = {var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))}
             defines_imported_symbols = {var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))}
-
-            # Discard parameters (which are read-only by definition)
-            uses_imported_symbols = {var for var in uses_imported_symbols if not var.type.parameter}
 
             def _map_var_to_module(var):
                 if var.parent:
@@ -465,10 +463,10 @@ class GlobalVarOffloadTransformation(Transformation):
             for v in as_tuple(acc_pragma_parameters.get('create'))
         ]))
 
-        # Build list of symbols to be offloaded
+        # Build list of symbols to be offloaded (discard variables being parameter)
         offload_variables = {
             var.parents[0] if var.parent else var
-            for var in item.trafo_data[self._key].get('offload', ())
+            for var in item.trafo_data[self._key].get('offload', ()) if not var.type.parameter
         }
 
         if (invalid_vars := offload_variables - set(module.variables)):
@@ -508,6 +506,9 @@ class GlobalVarOffloadTransformation(Transformation):
         for item in successors:
             defines_symbols |= item.trafo_data.get(self._key, {}).get('defines_symbols', set())
             uses_symbols |= item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+            # discard variables being parameter
+            parameters = {(var, module) for var, module in uses_symbols if var.type.parameter}
+            uses_symbols ^= parameters
 
         # Filter out arrays of derived types and nested derived types
         # For these, automatic offloading is currently not supported
@@ -613,3 +614,270 @@ class GlobalVarOffloadTransformation(Transformation):
                 '![Loki::GlobalVarOffloadTransformation] '
                 '-------- Added global variable imports for offload directives -----------'
             )))
+
+
+class GlobalVarHoistTransformation(Transformation):
+    """
+    Transformation to hoist module variables used in device routines
+
+    This requires a prior analysis pass with :any:`GlobalVariableAnalysis` to collect
+    the relevant global variable use information.
+
+    Modules to be ignored can be specified. Further, it is possible to 
+    configure whether parameters/compile time constants are hoisted as well 
+    or not.
+
+    .. note:: 
+      Hoisted variables that could theoretically be ``intent(out)``
+      are despite specified as ``intent(inout)``.
+
+    For example, the following code:
+
+    .. code-block:: fortran
+
+        module moduleB
+           real :: var2
+           real :: var3
+        end module moduleB
+
+        module moduleC
+           real :: var4
+           real :: var5
+        end module moduleC
+
+        subroutine driver()
+        implicit none
+
+        call kernel()
+
+        end subroutine driver
+
+        subroutine kernel()
+        use moduleB, only: var2,var3
+        use moduleC, only: var4,var5
+        implicit none
+
+        var4 = var2
+        var5 = var3
+
+        end subroutine kernel
+
+    is transformed to:
+
+    .. code-block:: fortran
+
+        module moduleB
+           real :: var2
+           real :: var3
+        end module moduleB
+
+        module moduleC
+           real :: var4
+           real :: var5
+        end module moduleC
+
+        subroutine driver()
+        use moduleB, only: var2,var3
+        use moduleC, only: var4,var5
+        implicit none
+
+        call kernel(var2, var3, var4, var5)
+
+        end subroutine driver
+
+        subroutine kernel(var2, var3, var4, var5)
+        implicit none
+        real, intent(in) :: var2
+        real, intent(in) :: var3
+        real, intent(inout) :: var4
+        real, intent(inout) :: var5
+
+        var4 = var2
+        var5 = var3
+
+        end subroutine kernel
+
+    Parameters
+    ----------
+    hoist_parameters : bool, optional
+        Whether or not to hoist module variables being parameter/compile
+        time constants (default: `False`).
+    ignore_modules : (list, tuple) of str
+        Modules to be ignored (default: `None`, thus no module to be ignored).
+    key : str, optional
+        Overwrite the key that is used to store analysis results in ``trafo_data``.
+    """
+    item_filter = (SubroutineItem,)
+
+    def __init__(self, hoist_parameters=False, ignore_modules=None, key=None):
+        self._key = key or GlobalVariableAnalysis._key
+        self.hoist_parameters = hoist_parameters
+        self.ignore_modules = [module.lower() for module in as_tuple(ignore_modules)]
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Hoist module variables.
+        """
+        role = kwargs.get('role')
+        successors = kwargs.get('successors', ())
+        item = kwargs.get('item', None)
+
+        if role == 'driver':
+            self.process_driver(routine, successors)
+        elif role == 'kernel':
+            self.process_kernel(routine, successors, item)
+
+    def process_driver(self, routine, successors):
+        """
+        Hoist module variables for driver routines.
+
+        This includes: appending the corresponding variables
+        to calls within the driver and adding the relevant 
+        imports.
+        """
+        # get symbols per routine (successors)
+        defines_symbols, uses_symbols = self._get_symbols(successors)
+
+        # append symbols to calls (arguments)
+        self._append_call_arguments(routine, uses_symbols, defines_symbols)
+
+        # combine/collect symbols disregarding routine
+        all_defines_symbols = set.union(*defines_symbols.values(), set())
+        all_uses_symbols = set.union(*uses_symbols.values(), set())
+        # add imports for symbols hoisted
+        symbol_map = defaultdict(set)
+        for var, module in chain(all_uses_symbols, all_defines_symbols):
+            # filter modules that are supposed to be ignored
+            if module.lower() in self.ignore_modules:
+                continue
+            symbol_map[module].add(var.parents[0] if var.parent else var)
+        import_map = CaseInsensitiveDict()
+        scope = routine
+        while scope:
+            import_map.update(scope.import_map)
+            scope = scope.parent
+        missing_imports_map = defaultdict(set)
+        for module, variables in symbol_map.items():
+            missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
+        if missing_imports_map:
+            routine.spec.prepend(Comment(text=(
+                '![Loki::GlobalVarHoistTransformation] ---------------------------------------'
+            )))
+            for module, variables in missing_imports_map.items():
+                symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
+                routine.spec.prepend(Import(module=module, symbols=symbols))
+
+            routine.spec.prepend(Comment(text=(
+                '![Loki::GlobalVarHoistTransformation] '
+                '-------- Added global variable imports for offload directives -----------'
+            )))
+
+    def process_kernel(self, routine, successors, item):
+        """
+        Hoist mdule variables for kernel routines.
+
+        This includes: appending the corresponding variables
+        to the routine arguments as well as to calls within the kernel
+        and removing the imports that became unused.
+        """
+        # get symbols per routine (successors)
+        defines_symbols, uses_symbols = self._get_symbols(successors)
+
+        # append symbols to routine (arguments)
+        self._append_routine_arguments(routine, item)
+
+        # append symbols to calls (arguments)
+        self._append_call_arguments(routine, uses_symbols, defines_symbols)
+
+        # get symbols for this routine/kernel
+        kernel_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
+        kernel_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+        # remove imports for symbols hoisted
+        symbol_map = defaultdict(set)
+        for var, module in chain(kernel_uses_symbols, kernel_defines_symbols):
+            # filter modules that are supposed to be ignored
+            if module.lower() in self.ignore_modules:
+                continue
+            symbol_map[module].add(var.parents[0] if var.parent else var)
+        import_map = CaseInsensitiveDict(
+                (s.name, imprt) for imprt in routine.all_imports[::-1] for s in imprt.symbols
+                )
+        redundant_imports_map = defaultdict(set)
+        for module, variables in symbol_map.items():
+            redundant = [var.parent[0] if var.parent else var for var in variables]
+            redundant = {var.clone(dimensions=None) for var in redundant if var.name in import_map}
+            redundant_imports_map[module] |= redundant
+        import_map = {}
+        imports = FindNodes(Import).visit(routine.spec)
+        for _import in imports:
+            new_symbols = tuple(var.clone(dimensions=None, scope=routine)
+                    for var in set(_import.symbols)-redundant_imports_map[_import.module.lower()])
+            if new_symbols:
+                import_map[_import] = _import.clone(symbols=new_symbols)
+            else:
+                import_map[_import] = None
+        routine.spec = Transformer(import_map).visit(routine.spec)
+
+    def _get_symbols(self, successors):
+        """
+        Get module variables/symbols (grouped by routine/successor).
+        """
+        defines_symbols = {}
+        uses_symbols = {}
+        for item in successors:
+            if isinstance(item, GlobalVarImportItem):
+                continue
+            defines_symbols[item.routine.name] = set()
+            uses_symbols[item.routine.name] = set()
+            defines_symbols[item.routine.name] = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
+            uses_symbols[item.routine.name] = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+            # remove parameters if hoist_parameters is False
+            if not self.hoist_parameters:
+                parameters = {(var, module) for var, module in uses_symbols[item.routine.name] if var.type.parameter}
+                uses_symbols[item.routine.name] ^= parameters
+        return defines_symbols, uses_symbols
+
+    def _append_call_arguments(self, routine, uses_symbols, defines_symbols):
+        """
+        Helper to append variables to the call(s) (arguments).
+        """
+        symbol_map = defaultdict(set)
+        for key, _ in uses_symbols.items():
+            all_symbols = uses_symbols[key]|defines_symbols[key]
+            for var, module in all_symbols:
+                # filter modules that are supposed to be ignored
+                if module.lower() in self.ignore_modules:
+                    continue
+                symbol_map[key].add(var.parents[0] if var.parent else var)
+        call_map = {}
+        calls = FindNodes(CallStatement).visit(routine.body)
+        for call in calls:
+            if call.routine.name in uses_symbols:
+                arguments = call.arguments
+                new_args = sorted([var.clone(dimensions=None) for var in symbol_map[call.routine.name]],
+                        key=lambda symbol: symbol.name)
+                call_map[call] = call.clone(arguments=arguments + tuple(new_args))
+        routine.body = Transformer(call_map).visit(routine.body)
+
+    def _append_routine_arguments(self, routine, item):
+        """
+        Helper to append variables to the routine (arguments).
+        """
+        all_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
+        all_defines_vars = [var.parents[0] if var.parent else var for var, _ in all_defines_symbols]
+        all_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+        # remove parameters if hoist_parameters is False
+        if not self.hoist_parameters:
+            parameters = {(var, module) for var, module in all_uses_symbols if var.type.parameter}
+            all_uses_symbols ^= parameters
+        all_symbols = all_uses_symbols|all_defines_symbols
+        new_arguments = []
+        for var, module in all_symbols:
+            # filter modules that are supposed to be ignored
+            if module.lower() in self.ignore_modules:
+                continue
+            new_arguments.append(var.parents[0] if var.parent else var)
+        new_arguments = set(new_arguments) # remove duplicates
+        new_arguments = [arg.clone(type=arg.type.clone(intent='inout' if arg in all_defines_vars
+            else 'in', parameter=False, initial=None)) for arg in new_arguments]
+        routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
