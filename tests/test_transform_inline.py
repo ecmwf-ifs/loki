@@ -1059,6 +1059,10 @@ end module somemod
     assert 'inner' not in callnames
     assert 'minusone_second' in callnames
 
+@pytest.mark.parametrize('frontend', available_frontends(
+    (OFP, 'Prefix/elemental support not implemented'))
+)
+def test_inline_transformation_local_seq_assoc_crash_marked_no_seq_assoc(frontend):
     # Test case that a crash occurs if marked routine with sequence association is
     # attempted to inline without sequence association enabled.
     fcode = """
@@ -1103,6 +1107,10 @@ end module somemod
     trafo.apply(outer)
     assert len(FindNodes(CallStatement).visit(outer.body)) == 0
 
+@pytest.mark.parametrize('frontend', available_frontends(
+    (OFP, 'Prefix/elemental support not implemented'))
+)
+def test_inline_transformation_local_seq_assoc_crash_value_err_no_source(frontend):
     # Testing that ValueError is thrown if sequence association is requested with inlining,
     # but source code behind call is missing (not enough type information).
     fcode = """
