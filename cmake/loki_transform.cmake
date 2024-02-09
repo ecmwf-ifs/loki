@@ -21,11 +21,11 @@ include( loki_transform_helpers )
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       MODE <mode>
 #       CONFIG <config-file>
-#       RESOLVE_SEQUENCE_ASSOCIATION <resolve-seq-assoc-type>
 #       [DIRECTIVE <directive>]
 #       [CPP]
 #       [FRONTEND <frontend>]
 #       [INLINE_MEMBERS]
+#       [RESOLVE_SEQUENCE_ASSOCIATION]
 #       [BUILDDIR <build-path>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
@@ -47,10 +47,10 @@ function( loki_transform )
 
     set( options
          CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR TRIM_VECTOR_SECTIONS GLOBAL_VAR_OFFLOAD
-         REMOVE_DERIVED_ARGS INLINE_MEMBERS DERIVE_ARGUMENT_ARRAY_SHAPE
+         REMOVE_DERIVED_ARGS INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
     )
     set( oneValueArgs
-         COMMAND MODE DIRECTIVE FRONTEND CONFIG BUILDDIR RESOLVE_SEQUENCE_ASSOCIATION 
+         COMMAND MODE DIRECTIVE FRONTEND CONFIG BUILDDIR
     )
     set( multiValueArgs
          OUTPUT DEPENDS SOURCES HEADERS INCLUDES DEFINITIONS OMNI_INCLUDE XMOD
@@ -189,13 +189,12 @@ endfunction()
 #       MODE <mode>
 #       CONFIG <config-file>
 #       PLAN <plan-file>
-#  	RESOLVE_SEQUENCE_ASSOCIATION <resolve-seq-assoc-type>
 #       [CPP] [CPP_PLAN]
 #       [FRONTEND <frontend>]
 #       [DIRECTIVE <openacc|openmp|...>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
-#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED INLINE_MEMBERS]
+#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION]
 #   )
 #
 # Applies a Loki bulk transformation to the source files belonging to a particular
@@ -226,9 +225,9 @@ function( loki_transform_target )
 
     set( options
          NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS
-	 DERIVE_ARGUMENT_ARRAY_SHAPE
+	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
     )
-    set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN RESOLVE_SEQUENCE_ASSOCIATION )
+    set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS )
 
     cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
@@ -296,9 +295,9 @@ function( loki_transform_target )
             list( APPEND _TRANSFORM_OPTIONS INLINE_MEMBERS )
         endif()
 
-	#if( _PAR_T_RESOLVE_SEQUENCE_ASSOCIATION )
-        #    list( APPEND _TRANSFORM_OPTIONS RESOLVE_SEQUENCE_ASSOCIATION )
-        #endif()
+        if( _PAR_T_RESOLVE_SEQUENCE_ASSOCIATION )
+            list( APPEND _TRANSFORM_OPTIONS RESOLVE_SEQUENCE_ASSOCIATION )
+        endif()
 
         if( _PAR_T_DERIVE_ARGUMENT_ARRAY_SHAPE )
             list( APPEND _TRANSFORM_OPTIONS DERIVE_ARGUMENT_ARRAY_SHAPE )
@@ -398,10 +397,10 @@ or
     set( options
          CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR GLOBAL_VAR_OFFLOAD
          TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS
-	 DERIVE_ARGUMENT_ARRAY_SHAPE
+	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
     )
     set( oneValueArgs
-         MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH RESOLVE_SEQUENCE_ASSOCIATION 
+         MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH
     )
     set( multiValueArgs
          OUTPUT DEPENDS INCLUDES HEADERS DEFINITIONS OMNI_INCLUDE XMOD
