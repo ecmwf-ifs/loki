@@ -35,6 +35,7 @@ from transformations.data_offload import (
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from transformations.raw_stack_allocator import TemporariesRawStackTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import (
     SCCBaseTransformation, SCCAnnotateTransformation,
@@ -71,7 +72,7 @@ def cli(debug):
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
                   ['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
+                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -230,7 +231,7 @@ def convert(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         ))
 
-    if mode in ['scc', 'scc-hoist', 'scc-stack']:
+    if mode in ['scc', 'scc-hoist', 'scc-stack', 'scc-raw-stack']:
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
             horizontal=horizontal, directive=directive
@@ -287,6 +288,12 @@ def convert(
         vertical = scheduler.config.dimensions['vertical']
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
         scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
+
+    if mode == 'scc-raw-stack':
+        transformation = TemporariesRawStackTransformation(
+            block_dim=block_dim, horizontal=horizontal, directive=directive
+        )
+        scheduler.process(transformation=transformation)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     scheduler.process( ModuleWrapTransformation(module_suffix='_MOD') )
