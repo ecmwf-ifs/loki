@@ -8,6 +8,7 @@
 from enum import IntEnum
 from pathlib import Path
 import codecs
+from codetiming import Timer
 
 from loki.visitors import NestedTransformer, FindNodes, PatternFinder, SequenceFinder
 from loki.ir import (
@@ -15,7 +16,7 @@ from loki.ir import (
     Loop, Intrinsic, Pragma
 )
 from loki.frontend.source import Source
-from loki.logging import warning
+from loki.logging import warning, perf
 
 __all__ = [
     'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX',
@@ -180,6 +181,7 @@ def combine_multiline_pragmas(ir):
     return NestedTransformer(pragma_mapper, invalidate_source=False).visit(ir)
 
 
+@Timer(logger=perf, text=lambda s: f'[Loki::Frontend] Executed sanitize_ir in {s:.2f}s')
 def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
     """
     Utility function to sanitize internal representation after creating it
