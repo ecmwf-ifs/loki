@@ -112,18 +112,11 @@ def cli(debug):
               help='Inline member functions for SCC-class transformations.')
 @click.option('--inline-marked/--no-inline-marked', default=True,
               help='Inline pragma-marked subroutines for SCC-class transformations.')
-@click.option('--resolve-sequence-association', default='off',
-              type=click.Choice(
-                ['off', 'all', 'inlined-only']
-              ),
-              help=(
-                'Option to replace array arguments passed as scalars with arrays. ' +
-                'Choice `all` does replacement for all procedures as part of a global sanitisation transform. ' +
-                'Choice `inlined-only` applies replacement only for procedures ' +
-                'that will be inlined as a result of specifying options ' +
-                '`--inline-members` or `--inline-marked`. ' + 
-                'If inlining is deactivated, choice `inlined-only` has no effect.'
-              ))
+@click.option('--resolve-sequence-association/--no-resolve-sequence-association', default=False,
+              help='Replace array arguments passed as scalars with arrays.')
+@click.option('--resolve-sequence-association-inlined-calls/--no-resolve-sequence-association-inlined-calls',
+              help='Replace array arguments passed as scalars with arrays, but only in calls that are inlined.',
+              default=False)
 @click.option('--derive-argument-array-shape/--no-derive-argument-array-shape', default=False,
               help="Recursively derive explicit shape dimension for argument arrays")
 @click.option('--eliminate-dead-code/--no-eliminate-dead-code', default=True,
@@ -132,7 +125,8 @@ def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
         global_var_offload, remove_derived_args, inline_members, inline_marked,
-        resolve_sequence_association, derive_argument_array_shape, eliminate_dead_code
+        resolve_sequence_association, resolve_sequence_association_inlined_calls, 
+        derive_argument_array_shape, eliminate_dead_code
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -200,7 +194,7 @@ def convert(
     sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
     if not sanitise_trafo:
         sanitise_trafo = SanitiseTransformation(
-            resolve_sequence_association=resolve_sequence_association == "all",
+            resolve_sequence_association=resolve_sequence_association,
         )
     scheduler.process(transformation=sanitise_trafo)
 
@@ -210,7 +204,7 @@ def convert(
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
             eliminate_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
-            resolve_sequence_association=resolve_sequence_association == "inlined-only" 
+            resolve_sequence_association=resolve_sequence_association_inlined_calls 
         )
     scheduler.process(transformation=inline_trafo)
 
