@@ -126,7 +126,7 @@ def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
         global_var_offload, remove_derived_args, inline_members, inline_marked,
-        resolve_sequence_association, resolve_sequence_association_inlined_calls, 
+        resolve_sequence_association, resolve_sequence_association_inlined_calls,
         derive_argument_array_shape, eliminate_dead_code
 ):
     """
