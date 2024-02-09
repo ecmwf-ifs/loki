@@ -9,8 +9,12 @@ from enum import IntEnum
 from pathlib import Path
 import codecs
 from codetiming import Timer
+from itertools import groupby
+from more_itertools import replace
 
-from loki.visitors import NestedTransformer, FindNodes, PatternFinder, SequenceFinder
+from loki.visitors import (
+    NestedTransformer, FindNodes, PatternFinder, SequenceFinder, Transformer
+)
 from loki.ir import (
     Assignment, Comment, CommentBlock, VariableDeclaration, ProcedureDeclaration,
     Loop, Intrinsic, Pragma
@@ -19,8 +23,8 @@ from loki.frontend.source import Source
 from loki.logging import warning, perf
 
 __all__ = [
-    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX',
-    'inline_comments', 'cluster_comments', 'read_file',
+    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'inline_comments',
+    'ClusterCommentTransformer', 'read_file',
     'combine_multiline_pragmas', 'sanitize_ir'
 ]
 
@@ -66,28 +70,34 @@ def inline_comments(ir):
     return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
-def cluster_comments(ir):
+class ClusterCommentTransformer(Transformer):
     """
-    Cluster comments into comment blocks
+    Combines consecutive sets of :any:`Comment` into a :any:`CommentBlock`.
     """
-    comment_mapper = {}
-    comment_groups = SequenceFinder(node_type=Comment).visit(ir)
-    for comments in comment_groups:
-        # Build a CommentBlock and map it to first comment
-        # and map remaining comments to None for removal
-        if all(c.source is not None for c in comments):
-            if all(c.source.string is not None for c in comments):
-                string = '\n'.join(c.source.string for c in comments)
-            else:
-                string = None
-            lines = {l for c in comments for l in c.source.lines if l is not None}
-            lines = (min(lines), max(lines))
-            source = Source(lines=lines, string=string, file=comments[0].source.file)
-        else:
-            source = None
-        block = CommentBlock(comments, label=comments[0].label, source=source)
-        comment_mapper[comments] = block
-    return NestedTransformer(comment_mapper, invalidate_source=False).visit(ir)
+
+    def visit_tuple(self, o, **kwargs):
+        """
+        Find groups of :any:`Comment` and inject into the tuple.
+        """
+        cgroups = tuple(
+            tuple(g) for k, g in groupby(o, key=lambda x: x.__class__)
+            if k == Comment
+        )
+        cgroups = tuple(g for g in cgroups if len(g) > 1)
+
+        for group in cgroups:
+            # Combine the group into a CommentBlock
+            source = join_source_list(tuple(p.source for p in group))
+            block = CommentBlock(comments=group, label=group[0].label, source=source)
+            pred = lambda *args: args == group
+            o = tuple(replace(
+                o, pred=pred, substitutes=(block,), window_size=len(group)
+            ))
+
+        # Then recurse over the new nodes
+        return tuple(self.visit(i, **kwargs) for i in o)
+
+    visit_list = visit_tuple
 
 
 def inline_labels(ir):
@@ -191,7 +201,7 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
     the following operations:
 
     * :any:`inline_comments` to attach inline-comments to IR nodes
-    * :any:`cluster_comments` to combine multi-line comments into :any:`CommentBlock`
+    * :any:`ClusterCommentTransformer` to combine multi-line comments into :any:`CommentBlock`
     * :any:`combine_multiline_pragmas` to combine multi-line pragmas into a
       single node
 
@@ -215,7 +225,7 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
 
     # Perform some minor sanitation tasks
     _ir = inline_comments(_ir)
-    _ir = cluster_comments(_ir)
+    _ir = ClusterCommentTransformer(invalidate_source=False).visit(_ir)
 
     if frontend in (OMNI, OFP):
         _ir = inline_labels(_ir)
