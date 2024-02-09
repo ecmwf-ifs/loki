@@ -17,7 +17,8 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info,
+    GlobalVarImportItem, Module
 )
 
 # Get generalized transformations provided by Loki
@@ -70,7 +71,7 @@ def cli(debug):
 @cli.command()
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
-                  ['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                  ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
                    'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
@@ -160,10 +161,13 @@ def convert(
     # of any imported symbols and functions. Since we cannot yet retro-fit that
     # after creation, we need to make sure that the order of definitions can
     # be used to create a coherent stack of type definitions.
+    # definitions with new scheduler not necessary anymore. However, "source" need to be adjusted 
+    #  in order to allow the scheduler to find the dependencies
     definitions = []
     for h in header:
-        sfile = Sourcefile.from_file(filename=h, frontend=frontend_type, **build_args)
-        definitions = definitions + list(sfile.modules)
+        sfile = Sourcefile.from_file(filename=h, frontend=frontend_type, definitions=definitions,
+                **build_args)
+        definitions = definitions + list(sfile.definitions)
 
     # Create a scheduler to bulk-apply source transformations
     paths = [Path(p).resolve() for p in as_tuple(source)]
@@ -293,92 +297,25 @@ def convert(
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
         scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
 
-    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
-    scheduler.process( ModuleWrapTransformation(module_suffix='_MOD') )
     mode = mode.replace('-', '_')  # Sanitize mode string
-    scheduler.process( DependencyTransformation(suffix=f'_{mode.upper()}', module_suffix='_MOD') )
+    if mode in ["c"]:
+        f2c_transformation = FortranCTransformation(path=build)
+        scheduler.process(f2c_transformation)
+        for h in definitions:
+            f2c_transformation.apply(h, role='header')
+        # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+        dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
+        scheduler.process(dependency)
+    else:
+        # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+        scheduler.process( ModuleWrapTransformation(module_suffix='_MOD') )
+        scheduler.process( DependencyTransformation(suffix=f'_{mode.upper()}', module_suffix='_MOD') )
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(
         builddir=build, mode=mode, cuf='cuf' in mode,
         include_module_var_imports=global_var_offload
     ))
-
-
-@cli.command()
-@click.option('--build', '-b', '--out-path', type=click.Path(),
-              help='Path for generated souce files.')
-@click.option('--header', '-h', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
-@click.option('--source', '-s', type=click.Path(),
-              help='Source file to convert.')
-@click.option('--driver', '-d', type=click.Path(),
-              help='Driver file to convert.')
-@click.option('--cpp/--no-cpp', default=False,
-              help='Trigger C-preprocessing of source files.')
-@click.option('--include', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s)')
-@click.option('--define', '-D', multiple=True,
-              help='Additional symbol definitions for C-preprocessor')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
-@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
-              help='Frontend parser to use (default FP)')
-def transpile(build, header, source, driver, cpp, include, define, frontend, xmod):
-    """
-    Convert kernels to C and generate ISO-C bindings and interfaces.
-    """
-    driver_name = 'CLOUDSC_DRIVER'
-    kernel_name = 'CLOUDSC'
-
-    frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
-
-    # Note, in order to get function inlinig correct, we need full knowledge
-    # of any imported symbols and functions. Since we cannot yet retro-fit that
-    # after creation, we need to make sure that the order of definitions can
-    # be used to create a coherent stack of type definitions.
-    definitions = []
-    for h in header:
-        sfile = Sourcefile.from_file(h, xmods=xmod, definitions=definitions,
-                                     frontend=frontend_type, preprocess=cpp)
-        definitions = definitions + list(sfile.definitions)
-
-    # Parse original driver and kernel routine, and enrich the driver
-    kernel = Sourcefile.from_file(source, definitions=definitions, preprocess=cpp,
-                                  includes=include, defines=define, xmods=xmod,
-                                  frontend=frontend)
-    driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
-    # Ensure that the kernel calls have all meta-information
-    driver[driver_name].enrich(kernel[kernel_name])
-
-    kernel_item = SubroutineItem(f'#{kernel_name.lower()}', source=kernel)
-    driver_item = SubroutineItem(f'#{driver_name.lower()}', source=driver)
-
-    # First, remove all derived-type arguments; caller first!
-    transformation = DerivedTypeArgumentsTransformation()
-    kernel[kernel_name].apply(transformation, role='kernel', item=kernel_item)
-    driver[driver_name].apply(transformation, role='driver', item=driver_item, successors=(kernel_item,))
-
-    # Now we instantiate our pipeline and apply the changes
-    transformation = FortranCTransformation()
-    transformation.apply(kernel, role='kernel', path=build)
-
-    # Traverse header modules to create getter functions for module variables
-    for h in definitions:
-        transformation.apply(h, role='header', path=build)
-
-    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
-    module_wrap = ModuleWrapTransformation(module_suffix='_MOD')
-    kernel.apply(module_wrap, role='kernel', targets=())
-    dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel', targets=())
-    kernel.write(path=Path(build)/kernel.path.with_suffix('.c.F90').name)
-
-    # Re-generate the driver that mimicks the original source file,
-    # but imports and calls our re-generated kernel.
-    driver.apply(dependency, role='driver', targets=kernel_name)
-    driver.write(path=Path(build)/driver.path.with_suffix('.c.F90').name)
 
 
 @cli.command('plan')

@@ -211,6 +211,12 @@ class LokiStringifyMapper(StringifyMapper):
 
     map_string_subscript = map_array_subscript
 
+    def map_c_reference(self, expr, enclosing_prec, *args, **kwargs):
+        return self.format('%s', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
+
+    def map_c_dereference(self, expr, enclosing_prec, *args, **kwargs):
+        return self.format('%s', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
+
 
 class LokiWalkMapper(WalkMapper):
     """
@@ -299,6 +305,18 @@ class LokiWalkMapper(WalkMapper):
         self.rec(expr.values, *args, **kwargs)
         self.rec(expr.variable, *args, **kwargs)
         self.rec(expr.bounds, *args, **kwargs)
+        self.post_visit(expr, *args, **kwargs)
+
+    def map_c_reference(self, expr, *args, **kwargs):
+        if not self.visit(expr):
+            return
+        self.rec(expr.expression, *args, **kwargs)
+        self.post_visit(expr, *args, **kwargs)
+
+    def map_c_dereference(self, expr, *args, **kwargs):
+        if not self.visit(expr):
+            return
+        self.rec(expr.expression, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
 
@@ -697,6 +715,12 @@ class LokiIdentityMapper(IdentityMapper):
         variable = self.rec(expr.variable, *args, **kwargs)
         bounds = self.rec(expr.bounds, *args, **kwargs)
         return expr.__class__(values, variable, bounds)
+
+    def map_c_reference(self, expr, *args, **kwargs):
+        return expr.__class__(self.rec(expr.expression, *args, **kwargs))
+
+    def map_c_dereference(self, expr, *args, **kwargs):
+        return expr.__class__(self.rec(expr.expression, *args, **kwargs))
 
 
 class SubstituteExpressionsMapper(LokiIdentityMapper):
