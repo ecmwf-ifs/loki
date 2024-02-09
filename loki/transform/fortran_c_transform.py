@@ -53,28 +53,27 @@ class FortranCTransformation(Transformation):
     use_c_ptr : bool, optional
         Use ``c_ptr`` for array declarations in the F2C wrapper and ``c_loc(...)`` to pass
         the corresponding argument. Default is ``False``.
+    path : str, optional
+        Path to generate C sources.
     """
     # pylint: disable=unused-argument
 
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, use_c_ptr=False):
+    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None):
         self.inline_elementals = inline_elementals
         self.use_c_ptr = use_c_ptr
+        self.path = Path(path) if path is not None else None
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
 
-    def transform_file(self, sourcefile, **kwargs):
-        for module in sourcefile.modules:
-            self.transform_module(module, **kwargs)
-
-        for routine in sourcefile.subroutines:
-            self.transform_subroutine(routine, **kwargs)
-
     def transform_module(self, module, **kwargs):
-        path = Path(kwargs.get('path'))
+        if self.path is None:
+            path = Path(kwargs.get('path'))
+        else:
+            path = self.path
         role = kwargs.get('role', 'kernel')
 
         for name, td in module.typedef_map.items():
@@ -91,12 +90,15 @@ class FortranCTransformation(Transformation):
             self.c_path = (path/c_header.name.lower()).with_suffix('.h')
             Sourcefile.to_file(source=cgen(c_header), path=self.c_path)
 
-        for routine in module.subroutines:
-            self.transform_subroutine(routine, **kwargs)
-
     def transform_subroutine(self, routine, **kwargs):
-        path = Path(kwargs.get('path'))
+        if self.path is None:
+            path = Path(kwargs.get('path'))
+        else:
+            path = self.path
         role = kwargs.get('role', 'kernel')
+
+        if role == 'driver':
+            return
 
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
