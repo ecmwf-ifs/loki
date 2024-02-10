@@ -1686,18 +1686,27 @@ REAL, INTENT(INOUT) :: B
 !$ACC& PRESENT(ZRDG_LCVQ,ZFLU_QSATS,ZRDG_CVGQ) &
 !$ACC& PRIVATE (JBLK) &
 !$ACC& VECTOR_LENGTH (YDCPG_OPTS%KLON)
+!$ACC SEQUENTIAL
 
 END SUBROUTINE TOTO
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     pragmas = FindNodes(Pragma).visit(routine.body)
-    assert len(pragmas) == 1
+
+    assert len(pragmas) == 2
     assert pragmas[0].keyword == 'ACC'
     assert 'PARALLEL' in pragmas[0].content
     assert 'PRESENT' in pragmas[0].content
     assert 'PRIVATE' in pragmas[0].content
     assert 'VECTOR_LENGTH' in pragmas[0].content
+    assert pragmas[1].content == 'SEQUENTIAL'
+
+    # Check that source object was generated right
+    assert pragmas[0].source
+    assert pragmas[0].source.lines == (8, 8) if frontend == OMNI else (8, 11)
+    assert pragmas[1].source
+    assert pragmas[1].source.lines == (12, 12)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

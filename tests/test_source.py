@@ -223,8 +223,8 @@ end module some_module
     (
         [], None
     ),  (
-        [Source([1, 2], 'subroutine my_routine\nimplicit none'), Source([3, None], 'end subroutine my_routine')],
-        Source([1, 3], 'subroutine my_routine\nimplicit none\nend subroutine my_routine')
+        [Source((1, 2), 'subroutine my_routine\nimplicit none'), Source((3, None), 'end subroutine my_routine')],
+        Source((1, 3), 'subroutine my_routine\nimplicit none\nend subroutine my_routine')
     ), (
         [
             Source([1, None], 'subroutine my_routine'),
@@ -235,7 +235,7 @@ end module some_module
             Source([6, 7], '  var_1 = 1._real64\n  var_2 = 2._real64'),
             Source([8, None], 'end subroutine my_routine'),
         ],
-        Source([1, 8], '''
+        Source((1, 8), '''
 subroutine my_routine
   use iso_fortran_env, only: real64
   implicit none
@@ -247,22 +247,22 @@ end subroutine my_routine
         '''.strip())
     ), (
         [
-            Source([5, 5], 'integer ::'),
-            Source([5, None], ' var1,'),
-            Source([5, 5], ' var2')
+            Source((5, 5), 'integer ::'),
+            Source((5, None), ' var1,'),
+            Source((5, 5), ' var2')
         ],
-        Source([5, 5], 'integer :: var1, var2')
+        Source((5, 5), 'integer :: var1, var2')
     ), (
-        [Source([1, 1], 'print *,* "hello world!"')], Source([1, 1], 'print *,* "hello world!"')
+        [Source((1, 1), 'print *,* "hello world!"')], Source((1, 1), 'print *,* "hello world!"')
     ), (
-        [Source([13, 19], '! line with less line breaks than reported'), Source([20, None], '! here')],
-        Source([13, 20], '! line with less line breaks than reported\n! here')
+        [Source((13, 19), '! line with less line breaks than reported'), Source((20, None), '! here')],
+        Source((13, 20), '! line with less line breaks than reported\n! here')
     ), (
-        [Source([7, None], '! Some line'), Source([12, None], '! Some other line')],
-        Source([7, 12], '! Some line\n\n\n\n\n! Some other line')
+        [Source((7, None), '! Some line'), Source([12, None], '! Some other line')],
+        Source((7, 12), '! Some line\n\n\n\n\n! Some other line')
     ), (
-        [Source([3, 4], '! Some line\n! With line break'), Source([6, None], '! Other line\n! And new line')],
-        Source([3, 7], '! Some line\n! With line break\n\n! Other line\n! And new line')
+        [Source((3, 4), '! Some line\n! With line break'), Source([6, None], '! Other line\n! And new line')],
+        Source((3, 7), '! Some line\n! With line break\n\n! Other line\n! And new line')
     )
 ))
 def test_join_source_list(source_list, expected):

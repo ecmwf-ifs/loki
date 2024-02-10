@@ -10,7 +10,7 @@ from pathlib import Path
 import codecs
 from codetiming import Timer
 from itertools import groupby
-from more_itertools import replace
+from more_itertools import replace, split_after
 
 from loki.visitors import (
     NestedTransformer, FindNodes, PatternFinder, SequenceFinder, Transformer
@@ -19,13 +19,13 @@ from loki.ir import (
     Assignment, Comment, CommentBlock, VariableDeclaration, ProcedureDeclaration,
     Loop, Intrinsic, Pragma
 )
-from loki.frontend.source import Source
+from loki.frontend.source import Source, join_source_list
 from loki.logging import warning, perf
 
 __all__ = [
     'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'inline_comments',
     'ClusterCommentTransformer', 'read_file',
-    'combine_multiline_pragmas', 'sanitize_ir'
+    'CombineMultilinePragmasTransformer', 'sanitize_ir'
 ]
 
 
@@ -146,49 +146,37 @@ def read_file(file_path):
     return source
 
 
-def combine_multiline_pragmas(ir):
+class CombineMultilinePragmasTransformer(Transformer):
     """
-    Combine multiline pragmas into single pragma nodes
+    Combine multiline :any:`Pragma` nodes into single ones.
     """
-    pragma_mapper = {}
-    pragma_groups = SequenceFinder(node_type=Pragma).visit(ir)
-    for pragma_list in pragma_groups:
-        collected_pragmas = []
-        for pragma in pragma_list:
-            if not collected_pragmas:
-                if pragma.content.rstrip().endswith('&'):
-                    # This is the beginning of a multiline pragma
-                    collected_pragmas = [pragma]
-            else:
-                # This is the continuation of a multiline pragma
-                collected_pragmas += [pragma]
 
-                if pragma.keyword != collected_pragmas[0].keyword:
-                    raise RuntimeError('Pragma keyword mismatch after line continuation: ' +
-                                       f'{collected_pragmas[0].keyword} != {pragma.keyword}')
+    def visit_tuple(self, o, **kwargs):
+        """
+        Finds multi-line pragmas and combines them in-place.
+        """
+        pgroups = tuple(
+            tuple(g) for k, g in groupby(o, key=lambda x: x.__class__)
+            if k == Pragma
+        )
+        pgroups = tuple(g for g in pgroups if len(g) > 1)
 
-                if not pragma.content.rstrip().endswith('&'):
-                    # This is the last line of a multiline pragma
-                    content = [p.content.strip()[:-1].rstrip() for p in collected_pragmas[:-1]]
-                    content = ' '.join(content) + ' ' + pragma.content.strip()
+        for group in pgroups:
+            # Separate sets of consecutive multi-line pragmas
+            pred = lambda p: not p.content.rstrip().endswith('&')  # pylint: disable=unnecessary-lambda-assignment
+            for pragmaset in split_after(group, pred=pred):
+                # Combine into a single pragma and add to map
+                source = join_source_list(tuple(p.source for p in pragmaset))
+                content = ' '.join(p.content.rstrip(' &') for p in pragmaset)
+                new_pragma = Pragma(
+                    keyword=pragmaset[0].keyword, content=content, source=source
+                )
+                pred = lambda *args: args == tuple(pragmaset)
+                o = tuple(replace(
+                    o, pred=pred, substitutes=(new_pragma,), window_size=len(pragmaset)
+                ))
 
-                    if all(p.source is not None for p in collected_pragmas):
-                        if all(p.source.string is not None for p in collected_pragmas):
-                            string = '\n'.join(p.source.string for p in collected_pragmas)
-                        else:
-                            string = None
-                        lines = (collected_pragmas[0].source.lines[0], collected_pragmas[-1].source.lines[1])
-                        source = Source(lines=lines, string=string, file=pragma.source.file)
-                    else:
-                        source = None
-
-                    new_pragma = Pragma(keyword=pragma.keyword, content=content, source=source)
-                    pragma_mapper[collected_pragmas[0]] = new_pragma
-                    pragma_mapper.update({p: None for p in collected_pragmas[1:]})
-
-                    collected_pragmas = []
-
-    return NestedTransformer(pragma_mapper, invalidate_source=False).visit(ir)
+        return tuple(self.visit(i, **kwargs) for i in o)
 
 
 @Timer(logger=perf, text=lambda s: f'[Loki::Frontend] Executed sanitize_ir in {s:.2f}s')
@@ -202,7 +190,7 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
 
     * :any:`inline_comments` to attach inline-comments to IR nodes
     * :any:`ClusterCommentTransformer` to combine multi-line comments into :any:`CommentBlock`
-    * :any:`combine_multiline_pragmas` to combine multi-line pragmas into a
+    * :any:`CombineMultilinePragmasTransformer` to combine multi-line pragmas into a
       single node
 
     Parameters
@@ -231,6 +219,6 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
         _ir = inline_labels(_ir)
 
     if frontend in (FP, OFP):
-        _ir = combine_multiline_pragmas(_ir)
+        _ir = CombineMultilinePragmasTransformer(invalidate_source=False).visit(_ir)
 
     return _ir
