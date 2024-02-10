@@ -9,18 +9,19 @@ from enum import IntEnum
 from pathlib import Path
 import codecs
 from codetiming import Timer
-from itertools import groupby
-from more_itertools import replace, split_after
+from more_itertools import split_after
 
 from loki.visitors import (
-    NestedTransformer, FindNodes, PatternFinder, SequenceFinder, Transformer
+    NestedTransformer, FindNodes, PatternFinder, Transformer
 )
 from loki.ir import (
     Assignment, Comment, CommentBlock, VariableDeclaration, ProcedureDeclaration,
     Loop, Intrinsic, Pragma
 )
-from loki.frontend.source import Source, join_source_list
+from loki.frontend.source import join_source_list
 from loki.logging import warning, perf
+from loki.tools import group_by_class, replace_windowed
+
 
 __all__ = [
     'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'inline_comments',
@@ -79,20 +80,12 @@ class ClusterCommentTransformer(Transformer):
         """
         Find groups of :any:`Comment` and inject into the tuple.
         """
-        cgroups = tuple(
-            tuple(g) for k, g in groupby(o, key=lambda x: x.__class__)
-            if k == Comment
-        )
-        cgroups = tuple(g for g in cgroups if len(g) > 1)
-
+        cgroups = group_by_class(o, Comment)
         for group in cgroups:
             # Combine the group into a CommentBlock
             source = join_source_list(tuple(p.source for p in group))
             block = CommentBlock(comments=group, label=group[0].label, source=source)
-            pred = lambda *args: args == group
-            o = tuple(replace(
-                o, pred=pred, substitutes=(block,), window_size=len(group)
-            ))
+            o = replace_windowed(o, group, subs=(block,))
 
         # Then recurse over the new nodes
         return tuple(self.visit(i, **kwargs) for i in o)
@@ -155,11 +148,7 @@ class CombineMultilinePragmasTransformer(Transformer):
         """
         Finds multi-line pragmas and combines them in-place.
         """
-        pgroups = tuple(
-            tuple(g) for k, g in groupby(o, key=lambda x: x.__class__)
-            if k == Pragma
-        )
-        pgroups = tuple(g for g in pgroups if len(g) > 1)
+        pgroups = group_by_class(o, Pragma)
 
         for group in pgroups:
             # Separate sets of consecutive multi-line pragmas
@@ -171,10 +160,7 @@ class CombineMultilinePragmasTransformer(Transformer):
                 new_pragma = Pragma(
                     keyword=pragmaset[0].keyword, content=content, source=source
                 )
-                pred = lambda *args: args == tuple(pragmaset)
-                o = tuple(replace(
-                    o, pred=pred, substitutes=(new_pragma,), window_size=len(pragmaset)
-                ))
+                o = replace_windowed(o, pragmaset, subs=(new_pragma,))
 
         return tuple(self.visit(i, **kwargs) for i in o)
 

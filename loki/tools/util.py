@@ -16,6 +16,8 @@ from shlex import split
 from subprocess import run, PIPE, STDOUT, CalledProcessError
 from contextlib import contextmanager
 from pathlib import Path
+from itertools import groupby
+from more_itertools import replace
 
 try:
     import yaml
@@ -31,7 +33,7 @@ __all__ = [
     'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
     'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
     'yaml_include_constructor', 'auto_post_mortem_debugger', 'set_excepthook',
-    'timeout', 'WeakrefProperty'
+    'timeout', 'WeakrefProperty', 'group_by_class', 'replace_windowed'
 ]
 
 
@@ -628,3 +630,42 @@ class WeakrefProperty:
             obj.__dict__[self._name] = value
         else:
             setattr(obj, self._name, value)
+
+
+def group_by_class(iterable, klass):
+    """
+    Find groups of consecutive instances of the same type with more
+    than one element.
+
+    Parameters
+    ----------
+    iterable : iterable
+        Input iterable from which to extract groups
+    klass : type
+        Type by which to group elements in the given iterable
+    """
+    groups = tuple(
+        tuple(g) for k, g in groupby(iterable, key=lambda x: x.__class__)
+        if k == klass
+    )
+    return tuple(g for g in groups if len(g) > 1)
+
+
+def replace_windowed(iterable, group, subs):
+    """
+    Replace a set of consecutive elements in a larger iterable.
+
+    Parameters
+    ----------
+    iterable : iterable
+        Input iterable in which to replace elements
+    group : iterable
+        Group of elements to replace in ``iterable``
+    subs : any
+        Replacement for ``group`` in ``iterable``
+    """
+    group = as_tuple(group)
+    return tuple(replace(
+        iterable, pred=lambda *args: args == group,
+        substitutes=as_tuple(subs), window_size=len(group)
+    ))
