@@ -38,7 +38,7 @@ jobs:
         with:
           repository: ecmwf-ifs/ecwam
           path: ecwam
-          ref: naan-phys-gpu
+          ref: nams_naan-phys-gpu
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
