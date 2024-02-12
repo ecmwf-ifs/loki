@@ -946,9 +946,7 @@ end subroutine test_inline_pragma
     assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
     assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    (OFP, 'Prefix/elemental support not implemented'))
-)
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_transformation_local_seq_assoc(frontend):
     fcode = """
 module somemod
@@ -1059,9 +1057,7 @@ end module somemod
     assert 'inner' not in callnames
     assert 'minusone_second' in callnames
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    (OFP, 'Prefix/elemental support not implemented'))
-)
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_transformation_local_seq_assoc_crash_marked_no_seq_assoc(frontend):
     # Test case that a crash occurs if marked routine with sequence association is
     # attempted to inline without sequence association enabled.
@@ -1107,9 +1103,7 @@ end module somemod
     trafo.apply(outer)
     assert len(FindNodes(CallStatement).visit(outer.body)) == 0
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    (OFP, 'Prefix/elemental support not implemented'))
-)
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_transformation_local_seq_assoc_crash_value_err_no_source(frontend):
     # Testing that ValueError is thrown if sequence association is requested with inlining,
     # but source code behind call is missing (not enough type information).
