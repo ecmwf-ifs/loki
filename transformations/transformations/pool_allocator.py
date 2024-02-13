@@ -133,7 +133,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         role = kwargs['role']
         item = kwargs.get('item', None)
         ignore = item.ignore if item else ()
-        targets = kwargs.get('targets', None)
+        targets = as_tuple(kwargs.get('targets', None))
 
         self.stack_type_kind = 'JPRB'
         if item:
