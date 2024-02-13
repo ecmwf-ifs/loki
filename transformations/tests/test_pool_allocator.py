@@ -1075,7 +1075,8 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
         # Now repeat the checks for the inline call
         calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() in ('max', 'c_sizeof', 'real')]
         assert len(calls) == 1
-        assert calls[0].parameters == ('jl', 'ylstack_l', 'ylstack_u')
+        assert calls[0].arguments == ('jl',)
+        assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
 
     assert 'Derived-type vars in Subroutine:: kernel not supported in pool allocator' in caplog.text
     rmtree(basedir)

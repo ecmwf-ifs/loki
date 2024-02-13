@@ -734,13 +734,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # inject a delaration which the driver cannot do!
         stack_var = self._get_local_stack_var(routine)
         stack_arg_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
-        new_arguments = (stack_var,)
         new_kwarguments = ((stack_arg_name, stack_var),)
 
         if self.check_bounds:
             stack_var_end = self._get_local_stack_var_end(routine)
             stack_arg_end_name = f'{self.stack_argument_name}_{self.stack_end_name}'
-            new_arguments += (stack_var_end,)
             new_kwarguments += ((stack_arg_end_name, stack_var_end),)
 
         for call in FindNodes(CallStatement).visit(routine.body):
@@ -764,7 +762,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         for call in FindInlineCalls().visit(routine.body):
             if call.name.lower() in [t.lower() for t in targets]:
                 parameters = call.parameters
-                call_map[call] = call.clone(parameters=parameters + new_arguments)
+                call_map[call] = call.clone(kw_parameters=as_tuple(call.kw_parameters) + new_kwarguments)
 
         if call_map:
             routine.body = SubstituteExpressions(call_map).visit(routine.body)
