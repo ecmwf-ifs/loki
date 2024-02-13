@@ -372,8 +372,8 @@ class Scheduler:
                 # Mark children as "ignored", which means they may be
                 # used for certain analysis passes, but are not part
                 # of the injected changes for this batch-transformation
-                if item.ignored or child.local_name in item.ignore:
-                    child.ignored = True
+                if item.is_ignored or child.local_name in item.ignore:
+                    child.is_ignored = True
 
                 if child not in self.item_map:
                     new_items += [child]
@@ -574,13 +574,13 @@ class Scheduler:
                             continue
 
                     _item = items[0]
-                    if _item.ignored and not transformation.process_ignored_items:
+                    if _item.is_ignored and not transformation.process_ignored_items:
                         continue
 
                     transformation.apply(items[0].source, items=items)
             else:
                 for item in traversal:
-                    if item.ignored and not transformation.process_ignored_items:
+                    if item.is_ignored and not transformation.process_ignored_items:
                         continue
 
                     if item_filter and not isinstance(item, item_filter):
@@ -714,7 +714,7 @@ class Scheduler:
         sources_to_transform = []
 
         for item in self.items:
-            if item.ignored:
+            if item.is_ignored:
                 continue
 
             sourcepath = item.path.resolve()

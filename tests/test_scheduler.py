@@ -829,8 +829,8 @@ def test_scheduler_dependencies_ignore(here, frontend):
     ])
     assert 'ext_driver_mod#ext_driver' in schedulerA.items
     assert 'ext_kernel_mod#ext_kernel' in schedulerA.items
-    assert schedulerA['ext_driver_mod#ext_driver'].ignored
-    assert schedulerA['ext_kernel_mod#ext_kernel'].ignored
+    assert schedulerA['ext_driver_mod#ext_driver'].is_ignored
+    assert schedulerA['ext_kernel_mod#ext_kernel'].is_ignored
 
     assert all(n in schedulerB.items for n in ['ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'])
 

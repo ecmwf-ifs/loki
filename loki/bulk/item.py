@@ -97,7 +97,7 @@ class Item:
         self.config = config or {}
         self.trafo_data = {}
 
-        self.ignored = False
+        self.is_ignored = False
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
