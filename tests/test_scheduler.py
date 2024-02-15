@@ -57,7 +57,7 @@ from conftest import (available_frontends, graphviz_present)
 from loki import (
     Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP,
     HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
-    fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
+    fexprgen, Transformation, BasicType, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, Variable, GenericImportItem, GlobalVarImportItem, flatten,
@@ -896,23 +896,15 @@ def test_scheduler_cmake_planner(here, frontend):
     builddir.mkdir(exist_ok=True)
     planfile = builddir/'loki_plan.cmake'
 
-    planner = CMakePlanner(rootpath=sourcedir, mode='foobar', build=builddir)
-    scheduler.process(transformation=planner)
+    scheduler.write_cmake_plan(
+        filepath=planfile, mode='foobar', buildpath=builddir, rootpath=sourcedir
+    )
 
     # Validate the generated lists
     expected_files = {
         proj_a/'module/driverB_mod.f90', proj_a/'module/kernelB_mod.F90',
         proj_a/'module/compute_l1_mod.f90', proj_a/'module/compute_l2_mod.f90'
     }
-
-    assert set(planner.sources_to_remove) == {f.relative_to(sourcedir) for f in expected_files}
-    assert set(planner.sources_to_append) == {
-        (builddir/f.stem).with_suffix('.foobar.F90') for f in expected_files
-    }
-    assert set(planner.sources_to_transform) == {f.relative_to(sourcedir) for f in expected_files}
-
-    # Write the plan file
-    planner.write_planfile(planfile)
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
