@@ -759,8 +759,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         call_map = {}
         for call in FindInlineCalls().visit(routine.body):
             if call.name.lower() in [t.lower() for t in targets]:
-                parameters = call.parameters
-                call_map[call] = call.clone(kw_parameters=as_tuple(call.kw_parameters) + new_kwarguments)
+                call_map[call] = call.clone(
+                    kw_parameters=as_tuple(call.kw_parameters) + new_kwarguments
+                )
 
         if call_map:
             routine.body = SubstituteExpressions(call_map).visit(routine.body)
