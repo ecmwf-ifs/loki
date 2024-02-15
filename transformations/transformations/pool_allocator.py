@@ -512,8 +512,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         # Build expression for array size in bytes
         dim = arr.dimensions[0]
-        if isinstance(dim, RangeIndex):
-            dim = Sum((dim.upper, Product((-1, dim.lower)), 1))
         for d in arr.dimensions[1:]:
             _dim = d
             if isinstance(_dim, RangeIndex):
