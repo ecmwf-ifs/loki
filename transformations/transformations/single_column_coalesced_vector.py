@@ -11,7 +11,8 @@ from loki.expression import symbols as sym
 from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
      NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
-     is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached
+     is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached,
+     SymbolAttributes, resolve_type_bound_var
 )
 from transformations.single_column_coalesced import SCCBaseTransformation
 
@@ -266,8 +267,19 @@ class SCCRevectorTransformation(Transformation):
         """
 
         # Create a single loop around the horizontal from a given body
-        v_start = routine.variable_map[horizontal.bounds[0]]
-        v_end = routine.variable_map[horizontal.bounds[1]]
+        if (routine.variable_map.get(horizontal.bounds[0], None) and
+            routine.variable_map.get(horizontal.bounds[1], None)):
+            v_start = routine.variable_map[horizontal.bounds[0]]
+            v_end = routine.variable_map[horizontal.bounds[1]]
+        else:
+            assert len(horizontal._bounds_aliases) == 2
+
+            int_type = SymbolAttributes(dtype=BasicType.INTEGER)
+            _name, _parent = resolve_type_bound_var(horizontal._bounds_aliases[0])
+            v_start = sym.Variable(name=_name, parent=_parent, type=int_type)
+
+            _name, _parent = resolve_type_bound_var(horizontal._bounds_aliases[1])
+            v_end = sym.Variable(name=_name, parent=_parent, type=int_type)
         index = SCCBaseTransformation.get_integer_variable(routine, horizontal.index)
         bounds = sym.LoopRange((v_start, v_end))
 
