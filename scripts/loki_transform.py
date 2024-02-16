@@ -45,9 +45,11 @@ from transformations.single_column_coalesced_vector import (
     SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
 )
 from transformations.scc_cuf import (
-    SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
+    SccCufTransformation, SccCufTransformationNew, HoistTemporaryArraysDeviceAllocatableTransformation
 )
-
+from transformations.single_column_coalesced_extended import (
+        SCCLowerLoopTransformation
+)
 
 class IdemTransformation(Transformation):
     """
@@ -71,8 +73,8 @@ def cli(debug):
 @cli.command()
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
-                  ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
+                  ['idem', 'c', 'scc-cpu', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                   'cuf-parametrise', 'cuf-parametrise-new', 'cuf-hoist', 'cuf-hoist-new', 'cuf-dynamic']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -182,7 +184,7 @@ def convert(
         scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
-    if 'scc' in mode:
+    if 'scc' in mode or mode == 'cuf-parametrise-new':
         scheduler.process( RemoveCallsTransformation(
             routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
             include_intrinsics=True, kernel_only=True
@@ -234,7 +236,7 @@ def convert(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         ))
 
-    if mode in ['scc', 'scc-hoist', 'scc-stack']:
+    if mode in ['scc', 'scc-hoist', 'scc-stack', 'scc-cpu', 'cuf-parametrise-new']:
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
             horizontal=horizontal, directive=directive
@@ -256,6 +258,23 @@ def convert(
         scheduler.process( SCCAnnotateTransformation(
                 horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
         ))
+    
+    if mode in ['scc-cpu']:
+        scheduler.process(SCCLowerLoopTransformation(dimension=block_dim, dim_name='IBL'))
+
+    if mode == "cuf-parametrise-new" or mode == "cuf-hoist-new":
+        scc_extended = SCCLowerLoopTransformation(
+                dimension=block_dim, dim_name='ibl', keep_driver_loop=True,
+                ignore_dim_name=True
+        )
+        scheduler.process(transformation=scc_extended)
+
+        # cuf_transform = SccCufTransformationNew(
+        #     horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+        #     transformation_type='parametrise'
+        # )
+        # scheduler.process(transformation=cuf_transform)
+        scheduler.process( transformation=scheduler.config.transformations[mode] )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         # These transformations requires complex constructor arguments,
@@ -281,13 +300,13 @@ def convert(
             block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
         ))
 
-    if mode == 'cuf-parametrise':
+    if mode == 'cuf-parametrise' or mode == "cuf-parametrise-new":
         # This transformation requires complex constructora arguments,
         # so we use the file-based transformation configuration.
         transformation = scheduler.config.transformations['ParametriseTransformation']
         scheduler.process(transformation=transformation)
 
-    if mode == "cuf-hoist":
+    if mode == "cuf-hoist" or mode == "cuf-hoist-new":
         vertical = scheduler.config.dimensions['vertical']
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
         scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
