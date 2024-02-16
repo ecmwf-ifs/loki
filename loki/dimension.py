@@ -31,14 +31,19 @@ class Dimension:
         String representations of alternative size variables that are
         used to define arrays shapes of this dimension (eg. alternative
         names used in "driver" subroutines).
+    bounds_aliases : list or tuple of strings
+        String representations of alternative bounds variables that are
+        used to define loop ranges.
     """
 
-    def __init__(self, name=None, index=None, bounds=None, size=None, aliases=None):
+    def __init__(self, name=None, index=None, bounds=None, size=None, aliases=None,
+                 bounds_aliases=None):
         self.name = name
         self._index = index
         self._bounds = as_tuple(bounds)
         self._size = size
         self._aliases = as_tuple(aliases)
+        self._bounds_aliases = as_tuple(bounds_aliases)
 
     @property
     def variables(self):
