@@ -64,3 +64,10 @@ end subroutine test_dimension_index
     assert FindNodes(Loop).visit(routine.body)[0].bounds == dim.range
     assert FindNodes(Loop).visit(routine.body)[0].bounds.lower == dim.bounds[0]
     assert FindNodes(Loop).visit(routine.body)[0].bounds.upper == dim.bounds[1]
+
+    # Test the correct creation of horizontal dim with aliased bounds vars
+    _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start', 'bnds%end'))
+    with pytest.raises(RuntimeError):
+        _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start',))
+    with pytest.raises(RuntimeError):
+        _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start', 'some_other_bnds%end'))
