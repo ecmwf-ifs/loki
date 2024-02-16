@@ -341,12 +341,13 @@ def test_scc_demote_transformation(frontend, horizontal):
     """
 
     fcode_kernel = """
-  SUBROUTINE compute_column(start, end, nlon, nz, q)
+  SUBROUTINE compute_column(start, end, nlon, nproma, nz, q)
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    INTEGER, INTENT(IN) :: nproma      ! Horizontal size alias
     REAL, INTENT(INOUT) :: q(nlon,nz)
     REAL :: t(nlon,nz)
-    REAL :: a(nlon)
+    REAL :: a(nproma)
     REAL :: b(nlon,psize)
     REAL :: unused(nlon)
     INTEGER, PARAMETER :: psize = 3

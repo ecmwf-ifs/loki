@@ -331,7 +331,8 @@ class SCCDemoteTransformation(Transformation):
             # Only demote local arrays with the horizontal as fast dimension
             arrays = [v for v in arrays if isinstance(v, sym.Array)]
             arrays = [v for v in arrays if v.name not in argument_names]
-            arrays = [v for v in arrays if v.shape and v.shape[0] == horizontal.size]
+            arrays = [v for v in arrays if v.shape and
+                      v.shape[0] in [horizontal.size, *horizontal._aliases]]
 
             # Also demote arrays whose remaning dimensions are known constants
             arrays = [v for v in arrays if all(is_dimension_constant(d) for d in v.shape[1:])]
@@ -401,4 +402,5 @@ class SCCDemoteTransformation(Transformation):
         if demote_locals:
             variables = tuple(v.name for v in to_demote)
             if variables:
-                demote_variables(routine, variable_names=variables, dimensions=self.horizontal.size)
+                demote_variables(routine, variable_names=variables,
+                                 dimensions=[self.horizontal.size, *self.horizontal._aliases])
