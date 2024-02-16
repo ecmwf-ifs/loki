@@ -35,7 +35,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     on the driver and maps temporary arrays in kernels to this scratch space
 
     The stack is provided via two integer variables, ``<stack name>_L`` and ``<stack name>_U``, which are
-    used as a stack pointer and stack end pointer, respectively. 
+    used as a stack pointer and stack end pointer, respectively.
     Naming is flexible and can be changed via options to the transformation.
 
     The transformation needs to be applied in reverse order, which will do the following for each **kernel**:
@@ -148,7 +148,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         :any:`Dimension` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
     stack_ptr_name : str, optional
-        Name of the stack pointer variable to be appended to the generic 
+        Name of the stack pointer variable to be appended to the generic
         stack name (default: ``'L'``) resulting in e.g., ``'<stack name>_L'``
     stack_end_name : str, optional
         Name of the stack end pointer variable to be appendend to the generic
@@ -679,6 +679,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         temporary_arrays = [
             var for var in temporary_arrays
             if not all(is_dimension_constant(d) for d in var.shape)
+        ]
+
+        # Filter out pointers
+        temporary_arrays = [
+            var for var in temporary_arrays
+            if not var.type.pointer or var.type.allocatable
         ]
 
         # Create stack argument and local stack var

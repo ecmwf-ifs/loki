@@ -193,12 +193,15 @@ contains
         integer, parameter :: jprb = selected_real_kind(13,300)
         {fcode_nclv_param if nclv_param else 'integer, intent(in) :: nclv'}
         integer, intent(in) :: start, end, klon, klev
-        real(kind=jprb), intent(inout) :: field1(klon)
+        real(kind=jprb), intent(inout), target :: field1(klon)
         real(kind=jprb), intent(inout) :: field2(klon,klev)
         real(kind=jprb) :: tmp1(klon)
         real(kind=jprb) :: tmp2(klon, klev)
         real(kind=jprb) :: tmp3(nclv), tmp4(2), tmp5(klon, nclv)
+        real(kind=jprb), pointer :: tmp3_ptr(:)
         integer :: jk, jl, jm
+
+        tmp3_ptr => field1
 
         do jk=1,klev
             tmp1(jl) = 0.0_jprb
