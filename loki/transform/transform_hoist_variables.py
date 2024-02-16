@@ -203,9 +203,10 @@ class HoistVariablesTransformation(Transformation):
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, key=None):
+    def __init__(self, key=None, as_kwarguments=False):
         if key is not None:
             self._key = key
+        self.as_kwarguments = as_kwarguments
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -257,14 +258,21 @@ class HoistVariablesTransformation(Transformation):
                 continue
 
             successor_item = successor_map[str(call.routine.name)]
-            hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
+            if self.as_kwarguments:
+                to_hoist = successor_item.trafo_data[self._key]["to_hoist"]
+                _hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
+                hoisted_variables = zip(to_hoist, _hoisted_variables)
+            else:
+                hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
             if role == "driver":
                 call_map[call] = self.driver_call_argument_remapping(
-                    routine=routine, call=call, variables=hoisted_variables
+                    routine=routine, call=call, variables=hoisted_variables,
+                    as_kwarguments=self.as_kwarguments
                 )
             elif role == "kernel":
                 call_map[call] = self.kernel_call_argument_remapping(
-                    routine=routine, call=call, variables=hoisted_variables
+                    routine=routine, call=call, variables=hoisted_variables,
+                    as_kwarguments=self.as_kwarguments
                 )
 
         routine.body = Transformer(call_map).visit(routine.body)
@@ -286,7 +294,7 @@ class HoistVariablesTransformation(Transformation):
         """
         routine.variables += tuple(v.rescope(routine) for v in variables)
 
-    def driver_call_argument_remapping(self, routine, call, variables):
+    def driver_call_argument_remapping(self, routine, call, variables, as_kwarguments=False):
         """
         Callback method to re-map hoisted arguments for the driver-level routine.
 
@@ -309,10 +317,16 @@ class HoistVariablesTransformation(Transformation):
             The tuple of variables to be declared.
         """
         # pylint: disable=unused-argument
-        new_args = tuple(v.clone(dimensions=None) for v in variables)
-        return call.clone(arguments=call.arguments + new_args)
+        if as_kwarguments:
+            new_kwargs = tuple((a.name, v.clone(dimensions=None)) for (a, v) in variables)
+            return call.clone(kwarguments=call.kwarguments + new_kwargs)
+        else:
+            new_args = tuple(v.clone(dimensions=None) for v in variables)
+            return call.clone(arguments=call.arguments + new_args)
+        # new_args = tuple(v.clone(dimensions=None) for v in variables)
+        # return call.clone(arguments=call.arguments + new_args)
 
-    def kernel_call_argument_remapping(self, routine, call, variables):
+    def kernel_call_argument_remapping(self, routine, call, variables, as_kwarguments=False):
         """
         Callback method to re-map hoisted arguments in kernel-to-kernel calls.
 
@@ -334,8 +348,12 @@ class HoistVariablesTransformation(Transformation):
             The tuple of variables to be declared.
         """
         # pylint: disable=unused-argument
-        new_args = tuple(v.clone(dimensions=None) for v in variables)
-        return call.clone(arguments=call.arguments + new_args)
+        if as_kwarguments:
+            new_kwargs = tuple((a.name, v.clone(dimensions=None)) for (a, v) in variables)
+            return call.clone(kwarguments=call.kwarguments + new_kwargs)
+        else:
+            new_args = tuple(v.clone(dimensions=None) for v in variables)
+            return call.clone(arguments=call.arguments + new_args)
 
 
 class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
