@@ -93,10 +93,24 @@ class SCCBaseTransformation(Transformation):
             to define the horizontal data dimension and iteration space.
         """
 
-        if horizontal.bounds[0] not in routine.variable_map:
-            raise RuntimeError(f'No horizontal start variable found in {routine.name}')
-        if horizontal.bounds[1] not in routine.variable_map:
-            raise RuntimeError(f'No horizontal end variable found in {routine.name}')
+        variables = routine.variables
+        bounds = as_tuple(horizontal.bounds[0])
+        bounds += as_tuple(horizontal.bounds[1])
+        try:
+            if bounds[0] not in variables:
+                raise RuntimeError(f'No horizontal start variable found in {routine.name}')
+            if bounds[1] not in variables:
+                raise RuntimeError(f'No horizontal end variable found in {routine.name}')
+        except RuntimeError as exc:
+            if horizontal._bounds_aliases:
+                bounds = as_tuple(horizontal._bounds_aliases[0])
+                bounds += as_tuple(horizontal._bounds_aliases[1])
+            if bounds[0].split('%', maxsplit=1)[0] not in variables:
+                raise RuntimeError(f'No horizontal start variable found in {routine.name}') from exc
+            if bounds[1].split('%', maxsplit=1)[0] not in variables:
+                raise RuntimeError(f'No horizontal end variable found in {routine.name}') from exc
+
+        return bounds
 
     @classmethod
     def get_integer_variable(cls, routine, name):
@@ -275,7 +289,7 @@ class SCCBaseTransformation(Transformation):
             return
 
         # check for horizontal loop bounds in subroutine symbol table
-        self.check_horizontal_var(routine, self.horizontal)
+        bounds = self.check_horizontal_var(routine, self.horizontal)
 
         # Find the iteration index variable for the specified horizontal
         v_index = self.get_integer_variable(routine, name=self.horizontal.index)
