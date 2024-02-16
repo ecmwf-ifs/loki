@@ -846,6 +846,12 @@ class SccCufTransformationNew(Transformation):
         if role == 'kernel':
             self.process_kernel(routine, depth=depth, targets=targets)
 
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if call.name in as_tuple(targets):
+                # call.sort_kwarguments()
+                call.kwargs_to_args()
+
+
     def process_kernel(self, routine, depth=1, targets=None):
         """
         Kernel/Device subroutine specific changes/transformations.
