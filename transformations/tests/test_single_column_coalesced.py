@@ -130,6 +130,107 @@ def test_scc_revector_transformation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_revector_transformation_aliased_bounds(frontend, horizontal_bounds_aliases):
+    """
+    Test removal of vector loops in kernel and re-insertion of a single
+    hoisted horizontal loop in the kernel with aliased loop bounds.
+    """
+
+    fcode_bnds_type_mod = """
+    module bnds_type_mod
+    implicit none
+       type bnds_type
+          integer :: start
+          integer :: end
+       end type bnds_type
+    end module bnds_type_mod
+"""
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, t, nb)
+    USE bnds_type_mod, only : bnds_type
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+    TYPE(bnds_type) :: bnds
+
+    bnds%start = 1
+    bnds%end = nlon
+    do b=1, nb
+      call compute_column(bnds, nlon, nz, q(:,:,b), t(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(bnds, nlon, nz, q, t)
+    USE bnds_type_mod, only : bnds_type
+    TYPE(bnds_type), INTENT(IN) :: bnds
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = bnds%start, bnds%end
+        t(jl, jk) = c * jk
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = BNDS%START, BNDS%END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+  END SUBROUTINE compute_column
+"""
+    bnds_type_mod = Sourcefile.from_source(fcode_bnds_type_mod, frontend=frontend)
+    kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend,
+                                    definitions=bnds_type_mod.definitions).subroutines[0]
+    driver = Sourcefile.from_source(fcode_driver, frontend=frontend,
+                                    definitions=bnds_type_mod.definitions).subroutines[0]
+
+    # Ensure we have three loops in the kernel prior to transformation
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 3
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal_bounds_aliases),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal_bounds_aliases),)
+    for transform in scc_transform:
+        transform.apply(driver, role='driver')
+        transform.apply(kernel, role='kernel')
+
+    # Ensure we have two nested loops in the kernel
+    # (the hoisted horizontal and the native vertical)
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 2
+    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[0].variable == 'jl'
+    assert kernel_loops[0].bounds == 'bnds%start:bnds%end'
+    assert kernel_loops[1].variable == 'jk'
+    assert kernel_loops[1].bounds == '2:nz'
+
+    # Ensure all expressions and array indices are unchanged
+    assigns = FindNodes(Assignment).visit(kernel.body)
+    assert fgen(assigns[1]).lower() == 't(jl, jk) = c*jk'
+    assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
+    assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
+
+    # Ensure driver remains unaffected
+    driver_loops = FindNodes(Loop).visit(driver.body)
+    assert len(driver_loops) == 1
+    assert driver_loops[0].variable == 'b'
+    assert driver_loops[0].bounds == '1:nb'
+
+    kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
+    assert len(kernel_calls) == 1
+    assert kernel_calls[0].name == 'compute_column'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_base_resolve_vector_notation(frontend, horizontal):
     """
     Test resolving of vector notation in kernel.

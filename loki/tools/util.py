@@ -38,7 +38,7 @@ __all__ = [
     'auto_post_mortem_debugger', 'set_excepthook', 'timeout',
     'WeakrefProperty', 'group_by_class', 'replace_windowed',
     'dict_override', 'stdchannel_redirected',
-    'stdchannel_is_captured', 'graphviz_present'
+    'stdchannel_is_captured', 'graphviz_present', 'resolve_typebound_var'
 ]
 
 
@@ -794,3 +794,22 @@ def graphviz_present():
         return False
 
     return True
+
+
+def resolve_typebound_var(name, variable_map):
+    """
+    A small convenience utility to resolve type-bound variables.
+
+    Parameters
+    ----------
+    name : str
+        The full name of the variable to be resolved, e.g., a%b%c%d.
+    variable_map : dict
+        A map of the variables defined in the current scope.
+    """
+
+    name_parts = name.split('%', maxsplit=1)
+    if (var := variable_map.get(name_parts[0], None)) and len(name_parts) > 1:
+        var = var.get_derived_type_member(name_parts[1])
+    return var
+

@@ -11,7 +11,8 @@ from loki.expression import symbols as sym
 from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
      NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
-     is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached
+     is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached,
+     resolve_typebound_var
 )
 from transformations.single_column_base import SCCBaseTransformation
 
@@ -265,9 +266,13 @@ class SCCRevectorTransformation(Transformation):
             The dimension specifying the horizontal vector dimension
         """
 
+        variable_map = routine.variable_map
+        bounds = SCCBaseTransformation.check_horizontal_var(routine, horizontal)
+
+        v_start = resolve_typebound_var(bounds[0], variable_map)
+        v_end = resolve_typebound_var(bounds[1], variable_map)
+
         # Create a single loop around the horizontal from a given body
-        v_start = routine.variable_map[horizontal.bounds[0]]
-        v_end = routine.variable_map[horizontal.bounds[1]]
         index = SCCBaseTransformation.get_integer_variable(routine, horizontal.index)
         bounds = sym.LoopRange((v_start, v_end))
 
