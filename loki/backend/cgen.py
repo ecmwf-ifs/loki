@@ -121,6 +121,9 @@ class CCodegen(Stringifier):
     Tree visitor to generate standardized C code from IR.
     """
 
+    # Some boilerplate imports...
+    standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
+
     def __init__(self, depth=0, indent='  ', linewidth=90):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
                          line_cont='\n{}  '.format, symgen=CCodeMapper())
@@ -152,8 +155,8 @@ class CCodegen(Stringifier):
           }
         """
         # Some boilerplate imports...
-        standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
-        header = [self.format_line('#include <', name, '>') for name in standard_imports]
+        # standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
+        header = [self.format_line('#include <', name, '>') for name in self.standard_imports]
 
         # ...and imports from the spec
         spec_imports = FindNodes(Import).visit(o.spec)
