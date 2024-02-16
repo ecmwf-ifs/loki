@@ -225,7 +225,7 @@ function( loki_transform_target )
 
     set( options
          NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS
-	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
+	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE TRIM_VECTOR_SECTIONS
     )
     set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS )
@@ -301,6 +301,10 @@ function( loki_transform_target )
 
         if( _PAR_T_DERIVE_ARGUMENT_ARRAY_SHAPE )
             list( APPEND _TRANSFORM_OPTIONS DERIVE_ARGUMENT_ARRAY_SHAPE )
+        endif()
+
+        if( _PAR_T_TRIM_VECTOR_SECTIONS )
+            list( APPEND _TRANSFORM_OPTIONS TRIM_VECTOR_SECTIONS )
         endif()
 
         loki_transform(
