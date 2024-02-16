@@ -15,6 +15,7 @@ from transformations.single_column_coalesced import * # noqa
 from transformations.single_column_coalesced_vector import * # noqa
 from transformations.utility_routines import * # noqa
 from transformations.scc_cuf import * # noqa
+from transformations.single_column_coalesced_extended import * # noqa
 from transformations.pool_allocator import * # noqa
 
 try:
