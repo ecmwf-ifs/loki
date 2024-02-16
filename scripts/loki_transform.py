@@ -309,7 +309,7 @@ def convert(
     if mode == "cuf-hoist" or mode == "cuf-hoist-new":
         vertical = scheduler.config.dimensions['vertical']
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
-        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
+        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
 
     mode = mode.replace('-', '_')  # Sanitize mode string
     if mode in ["c"]:
