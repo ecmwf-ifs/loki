@@ -45,6 +45,25 @@ class SCCBaseTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
+    # TODO: correct "definition" of a pure/elemental routine (take e.g. loki serial into account ...)
+    @staticmethod
+    def is_elemental(routine):
+        """
+        Check whether :any:`Subroutine` ``routine`` is an elemental routine.
+
+        Need for distinguishing elemental and non-elemental function to transform
+        those in a different way.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to check whether elemental
+        """
+        for prefix in routine.prefix:
+            if prefix.lower() == 'elemental':
+                return True
+        return False
+
     @staticmethod
     def check_array_dimensions_in_calls(routine):
         calls = FindNodes(ir.CallStatement).visit(routine.body)
