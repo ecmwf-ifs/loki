@@ -350,6 +350,7 @@ def test_scc_demote_transformation(frontend, horizontal):
     REAL :: a(nproma)
     REAL :: b(nlon,psize)
     REAL :: unused(nlon)
+    REAL :: d(nlon,psize)
     INTEGER, PARAMETER :: psize = 3
     INTEGER :: jl, jk
     REAL :: c
@@ -369,18 +370,24 @@ def test_scc_demote_transformation(frontend, horizontal):
       b(jl, 2) = Q(JL, 3)
       b(jl, 3) = a(jl) * (b(jl, 1) + b(jl, 2))
 
+      d(jl, 1) = b(jl, 1)
+      d(jl, 2) = b(jl, 2)
+      d(jl, 3) = b(jl, 3)
+
       Q(JL, NZ) = Q(JL, NZ) * C + b(jl, 3)
     END DO
   END SUBROUTINE compute_column
 """
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel_item = ProcedureItem(name='#compute_column', source=kernel_source, config={'preserve_arrays': ['d',]})
+    kernel = kernel_source.subroutines[0]
 
     # Must run SCCDevector first because demotion relies on knowledge
     # of vector sections
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     for transform in scc_transform:
-        transform.apply(kernel, role='kernel')
+        transform.apply(kernel, role='kernel', item=kernel_item)
 
     # Ensure correct array variables shapes
     assert isinstance(kernel.variable_map['a'], Scalar)
@@ -389,6 +396,7 @@ def test_scc_demote_transformation(frontend, horizontal):
     assert isinstance(kernel.variable_map['t'], Array)
     assert isinstance(kernel.variable_map['q'], Array)
     assert isinstance(kernel.variable_map['unused'], Scalar)
+    assert isinstance(kernel.variable_map['d'], Array)
 
     # Ensure that parameter-sized array b got demoted only
     assert kernel.variable_map['b'].shape == ((3,) if frontend is OMNI else ('psize',))
@@ -403,7 +411,10 @@ def test_scc_demote_transformation(frontend, horizontal):
     assert fgen(assigns[4]).lower() == 'b(1) = q(jl, 2)'
     assert fgen(assigns[5]).lower() == 'b(2) = q(jl, 3)'
     assert fgen(assigns[6]).lower() == 'b(3) = a*(b(1) + b(2))'
-    assert fgen(assigns[7]).lower() == 'q(jl, nz) = q(jl, nz)*c + b(3)'
+    assert fgen(assigns[7]).lower() == 'd(jl, 1) = b(1)'
+    assert fgen(assigns[8]).lower() == 'd(jl, 2) = b(2)'
+    assert fgen(assigns[9]).lower() == 'd(jl, 3) = b(3)'
+    assert fgen(assigns[10]).lower() == 'q(jl, nz) = q(jl, nz)*c + b(3)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

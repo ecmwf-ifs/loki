@@ -376,11 +376,13 @@ class SCCDemoteTransformation(Transformation):
 
         if role == 'kernel':
             demote_locals = self.demote_local_arrays
+            preserve_arrays = []
             if item:
                 demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
-            self.process_kernel(routine, demote_locals=demote_locals)
+                preserve_arrays = item.config.get('preserve_arrays', [])
+            self.process_kernel(routine, demote_locals=demote_locals, preserve_arrays=preserve_arrays)
 
-    def process_kernel(self, routine, demote_locals=True):
+    def process_kernel(self, routine, demote_locals=True, preserve_arrays=None):
         """
         Applies the SCCDemote utilities to a "kernel" and demotes all suitable local arrays.
 
@@ -397,6 +399,10 @@ class SCCDemoteTransformation(Transformation):
         # We do this, because need the section blocks to determine which local arrays
         # may carry buffered values between them, so that we may not demote those!
         to_demote = self.kernel_get_locals_to_demote(routine, sections, self.horizontal)
+
+        # Filter out arrays marked explicitly for preservation
+        if preserve_arrays:
+            to_demote = [v for v in to_demote if not v.name in preserve_arrays]
 
         # Demote all private local variables that do not buffer values between sections
         if demote_locals:
