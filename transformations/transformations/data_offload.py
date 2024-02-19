@@ -841,6 +841,7 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Helper to append variables to the call(s) (arguments).
         """
+
         symbol_map = defaultdict(set)
         for key, _ in uses_symbols.items():
             all_symbols = uses_symbols[key]|defines_symbols[key]
@@ -879,5 +880,8 @@ class GlobalVarHoistTransformation(Transformation):
             new_arguments.append(var.parents[0] if var.parent else var)
         new_arguments = set(new_arguments) # remove duplicates
         new_arguments = [arg.clone(type=arg.type.clone(intent='inout' if arg in all_defines_vars
-            else 'in', parameter=False, initial=None)) for arg in new_arguments]
+            else 'in', parameter=None, initial=None)) for arg in new_arguments]
+        for new_arg in new_arguments:
+            if new_arg.name in routine.symbol_attrs:
+                routine.symbol_attrs.update({new_arg.name: new_arg.type.clone(parameter=None)})
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
