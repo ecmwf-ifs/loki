@@ -60,6 +60,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
     """
 
     _key = 'DerivedTypeArgumentsTransformation'
+    reverse_traversal = True
 
     def __init__(self, all_derived_types=False, key=None, **kwargs):
         self.all_derived_types = all_derived_types
