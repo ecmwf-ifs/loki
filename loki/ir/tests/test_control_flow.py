@@ -11,7 +11,7 @@ import numpy as np
 
 from loki import Subroutine
 from loki.build import jit_compile, clean_test
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import nodes as ir, FindNodes
 
 
@@ -499,3 +499,166 @@ END FUNCTION FUNC
     assert conditionals[1].body[-1].text.upper() == 'RETURN'
     assert isinstance(conditionals[1].else_body[-1], ir.Intrinsic)
     assert conditionals[1].else_body[-1].text.upper() == 'RETURN'
+
+
+@pytest.mark.parametrize('frontend', [FP])
+def test_single_line_forall_stmt(here, frontend):
+    fcode = """
+subroutine forall_stmt(n, a)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: n
+  real(kind=jprb), dimension(n, n), intent(inout) :: a
+
+  ! Create a diagonal square matrix
+  forall (i=1:n)  a(i, i) = 1
+end subroutine forall_stmt
+""".strip()
+    filepath = here / (f'single_line_forall_stmt_{frontend}.f90')
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    fun_forall_stmt = jit_compile(routine, filepath=filepath, objname="forall_stmt")
+
+    # Check generated IR for the Forall statement
+    statements = FindNodes(ir.Forall).visit(routine.ir)
+    assert len(statements) == 1
+    # Check the i=1:n bound
+    assert len(statements[0].named_bounds) == 1
+    bound_var, bound_range = statements[0].named_bounds[0]
+    assert bound_var.name == "i"
+    assert bound_range.start.value == 1 and bound_range.stop.name == "n"
+    # Check the a(i, i) = 1 assignment
+    assignments = FindNodes(ir.Assignment).visit(statements[0])
+    assert len(assignments) == 1, "Single-line FORALL statement must have only one assignment"
+    assert assignments[0].lhs.name == "a"  # Assign to array `a`
+    assert len(assignments[0].lhs.dimensions) == 2  # Using two indices with `i` value
+    assert assignments[0].lhs.dimensions[0].name == "i"
+    assert assignments[0].lhs.dimensions[1].name == "i"
+    assert assignments[0].rhs.value == 1  # Assign 1 on the diagonal
+
+    # Check execution and produced results
+    n = 3
+    a = np.zeros((n, n), order="F")
+    fun_forall_stmt(n, a)
+    assert (a == [[1.0, 0.0, 0.0],
+                  [0.0, 1.0, 0.0],
+                  [0.0, 0.0, 1.0]]).all()
+    n = 5
+    a = np.empty((n, n), order="F")
+    a.fill(3.0)
+    fun_forall_stmt(n, a)
+    assert (a == [[1.0, 3.0, 3.0, 3.0, 3.0],
+                  [3.0, 1.0, 3.0, 3.0, 3.0],
+                  [3.0, 3.0, 1.0, 3.0, 3.0],
+                  [3.0, 3.0, 3.0, 1.0, 3.0],
+                  [3.0, 3.0, 3.0, 3.0, 1.0]]).all()
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [FP])
+def test_single_line_forall_masked_stmt(here, frontend):
+    fcode = """
+subroutine forall_masked_stmt(n, a, b)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: n
+  real(kind=jprb), dimension(n, n), intent(inout) :: a, b
+
+  ! Create a diagonal square matrix
+  forall(i = 1:n, j = 1:n, a(i, j) .ne. 0.0) b(i, j) = 1.0 / a(i, j)
+end subroutine forall_masked_stmt
+""".strip()
+    filepath = here / (f'single_line_forall_masked_stmt_{frontend}.f90')
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    fun_forall_masked_stmt = jit_compile(routine, filepath=filepath, objname="forall_masked_stmt")
+
+    # Check generated IR for the Forall statement
+    statements = FindNodes(ir.Forall).visit(routine.ir)
+    assert len(statements) == 1
+    assert len(statements[0].named_bounds) == 2
+    # Check the i=1:n bound
+    bound_var, bound_range = statements[0].named_bounds[0]
+    assert bound_var.name == "i"
+    assert bound_range.start.value == 1 and bound_range.stop.name == "n"
+    # Check the j=1:n bound
+    bound_var, bound_range = statements[0].named_bounds[1]
+    assert bound_var.name == "j"
+    assert bound_range.start.value == 1 and bound_range.stop.name == "n"
+    # Check the array mask
+    mask = statements[0].mask
+    assert mask.left.name == "a" and len(mask.left.dimensions) == 2
+    assert mask.operator == "!="
+    assert mask.right.value == '0.0'
+    # Quickly check assignment
+    assignments = FindNodes(ir.Assignment).visit(statements[0])
+    assert len(assignments) == 1
+    assert assignments[0].lhs.name == "b" and len(assignments[0].lhs.dimensions) == 2
+    assert isinstance(assignments[0].rhs, ir.Quotient)
+
+    # Check execution and produced results
+    n = 3
+    a = np.array([[2.0, 0.0, 2.0],
+                  [0.0, 4.0, 0.0],
+                  [10.0, 10.0, 0.0]], order="F")
+    b = np.zeros((n, n), order="F")
+    fun_forall_masked_stmt(n, a, b)
+    assert (b == [[0.5, 0.0, 0.5], [0, 0.25, 0], [0.1, 0.1, 0]]).all()
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [FP])
+def test_multi_line_forall_construct(here, frontend):
+    fcode = """
+subroutine forall_construct(n, c, d)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: n
+  real(kind=jprb), dimension(n, n), intent(inout) :: c, d
+
+  forall(i = 3:n - 2, j = 3:n - 2)
+    c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)
+    d(i, j) = c(i, j)
+  end forall
+end subroutine forall_construct
+""".strip()
+    filepath = here / (f'multi_line_forall_construct_{frontend}.f90')
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    fun_forall_construct = jit_compile(routine, filepath=filepath, objname="forall_construct")
+
+    # Check generated IR for the Forall statement
+    statements = FindNodes(ir.Forall).visit(routine.ir)
+    assert len(statements) == 1
+    assert len(statements[0].named_bounds) == 2
+    # Check the i=3:(n+1) bound
+    bound_var, bound_range = statements[0].named_bounds[0]
+    assert bound_var.name == "i"
+    assert bound_range.start.value == 3 and isinstance(bound_range.stop, ir.Sum)
+    # Check the j=3:(n+1) bound
+    bound_var, bound_range = statements[0].named_bounds[1]
+    assert bound_var.name == "j"
+    assert bound_range.start.value == 3 and isinstance(bound_range.stop, ir.Sum)
+    # Check assignments
+    assignments = FindNodes(ir.Assignment).visit(statements[0])
+    assert len(assignments) == 2
+    # Quickly check first assignment
+    assert assignments[0].lhs.name == "c" and len(assignments[0].lhs.dimensions) == 2
+    assert isinstance(assignments[0].rhs, ir.Sum)
+    # Check the second assignment
+    assert assignments[1].lhs.name == "d" and len(assignments[1].lhs.dimensions) == 2
+    assert isinstance(assignments[1].rhs, ir.Array) \
+           and assignments[1].rhs.name == "c" and len(assignments[1].rhs.dimensions) == 2
+
+    n = 6
+    c = np.zeros((n, n), order="F")
+    c.fill(1)
+    d = np.zeros((n, n), order="F")
+    fun_forall_construct(n, c, d)
+    assert (c == [[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+                  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+                  [1.0, 1.0, 4.0, 4.0, 1.0, 1.0],
+                  [1.0, 1.0, 4.0, 4.0, 1.0, 1.0],
+                  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+                  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]]).all()
+    assert (d == [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                  [0.0, 0.0, 4.0, 4.0, 0.0, 0.0],
+                  [0.0, 0.0, 4.0, 4.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]).all()
+    clean_test(filepath)
