@@ -31,7 +31,8 @@ from loki.transform import (
 # pylint: disable=wrong-import-order
 from transformations.argument_shape import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 from transformations.data_offload import (
-    DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
+    DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation,
+    GlobalVarHoistTransformation
 )
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
@@ -50,6 +51,10 @@ from transformations.scc_cuf import (
 from transformations.single_column_coalesced_extended import (
         SCCLowerLoopTransformation
 )
+from loki.transform.transform_inline import (
+    inline_constant_parameters, inline_elemental_functions
+)
+
 
 class IdemTransformation(Transformation):
     """
@@ -70,11 +75,20 @@ def cli(debug):
         set_excepthook(hook=auto_post_mortem_debugger)
 
 
+def inline_elemental_kernel(routine, **kwargs):
+    role = kwargs['role']
+
+    if role == 'kernel':
+
+        inline_constant_parameters(routine, external_only=True)
+        inline_elemental_functions(routine)
+
+
 @cli.command()
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
                   ['idem', 'c', 'scc-cpu', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-parametrise-new', 'cuf-hoist', 'cuf-hoist-new', 'cuf-dynamic']
+                   'cuf-parametrise', 'cuf-parametrise-new', 'c-parametrise', 'cuf-hoist', 'cuf-hoist-new', 'cuf-dynamic']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -180,17 +194,29 @@ def convert(
     block_dim = scheduler.config.dimensions.get('block_dim', None)
 
     # First, remove all derived-type arguments; caller first!
-    if remove_derived_args:
+    if remove_derived_args and mode not in ['cuf-parametrise-new', 'cuf-hoist-new']:
         scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
-    if 'scc' in mode or mode == 'cuf-parametrise-new':
+    if 'scc' in mode or mode in ['cuf-parametrise-new', 'cuf-hoist-new', 'c-parametrise']:
         scheduler.process( RemoveCallsTransformation(
             routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
             include_intrinsics=True, kernel_only=True
         ))
     else:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
+
+    if mode in ['cuf-parametrise-new', 'cuf-hoist-new']:
+        inline_trafo = type("InlineTrafo", (Transformation, object), {
+            "transform_subroutine": lambda self, routine, **kwargs: inline_elemental_kernel(routine, **kwargs)})()
+        scheduler.process(transformation=inline_trafo)
+
+        scheduler.process(transformation=GlobalVariableAnalysis())
+        global_var_hoisting_trafo = GlobalVarHoistTransformation(hoist_parameters=True, ignore_modules=['parkind1'])
+        scheduler.process(transformation=global_var_hoisting_trafo) # , reverse=True)
+
+        derived_type_transformation = DerivedTypeArgumentsTransformation(all_derived_types=True)
+        scheduler.process(transformation=derived_type_transformation) # , reverse=True)
 
     # Perform general source sanitisation steps to level the playing field
     sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
@@ -236,7 +262,7 @@ def convert(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         ))
 
-    if mode in ['scc', 'scc-hoist', 'scc-stack', 'scc-cpu', 'cuf-parametrise-new']:
+    if mode in ['scc', 'scc-hoist', 'scc-stack', 'scc-cpu', 'cuf-parametrise-new', 'cuf-hoist-new', 'c-parametrise']:
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
             horizontal=horizontal, directive=directive
@@ -262,7 +288,7 @@ def convert(
     if mode in ['scc-cpu']:
         scheduler.process(SCCLowerLoopTransformation(dimension=block_dim, dim_name='IBL'))
 
-    if mode == "cuf-parametrise-new" or mode == "cuf-hoist-new":
+    if mode == "cuf-parametrise-new" or mode == "cuf-hoist-new" or mode in ['c-parametrise']:
         scc_extended = SCCLowerLoopTransformation(
                 dimension=block_dim, dim_name='ibl', keep_driver_loop=True,
                 ignore_dim_name=True
@@ -306,13 +332,13 @@ def convert(
         transformation = scheduler.config.transformations['ParametriseTransformation']
         scheduler.process(transformation=transformation)
 
-    if mode == "cuf-hoist" or mode == "cuf-hoist-new":
+    if mode == "cuf-hoist" or mode == "cuf-hoist-new" or mode == "c-parametrise":
         vertical = scheduler.config.dimensions['vertical']
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
         scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
 
     mode = mode.replace('-', '_')  # Sanitize mode string
-    if mode in ["c"]:
+    if mode in ["c", "c-parametrise"]:
         f2c_transformation = FortranCTransformation(path=build)
         scheduler.process(f2c_transformation)
         for h in definitions:
