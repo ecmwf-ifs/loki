@@ -550,6 +550,10 @@ end subroutine forall_stmt
                   [3.0, 3.0, 1.0, 3.0, 3.0],
                   [3.0, 3.0, 3.0, 1.0, 3.0],
                   [3.0, 3.0, 3.0, 3.0, 1.0]]).all()
+
+    # Check the fgen code generation
+    regenerated_code = routine.to_fortran().split("\n")
+    assert regenerated_code[6].strip() == "FORALL(i = 1:n) a(i, i) = 1"
     clean_test(filepath)
 
 
@@ -561,7 +565,6 @@ subroutine forall_masked_stmt(n, a, b)
   integer, intent(in) :: n
   real(kind=jprb), dimension(n, n), intent(inout) :: a, b
 
-  ! Create a diagonal square matrix
   forall(i = 1:n, j = 1:n, a(i, j) .ne. 0.0) b(i, j) = 1.0 / a(i, j)
 end subroutine forall_masked_stmt
 """.strip()
@@ -600,6 +603,10 @@ end subroutine forall_masked_stmt
     b = np.zeros((n, n), order="F")
     fun_forall_masked_stmt(n, a, b)
     assert (b == [[0.5, 0.0, 0.5], [0, 0.25, 0], [0.1, 0.1, 0]]).all()
+
+    # Check the fgen code generation
+    regenerated_code = routine.to_fortran().split("\n")
+    assert regenerated_code[5].strip() == "FORALL(i = 1:n, j = 1:n, a(i, j) /= 0.0) b(i, j) = 1.0 / a(i, j)"
     clean_test(filepath)
 
 
@@ -661,4 +668,11 @@ end subroutine forall_construct
                   [0.0, 0.0, 4.0, 4.0, 0.0, 0.0],
                   [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                   [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]).all()
+
+    # Check the fgen code generation
+    regenerated_code = routine.to_fortran().split("\n")
+    assert regenerated_code[5].strip() == "FORALL(i = 3:n - 2, j = 3:n - 2)"
+    assert regenerated_code[6].strip() == "c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)"
+    assert regenerated_code[7].strip() == "d(i, j) = c(i, j)"
+    assert regenerated_code[8].strip() == "END FORALL"
     clean_test(filepath)
