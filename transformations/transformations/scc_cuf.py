@@ -15,13 +15,14 @@ from loki import ir
 from loki import (
     Transformation, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, SymbolAttributes,
-    CaseInsensitiveDict, as_tuple, flatten, types
+    CaseInsensitiveDict, as_tuple, flatten, types, DerivedType, BasicType
 )
 
 from transformations.single_column_coalesced import SCCBaseTransformation
 from transformations.single_column_coalesced_vector import SCCDevectorTransformation
 
-__all__ = ['SccCufTransformation', 'SccCufTransformationNew', 'HoistTemporaryArraysDeviceAllocatableTransformation']
+__all__ = ['SccCufTransformation', 'SccCufTransformationNew', 'HoistTemporaryArraysDeviceAllocatableTransformation',
+        'HoistTemporaryArraysCstyleTransformation']
 
 
 class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransformation):
@@ -59,6 +60,28 @@ class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransfor
             else:
                 routine.body.append(ir.Deallocation((var.clone(dimensions=None),)))
 
+class HoistTemporaryArraysCstyleTransformation(HoistVariablesTransformation):
+    """
+    Synthesis part for variable/array hoisting for CUDA Fortran (CUF) (transformation).
+    """
+
+    def driver_variable_declaration(self, routine, variables):
+        """
+        # TODO ...
+        """
+        for var in variables:
+            # vtype = var.type.clone()
+            routine.variables += tuple([var.clone(scope=routine)])
+            # TODO: OpenACC ...
+            ...
+                # Add explicit device-side allocations/deallocations for hoisted temporaries
+        vnames = ', '.join(v.name for v in variables)
+        pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+        pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+
+        # Add comments around standalone pragmas to avoid false attachment
+        routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+        routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
 def dynamic_local_arrays(routine, vertical):
     """
@@ -194,7 +217,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
         routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]])
         return
 
-    # kernel_demote_private_locals(routine, horizontal, vertical)
+    kernel_demote_private_locals(routine, horizontal, vertical)
 
     if depth > 1:
         single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
@@ -257,6 +280,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
         else:
             if isinstance(var, sym.Array):
                 dimensions = list(var.dimensions)
+                sahpe = list(var.shape)
                 if horizontal.size in list(FindVariables().visit(var.dimensions)):
                     if transformation_type == 'hoist':
                         dimensions += [routine.variable_map[block_dim.size]]
@@ -509,8 +533,7 @@ def driver_launch_configuration(routine, block_dim, targets=None):
 
                 mapper[call] = (call.clone(chevron=(routine.variable_map["GRIDDIM"],
                                                     routine.variable_map["BLOCKDIM"]),
-                                           arguments=call.arguments + (routine.variable_map[block_dim.size],)),
-                                ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
+                                                    arguments=call.arguments + (routine.variable_map[block_dim.size],)), ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
 
             if kernel_within:
                 upper = routine.variable_map[loop.bounds.children[1].name]
@@ -801,10 +824,12 @@ class SccCufTransformationNew(Transformation):
     """
 
     def __init__(self, horizontal, vertical, block_dim, transformation_type='parametrise',
-                 derived_types=None):
+                 derived_types=None, mode="CUF"):
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
+        self.mode = mode.lower()
+        assert self.mode in ['cuf', 'c']
 
         self.transformation_type = transformation_type
         # `parametrise` : parametrising the array dimensions
@@ -890,17 +915,27 @@ class SccCufTransformationNew(Transformation):
         # create variables needed for the device execution, especially generate device versions of arrays
         self.driver_device_variables(routine=routine, targets=targets)
         # remove block loop and generate launch configuration for CUF kernels
-        self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
+        upper, step, block_dim_size, blockdim_assignment, griddim_assignment = self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
+       
+        if self.mode == 'c':
+            call_map = {}
+            for call in FindNodes(ir.CallStatement).visit(routine.body):
+                if call.name in as_tuple(targets):
+                    if upper.name not in call.routine.arguments and step.name not in call.routine.arguments:
+                        call.routine.arguments = list(call.routine.arguments) + [upper, step] # , block_dim_size]
+                        # call_map[call] = call.clone(arguments=as_tuple(list(call.arguments) + [upper, step])) # , block_dim_size]))
+                        call_map[call] = call.clone(kwarguments=as_tuple(list(call.kwarguments) + [(upper.name, upper), (step.name, step)])) # , block_dim_size]))
+                        call.routine.spec.append((ir.Pragma(keyword='loki', content=f'blockdim {blockdim_assignment}'),ir.Pragma(keyword='loki', content=f'griddim {griddim_assignment}')))
+            routine.body = Transformer(call_map).visit(routine.body)
+        elif self.mode == 'cuf':
+            # increase heap size (only for version with dynamic memory allocation on device)
+            if self.transformation_type == 'dynamic':
+                increase_heap_size(routine)
 
-        # increase heap size (only for version with dynamic memory allocation on device)
-        #if self.transformation_type == 'dynamic':
-        #    increase_heap_size(routine)
+            routine.body.prepend(ir.Comment(f"!@cuf print *, 'executing SCC-CUF type: {self.transformation_type} - "
+                                            f"{self.transformation_description[self.transformation_type]}'"))
+            routine.body.prepend(ir.Comment(""))
 
-        routine.body.prepend(ir.Comment(f"!@cuf print *, 'executing SCC-CUF type: {self.transformation_type} - "
-                                        f"{self.transformation_description[self.transformation_type]}'"))
-        routine.body.prepend(ir.Comment(""))
-
-        # self.driver_device_variables(routine=routine, targets=targets)
 
     def kernel_cuf(self, routine, horizontal, vertical, block_dim, transformation_type,
                depth, derived_type_variables, targets=None):
@@ -926,12 +961,22 @@ class SccCufTransformationNew(Transformation):
 
         if depth == 1:
             # CUDA thread mapping
-            var_thread_idx = sym.Variable(name="THREADIDX")
-            var_x = sym.Variable(name="X", parent=var_thread_idx)
+            if self.mode == 'cuf':
+                var_thread_idx = sym.Variable(name="THREADIDX")
+                var_x = sym.Variable(name="X", parent=var_thread_idx)
+            else:
+                ctype = SymbolAttributes(DerivedType(name="threadIdx"))
+                var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=True) # , type=ctype)
+                var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True)
             horizontal_assignment = ir.Assignment(lhs=routine.variable_map[horizontal.index], rhs=var_x)
 
-            var_thread_idx = sym.Variable(name="BLOCKIDX")
-            var_x = sym.Variable(name="Z", parent=var_thread_idx)
+            if self.mode == 'cuf':
+                var_thread_idx = sym.Variable(name="BLOCKIDX")
+                var_x = sym.Variable(name="Z", parent=var_thread_idx)
+            else:
+                ctype = SymbolAttributes(DerivedType(name="blockIdx"))
+                var_thread_idx = sym.Variable(name="blockIdx", case_sensitive=True) # , type=ctype)
+                var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True)
             block_dim_assignment = ir.Assignment(lhs=routine.variable_map[block_dim.index], rhs=var_x)
 
             condition = sym.LogicalAnd((sym.Comparison(routine.variable_map[block_dim.index], '<=',
@@ -975,6 +1020,7 @@ class SccCufTransformationNew(Transformation):
                 #     var_map[var] = var.clone(type=vtype)
                 if isinstance(var, sym.Array):
                     dimensions = list(var.dimensions)
+                    shape = list(var.shape)
                     if horizontal.size in list(FindVariables().visit(var.dimensions)):
                         if transformation_type == 'hoist':
                             dimensions += [routine.variable_map[block_dim.size]]
@@ -983,8 +1029,9 @@ class SccCufTransformationNew(Transformation):
                             relevant_local_arrays.append(var.name)
                         else:
                             dimensions.remove(horizontal.size)
+                            shape.remove(horizontal.size) 
                             relevant_local_arrays.append(var.name)
-                            vtype = var.type.clone(device=True)
+                            vtype = var.type.clone(device=True, shape=shape)
                         var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=vtype)
 
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
@@ -1084,81 +1131,142 @@ class SccCufTransformationNew(Transformation):
 
         relevant_arrays = list(dict.fromkeys(relevant_arrays))
 
-        # Declaration
-        routine.spec.append(ir.Comment(''))
-        routine.spec.append(ir.Comment('! Device arrays'))
-        for array in relevant_arrays:
-            vshape = [sym.RangeIndex((None, None))] * len(array.shape)
-            vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-            vdimensions = [sym.RangeIndex((None, None))] * len(array.shape) # len(array.dimensions)
-            var = array.clone(name=f"{array.name}_d", type=vtype, dimensions=as_tuple(vdimensions))
-            routine.spec.append(ir.VariableDeclaration(symbols=as_tuple(var)))
+        if self.mode == 'c':
+            # Collect the three types of device data accesses from calls
+            inargs = ()
+            inoutargs = ()
+            outargs = ()
 
-        # Allocation
-        for array in reversed(relevant_arrays):
-            vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-            routine.body.prepend(ir.Allocation((array.clone(name=f"{array.name}_d", type=vtype,
-                                                            dimensions=routine.variable_map[array.name].dimensions),)))
-        routine.body.prepend(ir.Comment('! Device array allocation'))
-        routine.body.prepend(ir.Comment(''))
+            # insert_index = routine.body.body.index(calls[-1])
+            # insert_index = None
+            for call in calls:
+                if call.routine is BasicType.DEFERRED:
+                    warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched with ' +
+                        f'in {str(call.name).lower()}')
 
-        allocations = FindNodes(ir.Allocation).visit(routine.body)
-        if allocations:
-            insert_index = routine.body.body.index(allocations[-1]) + 1
+                    continue
+                for param, arg in call.arg_iter():
+                    if isinstance(param, sym.Array) and param.type.intent.lower() == 'in':
+                        inargs += (str(arg.name).lower(),)
+                    if isinstance(param, sym.Array) and param.type.intent.lower() == 'inout':
+                        inoutargs += (str(arg.name).lower(),)
+                    if isinstance(param, sym.Array) and param.type.intent.lower() == 'out':
+                        outargs += (str(arg.name).lower(),)
+
+            # Sanitize data access categories to avoid double-counting variables
+            inoutargs += tuple(v for v in inargs if v in outargs)
+            inargs = tuple(v for v in inargs if v not in inoutargs)
+            outargs = tuple(v for v in outargs if v not in inoutargs)
+
+            # Filter for duplicates
+            inargs = tuple(dict.fromkeys(inargs))
+            outargs = tuple(dict.fromkeys(outargs))
+            inoutargs = tuple(dict.fromkeys(inoutargs))
+            
+            copy_pragmas = []
+            copy_end_pragmas = []
+            if outargs:
+                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyout({", ".join(outargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
+            if inoutargs:
+                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copy({", ".join(inoutargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
+            if inargs:
+                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyin({", ".join(inargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
+
+            if copy_pragmas:
+                pragma_map = {}
+                for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                    if pragma.content == 'data' and 'loki' == pragma.keyword:
+                        pragma_map[pragma] = as_tuple(copy_pragmas)
+                if pragma_map:
+                    routine.body = Transformer(pragma_map).visit(routine.body)
+            if copy_end_pragmas:
+                pragma_map = {}
+                for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                    if pragma.content == 'end data' and 'loki' == pragma.keyword:
+                        pragma_map[pragma] = as_tuple(copy_end_pragmas)
+                if pragma_map:
+                    routine.body = Transformer(pragma_map).visit(routine.body)
+
+            # return
         else:
-            insert_index = None
-        # or: insert_index = routine.body.body.index(calls[0])
-        # Copy host to device
-        for array in reversed(relevant_arrays):
-            vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-            lhs = array.clone(name=f"{array.name}_d", type=vtype, dimensions=None)
-            rhs = array.clone(dimensions=None)
-            if insert_index is not None:
-                routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
+            # Declaration
+            routine.spec.append(ir.Comment(''))
+            routine.spec.append(ir.Comment('! Device arrays'))
+            for array in relevant_arrays:
+                vshape = [sym.RangeIndex((None, None))] * len(array.shape)
+                vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
+                vdimensions = [sym.RangeIndex((None, None))] * len(array.shape) # len(array.dimensions)
+                var = array.clone(name=f"{array.name}_d", type=vtype, dimensions=as_tuple(vdimensions))
+                routine.spec.append(ir.VariableDeclaration(symbols=as_tuple(var)))
+
+            # Allocation
+            for array in reversed(relevant_arrays):
+                vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
+                routine.body.prepend(ir.Allocation((array.clone(name=f"{array.name}_d", type=vtype,
+                                                            dimensions=routine.variable_map[array.name].dimensions),)))
+            routine.body.prepend(ir.Comment('! Device array allocation'))
+            routine.body.prepend(ir.Comment(''))
+
+            allocations = FindNodes(ir.Allocation).visit(routine.body)
+            if allocations:
+                insert_index = routine.body.body.index(allocations[-1]) + 1
             else:
-                routine.body.prepend(ir.Assignment(lhs=lhs, rhs=rhs))
-        routine.body.insert(insert_index, ir.Comment('! Copy host to device'))
-        routine.body.insert(insert_index, ir.Comment(''))
-
-        # TODO: this just assumes that host-device-synchronisation is only needed at the beginning and end
-        # Copy device to host
-        insert_index = None
-        for call in FindNodes(ir.CallStatement).visit(routine.body):
-            if "THREAD_END" in str(call.name):  # TODO: fix/check: very specific to CLOUDSC
-                insert_index = routine.body.body.index(call) + 1
-
-        if insert_index is None:
-            routine.body.append(ir.Comment(''))
-            routine.body.append(ir.Comment('! Copy device to host'))
-        for v in reversed(relevant_arrays):
-            if v.type.intent != "in":
-                lhs = v.clone(dimensions=None)
-                vtype = v.type.clone(device=True, allocatable=True, intent=None, shape=None)
-                rhs = v.clone(name=f"{v.name}_d", type=vtype, dimensions=None)
-                if insert_index is None:
-                    routine.body.append(ir.Assignment(lhs=lhs, rhs=rhs))
-                else:
+                insert_index = None
+            # or: insert_index = routine.body.body.index(calls[0])
+            # Copy host to device
+            for array in reversed(relevant_arrays):
+                vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
+                lhs = array.clone(name=f"{array.name}_d", type=vtype, dimensions=None)
+                rhs = array.clone(dimensions=None)
+                if insert_index is not None:
                     routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
-        if insert_index is not None:
-            routine.body.insert(insert_index, ir.Comment('! Copy device to host'))
-
-        # De-allocation
-        routine.body.append(ir.Comment(''))
-        routine.body.append(ir.Comment('! De-allocation'))
-        for array in relevant_arrays:
-            routine.body.append(ir.Deallocation((array.clone(name=f"{array.name}_d", dimensions=None),)))
-
-        call_map = {}
-        for call in calls:
-            arguments = []
-            for arg in call.arguments:
-                if arg in relevant_arrays:
-                    vtype = arg.type.clone(device=True, allocatable=True, shape=None, intent=None)
-                    arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
                 else:
-                    arguments.append(arg)
-            call_map[call] = call.clone(arguments=as_tuple(arguments))
-        routine.body = Transformer(call_map).visit(routine.body)
+                    routine.body.prepend(ir.Assignment(lhs=lhs, rhs=rhs))
+            routine.body.insert(insert_index, ir.Comment('! Copy host to device'))
+            routine.body.insert(insert_index, ir.Comment(''))
+
+            # TODO: this just assumes that host-device-synchronisation is only needed at the beginning and end
+            # Copy device to host
+            insert_index = None
+            for call in FindNodes(ir.CallStatement).visit(routine.body):
+                if "THREAD_END" in str(call.name):  # TODO: fix/check: very specific to CLOUDSC
+                    insert_index = routine.body.body.index(call) + 1
+
+            if insert_index is None:
+                routine.body.append(ir.Comment(''))
+                routine.body.append(ir.Comment('! Copy device to host'))
+            for v in reversed(relevant_arrays):
+                if v.type.intent != "in":
+                    lhs = v.clone(dimensions=None)
+                    vtype = v.type.clone(device=True, allocatable=True, intent=None, shape=None)
+                    rhs = v.clone(name=f"{v.name}_d", type=vtype, dimensions=None)
+                    if insert_index is None:
+                        routine.body.append(ir.Assignment(lhs=lhs, rhs=rhs))
+                    else:
+                        routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
+            if insert_index is not None:
+                routine.body.insert(insert_index, ir.Comment('! Copy device to host'))
+
+            # De-allocation
+            routine.body.append(ir.Comment(''))
+            routine.body.append(ir.Comment('! De-allocation'))
+            for array in relevant_arrays:
+                routine.body.append(ir.Deallocation((array.clone(name=f"{array.name}_d", dimensions=None),)))
+
+            call_map = {}
+            for call in calls:
+                arguments = []
+                for arg in call.arguments:
+                    if arg in relevant_arrays:
+                        vtype = arg.type.clone(device=True, allocatable=True, shape=None, intent=None)
+                        arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
+                    else:
+                        arguments.append(arg)
+                call_map[call] = call.clone(arguments=as_tuple(arguments))
+            routine.body = Transformer(call_map).visit(routine.body)
 
     def driver_launch_configuration(self, routine, block_dim, targets=None):
         """
@@ -1225,11 +1333,17 @@ class SccCufTransformationNew(Transformation):
                                                                                             sym.Cast(name="REAL",
                                                                                                      expression=step)))))
                     griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-                    mapper[loop] = (blockdim_assignment, griddim_assignment, loop.body)
+                    if self.mode == 'cuf':
+                        mapper[loop] = (blockdim_assignment, griddim_assignment, loop.body)
+                    else:
+                        mapper[loop] = loop.body
                 else:
                     mapper[loop] = loop.body
 
         routine.body = Transformer(mapper=mapper).visit(routine.body)
+        blockdim_assignment_2 = f'dim3 blockdim({step.name.lower()}, 1, 1);'
+        griddim_assignment_2 = f'dim3 griddim(ceil(((double){upper.name.lower()})/((double){step.name.lower()})),1,1);'
+        return upper, step, routine.variable_map[block_dim.size], blockdim_assignment_2, griddim_assignment_2
 
     @staticmethod
     def kernel_demote_private_locals(routine, horizontal, vertical):
