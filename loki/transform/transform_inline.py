@@ -25,6 +25,7 @@ from loki.logging import warning, error
 from loki.pragma_utils import pragmas_attached, is_loki_pragma
 from loki.subroutine import Subroutine
 
+from loki.transform.transform_sanitise import transform_sequence_association_append_map
 from loki.transform.transformation import Transformation
 from loki.transform.transform_dead_code import dead_code_elimination
 from loki.transform.transform_utilities import (
@@ -70,6 +71,8 @@ class InlineTransformation(Transformation):
     external_only : bool, optional
         Do not replace variables declared in the local scope when
         inlining constants (default: True)
+    resolve_sequence_association: bool
+        Resolve sequence association for routines that contain calls to inline (default: False)
     """
 
     # Ensure correct recursive inlining by traversing from the leaves
@@ -79,20 +82,30 @@ class InlineTransformation(Transformation):
             self, inline_constants=False, inline_elementals=True,
             inline_internals=False, inline_marked=True,
             eliminate_dead_code=True, allowed_aliases=None,
-            remove_imports=True, external_only=True
+            remove_imports=True, external_only=True,
+            resolve_sequence_association=False
     ):
         self.inline_constants = inline_constants
         self.inline_elementals = inline_elementals
         self.inline_internals = inline_internals
         self.inline_marked = inline_marked
-
         self.eliminate_dead_code = eliminate_dead_code
-
         self.allowed_aliases = allowed_aliases
         self.remove_imports = remove_imports
         self.external_only = external_only
+        self.resolve_sequence_association = resolve_sequence_association
 
     def transform_subroutine(self, routine, **kwargs):
+
+        # Resolve sequence association in calls that are about to be inlined.
+        # This step runs only if all of the following hold:
+        # 1) it is requested by the user
+        # 2) inlining of "internals" or "marked" routines is activated
+        # 3) there is an "internal" or "marked" procedure to inline.
+        if self.resolve_sequence_association:
+            resolve_sequence_association_for_inlined_calls(
+                routine, self.inline_internals, self.inline_marked
+            )
 
         # Replace constant parameter variables with explicit values
         if self.inline_constants:
@@ -178,6 +191,34 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         rhs = self.rec(stmts[0].rhs, *args, **kwargs)
         return rhs
 
+def resolve_sequence_association_for_inlined_calls(routine, inline_internals, inline_marked):
+    """
+    Resolve sequence association in calls to all member procedures (if `inline_internals = True`) 
+    or in calls to procedures that have been marked with an inline pragma (if `inline_marked = True`). 
+    If both `inline_internals` and `inline_marked` are `False`, no processing is done.
+    """
+    call_map = {}
+    with pragmas_attached(routine, node_type=CallStatement):
+        for call in FindNodes(CallStatement).visit(routine.body):
+            condition = (
+                (inline_marked and is_loki_pragma(call.pragma, starts_with='inline')) or
+                (inline_internals and call.routine in routine.routines)
+            )
+            if condition:
+                if call.routine == BasicType.DEFERRED:
+                    # NOTE: Throwing error here instead of continuing, because the user has explicitly
+                    # asked sequence assoc to happen with inlining, so source for routine should be
+                    # found in calls to be inlined.
+                    raise ValueError(
+                        f"Cannot resolve sequence association for call to `{call.name}` " + 
+                        f"to be inlined in routine `{routine.name}`, because " + 
+                        f"the `CallStatement` referring to `{call.name}` does not contain " + 
+                        "the source code of the procedure. " +
+                        "If running in batch processing mode, please recheck Scheduler configuration."
+                    )
+                transform_sequence_association_append_map(call_map, call)
+        if call_map:
+            routine.body = Transformer(call_map).visit(routine.body)
 
 def inline_constant_parameters(routine, external_only=True):
     """

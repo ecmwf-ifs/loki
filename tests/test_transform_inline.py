@@ -574,7 +574,7 @@ end subroutine outer
 def test_inline_member_routines_indexing_of_shadowed_array(frontend):
     """
     Test special case of inlining of member subroutines when inlined routine contains
-    shadowed array and array indices. 
+    shadowed array and array indices.
     In particular, this test checks that also the variables indexing
     the array in the inlined result get renamed correctly.
     """
@@ -589,11 +589,11 @@ def test_inline_member_routines_indexing_of_shadowed_array(frontend):
         contains
 
         subroutine inner2()
-            integer :: jlon, jg 
+            integer :: jlon, jg
             integer :: arr(3, 3)
             do jg=1,3
                 do jlon=1,3
-                   arr(jlon, jg) = 11 
+                   arr(jlon, jg) = 11
                 end do
             end do
         end subroutine inner2
@@ -945,3 +945,189 @@ end subroutine test_inline_pragma
     assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
     assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
     assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_transformation_local_seq_assoc(frontend):
+    fcode = """
+module somemod
+    implicit none
+    contains
+
+    subroutine minusone_second(output, x)
+        real, intent(inout) :: output
+        real, intent(in) :: x(3)
+        output = x(2) - 1
+    end subroutine minusone_second
+
+    subroutine plusone(output, x)
+        real, intent(inout) :: output
+        real, intent(in) :: x
+        output = x + 1
+    end subroutine plusone
+
+    subroutine outer()
+      implicit none
+      real :: x(3, 3)
+      real :: y
+      x = 10.0
+
+      call inner(y, x(1, 1)) ! Sequence association here for member routine.
+
+      !$loki inline
+      call plusone(y, x(3, 3)) ! Marked for inlining.
+
+      call minusone_second(y, x(1, 3)) ! Standard call with sequence association (never processed).
+
+      contains
+
+      subroutine inner(output, x)
+        real, intent(inout) :: output
+        real, intent(in) :: x(3)
+
+        output = x(2) + 2.0
+      end subroutine inner
+    end subroutine outer
+
+end module somemod
+"""
+    # Test case that nothing happens if `resolve_sequence_association=True`
+    # but inlining "marked" and "internals" is disabled.
+    module = Module.from_source(fcode, frontend=frontend)
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_marked=False, inline_internals=False, resolve_sequence_association=True
+    )
+    outer = module["outer"]
+    trafo.apply(outer)
+    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    assert 'plusone' in callnames
+    assert 'inner' in callnames
+    assert 'minusone_second' in callnames
+
+    # Test case that only marked processed if
+    # `resolve_sequence_association=True`
+    # `inline_marked=True`,
+    # `inline_internals=False`
+    module = Module.from_source(fcode, frontend=frontend)
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_marked=True, inline_internals=False, resolve_sequence_association=True
+    )
+    outer = module["outer"]
+    trafo.apply(outer)
+    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    assert 'plusone' not in callnames
+    assert 'inner' in callnames
+    assert 'minusone_second' in callnames
+
+    # Test case that a crash occurs if sequence association is not enabled even if it is needed.
+    module = Module.from_source(fcode, frontend=frontend)
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_marked=True, inline_internals=True, resolve_sequence_association=False
+    )
+    outer = module["outer"]
+    with pytest.raises(RuntimeError):
+        trafo.apply(outer)
+    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+
+    # Test case that sequence association is run and corresponding call inlined, avoiding crash.
+    module = Module.from_source(fcode, frontend=frontend)
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_marked=False, inline_internals=True, resolve_sequence_association=True
+    )
+    outer = module["outer"]
+    trafo.apply(outer)
+    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    assert 'plusone' in callnames
+    assert 'inner' not in callnames
+    assert 'minusone_second' in callnames
+
+    # Test case that everything is enabled.
+    module = Module.from_source(fcode, frontend=frontend)
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_marked=True, inline_internals=True, resolve_sequence_association=True
+    )
+    outer = module["outer"]
+    trafo.apply(outer)
+    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    assert 'plusone' not in callnames
+    assert 'inner' not in callnames
+    assert 'minusone_second' in callnames
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_transformation_local_seq_assoc_crash_marked_no_seq_assoc(frontend):
+    # Test case that a crash occurs if marked routine with sequence association is
+    # attempted to inline without sequence association enabled.
+    fcode = """
+module somemod
+    implicit none
+    contains
+
+    subroutine inner(output, x)
+        real, intent(inout) :: output
+        real, intent(in) :: x(3)
+
+        output = x(2) + 2.0
+    end subroutine inner
+
+    subroutine outer()
+      real :: x(3, 3)
+      real :: y
+      x = 10.0
+
+      !$loki inline
+      call inner(y, x(1, 1)) ! Sequence association here for marked routine.
+    end subroutine outer
+
+end module somemod
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_marked=True, inline_internals=False, resolve_sequence_association=False
+    )
+    outer = module["outer"]
+    with pytest.raises(RuntimeError):
+        trafo.apply(outer)
+
+    # Test case that crash is avoided by activating sequence association.
+    module = Module.from_source(fcode, frontend=frontend)
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_marked=True, inline_internals=False, resolve_sequence_association=True
+    )
+    outer = module["outer"]
+    trafo.apply(outer)
+    assert len(FindNodes(CallStatement).visit(outer.body)) == 0
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_transformation_local_seq_assoc_crash_value_err_no_source(frontend):
+    # Testing that ValueError is thrown if sequence association is requested with inlining,
+    # but source code behind call is missing (not enough type information).
+    fcode = """
+module somemod
+    implicit none
+    contains
+
+    subroutine outer()
+      real :: x(3, 3)
+      real :: y
+      x = 10.0
+
+      !$loki inline
+      call inner(y, x(1, 1)) ! Sequence association here for marked routine.
+    end subroutine outer
+
+end module somemod
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    trafo = InlineTransformation(
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_marked=True, inline_internals=False, resolve_sequence_association=True
+    )
+    outer = module["outer"]
+    with pytest.raises(ValueError):
+        trafo.apply(outer)
