@@ -290,7 +290,8 @@ class FortranCodegen(Stringifier):
             for k, v in get_pragma_parameters(o, only_loki_pragmas=False).items():
                 if v:
                     # Need to filter all old line continuations
-                    values = [i.replace('&', '').strip().split(' ') for i in as_tuple(v)]
+                    # values = [i.replace('&', '').strip().split(' ') for i in as_tuple(v)]
+                    values = [i.replace('&', '').strip().split(' ') if i else '' for i in as_tuple(v)]
                     # v can be a list if the key occurs more than once
                     items += flatten([(k + '(', *i, ')') for i in values])
                 else:
