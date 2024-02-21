@@ -132,6 +132,8 @@ class TypedSymbol:
         # Use provided type or try to determine from scope
         self._type = None
         self.type = kwargs.pop('type', None) or self.type
+        
+        self.case_sensitive = kwargs.pop('case_sensitive', False)
 
         super().__init__(*args, **kwargs)
 
@@ -494,6 +496,7 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     def __init__(self, symbol, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._symbol = symbol
+        self.case_sensitive = kwargs.get('case_sensitive', False)
 
     def __getstate__(self):
         return self._symbol
@@ -821,6 +824,7 @@ class Variable:
         name = kwargs['name']
         scope = kwargs.get('scope')
         _type = kwargs.get('type')
+        # self.case_sensitive = kwargs.get('case_sensitive', False)
 
         if scope is not None and _type is None:
             # Determine type information from scope if not provided explicitly
