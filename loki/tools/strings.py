@@ -167,7 +167,10 @@ class JoinableStringList:
                 continue
             sep = self.sep if idx + 1 < len(self.items) else ''
             old_line = line
-            line, _lines = self._add_item_to_line(line, item + sep)
+            try:
+                line, _lines = self._add_item_to_line(line, item + sep)
+            except:
+                line, _lines = self._add_item_to_line(line, str(item) + sep)
             if stop_on_continuation and _lines:
                 return old_line, type(self)(self.items[idx:], sep=self.sep, width=self.width,
                                             cont=self.cont, separable=self.separable)
