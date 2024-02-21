@@ -113,6 +113,8 @@ class HoistVariablesAnalysis(Transformation):
     # Apply in reverse order to recursively find all variables to be hoisted.
     reverse_traversal = True
 
+    process_ignored_items = True
+
     def __init__(self, key=None):
         if key is not None:
             self._key = key

@@ -146,6 +146,30 @@ end subroutine test_fgen
     out = fgen(routine, linewidth=132)
     for line in out.splitlines():
         assert line.count('&') <= 2
+        if line.count('&') == 2:
+            assert len(line.split('&')[1]) > 60
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki likes only valid code')]))
+def test_multiline_inline_conditional_long(frontend):
+    """
+    Test correct formatting of an inline :any:`Conditional` that
+    that creates a particularly long line.
+    """
+    fcode = """
+subroutine test_inline_multiline_long(array, flag)
+  real, intent(inout) :: array
+  logical, intent(in) :: flag
+
+  if (flag) call a_subroutine_with_an_exquisitely_loong_and_expertly_chosen_name_and_a_few_keyword_arguments(my_favourite_array=array)
+end subroutine test_inline_multiline_long
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    out = fgen(routine, linewidth=132)
+    for line in out.splitlines():
+        assert len(line) < 132
+        assert line.count('&') <= 2
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

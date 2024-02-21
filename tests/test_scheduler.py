@@ -57,7 +57,7 @@ from conftest import (available_frontends, graphviz_present)
 from loki import (
     Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP,
     HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
-    fexprgen, Transformation, BasicType, CMakePlanner, Subroutine,
+    fexprgen, Transformation, BasicType, Subroutine,
     SubroutineItem, ProcedureBindingItem, gettempdir, ProcedureSymbol,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, Variable, GenericImportItem, GlobalVarImportItem, flatten,
@@ -827,8 +827,10 @@ def test_scheduler_dependencies_ignore(here, frontend):
         'driverB_mod#driverB', 'kernelB_mod#kernelB',
         'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2'
     ])
-    assert 'ext_driver_mod#ext_driver' not in schedulerA.items
-    assert 'ext_kernel_mod#ext_kernel' not in schedulerA.items
+    assert 'ext_driver_mod#ext_driver' in schedulerA.items
+    assert 'ext_kernel_mod#ext_kernel' in schedulerA.items
+    assert schedulerA['ext_driver_mod#ext_driver'].is_ignored
+    assert schedulerA['ext_kernel_mod#ext_kernel'].is_ignored
 
     assert all(n in schedulerB.items for n in ['ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'])
 
@@ -843,7 +845,9 @@ def test_scheduler_dependencies_ignore(here, frontend):
     assert schedulerA.items[0].source.all_subroutines[0].name == 'driverB'
     assert schedulerA.items[1].source.all_subroutines[0].name == 'kernelB_test'
     assert schedulerA.items[2].source.all_subroutines[0].name == 'compute_l1_test'
-    assert schedulerA.items[3].source.all_subroutines[0].name == 'compute_l2_test'
+    assert schedulerA.items[3].source.all_subroutines[0].name == 'ext_driver'
+    assert schedulerA.items[4].source.all_subroutines[0].name == 'compute_l2_test'
+    assert schedulerA.items[5].source.all_subroutines[0].name == 'ext_kernel'
 
     # For the second target lib, we want the driver to be converted
     for transformation in transformations:
@@ -892,23 +896,15 @@ def test_scheduler_cmake_planner(here, frontend):
     builddir.mkdir(exist_ok=True)
     planfile = builddir/'loki_plan.cmake'
 
-    planner = CMakePlanner(rootpath=sourcedir, mode='foobar', build=builddir)
-    scheduler.process(transformation=planner)
+    scheduler.write_cmake_plan(
+        filepath=planfile, mode='foobar', buildpath=builddir, rootpath=sourcedir
+    )
 
     # Validate the generated lists
     expected_files = {
         proj_a/'module/driverB_mod.f90', proj_a/'module/kernelB_mod.F90',
         proj_a/'module/compute_l1_mod.f90', proj_a/'module/compute_l2_mod.f90'
     }
-
-    assert set(planner.sources_to_remove) == {f.relative_to(sourcedir) for f in expected_files}
-    assert set(planner.sources_to_append) == {
-        (builddir/f.stem).with_suffix('.foobar.F90') for f in expected_files
-    }
-    assert set(planner.sources_to_transform) == {f.relative_to(sourcedir) for f in expected_files}
-
-    # Write the plan file
-    planner.write_planfile(planfile)
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)

@@ -7,13 +7,23 @@
 
 import re
 from collections import  defaultdict
+
+from loki.expression import (
+    Quotient, IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
+    Product, InlineCall, Comparison, RangeIndex, Cast,
+    ProcedureSymbol, LogicalNot, simplify,
+)
+from loki.ir import (
+    Intrinsic, Assignment, Conditional, CallStatement, Import,
+    Allocation, Deallocation, Loop, Pragma
+)
 from loki import (
-    as_tuple, warning, debug, simplify, recursive_expression_map_update, get_pragma_parameters,
-    Transformation, FindNodes, FindVariables, Transformer, SubstituteExpressions, DetachScopesMapper,
-    SymbolAttributes, BasicType, DerivedType, Quotient, IntLiteral, LogicLiteral,
-    Variable, Array, Sum, Literal, Product, InlineCall, Comparison, RangeIndex, Cast,
-    Intrinsic, Assignment, Conditional, CallStatement, Import, Allocation, Deallocation, is_dimension_constant,
-    Loop, Pragma, FindInlineCalls, Interface, ProcedureSymbol, LogicalNot, dataflow_analysis_attached
+    as_tuple, warning, debug, Transformation, FindNodes,
+    FindVariables, Transformer, SubstituteExpressions,
+    DetachScopesMapper, SymbolAttributes, BasicType, DerivedType,
+    is_dimension_constant, recursive_expression_map_update,
+    get_pragma_parameters, FindInlineCalls, Interface,
+    dataflow_analysis_attached
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -92,6 +102,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     # Traverse call tree in reverse when using Scheduler
     reverse_traversal = True
 
+    process_ignored_items = True
+
     def __init__(self, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
                  stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
                  local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
@@ -120,6 +132,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         role = kwargs['role']
         item = kwargs.get('item', None)
+        ignore = item.ignore if item else ()
         targets = as_tuple(kwargs.get('targets', None))
 
         self.stack_type_kind = 'JPRB'
@@ -148,7 +161,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 self.import_allocation_types(routine, item)
             self.create_pool_allocator(routine, stack_size)
 
-        self.inject_pool_allocator_into_calls(routine, targets)
+        self.inject_pool_allocator_into_calls(routine, targets, ignore)
 
     @staticmethod
     def import_c_sizeof(routine):
@@ -223,11 +236,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
         var_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
         stack_arg = Variable(name=var_name, type=stack_type, scope=routine)
-        arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
-        if arg_pos:
-            routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg,) + routine.arguments[arg_pos[0]:]
-        else:
-            routine.arguments += (stack_arg,)
+        routine.arguments += (stack_arg,)
 
         return stack_arg
 
@@ -244,11 +253,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
         var_name = f'{self.stack_argument_name}_{self.stack_end_name}'
         stack_arg_end = Variable(name=var_name, type=stack_type, scope=routine)
-        arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
-        if arg_pos:
-            routine.arguments = routine.arguments[:arg_pos[0]] + (stack_arg_end,) + routine.arguments[arg_pos[0]:]
-        else:
-            routine.arguments += (stack_arg_end,)
+        routine.arguments += (stack_arg_end,)
 
         return stack_arg_end
 
@@ -305,16 +310,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
             stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(stack_type_bytes))
+            stack_type_bytes = InlineCall(function=Variable(name='MAX'),
+                                          parameters=(stack_type_bytes, Literal(8)), kw_parameters=())
             stack_size_assign = Assignment(lhs=stack_size_var, rhs=Quotient(stack_size, stack_type_bytes))
             body_prepend += [stack_size_assign]
 
             # Stack-size no longer guaranteed to be a multiple of 8-bytes, so we have to check here
             padding = Assignment(lhs=stack_size_var, rhs=Sum((stack_size_var, Literal(1))))
             stack_size_check = Conditional(
-                                 condition=LogicalNot(Comparison(InlineCall(Variable(name='MOD'),
-                                 parameters=(stack_size, stack_type_bytes)),
-                                 '==', Literal(0))), inline=True, body=(padding,),
-                                 else_body=None
+                condition=LogicalNot(Comparison(
+                    InlineCall(Variable(name='MOD'), parameters=(stack_size, stack_type_bytes)),
+                    '==', Literal(0))
+                ), inline=True, body=(padding,), else_body=None
             )
             body_prepend += [stack_size_check]
 
@@ -358,11 +365,23 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if variables_append:
             routine.variables += as_tuple(variables_append)
         if body_prepend:
-            routine.body.prepend(body_prepend)
+            if not self._insert_stack_at_loki_pragma(routine, body_prepend):
+                routine.body.prepend(body_prepend)
         if body_append:
             routine.body.append(body_append)
 
         return stack_storage, stack_size_var
+
+    @staticmethod
+    def _insert_stack_at_loki_pragma(routine, insert):
+        pragma_map = {}
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            if pragma.keyword == 'loki' and 'stack-insert' in pragma.content:
+                pragma_map[pragma] = insert
+        if pragma_map:
+            routine.body = Transformer(pragma_map).visit(routine.body)
+            return True
+        return False
 
     def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):
         """
@@ -494,12 +513,15 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # Build expression for array size in bytes
         dim = arr.dimensions[0]
         for d in arr.dimensions[1:]:
-            if isinstance(d, RangeIndex):
-                dim = simplify(Product((dim, Sum((d.upper, Product((-1,d.lower)), IntLiteral(1))))))
-            else:
-                dim = Product((dim, d))
-        arr_size = Product((dim, InlineCall(Variable(name='C_SIZEOF'),
-                                            parameters=as_tuple(self._get_c_sizeof_arg(arr)))))
+            _dim = d
+            if isinstance(_dim, RangeIndex):
+                _dim = Sum((_dim.upper, Product((-1, _dim.lower)), 1))
+            dim = Product((dim, _dim))
+        arr_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
+                                            parameters=as_tuple(self._get_c_sizeof_arg(arr)))
+        arr_type_bytes = InlineCall(function=Variable(name='MAX'),
+                    parameters=(arr_type_bytes, Literal(8)), kw_parameters=())
+        arr_size = Product((dim, arr_type_bytes))
 
         # Increment stack size
         stack_size = simplify(Sum((stack_size, arr_size)))
@@ -685,6 +707,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
             _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(_real_size_bytes))
+            _real_size_bytes = InlineCall(function=Variable(name='MAX'),
+                    parameters=(_real_size_bytes, Literal(8)), kw_parameters=())
             stack_incr = Assignment(
                 lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
             )
@@ -698,29 +722,35 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if loop_map:
             routine.body = Transformer(loop_map).visit(routine.body)
 
-    def inject_pool_allocator_into_calls(self, routine, targets):
+    def inject_pool_allocator_into_calls(self, routine, targets, ignore):
         """
         Add the pool allocator argument into subroutine calls
         """
         call_map = {}
+
+        # Careful to not use self._get_stack_arg, as it will
+        # inject a delaration which the driver cannot do!
         stack_var = self._get_local_stack_var(routine)
-        new_vars = (stack_var,)
+        stack_arg_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
+        new_kwarguments = ((stack_arg_name, stack_var),)
+
         if self.check_bounds:
             stack_var_end = self._get_local_stack_var_end(routine)
-            new_vars += (stack_var_end,)
+            stack_arg_end_name = f'{self.stack_argument_name}_{self.stack_end_name}'
+            new_kwarguments += ((stack_arg_end_name, stack_var_end),)
+
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.name in targets:
+            if call.name in targets or call.routine.name.lower() in ignore:
                # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
                # interface block rather than the Subroutine itself. This means we have to update the interface block
                # accordingly
                 if call.name in [s for i in FindNodes(Interface).visit(routine.spec) for s in i.symbols]:
                     _ = self._get_stack_arg(call.routine)
 
-                stack_argument_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
-                if call.routine != BasicType.DEFERRED and stack_argument_name in call.routine.arguments:
-                    arg_idx = call.routine.arguments.index(stack_argument_name)
-                    arguments = call.arguments
-                    call_map[call] = call.clone(arguments=arguments[:arg_idx] + new_vars + arguments[arg_idx:])
+                if call.routine != BasicType.DEFERRED and stack_arg_name in call.routine.arguments:
+                    call_map[call] = call.clone(
+                        kwarguments=call.kwarguments + new_kwarguments
+                    )
 
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
@@ -729,8 +759,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         call_map = {}
         for call in FindInlineCalls().visit(routine.body):
             if call.name.lower() in [t.lower() for t in targets]:
-                parameters = call.parameters
-                call_map[call] = call.clone(parameters=parameters + new_vars)
+                call_map[call] = call.clone(
+                    kw_parameters=as_tuple(call.kw_parameters) + new_kwarguments
+                )
 
         if call_map:
             routine.body = SubstituteExpressions(call_map).visit(routine.body)
