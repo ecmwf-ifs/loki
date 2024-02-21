@@ -25,7 +25,7 @@ from loki import (
     Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
     config, REGEX, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective, config_override, Section
+    PreprocessorDirective, config_override, Section, CommentBlock
 )
 from loki.expression import symbols as sym
 
@@ -1686,15 +1686,73 @@ REAL, INTENT(INOUT) :: B
 !$ACC& PRESENT(ZRDG_LCVQ,ZFLU_QSATS,ZRDG_CVGQ) &
 !$ACC& PRIVATE (JBLK) &
 !$ACC& VECTOR_LENGTH (YDCPG_OPTS%KLON)
+!$ACC SEQUENTIAL
 
 END SUBROUTINE TOTO
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     pragmas = FindNodes(Pragma).visit(routine.body)
-    assert len(pragmas) == 1
+
+    assert len(pragmas) == 2
     assert pragmas[0].keyword == 'ACC'
     assert 'PARALLEL' in pragmas[0].content
     assert 'PRESENT' in pragmas[0].content
     assert 'PRIVATE' in pragmas[0].content
     assert 'VECTOR_LENGTH' in pragmas[0].content
+    assert pragmas[1].content == 'SEQUENTIAL'
+
+    # Check that source object was generated right
+    assert pragmas[0].source
+    assert pragmas[0].source.lines == (8, 8) if frontend == OMNI else (8, 11)
+    assert pragmas[1].source
+    assert pragmas[1].source.lines == (12, 12)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_comment_block_clustering(frontend):
+    """
+    Test that multiple :any:`Comment` nodes into a :any:`CommentBlock`.
+    """
+    fcode = """
+subroutine test_comment_block(a, b)
+  ! What is this?
+  ! Ohhh, ... a docstring?
+  real, intent(inout) :: a, b
+
+  a = a + 1.0
+  ! Never gonna
+  b = b + 2
+  ! give you
+  ! up...
+
+  a = a + b
+  ! Shut up, ...
+  ! Rick!
+end subroutine test_comment_block
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    comments = FindNodes(Comment).visit(routine.spec)
+    assert len(comments) == 0
+    blocks = FindNodes(CommentBlock).visit(routine.spec)
+    assert len(blocks) == 0
+
+    assert isinstance(routine.docstring[0], CommentBlock)
+    assert len(routine.docstring[0].comments) == 2
+    assert routine.docstring[0].comments[0].text == '! What is this?'
+    assert routine.docstring[0].comments[1].text == '! Ohhh, ... a docstring?'
+
+    comments = FindNodes(Comment).visit(routine.body)
+    assert len(comments) == 2 if frontend == FP else 1
+    assert comments[-1].text == '! Never gonna'
+
+    blocks = FindNodes(CommentBlock).visit(routine.body)
+    assert len(blocks) == 2
+    assert len(blocks[0].comments) == 3 if frontend == FP else 2
+    assert blocks[0].comments[0].text == '! give you'
+    assert blocks[0].comments[1].text == '! up...'
+
+    assert len(blocks[1].comments) == 2
+    assert blocks[1].comments[0].text == '! Shut up, ...'
+    assert blocks[1].comments[1].text == '! Rick!'

@@ -31,7 +31,7 @@ from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedDiv, ParenthesisedPow
 )
 from loki.expression import ExpressionDimensionsMapper, AttachScopes, AttachScopesMapper
-from loki.logging import debug, info, warning, error
+from loki.logging import debug, perf, info, warning, error
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
@@ -55,7 +55,7 @@ def parse_fparser_file(filename):
     return parse_fparser_source(source=fcode)
 
 
-@Timer(logger=debug, text=lambda s: f'[Loki::FP] Executed parse_fparser_source in {s:.2f}s')
+@Timer(logger=perf, text=lambda s: f'[Loki::FP] Executed parse_fparser_source in {s:.2f}s')
 def parse_fparser_source(source):
     """
     Generate a parse tree from string
@@ -77,7 +77,7 @@ def parse_fparser_source(source):
     return f2008_parser(reader)
 
 
-@Timer(logger=debug, text=lambda s: f'[Loki::FP] Executed parse_fparser_ast in {s:.2f}s')
+@Timer(logger=perf, text=lambda s: f'[Loki::FP] Executed parse_fparser_ast in {s:.2f}s')
 def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
     Generate an internal IR from fparser parse tree

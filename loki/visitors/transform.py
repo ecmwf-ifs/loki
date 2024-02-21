@@ -8,10 +8,8 @@
 """
 Visitor classes for transforming the IR
 """
-from more_itertools import windowed
-
 from loki.ir import Node, Conditional, ScopedNode
-from loki.tools import flatten, is_iterable, as_tuple
+from loki.tools import flatten, is_iterable, as_tuple, replace_windowed
 from loki.visitors.visitor import Visitor
 
 
@@ -137,10 +135,7 @@ class Transformer(Visitor):
 
         for k, handle in self.mapper.items():
             if is_iterable(k):
-                w = list(windowed(o, len(k)))
-                if k in w:
-                    i = list(w).index(k)
-                    o = o[:i] + as_tuple(handle) + o[i+len(k):]
+                o = replace_windowed(o, k, subs=handle)
             if k in o and is_iterable(handle):
                 # Replace k by the iterable that is provided by handle
                 o, i = _inject_handle(o, 0, k, handle)

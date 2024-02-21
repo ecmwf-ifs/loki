@@ -519,4 +519,4 @@ def join_source_list(source_list):
             newlines = 0
         string += '\n' * newlines + source.string
         lines[1] = source.lines[1] if source.lines[1] else lines[1] + newlines + source.string.count('\n')
-    return Source(lines, string, source_list[0].file)
+    return Source(tuple(lines), string, source_list[0].file)
