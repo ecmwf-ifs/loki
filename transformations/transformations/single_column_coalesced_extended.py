@@ -68,7 +68,7 @@ class SCCLowerLoopTransformation(Transformation):
         self.process_routine(routine, targets, role, remove_loop=role=='driver',
                 insert_index_instead_of_loop=role!='driver')
 
-        SCCBaseTransformation.remove_dimensions(routine)
+        # SCCBaseTransformation.remove_dimensions(routine)
 
     @staticmethod
     def _remove_vector_sections(routine):
