@@ -46,7 +46,8 @@ from transformations.single_column_coalesced_vector import (
     SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
 )
 from transformations.scc_cuf import (
-    SccCufTransformation, SccCufTransformationNew, HoistTemporaryArraysDeviceAllocatableTransformation
+    SccCufTransformation, SccCufTransformationNew, HoistTemporaryArraysDeviceAllocatableTransformation,
+    HoistTemporaryArraysCstyleTransformation
 )
 from transformations.single_column_coalesced_extended import (
         SCCLowerLoopTransformation
@@ -88,7 +89,8 @@ def inline_elemental_kernel(routine, **kwargs):
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
                   ['idem', 'c', 'scc-cpu', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-parametrise-new', 'c-parametrise', 'cuf-hoist', 'cuf-hoist-new', 'cuf-dynamic']
+                   'cuf-parametrise', 'cuf-parametrise-new', 'c-parametrise', 'cuf-hoist', 'cuf-hoist-new',
+                   'c-hoist', 'cuf-dynamic']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -198,7 +200,7 @@ def convert(
         scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
-    if 'scc' in mode or mode in ['cuf-parametrise-new', 'cuf-hoist-new', 'c-parametrise']:
+    if 'scc' in mode or mode in ['cuf-parametrise-new', 'cuf-hoist-new', 'c-parametrise', 'c-hoist']:
         scheduler.process( RemoveCallsTransformation(
             routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
             include_intrinsics=True, kernel_only=True
@@ -206,7 +208,7 @@ def convert(
     else:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
 
-    if mode in ['cuf-parametrise-new', 'cuf-hoist-new']:
+    if mode in ['c-parametrise', 'c-hoist']:
         inline_trafo = type("InlineTrafo", (Transformation, object), {
             "transform_subroutine": lambda self, routine, **kwargs: inline_elemental_kernel(routine, **kwargs)})()
         scheduler.process(transformation=inline_trafo)
@@ -241,13 +243,14 @@ def convert(
         scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
-    use_claw_offload = True
-    if data_offload:
-        offload_transform = DataOffloadTransformation(
-            remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
-        )
-        scheduler.process(offload_transform)
-        use_claw_offload = not offload_transform.has_data_regions
+    if mode not in ['c-parametrise', 'c-hoist']:
+        use_claw_offload = True
+        if data_offload:
+            offload_transform = DataOffloadTransformation(
+                remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
+            )
+            scheduler.process(offload_transform)
+            use_claw_offload = not offload_transform.has_data_regions
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
@@ -262,7 +265,7 @@ def convert(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         ))
 
-    if mode in ['scc', 'scc-hoist', 'scc-stack', 'scc-cpu', 'cuf-parametrise-new', 'cuf-hoist-new', 'c-parametrise']:
+    if mode in ['scc', 'scc-hoist', 'scc-stack', 'scc-cpu', 'cuf-parametrise-new', 'cuf-hoist-new', 'c-parametrise', 'c-hoist']:
         # Apply the basic SCC transformation set
         scheduler.process( SCCBaseTransformation(
             horizontal=horizontal, directive=directive
@@ -288,7 +291,7 @@ def convert(
     if mode in ['scc-cpu']:
         scheduler.process(SCCLowerLoopTransformation(dimension=block_dim, dim_name='IBL'))
 
-    if mode == "cuf-parametrise-new" or mode == "cuf-hoist-new" or mode in ['c-parametrise']:
+    if mode == "cuf-parametrise-new" or mode == "cuf-hoist-new" or mode in ['c-parametrise', 'c-hoist']:
         scc_extended = SCCLowerLoopTransformation(
                 dimension=block_dim, dim_name='ibl', keep_driver_loop=True,
                 ignore_dim_name=True
@@ -326,20 +329,29 @@ def convert(
             block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
         ))
 
-    if mode == 'cuf-parametrise' or mode == "cuf-parametrise-new":
+    if mode == 'cuf-parametrise' or mode == "cuf-parametrise-new" or mode == 'c-parametrise':
         # This transformation requires complex constructora arguments,
         # so we use the file-based transformation configuration.
         transformation = scheduler.config.transformations['ParametriseTransformation']
         scheduler.process(transformation=transformation)
 
-    if mode == "cuf-hoist" or mode == "cuf-hoist-new" or mode == "c-parametrise":
+    if mode == "cuf-hoist" or mode == "cuf-hoist-new" or mode == "c-hoist":
         vertical = scheduler.config.dimensions['vertical']
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
-        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
+        if mode == "c-hoist":
+            # scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim, as_kwarguments=True) )
+            scheduler.process( HoistTemporaryArraysCstyleTransformation(as_kwarguments=True) )
+        else:
+            scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
+
+    # if mode in ['c-parametrise']:
+    #     scheduler.process( SCCAnnotateTransformation(
+    #             horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
+    #     ))
 
     mode = mode.replace('-', '_')  # Sanitize mode string
-    if mode in ["c", "c-parametrise"]:
-        f2c_transformation = FortranCTransformation(path=build)
+    if mode in ["c", "c_parametrise", "c_hoist"]:
+        f2c_transformation = FortranCTransformation(path=build, language='c' if mode=='c' else 'cuda', use_c_ptr=True)
         scheduler.process(f2c_transformation)
         for h in definitions:
             f2c_transformation.apply(h, role='header')
