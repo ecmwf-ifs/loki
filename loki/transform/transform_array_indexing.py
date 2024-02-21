@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 
-def shift_to_zero_indexing(routine):
+def shift_to_zero_indexing(routine, ignore=()):
     """
     Shift all array indices to adjust to 0-based indexing conventions (eg. for C or Python)
     """
@@ -47,7 +47,14 @@ def shift_to_zero_indexing(routine):
                     # no shift for stop because Python ranges are [start, stop)
                     new_dims += [sym.RangeIndex((start, d.stop, d.step))]
                 else:
-                    new_dims += [d - sym.Literal(1)]
+                    shift = True
+                    for var in FindVariables().visit(d):
+                        if var in ignore:
+                            shift = False
+                    if shift:
+                        new_dims += [d - sym.Literal(1)]
+                    else:
+                        new_dims += [d]
             vmap[v] = v.clone(dimensions=as_tuple(new_dims))
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
