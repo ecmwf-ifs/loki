@@ -72,16 +72,20 @@ class CCodeMapper(LokiStringifyMapper):
     map_array = map_meta_symbol
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
-        name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
-        if expr.aggregate.type.pointer and name_str.startswith('*'):
-            # Strip the pointer '*' because subscript dereference
-            name_str = name_str[1:]
-        index_str = ''
-        for index in expr.index_tuple:
-            d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
-            if d:
-                index_str += self.format('[%s]', d)
-        return self.format('%s%s', name_str, index_str)
+        # TODO: ...
+        try:
+            name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
+            if expr.aggregate.type.pointer and name_str.startswith('*'):
+                # Strip the pointer '*' because subscript dereference
+                name_str = name_str[1:]
+            index_str = ''
+            for index in expr.index_tuple:
+                d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+                if d:
+                    index_str += self.format('[%s]', d)
+            return self.format('%s%s', name_str, index_str)
+        except:
+            return self.format('%s', name_str)
 
     map_string_subscript = map_array_subscript
 
@@ -124,9 +128,11 @@ class CCodegen(Stringifier):
     # Some boilerplate imports...
     standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
 
-    def __init__(self, depth=0, indent='  ', linewidth=90):
+    def __init__(self, depth=0, indent='  ', linewidth=90, **kwargs):
+        symgen = kwargs.get('symgen', CCodeMapper())
+        line_cont = kwargs.get('line_cont', '\n{}  '.format)
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont='\n{}  '.format, symgen=CCodeMapper())
+                         line_cont=line_cont, symgen=symgen)
 
     # Handler for outer objects
 
@@ -213,9 +219,12 @@ class CCodegen(Stringifier):
         """
         Format comments.
         """
-        text = o.text or o.source.string
-        text = str(text).lstrip().replace('!', '//', 1)
-        return self.format_line(text, no_wrap=True)
+        try:
+            text = o.text or o.source.string
+            text = str(text).lstrip().replace('!', '//', 1)
+            return self.format_line(text, no_wrap=True)
+        except Exception as e:
+            return ""
 
     def visit_CommentBlock(self, o, **kwargs):
         """
