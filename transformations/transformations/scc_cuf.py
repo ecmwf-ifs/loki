@@ -829,7 +829,7 @@ class SccCufTransformationNew(Transformation):
         self.vertical = vertical
         self.block_dim = block_dim
         self.mode = mode.lower()
-        assert self.mode in ['cuf', 'c']
+        assert self.mode in ['cuf', 'c', 'hip']
 
         self.transformation_type = transformation_type
         # `parametrise` : parametrising the array dimensions
@@ -864,7 +864,8 @@ class SccCufTransformationNew(Transformation):
         single_variable_declaration(routine=routine, group_by_shape=True)
         device_subroutine_prefix(routine, depth)
 
-        routine.spec.prepend(ir.Import(module="cudafor"))
+        if self.mode == 'cuf':
+            routine.spec.prepend(ir.Import(module="cudafor"))
 
         if role == 'driver':
             self.process_driver(routine, targets=targets)
@@ -917,7 +918,7 @@ class SccCufTransformationNew(Transformation):
         # remove block loop and generate launch configuration for CUF kernels
         upper, step, block_dim_size, blockdim_assignment, griddim_assignment = self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
        
-        if self.mode == 'c':
+        if self.mode in ['c', 'hip']:
             call_map = {}
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if call.name in as_tuple(targets):
@@ -1131,7 +1132,7 @@ class SccCufTransformationNew(Transformation):
 
         relevant_arrays = list(dict.fromkeys(relevant_arrays))
 
-        if self.mode == 'c':
+        if self.mode in ['c', 'hip']:
             # Collect the three types of device data accesses from calls
             inargs = ()
             inoutargs = ()
@@ -1283,9 +1284,10 @@ class SccCufTransformationNew(Transformation):
             Tuple of subroutine call names that are processed in this traversal
         """
 
-        d_type = SymbolAttributes(types.DerivedType("DIM3"))
-        routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="GRIDDIM", type=d_type),
-                                                            sym.Variable(name="BLOCKDIM", type=d_type))))
+        if self.mode == 'cuf':
+            d_type = SymbolAttributes(types.DerivedType("DIM3"))
+            routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="GRIDDIM", type=d_type),
+                                                                sym.Variable(name="BLOCKDIM", type=d_type))))
 
         mapper = {}
         for loop in FindNodes(ir.Loop).visit(routine.body):
@@ -1303,10 +1305,11 @@ class SccCufTransformationNew(Transformation):
                     assignment_rhs = sym.InlineCall(
                         function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
                         parameters=())
-
-                    mapper[call] = (call.clone(chevron=(routine.variable_map["GRIDDIM"],
-                                                        routine.variable_map["BLOCKDIM"]),), # arguments=call.arguments + (routine.variable_map[block_dim.size],)),
-                                   ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
+                    
+                    if self.mode == 'cuf':
+                        mapper[call] = (call.clone(chevron=(routine.variable_map["GRIDDIM"],
+                                                            routine.variable_map["BLOCKDIM"]),), # arguments=call.arguments + (routine.variable_map[block_dim.size],)),
+                                       ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
 
                 if kernel_within:
                     upper = routine.variable_map[loop.bounds.children[1].name]
@@ -1315,25 +1318,26 @@ class SccCufTransformationNew(Transformation):
                     else:
                         step = sym.IntLiteral(1)
 
-                    func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
-                    func_ceiling = sym.ProcedureSymbol(name="CEILING", scope=routine)
-
-                    # BLOCKDIM
-                    lhs = routine.variable_map["blockdim"]
-                    rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
-                    blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-
-                    # GRIDDIM
-                    lhs = routine.variable_map["griddim"]
-                    rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
-                                                                         sym.InlineCall(function=func_ceiling,
-                                                                                        parameters=as_tuple(
-                                                                                            sym.Cast(name="REAL",
-                                                                                                     expression=upper) /
-                                                                                            sym.Cast(name="REAL",
-                                                                                                     expression=step)))))
-                    griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
                     if self.mode == 'cuf':
+                        func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
+                        func_ceiling = sym.ProcedureSymbol(name="CEILING", scope=routine)
+
+                        # BLOCKDIM
+                        lhs = routine.variable_map["blockdim"]
+                        rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
+                        blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+
+                        # GRIDDIM
+                        lhs = routine.variable_map["griddim"]
+                        rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
+                                                                             sym.InlineCall(function=func_ceiling,
+                                                                                            parameters=as_tuple(
+                                                                                                sym.Cast(name="REAL",
+                                                                                                         expression=upper) /
+                                                                                                sym.Cast(name="REAL",
+                                                                                                         expression=step)))))
+                        griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+                        # if self.mode == 'cuf':
                         mapper[loop] = (blockdim_assignment, griddim_assignment, loop.body)
                     else:
                         mapper[loop] = loop.body

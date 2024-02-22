@@ -22,7 +22,7 @@ from loki.transform.transform_inline import (
     inline_constant_parameters, inline_elemental_functions
 )
 from loki.sourcefile import Sourcefile
-from loki.backend import cgen, cppgen, fgen
+from loki.backend import cgen, cppgen, fgen, hipgen
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, VariableDeclaration,
     TypeDef, Assignment, Pragma, Comment
@@ -66,8 +66,19 @@ class FortranCTransformation(Transformation):
         self.use_c_ptr = use_c_ptr
         self.path = Path(path) if path is not None else None
         self.language = language.lower()
-        assert self.language in ['c', 'cuda']
-        self.langgen = cgen if self.language == 'c' else cppgen
+        assert self.language in ['c', 'cuda', 'hip']
+
+        # self.langgen = cgen if self.language == 'c' else cppgen
+        if self.language == 'c':
+            self.langgen = cgen
+        elif self.language == 'cuda':
+            self.langgen = cppgen
+        elif self.language == 'hip':
+            self.langgen = hipgen
+        else:
+            assert False
+        
+        print(f"FortranCTransformation: language: {self.language} | langgen: {self.langgen}")
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -138,7 +149,7 @@ class FortranCTransformation(Transformation):
                     c_kernel_launch = c_kernel.clone(name=f"{c_kernel.name}_launch", prefix="extern_c")
                     self.generate_c_kernel_launch(c_kernel_launch, c_kernel)
                     self.c_path = (path/c_kernel_launch.name.lower()).with_suffix('.h')
-                    Sourcefile.to_file(source=cppgen(c_kernel_launch), path=self.c_path)
+                    Sourcefile.to_file(source=self.langgen(c_kernel_launch), path=self.c_path)
             else:
                 pass # TODO: nested device routines ...
                 # c_kernel_header = c_kernel.clone(name=f"{c_kernel.name}", prefix="header_only device")
@@ -261,12 +272,12 @@ class FortranCTransformation(Transformation):
             call_arguments = arguments
 
         wrapper_body = casts_in
-        if self.language == 'cuda':
+        if self.language in ['cuda', 'hip']:
             wrapper_body += [Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')]
         wrapper_body += [
             CallStatement(name=Variable(name=interface.body[0].name), arguments=call_arguments)  # pylint: disable=unsubscriptable-object
         ]
-        if self.language == 'cuda':
+        if self.language in ['cuda', 'hip']:
             wrapper_body += [Pragma(keyword='acc', content=f'end host_data')]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
