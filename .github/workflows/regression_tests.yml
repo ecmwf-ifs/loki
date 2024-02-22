@@ -35,6 +35,13 @@ jobs:
           path: cloudsc
           ref: develop
 
+      - name: Clone CLOUDSC2 TL AD
+        uses: actions/checkout@v3
+        with:
+          repository: ecmwf-ifs/dwarf-p-cloudsc2-tl-ad
+          path: cloudsc2_tl_ad
+          ref: develop
+
       - name: Clone ECWAM
         uses: actions/checkout@v4
         with:
@@ -83,6 +90,8 @@ jobs:
         env:
           CLOUDSC_DIR: ${{ github.workspace }}/cloudsc
           CLOUDSC_ARCH: ${{ github.workspace }}/cloudsc/arch/github/ubuntu/gnu/9.4.0
+          CLOUDSC2_DIR: ${{ github.workspace }}/cloudsc2_tl_ad
+          CLOUDSC2_ARCH: ${{ github.workspace }}/cloudsc2_tl_ad/arch/github/ubuntu/gnu/9.4.0
           ECWAM_DIR: ${{ github.workspace }}/ecwam
           ECWAM_ARCH: ${{ github.workspace }}/ecwam/arch/github/ubuntu/gnu/9.4.0
           OMP_STACKSIZE: 4G
