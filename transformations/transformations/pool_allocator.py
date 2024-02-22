@@ -60,6 +60,88 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     * Assign stack base pointer and end pointer for each block (identified via :data:`block_dim`)
     * Pass the stack argument(s) to kernel calls
 
+
+    With ``cray_ptr_loc_rhs=False`` the following stack/pool allocator will be generated: 
+    
+    .. code-block:: fortran
+
+        SUBROUTINE DRIVER (...)
+          ...
+          INTEGER(KIND=8) :: ISTSZ
+          REAL, ALLOCATABLE :: ZSTACK(:, :)
+          INTEGER(KIND=8) :: YLSTACK_L
+          INTEGER(KIND=8) :: YLSTACK_U
+          ISTSZ = (MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)*<array dim1>*<array dim2> + ...) / & 
+           & MAX(C_SIZEOF(REAL(1, kind=JPRB)), 8)
+          ALLOCATE (ZSTACK(ISTSZ, nb))
+          DO b=1,nb
+            YLSTACK_L = LOC(ZSTACK(1, b))
+            YLSTACK_U = YLSTACK_L + ISTSZ*MAX(C_SIZEOF(REAL(1, kind=JPRB)), 8)
+            CALL KERNEL(..., YDSTACK_L=YLSTACK_L, YDSTACK_U=YLSTACK_U)
+          END DO
+          DEALLOCATE (ZSTACK)
+        END SUBROUTINE DRIVER
+
+        SUBROUTINE KERNEL(...)
+          ...
+          INTEGER(KIND=8) :: YLSTACK_L
+          INTEGER(KIND=8) :: YLSTACK_U
+          INTEGER(KIND=8), INTENT(INOUT) :: YDSTACK_L
+          INTEGER(KIND=8), INTENT(INOUT) :: YDSTACK_U
+          POINTER(IP_tmp1, tmp1)
+          POINTER(IP_tmp2, tmp2)
+          ...
+          YLSTACK_L = YDSTACK_L
+          YLSTACK_U = YDSTACK_U
+          IP_tmp1 = YLSTACK_L
+          YLSTACK_L = YLSTACK_L + <array dim1>*<array dim2>*MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)
+          IF (YLSTACK_L > YLSTACK_U) STOP
+          IP_tmp2 = YLSTACK_L
+          YLSTACK_L = YLSTACK_L + ...*MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)
+          IF (YLSTACK_L > YLSTACK_U) STOP
+        END SUBROUTINE KERNEL
+
+    With ``cray_ptr_loc_rhs=True`` the following stack/pool allocator will be generated: 
+
+    .. code-block:: fortran
+
+        SUBROUTINE driver (NLON, NZ, NB, field1, field2)
+          ...
+          INTEGER(KIND=8) :: ISTSZ
+          REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
+          INTEGER(KIND=8) :: YLSTACK_L
+          INTEGER(KIND=8) :: YLSTACK_U
+          ISTSZ = <array dim1>*<array dim2>
+          ALLOCATE (ZSTACK(ISTSZ, nb))
+          DO b=1,nb
+            YLSTACK_L = 1
+            YLSTACK_U = YLSTACK_L + ISTSZ 
+            CALL KERNEL(..., YDSTACK_L=YLSTACK_L, YDSTACK_U=YLSTACK_U, ZSTACK=ZSTACK(:, b))
+          END DO
+          DEALLOCATE (ZSTACK)
+        END SUBROUTINE driver
+
+        SUBROUTINE KERNEL(...)
+          ...
+          INTEGER(KIND=8) :: YLSTACK_L
+          INTEGER(KIND=8) :: YLSTACK_U
+          INTEGER(KIND=8), INTENT(INOUT) :: YDSTACK_L
+          INTEGER(KIND=8), INTENT(INOUT) :: YDSTACK_U
+          REAL(KIND=JPRB), CONTIGUOUS, INTENT(INOUT) :: ZSTACK(:)
+          POINTER(IP_tmp1, tmp1)
+          POINTER(IP_tmp2, tmp2)
+          ...
+          YLSTACK_L = YDSTACK_L
+          YLSTACK_U = YDSTACK_U
+          IP_tmp1 = LOC(ZSTACK(YLSTACK_L))
+          YLSTACK_L = YLSTACK_L + <array dim1>*<array dim2>
+          IF (YLSTACK_L > YLSTACK_U) STOP
+          IP_tmp2 = LOC(ZSTACK(YLSTACK_L))
+          YLSTACK_L = YLSTACK_L + ...
+          IF (YLSTACK_L > YLSTACK_U) STOP
+        END SUBROUTINE KERNEL
+
+
     Parameters
     ----------
     block_dim : :any:`Dimension`
@@ -93,6 +175,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     check_bounds : bool, optional
         Insert bounds-checks in the kernel to make sure the allocated stack size is not
         exceeded (default: `True`)
+    cray_ptr_loc_rhs : bool, optional
+        Whether to only pass the stack variable as integer to the kernel(s) or 
+        whether to pass the whole stack array to the driver and the calls to ``LOC()`` 
+        within the kernel(s) itself (default: `False`)
     key : str, optional
         Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
@@ -107,7 +193,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     def __init__(self, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
                  stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
                  local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
-                 check_bounds=True, key=None, **kwargs):
+                 check_bounds=True, key=None, cray_ptr_loc_rhs=False, **kwargs):
         super().__init__(**kwargs)
         self.block_dim = block_dim
         self.stack_ptr_name = stack_ptr_name
@@ -120,6 +206,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.stack_int_type_kind = stack_int_type_kind
         self.directive = directive
         self.check_bounds = check_bounds
+        self.cray_ptr_loc_rhs = cray_ptr_loc_rhs
 
         if self.stack_ptr_name == self.stack_end_name:
             raise ValueError(f'"stack_ptr_name": "{self.stack_ptr_name}" and '
@@ -161,7 +248,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 self.import_allocation_types(routine, item)
             self.create_pool_allocator(routine, stack_size)
 
-        self.inject_pool_allocator_into_calls(routine, targets, ignore)
+        self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
 
     @staticmethod
     def import_c_sizeof(routine):
@@ -315,7 +402,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                                           parameters=as_tuple(stack_type_bytes))
             stack_type_bytes = InlineCall(function=Variable(name='MAX'),
                                           parameters=(stack_type_bytes, Literal(8)), kw_parameters=())
-            stack_size_assign = Assignment(lhs=stack_size_var, rhs=Quotient(stack_size, stack_type_bytes))
+            if self.cray_ptr_loc_rhs:
+                stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
+            else:
+                stack_size_assign = Assignment(lhs=stack_size_var, rhs=Quotient(stack_size, stack_type_bytes))
             body_prepend += [stack_size_assign]
 
             # Stack-size no longer guaranteed to be a multiple of 8-bytes, so we have to check here
@@ -326,7 +416,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     '==', Literal(0))
                 ), inline=True, body=(padding,), else_body=None
             )
-            body_prepend += [stack_size_check]
+            if not self.cray_ptr_loc_rhs:
+                body_prepend += [stack_size_check]
 
             variables_append += [stack_size_var]
 
@@ -484,7 +575,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         return param
 
-    def _create_stack_allocation(self, stack_ptr, stack_end, ptr_var, arr, stack_size):
+    def _create_stack_allocation(self, stack_ptr, stack_end, ptr_var, arr, stack_size, stack_storage=None):
         """
         Utility routine to "allocate" a temporary array on the pool allocator's "stack"
 
@@ -511,7 +602,19 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             :any:`Conditional` that verifies that the stack is big enough
         """
 
-        ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
+        if self.cray_ptr_loc_rhs:
+            ptr_assignment = Assignment(lhs=ptr_var, rhs=InlineCall(
+                        function=Variable(name='LOC'),
+                        parameters=(
+                            stack_storage.clone(
+                                dimensions=(stack_ptr.clone(),)
+                            ),
+                        ),
+                        kw_parameters=None
+                    )
+                )
+        else:
+            ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
 
         # Build expression for array size in bytes
         dim = arr.dimensions[0]
@@ -524,7 +627,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                                             parameters=as_tuple(self._get_c_sizeof_arg(arr)))
         arr_type_bytes = InlineCall(function=Variable(name='MAX'),
                     parameters=(arr_type_bytes, Literal(8)), kw_parameters=())
-        arr_size = Product((dim, arr_type_bytes))
+        if self.cray_ptr_loc_rhs:
+            arr_size = dim
+        else:
+            arr_size = Product((dim, arr_type_bytes))
 
         # Increment stack size
         stack_size = simplify(Sum((stack_size, arr_size)))
@@ -584,6 +690,24 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_var_end = self._get_local_stack_var_end(routine) if self.check_bounds else None
         stack_arg = self._get_stack_arg(routine)
         stack_arg_end = self._get_stack_arg_end(routine) if self.check_bounds else None
+
+        stack_storage = None
+        if self.cray_ptr_loc_rhs:
+            stack_type = SymbolAttributes(
+                    dtype=BasicType.REAL,
+                    kind=Variable(name=self.stack_type_kind, scope=routine),
+                    shape=(RangeIndex((None, None)),), intent='inout', contiguous=True,
+            )
+            stack_storage = Variable(
+                    name=self.stack_storage_name, type=stack_type,
+                    dimensions=stack_type.shape, scope=routine,
+            )
+            arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
+            if arg_pos:
+                routine.arguments = routine.arguments[:arg_pos[0]] + (stack_storage,) + routine.arguments[arg_pos[0]:]
+            else:
+                routine.arguments += (stack_storage,)
+
         allocations = [Assignment(lhs=stack_var, rhs=stack_arg)]
         if self.check_bounds:
             allocations.append(Assignment(lhs=stack_var_end, rhs=stack_arg_end))
@@ -598,7 +722,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         for arr in temporary_arrays:
             ptr_var = Variable(name=self.local_ptr_var_name_pattern.format(name=arr.name), scope=routine)
             declarations += [Intrinsic(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
-            allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr, stack_size)
+            allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr,
+                    stack_size, stack_storage)
             allocations += allocation
 
             # Store type information of temporary allocation
@@ -688,18 +813,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     f'bounds {loop.bounds} in {routine.name}; thus no stack pointer assignment inserted!'
                 )
                 break
-
-            ptr_assignment = Assignment(
-                lhs=stack_ptr, rhs=InlineCall(
-                    function=Variable(name='LOC'),
-                    parameters=(
-                        stack_storage.clone(
-                            dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
+            if self.cray_ptr_loc_rhs:
+                ptr_assignment = Assignment(lhs=stack_ptr, rhs=IntLiteral(1))
+            else:
+                ptr_assignment = Assignment(
+                    lhs=stack_ptr, rhs=InlineCall(
+                        function=Variable(name='LOC'),
+                        parameters=(
+                            stack_storage.clone(
+                                dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
+                            ),
                         ),
-                    ),
-                    kw_parameters=None
+                        kw_parameters=None
+                    )
                 )
-            )
 
             # Retrieve kind parameter of stack storage
             _kind = (routine.imported_symbol_map.get(f'{self.stack_type_kind}', None) or
@@ -707,14 +834,19 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                      Variable(name=self.stack_type_kind))
 
             # Stack increment
-            _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
-            _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
-                                          parameters=as_tuple(_real_size_bytes))
-            _real_size_bytes = InlineCall(function=Variable(name='MAX'),
-                    parameters=(_real_size_bytes, Literal(8)), kw_parameters=())
-            stack_incr = Assignment(
-                lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
-            )
+            if self.cray_ptr_loc_rhs:
+                stack_incr = Assignment(
+                    lhs=stack_end, rhs=Sum((stack_ptr, stack_size_var))
+                )
+            else:
+                _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
+                _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
+                                              parameters=as_tuple(_real_size_bytes))
+                _real_size_bytes = InlineCall(function=Variable(name='MAX'),
+                        parameters=(_real_size_bytes, Literal(8)), kw_parameters=())
+                stack_incr = Assignment(
+                    lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
+                )
             new_assignments = (ptr_assignment,)
             if self.check_bounds:
                 new_assignments += (stack_incr,)
@@ -725,7 +857,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if loop_map:
             routine.body = Transformer(loop_map).visit(routine.body)
 
-    def inject_pool_allocator_into_calls(self, routine, targets, ignore):
+    def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False):
         """
         Add the pool allocator argument into subroutine calls
         """
@@ -741,6 +873,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_var_end = self._get_local_stack_var_end(routine)
             stack_arg_end_name = f'{self.stack_argument_name}_{self.stack_end_name}'
             new_kwarguments += ((stack_arg_end_name, stack_var_end),)
+
+        if self.cray_ptr_loc_rhs:
+            stack_storage_var = routine.variable_map[self.stack_storage_name]
+            if driver:
+                stack_storage_var_dim = list(stack_storage_var.dimensions)
+                stack_storage_var_dim[1] = routine.variable_map[self.block_dim.index]
+            else:
+                stack_storage_var_dim = None
+            dimensions = as_tuple(stack_storage_var_dim)
+            new_kwarguments += ((stack_storage_var.name, stack_storage_var.clone(dimensions=dimensions)),)
 
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in targets or call.routine.name.lower() in ignore:

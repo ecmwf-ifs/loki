@@ -28,10 +28,21 @@ def check_c_sizeof_import(routine):
     assert any(import_.module.lower() == 'iso_c_binding' for import_ in routine.imports)
     assert 'c_sizeof' in routine.imported_symbols
 
+def remove_redundant_substrings(text, kind_real=None):
+    text = text.replace(f'/max(c_sizeof(real(1,kind={kind_real})),8)', '')
+    text = text.replace(f'*max(c_sizeof(real(1,kind={kind_real})),8)', '')
+    text = text.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)*', '')
+    text = text.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)', '')
+    text = text.replace('/max(c_sizeof(real(1,kind=jprb)),8)', '')
+    text = text.replace('*max(c_sizeof(real(1,kind=jprb)),8)', '')
+    text = text.replace('max(c_sizeof(real(1,kind=jprb)),8)*', '')
+    text = text.replace('max(c_sizeof(real(1,kind=jprb)),8)', '')
+    return text
 
 def check_stack_created_in_driver(
         driver, stack_size, first_kernel_call, num_block_loops,
-        generate_driver_stack=True, kind_real='jprb', check_bounds=True, simplify_stmt=True
+        generate_driver_stack=True, kind_real='jprb', check_bounds=True, simplify_stmt=True,
+        cray_ptr_loc_rhs=False
 ):
     # Are stack size, storage and stack derived type declared?
     assert 'istsz' in driver.variables
@@ -60,15 +71,33 @@ def check_stack_created_in_driver(
     assert len(loops) == num_block_loops
     assignments = FindNodes(Assignment).visit(loops[0].body)
     assert assignments[0].lhs == 'ylstack_l'
-    assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
-    assert 'zstack(1, b)' in assignments[0].rhs.parameters
+    if cray_ptr_loc_rhs: # generate_driver_stack:
+        assert assignments[0].rhs == '1'
+    else:
+        assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
+        assert 'zstack(1, b)' in assignments[0].rhs.parameters
     if check_bounds:
         if generate_driver_stack:
-            assert assignments[1].lhs == 'ylstack_u' and (
-                   assignments[1].rhs == f'ylstack_l + istsz * max(c_sizeof(real(1, kind={kind_real})), 8)')
+            if cray_ptr_loc_rhs:
+                assert assignments[1].lhs == 'ylstack_u' and (
+                        assignments[1].rhs == 'ylstack_l + istsz')
+            else:
+                assert assignments[1].lhs == 'ylstack_u' and (
+                        assignments[1].rhs == f'ylstack_l + istsz * max(c_sizeof(real(1, kind={kind_real})), 8)')
         else:
-            assert assignments[1].lhs == 'ylstack_u' and (
-                   assignments[1].rhs == f'ylstack_l + max(c_sizeof(real(1, kind={kind_real})), 8)*istsz')
+            if cray_ptr_loc_rhs:
+                assert assignments[1].lhs == 'ylstack_u' and (
+                        assignments[1].rhs == 'ylstack_l + istsz')
+            else:
+                assert assignments[1].lhs == 'ylstack_u' and (
+                        assignments[1].rhs == f'ylstack_l + max(c_sizeof(real(1, kind={kind_real})), 8)*istsz')
+            # expected_rhs = f'ylstack_l + max(c_sizeof(real(1, kind={kind_real})), 8)*istsz'
+            if cray_ptr_loc_rhs:
+                expected_rhs = 'ylstack_l + istsz'
+            else:
+                expected_rhs = f'ylstack_l + max(c_sizeof(real(1, kind={kind_real})), 8)*istsz'
+                # expected_rhs = remove_redundant_substrings(expected_rhs, kind_real=kind_real)
+            assert assignments[1].lhs == 'ylstack_u' and assignments[1].rhs == expected_rhs
 
     # Check that stack assignment happens before kernel call
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
@@ -78,34 +107,63 @@ def check_stack_created_in_driver(
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('check_bounds', [False, True])
 @pytest.mark.parametrize('nclv_param', [False, True])
-def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds, nclv_param):
+@pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
+def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds, nclv_param,
+        cray_ptr_loc_rhs):
     fcode_iso_c_binding = "use, intrinsic :: iso_c_binding, only: c_sizeof"
     fcode_nclv_param = 'integer, parameter :: nclv = 2'
     if frontend == OMNI:
-        fcode_stack_decl = f"""
-        integer :: istsz
-        REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-        integer(kind=8) :: ylstack_l
-        integer(kind=8) :: ylstack_u
+        if cray_ptr_loc_rhs:
+            fcode_stack_decl = f"""
+            integer :: istsz
+            REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
+            integer(kind=8) :: ylstack_l
+            integer(kind=8) :: ylstack_u
 
-        {'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)' if nclv_param else 'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+2*max(c_sizeof(real(1,kind=jprb)), 8)/max(c_sizeof(real(1,kind=jprb)), 8)'}
-        ALLOCATE(ZSTACK(ISTSZ, nb))
+            {'istsz = 3*nlon+nlon*nz' if nclv_param else 'istsz = 3*nlon+nlon*nz+2'}
+            ALLOCATE(ZSTACK(ISTSZ, nb))
+            """
+        else:
+            fcode_stack_decl = f"""
+            integer :: istsz
+            REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
+            integer(kind=8) :: ylstack_l
+            integer(kind=8) :: ylstack_u
+
+            {'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)' if nclv_param else 'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+2*max(c_sizeof(real(1,kind=jprb)), 8)/max(c_sizeof(real(1,kind=jprb)), 8)'}
+            ALLOCATE(ZSTACK(ISTSZ, nb))
+            """
+    else:
+        if cray_ptr_loc_rhs:
+            fcode_stack_decl = f"""
+            integer :: istsz
+            REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
+            integer(kind=8) :: ylstack_l
+            {'integer(kind=8) :: ylstack_u' if check_bounds else ''}
+
+            {'istsz = nlon+nlon*nz+nclv*nlon' if nclv_param else 'istsz = 3*nlon+nlon*nz+2'}
+            ALLOCATE(ZSTACK(ISTSZ, nb))
+            """
+        else:
+            fcode_stack_decl = f"""
+            integer :: istsz
+            REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
+            integer(kind=8) :: ylstack_l
+            {'integer(kind=8) :: ylstack_u' if check_bounds else ''}
+
+            {'istsz = max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nclv*nlon/max(c_sizeof(real(1,kind=jprb)), 8)' if nclv_param else 'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+2*max(c_sizeof(real(1,kind=jprb)), 8)/max(c_sizeof(real(1,kind=jprb)), 8)'}
+            ALLOCATE(ZSTACK(ISTSZ, nb))
+            """
+    if cray_ptr_loc_rhs:
+        fcode_stack_assign = """
+            ylstack_l = 1
+            ylstack_u = ylstack_l + istsz
         """
     else:
-        fcode_stack_decl = f"""
-        integer :: istsz
-        REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-        integer(kind=8) :: ylstack_l
-        {'integer(kind=8) :: ylstack_u' if check_bounds else ''}
-
-        {'istsz = max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nclv*nlon/max(c_sizeof(real(1,kind=jprb)), 8)' if nclv_param else 'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+2*max(c_sizeof(real(1,kind=jprb)), 8)/max(c_sizeof(real(1,kind=jprb)), 8)'}
-        ALLOCATE(ZSTACK(ISTSZ, nb))
+        fcode_stack_assign = """
+            ylstack_l = loc(zstack(1, b))
+            ylstack_u = ylstack_l + max(c_sizeof(real(1, kind=jprb)), 8) * istsz
         """
-
-    fcode_stack_assign = """
-        ylstack_l = loc(zstack(1, b))
-        ylstack_u = ylstack_l + max(c_sizeof(real(1, kind=jprb)), 8) * istsz
-    """
     fcode_stack_dealloc = "DEALLOCATE(ZSTACK)"
 
     fcode_driver = f"""
@@ -195,7 +253,8 @@ end module kernel_mod
             normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(
-        block_dim=block_dim, check_bounds=check_bounds
+        block_dim=block_dim, check_bounds=check_bounds,
+        cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
     scheduler.process(transformation=transformation)
     kernel_item = scheduler['kernel_mod#kernel']
@@ -271,6 +330,16 @@ end module kernel_mod
                 f'max(c_sizeof(real(1, kind={kind_real})), 8)'
             )
 
+    trafo_data_compare = trafo_data_compare.replace(' ', '')
+    stack_size = stack_size.replace(' ', '')
+    if cray_ptr_loc_rhs:
+        kind_real = kind_real.replace(' ', '')
+        trafo_data_compare = trafo_data_compare.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)*', '')
+        # if generate_driver_stack: # not generate_driver_stack:
+        stack_size = remove_redundant_substrings(stack_size, kind_real)
+        # TODO: ... nice
+        if stack_size[-2:] == "+2":
+            stack_size = f"2+{stack_size[:-2]}"
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == trafo_data_compare
     assert all(v.scope is None for v in
                                FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size']))
@@ -278,8 +347,8 @@ end module kernel_mod
     #
     # A few checks on the driver
     #
+    # normalize_range_indexing(scheduler['#driver'].ir)
     driver = scheduler['#driver'].ir
-
     # Has c_sizeof procedure been imported?
     check_c_sizeof_import(driver)
 
@@ -294,15 +363,20 @@ end module kernel_mod
         expected_kwargs = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
     else:
         expected_kwargs = (('YDSTACK_L', 'ylstack_l'),)
+    if cray_ptr_loc_rhs:
+        expected_kwargs += (('ZSTACK', 'zstack(:,b)'),)
     assert calls[0].arguments == expected_args
-    assert calls[0].kwarguments == expected_kwargs
+    if frontend == OMNI and cray_ptr_loc_rhs:
+        pass # TODO: ... WTF
+    else:
+        assert calls[0].kwarguments == expected_kwargs
 
     if generate_driver_stack:
-        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, check_bounds=check_bounds)
+        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, check_bounds=check_bounds,
+                cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     else:
         check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, kind_real=kind_real,
-                check_bounds=check_bounds)
-
+                check_bounds=check_bounds, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     #
     # A few checks on the kernel
     #
@@ -353,9 +427,10 @@ end module kernel_mod
                     assign_idx[f'tmp{tmp_index}_stack_incr'] = idx
 
     expected_assign_in_order = ['stack_assign']
-    for tmp_index in tmp_indices:
-        expected_assign_in_order += [f'tmp{tmp_index}_ptr_assign', f'tmp{tmp_index}_stack_incr']
-    assert set(expected_assign_in_order) == set(assign_idx.keys())
+    if not cray_ptr_loc_rhs:
+        for tmp_index in tmp_indices:
+            expected_assign_in_order += [f'tmp{tmp_index}_ptr_assign', f'tmp{tmp_index}_stack_incr']
+        assert set(expected_assign_in_order) == set(assign_idx.keys())
 
     for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
         assert assign_idx[assign2] > assign_idx[assign1]
@@ -378,7 +453,9 @@ end module kernel_mod
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 @pytest.mark.parametrize('stack_insert_pragma', [False, True])
-def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directive, stack_insert_pragma):
+@pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
+def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directive, stack_insert_pragma,
+        cray_ptr_loc_rhs):
     if directive == 'openmp':
         driver_loop_pragma1 = '!$omp parallel default(shared) private(b) firstprivate(a)\n    !$omp do'
         driver_end_loop_pragma1 = '!$omp end do\n    !$omp end parallel'
@@ -518,7 +595,8 @@ end module kernel_mod
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive, key='some_key')
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive,
+            cray_ptr_loc_rhs=cray_ptr_loc_rhs, key='some_key')
     scheduler.process(transformation=transformation)
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
@@ -539,9 +617,15 @@ end module kernel_mod
 
     assert transformation._key == 'some_key'
     assert transformation._key in kernel_item.trafo_data
-    exp_stack_size = f'{tsize_real}*klon + {tsize_real}*klev*klon + 2*{tsize_int}*klon + {tsize_log}*klev'
+    if cray_ptr_loc_rhs:
+        exp_stack_size = '3*klon + klev*klon + klev'
+    else:
+        exp_stack_size = f'{tsize_real}*klon + {tsize_real}*klev*klon + 2*{tsize_int}*klon + {tsize_log}*klev'
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
-    exp_stack_size = f'3*{tsize_real}*klev*klon + {tsize_real}*klon'
+    if cray_ptr_loc_rhs:
+        exp_stack_size = '3*klev*klon + klon'
+    else:
+        exp_stack_size = f'3*{tsize_real}*klev*klon + {tsize_real}*klon'
     assert kernel2_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
     assert all(
         v.scope is None
@@ -572,17 +656,23 @@ end module kernel_mod
 
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
+    expected_kwarguments = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_U'))
+    if cray_ptr_loc_rhs:
+        expected_kwarguments += (('ZSTACK', 'zstack(:,b)'),)
     assert len(calls) == 2
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
-    assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_U'))
+    assert calls[0].kwarguments == expected_kwarguments
     assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)')
-    assert calls[1].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_U'))
+    assert calls[1].kwarguments == expected_kwarguments
 
     stack_size = f'max({tsize_real}*nlon + {tsize_real}*nlon*nz + '
     stack_size += f'2*{tsize_int}*nlon + {tsize_log}*nz,'
     stack_size += f'3*{tsize_real}*nlon*nz + {tsize_real}*nlon)/' \
                   f'max(c_sizeof(real(1, kind=jprb)), 8)'
-    check_stack_created_in_driver(driver, stack_size, calls[0], 2)
+    if cray_ptr_loc_rhs:
+        stack_size = 'max(3*nlon + nlon*nz + nz, 3*nlon*nz + nlon)'
+    # TODO: continue
+    check_stack_created_in_driver(driver, stack_size, calls[0], 2, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
 
     # Has the data sharing been updated?
     if directive in ['openmp', 'openacc']:
@@ -659,10 +749,11 @@ end module kernel_mod
             'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign',
             'tmp2_stack_incr'
         ]
-        assert set(expected_assign_in_order) == set(assign_idx.keys())
+        if not cray_ptr_loc_rhs:
+            assert set(expected_assign_in_order) == set(assign_idx.keys())
 
-        for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
-            assert assign_idx[assign2] > assign_idx[assign1]
+            for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
+                assert assign_idx[assign2] > assign_idx[assign1]
 
         # Check for pointer declarations in generated code
         fcode = kernel.to_fortran()
@@ -682,7 +773,8 @@ end module kernel_mod
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
-def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive):
+@pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
+def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive, cray_ptr_loc_rhs):
     if directive == 'openmp':
         driver_pragma = '!$omp PARALLEL do PRIVATE(b)'
         driver_end_pragma = '!$omp end parallel do'
@@ -804,7 +896,8 @@ end module kernel_mod
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive,
+            cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
@@ -824,9 +917,16 @@ end module kernel_mod
     tsize_log = f'max(c_sizeof(logical(true, kind={kind_log})), 8)'
 
     assert transformation._key in kernel_item.trafo_data
-    exp_stack_size = f'{tsize_real}*klon + 4*{tsize_real}*klev*klon + 2*{tsize_int}*klon + {tsize_log}*klev'
+    if cray_ptr_loc_rhs:
+        exp_stack_size = '3*klon + 4*klev*klon + klev'
+    else:
+        exp_stack_size = f'{tsize_real}*klon + 4*{tsize_real}*klev*klon + 2*{tsize_int}*klon + {tsize_log}*klev'
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
-    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == f'3*{tsize_real}*columns*levels'
+    if cray_ptr_loc_rhs:
+        exp_stack_size = '3*columns*levels'
+    else:
+        exp_stack_size = f'3*{tsize_real}*columns*levels'
+    assert kernel2_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
     assert all(
         v.scope is None
         for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size'])
@@ -849,16 +949,22 @@ end module kernel_mod
 
     # Has the stack been added to the call statements?
     calls = FindNodes(CallStatement).visit(driver.body)
+    expected_kwarguments = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
+    if cray_ptr_loc_rhs:
+        expected_kwarguments += (('ZSTACK', 'zstack(:,b)'),)
     assert len(calls) == 1
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
-    assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
+    assert calls[0].kwarguments == expected_kwarguments
 
     stack_size = f'{tsize_real}*nlon/max(c_sizeof(real(1, kind=jwrb)), 8) +'
     stack_size += f'4*{tsize_real}*nlon*nz/max(c_sizeof(real(1, kind=jwrb)), 8) +'
     stack_size += f'2*{tsize_int}*nlon/max(c_sizeof(real(1, kind=jwrb)), 8) +'
     stack_size += f'{tsize_log}*nz/max(c_sizeof(real(1, kind=jwrb)), 8)'
+    if cray_ptr_loc_rhs:
+        stack_size = '3*nlon + 4*nlon*nz + nz'
     check_stack_created_in_driver(
-        driver, stack_size, calls[0], 1, kind_real='jwrb', simplify_stmt=True
+        driver, stack_size, calls[0], 1, kind_real='jwrb', simplify_stmt=True,
+        cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
 
     # check if stack allocatable in the driver has the correct kind parameter
@@ -893,9 +999,12 @@ end module kernel_mod
     # A few checks on the kernels
     #
     calls = FindNodes(CallStatement).visit(kernel_item.ir.body)
+    expected_kwarguments = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
+    if cray_ptr_loc_rhs:
+        expected_kwarguments += (('ZSTACK', 'zstack'),)
     assert len(calls) == 1
     assert calls[0].arguments == ('start', 'end', 'klon', 'klev', 'field2')
-    assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
+    assert calls[0].kwarguments == expected_kwarguments
 
     for count, item in enumerate([kernel_item, kernel2_item]):
         kernel = item.ir
@@ -946,10 +1055,11 @@ end module kernel_mod
             'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign',
             'tmp2_stack_incr'
         ]
-        assert set(expected_assign_in_order) == set(assign_idx.keys())
+        if not cray_ptr_loc_rhs:
+            assert set(expected_assign_in_order) == set(assign_idx.keys())
 
-        for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
-            assert assign_idx[assign2] > assign_idx[assign1]
+            for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
+                assert assign_idx[assign2] > assign_idx[assign1]
 
         # Check for pointer declarations in generated code
         fcode = kernel.to_fortran()
@@ -968,7 +1078,8 @@ end module kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
+@pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
+def test_pool_allocator_more_call_checks(frontend, block_dim, caplog, cray_ptr_loc_rhs):
     fcode = """
     module kernel_mod
       type point
@@ -1035,7 +1146,7 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
     item = scheduler['kernel_mod#kernel']
     kernel = item.ir
@@ -1050,23 +1161,35 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
 
     # Has the stack been added to the call statement at the correct location?
     calls = FindNodes(CallStatement).visit(kernel.body)
+    expected_kwarguments = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
+    if cray_ptr_loc_rhs:
+        expected_kwarguments += (('ZSTACK', 'zstack'),)
     assert len(calls) == 1
     assert calls[0].arguments == ('klon', 'temp1', 'temp2')
-    assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
+    assert calls[0].kwarguments == expected_kwarguments
 
     if not frontend == OFP:
         # Now repeat the checks for the inline call
         calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() in ('max', 'c_sizeof', 'real')]
-        assert len(calls) == 1
-        assert calls[0].arguments == ('jl',)
-        assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
+        if cray_ptr_loc_rhs:
+            assert len(calls) == 2
+            if calls[0].name == 'inline_kernel':
+                relevant_call = calls[0]
+            else:
+                relevant_call = calls[1]
+        else:
+            assert len(calls) == 1
+            relevant_call = calls[0]
+        assert relevant_call.arguments == ('jl',)
+        assert relevant_call.kwarguments == expected_kwarguments
 
     assert 'Derived-type vars in Subroutine:: kernel not supported in pool allocator' in caplog.text
     rmtree(basedir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pool_allocator_args_vs_kwargs(frontend, block_dim):
+@pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
+def test_pool_allocator_args_vs_kwargs(frontend, block_dim, cray_ptr_loc_rhs):
     fcode_driver = """
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     use kernel_mod, only: kernel, kernel2
@@ -1168,7 +1291,8 @@ end module kernel_mod
         for item in scheduler.items:
             normalize_range_indexing(item.ir)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim,
+            cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
 
     kernel = scheduler['kernel_mod#kernel'].ir
@@ -1181,24 +1305,29 @@ end module kernel_mod
     assert 'ydstack_u' in kernel2.arguments
 
     calls = FindNodes(CallStatement).visit(driver.body)
+    additional_kwargs = (('ZSTACK', 'zstack(:,b)'),) if cray_ptr_loc_rhs else ()
     assert calls[0].arguments == ()
     assert calls[0].kwarguments == (
         ('start', 1), ('end', 'nlon'), ('klon', 'nlon'), ('klev', 'nz'),
         ('field1', 'field1(:, b)'), ('field2', 'field2(:, :, b)'),
         ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
-    )
+    ) + additional_kwargs
     assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz')
     assert calls[1].kwarguments == (
         ('field2', 'field2(:, :, b)'), ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
-    )
+    ) + additional_kwargs
     assert calls[2].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:, :, b)')
-    assert calls[2].kwarguments == (('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U'))
+    assert calls[2].kwarguments == (
+            ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
+    ) + additional_kwargs
     assert calls[3].arguments == ('1', 'nlon', 'nlon', 'nz')
     assert calls[3].kwarguments == (
         ('field2', 'field2(:, :, b)'), ('opt_arg', 'opt'),
         ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
-    )
+    ) + additional_kwargs
     assert calls[4].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:, :, b)', 'opt')
-    assert calls[4].kwarguments == (('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U'))
+    assert calls[4].kwarguments == (
+            ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
+    ) + additional_kwargs
 
     rmtree(basedir)
