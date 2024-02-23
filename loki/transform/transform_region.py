@@ -10,6 +10,13 @@ Collection of utility routines that provide transformations for code regions.
 
 """
 from collections import defaultdict
+from itertools import chain
+
+try:
+    from fparser.two.Fortran2003 import Intrinsic_Name
+    _intrinsic_fortran_names = Intrinsic_Name.function_names
+except ImportError:
+    _intrinsic_fortran_names = ()
 
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import FindVariables, Variable
@@ -34,12 +41,22 @@ def region_hoist(routine):
     them at a specified target location.
 
     The pragma syntax for annotating the regions to hoist is
-    ``!$loki region-hoist [group(group-name)] [collapse(n) [promote(var-name, var-name, ...)]]``
-    and ``!$loki end region-hoist``.
+
+    .. code-block::
+        !$loki region-hoist [group(group-name)] [collapse(n) [promote(var-name, var-name, ...)]]
+        ...
+        !$loki end region-hoist
+
+    The insertion point is marked using
+
+    .. code-block::
+        !$loki region-hoist target [group(group-name)]
+
     The optional ``group(group-name)`` can be provided when multiple regions
     are to be hoisted and inserted at different positions. Multiple pragma
     ranges can be specified for the same group, all of which are then moved to
     the target location in the same order as the pragma ranges appear.
+
     The optional ``collapse(n)`` parameter specifies that ``n`` enclosing scopes
     (such as loops, conditionals, etc.) should be re-created at the target location.
     Optionally, this can be combined with variable promotion using ``promote(...)``.
@@ -125,29 +142,42 @@ def region_to_call(routine):
     """
     Convert regions annotated with ``!$loki region-to-call`` pragmas to subroutine calls.
 
-
     The pragma syntax for regions to convert to subroutines is
-    ``!$loki region-to-call [name(...)] [in(...)] [out(...)] [inout(...)]``
-    and ``!$loki end region-to-call``.
+
+    .. code-block::
+        !$loki region-to-call [name(...)] [in(...)] [out(...)] [inout(...)]
+        ...
+        !$loki end region-to-call
 
     A new subroutine is created with the provided name (or an auto-generated default name
     derived from the current subroutine name) and the content of the pragma region as body.
 
-    Variables provided with the ``in``, ``out`` and ``inout`` options are used as
-    arguments in the routine with the corresponding intent, all other variables used in this
-    region are assumed to be local variables.
+    Dataflow analysis is used to determine variables that are read-only, write-only, or
+    read-write in a region, and are consequently added as ``in``, ``out``, or ``inout``
+    arguments to the created subroutine. All other variables are assumed to be local variables.
+
+    If for some reason the dataflow analysis fails to identify variables correctly, the
+    ``in``, ``out``, and ``inout`` annotations in the Loki pragma allow to override the
+    analysis.
 
     The pragma region in the original routine is replaced by a call to the new subroutine.
 
-    :param :class:``Subroutine`` routine:
-        the routine to modify.
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The routine from which to extract the region
 
-    :return: the list of newly created subroutines.
-
+    Returns
+    -------
+    list of :any:`Subroutine`
+        The newly created subroutines
     """
+    imports = {var for imprt in routine.all_imports for var in imprt.symbols}
+    def _is_parameter_imported_or_intrinsic(symbol):
+        return symbol.type.parameter or symbol in imports or symbol.name in _intrinsic_fortran_names
+
     counter = 0
     routines, starts, stops = [], [], []
-    imports = {var for imprt in FindNodes(Import).visit(routine.spec) for var in imprt.symbols}
     mask_map = {}
     with pragma_regions_attached(routine):
         with dataflow_analysis_attached(routine):
@@ -166,19 +196,40 @@ def region_to_call(routine):
                 region_routine = Subroutine(name, spec=spec, body=body)
 
                 # Use dataflow analysis to find in, out and inout variables to that region
-                # (ignoring any symbols that are external imports)
-                region_in_args = region.uses_symbols - region.defines_symbols - imports
-                region_inout_args = region.uses_symbols & region.defines_symbols - imports
-                region_out_args = region.defines_symbols - region.uses_symbols - imports
+                region_in_args = region.uses_symbols - region.defines_symbols
+                region_inout_args = region.uses_symbols & region.defines_symbols
+                region_out_args = region.defines_symbols - region.uses_symbols
 
-                # Remove any parameters from in args
-                region_in_args = {arg for arg in region_in_args if not arg.type.parameter}
+                # Replace derived type members by their declared derived type
+                region_in_args = {arg.parents[0] if arg.parent else arg for arg in region_in_args}
+                region_inout_args = {arg.parents[0] if arg.parent else arg for arg in region_inout_args}
+                region_out_args = {arg.parents[0] if arg.parent else arg for arg in region_out_args}
+
+                # Filter args to remove parameters, external imports and intrinsic names
+                region_in_args = {arg for arg in region_in_args if not _is_parameter_imported_or_intrinsic(arg)}
+                region_inout_args = {arg for arg in region_inout_args if not _is_parameter_imported_or_intrinsic(arg)}
+                region_out_args = {arg for arg in region_out_args if not _is_parameter_imported_or_intrinsic(arg)}
+
+                # Add constants from shape expressions as input arguments
+                arg_shape_constants = {
+                    v for arg in chain(region_in_args, region_inout_args, region_out_args)
+                    for v in FindVariables().visit(arg.type.shape or ())
+                    if not _is_parameter_imported_or_intrinsic(v)
+                }
+                arg_shape_constants = arg_shape_constants - region_in_args - region_inout_args - region_out_args
+                region_in_args |= arg_shape_constants
+
+                # Determine all variables used in the region (including arguments and local vars)
+                region_routine_variables = {
+                    (v.parents[0] if v.parent else v).clone(dimensions=None)
+                    for v in FindVariables().visit(region.body)
+                }
+                region_routine_variables = {
+                    v for v in region_routine_variables if not _is_parameter_imported_or_intrinsic(v)
+                }
+                region_var_map = CaseInsensitiveDict((v.name, v) for v in region_routine_variables)
 
                 # Extract arguments given in pragma annotations
-                region_var_map = CaseInsensitiveDict(
-                    (v.name, v.clone(dimensions=None))
-                    for v in FindVariables().visit(region.body) if v.clone(dimensions=None) not in imports
-                )
                 pragma_in_args = {region_var_map[v.lower()] for v in parameters.get('in', '').split(',') if v}
                 pragma_inout_args = {region_var_map[v.lower()] for v in parameters.get('inout', '').split(',') if v}
                 pragma_out_args = {region_var_map[v.lower()] for v in parameters.get('out', '').split(',') if v}
@@ -195,9 +246,8 @@ def region_to_call(routine):
 
                 # Set the list of variables used in region routine (to create declarations)
                 # and put all in the new scope
-                region_routine_variables = {v.clone(dimensions=v.type.shape or None)
-                                            for v in FindVariables().visit(region_routine.body)
-                                            if v.name in region_var_map}
+                region_routine_variables = {v.clone(dimensions=v.type.shape or None) for v in region_routine_variables}
+                region_routine_variables |= arg_shape_constants
                 region_routine.variables = as_tuple(region_routine_variables)
                 region_routine.rescope_symbols()
 
