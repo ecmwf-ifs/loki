@@ -443,11 +443,18 @@ class FissionTransformer(NestedMaskedTransformer):
     loop_pragmas : dict of (:any:`Loop`, list of :any:`Pragma`)
         Mapping of all loops to the list of contained
         ``loop-fission`` pragmas at which they should be split.
+    move_pragmas_out_of_loops : bool
+        If enabled, pragmas at the beginning or end of the (split)
+        loop body are moved outside the loop. By default, they are
+        kept inside the loop body. Enabling this option allows
+        subsequent processing of the full loop body using additional
+        pragma annotations.
     """
 
-    def __init__(self, loop_pragmas, active=True, **kwargs):
+    def __init__(self, loop_pragmas, move_pragmas_out_of_loops=False, active=True, **kwargs):
         super().__init__(active=active, require_all_start=True, greedy_stop=True, **kwargs)
         self.loop_pragmas = loop_pragmas
+        self.move_pragmas_out_of_loops = move_pragmas_out_of_loops
         self.split_loops = {}
 
     def visit_Loop(self, o, **kwargs):
@@ -499,18 +506,44 @@ class FissionTransformer(NestedMaskedTransformer):
             rebuilt += rebuild_fission_branch(start, stop, **kwargs)
         rebuilt += rebuild_fission_branch(self.loop_pragmas[o][-1], None, **kwargs)
 
+        # Any Pragmas at the beginning/end of the loop bodies are lifted
+        # outside of the loop
+        retval = ()
+        for loop in rebuilt:
+            if not loop:
+                continue
+            if self.move_pragmas_out_of_loops and isinstance(loop, Loop):
+                for idx, node in enumerate(loop.body):
+                    if not isinstance(node, Pragma):
+                        start_idx = idx
+                        break
+                else:
+                    retval += as_tuple(loop.body)
+                for idx, node in enumerate(reversed(loop.body)):
+                    if not isinstance(node, Pragma):
+                        stop_idx = len(loop.body) - idx
+                        break
+                else:
+                    stop_idx = len(loop.body)
+                pre_pragmas = loop.body[:start_idx]
+                post_pragmas = loop.body[stop_idx:]
+                loop._update(body=loop.body[start_idx:stop_idx])
+                retval += pre_pragmas + (loop,) + post_pragmas
+            else:
+                retval += (loop,)
+
         # Register the new loops in the mapping
-        loops = [l for l in rebuilt if isinstance(l, Loop)]
+        loops = [l for l in retval if isinstance(l, Loop)]
         self.split_loops.update({pragma: loops[i:] for i, pragma in enumerate(self.loop_pragmas[o])})
 
         # Restore original state (except for the active status because this has potentially
         # been changed when traversing the loop body)
         self.start, self.stop = _start, _stop
 
-        return as_tuple(i for i in rebuilt if i)
+        return retval
 
 
-def loop_fission(routine, promote=True, warn_loop_carries=True):
+def loop_fission(routine, promote=True, warn_loop_carries=True, move_pragmas_out_of_loops=False):
     """
     Search for ``!$loki loop-fission`` pragmas in loops and split them.
 
@@ -533,6 +566,12 @@ def loop_fission(routine, promote=True, warn_loop_carries=True):
         Try to automatically detect loop-carried dependencies and warn
         when the fission point sits after the initial read and before the
         final write.
+    move_pragmas_out_of_loops : bool
+        If enabled, pragmas at the beginning or end of the (split)
+        loop body are moved outside the loop. By default, they are
+        kept inside the loop body. Enabling this option allows
+        subsequent processing of the full loop body using additional
+        pragma annotations.
     """
     promotion_vars_dims = CaseInsensitiveDict()
 
@@ -578,7 +617,7 @@ def loop_fission(routine, promote=True, warn_loop_carries=True):
             if warn_loop_carries:
                 loop_carried_vars[pragma] = loop_carried_dependencies(pragma_loops[pragma][0])
 
-    fission_trafo = FissionTransformer(loop_pragmas)
+    fission_trafo = FissionTransformer(loop_pragmas, move_pragmas_out_of_loops=move_pragmas_out_of_loops)
     routine.body = fission_trafo.visit(routine.body)
     info('%s: split %d loop(s) at %d loop-fission pragma(s).', routine.name, len(loop_pragmas), len(pragma_loops))
 
