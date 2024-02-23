@@ -72,9 +72,7 @@ class HoistTemporaryArraysCstyleTransformation(HoistVariablesTransformation):
         for var in variables:
             # vtype = var.type.clone()
             routine.variables += tuple([var.clone(scope=routine)])
-            # TODO: OpenACC ...
-            ...
-                # Add explicit device-side allocations/deallocations for hoisted temporaries
+        
         vnames = ', '.join(v.name for v in variables)
         pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
         pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
@@ -829,7 +827,7 @@ class SccCufTransformationNew(Transformation):
         self.vertical = vertical
         self.block_dim = block_dim
         self.mode = mode.lower()
-        assert self.mode in ['cuf', 'c', 'hip']
+        assert self.mode in ['cuf', 'cuda', 'hip']
 
         self.transformation_type = transformation_type
         # `parametrise` : parametrising the array dimensions
@@ -916,9 +914,9 @@ class SccCufTransformationNew(Transformation):
         # create variables needed for the device execution, especially generate device versions of arrays
         self.driver_device_variables(routine=routine, targets=targets)
         # remove block loop and generate launch configuration for CUF kernels
-        upper, step, block_dim_size, blockdim_assignment, griddim_assignment = self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
+        upper, step, block_dim_size, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment = self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
        
-        if self.mode in ['c', 'hip']:
+        if self.mode in ['cuda', 'hip']:
             call_map = {}
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if call.name in as_tuple(targets):
@@ -926,7 +924,10 @@ class SccCufTransformationNew(Transformation):
                         call.routine.arguments = list(call.routine.arguments) + [upper, step] # , block_dim_size]
                         # call_map[call] = call.clone(arguments=as_tuple(list(call.arguments) + [upper, step])) # , block_dim_size]))
                         call_map[call] = call.clone(kwarguments=as_tuple(list(call.kwarguments) + [(upper.name, upper), (step.name, step)])) # , block_dim_size]))
-                        call.routine.spec.append((ir.Pragma(keyword='loki', content=f'blockdim {blockdim_assignment}'),ir.Pragma(keyword='loki', content=f'griddim {griddim_assignment}')))
+                        # call.routine.spec.append((ir.Pragma(keyword='loki', content=f'blockdim {blockdim_assignment}'),ir.Pragma(keyword='loki', content=f'griddim {griddim_assignment}')))
+                        # call.routine.body.prepend([blockdim_assignment, griddim_assignment])
+                        call.routine.variables += (blockdim_var, griddim_var)
+                        call.routine.body = (blockdim_assignment, griddim_assignment) + call.routine.body
             routine.body = Transformer(call_map).visit(routine.body)
         elif self.mode == 'cuf':
             # increase heap size (only for version with dynamic memory allocation on device)
@@ -967,7 +968,7 @@ class SccCufTransformationNew(Transformation):
                 var_x = sym.Variable(name="X", parent=var_thread_idx)
             else:
                 ctype = SymbolAttributes(DerivedType(name="threadIdx"))
-                var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=True) # , type=ctype)
+                var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=True)
                 var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True)
             horizontal_assignment = ir.Assignment(lhs=routine.variable_map[horizontal.index], rhs=var_x)
 
@@ -976,7 +977,7 @@ class SccCufTransformationNew(Transformation):
                 var_x = sym.Variable(name="Z", parent=var_thread_idx)
             else:
                 ctype = SymbolAttributes(DerivedType(name="blockIdx"))
-                var_thread_idx = sym.Variable(name="blockIdx", case_sensitive=True) # , type=ctype)
+                var_thread_idx = sym.Variable(name="blockIdx", case_sensitive=True)
                 var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True)
             block_dim_assignment = ir.Assignment(lhs=routine.variable_map[block_dim.index], rhs=var_x)
 
@@ -1016,9 +1017,6 @@ class SccCufTransformationNew(Transformation):
                 if isinstance(var, sym.Scalar) and var not in derived_type_variables:
                     var_map[var] = var.clone(type=var.type.clone(value=True))
             else:
-                # if isinstance(var, sym.Array):
-                #     vtype = var.type.clone(device=True)
-                #     var_map[var] = var.clone(type=vtype)
                 if isinstance(var, sym.Array):
                     dimensions = list(var.dimensions)
                     shape = list(var.shape)
@@ -1040,14 +1038,7 @@ class SccCufTransformationNew(Transformation):
         var_map = {}
         arguments_name = [var.name for var in routine.arguments]
         for var in FindVariables().visit(routine.body):
-            if var.name in arguments_name:
-                pass
-                # if isinstance(var, sym.Array):
-                #     dimensions = list(var.dimensions)
-                #     dimensions.append(routine.variable_map[block_dim.index])
-                #     var_map[var] = var.clone(dimensions=as_tuple(dimensions),
-                #                          type=var.type.clone(shape=as_tuple(dimensions)))
-            else:
+            if var.name not in arguments_name:
                 if transformation_type == 'hoist':
                     if var.name in relevant_local_arrays:
                         var_map[var] = var.clone(dimensions=var.dimensions + (routine.variable_map[block_dim.index],))
@@ -1132,7 +1123,7 @@ class SccCufTransformationNew(Transformation):
 
         relevant_arrays = list(dict.fromkeys(relevant_arrays))
 
-        if self.mode in ['c', 'hip']:
+        if self.mode in ['cuda', 'hip']:
             # Collect the three types of device data accesses from calls
             inargs = ()
             inoutargs = ()
@@ -1284,11 +1275,18 @@ class SccCufTransformationNew(Transformation):
             Tuple of subroutine call names that are processed in this traversal
         """
 
+        d_type = SymbolAttributes(types.DerivedType("dim3"))
+        blockdim_var = sym.Variable(name="BLOCKDIM", type=d_type)
+        griddim_var = sym.Variable(name="GRIDDIM", type=d_type)
         if self.mode == 'cuf':
-            d_type = SymbolAttributes(types.DerivedType("DIM3"))
-            routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="GRIDDIM", type=d_type),
-                                                                sym.Variable(name="BLOCKDIM", type=d_type))))
+            routine.spec.append(ir.VariableDeclaration(symbols=(griddim_var, blockdim_var)))
+        # d_type = SymbolAttributes(types.DerivedType("dim3"))
+        # routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="griddim", type=d_type),
+        #     sym.Variable(name="blockdim", type=d_type))))
+        
 
+        blockdim_assignment = None
+        griddim_assignment = None
         mapper = {}
         for loop in FindNodes(ir.Loop).visit(routine.body):
             # TODO: fix/check: do not use _aliases
@@ -1318,6 +1316,11 @@ class SccCufTransformationNew(Transformation):
                     else:
                         step = sym.IntLiteral(1)
 
+                    # if self.mode == 'cuf':
+                    # d_type = SymbolAttributes(types.DerivedType("DIM3"))
+                    # routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="GRIDDIM", type=d_type),
+                    #     sym.Variable(name="BLOCKDIM", type=d_type))))
+
                     if self.mode == 'cuf':
                         func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
                         func_ceiling = sym.ProcedureSymbol(name="CEILING", scope=routine)
@@ -1340,14 +1343,33 @@ class SccCufTransformationNew(Transformation):
                         # if self.mode == 'cuf':
                         mapper[loop] = (blockdim_assignment, griddim_assignment, loop.body)
                     else:
+                        func_dim3 = sym.ProcedureSymbol(name="dim3", scope=routine)
+                        func_ceiling = sym.ProcedureSymbol(name="ceil", scope=routine)
+
+                        # BLOCKDIM
+                        lhs = blockdim_var # routine.variable_map["blockdim"]
+                        rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
+                        blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+
+                        # GRIDDIM
+                        lhs = griddim_var # routine.variable_map["griddim"]
+                        rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
+                                                                                            parameters=as_tuple(
+                                                                                                sym.Cast(name="REAL",
+                                                                                                         expression=upper) /
+                                                                                                sym.Cast(name="REAL",
+                                                                                                         expression=step))),
+                                                                                                sym.IntLiteral(1), sym.IntLiteral(1)))
+                        griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
                         mapper[loop] = loop.body
                 else:
                     mapper[loop] = loop.body
 
         routine.body = Transformer(mapper=mapper).visit(routine.body)
-        blockdim_assignment_2 = f'dim3 blockdim({step.name.lower()}, 1, 1);'
-        griddim_assignment_2 = f'dim3 griddim(ceil(((double){upper.name.lower()})/((double){step.name.lower()})),1,1);'
-        return upper, step, routine.variable_map[block_dim.size], blockdim_assignment_2, griddim_assignment_2
+        # blockdim_assignment_2 = f'dim3 blockdim({step.name.lower()}, 1, 1);'
+        # griddim_assignment_2 = f'dim3 griddim(ceil(((double){upper.name.lower()})/((double){step.name.lower()})),1,1);'
+        # blockdim_assignment_2 =  
+        return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var, blockdim_assignment, griddim_assignment # blockdim_assignment_2, griddim_assignment_2
 
     @staticmethod
     def kernel_demote_private_locals(routine, horizontal, vertical):

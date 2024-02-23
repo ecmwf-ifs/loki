@@ -208,7 +208,8 @@ class CppCodegen(CCodegen): # Stringifier):
     # TODO: only due to c_intrinsic_type ...
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):
-            return f'struct {o.dtype.name}'
+            # return f'struct {o.dtype.name}'
+            return f'{o.dtype.name}'
         return c_intrinsic_type(o)
 
 

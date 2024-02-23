@@ -472,6 +472,18 @@ class FortranCTransformation(Transformation):
         # and thus need to be known before we can fetch them via getters.
         inline_constant_parameters(kernel, external_only=True)
 
+        ##
+        # TODO: why tf does this remove the assignments in the launcher as well?
+        # griddim = kernel.variable_map['griddim']
+        # blockdim = kernel.variable_map['blockdim']
+        # assignments = FindNodes(Assignment).visit(kernel.body)
+        # assignment_map = {}
+        # for assignment in assignments:
+        #     if assignment.lhs == griddim or assignment.lhs == blockdim:
+        #         assignment_map[assignment] = None
+        # kernel.body = Transformer(assignment_map).visit(kernel.body)
+        ##
+
         if self.inline_elementals:
             # Inline known elemental function via expression substitution
             inline_elemental_functions(kernel)
@@ -561,5 +573,15 @@ class FortranCTransformation(Transformation):
                 # call_arguments.append(arg.clone(dimensions=None, type=_type))
             else:
                 call_arguments.append(arg)
-
-        kernel_launch.body = (Comment(text="! here should be the launcher ...."), CallStatement(name=Variable(name=kernel.name), arguments=call_arguments, chevron=(sym.Variable(name="griddim"), sym.Variable(name="blockdim"))))
+       
+        griddim = kernel_launch.variable_map['griddim']
+        blockdim = kernel_launch.variable_map['blockdim']
+        assignments = FindNodes(Assignment).visit(kernel_launch.body)
+        griddim_assignment = None
+        blockdim_assignment = None
+        for assignment in assignments:
+            if assignment.lhs == griddim:
+                griddim_assignment = assignment.clone()
+            if assignment.lhs == blockdim:
+                blockdim_assignment = assignment.clone()
+        kernel_launch.body = (Comment(text="! here should be the launcher ...."), griddim_assignment, blockdim_assignment, CallStatement(name=Variable(name=kernel.name), arguments=call_arguments, chevron=(sym.Variable(name="griddim"), sym.Variable(name="blockdim"))))
