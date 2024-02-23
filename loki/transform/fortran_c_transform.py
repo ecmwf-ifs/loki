@@ -22,7 +22,7 @@ from loki.transform.transform_inline import (
     inline_constant_parameters, inline_elemental_functions
 )
 from loki.sourcefile import Sourcefile
-from loki.backend import cgen, cppgen, fgen, hipgen
+from loki.backend import cgen, cudagen, fgen, hipgen
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, VariableDeclaration,
     TypeDef, Assignment, Pragma, Comment
@@ -72,7 +72,7 @@ class FortranCTransformation(Transformation):
         if self.language == 'c':
             self.langgen = cgen
         elif self.language == 'cuda':
-            self.langgen = cppgen
+            self.langgen = cudagen
         elif self.language == 'hip':
             self.langgen = hipgen
         else:

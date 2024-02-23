@@ -8,8 +8,8 @@
 from loki.backend.fgen import * # noqa
 from loki.backend.cgen import * # noqa
 from loki.backend.cppgen import * # noqa
+from loki.backend.cudagen import * # noqa
 from loki.backend.hipgen import * # noqa
-# from .hipgen import * # noqa
 from loki.backend.maxgen import * # noqa
 from loki.backend.pygen import * # noqa
 from loki.backend.dacegen import * # noqa

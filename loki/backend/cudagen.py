@@ -14,76 +14,25 @@ from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import, Pragma
 from loki.expression import LokiStringifyMapper, Array, symbolic_op, Literal
 from loki.types import BasicType, SymbolAttributes, DerivedType
-from loki.backend.cgen import CCodegen, CCodeMapper
+from loki.backend.cppgen import CppCodegen, CppCodeMapper
 
-__all__ = ['cppgen', 'CppCodegen', 'CppCodeMapper']
-
-
-def c_intrinsic_type(_type):
-    if _type.dtype == BasicType.LOGICAL:
-        return 'int'
-    if _type.dtype == BasicType.INTEGER:
-        if _type.parameter:
-            return 'const int'
-        return 'int'
-    if _type.dtype == BasicType.REAL:
-        if str(_type.kind) in ['real32']:
-            return 'float'
-        return 'double'
-    raise ValueError(str(_type))
+__all__ = ['cudagen', 'CudaCodegen', 'CudaCodeMapper']
 
 
-class CppCodeMapper(CCodeMapper): # LokiStringifyMapper):
+class CudaCodeMapper(CppCodeMapper): # LokiStringifyMapper):
 
-    # TODO: only due to c_intrinsic_type ...
-    def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
-        if expr.kind is not None:
-            _type = SymbolAttributes(BasicType.REAL, kind=expr.kind)
-            return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
-        return str(expr.value)
+    pass
 
-    # TODO: only due to c_intrinsic_type ...
-    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
-        if expr.kind is not None:
-            _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
-            return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
-        return str(expr.value)
-
-    # TODO: only due to c_intrinsic_type ...
-    def map_cast(self, expr, enclosing_prec, *args, **kwargs):
-        _type = SymbolAttributes(BasicType.from_fortran_type(expr.name), kind=expr.kind)
-        expression = self.parenthesize_if_needed(
-            self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
-            PREC_CALL, PREC_NONE)
-        return self.parenthesize_if_needed(
-            self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
-
-    def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
-        ptr = '*' if expr.type and expr.type.pointer else ''
-        if expr.parent in ["threadIdx", "blockIdx"]:
-            parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs)
-            return self.format('%s%s.%s', ptr, parent, expr.basename)
-        elif expr.parent is not None:
-            parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
-            return self.format('%s%s.%s', ptr, parent, expr.basename)
-        return self.format('%s%s', ptr, expr.name)
-
-    map_deferred_type_symbol = map_variable_symbol
-
-class CppCodegen(CCodegen): # Stringifier):
+class CudaCodegen(CppCodegen): # Stringifier):
     """
     ...
     """
     
-    standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
+    standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h', 'cuda.h', 'cuda_runtime.h']
 
     def __init__(self, depth=0, indent='  ', linewidth=90, **kwargs):
-        symgen = kwargs.get('symgen', CppCodeMapper())
-        line_cont = kwargs.get('line_cont', '\n{}  '.format)
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=line_cont, symgen=symgen)
-        # super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-        #                  line_cont='\n{}  '.format, symgen=CppCodeMapper())
+                         line_cont='\n{}  '.format, symgen=CudaCodeMapper())
 
     def visit_Subroutine(self, o, **kwargs):
         """
@@ -187,11 +136,6 @@ class CppCodegen(CCodegen): # Stringifier):
 
         return self.join_lines(*header, *body, *footer)
 
-    def visit_CommentBlock(self, o, **kwargs):
-        if kwargs.pop('skip_decls', False):
-            return None
-        super().visit_CommentBlock(o, **kwargs)
-
     def visit_CallStatement(self, o, **kwargs):
         args = self.visit_all(o.arguments, **kwargs)
         assert not o.kwarguments
@@ -205,16 +149,9 @@ class CppCodegen(CCodegen): # Stringifier):
         except:
             return self.format_line(o.name, chevron, '(', self.join_items(args), ');')
 
-    # TODO: only due to c_intrinsic_type ...
-    def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
-        if isinstance(o.dtype, DerivedType):
-            return f'struct {o.dtype.name}'
-        return c_intrinsic_type(o)
 
-
-def cppgen(ir):
+def cudagen(ir):
     """
     ...
     """
-    return CppCodegen().visit(ir)
-
+    return CudaCodegen().visit(ir)
