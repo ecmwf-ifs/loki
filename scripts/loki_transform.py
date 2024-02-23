@@ -58,6 +58,24 @@ class IdemTransformation(Transformation):
         pass
 
 
+class FusionFissionTransformation(Transformation):
+
+    creates_items = True
+
+    def transform_subroutine(self, routine, **kwargs):
+        from loki import loop_fusion, loop_fission, loop_interchange, region_hoist, region_to_call, Module
+
+        region_hoist(routine)
+        loop_interchange(routine)
+        loop_fusion(routine)
+        loop_fission(routine, move_pragmas_out_of_loops=True)
+        if isinstance(routine.parent, Module):
+            outlined_routines = region_to_call(routine)
+            for r in outlined_routines:
+                r._reset_parent(routine.parent)
+            routine.parent.contains.append(outlined_routines)
+
+
 @click.group()
 @click.option('--debug/--no-debug', default=False, show_default=True,
               help=('Enable / disable debug mode. This automatically attaches '
@@ -71,7 +89,7 @@ def cli(debug):
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
                   ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
+                   'fusion-fission', 'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -207,7 +225,7 @@ def convert(
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
             eliminate_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
-            resolve_sequence_association=resolve_sequence_association_inlined_calls 
+            resolve_sequence_association=resolve_sequence_association_inlined_calls
         )
     scheduler.process(transformation=inline_trafo)
 
@@ -237,6 +255,9 @@ def convert(
         scheduler.process( CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         ))
+
+    if mode == 'fusion-fission':
+        scheduler.process( FusionFissionTransformation() )
 
     if mode in ['scc', 'scc-hoist', 'scc-stack']:
         # Apply the basic SCC transformation set
