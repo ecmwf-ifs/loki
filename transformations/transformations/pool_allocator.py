@@ -61,8 +61,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     * Pass the stack argument(s) to kernel calls
 
 
-    With ``cray_ptr_loc_rhs=False`` the following stack/pool allocator will be generated: 
-    
+    With ``cray_ptr_loc_rhs=False`` the following stack/pool allocator will be generated:
+
     .. code-block:: fortran
 
         SUBROUTINE DRIVER (...)
@@ -71,7 +71,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           REAL, ALLOCATABLE :: ZSTACK(:, :)
           INTEGER(KIND=8) :: YLSTACK_L
           INTEGER(KIND=8) :: YLSTACK_U
-          ISTSZ = (MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)*<array dim1>*<array dim2> + ...) / & 
+          ISTSZ = (MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)*<array dim1>*<array dim2> + ...) / &
            & MAX(C_SIZEOF(REAL(1, kind=JPRB)), 8)
           ALLOCATE (ZSTACK(ISTSZ, nb))
           DO b=1,nb
@@ -101,7 +101,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           IF (YLSTACK_L > YLSTACK_U) STOP
         END SUBROUTINE KERNEL
 
-    With ``cray_ptr_loc_rhs=True`` the following stack/pool allocator will be generated: 
+    With ``cray_ptr_loc_rhs=True`` the following stack/pool allocator will be generated:
 
     .. code-block:: fortran
 
@@ -115,7 +115,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           ALLOCATE (ZSTACK(ISTSZ, nb))
           DO b=1,nb
             YLSTACK_L = 1
-            YLSTACK_U = YLSTACK_L + ISTSZ 
+            YLSTACK_U = YLSTACK_L + ISTSZ
             CALL KERNEL(..., YDSTACK_L=YLSTACK_L, YDSTACK_U=YLSTACK_U, ZSTACK=ZSTACK(:, b))
           END DO
           DEALLOCATE (ZSTACK)
@@ -176,8 +176,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         Insert bounds-checks in the kernel to make sure the allocated stack size is not
         exceeded (default: `True`)
     cray_ptr_loc_rhs : bool, optional
-        Whether to only pass the stack variable as integer to the kernel(s) or 
-        whether to pass the whole stack array to the driver and the calls to ``LOC()`` 
+        Whether to only pass the stack variable as integer to the kernel(s) or
+        whether to pass the whole stack array to the driver and the calls to ``LOC()``
         within the kernel(s) itself (default: `False`)
     """
 
@@ -435,9 +435,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_storage]
 
+            name_parts = self.block_dim.size.split('%', maxsplit=1)
+            block_size = routine.symbol_map[name_parts[0]]
+            if len(name_parts) > 1:
+                block_size = block_size.get_derived_type_member(name_parts[1])
+
             stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
-                stack_size_var, Variable(name=self.block_dim.size, scope=routine)
-            )),))
+                stack_size_var, block_size)),))
             stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member
 
             body_prepend += [stack_alloc]

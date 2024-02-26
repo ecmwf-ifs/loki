@@ -24,6 +24,10 @@ def fixture_block_dim():
     return Dimension(name='block_dim', size='nb', index='b')
 
 
+@pytest.fixture(scope='module', name='block_dim_alt')
+def fixture_block_dim_alt():
+    return Dimension(name='block_dim_alt', size='geom%blk_dim%nb', index='b')
+
 def check_c_sizeof_import(routine):
     assert any(import_.module.lower() == 'iso_c_binding' for import_ in routine.imports)
     assert 'c_sizeof' in routine.imported_symbols
@@ -1193,19 +1197,34 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog, cray_ptr_l
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_args_vs_kwargs(frontend, block_dim, cray_ptr_loc_rhs):
+def test_pool_allocator_args_vs_kwargs(frontend, block_dim_alt, cray_ptr_loc_rhs):
+    fcode_module = """
+module geom_mod
+    implicit none
+    type dim_type
+       integer :: nb
+    end type dim_type
+
+    type geom_type
+       type(dim_type) :: blk_dim
+    end type geom_type
+end module geom_mod
+"""
+
     fcode_driver = """
-subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
+subroutine driver(NLON, NZ, GEOM, FIELD1, FIELD2)
     use kernel_mod, only: kernel, kernel2
     use parkind1, only : jpim
+    use geom_mod, only : geom_type
     implicit none
     INTEGER, PARAMETER :: JWRB = SELECTED_REAL_KIND(13,300)
-    INTEGER, INTENT(IN) :: NLON, NZ, NB
-    real(kind=jwrb), intent(inout) :: field1(nlon, nb)
-    real(kind=jwrb), intent(inout) :: field2(nlon, nz, nb)
+    INTEGER, INTENT(IN) :: NLON, NZ
+    type(geom_type), intent(in) :: geom
+    real(kind=jwrb), intent(inout) :: field1(nlon, geom%blk_dim%nb)
+    real(kind=jwrb), intent(inout) :: field2(nlon, nz, geom%blk_dim%nb)
     integer :: b
     real(kind=jwrb) :: opt
-    do b=1,nb
+    do b=1,geom%blk_dim%nb
         call KERNEL(start=1, end=nlon, klon=nlon, klev=nz, field1=field1(:,b), field2=field2(:,:,b))
         call KERNEL2(1, nlon, nlon, nz, field2=field2(:,:,b))
         call KERNEL2(1, nlon, nlon, nz, field2(:,:,b))
@@ -1275,6 +1294,7 @@ end module kernel_mod
     basedir.mkdir(exist_ok=True)
     (basedir / 'driver.F90').write_text(fcode_driver)
     (basedir / 'kernel.F90').write_text(fcode_kernel)
+    (basedir / 'module.F90').write_text(fcode_module)
 
     config = {
         'default': {
@@ -1293,9 +1313,10 @@ end module kernel_mod
 
     if frontend == OMNI:
         for item in scheduler.items:
-            normalize_range_indexing(item.ir)
+            if isinstance(item, ProcedureItem):
+                normalize_range_indexing(item.ir)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim,
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim_alt,
             cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
 
@@ -1333,5 +1354,9 @@ end module kernel_mod
     assert calls[4].kwarguments == (
             ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
     ) + additional_kwargs
+
+    # check stack size allocation
+    allocations = FindNodes(Allocation).visit(driver.body)
+    assert len(allocations) == 1 and 'zstack(istsz,geom%blk_dim%nb)' in allocations[0].variables
 
     rmtree(basedir)
