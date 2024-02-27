@@ -64,7 +64,7 @@ from loki import (
     gettempdir, ProcedureSymbol, Item, ProcedureItem, ProcedureBindingItem, InterfaceItem,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, flatten, as_tuple, TypeDefItem, SFilter, CaseInsensitiveDict, Comment,
-    ModuleWrapTransformation, Dimension, PreprocessorDirective
+    ModuleWrapTransformation, Dimension, PreprocessorDirective, ExternalItem
 )
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
@@ -304,7 +304,8 @@ def test_scheduler_graph_simple(here, config, frontend, driverA_dependencies, wi
     vgraph = VisGraphWrapper(cg_path)
     if with_legend:
         assert set(vgraph.nodes) == {item.upper() for item in driverA_dependencies} | {
-            'FileItem', 'ModuleItem', 'ProcedureItem', 'TypeDefItem', 'ProcedureBindingItem', 'InterfaceItem'
+            'FileItem', 'ModuleItem', 'ProcedureItem', 'TypeDefItem',
+            'ProcedureBindingItem', 'InterfaceItem', 'ExternalItem'
         }
     else:
         assert set(vgraph.nodes) == {item.upper() for item in driverA_dependencies}
@@ -822,32 +823,34 @@ def test_scheduler_graph_multiple_separate_enrich_fail(here, config, frontend, s
         },
     ]
 
+    schedulerA = Scheduler(
+        paths=[projA], includes=projA/'include', config=configA,
+        seed_routines=['driverB'], frontend=frontend
+    )
+
+    expected_dependenciesA = {
+        'driverB_mod#driverB': ('kernelB_mod#kernelB', 'header_mod', 'header_mod#header_type'),
+        'kernelB_mod#kernelB': ('compute_l1_mod#compute_l1', 'ext_driver_mod#ext_driver'),
+        'compute_l1_mod#compute_l1': ('compute_l2_mod#compute_l2',),
+        'compute_l2_mod#compute_l2': (),
+        'header_mod': (),
+        'header_mod#header_type': (),
+        'ext_driver_mod#ext_driver': (),
+    }
+
+    assert set(schedulerA.items) == {node.lower() for node in expected_dependenciesA}
+    assert set(schedulerA.dependencies) == {
+        (a.lower(), b.lower()) for a, deps in expected_dependenciesA.items() for b in deps
+    }
+
+    class DummyTrafo(Transformation):
+        pass
+
     if strict:
         with pytest.raises(RuntimeError):
-            Scheduler(
-                paths=[projA], includes=projA/'include', config=configA,
-                seed_routines=['driverB'], frontend=frontend
-            )
+            schedulerA.process(transformation=DummyTrafo())
     else:
-        schedulerA = Scheduler(
-            paths=[projA], includes=projA/'include', config=configA,
-            seed_routines=['driverB'], frontend=frontend
-        )
-
-        expected_itemsA = [
-            'driverB_mod#driverB', 'kernelB_mod#kernelB',
-            'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2',
-        ]
-        expected_dependenciesA = [
-            ('driverB_mod#driverB', 'kernelB_mod#kernelB'),
-            ('kernelB_mod#kernelB', 'compute_l1_mod#compute_l1'),
-            ('compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2'),
-        ]
-
-        assert all(n in schedulerA.items for n in expected_itemsA)
-        assert all(e in schedulerA.dependencies for e in expected_dependenciesA)
-        assert 'ext_driver' not in schedulerA.items
-        assert 'ext_kernel' not in schedulerA.items
+        schedulerA.process(transformation=DummyTrafo())
 
 
 def test_scheduler_module_dependency(here, config, frontend):
@@ -925,10 +928,11 @@ def test_scheduler_module_dependencies_unqualified(here, config, frontend):
     assert scheduler['proj_c_util_mod#routine_two'].ir.name == 'routine_two'
 
 
-def test_scheduler_missing_files(here, config, frontend):
+@pytest.mark.parametrize('strict', [True, False])
+def test_scheduler_missing_files(here, config, frontend, strict):
     """
     Ensure that ``strict=True`` triggers failure if source paths are
-    missing and that ``strict=Files`` goes through gracefully.
+    missing and that ``strict=False`` goes through gracefully.
 
     projA: driverC -> kernelC -> compute_l1<replicated> -> compute_l2
                            |
@@ -936,14 +940,7 @@ def test_scheduler_missing_files(here, config, frontend):
     """
     projA = here/'sources/projA'
 
-    config['default']['strict'] = True
-    with pytest.raises(RuntimeError):
-        scheduler = Scheduler(
-            paths=[projA], includes=projA/'include', config=config,
-            seed_routines=['driverC_mod#driverC'], frontend=frontend
-        )
-
-    config['default']['strict'] = False
+    config['default']['strict'] = strict
     scheduler = Scheduler(
         paths=[projA], includes=projA/'include', config=config,
         seed_routines=['driverC_mod#driverC'], frontend=frontend
@@ -951,11 +948,12 @@ def test_scheduler_missing_files(here, config, frontend):
 
     expected_dependencies = {
         'driverc_mod#driverc': ('kernelc_mod#kernelc', 'header_mod#header_type', 'header_mod'),
-        'kernelc_mod#kernelc': ('compute_l1_mod#compute_l1',),
+        'kernelc_mod#kernelc': ('compute_l1_mod#compute_l1', 'proj_c_util_mod#routine_one'),
         'compute_l1_mod#compute_l1': ('compute_l2_mod#compute_l2',),
         'compute_l2_mod#compute_l2': (),
         'header_mod#header_type': (),
         'header_mod': (),
+        'proj_c_util_mod#routine_one': (),
     }
     assert set(scheduler.items) == set(expected_dependencies)
     assert set(scheduler.dependencies) == {
@@ -963,8 +961,22 @@ def test_scheduler_missing_files(here, config, frontend):
     }
 
     # Ensure that the missing items are not in the graph
-    assert 'proj_c_util_mod#routine_one' not in scheduler.items
+    assert isinstance(scheduler['proj_c_util_mod#routine_one'], ExternalItem)
     assert 'proj_c_util_mod#routine_two' not in scheduler.items
+
+    # Check processing with missing items
+    class CheckApply(Transformation):
+
+        def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
+            assert 'item' in kwargs
+            assert not isinstance(kwargs['item'], ExternalItem)
+            super().apply(source, post_apply_rescope_symbols=post_apply_rescope_symbols, **kwargs)
+
+    if strict:
+        with pytest.raises(RuntimeError):
+            scheduler.process(CheckApply())
+    else:
+        scheduler.process(CheckApply())
 
 
 def test_scheduler_dependencies_ignore(here, frontend):

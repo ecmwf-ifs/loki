@@ -14,7 +14,7 @@ from codetiming import Timer
 from loki.bulk.configure import SchedulerConfig
 from loki.bulk.item import (
     Item, FileItem, ModuleItem, ProcedureItem, ProcedureBindingItem,
-    InterfaceItem, TypeDefItem, ItemFactory
+    InterfaceItem, TypeDefItem, ExternalItem, ItemFactory
 )
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
@@ -419,16 +419,23 @@ class Scheduler:
                     exclude_ignored=not transformation.process_ignored_items
                 )
                 sgraph_items = sgraph.items
-                traversal = SFilter(graph, reverse=transformation.reverse_traversal)
+                traversal = SFilter(
+                    graph, reverse=transformation.reverse_traversal,
+                    include_external=self.config.default.get('strict', True)
+                )
             else:
                 graph = self.sgraph
                 sgraph_items = graph.items
                 traversal = SFilter(
                     graph, item_filter=item_filter, reverse=transformation.reverse_traversal,
-                    exclude_ignored=not transformation.process_ignored_items
+                    exclude_ignored=not transformation.process_ignored_items,
+                    include_external=self.config.default.get('strict', True)
                 )
 
             for _item in traversal:
+                if isinstance(_item, ExternalItem):
+                    raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+
                 transformation.apply(
                     _item.scope_ir, role=_item.role, mode=_item.mode,
                     item=_item, targets=_item.targets, items=_get_definition_items(_item, sgraph_items),
@@ -469,6 +476,7 @@ class Scheduler:
             TypeDefItem: '#ffc832',    # yellow
             InterfaceItem: '#c0ff40',  # light-green
             ProcedureBindingItem: '#00dcc8', # turquoise
+            ExternalItem: '#dc2000'    # red
         }
 
         cg_path = Path(path)
@@ -1000,9 +1008,11 @@ class SFilter:
         Iterate over the dependency graph in reverse direction
     exclude_ignored : bool, optional
         Exclude :any:`Item`s that have the ``is_ignored`` property
+    include_external : bool, optional
+        Do not skip :any:`ExternalItem` in the iterator
     """
 
-    def __init__(self, sgraph, item_filter=None, reverse=False, exclude_ignored=False):
+    def __init__(self, sgraph, item_filter=None, reverse=False, exclude_ignored=False, include_external=False):
         self.sgraph = sgraph
         self.reverse = reverse
         if item_filter:
@@ -1010,6 +1020,7 @@ class SFilter:
         else:
             self.item_filter = Item
         self.exclude_ignored = exclude_ignored
+        self.include_external = include_external
 
     def __iter__(self):
         if self.reverse:
@@ -1019,9 +1030,13 @@ class SFilter:
         return self
 
     def __next__(self):
-        while (
-            not isinstance(node := next(self._iter), self.item_filter) or
-            (self.exclude_ignored and node.is_ignored)
-        ):
-            pass
+        while node := next(self._iter):
+            if isinstance(node, ExternalItem):
+                if self.include_external and node.origin_cls in as_tuple(self.item_filter):
+                    # We found an ExternalItem that matches the item filter
+                    break
+                continue
+            if isinstance(node, self.item_filter) and not (self.exclude_ignored and node.is_ignored):
+                # We found the next item matching the filter (and which is not ignored, if applicable)
+                break
         return node
