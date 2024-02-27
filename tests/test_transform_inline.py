@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
-from itertools import product
 import pytest
 import numpy as np
 
@@ -698,9 +697,8 @@ end subroutine acraneb_transt
     assert len(assocs) == 2
 
 
-@pytest.mark.parametrize(
-    'frontend,remove_imports', product(available_frontends(), (True, False))
-)
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('remove_imports', [True, False])
 def test_inline_marked_subroutines(frontend, remove_imports):
     """ Test subroutine inlining via marker pragmas. """
 
@@ -783,9 +781,8 @@ end module util_mod
         assert imports[0].symbols == ('add_one', 'add_a_to_b')
 
 
-@pytest.mark.parametrize(
-    'frontend,remove_imports', product(available_frontends(), (True, False))
-)
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('remove_imports', [True, False])
 def test_inline_marked_routine_with_optionals(frontend, remove_imports):
     """ Test subroutine inlining via marker pragmas with omitted optionals. """
 
