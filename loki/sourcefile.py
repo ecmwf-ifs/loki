@@ -22,7 +22,7 @@ from loki.frontend import (
 
 )
 from loki.ir import Section, RawSource, Comment, PreprocessorDirective
-from loki.logging import info, perf
+from loki.logging import info, debug, perf
 from loki.module import Module
 from loki.program_unit import ProgramUnit
 from loki.subroutine import Subroutine
@@ -362,11 +362,12 @@ class Sourcefile:
         if not self._incomplete:
             return
 
+        frontend = frontend_args.pop('frontend', FP)
+
         log = f'[Loki::Sourcefile] Finished constructing from {self.path}' + ' in {:.2f}s'
-        with Timer(logger=info, text=log):
+        with Timer(logger=debug if frontend == REGEX else info, text=log):
 
             # Sanitize frontend_args
-            frontend = frontend_args.pop('frontend', FP)
             if isinstance(frontend, str):
                 frontend = Frontend[frontend.upper()]
             if frontend == REGEX:
