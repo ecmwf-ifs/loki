@@ -59,7 +59,8 @@ class CppCodeMapper(CCodeMapper): # LokiStringifyMapper):
             self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
-        ptr = '*' if expr.type and expr.type.pointer else ''
+        # ptr = '*' if expr.type and expr.type.pointer else ''
+        ptr = ''
         if expr.parent in ["threadIdx", "blockIdx"]:
             parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs)
             return self.format('%s%s.%s', ptr, parent, expr.basename)
@@ -67,6 +68,32 @@ class CppCodeMapper(CCodeMapper): # LokiStringifyMapper):
             parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
             return self.format('%s%s.%s', ptr, parent, expr.basename)
         return self.format('%s%s', ptr, expr.name)
+    
+    def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
+        name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
+        if expr.aggregate.type is not None:
+            index_str = ''
+            for index in expr.index_tuple:
+                d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+                if d:
+                    index_str += self.format('[%s]', d)
+            return self.format('%s%s', name_str, index_str)
+        else:
+            return self.format('%s', name_str)
+        # TODO: used to be like that: ...
+        # try:
+        #     name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
+        #     if expr.aggregate.type.pointer and name_str.startswith('*'):
+        #         # Strip the pointer '*' because subscript dereference
+        #         name_str = name_str[1:]
+        #     index_str = ''
+        #     for index in expr.index_tuple:
+        #         d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+        #         if d:
+        #             index_str += self.format('[%s]', d)
+        #     return self.format('%s%s', name_str, index_str)
+        # except:
+        #     return self.format('%s', name_str)
 
     map_deferred_type_symbol = map_variable_symbol
 

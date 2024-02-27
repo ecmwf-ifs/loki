@@ -222,6 +222,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
 
     # This adds argument and variable declaration !
     vtype = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
+    # vtype = routine.variable_map[horizontal.size].type.clone(intent=None)
     new_argument = routine.variable_map[horizontal.size].clone(name=block_dim.size, type=vtype)
     routine.arguments = list(routine.arguments) + [new_argument]
 
@@ -248,7 +249,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
                         ir.Conditional(condition=condition, body=routine.body.body, else_body=())))
 
     elif depth > 1:
-        vtype = routine.variable_map[horizontal.size].type.clone(intent='in', value=True)
+        vtype = routine.variable_map[horizontal.size].type.clone(intent='in', value=True) # , scope=routine)
         new_arguments = [routine.variable_map[horizontal.index].clone(type=vtype), jblk_var.clone(type=vtype)]
         routine.arguments = list(routine.arguments) + new_arguments
 
@@ -258,7 +259,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
 
         if not is_elemental(call.routine):
             arguments = (routine.variable_map[block_dim.size], routine.variable_map[horizontal.index], jblk_var)
-            call._update(arguments=call.arguments + arguments)
+            call._update(arguments=call.arguments + arguments) # tuple([arg.clone(type=arg.type.clone(intent='in')) for arg in arguments]))
 
     variables = routine.variables
     arguments = routine.arguments
@@ -948,6 +949,8 @@ class SccCufTransformationNew(Transformation):
             routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]]) # , "PURE"]])
             return
 
+        single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
+
         # TODO: as all locals do have the block_dim index (because of SCCLowerLoop)
         #  this does not make any difference ...
         self.kernel_demote_private_locals(routine, horizontal, vertical)
@@ -999,10 +1002,17 @@ class SccCufTransformationNew(Transformation):
                 additional_args = ()
                 additional_kwargs = ()
                 if horizontal_index.name not in call.routine.arguments:
-                    additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in')),)
+                    if horizontal_index.name in call.routine.variables:
+                        call.routine.symbol_attrs.update({horizontal_index.name: call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
+                        # call.routine.variable_map[horizontal_index.name]._update(type=call.routine.variable_map[horizontal_index.name].type.clone(intent='in'))
+                    # else:
+                    # additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in', scope=call.routine)),)
+                    additional_args += (horizontal_index.clone(),)
+                if horizontal_index.name not in call.arg_map:
                     additional_kwargs += ((horizontal_index.name, horizontal_index.clone()),)
+                
                 if block_dim_index.name not in call.routine.arguments:
-                    additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in')),)
+                    additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in', scope=call.routine)),)
                     additional_kwargs += ((block_dim_index.name, block_dim_index.clone()),)
                 if additional_kwargs:
                     call._update(kwarguments=call.kwarguments+additional_kwargs)
@@ -1253,7 +1263,8 @@ class SccCufTransformationNew(Transformation):
                 arguments = []
                 for arg in call.arguments:
                     if arg in relevant_arrays:
-                        vtype = arg.type.clone(device=True, allocatable=True, shape=None, intent=None)
+                        # vtype = arg.type.clone(device=True, allocatable=True, shape=None, intent=None)
+                        vtype = arg.type.clone(device=True, allocatable=True, intent=None)
                         arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
                     else:
                         arguments.append(arg)

@@ -75,14 +75,30 @@ class SCCBaseTransformation(Transformation):
         return True
 
     @staticmethod
-    def remove_dimensions(routine):
-        arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
-        array_map = {}
-        for array in arrays:
-            if all(dim == sym.RangeIndex((None, None)) for dim in array.dimensions):
-                new_dimensions = None
-                array_map[array] = array.clone(dimensions=new_dimensions)
-        routine.body = SubstituteExpressions(array_map).visit(routine.body)
+    def remove_dimensions(routine, calls_only=False):
+        if calls_only:
+            calls = FindNodes(ir.CallStatement).visit(routine.body)
+            for call in calls:
+                arguments = ()
+                for arg in call.arguments:
+                    if isinstance(arg, sym.Array):
+                        if all(dim == sym.RangeIndex((None, None)) for dim in arg.dimensions):
+                            new_dimensions = None
+                            arguments += (arg.clone(dimensions=new_dimensions),)
+                        else:
+                            arguments += (arg,)
+                    else:
+                        arguments += (arg,)
+                call._update(arguments=arguments)
+
+        else:
+            arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
+            array_map = {}
+            for array in arrays:
+                if all(dim == sym.RangeIndex((None, None)) for dim in array.dimensions):
+                    new_dimensions = None
+                    array_map[array] = array.clone(dimensions=new_dimensions)
+            routine.body = SubstituteExpressions(array_map).visit(routine.body)
 
     @staticmethod
     def explicit_dimensions(routine):

@@ -72,20 +72,30 @@ class CCodeMapper(LokiStringifyMapper):
     map_array = map_meta_symbol
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
-        # TODO: ...
-        try:
-            name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
-            if expr.aggregate.type.pointer and name_str.startswith('*'):
-                # Strip the pointer '*' because subscript dereference
-                name_str = name_str[1:]
+        name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
+        if expr.aggregate.type is not None:
             index_str = ''
             for index in expr.index_tuple:
                 d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
                 if d:
                     index_str += self.format('[%s]', d)
             return self.format('%s%s', name_str, index_str)
-        except:
+        else:
             return self.format('%s', name_str)
+        # TODO: used to be like that: ...
+        # try:
+        #     name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
+        #     if expr.aggregate.type.pointer and name_str.startswith('*'):
+        #         # Strip the pointer '*' because subscript dereference
+        #         name_str = name_str[1:]
+        #     index_str = ''
+        #     for index in expr.index_tuple:
+        #         d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+        #         if d:
+        #             index_str += self.format('[%s]', d)
+        #     return self.format('%s%s', name_str, index_str)
+        # except:
+        #     return self.format('%s', name_str)
 
     map_string_subscript = map_array_subscript
 
@@ -181,7 +191,16 @@ class CCodegen(Stringifier):
                 aptr += ['']
         arguments = [f'{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
                      for a, p in zip(o.arguments, aptr)]
-        header += [self.format_line('int ', o.name, '(', self.join_items(arguments), ') {')]
+
+        # header += [self.format_line('int ', o.name, '(', self.join_items(arguments), ') {')]
+        if o.prefix:
+            if "header_only" in o.prefix[0].lower():
+                header += [self.format_line('int ', o.name, '(', self.join_items(arguments), ');')]
+                return self.join_lines(*header)
+            else:
+                header += [self.format_line('int ', o.name, '(', self.join_items(arguments), ') {')]
+        else:
+            header += [self.format_line('int ', o.name, '(', self.join_items(arguments), ') {')]
 
         self.depth += 1
 
@@ -254,6 +273,7 @@ class CCodegen(Stringifier):
                 initial = f' = {self.visit(v.initial, **kwargs)}'
             if v.type.pointer or v.type.allocatable:
                 var = '*' + var
+                # pass
             variables += [f'{var}{initial}']
         if not variables:
             return None
