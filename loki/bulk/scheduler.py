@@ -748,7 +748,8 @@ class SGraph:
         if new_items:
             self.add_nodes(new_items)
 
-        self.add_edges((item, item_) for item_ in dependencies)
+        # Careful not to include cycles (from recursive TypeDefs)
+        self.add_edges((item, item_) for item_ in dependencies if not item == item_)
         return new_items
 
     def _populate(self, seed, item_factory, config):
