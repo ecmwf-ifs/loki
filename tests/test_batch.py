@@ -15,7 +15,7 @@ import pytest
 
 from loki import (
     HAVE_FP, HAVE_OFP, REGEX, RegexParserClass, as_tuple, gettempdir,
-    FileItem, ModuleItem, ProcedureItem, TypeDefItem, ProcedureBindingItem,
+    FileItem, ModuleItem, ProcedureItem, TypeDefItem, ProcedureBindingItem, ExternalItem,
     InterfaceItem, SGraph, SchedulerConfig, ItemFactory,
     Sourcefile, Subroutine, Section, TypeDef, RawSource, Import, CallStatement, Scalar, ProcedureSymbol
 )
@@ -184,15 +184,22 @@ def test_file_item1(here, default_config):
     assert item.definitions == (item.source['a_mod'],)
     assert len(item.source.definitions) == 1
 
-    with pytest.raises(RuntimeError):
-        # Without the FileItem in the item_cache, we can't create the modules
-        item.create_definition_items(item_factory=ItemFactory(), config=SchedulerConfig.from_dict(default_config))
-
-    # However, without strict parsing it will simply return an empty list
-    default_config['default']['strict'] = False
-    assert not item.create_definition_items(
-        item_factory=ItemFactory(), config=SchedulerConfig.from_dict(default_config)
+    # Without the FileItem in the item_cache, the modules will be created as ExternalItem
+    assert all(
+        isinstance(_item, ExternalItem) and _item.origin_cls is ModuleItem
+        for _item in item.create_definition_items(
+            item_factory=ItemFactory(), config=SchedulerConfig.from_dict(default_config)
+        )
     )
+
+    # Check that external item raises an exception whenever we try to access any IR nodes
+    external_item = item.create_definition_items(
+        item_factory=ItemFactory(), config=SchedulerConfig.from_dict(default_config)
+    )[0]
+
+    for attr in ('ir', 'scope', 'path'):
+        with pytest.raises(RuntimeError):
+            getattr(external_item, attr)
 
     item_factory = ItemFactory()
     item_factory.item_cache[item.name] = item
@@ -636,17 +643,24 @@ def test_typedef_item(here):
     assert 'proc' in item.ir.variable_map
     assert item.definitions == item.ir.declarations
 
-    with pytest.raises(RuntimeError):
-        # Without module items in the cache, we can't create definition items
-        item.create_definition_items(item_factory=ItemFactory())
+    # Without module items in the cache, the definition items will be externals
+    assert all(
+        isinstance(_item, ExternalItem) and _item.origin_cls is ProcedureBindingItem
+        for _item in item.create_definition_items(item_factory=ItemFactory())
+    )
     assert item.dependencies == (item.scope.import_map['tt'], item.ir.parent['t1'])
 
+    # Without module items in the cache, the dependency items will be externals
     item_factory = ItemFactory()
     item_factory.item_cache[item.name] = item
-    with pytest.raises(RuntimeError):
-        item.create_dependency_items(item_factory=item_factory)
+    assert all(
+        isinstance(_item, ExternalItem) and _item.origin_cls in (ModuleItem, TypeDefItem)
+        for _item in item.create_dependency_items(item_factory=ItemFactory())
+    )
 
     # Need to add the modules of the dependent types
+    item_factory = ItemFactory()
+    item_factory.item_cache[item.name] = item
     item_factory.item_cache['t_mod'] = ModuleItem('t_mod', source=item.source)
     item_factory.item_cache['tt_mod'] = get_item(
         ModuleItem, proj/'module/tt_mod.F90', 'tt_mod', RegexParserClass.ProgramUnitClass
@@ -685,14 +699,18 @@ def test_interface_item_in_module(here):
     # An interface depends on the routines it declares
     assert item.dependencies == ('add_two_args', 'add_three_args')
 
+    # Without module item in the cache, the dependencies will be externals
+    scheduler_config = SchedulerConfig.from_dict({'default': {'strict': True}})
     item_factory = ItemFactory()
     item_factory.item_cache[item.name] = item
+    assert all(
+        isinstance(_item, ExternalItem) and _item.origin_cls is ProcedureItem
+        for _item in item.create_dependency_items(item_factory=item_factory, config=scheduler_config)
+    )
 
-    scheduler_config = SchedulerConfig.from_dict({'default': {'strict': True}})
-    with pytest.raises(RuntimeError):
-        item.create_dependency_items(item_factory=item_factory, config=scheduler_config)
-
-    # Let's add the module item
+    # Let's start again with the module item
+    item_factory = ItemFactory()
+    item_factory.item_cache[item.name] = item
     item_factory.item_cache['some_module'] = ModuleItem('some_module', source=item.source)
     assert 'some_module#add_two_args' not in item_factory.item_cache
     assert 'some_module#add_three_args' not in item_factory.item_cache
@@ -787,10 +805,16 @@ def test_procedure_binding_item2(here, default_config):
 
     item_factory = ItemFactory()
     item_factory.item_cache[item.name] = item
-    with pytest.raises(RuntimeError):
-        # Fails because item_cache does not contain the relevant module
-        item.create_dependency_items(item_factory=item_factory, config=SchedulerConfig.from_dict(default_config))
+    # ExternalItem, because item_cache does not contain the relevant module
+    assert all(
+        isinstance(_item, ExternalItem) and _item.origin_cls is ProcedureBindingItem
+        for _item in item.create_dependency_items(
+            item_factory=item_factory, config=SchedulerConfig.from_dict(default_config)
+        )
+    )
 
+    item_factory = ItemFactory()
+    item_factory.item_cache[item.name] = item
     item_factory.item_cache['t_mod'] = ModuleItem('t_mod', source=item.source)
     items = item.create_dependency_items(item_factory=item_factory)
     assert len(items) == 1
