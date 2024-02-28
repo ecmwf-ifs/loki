@@ -42,11 +42,15 @@ class SchedulerConfig:
         visualisation. These are intended for utility routines that
         pop up in many routines but can be ignored in terms of program
         control flow, like ``flush`` or ``abort``.
+    transformation_configs : dict
+        Dicts with transformation-specific options
+    frontend_args : dict
+        Dicts with file-specific frontend options
     """
 
     def __init__(
             self, default, routines, disable=None, dimensions=None,
-            transformation_configs=None
+            transformation_configs=None, frontend_args=None
     ):
         self.default = default
         self.disable = as_tuple(disable)
@@ -54,6 +58,7 @@ class SchedulerConfig:
 
         self.routines = CaseInsensitiveDict(routines)
         self.transformation_configs = transformation_configs
+        self.frontend_args = frontend_args
 
         # Resolve the dimensions for trafo configurations
         for cfg in self.transformation_configs.values():
@@ -82,10 +87,11 @@ class SchedulerConfig:
             name: TransformationConfig(name=name, **cfg)
             for name, cfg in transformation_configs.items()
         }
+        frontend_args = config.get('frontend_args', {})
 
         return cls(
             default=default, routines=routines, disable=disable, dimensions=dimensions,
-            transformation_configs=transformation_configs
+            transformation_configs=transformation_configs, frontend_args=frontend_args
         )
 
     @classmethod
@@ -178,6 +184,23 @@ class SchedulerConfig:
         for key in keys:
             item_conf.update(self.routines[key])
         return item_conf
+
+    def create_frontend_args(self, path, default_args):
+        """
+        Create bespoke ``frontend_args`` to pass to the constructor
+        or ``make_complete`` method for a file
+
+        The resulting `dict` contains overwrites that have been provided
+        in the :attr:`frontend_args` of the config.
+        """
+        path = str(path).lower()
+        frontend_args = default_args.copy()
+        for key, args in (self.frontend_args or {}).items():
+            pattern = key.lower() if key[0] == '/' else f'*{key}'.lower()
+            if fnmatch(path, pattern):
+                frontend_args.update(args)
+                return frontend_args
+        return frontend_args
 
     def is_disabled(self, name):
         """
