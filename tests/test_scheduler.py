@@ -2644,7 +2644,7 @@ end subroutine test_scheduler_frontend_args4
 
     scheduler = Scheduler(
         paths=[workdir], config=config, seed_routines=['test_scheduler_frontend_args1'],
-        frontend=frontend, defines=defines, preprocess=preprocess, xmods=workdir
+        frontend=frontend, defines=defines, preprocess=preprocess, xmods=[workdir]
     )
 
     assert set(scheduler.items) == set(expected_dependencies)
@@ -2654,7 +2654,9 @@ end subroutine test_scheduler_frontend_args4
 
     for item in scheduler.items:
         cpp_directives = FindNodes(PreprocessorDirective).visit(item.ir.ir)
-        assert bool(cpp_directives) == (item in has_cpp_directives)
+        assert bool(cpp_directives) == (item in has_cpp_directives and frontend != OMNI)
+        # NB: OMNI always does preprocessing, therefore we won't find the CPP directives
+        #     after the full parse
 
     rmtree(workdir)
 
