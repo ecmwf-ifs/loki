@@ -138,6 +138,9 @@ class ProgramUnit(Scope):
         parent : :any:`Scope`, optional
             The parent scope this module or subroutine is nested into
         """
+        if isinstance(frontend, str):
+            frontend = Frontend[frontend.upper()]
+
         if preprocess:
             # Trigger CPP-preprocessing explicitly, as includes and
             # defines can also be used by our OMNI frontend
@@ -278,6 +281,8 @@ class ProgramUnit(Scope):
         if not self._incomplete:
             return
         frontend = frontend_args.pop('frontend', Frontend.FP)
+        if isinstance(frontend, str):
+            frontend = Frontend[frontend.upper()]
         definitions = frontend_args.get('definitions')
         xmods = frontend_args.get('xmods')
         parser_classes = frontend_args.get('parser_classes', RegexParserClass.AllClasses)

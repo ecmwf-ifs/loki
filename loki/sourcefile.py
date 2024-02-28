@@ -15,7 +15,7 @@ from codetiming import Timer
 from loki.backend.fgen import fgen
 from loki.backend.cufgen import cufgen
 from loki.frontend import (
-    OMNI, OFP, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
+    Frontend, OMNI, OFP, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source,
     RegexParserClass
@@ -107,6 +107,8 @@ class Sourcefile:
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
         """
+        if isinstance(frontend, str):
+            frontend = Frontend[frontend.upper()]
 
         # Log full parses at INFO and regex scans at PERF level
         log = f'[Loki::Sourcefile] Constructed from {filename}' + ' in {:.2f}s'
@@ -323,6 +325,9 @@ class Sourcefile:
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
         """
+        if isinstance(frontend, str):
+            frontend = Frontend[frontend.upper()]
+
         if preprocess:
             # Trigger CPP-preprocessing explicitly, as includes and
             # defines can also be used by our OMNI frontend
@@ -362,6 +367,8 @@ class Sourcefile:
 
             # Sanitize frontend_args
             frontend = frontend_args.pop('frontend', FP)
+            if isinstance(frontend, str):
+                frontend = Frontend[frontend.upper()]
             if frontend == REGEX:
                 frontend_argnames = ['parser_classes']
             elif frontend == OMNI:
