@@ -63,7 +63,7 @@ from loki import (
     gettempdir, ProcedureSymbol, Item, ProcedureItem, ProcedureBindingItem, InterfaceItem,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, flatten, as_tuple, TypeDefItem, SFilter, CaseInsensitiveDict, Comment,
-    ModuleWrapTransformation, Dimension
+    ModuleWrapTransformation, Dimension, PreprocessorDirective
 )
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
@@ -2534,5 +2534,121 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
             }
 
     scheduler.process(transformation=MyFileTrafo())
+
+    rmtree(workdir)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend_args,defines,preprocess,has_cpp_directives,additional_dependencies', [
+    # No preprocessing, thus all call dependencies are included
+    (None, None, False, [
+        '#test_scheduler_frontend_args1', '#test_scheduler_frontend_args2', '#test_scheduler_frontend_args4'
+    ], {
+        '#test_scheduler_frontend_args2': ('#test_scheduler_frontend_args3',),
+        '#test_scheduler_frontend_args3': (),
+        '#test_scheduler_frontend_args4': ('#test_scheduler_frontend_args3',),
+    }),
+    # Global preprocessing setting SOME_DEFINITION, removing dependency on 3
+    (None, ['SOME_DEFINITION'], True, [], {}),
+    # Global preprocessing with local definition for one file, re-adding a dependency on 3
+    (
+        {'test_scheduler_frontend_args/file3_4.F90': {'defines': ['SOME_DEFINITION','LOCAL_DEFINITION']}},
+        ['SOME_DEFINITION'],
+        True,
+        [],
+        {
+            '#test_scheduler_frontend_args3': (),
+            '#test_scheduler_frontend_args4': ('#test_scheduler_frontend_args3',),
+        }
+    ),
+    # Global preprocessing with preprocessing switched off for 2
+    (
+        {'test_scheduler_frontend_args/file2.F90': {'preprocess': False}},
+        ['SOME_DEFINITION'],
+        True,
+        ['#test_scheduler_frontend_args2'],
+        {
+            '#test_scheduler_frontend_args2': ('#test_scheduler_frontend_args3',),
+            '#test_scheduler_frontend_args3': (),
+        }
+    ),
+    # No preprocessing except for 2
+    (
+        {'test_scheduler_frontend_args/file2.F90': {'preprocess': True, 'defines': ['SOME_DEFINITION']}},
+        None,
+        False,
+        ['#test_scheduler_frontend_args1', '#test_scheduler_frontend_args4'],
+        {
+            '#test_scheduler_frontend_args3': (),
+            '#test_scheduler_frontend_args4': ('#test_scheduler_frontend_args3',),
+        }
+    ),
+])
+def test_scheduler_frontend_args(frontend, frontend_args, defines, preprocess,
+                                 has_cpp_directives, additional_dependencies, config):
+    fcode1 = """
+subroutine test_scheduler_frontend_args1
+    implicit none
+#ifdef SOME_DEFINITION
+    call test_scheduler_frontend_args2
+#endif
+end subroutine test_scheduler_frontend_args1
+    """.strip()
+
+    fcode2 = """
+subroutine test_scheduler_frontend_args2
+    implicit none
+#ifndef SOME_DEFINITION
+    call test_scheduler_frontend_args3
+#endif
+    call test_scheduler_frontend_args4
+end subroutine test_scheduler_frontend_args2
+    """.strip()
+
+    fcode3_4 = """
+subroutine test_scheduler_frontend_args3
+implicit none
+end subroutine test_scheduler_frontend_args3
+
+subroutine test_scheduler_frontend_args4
+implicit none
+#ifdef LOCAL_DEFINITION
+    call test_scheduler_frontend_args3
+#endif
+end subroutine test_scheduler_frontend_args4
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_frontend_args'
+    if workdir.exists():
+        rmtree(workdir)
+    workdir.mkdir()
+    (workdir/'file1.F90').write_text(fcode1)
+    (workdir/'file2.F90').write_text(fcode2)
+    (workdir/'file3_4.F90').write_text(fcode3_4)
+
+    expected_dependencies = {
+        '#test_scheduler_frontend_args1': ('#test_scheduler_frontend_args2',),
+        '#test_scheduler_frontend_args2': ('#test_scheduler_frontend_args4',),
+        '#test_scheduler_frontend_args4': (),
+    }
+
+    for key, value in additional_dependencies.items():
+        expected_dependencies[key] = expected_dependencies.get(key, ()) + value
+
+    config['frontend_args'] = frontend_args
+
+    scheduler = Scheduler(
+        paths=[workdir], config=config, seed_routines=['test_scheduler_frontend_args1'],
+        frontend=frontend, defines=defines, preprocess=preprocess, xmods=workdir
+    )
+
+    assert set(scheduler.items) == set(expected_dependencies)
+    assert set(scheduler.dependencies) == {
+        (a, b) for a, deps in expected_dependencies.items() for b in deps
+    }
+
+    for item in scheduler.items:
+        cpp_directives = FindNodes(PreprocessorDirective).visit(item.ir.ir)
+        assert bool(cpp_directives) == (item in has_cpp_directives)
 
     rmtree(workdir)

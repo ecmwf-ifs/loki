@@ -1094,6 +1094,8 @@ class ItemFactory:
 
         if not frontend_args:
             frontend_args = {}
+        if config:
+            frontend_args = config.create_frontend_args(path, frontend_args)
 
         source = Sourcefile.from_file(path, **frontend_args)
         item_conf = config.create_item_config(item_name) if config else None
