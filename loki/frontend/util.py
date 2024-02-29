@@ -199,12 +199,12 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
 
     # Perform some minor sanitation tasks
     _ir = inline_comments(_ir)
-    _ir = ClusterCommentTransformer(invalidate_source=False).visit(_ir)
+    _ir = ClusterCommentTransformer(inplace=True, invalidate_source=False).visit(_ir)
 
     if frontend in (OMNI, OFP):
         _ir = inline_labels(_ir)
 
     if frontend in (FP, OFP):
-        _ir = CombineMultilinePragmasTransformer(invalidate_source=False).visit(_ir)
+        _ir = CombineMultilinePragmasTransformer(inplace=True, invalidate_source=False).visit(_ir)
 
     return _ir
