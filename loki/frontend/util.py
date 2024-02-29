@@ -24,8 +24,8 @@ from loki.tools import group_by_class, replace_windowed
 
 
 __all__ = [
-    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'inline_comments',
-    'ClusterCommentTransformer', 'read_file',
+    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'read_file',
+    'InlineCommentTransformer', 'ClusterCommentTransformer',
     'CombineMultilinePragmasTransformer', 'sanitize_ir'
 ]
 
@@ -52,23 +52,23 @@ FP = Frontend.FP
 REGEX = Frontend.REGEX
 
 
-def inline_comments(ir):
+class InlineCommentTransformer(Transformer):
     """
     Identify inline comments and merge them onto statements
     """
-    pairs = PatternFinder(pattern=(Assignment, Comment)).visit(ir)
-    pairs += PatternFinder(pattern=(VariableDeclaration, Comment)).visit(ir)
-    pairs += PatternFinder(pattern=(ProcedureDeclaration, Comment)).visit(ir)
-    mapper = {}
-    for pair in pairs:
-        # Comment is in-line and can be merged
-        # Note, we need to re-create the statement node
-        # so that Transformers don't throw away the changes.
-        if pair[0].source and pair[1].source:
-            if pair[1].source.lines[0] == pair[0].source.lines[1]:
-                mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
-                mapper[pair[1]] = None  # Mark for deletion
-    return NestedTransformer(mapper, invalidate_source=False).visit(ir)
+
+    def visit_tuple(self, o, **kwargs):
+        pairs = PatternFinder(pattern=(Assignment, Comment)).visit(o)
+        pairs += PatternFinder(pattern=(VariableDeclaration, Comment)).visit(o)
+        pairs += PatternFinder(pattern=(ProcedureDeclaration, Comment)).visit(o)
+
+        for pair in pairs:
+            # Comment is in-line and can be merged
+            if pair[0].source and pair[1].source:
+                if pair[1].source.lines[0] == pair[0].source.lines[1]:
+                    new = pair[0]._rebuild(comment=pair[1])
+                    o = replace_windowed(o, pair, new)
+        return o
 
 
 class ClusterCommentTransformer(Transformer):
@@ -198,7 +198,7 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
             _ir = rule.postprocess(_ir, info)
 
     # Perform some minor sanitation tasks
-    _ir = inline_comments(_ir)
+    _ir = InlineCommentTransformer(inplace=True, invalidate_source=False).visit(_ir)
     _ir = ClusterCommentTransformer(inplace=True, invalidate_source=False).visit(_ir)
 
     if frontend in (OMNI, OFP):
