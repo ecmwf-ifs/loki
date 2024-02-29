@@ -576,7 +576,8 @@ class Scheduler:
         sources_to_remove = []
         sources_to_transform = []
 
-        for item in self.items:
+        # Filter the SGraph to get a pure call-tree
+        for item in SFilter(self.sgraph, item_filter=ProcedureItem):
             if item.is_ignored:
                 continue
 
