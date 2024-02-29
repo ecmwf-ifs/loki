@@ -1809,7 +1809,7 @@ class FParser2IR(GenericVisitor):
             name=routine.name, args=routine._dummies, docstring=docs, spec=spec,
             body=body, contains=contains, ast=o, prefix=routine.prefix, bind=routine.bind,
             result_name=routine.result_name, is_function=routine.is_function,
-            rescope_symbols=True, source=source, incomplete=False
+            rescope_symbols=False, source=source, incomplete=False
         )
 
         # Once statement functions are in place, we need to update the original declaration so that it
@@ -2048,7 +2048,7 @@ class FParser2IR(GenericVisitor):
         module.__initialize__(
             name=module.name, docstring=docs, spec=spec, contains=contains,
             default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
-            private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
+            private_access_spec=module.private_access_spec, ast=o, rescope_symbols=False, source=source,
             incomplete=False
         )
 
