@@ -41,6 +41,8 @@ __all__ = [
     'StringSubscript',
     # C/C++ concepts
     'Reference', 'Dereference',
+    # Expression utilities
+    'resolve_type_bound_var',
 ]
 
 # pylint: disable=abstract-method,too-many-lines
@@ -1575,3 +1577,39 @@ class Dereference(pmbl.Expression):
 
     mapper_method = intern('map_c_dereference')
     make_stringifier = loki_make_stringifier
+
+def resolve_type_bound_var(name):
+    """
+    Resolve the parent of arbitrary nested depth for a type-bound variable access.
+
+    Parameters
+    ----------
+    name : str
+        The name of any variable.
+
+    Returns
+    -------
+    child : str
+        The name of type-bound variable being accessed.
+    parent : :any:`TypedSymbol`
+        The parent of the type-bound access i.e. everything preceding the last '%'.
+    """
+
+    def _resolve_type_bound_parent(parent):
+        if '%' in parent:
+            child = parent.split('%')[-1]
+            parent = parent.replace('%' + child, '')
+            parent = _resolve_type_bound_parent(parent)
+            return Variable(name=child, parent=parent)
+
+        return Variable(name=parent)
+
+    parent = None
+    child = name
+    if '%' in name:
+        child = name.split('%')[-1]
+        parent = name.replace('%' + child, '')
+        parent = _resolve_type_bound_parent(parent)
+
+
+    return child, parent
