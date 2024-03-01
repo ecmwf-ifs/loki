@@ -14,7 +14,8 @@ from loki import (
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
     SymbolAttributes, BasicType, SubstituteExpressions, DerivedType,
     FindVariables, CaseInsensitiveDict, pragma_regions_attached,
-    PragmaRegion, is_loki_pragma, HoistVariablesTransformation
+    PragmaRegion, is_loki_pragma, HoistVariablesTransformation,
+    resolve_type_bound_var
 )
 
 __all__ = [
@@ -180,7 +181,11 @@ class SCCBaseTransformation(Transformation):
         """
         bounds_str = f'{bounds[0]}:{bounds[1]}'
 
-        bounds_v = (sym.Variable(name=bounds[0]), sym.Variable(name=bounds[1]))
+        _child, _parent = resolve_type_bound_var(bounds[0])
+        lbound_var = sym.Variable(name=_child, parent=_parent)
+        _child, _parent = resolve_type_bound_var(bounds[1])
+        ubound_var = sym.Variable(name=_child, parent=_parent)
+        bounds_v = (lbound_var, ubound_var)
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
@@ -300,7 +305,11 @@ class SCCBaseTransformation(Transformation):
         self.resolve_masked_stmts(routine, loop_variable=v_index)
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        if self.horizontal.bounds[0] in routine.variables and self.horizontal.bounds[1] in routine.variables:
+            _bounds = self.horizontal.bounds
+        else:
+            _bounds = self.horizontal._bounds_aliases
+        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=_bounds)
 
     def process_driver(self, routine):
         """
