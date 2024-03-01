@@ -1551,3 +1551,22 @@ end subroutine some_routine
     c_str = cgen(routine).replace(' ', '')
     assert '(&renamed_var_reference)=1' in c_str
     assert '(*renamed_var_dereference)=2' in c_str
+
+
+@pytest.mark.parametrize('expr', [
+    'a', 'a%b', 'a%b%c', 'a%b%c%d', 'a%b%c%d%e'
+])
+def test_typebound_resolution(expr):
+    """
+    Test that type-bound variables can be correctly resolved
+    """
+
+    scope = Scope()
+    name_parts = expr.split('%', maxsplit=1)
+    var = Variable(name=name_parts[0], scope=scope)
+
+    if len(name_parts) > 1:
+        var = var.get_derived_type_member(name_parts[1]) # pylint: disable=no-member
+
+    assert var == expr
+    assert var.scope == scope

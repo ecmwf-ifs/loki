@@ -357,6 +357,20 @@ class TypedSymbol:
                 return self.clone(scope=scope, type=existing_type)
         return self.clone(scope=scope)
 
+    def get_derived_type_member(self, name_str):
+        """
+        Resolve type-bound variables of arbitrary nested depth.
+        """
+
+        name_parts = name_str.split('%', maxsplit=1)
+        if not (declared_var := self.variable_map.get(name_parts[0], None)):
+            declared_var = Variable(name=name_parts[0], scope=self.scope, parent=self)
+
+        if len(name_parts) > 1:
+            declared_var = declared_var.get_derived_type_member(name_parts[1])
+
+        return declared_var
+
 
 class DeferredTypeSymbol(StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
     """
@@ -628,6 +642,13 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         symbol table entry in the provided scope.
         """
         return self.symbol.rescope(scope)
+
+    def get_derived_type_member(self, name_str):
+        """
+        Resolve type-bound variables of arbitrary nested depth.
+        """
+
+        return self.symbol.get_derived_type_member(name_str)
 
 
 class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
