@@ -11,6 +11,7 @@ from loki import (
     ir, Transformation, FindNodes, Transformer,
     as_tuple, FindExpressions,
     SymbolAttributes, BasicType, SubstituteExpressions,
+    resolve_typebound_var
 )
 
 
@@ -180,9 +181,12 @@ class SCCBaseTransformation(Transformation):
         bounds : tuple of :any:`Scalar`
             Tuple defining the iteration space of the inserted loops.
         """
+
         bounds_str = f'{bounds[0]}:{bounds[1]}'
 
-        bounds_v = (sym.Variable(name=bounds[0]), sym.Variable(name=bounds[1]))
+        variable_map = routine.variable_map
+        bounds_v = (resolve_typebound_var(bounds[0], variable_map),
+                    resolve_typebound_var(bounds[1], variable_map))
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
@@ -302,7 +306,7 @@ class SCCBaseTransformation(Transformation):
         self.resolve_masked_stmts(routine, loop_variable=v_index)
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
     def process_driver(self, routine):
         """

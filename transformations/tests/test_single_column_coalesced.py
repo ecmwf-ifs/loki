@@ -1862,7 +1862,7 @@ def test_scc_base_horizontal_bounds_checks(frontend, horizontal, horizontal_boun
     routine = Subroutine.from_source(fcode, frontend=frontend)
     no_start = Subroutine.from_source(fcode_no_start, frontend=frontend)
     no_end = Subroutine.from_source(fcode_no_end, frontend=frontend)
-    alias = Sourcefile.from_source(fcode_alias, frontend=frontend)
+    alias = Sourcefile.from_source(fcode_alias, frontend=frontend).subroutines[0]
 
     transform = SCCBaseTransformation(horizontal=horizontal)
     with pytest.raises(RuntimeError):
