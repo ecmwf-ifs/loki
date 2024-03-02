@@ -346,7 +346,12 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Name` has no children.
         """
-        return sym.Variable(name=o.tostr(), parent=kwargs.get('parent'))
+        name = o.tostr()
+        parent = kwargs.get('parent')
+        scope = kwargs.get('scope', None)
+        if scope:
+            scope = scope.get_symbol_scope(name)
+        return sym.Variable(name=name, parent=parent, scope=scope)
 
     def visit_Type_Name(self, o, **kwargs):
         """
@@ -401,7 +406,7 @@ class FParser2IR(GenericVisitor):
                 function = var.function.clone(name=f'{parent.name}%{var.function.name}', parent=parent)
                 var = var.clone(function=function)
             else:
-                var = var.clone(name=f'{parent.name}%{var.name}', parent=parent)
+                var = var.clone(name=f'{parent.name}%{var.name}', parent=parent, scope=parent.scope)
         return var
 
     #
@@ -2451,9 +2456,12 @@ class FParser2IR(GenericVisitor):
         * procedure name :class:`fparser.two.Fortran2003.Binding_Name`
         """
         assert o.children[1] == '%'
+        scope = kwargs.get('scope', None)
         parent = self.visit(o.children[0], **kwargs)
+        if parent:
+            scope = parent.scope
         name = self.visit(o.children[2], **kwargs)
-        name = name.clone(name=f'{parent.name}%{name.name}', parent=parent)
+        name = name.clone(name=f'{parent.name}%{name.name}', parent=parent, scope=scope)
         return name
 
     visit_Actual_Arg_Spec_List = visit_List
@@ -2529,10 +2537,11 @@ class FParser2IR(GenericVisitor):
         # https://github.com/stfc/fparser/issues/201 for some details
         name = self.visit(o.children[0], **kwargs)
         assert isinstance(name, DerivedType)
+        scope = kwargs.get('scope', None)
 
         # `name` is a DerivedType but we represent a constructor call as InlineCall for
         # which we need ProcedureSymbol
-        name = sym.Variable(name=name.name)
+        name = sym.Variable(name=name.name, scope=scope)
 
         if o.children[1] is not None:
             arguments = self.visit(o.children[1], **kwargs)
