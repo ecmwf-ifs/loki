@@ -192,6 +192,22 @@ class SchedulerConfig:
 
         The resulting `dict` contains overwrites that have been provided
         in the :attr:`frontend_args` of the config.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            The file path for which to create the frontend arguments. This
+            can be a fully-qualified path or include :any:`fnmatch`-compatible
+            patterns.
+        default_args : dict
+            The default options to use. Only keys that are explicitly overriden
+            for the file in the scheduler config are updated.
+
+        Returns
+        -------
+        dict
+            The frontend arguments, with file-specific overrides of
+            :data:`default_args` if specified in the Scheduler config.
         """
         path = str(path).lower()
         frontend_args = default_args.copy()
