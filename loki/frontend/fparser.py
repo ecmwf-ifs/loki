@@ -2938,7 +2938,7 @@ class FParser2IR(GenericVisitor):
 
         # Special-case: Identify statement functions using our internal symbol table
         symbol_attrs = kwargs['scope'].symbol_attrs
-        if isinstance(lhs, sym.Array) and lhs.name in symbol_attrs:
+        if isinstance(lhs, sym.Array) and not lhs.parent and lhs.name in symbol_attrs:
 
             def _create_stmt_func_type(stmt_func):
                 name = str(stmt_func.variable)
@@ -2951,11 +2951,12 @@ class FParser2IR(GenericVisitor):
                 proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
                 return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
 
-            if not symbol_attrs[lhs.name].shape and not symbol_attrs[lhs.name].intent:
+            if not lhs.type.shape and not lhs.type.intent:
                 # If the LHS array access is actually declared as a scalar,
                 # we are actually dealing with a statement function!
+                f_symbol = sym.ProcedureSymbol(name=lhs.name, scope=kwargs['scope'])
                 stmt_func = ir.StatementFunction(
-                    variable=lhs.clone(dimensions=None), arguments=lhs.dimensions,
+                    variable=f_symbol, arguments=lhs.dimensions,
                     rhs=rhs, return_type=symbol_attrs[lhs.name],
                     label=kwargs.get('label'), source=kwargs.get('source')
                 )
