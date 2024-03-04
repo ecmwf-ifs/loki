@@ -953,10 +953,17 @@ class CallStatement(LeafNode, _CallStatementBase):
         new_kwarguments = tuple((arg_name, kwargs[arg_name]) for arg_name in r_arg_names)
         return new_kwarguments
 
+    def check_kwarguments_order(self):
+        """
+        Check whether kwarguments are correctly ordered
+        in respect to the arguments (``self.routine.arguments``).
+        """
+        return self.kwarguments == self._sort_kwarguments()
+
     def sort_kwarguments(self):
         """
         Sort and update the kwarguments according to the order of the
-        arguments (``self.routine.arguments``)`.
+        arguments (``self.routine.arguments``).
         """
         new_kwarguments = self._sort_kwarguments()
         self._update(kwarguments=new_kwarguments)
