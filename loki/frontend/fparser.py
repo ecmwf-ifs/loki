@@ -2053,7 +2053,7 @@ class FParser2IR(GenericVisitor):
         module.__initialize__(
             name=module.name, docstring=docs, spec=spec, contains=contains,
             default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
-            private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
+            private_access_spec=module.private_access_spec, ast=o, rescope_symbols=False, source=source,
             incomplete=False
         )
 
