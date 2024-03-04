@@ -766,7 +766,11 @@ class FParser2IR(GenericVisitor):
         * char length (:class:`fparser.two.Fortran2003.Char_Length`)
         * init (:class:`fparser.two.Fortran2003.Initialization`)
         """
-        var = self.visit(o.children[0], **kwargs)
+
+        # Do not pass scope down, as it might alias with previously
+        # created symbols. Instead, let the rescope in the Declaration
+        # assign the right scope, always!
+        var = self.visit(o.children[0])
 
         if o.children[1]:
             dimensions = as_tuple(self.visit(o.children[1], **kwargs))
