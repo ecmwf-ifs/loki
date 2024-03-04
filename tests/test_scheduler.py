@@ -53,17 +53,18 @@ from itertools import chain
 from pathlib import Path
 import re
 from shutil import rmtree
+from subprocess import CalledProcessError
 import pytest
 
 from conftest import available_frontends, graphviz_present
 from loki import (
-    Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP,
-    HAVE_FP, HAVE_OFP, REGEX, Sourcefile, FindNodes, CallStatement,
+    Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP, OMNI,
+    HAVE_FP, HAVE_OFP, HAVE_OMNI, REGEX, Sourcefile, FindNodes, CallStatement,
     fexprgen, Transformation, BasicType, Subroutine,
     gettempdir, ProcedureSymbol, Item, ProcedureItem, ProcedureBindingItem, InterfaceItem,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, flatten, as_tuple, TypeDefItem, SFilter, CaseInsensitiveDict, Comment,
-    ModuleWrapTransformation, Dimension
+    ModuleWrapTransformation, Dimension, PreprocessorDirective
 )
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
@@ -2534,5 +2535,200 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
             }
 
     scheduler.process(transformation=MyFileTrafo())
+
+    rmtree(workdir)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend_args,defines,preprocess,has_cpp_directives,additional_dependencies', [
+    # No preprocessing, thus all call dependencies are included
+    (None, None, False, [
+        '#test_scheduler_frontend_args1', '#test_scheduler_frontend_args2', '#test_scheduler_frontend_args4'
+    ], {
+        '#test_scheduler_frontend_args2': ('#test_scheduler_frontend_args3',),
+        '#test_scheduler_frontend_args3': (),
+        '#test_scheduler_frontend_args4': ('#test_scheduler_frontend_args3',),
+    }),
+    # Global preprocessing setting SOME_DEFINITION, removing dependency on 3
+    (None, ['SOME_DEFINITION'], True, [], {}),
+    # Global preprocessing with local definition for one file, re-adding a dependency on 3
+    (
+        {'test_scheduler_frontend_args/file3_4.F90': {'defines': ['SOME_DEFINITION','LOCAL_DEFINITION']}},
+        ['SOME_DEFINITION'],
+        True,
+        [],
+        {
+            '#test_scheduler_frontend_args3': (),
+            '#test_scheduler_frontend_args4': ('#test_scheduler_frontend_args3',),
+        }
+    ),
+    # Global preprocessing with preprocessing switched off for 2
+    (
+        {'test_scheduler_frontend_args/file2.F90': {'preprocess': False}},
+        ['SOME_DEFINITION'],
+        True,
+        ['#test_scheduler_frontend_args2'],
+        {
+            '#test_scheduler_frontend_args2': ('#test_scheduler_frontend_args3',),
+            '#test_scheduler_frontend_args3': (),
+        }
+    ),
+    # No preprocessing except for 2
+    (
+        {'test_scheduler_frontend_args/file2.F90': {'preprocess': True, 'defines': ['SOME_DEFINITION']}},
+        None,
+        False,
+        ['#test_scheduler_frontend_args1', '#test_scheduler_frontend_args4'],
+        {
+            '#test_scheduler_frontend_args3': (),
+            '#test_scheduler_frontend_args4': ('#test_scheduler_frontend_args3',),
+        }
+    ),
+])
+def test_scheduler_frontend_args(frontend, frontend_args, defines, preprocess,
+                                 has_cpp_directives, additional_dependencies, config):
+    """
+    Test overwriting frontend options via Scheduler config
+    """
+
+    fcode1 = """
+subroutine test_scheduler_frontend_args1
+    implicit none
+#ifdef SOME_DEFINITION
+    call test_scheduler_frontend_args2
+#endif
+end subroutine test_scheduler_frontend_args1
+    """.strip()
+
+    fcode2 = """
+subroutine test_scheduler_frontend_args2
+    implicit none
+#ifndef SOME_DEFINITION
+    call test_scheduler_frontend_args3
+#endif
+    call test_scheduler_frontend_args4
+end subroutine test_scheduler_frontend_args2
+    """.strip()
+
+    fcode3_4 = """
+subroutine test_scheduler_frontend_args3
+implicit none
+end subroutine test_scheduler_frontend_args3
+
+subroutine test_scheduler_frontend_args4
+implicit none
+#ifdef LOCAL_DEFINITION
+    call test_scheduler_frontend_args3
+#endif
+end subroutine test_scheduler_frontend_args4
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_frontend_args'
+    if workdir.exists():
+        rmtree(workdir)
+    workdir.mkdir()
+    (workdir/'file1.F90').write_text(fcode1)
+    (workdir/'file2.F90').write_text(fcode2)
+    (workdir/'file3_4.F90').write_text(fcode3_4)
+
+    expected_dependencies = {
+        '#test_scheduler_frontend_args1': ('#test_scheduler_frontend_args2',),
+        '#test_scheduler_frontend_args2': ('#test_scheduler_frontend_args4',),
+        '#test_scheduler_frontend_args4': (),
+    }
+
+    for key, value in additional_dependencies.items():
+        expected_dependencies[key] = expected_dependencies.get(key, ()) + value
+
+    config['frontend_args'] = frontend_args
+
+    scheduler = Scheduler(
+        paths=[workdir], config=config, seed_routines=['test_scheduler_frontend_args1'],
+        frontend=frontend, defines=defines, preprocess=preprocess, xmods=[workdir]
+    )
+
+    assert set(scheduler.items) == set(expected_dependencies)
+    assert set(scheduler.dependencies) == {
+        (a, b) for a, deps in expected_dependencies.items() for b in deps
+    }
+
+    for item in scheduler.items:
+        cpp_directives = FindNodes(PreprocessorDirective).visit(item.ir.ir)
+        assert bool(cpp_directives) == (item in has_cpp_directives and frontend != OMNI)
+        # NB: OMNI always does preprocessing, therefore we won't find the CPP directives
+        #     after the full parse
+
+    rmtree(workdir)
+
+
+@pytest.mark.skipif(not (HAVE_OMNI and HAVE_FP), reason="OMNI or FP not available")
+def test_scheduler_frontend_overwrite(config):
+    """
+    Test the use of a different frontend via Scheduler config
+    """
+    fcode_header = """
+module test_scheduler_frontend_overwrite_header
+    implicit none
+    type some_type
+        ! We have a comment
+        real, dimension(:,:), pointer :: arr
+    end type some_type
+end module test_scheduler_frontend_overwrite_header
+    """.strip()
+    fcode_kernel = """
+subroutine test_scheduler_frontend_overwrite_kernel
+    use test_scheduler_frontend_overwrite_header, only: some_type
+    implicit none
+    type(some_type) :: var
+end subroutine test_scheduler_frontend_overwrite_kernel
+    """.strip()
+
+    workdir = gettempdir()/'test_scheduler_frontend_overwrite'
+    if workdir.exists():
+        rmtree(workdir)
+    workdir.mkdir()
+    (workdir/'test_scheduler_frontend_overwrite_header.F90').write_text(fcode_header)
+    (workdir/'test_scheduler_frontend_overwrite_kernel.F90').write_text(fcode_kernel)
+
+    # Make sure that OMNI cannot parse the header file
+    with pytest.raises(CalledProcessError):
+        Sourcefile.from_source(fcode_header, frontend=OMNI, xmods=[workdir])
+
+    # ...and that the problem exists also during Scheduler traversal
+    with pytest.raises(CalledProcessError):
+        Scheduler(
+            paths=[workdir], config=config, seed_routines=['test_scheduler_frontend_overwrite_kernel'],
+            frontend=OMNI, xmods=[workdir]
+        )
+
+    # Strip the comment from the header file and parse again to generate an xmod
+    fcode_header_lines = fcode_header.split('\n')
+    Sourcefile.from_source('\n'.join(fcode_header_lines[:3] + fcode_header_lines[4:]), frontend=OMNI, xmods=[workdir])
+
+    # Setup the config with the frontend overwrite
+    config['frontend_args'] = {
+        'test_scheduler_frontend_overwrite_header.F90': {'frontend': 'FP'}
+    }
+
+    # ...and now it works fine
+    scheduler = Scheduler(
+        paths=[workdir], config=config, seed_routines=['test_scheduler_frontend_overwrite_kernel'],
+        frontend=OMNI, xmods=[workdir]
+    )
+
+    assert set(scheduler.items) == {
+        '#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header',
+        'test_scheduler_frontend_overwrite_header#some_type'
+    }
+
+    assert set(scheduler.dependencies) == {
+       ('#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header'),
+       ('#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header#some_type')
+    }
+
+    # ...and the derived type has it's comment
+    comments = FindNodes(Comment).visit(scheduler['test_scheduler_frontend_overwrite_header#some_type'].ir.body)
+    assert len(comments) == 1
+    assert comments[0].text == '! We have a comment'
 
     rmtree(workdir)

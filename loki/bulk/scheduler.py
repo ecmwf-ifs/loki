@@ -6,16 +6,16 @@
 # nor does it submit to any jurisdiction.
 
 from collections import deque, defaultdict
-from pathlib import Path
 from os.path import commonpath
+from pathlib import Path
 import networkx as nx
 from codetiming import Timer
 
+from loki.bulk.configure import SchedulerConfig
 from loki.bulk.item import (
     Item, FileItem, ModuleItem, ProcedureItem, ProcedureBindingItem,
     InterfaceItem, TypeDefItem, ItemFactory
 )
-from loki.bulk.configure import SchedulerConfig
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug
@@ -265,10 +265,11 @@ class Scheduler:
         the execution plan and enriching subroutine calls.
         """
         # Force the parsing of the routines
-        build_args = self.build_args.copy()
-        build_args['definitions'] = as_tuple(build_args['definitions']) + self.definitions
+        default_frontend_args = self.build_args.copy()
+        default_frontend_args['definitions'] = as_tuple(default_frontend_args['definitions']) + self.definitions
         for item in SFilter(self.sgraph.as_filegraph(self.item_factory, self.config), reverse=True):
-            item.source.make_complete(**build_args)
+            frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
+            item.source.make_complete(**frontend_args)
 
     @Timer(logger=info, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
@@ -285,7 +286,8 @@ class Scheduler:
                     self.sgraph._create_item(name, item_factory=self.item_factory, config=self.config)
                 )
                 for enrich_item in enrich_items:
-                    enrich_item.source.make_complete(**self.build_args)
+                    frontend_args = self.config.create_frontend_args(enrich_item.source.path, self.build_args)
+                    enrich_item.source.make_complete(**frontend_args)
                 enrich_definitions += tuple(item_.ir for item_ in enrich_items)
             item.ir.enrich(enrich_definitions, recurse=True)
 
