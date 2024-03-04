@@ -36,6 +36,13 @@ __all__ = [
 def shift_to_zero_indexing(routine, ignore=()):
     """
     Shift all array indices to adjust to 0-based indexing conventions (eg. for C or Python)
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which the array dimensions should be shifted
+    ignore : list of str
+        Dimensions (or rather variables being dimensions) to be ignored
     """
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
