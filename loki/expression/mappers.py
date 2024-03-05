@@ -379,7 +379,7 @@ class ExpressionDimensionsMapper(Mapper):
     map_scalar = map_algebraic_leaf
 
     def map_deferred_type_symbol(self, expr, *args, **kwargs):
-        raise ValueError(f'Symbol with deferred type encountered: {expr}')
+        return as_tuple(expr)
 
     def map_array(self, expr, *args, **kwargs):
         if not expr.dimensions:
