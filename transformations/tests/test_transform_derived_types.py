@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from pathlib import Path
 from itertools import zip_longest
 from shutil import rmtree
 import pytest
@@ -20,6 +21,11 @@ from transformations import (
     DerivedTypeArgumentsTransformation,
     TypeboundProcedureCallTransformation
 )
+#pylint: disable=too-many-lines
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 
 @pytest.fixture(name='config')
@@ -178,6 +184,44 @@ end module transform_derived_type_arguments_mod
     # as the shape of another variable
     assert source['caller'].variable_map['m'].type.intent is None
     assert source['caller'].variable_map['n'].type.intent is None
+
+
+@pytest.mark.parametrize('all_derived_types', (False, True))
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_derived_type_arguments_expansion_trivial_derived_type_scheduler(frontend, all_derived_types,
+        config, here):
+
+    proj = here / 'sources/projDerivedTypes'
+
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+
+    # Apply transformation
+    transformation = DerivedTypeArgumentsTransformation(all_derived_types=all_derived_types)
+    scheduler.process(transformation=transformation)
+
+    # all derived types, disregarding whether the derived type has pointer/allocatable/derived type members or not
+    if all_derived_types:
+        call_args = ('m', 'n', 't_io%a', 't_io%b', 't_in%a', 't_in%b', 't_out%a', 't_out%b')
+        kernel_args = ('m', 'n', 'P_a', 'P_b', 'Q_a', 'Q_b', 'R_a', 'R_b')
+    # only the derived type(s) with pointer/allocatable/derived type members, thus no changes expected!
+    else:
+        call_args = ('m', 'n', 't_io%a', 't_io%b', 't_in', 't_out')
+        kernel_args = ('m', 'n', 'P_a', 'P_b', 'Q', 'R')
+
+    driver = scheduler["driver_mod#driver"].ir
+    kernel = scheduler["kernel_mod#kernel"].ir
+    calls = FindNodes(CallStatement).visit(driver.body)
+    call = calls[0]
+    assert call.name == 'kernel'
+    assert call.arguments == call_args
+    assert kernel.arguments == kernel_args
+    assert all(v.type.intent for v in kernel.arguments)
+
+    # Make sure rescoping hasn't accidentally overwritten the
+    # type information for local variables that have the same name
+    # as the shape of another variable
+    assert driver.variable_map['m'].type.intent is None
+    assert driver.variable_map['n'].type.intent is None
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

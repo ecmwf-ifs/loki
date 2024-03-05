@@ -60,6 +60,10 @@ class DerivedTypeArgumentsTransformation(Transformation):
     """
 
     _key = 'DerivedTypeArgumentsTransformation'
+    """Default identifier for trafo_data entry"""
+
+    reverse_traversal = True
+    """Traversal from the leaves upwards"""
 
     def __init__(self, all_derived_types=False, key=None, **kwargs):
         self.all_derived_types = all_derived_types
