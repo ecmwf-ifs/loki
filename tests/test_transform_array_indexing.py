@@ -645,11 +645,8 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
     """
     array_dims = '(:,:)' if explicit_dimensions else ''
     fcode_driver = f"""
-  module driver_mod
-  use kernel_mod, only: kernel_routine
-  IMPLICIT NONE
-  CONTAINS
   SUBROUTINE driver_routine(nlon, nlev, a, b)
+    use kernel_mod, only: kernel_routine
     INTEGER, INTENT(IN)    :: nlon, nlev
     INTEGER, INTENT(INOUT) :: a(nlon,nlev)
     INTEGER, INTENT(INOUT)  :: b(nlon,nlev)
@@ -657,7 +654,6 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
     call kernel_routine(nlon, nlev, a{array_dims}, b{array_dims})
 
   END SUBROUTINE driver_routine
-  end module driver_mod
     """
     fcode_kernel = """
   module kernel_mod
@@ -689,9 +685,7 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
         assert all(len(arr.shape) == 1 for arr in arrays)
 
     kernel_module = Module.from_source(fcode_kernel, frontend=frontend)
-    driver_module = Module.from_source(fcode_driver, frontend=frontend, definitions=kernel_module)
-
-    driver = driver_module.subroutines[0]
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     kernel = kernel_module.subroutines[0]
 
     # check for a(:,:) and b(:,:) if "explicit_dimensions"
@@ -704,9 +698,9 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
         assert call.arguments[-1].dimensions == ()
 
     # compile and test reference
-    refname = f'ref_{driver_module.name}_{frontend}'
-    reference = jit_compile_lib([driver_module, kernel_module], path=here, name=refname, builder=builder)
-    ref_function = getattr(getattr(reference, driver_module.name), driver_module.subroutines[0].name)
+    refname = f'ref_{driver.name}_{frontend}'
+    reference = jit_compile_lib([kernel_module, driver], path=here, name=refname, builder=builder)
+    ref_function = reference.driver_routine
 
     nlon = 10
     nlev = 12
@@ -726,9 +720,9 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
     validate_routine(driver)
 
     # compile and test the flattened variant
-    flattenedname = f'flattened_{driver_module.name}_{frontend}'
-    flattened = jit_compile_lib([driver_module, kernel_module], path=here, name=flattenedname, builder=builder)
-    flattened_function = getattr(getattr(flattened, driver_module.name), driver_module.subroutines[0].name)
+    flattenedname = f'flattened_{driver.name}_{frontend}'
+    flattened = jit_compile_lib([kernel_module, driver], path=here, name=flattenedname, builder=builder)
+    flattened_function = flattened.driver_routine
 
     a_flattened, b_flattened = init_arguments(nlon, nlev, flattened=True)
     flattened_function(nlon, nlev, a_flattened, b_flattened)
@@ -738,5 +732,5 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
     assert (b_flattened == b_ref.flatten(order='F')).all()
 
     builder.clean()
-    (here/f'{driver_module.name}.f90').unlink()
+    (here/f'{driver.name}.f90').unlink()
     (here/f'{kernel_module.name}.f90').unlink()
