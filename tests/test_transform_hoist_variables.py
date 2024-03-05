@@ -125,7 +125,7 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwargu
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('as_kwarguments', ['False', 'True'])
+@pytest.mark.parametrize('as_kwarguments', [False, True])
 def test_hoist(here, frontend, config, as_kwarguments):
     """
     Basic testing of the non-modified Hoist functionality, thus hoisting all (non-parameter) local variables.
@@ -181,7 +181,7 @@ def test_hoist(here, frontend, config, as_kwarguments):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('as_kwarguments', ['False', 'True'])
+@pytest.mark.parametrize('as_kwarguments', [False, True])
 def test_hoist_disable(here, frontend, config, as_kwarguments):
     """
     Basic testing of the non-modified Hoist functionality excluding/disabling some subroutines,
@@ -247,7 +247,7 @@ def test_hoist_disable(here, frontend, config, as_kwarguments):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('as_kwarguments', ['False', 'True'])
+@pytest.mark.parametrize('as_kwarguments', [False, True])
 def test_hoist_arrays(here, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays using the :class:`HoistTemporaryArraysAnalysis` for the *Analysis*
@@ -298,7 +298,7 @@ def test_hoist_arrays(here, frontend, config, as_kwarguments):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('as_kwarguments', ['False', 'True'])
+@pytest.mark.parametrize('as_kwarguments', [False, True])
 def test_hoist_specific_variables(here, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays with variable ``a`` in the array dimensions using the
