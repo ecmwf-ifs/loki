@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 
-def shift_to_zero_indexing(routine, ignore=()):
+def shift_to_zero_indexing(routine, ignore=None):
     """
     Shift all array indices to adjust to 0-based indexing conventions (eg. for C or Python)
 
@@ -42,8 +42,10 @@ def shift_to_zero_indexing(routine, ignore=()):
     routine : :any:`Subroutine`
         The subroutine in which the array dimensions should be shifted
     ignore : list of str
-        Dimensions (or rather variables being dimensions) to be ignored
+        List of variable names for which, if found in the dimension expression
+        of an array subscript, that dimension is not shifted to zero.
     """
+    ignore = as_tuple(ignore)
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
         if isinstance(v, sym.Array):
@@ -54,14 +56,10 @@ def shift_to_zero_indexing(routine, ignore=()):
                     # no shift for stop because Python ranges are [start, stop)
                     new_dims += [sym.RangeIndex((start, d.stop, d.step))]
                 else:
-                    shift = True
-                    for var in FindVariables().visit(d):
-                        if var in ignore:
-                            shift = False
-                    if shift:
-                        new_dims += [d - sym.Literal(1)]
-                    else:
+                    if ignore and any(var in ignore for var in FindVariables().visit(d)):
                         new_dims += [d]
+                    else:
+                        new_dims += [d - sym.Literal(1)]
             vmap[v] = v.clone(dimensions=as_tuple(new_dims))
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
