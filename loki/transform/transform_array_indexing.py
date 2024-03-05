@@ -571,6 +571,8 @@ def flatten_arrays(routine, order='F', start_index=1):
         Assume array indexing starts with `start_index`.
     """
     def new_dims(dim, shape):
+        if all(_dim == sym.RangeIndex((None, None)) for _dim in dim):
+            return None
         if len(dim) > 1:
             if isinstance(shape[-2], sym.RangeIndex):
                 raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening!')

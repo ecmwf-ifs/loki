@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
-from loki import Module, Subroutine, FindVariables, Array, fgen
+from loki import Module, Subroutine, FindVariables, Array, FindNodes, CallStatement, fgen
 from loki.expression import symbols as sym
 from loki.transform import (
         promote_variables, demote_variables, normalize_range_indexing,
@@ -22,13 +22,16 @@ from loki.transform import (
     )
 from loki.build import Builder
 
+
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
 
+
 @pytest.fixture(scope='module', name='builder')
 def fixture_builder(here):
     return Builder(source_dirs=here, build_dir=here/'build')
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_promote_variable_scalar(here, frontend):
@@ -446,6 +449,7 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
     assert (x3 == orig_x3).all()
     assert (x4 == orig_x4).all()
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('start_index', (0, 1, 5))
 def test_transform_flatten_arrays(here, frontend, builder, start_index):
@@ -573,6 +577,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('ignore', ((), ('i2',), ('i4', 'i1')))
 def test_shift_to_zero_indexing(frontend, ignore):
@@ -628,3 +633,110 @@ def test_shift_to_zero_indexing(frontend, ignore):
         dimensions = tuple(sym.Sum((sym.Scalar(name=dim), sym.Product((-1, sym.IntLiteral(1)))))
                 if dim not in ignore else dim for dim in expected_dims[array.name])
         assert fgen(array.dimensions) == fgen(dimensions)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('explicit_dimensions', [True, False])
+def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensions):
+    """
+    Test flattening or arrays, meaning converting multi-dimensional
+    arrays to one-dimensional arrays including corresponding
+    index arithmetic (for calls).
+    """
+    array_dims = '(:,:)' if explicit_dimensions else ''
+    fcode_driver = f"""
+  module driver_mod
+  use kernel_mod, only: kernel_routine
+  IMPLICIT NONE
+  CONTAINS
+  SUBROUTINE driver_routine(nlon, nlev, a, b)
+    INTEGER, INTENT(IN)    :: nlon, nlev
+    INTEGER, INTENT(INOUT) :: a(nlon,nlev)
+    INTEGER, INTENT(INOUT)  :: b(nlon,nlev)
+
+    call kernel_routine(nlon, nlev, a{array_dims}, b{array_dims})
+
+  END SUBROUTINE driver_routine
+  end module driver_mod
+    """
+    fcode_kernel = """
+  module kernel_mod
+  IMPLICIT NONE
+  CONTAINS
+  SUBROUTINE kernel_routine(nlon, nlev, a, b)
+    INTEGER, INTENT(IN)    :: nlon, nlev
+    INTEGER, INTENT(INOUT) :: a(nlon,nlev)
+    INTEGER, INTENT(INOUT) :: b(nlon,nlev)
+    INTEGER :: i, j
+
+    do j=1, nlon
+      do i=1, nlev
+        a(i,j) = i*10 + j
+        b(i,j) = i*10 + j + 1
+      end do
+    end do
+  END SUBROUTINE kernel_routine
+  end module kernel_mod
+    """
+    def init_arguments(nlon, nlev, flattened=False):
+        a = np.zeros(shape=(nlon*nlev) if flattened else (nlon,nlev,), order='F', dtype=np.int32)
+        b = np.zeros(shape=(nlon*nlev) if flattened else (nlon,nlev,), order='F', dtype=np.int32)
+        return a, b
+
+    def validate_routine(routine):
+        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)]
+        assert all(len(arr.dimensions) == 1 or not arr.dimensions for arr in arrays)
+        assert all(len(arr.shape) == 1 for arr in arrays)
+
+    kernel_module = Module.from_source(fcode_kernel, frontend=frontend)
+    driver_module = Module.from_source(fcode_driver, frontend=frontend, definitions=kernel_module)
+
+    driver = driver_module.subroutines[0]
+    kernel = kernel_module.subroutines[0]
+
+    # check for a(:,:) and b(:,:) if "explicit_dimensions"
+    call = FindNodes(CallStatement).visit(driver.body)[0]
+    if explicit_dimensions:
+        assert call.arguments[-2].dimensions == (sym.RangeIndex((None, None)), sym.RangeIndex((None, None)))
+        assert call.arguments[-1].dimensions == (sym.RangeIndex((None, None)), sym.RangeIndex((None, None)))
+    else:
+        assert call.arguments[-2].dimensions == ()
+        assert call.arguments[-1].dimensions == ()
+
+    # compile and test reference
+    refname = f'ref_{driver_module.name}_{frontend}'
+    reference = jit_compile_lib([driver_module, kernel_module], path=here, name=refname, builder=builder)
+    ref_function = getattr(getattr(reference, driver_module.name), driver_module.subroutines[0].name)
+
+    nlon = 10
+    nlev = 12
+    a_ref, b_ref = init_arguments(nlon, nlev)
+    ref_function(nlon, nlev, a_ref, b_ref)
+    builder.clean()
+
+    normalize_range_indexing(driver)
+    normalize_range_indexing(kernel)
+
+    # flatten all the arrays in the kernel and driver
+    flatten_arrays(routine=kernel, order='F', start_index=1)
+    flatten_arrays(routine=driver, order='F', start_index=1)
+
+    # check whether all the arrays are 1-dimensional
+    validate_routine(kernel)
+    validate_routine(driver)
+
+    # compile and test the flattened variant
+    flattenedname = f'flattened_{driver_module.name}_{frontend}'
+    flattened = jit_compile_lib([driver_module, kernel_module], path=here, name=flattenedname, builder=builder)
+    flattened_function = getattr(getattr(flattened, driver_module.name), driver_module.subroutines[0].name)
+
+    a_flattened, b_flattened = init_arguments(nlon, nlev, flattened=True)
+    flattened_function(nlon, nlev, a_flattened, b_flattened)
+
+    # check whether reference and flattened variant(s) produce same result
+    assert (a_flattened == a_ref.flatten(order='F')).all()
+    assert (b_flattened == b_ref.flatten(order='F')).all()
+
+    builder.clean()
+    (here/f'{driver_module.name}.f90').unlink()
+    (here/f'{kernel_module.name}.f90').unlink()
