@@ -948,7 +948,7 @@ class CallStatement(LeafNode, _CallStatementBase):
         """
         routine = self.routine
         assert routine is not BasicType.DEFERRED
-        kwargs = CaseInsensitiveDict(self.kwarguments) # [kwarg[0] for kwarg in self.kwarguments]
+        kwargs = CaseInsensitiveDict(self.kwarguments)
         r_arg_names = [arg.name for arg in routine.arguments if arg.name in kwargs]
         new_kwarguments = tuple((arg_name, kwargs[arg_name]) for arg_name in r_arg_names)
         return new_kwarguments
@@ -968,7 +968,7 @@ class CallStatement(LeafNode, _CallStatementBase):
         new_kwarguments = self._sort_kwarguments()
         self._update(kwarguments=new_kwarguments)
 
-    def kwargs_to_args(self):
+    def convert_kwargs_to_args(self):
         """
         Convert all kwarguments to arguments and update the call accordingly.
         """

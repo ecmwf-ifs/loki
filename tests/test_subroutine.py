@@ -2169,7 +2169,7 @@ def test_call_args_kwargs_conversion(frontend):
 
     # kwarg to arg conversion
     for call in FindNodes(CallStatement).visit(driver.body):
-        call.kwargs_to_args()
+        call.convert_kwargs_to_args()
 
     # check calls with kwargs converted to args
     for call in FindNodes(CallStatement).visit(driver.body):
