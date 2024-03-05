@@ -846,7 +846,9 @@ end module my_scaling_value_mod
         assert driver_pragmas[1].content == 'exit data delete(compute_column_t)'
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vertical, blocking):
+@pytest.mark.parametrize('as_kwarguments', [False, True])
+def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vertical, blocking,
+        as_kwarguments):
     """
     Test the correct addition of OpenACC pragmas to SCC format code
     when hoisting array temporaries to driver.
@@ -931,7 +933,7 @@ def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vert
 
     # Now apply the hoisting passes (anaylisis in reverse order)
     analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
-    synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking)
+    synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking, as_kwarguments=as_kwarguments)
     # analysis reverse order
     analysis.apply(inner_kernel, role='kernel', item=inner_kernel_item)
     analysis.apply(outer_kernel, role='kernel', item=outer_kernel_item, successors=(inner_kernel_item,))
@@ -952,11 +954,22 @@ def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vert
     # driver
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('start', 'end', 'nlon', 'nz', 'q(:, :, b)', 'update_q_t(:, :, b)')
+    if not as_kwarguments:
+        assert calls[0].arguments == ('start', 'end', 'nlon', 'nz', 'q(:, :, b)',
+                'update_q_t(:, :, b)')
+        assert calls[0].kwarguments == ()
+    else:
+        assert calls[0].arguments == ('start', 'end', 'nlon', 'nz', 'q(:, :, b)')
+        assert calls[0].kwarguments == (('update_q_t', 'update_q_t(:, :, b)'),)
     # outer kernel
     calls = FindNodes(CallStatement).visit(outer_kernel.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('start', 'end', 'nlon', 'nz', 'q', 'c', 'update_q_t')
+    if not as_kwarguments:
+        assert calls[0].arguments == ('start', 'end', 'nlon', 'nz', 'q', 'c', 'update_q_t')
+        assert calls[0].kwarguments == ()
+    else:
+        assert calls[0].arguments == ('start', 'end', 'nlon', 'nz', 'q', 'c')
+        assert calls[0].kwarguments == (('t', 'update_q_t'),)
 
     # Ensure a single outer parallel loop in driver
     with pragmas_attached(driver, Loop):

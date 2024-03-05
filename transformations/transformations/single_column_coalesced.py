@@ -693,7 +693,7 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
         routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
         routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
-    def driver_call_argument_remapping(self, routine, call, variables, as_kwarguments=False):
+    def driver_call_argument_remapping(self, routine, call, variables):
         """
         Adds hoisted sub-arrays to the kernel call from a driver routine.
 
@@ -715,17 +715,15 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
                 '[Loki] SingleColumnCoalescedTransform: No blocking dimension found '
                 'for array argument hoisting.'
             )
-
         idx_var = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.index)
-        if as_kwarguments:
+        if self.as_kwarguments:
             new_kwargs = tuple(
-                (v.name, v.clone(dimensions=tuple(sym.RangeIndex((None, None)) for _ in v.dimensions) + (idx_var,)))
-                for v in variables
+                (a.name, v.clone(dimensions=tuple(sym.RangeIndex((None, None))
+                for _ in v.dimensions) + (idx_var,))) for (a, v) in variables
             )
             return call.clone(kwarguments=call.kwarguments + new_kwargs)
-        else:
-            new_args = tuple(
-                v.clone(dimensions=tuple(sym.RangeIndex((None, None)) for _ in v.dimensions) + (idx_var,))
-                for v in variables
-            )
-            return call.clone(arguments=call.arguments + new_args)
+        new_args = tuple(
+            v.clone(dimensions=tuple(sym.RangeIndex((None, None)) for _ in v.dimensions) + (idx_var,))
+            for v in variables
+        )
+        return call.clone(arguments=call.arguments + new_args)
