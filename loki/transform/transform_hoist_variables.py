@@ -321,7 +321,8 @@ class HoistVariablesTransformation(Transformation):
         # pylint: disable=unused-argument
         if self.as_kwarguments:
             new_kwargs = tuple((a.name, v.clone(dimensions=None)) for (a, v) in variables)
-            return call.clone(kwarguments=call.kwarguments + new_kwargs)
+            kwarguments = call.kwarguments if call.kwarguments is not None else ()
+            return call.clone(kwarguments=kwarguments + new_kwargs)
         new_args = tuple(v.clone(dimensions=None) for v in variables)
         return call.clone(arguments=call.arguments + new_args)
 
@@ -349,7 +350,8 @@ class HoistVariablesTransformation(Transformation):
         # pylint: disable=unused-argument
         if self.as_kwarguments:
             new_kwargs = tuple((a.name, v.clone(dimensions=None)) for (a, v) in variables)
-            return call.clone(kwarguments=call.kwarguments + new_kwargs)
+            kwarguments = call.kwarguments if call.kwarguments is not None else ()
+            return call.clone(kwarguments=kwarguments + new_kwargs)
         new_args = tuple(v.clone(dimensions=None) for v in variables)
         return call.clone(arguments=call.arguments + new_args)
 
