@@ -103,7 +103,7 @@ end module mod_also_not_okay
     source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
-    _ = run_linter(source, [rules.MissingImplicitNoneRule], handlers=[handler])
+    run_linter(source, [rules.MissingImplicitNoneRule], handlers=[handler])
 
     expected_messages = (
         (['[L1]', 'MissingImplicitNoneRule', '`IMPLICIT NONE`', 'mod_not_okay', '(l. 40)']),
@@ -114,6 +114,42 @@ end module mod_also_not_okay
         (['[L1]', 'MissingImplicitNoneRule', '`IMPLICIT NONE`', 'routine_not_okay', '(l. 28)']),
         (['[L1]', 'MissingImplicitNoneRule', '`IMPLICIT NONE`', 'routine_also_not_okay', '(l. 49)']),
         (['[L1]', 'MissingImplicitNoneRule', '`IMPLICIT NONE`', 'contained_routine_not_okay', '(l. 54)']),
+    )
+
+    assert len(messages) == len(expected_messages)
+    for msg, keywords in zip(messages, expected_messages):
+        for keyword in keywords:
+            assert keyword in msg
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_only_param_global_var_rule(rules, frontend):
+    fcode = """
+module some_mod
+use other_mod, only: some_type
+implicit none
+
+integer, parameter :: param_ok = 123
+integer, parameter :: arr_param_ok(:) = (/ 1, 2, 3 /)
+integer :: var_not_ok
+integer, allocatable :: arr_not_ok(:), other_arr_not_ok(:,:)
+integer, pointer :: ptr_not_ok
+real, parameter :: rparam_ok = -42.
+type(some_type) :: dt_var_not_ok
+type(some_type) :: dt_arr_not_ok(2)
+end module some_mod
+    """
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    messages = []
+    handler = DefaultHandler(target=messages.append)
+    run_linter(source, [rules.OnlyParameterGlobalVarRule], handlers=[handler])
+
+    expected_messages = (
+        (['L3', 'OnlyParameterGlobalVarRule', 'var_not_ok', '(l. 8)']),
+        (['L3', 'OnlyParameterGlobalVarRule', 'arr_not_ok', 'other_arr_not_ok', '(l. 9)']),
+        (['L3', 'OnlyParameterGlobalVarRule', 'ptr_not_ok', '(l. 10)']),
+        (['L3', 'OnlyParameterGlobalVarRule', 'dt_var_not_ok', '(l. 12)']),
+        (['L3', 'OnlyParameterGlobalVarRule', 'dt_arr_not_ok', '(l. 13)']),
     )
 
     assert len(messages) == len(expected_messages)
@@ -154,7 +190,7 @@ end subroutine missing_intfb_rule
     source = Sourcefile.from_source(fcode)
     messages = []
     handler = DefaultHandler(target=messages.append)
-    _ = run_linter(source, [rules.MissingIntfbRule], handlers=[handler])
+    run_linter(source, [rules.MissingIntfbRule], handlers=[handler])
 
     expected_messages = (
         (['[L9]', 'MissingIntfbRule', '`missing_routine`', '(l. 19)']),
@@ -210,7 +246,7 @@ end module missing_intfb_rule_mod
     source = Sourcefile.from_source(fcode)
     messages = []
     handler = DefaultHandler(target=messages.append)
-    _ = run_linter(source, [rules.MissingIntfbRule], handlers=[handler])
+    run_linter(source, [rules.MissingIntfbRule], handlers=[handler])
 
     expected_messages = (
         (['[L9]', 'MissingIntfbRule', '`missing_routine`', '(l. 24)']),

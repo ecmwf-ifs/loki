@@ -28,7 +28,7 @@ import loki.ir as ir
 
 
 __all__ = [
-    'MissingImplicitNoneRule', 'MissingIntfbRule',
+    'MissingImplicitNoneRule', 'OnlyParameterGlobalVarRule', 'MissingIntfbRule',
 ]
 
 
@@ -90,6 +90,26 @@ class MissingImplicitNoneRule(GenericRule):
         if not found_implicit_none:
             # No 'IMPLICIT NONE' intrinsic node was found
             rule_report.add('No `IMPLICIT NONE` found', subroutine)
+
+
+class OnlyParameterGlobalVarRule(GenericRule):
+    """
+    Only parameters to be declared as global variables.
+    """
+
+    type = RuleType.SERIOUS
+
+    docs = {
+        'id': 'L3',
+        'title': 'Only parameters to be declared as global variables.'
+    }
+
+    @classmethod
+    def check_module(cls, module, rule_report, config):
+        for decl in module.declarations:
+            if not decl.symbols[0].type.parameter:
+                msg = f'Global variable(s) declared that are not parameters: {", ".join(s.name for s in decl.symbols)}'
+                rule_report.add(msg, decl)
 
 
 class MissingIntfbRule(GenericRule):
