@@ -25,11 +25,13 @@ def fixture_rules():
 
 def test_missing_intfb_rule_subroutine(rules):
     fcode = """
-subroutine missing_intfb_rule(a, b)
+subroutine missing_intfb_rule(a, b, dt)
     use some_mod, only: imported_routine
     use other_mod, only: imported_func
+    use type_mod, only: imported_type
     implicit none
     integer, intent(in) :: a, b
+    type(imported_type), intent(in) :: dt
 #include "included_routine.intfb.h"
     integer :: local_var
     interface
@@ -43,9 +45,11 @@ subroutine missing_intfb_rule(a, b)
     CALL INCLUDED_ROUTINE(B)
     CALL MISSING_ROUTINE(A, B)
     CALL LOCAL_INTF_ROUTINE(A)
+    CALL DT%PROC(A+B)
     LOCAL_VAR = IMPORTED_FUNC(A)
-    LOCAL_VAR = LOCAL_VAR + INCLUDED_FUNC(B)
+    LOCAL_VAR = LOCAL_VAR + MIN(INCLUDED_FUNC(B), 1)
     LOCAL_VAR = LOCAL_VAR + MISSING_FUNC(A, B)
+    LOCAL_VAR = LOCAL_VAR + DT%FUNC(A+B)
 end subroutine missing_intfb_rule
 """.strip()
     source = Sourcefile.from_source(fcode)
@@ -54,10 +58,12 @@ end subroutine missing_intfb_rule
     _ = run_linter(source, [rules.MissingIntfbRule], handlers=[handler])
 
     expected_messages = (
-        (['[L9]', 'MissingIntfbRule', 'MISSING_ROUTINE', '(l. 17)']),
+        (['[L9]', 'MissingIntfbRule', '`missing_routine`', '(l. 19)']),
         # (['[L9]', 'MissingIntfbRule', 'MISSING_FUNC', '(l. 15)']),
-        # NB: The missing function is not discovered because it is syntactically
-        #     indistinguishable from an Array subscript
+        # NB:
+        #     - The missing function is not discovered because it is syntactically
+        #       indistinguishable from an Array subscript
+        #     - Calls to type-bound procedures are not reported
     )
 
     assert len(messages) == len(expected_messages)
@@ -93,10 +99,11 @@ contains
         CALL MODULE_IMPORTED_ROUTINE(A, B)
         CALL MISSING_ROUTINE(A, B)
         CALL INCLUDED_PARENT(A)
+        call missing_routine(a, b)
         LOCAL_VAR = IMPORTED_FUNC(A)
         LOCAL_VAR = LOCAL_VAR + INCLUDED_FUNC(B)
         LOCAL_VAR = LOCAL_VAR + MISSING_FUNC(A, KEY=B)
-        LOCAL_VAR = LOCAL_VAR + MODULE_IMPORTED_FUNC(KEY=A)
+        LOCAL_VAR = LOCAL_VAR + MAX(MODULE_IMPORTED_FUNC(KEY=A), -1)
         LOCAL_VAR = LOCAL_VAR + LOCAL_INTF_FUNC()
     end subroutine missing_intfb_rule
 end module missing_intfb_rule_mod
@@ -107,11 +114,14 @@ end module missing_intfb_rule_mod
     _ = run_linter(source, [rules.MissingIntfbRule], handlers=[handler])
 
     expected_messages = (
-        (['[L9]', 'MissingIntfbRule', 'MISSING_ROUTINE', '(l. 24)']),
-        (['[L9]', 'MissingIntfbRule', 'MISSING_FUNC', '(l. 28)']),
-        # NB: The missing function is discovered here because
+        (['[L9]', 'MissingIntfbRule', '`missing_routine`', '(l. 24)']),
+        (['[L9]', 'MissingIntfbRule', '`missing_func`', '(l. 29)']),
+        # NB:
+        #   - The missing function is discovered here because
         #     the use of a keyword-argument makes it syntactically
         #     clear to be an inline call rather than an Array subscript
+        #   - MISSING_ROUTINE is only imported once for the first occurence
+        #   - We are not reporting the intrinsic Fortran routine MAX
     )
 
     assert len(messages) == len(expected_messages)

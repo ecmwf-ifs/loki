@@ -11,6 +11,13 @@ Implementation of rules from the IFS Arpege coding standards as :any:`GenericRul
 See
 """
 
+from collections import defaultdict
+
+try:
+    from fparser.two.Fortran2003 import Intrinsic_Name
+    _intrinsic_fortran_names = Intrinsic_Name.function_names
+except ImportError:
+    _intrinsic_fortran_names = ()
 
 from loki import (
     FindInlineCalls, FindNodes, GenericRule, RuleType
@@ -45,7 +52,7 @@ class MissingIntfbRule(GenericRule):
         Collect all imported symbols in :data:`program_unit` and
         parent scopes and return as a set of lower-case names
         """
-        external_symbols = set()
+        external_symbols = {name.lower() for name in _intrinsic_fortran_names}
 
         if program_unit.parent:
             external_symbols |= cls._get_external_symbols(program_unit.parent)
@@ -79,7 +86,7 @@ class MissingIntfbRule(GenericRule):
         Register a missing interface block for a call to :data:`call_name`
         in the :any:`RuleReport`
         """
-        msg = f'Missing import or interface block for called procedure {call_name}'
+        msg = f'Missing import or interface block for called procedure `{call_name}`'
         rule_report.add(msg, node)
 
     @classmethod
@@ -90,11 +97,18 @@ class MissingIntfbRule(GenericRule):
         """
         external_symbols = cls._get_external_symbols(subroutine)
 
+        # Collect all calls to routines without a corresponding symbol
+        missing_calls = defaultdict(list)
+
         for call in FindNodes(ir.CallStatement).visit(subroutine.body):
-            if str(call.name).lower() not in external_symbols:
-                cls._add_report(rule_report, call, call.name)
+            if not call.name.parent and str(call.name).lower() not in external_symbols:
+                missing_calls[str(call.name).lower()] += [call]
 
         for node, calls in FindInlineCalls(with_ir_node=True).visit(subroutine.body):
             for call in calls:
-                if call.name.lower() not in external_symbols:
-                    cls._add_report(rule_report, node, call.name)
+                if not call.function.parent and call.name.lower() not in external_symbols:
+                    missing_calls[call.name.lower()] += [node]
+
+        # Create reports for each missing routine only for the first occurence
+        for name, calls in missing_calls.items():
+            cls._add_report(rule_report, calls[0], name)
