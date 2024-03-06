@@ -8,10 +8,12 @@
 """
 Implementation of rules from the IFS Arpege coding standards as :any:`GenericRule`
 
-See
+See https://sites.ecmwf.int/docs/ifs-arpege-coding-standards/fortran for the
+current version of the coding standards.
 """
 
 from collections import defaultdict
+import re
 
 try:
     from fparser.two.Fortran2003 import Intrinsic_Name
@@ -20,14 +22,74 @@ except ImportError:
     _intrinsic_fortran_names = ()
 
 from loki import (
-    FindInlineCalls, FindNodes, GenericRule, RuleType
+    FindInlineCalls, FindNodes, GenericRule, Module, RuleType
 )
 import loki.ir as ir
 
 
 __all__ = [
-    'MissingIntfbRule',
+    'MissingImplicitNoneRule', 'MissingIntfbRule',
 ]
+
+
+class MissingImplicitNoneRule(GenericRule):
+    """
+    ``IMPLICIT NONE`` must be present in all scoping units but may be omitted
+    in module procedures.
+    """
+
+    type = RuleType.SERIOUS
+
+    docs = {
+        'id': 'L1',
+        'title': (
+            'IMPLICIT NONE must figure in all scoping units. '
+            'Once per module is sufficient.'
+        ),
+    }
+
+    _regex = re.compile(r'implicit\s+none\b', re.I)
+
+    @classmethod
+    def check_for_implicit_none(cls, ir_):
+        """
+        Check for intrinsic nodes that match the regex.
+        """
+        for intr in FindNodes(ir.Intrinsic).visit(ir_):
+            if cls._regex.match(intr.text):
+                break
+        else:
+            return False
+        return True
+
+    @classmethod
+    def check_module(cls, module, rule_report, config):
+        """
+        Check for ``IMPLICIT NONE`` in the module's spec.
+        """
+        found_implicit_none = cls.check_for_implicit_none(module.spec)
+        if not found_implicit_none:
+            # No 'IMPLICIT NONE' intrinsic node was found
+            rule_report.add('No `IMPLICIT NONE` found', module)
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
+        """
+        Check for ``IMPLICIT NONE`` in the subroutine's spec or an enclosing
+        :any:`Module` scope.
+        """
+        found_implicit_none = cls.check_for_implicit_none(subroutine.ir)
+
+        # Check if enclosing scopes contain implicit none
+        scope = subroutine.parent
+        while scope and not found_implicit_none:
+            if isinstance(scope, Module) and hasattr(scope, 'spec') and scope.spec:
+                found_implicit_none = cls.check_for_implicit_none(scope.spec)
+            scope = scope.parent if hasattr(scope, 'parent') else None
+
+        if not found_implicit_none:
+            # No 'IMPLICIT NONE' intrinsic node was found
+            rule_report.add('No `IMPLICIT NONE` found', subroutine)
 
 
 class MissingIntfbRule(GenericRule):
