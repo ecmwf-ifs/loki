@@ -12,7 +12,7 @@ import pytest
 from loki import (
     Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
     CallStatement, pragma_regions_attached, get_pragma_parameters,
-    gettempdir, Scheduler, OMNI, Import
+    gettempdir, Scheduler, OMNI, Import, FindInlineCalls
 )
 from conftest import available_frontends
 from transformations import (
@@ -655,6 +655,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
     driver = scheduler['#driver'].ir
     kernel0 = scheduler['#kernel0'].ir
     kernel_map = {key: scheduler[f'#{key}'].ir for key in ['kernel1', 'kernel2', 'kernel3']}
+    some_func = scheduler['func_mod#some_func'].ir
 
     # symbols within each module
     expected_symbols = {'modulea': ['var0', 'var1'], 'moduleb': ['var2', 'var3'],
@@ -685,10 +686,21 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
     originally = {'kernel1': ['modulea'], 'kernel2': ['moduleb'],
             'kernel3': ['moduleb', 'modulec']}
     # KERNEL0
+    expected_vars = expected_args.copy()
+    expected_vars.append('a')
     assert [arg.name for arg in kernel0.arguments] == sorted(expected_args)
-    assert [arg.name for arg in kernel0.variables] == sorted(expected_args)
-    for var in kernel0.variables:
+    assert [arg.name for arg in kernel0.variables] == sorted(expected_vars)
+    for var in kernel0.arguments:
         assert kernel0.variable_map[var.name.lower()].type.intent == var_intent_map[var.name.lower()]
+    kernel0_inline_calls = FindInlineCalls().visit(kernel0.body)
+    for inline_call in kernel0_inline_calls:
+        if ignore_modules is None:
+            assert len(inline_call.arguments) == 1
+            assert [arg.name for arg in inline_call.arguments] == ['var2']
+            assert [arg.name for arg in some_func.arguments] == ['var2']
+        else:
+            assert len(inline_call.arguments) == 0
+            assert len(some_func.arguments) == 0
     kernel0_calls = FindNodes(CallStatement).visit(kernel0.body)
     # KERNEL1 & KERNEL2 & KERNEL3
     for call in kernel0_calls:
