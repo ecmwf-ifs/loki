@@ -1750,6 +1750,10 @@ class FParser2IR(GenericVisitor):
         spec = ir.Section(body=as_tuple(spec_parts))
         spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
+        # As variables may be defined out of sequence, we need to re-generate
+        # symbols in the spec part to make them coherent with the symbol table
+        spec = AttachScopes().visit(spec, scope=routine, recurse_to_declaration_attributes=True)
+
         # Now all declarations are well-defined and we can parse the member routines
         if contains_ast is not None:
             contains = self.visit(contains_ast, **kwargs)
@@ -1878,7 +1882,8 @@ class FParser2IR(GenericVisitor):
         routine = None
         if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
             proc_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
-            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+            if proc_type and proc_type.dtype != BasicType.DEFERRED and \
+               proc_type.dtype.procedure != BasicType.DEFERRED:
                 routine = proc_type.dtype.procedure
                 if not routine._incomplete:
                     # We return the existing object right away, unless it exists from a
