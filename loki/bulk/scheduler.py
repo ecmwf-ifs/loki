@@ -316,7 +316,7 @@ class Scheduler:
                 if item.name not in renamed_keys and item.name not in item.source:
                     # The module was in a file (likely with something else) and has been deleted
                     deleted_keys.add(key)
-            else:
+            elif not isinstance(item, ExternalItem):
                 if not item.scope_name:
                     # IR node without a scope (i.e., a Procedure without a module)
                     if item.local_name not in item.source:

@@ -979,7 +979,10 @@ def test_scheduler_missing_files(here, config, frontend, strict):
         scheduler.process(CheckApply())
 
 
-def test_scheduler_dependencies_ignore(here, frontend):
+@pytest.mark.parametrize('preprocess', [False, True])   # NB: With preprocessing, ext_driver is no longer
+                                                        #     wrapped inside a module but instead imported
+                                                        #     via an intfb.h
+def test_scheduler_dependencies_ignore(here, preprocess, frontend):
     """
     Test multi-lib transformation by applying the :any:`DependencyTransformation`
     over two distinct projects with two distinct invocations.
@@ -1006,18 +1009,29 @@ def test_scheduler_dependencies_ignore(here, frontend):
         }
     })
 
-    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA, frontend=frontend)
+    schedulerA = Scheduler(
+        paths=[projA, projB], includes=projA/'include', config=configA,
+        frontend=frontend, preprocess=preprocess
+    )
 
-    schedulerB = Scheduler(paths=projB, includes=projB/'include', config=configB, frontend=frontend)
+    schedulerB = Scheduler(
+        paths=projB, includes=projB/'include', config=configB,
+        frontend=frontend, preprocess=preprocess
+    )
 
     expected_items_a = [
         'driverB_mod#driverB', 'kernelB_mod#kernelB',
         'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2',
         'header_mod', 'header_mod#header_type'
     ]
-    expected_items_b = [
-        'ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'
-    ]
+    if preprocess:
+        expected_items_b = [
+            '#ext_driver', 'ext_kernel_mod#ext_kernel'
+        ]
+    else:
+        expected_items_b = [
+            'ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'
+        ]
 
     assert set(schedulerA.items) == {n.lower() for n in expected_items_a + expected_items_b}
     assert all(not schedulerA[name].is_ignored for name in expected_items_a)
