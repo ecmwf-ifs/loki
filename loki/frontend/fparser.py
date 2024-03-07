@@ -30,7 +30,10 @@ import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedDiv, ParenthesisedPow
 )
-from loki.expression import ExpressionDimensionsMapper, AttachScopes, AttachScopesMapper
+from loki.expression import (
+    ExpressionDimensionsMapper, AttachScopes, AttachScopesMapper,
+    DeferredSymbolTransformer
+)
 from loki.logging import debug, perf, info, warning, error
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup
 from loki.pragma_utils import (
@@ -350,7 +353,8 @@ class FParser2IR(GenericVisitor):
         parent = kwargs.get('parent')
         scope = kwargs.get('scope', None)
         if scope:
-            scope = scope.get_symbol_scope(name)
+            symbol_scope = scope.get_symbol_scope(name)
+            scope = symbol_scope if symbol_scope else scope
         return sym.Variable(name=name, parent=parent, scope=scope)
 
     def visit_Type_Name(self, o, **kwargs):
@@ -1750,6 +1754,10 @@ class FParser2IR(GenericVisitor):
         spec = ir.Section(body=as_tuple(spec_parts))
         spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
+        # As variables may be defined out of sequence, we need to re-generate
+        # symbols in the spec part to make them coherent with the symbol table
+        spec = DeferredSymbolTransformer().visit(spec)
+
         # Now all declarations are well-defined and we can parse the member routines
         if contains_ast is not None:
             contains = self.visit(contains_ast, **kwargs)
@@ -1878,7 +1886,8 @@ class FParser2IR(GenericVisitor):
         routine = None
         if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
             proc_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
-            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+            if proc_type and proc_type.dtype != BasicType.DEFERRED and \
+               proc_type.dtype.procedure != BasicType.DEFERRED:
                 routine = proc_type.dtype.procedure
                 if not routine._incomplete:
                     # We return the existing object right away, unless it exists from a

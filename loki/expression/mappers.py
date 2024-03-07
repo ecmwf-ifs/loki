@@ -30,7 +30,7 @@ from loki.types import SymbolAttributes, BasicType
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper',
-           'LokiIdentityMapper', 'AttachScopesMapper', 'DetachScopesMapper']
+           'LokiIdentityMapper', 'AttachScopesMapper', 'DetachScopesMapper', 'DeferredSymbolMapper']
 
 
 
@@ -857,3 +857,20 @@ class DetachScopesMapper(LokiIdentityMapper):
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol
+
+
+class DeferredSymbolMapper(LokiIdentityMapper):
+    """
+    A Pymbolic expression mapper (i.e., a visitor for the expression tree)
+    that attempts to rebuild :any:`DeferredTypeSymbol` that has a known
+    :any:`Scope` attached. This allows us to sanitize expressions that were
+    parsed before their declaration.
+    """
+
+    def map_deferred_type_symbol(self, expr, *args, **kwargs):
+        if expr.scope:
+            new_expr = expr.clone()
+            if new_expr != expr:
+                new_expr = self.rec(new_expr, *args, **kwargs)
+            return new_expr
+        return expr

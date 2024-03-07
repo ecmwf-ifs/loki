@@ -14,7 +14,10 @@ from pymbolic.primitives import Expression
 from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.expression.mappers import SubstituteExpressionsMapper, ExpressionRetriever, AttachScopesMapper
+from loki.expression.mappers import (
+    SubstituteExpressionsMapper, ExpressionRetriever,
+    AttachScopesMapper, DeferredSymbolMapper
+)
 from loki.expression.symbols import (
     Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral, LogicLiteral,
     StringLiteral, IntrinsicLiteral, DeferredTypeSymbol
@@ -22,7 +25,8 @@ from loki.expression.symbols import (
 
 __all__ = [
     'FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls',
-    'FindLiterals', 'SubstituteExpressions', 'ExpressionFinder', 'AttachScopes'
+    'FindLiterals', 'SubstituteExpressions', 'ExpressionFinder', 'AttachScopes',
+    'DeferredSymbolTransformer'
 ]
 
 
@@ -390,3 +394,43 @@ class AttachScopes(Visitor):
         o.spec = self.visit(o.spec, **kwargs)
         o.contains = self.visit(o.contains, **kwargs)
         return o
+
+
+class DeferredSymbolTransformer(Transformer):
+    """
+    Scoping visitor that attempts to rebuild :any:`DeferredTypeSymbol`
+    so that updated type information might be used to generate the
+    right symbol type.
+
+    Parameters
+    ----------
+    invalidate_source : bool, optional
+        By default the :attr:`source` property of nodes is discarded
+        when rebuilding the node, setting this to `False` allows to
+        retain that information
+    """
+
+    def __init__(self, invalidate_source=True, **kwargs):
+        super().__init__(invalidate_source=invalidate_source, **kwargs)
+
+        self.expr_mapper = DeferredSymbolMapper()
+
+    def visit_Expression(self, o, **kwargs):
+        """
+        call :any:`SubstituteExpressionsMapper` for the given expression node
+        """
+        if kwargs.get('recurse_to_declaration_attributes'):
+            return self.expr_mapper(o, recurse_to_declaration_attributes=True)
+        return self.expr_mapper(o)
+
+    def visit_Import(self, o, **kwargs):
+        """
+        For :any:`Import` (as well as :any:`VariableDeclaration` and :any:`ProcedureDeclaration`)
+        we set ``recurse_to_declaration_attributes=True`` to make sure properties in the symbol
+        table are updated during dispatch to the expression mapper
+        """
+        kwargs['recurse_to_declaration_attributes'] = True
+        return super().visit_Node(o, **kwargs)
+
+    visit_VariableDeclaration = visit_Import
+    visit_ProcedureDeclaration = visit_Import
