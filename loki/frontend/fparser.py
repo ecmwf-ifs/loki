@@ -853,7 +853,7 @@ class FParser2IR(GenericVisitor):
         scope = kwargs['scope']
         for var in symbols:
             _type = scope.symbol_attrs.lookup(var.name)
-            if _type is None:
+            if _type is None or _type.dtype == BasicType.DEFERRED:
                 dtype = ProcedureType(var.name, is_function=False)
             else:
                 dtype = _type.dtype
@@ -1342,22 +1342,31 @@ class FParser2IR(GenericVisitor):
         interface = None
         if o.children[0]:
             # Procedure interface provided
+            # (we pass the parent scope down for this)
+            kwargs['scope'] = scope.parent
             interface = self.visit(o.children[0], **kwargs)
-            interface = AttachScopesMapper()(interface, scope=scope)
             bind_names = as_tuple(interface)
             func_names = [interface.name] * len(symbols)
             assert o.children[4] is None
+            kwargs['scope'] = scope
         elif o.children[4]:
+            # we pass the parent scope down for this
+            kwargs['scope'] = scope.parent
             bind_names = as_tuple(self.visit(o.children[4], **kwargs))
-            bind_names = AttachScopesMapper()(bind_names, scope=scope)
             assert len(bind_names) == len(symbols)
             func_names = [i.name for i in bind_names]
+            kwargs['scope'] = scope
         else:
             bind_names = None
             func_names = [s.name for s in symbols]
 
         # Look up the type of the procedure
-        types = [scope.symbol_attrs.lookup(name) or SymbolAttributes(dtype=ProcedureType(name)) for name in func_names]
+        types = [scope.symbol_attrs.lookup(name) for name in func_names]
+        types = [
+            SymbolAttributes(dtype=ProcedureType(name))
+            if not t or t.dtype == BasicType.DEFERRED else t
+            for t, name in zip(types, func_names)
+        ]
 
         # Any declared attributes
         attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
@@ -1573,8 +1582,11 @@ class FParser2IR(GenericVisitor):
         elif spec is not None:
             # This has a generic specification (and we might need to update symbol table)
             scope = kwargs['scope']
-            if spec.name not in scope.symbol_attrs:
-                scope.symbol_attrs[spec.name] = SymbolAttributes(ProcedureType(name=spec.name, is_generic=True))
+            spec_type = scope.symbol_attrs.lookup(spec.name)
+            if not spec_type or spec_type.dtype == BasicType.DEFERRED:
+                scope.symbol_attrs[spec.name] = SymbolAttributes(
+                    ProcedureType(name=spec.name, is_generic=True)
+                )
             spec = spec.rescope(scope=scope)
 
         # Traverse the body and build the object
@@ -2053,6 +2065,10 @@ class FParser2IR(GenericVisitor):
         else:
             docs = []
             spec = None
+
+        # As variables may be defined out of sequence, we need to re-generate
+        # symbols in the spec part to make them coherent with the symbol table
+        spec = DeferredSymbolTransformer().visit(spec)
 
         # Now that all declarations are well-defined we can parse the member routines
         if contains_ast is not None:
