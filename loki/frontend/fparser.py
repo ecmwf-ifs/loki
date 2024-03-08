@@ -357,8 +357,7 @@ class FParser2IR(GenericVisitor):
         if parent:
             scope = parent.scope
         if scope:
-            symbol_scope = scope.get_symbol_scope(name)
-            scope = symbol_scope if symbol_scope else scope
+            scope = scope.get_symbol_scope(name)
         return sym.Variable(name=name, parent=parent, scope=scope)
 
     def visit_Type_Name(self, o, **kwargs):
@@ -1776,7 +1775,7 @@ class FParser2IR(GenericVisitor):
 
         # As variables may be defined out of sequence, we need to re-generate
         # symbols in the spec part to make them coherent with the symbol table
-        spec = DeferredSymbolTransformer().visit(spec)
+        spec = AttachScopes().visit(spec, scope=routine, recurse_to_declaration_attributes=True)
 
         # Now all declarations are well-defined and we can parse the member routines
         if contains_ast is not None:
@@ -2076,7 +2075,7 @@ class FParser2IR(GenericVisitor):
 
         # As variables may be defined out of sequence, we need to re-generate
         # symbols in the spec part to make them coherent with the symbol table
-        spec = DeferredSymbolTransformer().visit(spec)
+        spec = AttachScopes().visit(spec, scope=module, recurse_to_declaration_attributes=True)
 
         # Now that all declarations are well-defined we can parse the member routines
         if contains_ast is not None:
