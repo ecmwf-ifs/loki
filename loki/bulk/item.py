@@ -1033,16 +1033,35 @@ class ItemFactory:
                     item.local_name: item
                     for item in scope_item.create_definition_items(item_factory=self, config=config)
                 }
-                return (
-                    (scope_item,) +
-                    tuple(
-                        it for smbl in node.symbols
-                        if (
-                            (it := scope_definitions.get(str(smbl.type.use_name or smbl).lower())) and
-                            not self._is_ignored(it.name, config, ignore)
-                        )
-                    )
+                symbol_names = tuple(str(smbl.type.use_name or smbl).lower() for smbl in node.symbols)
+                non_ignored_symbol_names = tuple(
+                    smbl for smbl in symbol_names
+                    if not self._is_ignored(f'{scope_name}#{smbl}', config, ignore)
                 )
+                imported_items = tuple(
+                    it for smbl in non_ignored_symbol_names
+                    if (it := scope_definitions.get(smbl)) is not None
+                )
+
+                # Global variable imports are filtered out in the previous statement because they
+                # are not represented by an Item. For these, we introduce a dependency on the
+                # module instead
+                has_globalvar_import = len(imported_items) != len(non_ignored_symbol_names)
+
+                # Filter out ProcedureItems corresponding to a subroutine:
+                # dependencies on subroutines are introduced via the call statements, as this avoids
+                # depending on imported but not called subroutines
+                imported_items = tuple(
+                    it for it in imported_items
+                    if not isinstance(it, ProcedureItem) or it.ir.is_function
+                )
+
+                if has_globalvar_import:
+                    return (scope_item,) + imported_items
+                if not imported_items:
+                    return None
+                return imported_items
+
             return (scope_item,)
 
         if isinstance(node, CallStatement):
