@@ -18,7 +18,7 @@ from loki import (
     OMNI, OFP, Module, Subroutine, BasicType, DerivedType, TypeDef,
     fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
     VariableDeclaration, Assignment, InlineCall, Builder, StringSubscript,
-    Conditional, CallStatement, ProcedureSymbol
+    Conditional, CallStatement, ProcedureSymbol, FindVariables
 )
 
 
@@ -66,6 +66,18 @@ contains
 end module
 """
     module = Module.from_source(fcode, frontend=frontend)
+    routine = module['simple_loops']
+
+    # Ensure type info is attached correctly
+    item_vars = [v for v in FindVariables(unique=False).visit(routine.body) if v.parent]
+    assert all(v.type.dtype == BasicType.REAL for v in item_vars)
+    assert item_vars[0].name == 'item%vector' and item_vars[0].shape == (3,)
+    assert item_vars[1].name == 'item%vector' and item_vars[1].shape == (3,)
+    assert item_vars[2].name == 'item%scalar' and item_vars[2].type.shape is None
+    assert item_vars[3].name == 'item%matrix' and item_vars[3].shape == (3, 3)
+    assert item_vars[4].name == 'item%matrix' and item_vars[4].shape == (3, 3)
+    assert item_vars[5].name == 'item%scalar' and item_vars[5].type.shape is None
+
     filepath = here/(f'derived_types_simple_loops_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
