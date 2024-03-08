@@ -33,7 +33,7 @@ __all__ = [
     'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
     'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
     'yaml_include_constructor', 'auto_post_mortem_debugger', 'set_excepthook',
-    'timeout', 'WeakrefProperty', 'group_by_class', 'replace_windowed'
+    'timeout', 'WeakrefProperty', 'group_by_class', 'replace_windowed', 'dict_override'
 ]
 
 
@@ -669,3 +669,26 @@ def replace_windowed(iterable, group, subs):
         iterable, pred=lambda *args: args == group,
         substitutes=as_tuple(subs), window_size=len(group)
     ))
+
+
+@contextmanager
+def dict_override(base, override):
+    """
+    Contextmanager to temporarily override a set of dictionary values.
+
+    Parameters
+    ----------
+    base : dict
+        The base dictionary in which to overide values
+    replace : dict
+        Replacement mapping to temporarily insert
+    """
+    original_values = tuple((k, base[k]) for k in override.keys() if k in base)
+    added_keys = tuple(k for k in override.keys() if k not in base)
+    base.update(override)
+
+    yield base
+
+    base.update(original_values)
+    for k in added_keys:
+        del base[k]
