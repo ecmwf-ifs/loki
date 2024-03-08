@@ -32,7 +32,9 @@ from loki.expression.operations import (
 )
 from loki.expression import ExpressionDimensionsMapper, AttachScopes, AttachScopesMapper
 from loki.logging import debug, perf, info, warning, error
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup
+from loki.tools import (
+    as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup, dict_override
+)
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
 )
@@ -347,8 +349,10 @@ class FParser2IR(GenericVisitor):
         :class:`fparser.two.Fortran2003.Name` has no children.
         """
         name = o.tostr()
-        parent = kwargs.get('parent')
         scope = kwargs.get('scope', None)
+        parent = kwargs.get('parent')
+        if parent:
+            scope = parent.scope
         if scope:
             scope = scope.get_symbol_scope(name)
         return sym.Variable(name=name, parent=parent, scope=scope)
@@ -373,7 +377,9 @@ class FParser2IR(GenericVisitor):
           subscript (or `None`)
         """
         name = self.visit(o.children[0], **kwargs)
-        dimensions = self.visit(o.children[1], **kwargs)
+        with dict_override(kwargs, {'parent': None}):
+            # Don't pass any parent on to dimension symbols
+            dimensions = self.visit(o.children[1], **kwargs)
         if dimensions:
             name = name.clone(dimensions=dimensions)
 
@@ -399,6 +405,7 @@ class FParser2IR(GenericVisitor):
         var = self.visit(o.children[0], **kwargs)
         for c in o.children[1:]:
             parent = var
+            kwargs['parent'] = parent
             var = self.visit(c, **kwargs)
             if isinstance(var, sym.InlineCall):
                 # This is a function call with a type-bound procedure, so we need to
@@ -770,7 +777,8 @@ class FParser2IR(GenericVisitor):
         # Do not pass scope down, as it might alias with previously
         # created symbols. Instead, let the rescope in the Declaration
         # assign the right scope, always!
-        var = self.visit(o.children[0])
+        with dict_override(kwargs, {'scope': None}):
+            var = self.visit(o.children[0], **kwargs)
 
         if o.children[1]:
             dimensions = as_tuple(self.visit(o.children[1], **kwargs))
