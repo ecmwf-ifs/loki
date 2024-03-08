@@ -18,7 +18,7 @@ import click
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, SubroutineItem,
     Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info,
-    GlobalVarImportItem, Module
+    GlobalVarImportItem, Module, fgen
 )
 
 # Get generalized transformations provided by Loki
@@ -54,6 +54,9 @@ from transformations.single_column_coalesced_extended import (
 )
 from loki.transform.transform_inline import (
     inline_constant_parameters, inline_elemental_functions
+)
+from loki.transform.transform_parametrise import (
+        ParametriseArrayDimsTransformation
 )
 
 
@@ -208,10 +211,10 @@ def convert(
     else:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
 
-    if mode in ['c-parametrise', 'c-hoist', 'hip-parametrise', 'hip-hoist']:
-        inline_trafo = type("InlineTrafo", (Transformation, object), {
-            "transform_subroutine": lambda self, routine, **kwargs: inline_elemental_kernel(routine, **kwargs)})()
-        scheduler.process(transformation=inline_trafo)
+    if mode in ['c-parametrise', 'c-hoist', 'hip-parametrise', 'hip-hoist', 'cuf-hoist-new']:
+        # inline_trafo = type("InlineTrafo", (Transformation, object), {
+        #    "transform_subroutine": lambda self, routine, **kwargs: inline_elemental_kernel(routine, **kwargs)})()
+        # scheduler.process(transformation=inline_trafo)
 
         scheduler.process(transformation=GlobalVariableAnalysis())
         global_var_hoisting_trafo = GlobalVarHoistTransformation(hoist_parameters=True, ignore_modules=['parkind1'])
@@ -219,6 +222,7 @@ def convert(
 
         derived_type_transformation = DerivedTypeArgumentsTransformation(all_derived_types=True)
         scheduler.process(transformation=derived_type_transformation) # , reverse=True)
+
 
     # Perform general source sanitisation steps to level the playing field
     sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
@@ -276,6 +280,7 @@ def convert(
         scheduler.process( SCCDemoteTransformation(horizontal=horizontal))
         scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
 
+
     if mode == 'scc-hoist':
         # Apply recursive hoisting of local temporary arrays.
         # This requires a first analysis pass to run in reverse
@@ -289,7 +294,7 @@ def convert(
         ))
     
     if mode in ['scc-cpu']:
-        scheduler.process(SCCLowerLoopTransformation(dimension=block_dim, dim_name='IBL'))
+        scheduler.process(SCCLowerLoopTransformation(dimension=block_dim)) # , dim_name='IBL'))
 
     if mode == "cuf-parametrise-new" or mode == "cuf-hoist-new" or mode in ['c-parametrise', 'c-hoist', 'hip-parametrise', 'hip-hoist']:
         scc_extended = SCCLowerLoopTransformation(
@@ -305,14 +310,21 @@ def convert(
         # scheduler.process(transformation=cuf_transform)
         scheduler.process( transformation=scheduler.config.transformations[mode] )
 
+
+        dic2p = {'nang': 24, 'nfre': 36}
+        parametrise_trafo = ParametriseArrayDimsTransformation(dic2p=dic2p)
+        scheduler.process(transformation=parametrise_trafo)
+
+
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         # These transformations requires complex constructor arguments,
         # so we use the file-based transformation configuration.
         scheduler.process( transformation=scheduler.config.transformations[mode] )
 
-    if global_var_offload:
+    if global_var_offload and mode not in ["cuf-hoist-new"]:
         scheduler.process(transformation=GlobalVariableAnalysis())
         scheduler.process(transformation=GlobalVarOffloadTransformation())
+
 
     if mode in ['idem-stack', 'scc-stack']:
         if frontend == Frontend.OMNI:
@@ -348,6 +360,7 @@ def convert(
     #     scheduler.process( SCCAnnotateTransformation(
     #             horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
     #     ))
+
 
     mode = mode.replace('-', '_')  # Sanitize mode string
     if mode in ["c", "c_parametrise", "c_hoist", "hip_parametrise", "hip_hoist"]:

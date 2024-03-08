@@ -14,7 +14,7 @@ from loki.transform import resolve_associates, single_variable_declaration, Hois
 from loki import ir
 from loki import (
     Transformation, FindNodes, FindVariables, Transformer,
-    SubstituteExpressions, SymbolAttributes,
+    SubstituteExpressions, SymbolAttributes, fgen,
     CaseInsensitiveDict, as_tuple, flatten, types, DerivedType, BasicType
 )
 
@@ -50,6 +50,9 @@ class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransfor
             allocations = FindNodes(ir.Allocation).visit(routine.body)
             if allocations:
                 insert_index = routine.body.body.index(allocations[-1])
+                # if any(dim == sym.RangeIndex((None, None)) for dim in var.dimensions):
+                #     routine.body.insert(insert_index + 1, ir.Allocation((var.clone(dimensions=None),), data_mold=...))
+                # else:
                 routine.body.insert(insert_index + 1, ir.Allocation((var.clone(),)))
             else:
                 routine.body.prepend(ir.Allocation((var.clone(),)))
@@ -215,6 +218,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
         routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]])
         return
 
+    single_variable_declaration(routine)
     kernel_demote_private_locals(routine, horizontal, vertical)
 
     if depth > 1:
@@ -227,7 +231,10 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
     routine.arguments = list(routine.arguments) + [new_argument]
 
     vtype = routine.variable_map[horizontal.index].type.clone()
+    # if depth > 1:
     jblk_var = routine.variable_map[horizontal.index].clone(name=block_dim.index, type=vtype)
+    # else:
+    # jblk_var = routine.variable_map[horizontal.index].clone(name=block_dim.index, type=vtype.clone(intent=None, value=None))
     routine.spec.append(ir.VariableDeclaration((jblk_var,)))
 
     if depth == 1:
@@ -269,7 +276,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
     var_map = {}
     for var in variables:
         if var in arguments:
-            if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
+            if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables and var.type.intent == 'in':
                 var_map[var] = var.clone(type=var.type.clone(value=True))
             elif isinstance(var, sym.Array):
                 dimensions = list(var.dimensions) + [routine.variable_map[block_dim.size]]
@@ -877,6 +884,7 @@ class SccCufTransformationNew(Transformation):
                 call.kwargs_to_args()
 
 
+
     def process_kernel(self, routine, depth=1, targets=None):
         """
         Kernel/Device subroutine specific changes/transformations.
@@ -1003,16 +1011,19 @@ class SccCufTransformationNew(Transformation):
                 additional_kwargs = ()
                 if horizontal_index.name not in call.routine.arguments:
                     if horizontal_index.name in call.routine.variables:
+                        # pass
                         call.routine.symbol_attrs.update({horizontal_index.name: call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
                         # call.routine.variable_map[horizontal_index.name]._update(type=call.routine.variable_map[horizontal_index.name].type.clone(intent='in'))
                     # else:
                     # additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in', scope=call.routine)),)
-                    additional_args += (horizontal_index.clone(),)
+                    # additional_args += (horizontal_index.clone(),)
+                    additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in'), scope=call.routine),)
                 if horizontal_index.name not in call.arg_map:
-                    additional_kwargs += ((horizontal_index.name, horizontal_index.clone()),)
+                    additional_kwargs += ((horizontal_index.name, horizontal_index.clone(scope=routine)),)
                 
                 if block_dim_index.name not in call.routine.arguments:
                     additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in', scope=call.routine)),)
+                if block_dim_index.name not in call.arg_map:
                     additional_kwargs += ((block_dim_index.name, block_dim_index.clone()),)
                 if additional_kwargs:
                     call._update(kwarguments=call.kwarguments+additional_kwargs)
@@ -1023,9 +1034,12 @@ class SccCufTransformationNew(Transformation):
         var_map = {}
         for var in routine.variables:
             if var in routine.arguments:
-                # if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
-                if isinstance(var, sym.Scalar) and var not in derived_type_variables:
-                    var_map[var] = var.clone(type=var.type.clone(value=True))
+                if isinstance(var, sym.Scalar) and var not in derived_type_variables and var.type.intent == 'in':
+                    # TODO: I don't understand why this happens ...
+                    # if var.name.upper() == 'IJ' and "implsch" in routine.name.lower():
+                    #     var_map[var] = var.clone(type=var.type.clone(value=None, intent=None, scope=routine)) # , intent='in'))
+                    # else:
+                    var_map[var] = var.clone(type=var.type.clone(value=True, scope=routine)) # , intent='in'))
             else:
                 if isinstance(var, sym.Array):
                     dimensions = list(var.dimensions)
@@ -1034,14 +1048,16 @@ class SccCufTransformationNew(Transformation):
                         if transformation_type == 'hoist':
                             dimensions += [routine.variable_map[block_dim.size]]
                             shape = list(var.shape) + [routine.variable_map[block_dim.size]]
-                            vtype = var.type.clone(shape=as_tuple(shape))
+                            vtype = var.type.clone(shape=as_tuple(shape), intent=None) # , allocatable=False)
                             relevant_local_arrays.append(var.name)
                         else:
                             dimensions.remove(horizontal.size)
                             shape.remove(horizontal.size) 
                             relevant_local_arrays.append(var.name)
-                            vtype = var.type.clone(device=True, shape=shape)
+                            vtype = var.type.clone(device=True, shape=shape, intent=None) # allocatable=False)
                         var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=vtype)
+                else:
+                    var_map[var] = var.clone(type=var.type.clone(intent=None, value=None))
 
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
@@ -1058,6 +1074,11 @@ class SccCufTransformationNew(Transformation):
                         var_map[var] = var.clone(dimensions=as_tuple(dimensions[1:]))
 
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
+
+        # TODO: that should't be necessary, something goes wrong before ...
+        if depth == 1:
+            routine.variable_map[horizontal_index.name].rescope(scope=routine)
+            routine.symbol_attrs.update({horizontal_index.name: routine.variable_map[horizontal_index.name].type.clone(intent=None, value=None)})
 
     def device_derived_types(self, routine, derived_types, targets=None):
         """
@@ -1194,6 +1215,8 @@ class SccCufTransformationNew(Transformation):
 
             # return
         else:
+            relevant_arrays_pointer = [array for array in relevant_arrays if array.type.pointer]
+            relevant_arrays = [array for array in relevant_arrays if not array in relevant_arrays_pointer]
             # Declaration
             routine.spec.append(ir.Comment(''))
             routine.spec.append(ir.Comment('! Device arrays'))
@@ -1207,8 +1230,17 @@ class SccCufTransformationNew(Transformation):
             # Allocation
             for array in reversed(relevant_arrays):
                 vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
+                dimensions = None
+                try:
+                    dimensions=routine.variable_map[array.name].dimensions
+                except Exception as e:
+                    print(f"EXCEPTION {e} | instead use: {array.dimensions}")
+                    dimensions=array.dimensions
+                array_mold = array.clone(dimensions=None) if any(dim == sym.RangeIndex((None, None)) for dim in dimensions) else None
+                if array_mold is not None:
+                    dimensions = None
                 routine.body.prepend(ir.Allocation((array.clone(name=f"{array.name}_d", type=vtype,
-                                                            dimensions=routine.variable_map[array.name].dimensions),)))
+                                                            dimensions=dimensions),), data_mold=array_mold)) # dimensions=routine.variable_map[array.name].dimensions),)))
             routine.body.prepend(ir.Comment('! Device array allocation'))
             routine.body.prepend(ir.Comment(''))
 
@@ -1258,6 +1290,9 @@ class SccCufTransformationNew(Transformation):
             for array in relevant_arrays:
                 routine.body.append(ir.Deallocation((array.clone(name=f"{array.name}_d", dimensions=None),)))
 
+            use_device_addr = [array.name for array in relevant_arrays_pointer]
+            use_device = ir.Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')
+            end_use_device = ir.Pragma(keyword='acc', content=f'end host_data') 
             call_map = {}
             for call in calls:
                 arguments = []
@@ -1268,7 +1303,7 @@ class SccCufTransformationNew(Transformation):
                         arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
                     else:
                         arguments.append(arg)
-                call_map[call] = call.clone(arguments=as_tuple(arguments))
+                call_map[call] = (use_device, ir.Comment(text=""), call.clone(arguments=as_tuple(arguments)), ir.Comment(text=""), end_use_device)
             routine.body = Transformer(call_map).visit(routine.body)
 
     def driver_launch_configuration(self, routine, block_dim, targets=None):
@@ -1321,7 +1356,8 @@ class SccCufTransformationNew(Transformation):
                                        ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
 
                 if kernel_within:
-                    upper = routine.variable_map[loop.bounds.children[1].name]
+                    # upper = routine.variable_map[loop.bounds.children[1].name]
+                    upper = SCCBaseTransformation.get_integer_variable(routine, loop.bounds.children[1].name)
                     if loop.bounds.children[2]:
                         step = routine.variable_map[loop.bounds.children[2].name]
                     else:
@@ -1376,12 +1412,13 @@ class SccCufTransformationNew(Transformation):
                 else:
                     mapper[loop] = loop.body
 
-        routine.body = Transformer(mapper=mapper).visit(routine.body)
+        routine.body = Transformer(mapper=mapper, inplace=True).visit(routine.body)
+
         # blockdim_assignment_2 = f'dim3 blockdim({step.name.lower()}, 1, 1);'
         # griddim_assignment_2 = f'dim3 griddim(ceil(((double){upper.name.lower()})/((double){step.name.lower()})),1,1);'
         # blockdim_assignment_2 =  
-        return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var, blockdim_assignment, griddim_assignment # blockdim_assignment_2, griddim_assignment_2
-
+        # return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var, blockdim_assignment, griddim_assignment # blockdim_assignment_2, griddim_assignment_2
+        return upper, step, SCCBaseTransformation.get_integer_variable(routine, block_dim.size), blockdim_var, griddim_var, blockdim_assignment, griddim_assignment
     @staticmethod
     def kernel_demote_private_locals(routine, horizontal, vertical):
         """
@@ -1428,6 +1465,7 @@ class SccCufTransformationNew(Transformation):
 
         shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
         vmap = {}
+        vmap_dims = {}
         for v in variables:
             old_shape = shape_map[v.name]
             # TODO: "s for s in old_shape if s not in expressions" sufficient?
@@ -1437,7 +1475,17 @@ class SccCufTransformationNew(Transformation):
                 new_type = v.type.clone(shape=new_shape or None)
                 new_dims = v.dimensions[1:] or None
                 vmap[v] = v.clone(dimensions=new_dims, type=new_type)
+                vmap_dims[v.name] = new_shape
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+
+        for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
+            if decl.symbols[0].name in [var.name for var in variables]:
+                try:
+                    # decl._update(dimensions=vmap[decl.symbols[0]].dimensions)
+                    decl._update(dimensions=vmap_dims[decl.symbols[0].name])
+                except:
+                    decl._update(dimensions=None)
+
 

@@ -153,7 +153,10 @@ class HoistVariablesAnalysis(Transformation):
         for child in successors:
             if not isinstance(child, SubroutineItem):
                 continue
-            arg_map = dict(call_map[child.local_name].arg_iter())
+            try:
+                arg_map = dict(call_map[child.local_name].arg_iter())
+            except Exception as e:
+                print(f"EXCEPTION {e} - routine: {routine} | child: {child}")
             hoist_variables = []
             for var in child.trafo_data[self._key]["hoist_variables"]:
                 if isinstance(var, sym.Array):
@@ -273,7 +276,7 @@ class HoistVariablesTransformation(Transformation):
                     as_kwarguments=self.as_kwarguments
                 )
 
-        routine.body = Transformer(call_map).visit(routine.body)
+        routine.body = Transformer(call_map, inplace=True).visit(routine.body)
 
     def driver_variable_declaration(self, routine, variables):
         """

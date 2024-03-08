@@ -82,14 +82,13 @@ using the transformation
     scheduler.process(transformation=ParametriseTransformation(dic2p=dic2p, replace_by_value=True))
 """
 from loki.expression import symbols as sym
-from loki import ir
+from loki import ir, FindVariables, SubstituteExpressions
 from loki.visitors import Transformer, FindNodes
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 from loki.transform.transformation import Transformation
 from loki.transform.transform_inline import inline_constant_parameters
 
-
-__all__ = ['ParametriseTransformation']
+__all__ = ['ParametriseTransformation', 'ParametriseArrayDimsTransformation']
 
 
 class ParametriseTransformation(Transformation):
@@ -286,3 +285,62 @@ class ParametriseTransformation(Transformation):
             # replace all parameter variables with their corresponding value (inline constant parameters)
             if self.replace_by_value:
                 inline_constant_parameters(routine=routine, external_only=False)
+
+class ParametriseArrayDimsTransformation(Transformation):
+
+
+    _key = "ParametriseTransformation"
+    def __init__(self, dic2p, replace_by_value=False, entry_points=None, abort_callback=None, key=None):
+        self.dic2p = dic2p
+        if key is not None:
+            self._key = key
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        var2p = dict(self.dic2p)
+        variables = list(routine.variables)
+        variables += list(FindVariables(unique=False).visit(routine.body))
+        
+        introduce_loki_params = []
+        var_map = {}
+        vmap_dims = {}
+        clone_var = False
+        for var in variables:
+            if not isinstance(var, sym.Array):
+                continue
+            # for dim in var.shape:
+            #     dim_var_map = {}
+            #     dim_vars = FindVariables(unique=False).visit(dim)
+            #     for dim_var in dim_vars:
+            #         if dim_var.name.lower() in vars2p:
+            #             dim_var_map[dim_var] = sym.Variable(name=f"{dim_var.name}_loki_param")
+            new_shape = ()
+            clone_var = False
+            for dim in var.shape:
+                if dim in var2p:
+                    new_shape += (dim.clone(name=f"{dim.name}_loki_param"),)
+                    vmap_dims[dim] = dim.clone(name=f"{dim.name}_loki_param")
+                    introduce_loki_params.append(dim)
+                    clone_var = True
+                else:
+                    new_shape += (dim,)
+            # if new_shape != var.shape:
+            if clone_var:
+                var_map[var] = var.clone(type=var.type.clone(shape=new_shape), dimensions=new_shape)
+
+        print(f"herehere var_map: {var_map}")
+        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+       
+        for var in list(dict.fromkeys(introduce_loki_params)):
+            routine.variables += (var.clone(name=f"{var.name}_loki_param", type=var.type.clone(intent=None, initial=sym.IntLiteral(self.dic2p[var.name.lower()]))),)
+
+        print(f"herehere vmap_dims: {vmap_dims}")
+        for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
+            if decl.symbols[0].name in [var.name for var in variables]:
+                print(f"updating dimensions for decl: {decl}")
+                try:
+                    print(f" herehere updating to {vmap_dims[decl.symbols[0].name]}")
+                    decl._update(dimensions=vmap_dims[decl.symbols[0].name])
+                except:
+                    decl._update(dimensions=None)
+

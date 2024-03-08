@@ -3,7 +3,7 @@ from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
      NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
      is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached,
-     SubstituteExpressions, symbols as sym
+     SubstituteExpressions, symbols as sym, fgen
 )
 from transformations.single_column_coalesced import SCCBaseTransformation
 
@@ -41,6 +41,7 @@ class SCCLowerLoopTransformation(Transformation):
         #  facilitates further processing ...
         self.keep_driver_loop = keep_driver_loop
         self.ignore_dim_name = ignore_dim_name
+        self.call_routines = []
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -68,7 +69,7 @@ class SCCLowerLoopTransformation(Transformation):
         self.process_routine(routine, targets, role, remove_loop=role=='driver',
                 insert_index_instead_of_loop=role!='driver')
 
-        # SCCBaseTransformation.remove_dimensions(routine, calls_only=True)
+        SCCBaseTransformation.remove_dimensions(routine, calls_only=True)
 
     @staticmethod
     def _remove_vector_sections(routine):
@@ -89,11 +90,11 @@ class SCCLowerLoopTransformation(Transformation):
                 var_shape = list(var.shape)
                 var_dimensions = list(var.dimensions)
                 if index is None:
-                    var_shape.append(routine.variable_map[self.dimension.size])
-                    var_dimensions.append(routine.variable_map[self.dimension.size])
+                    var_shape.append(SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # routine.variable_map[self.dimension.size])
+                    var_dimensions.append(SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # routine.variable_map[self.dimension.size])
                 else:
-                    var_shape.insert(index, routine.variable_map[self.dimension.size]) 
-                    var_dimensions.insert(index, routine.variable_map[self.dimension.size])
+                    var_shape.insert(index, SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # routine.variable_map[self.dimension.size]) 
+                    var_dimensions.insert(index, SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # routine.variable_map[self.dimension.size])
                 var_map[var] = var.clone(type=var.type.clone(shape=as_tuple(var_shape)), dimensions=as_tuple(var_dimensions))
         
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
@@ -105,10 +106,10 @@ class SCCLowerLoopTransformation(Transformation):
                 var_shape = list(var.shape)
                 var_dimensions = list(var.dimensions)
                 if index is None:
-                    var_shape.append(routine.variable_map[self.dimension.size])
+                    var_shape.append(SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # routine.variable_map[self.dimension.size])
                     var_dimensions.append(routine.variable_map[self.dim_name])
                 else:
-                    var_shape.insert(index, routine.variable_map[self.dimension.size])
+                    var_shape.insert(index, SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # routine.variable_map[self.dimension.size])
                     var_dimensions.insert(index, routine.variable_map[self.dim_name])
                 
                 # TODO: which one?
@@ -117,12 +118,13 @@ class SCCLowerLoopTransformation(Transformation):
 
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
-    def _insert_index_in_kernel(self, routine, call, loop):
+    def _insert_index_in_kernel(self, routine, call, loop=None):
         index_variable = routine.variable_map[self.dim_name]
         if index_variable.name not in call.routine.arguments:
+            dimension_size_var = SCCBaseTransformation.get_integer_variable(call.routine, self.dimension.size)
             call.routine.arguments += (index_variable.clone(scope=call.routine, type=index_variable.type.clone(intent='in')),
-                    routine.variable_map[self.dimension.size])
-        return ((index_variable.name, index_variable), (routine.variable_map[self.dimension.size].name, routine.variable_map[self.dimension.size]))
+                    dimension_size_var.clone(type=dimension_size_var.type.clone(intent='in'), scope=call.routine)) # SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # routine.variable_map[self.dimension.size])
+        return ((index_variable.name, index_variable), (self.dimension.size, SCCBaseTransformation.get_integer_variable(routine, self.dimension.size))) # (routine.variable_map[self.dimension.size].name, routine.variable_map[self.dimension.size]))
 
     def _insert_loop_in_kernel(self, routine, call, loop):
         """
@@ -174,7 +176,8 @@ class SCCLowerLoopTransformation(Transformation):
             loop_step = loop_start.clone(name=f"{loop.variable.name}_step")
             
             # add arguments to the callee
-            call.routine.arguments += (loop_start, loop_end, loop_step, routine.variable_map[self.dimension.size])
+            dimension_size_var = SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)
+            call.routine.arguments += (loop_start, loop_end, loop_step, dimension_size_var.clone(type=dimension_size_var.type.clone(intent='in'), scope=call.routine)) # routine.variable_map[self.dimension.size])
             call.routine.arguments += as_tuple(additional_arguments)
 
             # TODO: remove
@@ -193,10 +196,13 @@ class SCCLowerLoopTransformation(Transformation):
         start = loop.bounds.children[0]
         end = loop.bounds.children[1]
         step = loop.bounds.children[2] if len(loop.bounds.children) > 2 else sym.IntLiteral(1) # explicitly set step to 1 if it's implicitly 1
+        if step is None:
+            step = sym.IntLiteral(1)
         additional_kwarguments = [(symbol.name, symbol) for symbol in additional_arguments]
         return ((f"{loop.variable.name}_start", start), (f"{loop.variable.name}_end", end),
-                (f"{loop.variable.name}_step", step), (routine.variable_map[self.dimension.size].name,
-                    routine.variable_map[self.dimension.size].clone(scope=call.routine))) + as_tuple(additional_kwarguments)
+                (f"{loop.variable.name}_step", step), (self.dimension.size, SCCBaseTransformation.get_integer_variable(routine, self.dimension.size))) + as_tuple(additional_kwarguments)
+        # (routine.variable_map[self.dimension.size].name,
+        #             routine.variable_map[self.dimension.size].clone(scope=call.routine))) + as_tuple(additional_kwarguments)
 
     def process_routine(self, routine, targets, role, remove_loop=True, insert_index_instead_of_loop=False):
         # if DRIVER
@@ -221,6 +227,18 @@ class SCCLowerLoopTransformation(Transformation):
         # insert loop in relevant kernel, 
         #  update call arguments and collect information in order to 
         #  promote/update callee arguments/variables in the next step
+        if not loops:
+            calls = FindNodes(ir.CallStatement).visit(routine.body)
+            for call in calls:
+                if call.routine.name.lower() not in targets:
+                    continue
+                if SCCBaseTransformation.is_elemental(call.routine):
+                    continue
+                if call.routine.name not in self.call_routines:
+                    continue
+                additional_kwarguments = self._insert_index_in_kernel(routine, call) #  loop)
+                call._update(kwarguments=call.kwarguments + additional_kwarguments)
+        call_routine_map = {}
         for loop in loops:
             # driver loop mapping
             if remove_loop:
@@ -229,7 +247,7 @@ class SCCLowerLoopTransformation(Transformation):
                         comment, loop_node, comment, ir.Pragma(keyword="loki", content="end: removed loop"), comment)
             # calls
             calls = FindNodes(ir.CallStatement).visit(loop.body)
-            call_routine_map = {}
+            # call_routine_map = {}
             for call in calls:
                 # only those callees being in targets
                 if call.routine.name.lower() not in targets:
@@ -242,7 +260,8 @@ class SCCLowerLoopTransformation(Transformation):
                     additional_kwarguments = self._insert_index_in_kernel(routine, call, loop) 
                 else:
                     additional_kwarguments = self._insert_loop_in_kernel(routine, call, loop)
-                
+               
+                self.call_routines.append(call.routine.name)
                 relevant_callees.append(call.routine)
                 call_routine_map[call.routine.name] = {}
                 call_routine_map[call.routine.name]['shape'] = {}
@@ -293,7 +312,7 @@ class SCCLowerLoopTransformation(Transformation):
                             new_arguments += (arg,)
                         else:
                             new_kwargs += ((keyword, arg),)
-                            
+                           
                 call._update(arguments=new_arguments, kwarguments=new_kwargs+additional_kwarguments)
         routine.body = Transformer(loop_map).visit(routine.body)
 

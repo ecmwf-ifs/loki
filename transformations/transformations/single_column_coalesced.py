@@ -14,7 +14,8 @@ from loki import (
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
     SymbolAttributes, BasicType, SubstituteExpressions, DerivedType,
     FindVariables, CaseInsensitiveDict, pragma_regions_attached,
-    PragmaRegion, is_loki_pragma, HoistVariablesTransformation
+    PragmaRegion, is_loki_pragma, HoistVariablesTransformation,
+    FindInlineCalls
 )
 
 __all__ = [
@@ -79,6 +80,11 @@ class SCCBaseTransformation(Transformation):
         if calls_only:
             calls = FindNodes(ir.CallStatement).visit(routine.body)
             for call in calls:
+                # if call.routine is BasicType.DEFERRED or not "update_devic" in call.routine.name.lower():
+                # if "update_devic" not in call.routine.name.lower():
+                # if isinstance(call.name, sym.DeferredTypeSymbol) or 
+                if "update_devic" not in str(call.name).lower():
+                    continue
                 arguments = ()
                 for arg in call.arguments:
                     if isinstance(arg, sym.Array):
@@ -89,7 +95,32 @@ class SCCBaseTransformation(Transformation):
                             arguments += (arg,)
                     else:
                         arguments += (arg,)
-                call._update(arguments=arguments)
+                kwarguments = ()
+                for (kwarg_name, kwarg) in call.kwarguments:
+                    if isinstance(kwarg, sym.Array) and all(dim == sym.RangeIndex((None, None)) for dim in kwarg.dimensions):
+                        kwarguments += ((kwarg_name, kwarg.clone(dimensions=None)),)
+                    else:
+                        kwarguments += ((kwarg_name, kwarg),)
+                if not kwarguments:
+                    kwarguments=None
+                call._update(arguments=arguments, kwarguments=kwarguments)
+            inline_call_map = {}
+            inline_calls = FindInlineCalls().visit(routine.body)
+            for inline_call in inline_calls:
+                parameters = ()
+                for arg in inline_call.parameters:
+                    if isinstance(arg, sym.Array):
+                        if all(dim == sym.RangeIndex((None, None)) for dim in arg.dimensions):
+                            new_dimensions = None
+                            parameters += (arg.clone(dimensions=new_dimensions),)
+                        else:
+                            parameters += (arg,)
+                    else:
+                        parameters += (arg,)
+                # inline_call._update(parameters=parameters)
+                inline_call_map[inline_call] = inline_call.clone(parameters=parameters)
+            routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
+
 
         else:
             arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]

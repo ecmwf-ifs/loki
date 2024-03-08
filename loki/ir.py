@@ -976,6 +976,7 @@ class _AllocationBase():
 
     variables: Tuple[Expression, ...]
     data_source: Expression = None
+    data_mold: Expression = None
     status_var: Expression = None
 
 
@@ -996,13 +997,14 @@ class Allocation(LeafNode, _AllocationBase):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    _traversable = ['variables', 'data_source', 'status_var']
+    _traversable = ['variables', 'data_source', 'status_var', 'data_mold']
 
     def __post_init__(self):
         super().__post_init__()
         assert is_iterable(self.variables)
         assert all(isinstance(var, Expression) for var in self.variables)
         assert self.data_source is None or isinstance(self.data_source, Expression)
+        assert self.data_mold is None or isinstance(self.data_mold, Expression)
         assert self.status_var is None or isinstance(self.status_var, Expression)
 
     def __repr__(self):

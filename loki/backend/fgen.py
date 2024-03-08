@@ -748,6 +748,8 @@ class FortranCodegen(Stringifier):
           ALLOCATE(<variables> [, SOURCE=<source>])
         """
         items = self.visit_all(o.variables, **kwargs)
+        if o.data_mold is not None:
+            items += (f'MOLD={self.visit(o.data_mold, **kwargs)}',)
         if o.data_source is not None:
             items += (f'SOURCE={self.visit(o.data_source, **kwargs)}', )
         if o.status_var is not None:

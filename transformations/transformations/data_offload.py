@@ -11,7 +11,8 @@ from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
     CallStatement, Pragma, Scalar, Array, as_tuple, Transformer, warning, BasicType,
     SubroutineItem, GlobalVarImportItem, dataflow_analysis_attached, Import,
-    Comment, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict
+    Comment, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict,
+    FindInlineCalls, SubstituteExpressions
 )
 
 
@@ -313,8 +314,12 @@ class GlobalVariableAnalysis(Transformation):
                             scope=module_var.scope
                         )
                     return (module_var.clone(dimensions=dimensions), module.name.lower())
-                module = var.type.module
-                return (module.variable_map[var.name], module.name.lower())
+                try:
+                    module = var.type.module
+                    return (module.variable_map[var.name], module.name.lower())
+                except:
+                    print(f"var: {var} | {var.type} | {module}")
+                    return ()
 
             # Store symbol lists in trafo data
             item.trafo_data[self._key] = {}
@@ -859,6 +864,19 @@ class GlobalVarHoistTransformation(Transformation):
                         key=lambda symbol: symbol.name)
                 call_map[call] = call.clone(arguments=arguments + tuple(new_args))
         routine.body = Transformer(call_map).visit(routine.body)
+        inline_calls = FindInlineCalls().visit(routine.body)
+        inline_call_map = {}
+        for call in inline_calls:
+            print(f"routine: {routine.name} | InlineCall: {call} ({uses_symbols})")
+            if call.routine.name in uses_symbols:
+                print(f"  yes!!!!")
+                arguments = call.parameters
+                new_args = sorted([var.clone(dimensions=None) for var in symbol_map[call.routine.name]],
+                        key=lambda symbol: symbol.name)
+                inline_call_map[call] = call.clone(parameters=arguments + tuple(new_args))
+        print(f"inline_call_map: {inline_call_map}")
+        # routine.body = Transformer(inline_call_map).visit(routine.body)
+        routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 
     def _append_routine_arguments(self, routine, item):
         """
@@ -880,8 +898,11 @@ class GlobalVarHoistTransformation(Transformation):
             new_arguments.append(var.parents[0] if var.parent else var)
         new_arguments = set(new_arguments) # remove duplicates
         new_arguments = [arg.clone(type=arg.type.clone(intent='inout' if arg in all_defines_vars
-            else 'in', parameter=None, initial=None)) for arg in new_arguments]
+            else 'in', parameter=None, initial=None, device=arg.type.allocatable, allocatable=None), scope=routine) for arg in new_arguments] # allocatable=None
+        # new_arguments = [arg.clone(type=arg.type.clone(parameter=None, initial=None)) for arg in new_arguments]
+        # print(f"routine: {routine} | symbol_attrs: {routine.symbol_attrs}")
         for new_arg in new_arguments:
-            if new_arg.name in routine.symbol_attrs:
-                routine.symbol_attrs.update({new_arg.name: new_arg.type.clone(parameter=None)})
+            pass
+            # if new_arg.name in routine.symbol_attrs:
+            #     routine.symbol_attrs.update({new_arg.name: new_arg.type.clone(parameter=None)})
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
