@@ -129,7 +129,8 @@ def fixture_driverB_dependencies():
         'kernelB_mod#kernelB': ('compute_l1_mod#compute_l1', 'ext_driver_mod#ext_driver'),
         'compute_l1_mod#compute_l1': ('compute_l2_mod#compute_l2',),
         'compute_l2_mod#compute_l2': (),
-        'ext_driver_mod#ext_driver': ('ext_kernel_mod#ext_kernel',),
+        'ext_driver_mod#ext_driver': ('ext_kernel_mod', 'ext_kernel_mod#ext_kernel',),
+        'ext_kernel_mod': (),
         'ext_kernel_mod#ext_kernel': (),
         'header_mod#header_type': (),
         'header_mod': (),
@@ -148,7 +149,6 @@ def fixture_proj_typebound_dependencies():
             # 'typebound_header#header_type',
             'typebound_header#header_type%member_routine',
             'typebound_header#header_type%routine',
-            'typebound_other',
             'typebound_other#other_type',
             'typebound_other#other_type%member',
             'typebound_other#other_type%var%member_routine',
@@ -202,17 +202,16 @@ def fixture_proj_typebound_dependencies():
             'typebound_header#header_type',
         ),
         'typebound_header#abor1': (),
-        'typebound_other': ('typebound_header', 'typebound_header#header_type',),
-        'typebound_other#other_type': ('typebound_header#header_type', 'typebound_header'),
+        'typebound_other#other_type': ('typebound_header#header_type',),
         'typebound_other#other_type%member': ('typebound_other#other_member',),
         'typebound_other#other_member': (
-            'typebound_header',
             'typebound_header#header_member_routine',
             'typebound_other#other_type',
             'typebound_other#other_type%var%member_routine'
         ),
         'typebound_other#other_type%var%member_routine': ('typebound_header#header_type%member_routine',)
     }
+
 
 class VisGraphWrapper:
     """
@@ -734,7 +733,8 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
     }
 
     ignored_dependenciesA = {
-        'ext_driver_mod#ext_driver': ('ext_kernel_mod#ext_kernel',),
+        'ext_driver_mod#ext_driver': ('ext_kernel_mod', 'ext_kernel_mod#ext_kernel',),
+        'ext_kernel_mod': (),
         'ext_kernel_mod#ext_kernel': (),
     }
 
@@ -1026,11 +1026,11 @@ def test_scheduler_dependencies_ignore(here, preprocess, frontend):
     ]
     if preprocess:
         expected_items_b = [
-            '#ext_driver', 'ext_kernel_mod#ext_kernel'
+            '#ext_driver', 'ext_kernel_mod', 'ext_kernel_mod#ext_kernel'
         ]
     else:
         expected_items_b = [
-            'ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'
+            'ext_driver_mod#ext_driver', 'ext_kernel_mod', 'ext_kernel_mod#ext_kernel'
         ]
 
     assert set(schedulerA.items) == {n.lower() for n in expected_items_a + expected_items_b}
@@ -1095,7 +1095,12 @@ def test_scheduler_dependencies_ignore(here, preprocess, frontend):
         schedulerB.process(transformation=transformation)
 
     assert schedulerB.items[0].source.all_subroutines[0].name == 'ext_driver_test'
-    assert schedulerB.items[1].source.all_subroutines[0].name == 'ext_kernel_test'
+
+    # This is the untransformed original module
+    assert schedulerB['ext_kernel_mod'].source.all_subroutines[0].name == 'ext_kernel'
+
+    # This is the module-wrapped procedure
+    assert schedulerB['ext_kernel_test_mod#ext_kernel_test'].source.all_subroutines[0].name == 'ext_kernel_test'
 
 
 def test_scheduler_cmake_planner(here, frontend):
@@ -1320,17 +1325,15 @@ def test_scheduler_scopes(here, config, frontend):
 
     expected_dependencies = {
         '#driver': (
-            'kernel1_mod', 'kernel1_mod#kernel',
-            'kernel2_mod', 'kernel2_mod#kernel',
+            'kernel1_mod#kernel',
+            'kernel2_mod#kernel',
         ),
-        'kernel1_mod': (),
         'kernel1_mod#kernel': (
             'kernel1_impl',
             'kernel1_impl#kernel_impl',
         ),
         'kernel1_impl': (),
         'kernel1_impl#kernel_impl': (),
-        'kernel2_mod': (),
         'kernel2_mod#kernel': (
             'kernel2_impl',
             'kernel2_impl#kernel_impl',
@@ -1879,9 +1882,8 @@ end subroutine test_scheduler_interface_dependencies_driver
 
     expected_dependencies = {
         '#test_scheduler_interface_dependencies_driver': {
-            'test_scheduler_interface_dependencies_mod', 'test_scheduler_interface_dependencies_mod#my_intf'
+            'test_scheduler_interface_dependencies_mod#my_intf'
         },
-        'test_scheduler_interface_dependencies_mod': set(),
         'test_scheduler_interface_dependencies_mod#my_intf': {
             'test_scheduler_interface_dependencies_mod#proc1', 'test_scheduler_interface_dependencies_mod#proc2'
         },
@@ -1983,13 +1985,11 @@ end subroutine caller
 
     expected_dependencies = {
         '#caller': (
-            'some_mod',
             'some_mod#some_type',
             'some_mod#some_type%routine',
             'some_mod#some_type%do',
             'some_mod#some_type%other',
         ),
-        'some_mod': (),
         'some_mod#some_type': (),
         'some_mod#some_type%routine': ('some_mod#routine',),
         'some_mod#some_type%do': (
@@ -2147,11 +2147,9 @@ end subroutine caller
 
     expected_dependencies = {
         '#caller': (
-            'some_mod',
             'some_mod#some_type',
             'some_mod#some_type%some_routine',
         ),
-        'some_mod': (),
         'some_mod#some_type': (),
         'some_mod#some_type%some_routine': ('some_mod#some_routine',),
         'some_mod#some_routine': ('some_mod#some_type',),
@@ -2525,11 +2523,9 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
     # Only the driver and mod1 are in the Sgraph
     expected_dependencies = {
         '#test_scheduler_filter_program_units_file_graph_driver': {
-            'test_scheduler_filter_program_units_file_graph_mod1',
             'test_scheduler_filter_program_units_file_graph_mod1#proc1',
             'test_scheduler_filter_program_units_file_graph_mod3'
         },
-        'test_scheduler_filter_program_units_file_graph_mod1': set(),
         'test_scheduler_filter_program_units_file_graph_mod1#proc1': set(),
         'test_scheduler_filter_program_units_file_graph_mod3': set()
     }
@@ -2743,12 +2739,10 @@ end subroutine test_scheduler_frontend_overwrite_kernel
     )
 
     assert set(scheduler.items) == {
-        '#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header',
-        'test_scheduler_frontend_overwrite_header#some_type'
+        '#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header#some_type'
     }
 
     assert set(scheduler.dependencies) == {
-       ('#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header'),
        ('#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header#some_type')
     }
 
