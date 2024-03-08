@@ -26,7 +26,7 @@ except ImportError:
 from conftest import stdchannel_is_captured, stdchannel_redirected
 from loki.tools import (
     JoinableStringList, truncate_string, binary_insertion_sort, is_subset,
-    optional, yaml_include_constructor, execute, timeout
+    optional, yaml_include_constructor, execute, timeout, dict_override
 )
 
 
@@ -341,3 +341,15 @@ def test_timeout():
         stop = perf_counter()
         assert .9 < stop - start < 1.1
         assert "My message" in str(exc.value)
+
+
+def test_dict_override():
+    kwargs = {'rick' : 42, 'dave' : 'yeah'}
+    with dict_override(kwargs, {'dave' : 'nope', 'joe' : 'huh?'}):
+        assert kwargs['dave'] == 'nope'
+        assert kwargs['rick'] == 42
+        assert kwargs['joe'] == 'huh?'
+    assert kwargs['dave'] == 'yeah'
+    assert kwargs['rick'] == 42
+    assert 'joe' not in kwargs
+    assert len(kwargs) == 2
