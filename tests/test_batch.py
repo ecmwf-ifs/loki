@@ -49,13 +49,11 @@ def fixture_default_config():
 def fixture_comp1_expected_dependencies():
     return {
         '#comp1': ('header_mod', 't_mod', 't_mod#t', '#comp2', 't_mod#t%proc', 't_mod#t%no%way'),
-        '#comp2': ('header_mod', 't_mod', 't_mod#t', 'a_mod', 'a_mod#a', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
-        'a_mod': (),
+        '#comp2': ('header_mod', 't_mod#t', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc'),
         'a_mod#a': ('header_mod',),
-        'b_mod': ('header_mod',),
         'b_mod#b': (),
-        't_mod': ('a_mod', 'a_mod#a', 'tt_mod', 'tt_mod#tt'),
-        't_mod#t': ('tt_mod', 'tt_mod#tt', 't_mod#t1'),
+        't_mod': ('tt_mod#tt',),
+        't_mod#t': ('tt_mod#tt', 't_mod#t1'),
         't_mod#t1': (),
         't_mod#t%proc': ('t_mod#t_proc',),
         't_mod#t_proc': ('t_mod#t', 'a_mod#a', 't_mod#t%yay%proc'),
@@ -63,7 +61,6 @@ def fixture_comp1_expected_dependencies():
         't_mod#t%yay%proc': ('tt_mod#tt%proc',),
         't_mod#t1%way': ('t_mod#my_way',),
         't_mod#my_way': ('t_mod#t1',),
-        'tt_mod': ('header_mod',),
         'tt_mod#tt': (),
         'tt_mod#tt%proc': ('tt_mod#proc',),
         'tt_mod#proc': ('tt_mod#tt',),
@@ -74,12 +71,10 @@ def fixture_comp1_expected_dependencies():
 @pytest.fixture(name='mod_proc_expected_dependencies')
 def fixture_mod_proc_expected_dependencies():
     return {
-        'other_mod#mod_proc': ('tt_mod', 'tt_mod#tt', 'tt_mod#tt%proc', 'b_mod#b'),
-        'tt_mod': ('header_mod',),
+        'other_mod#mod_proc': ('tt_mod#tt', 'tt_mod#tt%proc', 'b_mod#b'),
         'tt_mod#tt': (),
         'tt_mod#tt%proc': ('tt_mod#proc',),
         'tt_mod#proc': ('tt_mod#tt',),
-        'header_mod': (),
         'b_mod#b': ()
     }
 
@@ -115,15 +110,11 @@ def fixture_file_dependencies():
             'module/tt_mod.F90',
             'module/a_mod.F90',
         ),
-        'module/tt_mod.F90': (
-            'headers/header_mod.F90',
-        ),
+        'module/tt_mod.F90': (),
         'module/a_mod.F90': (
             'headers/header_mod.F90',
         ),
-        'module/b_mod.F90': (
-            'headers/header_mod.F90',
-        ),
+        'module/b_mod.F90': (),
         'headers/header_mod.F90': ()
     }
 
@@ -456,10 +447,7 @@ def test_procedure_item2(here):
         ]
     })
     items = item.create_dependency_items(item_factory=item_factory)
-    assert items == (
-        't_mod', 't_mod#t', 'header_mod', 'a_mod', 'a_mod#a',
-        'b_mod', 'b_mod#b', 't_mod#t%yay%proc'
-    )
+    assert items == ('t_mod#t', 'header_mod', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc')
 
     # Does it still work if we call it again?
     assert items == item.create_dependency_items(item_factory=item_factory)
@@ -488,9 +476,7 @@ def test_procedure_item3(here):
         'tt_mod': get_item(ModuleItem, proj/'module/tt_mod.F90', 'tt_mod', RegexParserClass.ProgramUnitClass),
         'b_mod': get_item(ModuleItem, proj/'module/b_mod.F90', 'b_mod', RegexParserClass.ProgramUnitClass)
     })
-    assert item.create_dependency_items(item_factory=item_factory) == (
-        'tt_mod', 'tt_mod#tt', 'tt_mod#tt%proc', 'b_mod#b'
-    )
+    assert item.create_dependency_items(item_factory=item_factory) == ('tt_mod#tt', 'tt_mod#tt%proc', 'b_mod#b')
 
 
 def test_procedure_item4(here):
@@ -519,57 +505,62 @@ def test_procedure_item4(here):
 @pytest.mark.parametrize('config,expected_dependencies,expected_targets', [
     (
         {},
-        ('t_mod', 't_mod#t', 'header_mod', 'a_mod', 'a_mod#a', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
+        ('t_mod#t', 'header_mod', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc'),
         ('t_mod', 't', 'header_mod', 'k', 'a_mod', 'a', 'b_mod', 'b', 'arg%yay%proc')
     ),
     (
         {'default': {'disable': ['#a']}},
-        ('t_mod', 't_mod#t', 'header_mod', 'a_mod', 'a_mod#a', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
+        ('t_mod#t', 'header_mod', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc'),
         ('t_mod', 't', 'header_mod', 'k', 'a_mod', 'a', 'b_mod', 'b', 'arg%yay%proc')
     ),
     (
         {'default': {'disable': ['a']}},
-        ('t_mod', 't_mod#t', 'header_mod', 'a_mod', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
+        ('t_mod#t', 'header_mod', 'b_mod#b', 't_mod#t%yay%proc'),
         ('t_mod', 't', 'header_mod', 'k', 'a_mod', 'b_mod', 'b', 'arg%yay%proc')
     ),
     (
         {'default': {'disable': ['a', 'a_mod']}},
-        ('t_mod', 't_mod#t', 'header_mod', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
+        ('t_mod#t', 'header_mod', 'b_mod#b', 't_mod#t%yay%proc'),
         ('t_mod', 't', 'header_mod', 'k', 'b_mod', 'b', 'arg%yay%proc'),
     ),
     (
         {'default': {'disable': ['a_mod#a']}},
-        ('t_mod', 't_mod#t', 'header_mod', 'a_mod', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
+        ('t_mod#t', 'header_mod', 'b_mod#b', 't_mod#t%yay%proc'),
         ('t_mod', 't', 'header_mod', 'k', 'a_mod', 'b_mod', 'b', 'arg%yay%proc')
     ),
     (
         {'default': {'disable': ['a_mod']}},
-        ('t_mod', 't_mod#t', 'header_mod', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
+        ('t_mod#t', 'header_mod', 'b_mod#b', 't_mod#t%yay%proc'),
         ('t_mod', 't', 'header_mod', 'k', 'b_mod', 'b', 'arg%yay%proc')
     ),
     (
+        {'default': {'disable': ['t%yay%proc']}},
+        ('t_mod#t', 'header_mod', 'a_mod#a', 'b_mod#b'),
+        ('t_mod', 't', 'header_mod', 'k', 'a_mod', 'a', 'b_mod', 'b')
+    ),
+    (
         {'default': {'disable': ['t_mod#t%yay%proc']}},
-        ('t_mod', 't_mod#t', 'header_mod', 'a_mod', 'a_mod#a', 'b_mod', 'b_mod#b'),
+        ('t_mod#t', 'header_mod', 'a_mod#a', 'b_mod#b'),
         ('t_mod', 't', 'header_mod', 'k', 'a_mod', 'a', 'b_mod', 'b')
     ),
     (
         {'default': {'disable': ['t_mod#t']}},
-        ('t_mod', 'header_mod', 'a_mod', 'a_mod#a', 'b_mod', 'b_mod#b'),
+        ('header_mod', 'a_mod#a', 'b_mod#b'),
         ('t_mod', 'header_mod', 'k', 'a_mod', 'a', 'b_mod', 'b')
     ),
     (
         {'default': {'disable': ['t_mod']}},
-        ('header_mod', 'a_mod', 'a_mod#a', 'b_mod', 'b_mod#b'),
+        ('header_mod', 'a_mod#a', 'b_mod#b'),
         ('header_mod', 'k', 'a_mod', 'a', 'b_mod', 'b')
     ),
     (
         {'default': {'disable': ['header_mod']}},
-        ('t_mod', 't_mod#t', 'a_mod', 'a_mod#a', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
+        ('t_mod#t', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc'),
         ('t_mod', 't', 'a_mod', 'a', 'b_mod', 'b', 'arg%yay%proc')
     ),
     (
         {'default': {'disable': ['k']}},
-        ('t_mod', 't_mod#t', 'header_mod', 'a_mod', 'a_mod#a', 'b_mod', 'b_mod#b', 't_mod#t%yay%proc'),
+        ('t_mod#t', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc'),
         ('t_mod', 't', 'header_mod', 'a_mod', 'a', 'b_mod', 'b', 'arg%yay%proc')
     ),
 ])
@@ -670,9 +661,7 @@ def test_typedef_item(here):
     items = item.create_dependency_items(item_factory=item_factory)
     assert 'tt_mod#tt' in item_factory.item_cache
     assert 't_mod#t1' in item_factory.item_cache
-    assert items == (
-        item_factory.item_cache['tt_mod'], item_factory.item_cache['tt_mod#tt'], item_factory.item_cache['t_mod#t1']
-    )
+    assert items == (item_factory.item_cache['tt_mod#tt'], item_factory.item_cache['t_mod#t1'])
     assert all(isinstance(i, TypeDefItem) for i in items[1:])
     assert not items[1].dependencies
 
@@ -1012,20 +1001,20 @@ def test_sgraph_from_seed(here, default_config, seed, dependencies_fixture, requ
     ('#comp1', ('comp2', 'a'), (
         '#comp1', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%proc', 't_mod#t%no%way',
         't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
-        't_mod#t1%way', 't_mod#my_way', 'tt_mod', 'tt_mod#tt', 't_mod#t1', 'a_mod'
+        't_mod#t1%way', 't_mod#my_way', 'tt_mod#tt', 't_mod#t1'
     )),
     ('#comp1', ('comp2', 'a', 't_mod#t%no%way'), (
         '#comp1', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%proc',
         't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
-        'tt_mod', 'tt_mod#tt', 't_mod#t1', 'a_mod',
+        'tt_mod#tt', 't_mod#t1'
     )),
     ('#comp1', ('#comp2', 't1%way'), (
         '#comp1', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%proc', 't_mod#t%no%way',
         't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
-        'tt_mod', 'tt_mod#tt', 't_mod#t1', 'a_mod', 'a_mod#a'
+        'tt_mod#tt', 't_mod#t1', 'a_mod#a'
     )),
     ('t_mod#t_proc', ('t_mod#t1', 'proc'), (
-        't_mod#t_proc', 't_mod#t', 'tt_mod', 'tt_mod#tt', 'a_mod#a', 'header_mod',
+        't_mod#t_proc', 't_mod#t', 'tt_mod#tt', 'a_mod#a', 'header_mod',
         't_mod#t%yay%proc', 'tt_mod#tt%proc'
     ))
 ])
@@ -1079,9 +1068,8 @@ def test_sgraph_disable(here, default_config, expected_dependencies, seed, disab
             'comp2': {'block': ['a', 'b']},
             't_mod': {'block': ['a']}
         }, (
-            '#comp2', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%yay%proc',
-            'tt_mod', 'tt_mod#tt', 't_mod#t1', 'tt_mod#tt%proc', 'tt_mod#proc',
-            'a_mod', 'b_mod'
+            '#comp2', 't_mod#t', 'header_mod', 't_mod#t%yay%proc',
+            'tt_mod#tt', 't_mod#t1', 'tt_mod#tt%proc', 'tt_mod#proc'
         )
     ),
     (
@@ -1089,9 +1077,9 @@ def test_sgraph_disable(here, default_config, expected_dependencies, seed, disab
             'comp2': {'ignore': ['a'], 'block': ['b']},
             't_mod': {'ignore': ['a']}
         }, (
-            '#comp2', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%yay%proc',
-            'tt_mod', 'tt_mod#tt', 't_mod#t1', 'tt_mod#tt%proc', 'tt_mod#proc',
-            'a_mod', 'a_mod#a', 'b_mod'
+            '#comp2', 't_mod#t', 'header_mod', 't_mod#t%yay%proc',
+            'tt_mod#tt', 't_mod#t1', 'tt_mod#tt%proc', 'tt_mod#proc',
+            'a_mod#a'
         )
     ),
 ])
@@ -1141,7 +1129,7 @@ def test_sgraph_routines(here, default_config, expected_dependencies, seed, rout
     if seed == '#comp1':
         targets += ['nt1']
     if seed == '#comp2':
-        targets += ['k']
+        targets += ['t_mod', 'b_mod', 'a_mod', 'k']
 
     if 'block' in routines[seed[1:]]:
         targets = [t for t in targets if t not in routines[seed[1:]]['block']]
@@ -1281,7 +1269,6 @@ def discover_proj_typebound_item_factory(here, scheduler_config):
         (
             'typebound_item',
             'typebound_header',
-            'typebound_other',
             'typebound_other#other_type',
             'typebound_item#some_type%other_routine',
             'typebound_item#some_type%some_routine',
@@ -1459,7 +1446,7 @@ def discover_proj_typebound_item_factory(here, scheduler_config):
             'calls': (),
             'targets': ('typebound_header', 'header')
         },
-        ('typebound_header', 'typebound_header#header_type',),
+        ('typebound_header#header_type',),
     ),
 ])
 def test_batch_typebound_item(
@@ -1504,9 +1491,8 @@ def test_batch_typebound_nested_item(here, default_config):
     # dependency items
     assert 'typebound_other#other_type%var%member_routine' not in item_factory
     assert item.create_dependency_items(item_factory, scheduler_config) == (
-        'typebound_header',
-        'typebound_header#header_member_routine',
         'typebound_other#other_type',
+        'typebound_header#header_member_routine',
         'typebound_other#other_type%var%member_routine',
     )
     assert 'typebound_other#other_type%var%member_routine' in item_factory
