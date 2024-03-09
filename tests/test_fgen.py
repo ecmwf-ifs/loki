@@ -127,6 +127,9 @@ def test_multiline_inline_conditional(frontend):
     """
     fcode = """
 subroutine test_fgen(DIMS, ZSURF_LOCAL)
+  type(DIMENSION_TYPE), intent(in) :: DIMS
+  type(SURFACE_TYPE), intent(inout) :: ZSURF_LOCAL
+  type(STATE_TYPE) :: TENDENCY_LOC
 contains
 subroutine test_inline_multiline(KDIMS, LBUD23)
 
