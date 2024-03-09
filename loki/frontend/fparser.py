@@ -413,7 +413,12 @@ class FParser2IR(GenericVisitor):
                 function = var.function.clone(name=f'{parent.name}%{var.function.name}', parent=parent)
                 var = var.clone(function=function)
             else:
-                var = var.clone(name=f'{parent.name}%{var.name}', parent=parent, scope=parent.scope)
+                # Hack: Need to force re-evaluation of the type from parent here via `type=None`
+                # We know there's a parent, but we cannot trust the auto-generation of the type,
+                # since the type lookup via parents can create mismatched DeferredTypeSymbols.
+                var = var.clone(
+                    name=f'{parent.name}%{var.name}', parent=parent, scope=parent.scope, type=None
+                )
         return var
 
     #
