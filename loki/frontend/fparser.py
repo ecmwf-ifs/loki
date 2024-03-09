@@ -2494,7 +2494,10 @@ class FParser2IR(GenericVisitor):
         if parent:
             scope = parent.scope
         name = self.visit(o.children[2], **kwargs)
-        name = name.clone(name=f'{parent.name}%{name.name}', parent=parent, scope=scope)
+        # Hack: Need to force re-evaluation of the type from parent here via `type=None`
+        # To fix this, we should stop creating symbols in the enclosing scope
+        # when determining the type of drieved type members from their parent.
+        name = name.clone(name=f'{parent.name}%{name.name}', parent=parent, scope=scope, type=None)
         return name
 
     visit_Actual_Arg_Spec_List = visit_List
