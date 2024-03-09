@@ -20,7 +20,7 @@ from loki.ir import (
 )
 from loki.frontend.source import join_source_list
 from loki.logging import warning, perf
-from loki.tools import group_by_class, replace_windowed
+from loki.tools import group_by_class, replace_windowed, as_tuple
 
 
 __all__ = [
@@ -88,7 +88,10 @@ class ClusterCommentTransformer(Transformer):
             o = replace_windowed(o, group, subs=(block,))
 
         # Then recurse over the new nodes
-        return tuple(self.visit(i, **kwargs) for i in o)
+        visited = tuple(self.visit(i, **kwargs) for i in o)
+
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i))
 
     visit_list = visit_tuple
 
@@ -162,7 +165,10 @@ class CombineMultilinePragmasTransformer(Transformer):
                 )
                 o = replace_windowed(o, pragmaset, subs=(new_pragma,))
 
-        return tuple(self.visit(i, **kwargs) for i in o)
+        visited = tuple(self.visit(i, **kwargs) for i in o)
+
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i))
 
 
 @Timer(logger=perf, text=lambda s: f'[Loki::Frontend] Executed sanitize_ir in {s:.2f}s')
