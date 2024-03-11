@@ -52,15 +52,37 @@ FP = Frontend.FP
 REGEX = Frontend.REGEX
 
 
+def match_type_pattern(pattern, sequence):
+    """
+    Match elements in a sequence according to a pattern of their types.
+
+    Parameters
+    ----------
+    patter: list of type
+        A list of types of the pattern to match
+    sequence : list
+        The list of items from which to match elements
+    """
+    idx = []
+    types = tuple(map(type, sequence))
+    for i, elem in enumerate(types):
+        if elem == pattern[0]:
+            if tuple(types[i:i+len(pattern)]) == tuple(pattern):
+                idx.append(i)
+
+    # Return a list of element matches
+    return [sequence[i:i+len(pattern)] for i in idx]
+
+
 class InlineCommentTransformer(Transformer):
     """
     Identify inline comments and merge them onto statements
     """
 
     def visit_tuple(self, o, **kwargs):
-        pairs = PatternFinder(pattern=(Assignment, Comment)).visit(o)
-        pairs += PatternFinder(pattern=(VariableDeclaration, Comment)).visit(o)
-        pairs += PatternFinder(pattern=(ProcedureDeclaration, Comment)).visit(o)
+        pairs = match_type_pattern(pattern=(Assignment, Comment), sequence=o)
+        pairs += match_type_pattern(pattern=(VariableDeclaration, Comment), sequence=o)
+        pairs += match_type_pattern(pattern=(ProcedureDeclaration, Comment), sequence=o)
 
         for pair in pairs:
             # Comment is in-line and can be merged
