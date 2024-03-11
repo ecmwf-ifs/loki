@@ -68,7 +68,14 @@ class InlineCommentTransformer(Transformer):
                 if pair[1].source.lines[0] == pair[0].source.lines[1]:
                     new = pair[0]._rebuild(comment=pair[1])
                     o = replace_windowed(o, pair, new)
-        return o
+
+        # Then recurse over the new nodes
+        visited = tuple(self.visit(i, **kwargs) for i in o)
+
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i))
+
+    visit_list = visit_tuple
 
 
 class ClusterCommentTransformer(Transformer):
