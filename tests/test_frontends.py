@@ -25,7 +25,8 @@ from loki import (
     Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
     config, REGEX, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective, config_override, Section, CommentBlock
+    PreprocessorDirective, config_override, Section, CommentBlock,
+    Assignment, VariableDeclaration, ProcedureDeclaration
 )
 from loki.expression import symbols as sym
 
@@ -1756,3 +1757,54 @@ end subroutine test_comment_block
     assert len(blocks[1].comments) == 2
     assert blocks[1].comments[0].text == '! Shut up, ...'
     assert blocks[1].comments[1].text == '! Rick!'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI strips comments during parse')]
+))
+def test_inline_comments(frontend):
+    """
+    Test that multiple :any:`Comment` nodes into a :any:`CommentBlock`.
+    """
+    fcode = """
+subroutine test_inline_comments(a, b)
+  real, intent(inout) :: a, b  ! We don't need no education
+  real, external :: alien_func ! We don't need no thought control
+  integer :: i
+
+  a = a + 1.0
+  ! Who said that?
+  b = b + 2             ! All in all it's just another
+
+  do i=1, 10
+    b = b + 2           ! Brick in the ...
+  enddo
+
+  a = a + alien_func()  ! wall !
+end subroutine test_inline_comments
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    decls = FindNodes(VariableDeclaration).visit(routine.spec)
+    assert len(decls) == 2
+    assert decls[0].comment.text == "! We don't need no education"
+    assert decls[1].comment is None
+
+    proc_decls = FindNodes(ProcedureDeclaration).visit(routine.spec)
+    assert len(proc_decls) == 1
+    assert proc_decls[0].comment.text == "! We don't need no thought control"
+
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 4
+    assert assigns[0].comment is None
+    assert assigns[1].comment.text == "! All in all it's just another"
+    assert assigns[2].comment.text == '! Brick in the ...'
+    assert assigns[3].comment.text == '! wall !'
+
+    comments = FindNodes(Comment).visit(routine.body)
+    assert len(comments) == 1 if frontend == OFP else 4
+    if frontend == OFP:
+        assert comments[0].text == '! Who said that?'
+    else:
+        assert comments[1].text == '! Who said that?'
+        assert comments[0].text == comments[2].text == comments[3].text == ''

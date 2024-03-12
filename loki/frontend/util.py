@@ -20,12 +20,12 @@ from loki.ir import (
 )
 from loki.frontend.source import join_source_list
 from loki.logging import warning, perf
-from loki.tools import group_by_class, replace_windowed
+from loki.tools import group_by_class, replace_windowed, as_tuple
 
 
 __all__ = [
-    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'inline_comments',
-    'ClusterCommentTransformer', 'read_file',
+    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'read_file',
+    'InlineCommentTransformer', 'ClusterCommentTransformer',
     'CombineMultilinePragmasTransformer', 'sanitize_ir'
 ]
 
@@ -52,23 +52,52 @@ FP = Frontend.FP
 REGEX = Frontend.REGEX
 
 
-def inline_comments(ir):
+def match_type_pattern(pattern, sequence):
+    """
+    Match elements in a sequence according to a pattern of their types.
+
+    Parameters
+    ----------
+    patter: list of type
+        A list of types of the pattern to match
+    sequence : list
+        The list of items from which to match elements
+    """
+    idx = []
+    types = tuple(map(type, sequence))
+    for i, elem in enumerate(types):
+        if elem == pattern[0]:
+            if tuple(types[i:i+len(pattern)]) == tuple(pattern):
+                idx.append(i)
+
+    # Return a list of element matches
+    return [sequence[i:i+len(pattern)] for i in idx]
+
+
+class InlineCommentTransformer(Transformer):
     """
     Identify inline comments and merge them onto statements
     """
-    pairs = PatternFinder(pattern=(Assignment, Comment)).visit(ir)
-    pairs += PatternFinder(pattern=(VariableDeclaration, Comment)).visit(ir)
-    pairs += PatternFinder(pattern=(ProcedureDeclaration, Comment)).visit(ir)
-    mapper = {}
-    for pair in pairs:
-        # Comment is in-line and can be merged
-        # Note, we need to re-create the statement node
-        # so that Transformers don't throw away the changes.
-        if pair[0].source and pair[1].source:
-            if pair[1].source.lines[0] == pair[0].source.lines[1]:
-                mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
-                mapper[pair[1]] = None  # Mark for deletion
-    return NestedTransformer(mapper, invalidate_source=False).visit(ir)
+
+    def visit_tuple(self, o, **kwargs):
+        pairs = match_type_pattern(pattern=(Assignment, Comment), sequence=o)
+        pairs += match_type_pattern(pattern=(VariableDeclaration, Comment), sequence=o)
+        pairs += match_type_pattern(pattern=(ProcedureDeclaration, Comment), sequence=o)
+
+        for pair in pairs:
+            # Comment is in-line and can be merged
+            if pair[0].source and pair[1].source:
+                if pair[1].source.lines[0] == pair[0].source.lines[1]:
+                    new = pair[0]._rebuild(comment=pair[1])
+                    o = replace_windowed(o, pair, new)
+
+        # Then recurse over the new nodes
+        visited = tuple(self.visit(i, **kwargs) for i in o)
+
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i))
+
+    visit_list = visit_tuple
 
 
 class ClusterCommentTransformer(Transformer):
@@ -88,7 +117,10 @@ class ClusterCommentTransformer(Transformer):
             o = replace_windowed(o, group, subs=(block,))
 
         # Then recurse over the new nodes
-        return tuple(self.visit(i, **kwargs) for i in o)
+        visited = tuple(self.visit(i, **kwargs) for i in o)
+
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i))
 
     visit_list = visit_tuple
 
@@ -162,7 +194,10 @@ class CombineMultilinePragmasTransformer(Transformer):
                 )
                 o = replace_windowed(o, pragmaset, subs=(new_pragma,))
 
-        return tuple(self.visit(i, **kwargs) for i in o)
+        visited = tuple(self.visit(i, **kwargs) for i in o)
+
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i))
 
 
 @Timer(logger=perf, text=lambda s: f'[Loki::Frontend] Executed sanitize_ir in {s:.2f}s')
@@ -198,13 +233,13 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
             _ir = rule.postprocess(_ir, info)
 
     # Perform some minor sanitation tasks
-    _ir = inline_comments(_ir)
-    _ir = ClusterCommentTransformer(invalidate_source=False).visit(_ir)
+    _ir = InlineCommentTransformer(inplace=True, invalidate_source=False).visit(_ir)
+    _ir = ClusterCommentTransformer(inplace=True, invalidate_source=False).visit(_ir)
 
     if frontend in (OMNI, OFP):
         _ir = inline_labels(_ir)
 
     if frontend in (FP, OFP):
-        _ir = CombineMultilinePragmasTransformer(invalidate_source=False).visit(_ir)
+        _ir = CombineMultilinePragmasTransformer(inplace=True, invalidate_source=False).visit(_ir)
 
     return _ir
