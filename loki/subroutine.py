@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki import ir
-from loki.expression import FindVariables, SubstituteExpressions, symbols as sym
+from loki.expression import symbols as sym
 from loki.frontend import (
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, get_fparser_node,
     parse_regex_source
@@ -131,31 +131,21 @@ class Subroutine(ProgramUnit):
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
 
-    @staticmethod
-    def _infer_allocatable_shapes(spec, body):
+
+    def _infer_allocatable_shapes(self):
         """
         Infer variable symbol shapes from allocations of ``allocatable`` arrays.
         """
-        alloc_map = {}
-        for alloc in FindNodes(ir.Allocation).visit(body):
+        for alloc in FindNodes(ir.Allocation).visit(self.body):
             for v in alloc.variables:
                 if isinstance(v, sym.Array):
                     if alloc.data_source:
-                        alloc_map[v.name.lower()] = alloc.data_source.type.shape
+                        new_shape = alloc.data_source.type.shape
                     else:
-                        alloc_map[v.name.lower()] = v.dimensions
-        vmap = {}
-        for v in FindVariables().visit(body):
-            if v.name.lower() in alloc_map:
-                vtype = v.type.clone(shape=alloc_map[v.name.lower()])
-                vmap[v] = v.clone(type=vtype)
-        smap = {}
-        for v in FindVariables().visit(spec):
-            if v.name.lower() in alloc_map:
-                vtype = v.type.clone(shape=alloc_map[v.name.lower()])
-                smap[v] = v.clone(type=vtype)
-        return (SubstituteExpressions(smap, invalidate_source=False).visit(spec),
-                SubstituteExpressions(vmap, invalidate_source=False).visit(body))
+                        new_shape = v.dimensions
+
+                    # Update the type to inject shape info into symbol table
+                    v.type = v.type.clone(shape=new_shape)
 
     @classmethod
     def from_omni(cls, ast, raw_source, definitions=None, parent=None, type_map=None):

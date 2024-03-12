@@ -1221,10 +1221,9 @@ class OFP2IR(GenericVisitor):
             rescope_symbols=True, source=kwargs['source'], incomplete=False
         )
 
-        # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        routine.spec, routine.body = routine._infer_allocatable_shapes(routine.spec, routine.body)
+        routine._infer_allocatable_shapes()
 
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, ir.VariableDeclaration):
