@@ -5,7 +5,6 @@ implicit none
   call kernel1()
   call kernel2()
   call kernel3()
-  ! print *, "result: ", some_func()
   a = some_func()
 end subroutine kernel0
 
@@ -36,10 +35,3 @@ var4 = var2
 var5 = var3
 
 end subroutine kernel3
-
-! real function some_func()
-! use moduleB, only: var2
-! implicit none
-! real some_func
-! some_func = var2
-! end function some_func
