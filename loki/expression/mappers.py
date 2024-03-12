@@ -336,7 +336,7 @@ class ExpressionRetriever(LokiWalkMapper):
         given and that should return `True` or `False` depending on whether
         that expression node and its children should be visited.
     """
-    # pylint: disable=abstract-method
+    # pylint: disable=abstract-method,unused-argument
 
     def __init__(self, query, recurse_query=None, **kwargs):
         super().__init__(**kwargs)
@@ -363,7 +363,7 @@ class ExpressionDimensionsMapper(Mapper):
     """
     A visitor for an expression that determines the dimensions of the expression.
     """
-    # pylint: disable=abstract-method
+    # pylint: disable=abstract-method,unused-argument
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         # pylint: disable=import-outside-toplevel,cyclic-import
@@ -401,7 +401,7 @@ class ExpressionDimensionsMapper(Mapper):
 
     map_string_subscript = map_algebraic_leaf
 
-    def map_range_index(self, expr, *args, **kwargs):  # pylint: disable=unused-argument
+    def map_range_index(self, expr, *args, **kwargs):
         if expr.lower is None and expr.upper is None:
             # We have the full range
             return as_tuple(expr)

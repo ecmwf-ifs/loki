@@ -24,7 +24,7 @@ except ImportError:
 from loki import (
     FindInlineCalls, FindNodes, GenericRule, Module, RuleType
 )
-import loki.ir as ir
+from loki import ir
 
 
 __all__ = [
