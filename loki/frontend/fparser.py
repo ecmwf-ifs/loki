@@ -32,7 +32,9 @@ from loki.expression.operations import (
 )
 from loki.expression import ExpressionDimensionsMapper, AttachScopes, AttachScopesMapper
 from loki.logging import debug, perf, info, warning, error
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup
+from loki.tools import (
+    as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup, dict_override
+)
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
 )
@@ -346,7 +348,14 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Name` has no children.
         """
-        return sym.Variable(name=o.tostr(), parent=kwargs.get('parent'))
+        name = o.tostr()
+        scope = kwargs.get('scope', None)
+        parent = kwargs.get('parent')
+        if parent:
+            scope = parent.scope
+        if scope:
+            scope = scope.get_symbol_scope(name)
+        return sym.Variable(name=name, parent=parent, scope=scope)
 
     def visit_Type_Name(self, o, **kwargs):
         """
@@ -368,7 +377,9 @@ class FParser2IR(GenericVisitor):
           subscript (or `None`)
         """
         name = self.visit(o.children[0], **kwargs)
-        dimensions = self.visit(o.children[1], **kwargs)
+        with dict_override(kwargs, {'parent': None}):
+            # Don't pass any parent on to dimension symbols
+            dimensions = self.visit(o.children[1], **kwargs)
         if dimensions:
             name = name.clone(dimensions=dimensions)
 
@@ -394,6 +405,7 @@ class FParser2IR(GenericVisitor):
         var = self.visit(o.children[0], **kwargs)
         for c in o.children[1:]:
             parent = var
+            kwargs['parent'] = parent
             var = self.visit(c, **kwargs)
             if isinstance(var, sym.InlineCall):
                 # This is a function call with a type-bound procedure, so we need to
@@ -401,7 +413,12 @@ class FParser2IR(GenericVisitor):
                 function = var.function.clone(name=f'{parent.name}%{var.function.name}', parent=parent)
                 var = var.clone(function=function)
             else:
-                var = var.clone(name=f'{parent.name}%{var.name}', parent=parent)
+                # Hack: Need to force re-evaluation of the type from parent here via `type=None`
+                # We know there's a parent, but we cannot trust the auto-generation of the type,
+                # since the type lookup via parents can create mismatched DeferredTypeSymbols.
+                var = var.clone(
+                    name=f'{parent.name}%{var.name}', parent=parent, scope=parent.scope, type=None
+                )
         return var
 
     #
@@ -761,7 +778,12 @@ class FParser2IR(GenericVisitor):
         * char length (:class:`fparser.two.Fortran2003.Char_Length`)
         * init (:class:`fparser.two.Fortran2003.Initialization`)
         """
-        var = self.visit(o.children[0], **kwargs)
+
+        # Do not pass scope down, as it might alias with previously
+        # created symbols. Instead, let the rescope in the Declaration
+        # assign the right scope, always!
+        with dict_override(kwargs, {'scope': None}):
+            var = self.visit(o.children[0], **kwargs)
 
         if o.children[1]:
             dimensions = as_tuple(self.visit(o.children[1], **kwargs))
@@ -840,7 +862,7 @@ class FParser2IR(GenericVisitor):
         scope = kwargs['scope']
         for var in symbols:
             _type = scope.symbol_attrs.lookup(var.name)
-            if _type is None:
+            if _type is None or _type.dtype == BasicType.DEFERRED:
                 dtype = ProcedureType(var.name, is_function=False)
             else:
                 dtype = _type.dtype
@@ -1329,22 +1351,31 @@ class FParser2IR(GenericVisitor):
         interface = None
         if o.children[0]:
             # Procedure interface provided
+            # (we pass the parent scope down for this)
+            kwargs['scope'] = scope.parent
             interface = self.visit(o.children[0], **kwargs)
-            interface = AttachScopesMapper()(interface, scope=scope)
             bind_names = as_tuple(interface)
             func_names = [interface.name] * len(symbols)
             assert o.children[4] is None
+            kwargs['scope'] = scope
         elif o.children[4]:
+            # we pass the parent scope down for this
+            kwargs['scope'] = scope.parent
             bind_names = as_tuple(self.visit(o.children[4], **kwargs))
-            bind_names = AttachScopesMapper()(bind_names, scope=scope)
             assert len(bind_names) == len(symbols)
             func_names = [i.name for i in bind_names]
+            kwargs['scope'] = scope
         else:
             bind_names = None
             func_names = [s.name for s in symbols]
 
         # Look up the type of the procedure
-        types = [scope.symbol_attrs.lookup(name) or SymbolAttributes(dtype=ProcedureType(name)) for name in func_names]
+        types = [scope.symbol_attrs.lookup(name) for name in func_names]
+        types = [
+            SymbolAttributes(dtype=ProcedureType(name))
+            if not t or t.dtype == BasicType.DEFERRED else t
+            for t, name in zip(types, func_names)
+        ]
 
         # Any declared attributes
         attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
@@ -1560,8 +1591,11 @@ class FParser2IR(GenericVisitor):
         elif spec is not None:
             # This has a generic specification (and we might need to update symbol table)
             scope = kwargs['scope']
-            if spec.name not in scope.symbol_attrs:
-                scope.symbol_attrs[spec.name] = SymbolAttributes(ProcedureType(name=spec.name, is_generic=True))
+            spec_type = scope.symbol_attrs.lookup(spec.name)
+            if not spec_type or spec_type.dtype == BasicType.DEFERRED:
+                scope.symbol_attrs[spec.name] = SymbolAttributes(
+                    ProcedureType(name=spec.name, is_generic=True)
+                )
             spec = spec.rescope(scope=scope)
 
         # Traverse the body and build the object
@@ -1741,6 +1775,10 @@ class FParser2IR(GenericVisitor):
         spec = ir.Section(body=as_tuple(spec_parts))
         spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
+        # As variables may be defined out of sequence, we need to re-generate
+        # symbols in the spec part to make them coherent with the symbol table
+        spec = AttachScopes().visit(spec, scope=routine, recurse_to_declaration_attributes=True)
+
         # Now all declarations are well-defined and we can parse the member routines
         if contains_ast is not None:
             contains = self.visit(contains_ast, **kwargs)
@@ -1809,7 +1847,7 @@ class FParser2IR(GenericVisitor):
             name=routine.name, args=routine._dummies, docstring=docs, spec=spec,
             body=body, contains=contains, ast=o, prefix=routine.prefix, bind=routine.bind,
             result_name=routine.result_name, is_function=routine.is_function,
-            rescope_symbols=True, source=source, incomplete=False
+            rescope_symbols=False, source=source, incomplete=False
         )
 
         # Once statement functions are in place, we need to update the original declaration so that it
@@ -1869,7 +1907,8 @@ class FParser2IR(GenericVisitor):
         routine = None
         if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
             proc_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
-            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+            if proc_type and proc_type.dtype != BasicType.DEFERRED and \
+               proc_type.dtype.procedure != BasicType.DEFERRED:
                 routine = proc_type.dtype.procedure
                 if not routine._incomplete:
                     # We return the existing object right away, unless it exists from a
@@ -2036,6 +2075,10 @@ class FParser2IR(GenericVisitor):
             docs = []
             spec = None
 
+        # As variables may be defined out of sequence, we need to re-generate
+        # symbols in the spec part to make them coherent with the symbol table
+        spec = AttachScopes().visit(spec, scope=module, recurse_to_declaration_attributes=True)
+
         # Now that all declarations are well-defined we can parse the member routines
         if contains_ast is not None:
             contains = self.visit(contains_ast, **kwargs)
@@ -2048,7 +2091,7 @@ class FParser2IR(GenericVisitor):
         module.__initialize__(
             name=module.name, docstring=docs, spec=spec, contains=contains,
             default_access_spec=module.default_access_spec, public_access_spec=module.public_access_spec,
-            private_access_spec=module.private_access_spec, ast=o, rescope_symbols=True, source=source,
+            private_access_spec=module.private_access_spec, ast=o, rescope_symbols=False, source=source,
             incomplete=False
         )
 
@@ -2451,9 +2494,15 @@ class FParser2IR(GenericVisitor):
         * procedure name :class:`fparser.two.Fortran2003.Binding_Name`
         """
         assert o.children[1] == '%'
+        scope = kwargs.get('scope', None)
         parent = self.visit(o.children[0], **kwargs)
+        if parent:
+            scope = parent.scope
         name = self.visit(o.children[2], **kwargs)
-        name = name.clone(name=f'{parent.name}%{name.name}', parent=parent)
+        # Hack: Need to force re-evaluation of the type from parent here via `type=None`
+        # To fix this, we should stop creating symbols in the enclosing scope
+        # when determining the type of drieved type members from their parent.
+        name = name.clone(name=f'{parent.name}%{name.name}', parent=parent, scope=scope, type=None)
         return name
 
     visit_Actual_Arg_Spec_List = visit_List
@@ -2529,10 +2578,11 @@ class FParser2IR(GenericVisitor):
         # https://github.com/stfc/fparser/issues/201 for some details
         name = self.visit(o.children[0], **kwargs)
         assert isinstance(name, DerivedType)
+        scope = kwargs.get('scope', None)
 
         # `name` is a DerivedType but we represent a constructor call as InlineCall for
         # which we need ProcedureSymbol
-        name = sym.Variable(name=name.name)
+        name = sym.Variable(name=name.name, scope=scope)
 
         if o.children[1] is not None:
             arguments = self.visit(o.children[1], **kwargs)
@@ -2929,7 +2979,7 @@ class FParser2IR(GenericVisitor):
 
         # Special-case: Identify statement functions using our internal symbol table
         symbol_attrs = kwargs['scope'].symbol_attrs
-        if isinstance(lhs, sym.Array) and lhs.name in symbol_attrs:
+        if isinstance(lhs, sym.Array) and not lhs.parent and lhs.name in symbol_attrs:
 
             def _create_stmt_func_type(stmt_func):
                 name = str(stmt_func.variable)
@@ -2942,11 +2992,12 @@ class FParser2IR(GenericVisitor):
                 proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
                 return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
 
-            if not symbol_attrs[lhs.name].shape and not symbol_attrs[lhs.name].intent:
+            if not lhs.type.shape and not lhs.type.intent:
                 # If the LHS array access is actually declared as a scalar,
                 # we are actually dealing with a statement function!
+                f_symbol = sym.ProcedureSymbol(name=lhs.name, scope=kwargs['scope'])
                 stmt_func = ir.StatementFunction(
-                    variable=lhs.clone(dimensions=None), arguments=lhs.dimensions,
+                    variable=f_symbol, arguments=lhs.dimensions,
                     rhs=rhs, return_type=symbol_attrs[lhs.name],
                     label=kwargs.get('label'), source=kwargs.get('source')
                 )

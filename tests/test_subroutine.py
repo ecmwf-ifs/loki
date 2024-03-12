@@ -502,9 +502,9 @@ def test_routine_variables_dim_shapes(frontend):
 subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
   ! Simple variable assignments with non-trivial sizes and indices
   integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: v1, v2
   real(kind=jprb), allocatable, intent(out) :: v3(:)
   real(kind=jprb), intent(out) :: v4(v1,v2), v5(1:v1,v2-1)
+  integer, intent(in) :: v1, v2
 
   allocate(v3(v1))
   v3(v1-v2+1) = 1.
@@ -523,6 +523,11 @@ end subroutine routine_dim_shapes
     shapes = [fexprgen(v.shape) for v in routine.arguments if isinstance(v, Array)]
     assert shapes in (['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'],
                       ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
+
+    # Ensure that all spec variables (including dimension symbols) are scoped correctly
+    spec_vars = FindVariables(unique=False).visit(routine.spec)
+    assert all(v.scope == routine for v in spec_vars)
+    assert all(isinstance(v, (Scalar, Array)) for v in spec_vars)
 
     # Ensure shapes of body variables are ok
     b_shapes = [fexprgen(v.shape) for v in FindVariables(unique=False).visit(routine.body)
