@@ -43,6 +43,13 @@ class Dimension:
         self._bounds = as_tuple(bounds)
         self._size = size
         self._aliases = as_tuple(aliases)
+
+        if bounds_aliases:
+            if len(bounds_aliases) != 2:
+                raise RuntimeError(f'Start and end both needed for horizontal bounds aliases in {self.name}')
+            if bounds_aliases[0].split('%')[0] != bounds_aliases[1].split('%')[0]:
+                raise RuntimeError(f'Inconsistent root name for horizontal bounds aliases in {self.name}')
+
         self._bounds_aliases = as_tuple(bounds_aliases)
 
     @property
