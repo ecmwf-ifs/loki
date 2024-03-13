@@ -249,19 +249,27 @@ USE SOME_MOD, ONLY: SOME_TYPE
 IMPLICIT NONE
 TYPE(SOME_TYPE), INTENT(IN) :: ITEM
 INTEGER, INTENT(IN) :: IDX
-ASSOCIATE(SOME_VAR=>ITEM%SOME_VAR(IDX))
+ASSOCIATE(SOME_VAR=>ITEM%SOME_VAR(IDX), SOME_OTHER_VAR=>ITEM%SOME_VAR(ITEM%OFFSET))
 SOME_VAR = 5
 END ASSOCIATE
 END SUBROUTINE
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     variables = {v.name: v for v in FindVariables().visit(routine.body)}
-    assert len(variables) == 4
+    assert len(variables) == 6
     some_var = variables['SOME_VAR']
     assert isinstance(some_var, sym.DeferredTypeSymbol)
     assert some_var.name.upper() == 'SOME_VAR'
     assert some_var.type.dtype == BasicType.DEFERRED
-    assert some_var.scope is FindNodes(Associate).visit(routine.body)[0]
+    associate = FindNodes(Associate).visit(routine.body)[0]
+    assert some_var.scope is associate
+
+    some_other_var = variables['SOME_OTHER_VAR']
+    assert isinstance(some_var, sym.DeferredTypeSymbol)
+    assert some_other_var.name.upper() == 'SOME_OTHER_VAR'
+    assert some_other_var.type.dtype == BasicType.DEFERRED
+    assert some_other_var.type.shape == ('ITEM%OFFSET',)
+    assert some_other_var.scope is associate
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

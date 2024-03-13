@@ -470,7 +470,7 @@ class ViolationFileHandler(GenericHandler):
         """
         Generate the YAML output from the list of reports.
         """
-        self.target('\n'.join(handler_reports))
+        self.target('\n'.join(report for report in handler_reports if report))
 
 
 class JunitXmlHandler(GenericHandler):

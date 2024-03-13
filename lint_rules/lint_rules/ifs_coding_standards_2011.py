@@ -16,7 +16,7 @@ import re
 from pymbolic.primitives import Expression
 
 from loki import (
-    Visitor, FindNodes, ExpressionFinder, ExpressionRetriever,
+    Visitor, FindNodes, ExpressionFinder, ExpressionRetriever, Node,
     flatten, as_tuple, strip_inline_comments, Module, Subroutine, BasicType, ir
 )
 from loki.lint import GenericRule, RuleType
@@ -507,7 +507,7 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
                     comparisons = self.retriever.retrieve(ch)
                     if comparisons:
                         retval += ((o, ch, comparisons),)
-                elif ch is not None:
+                elif isinstance(ch, Node):
                     retval += self.visit(ch, **kwargs)
             return retval
 

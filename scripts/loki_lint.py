@@ -34,7 +34,7 @@ def get_rules(module):
                     'output and automatically attaches a debugger on exceptions.'))
 @click.option('--log', type=click.Path(writable=True),
               help='Write more detailed information to a log file.')
-@click.option('--rules-module', default='ifs_coding_standards_2011', show_default=True,
+@click.option('--rules-module', default='ifs_arpege_coding_standards', show_default=True,
               help='Select Python module with rules in lint_rules.')
 @click.pass_context
 def cli(ctx, debug, log, rules_module):  # pylint:disable=redefined-outer-name

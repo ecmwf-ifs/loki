@@ -1486,7 +1486,7 @@ class Reference(pmbl.Expression):
     @property
     def name(self):
         """
-        Allowing the compound ``Reference(Variable(name))`` to appear 
+        Allowing the compound ``Reference(Variable(name))`` to appear
         with behaviour akin to a symbol itself for easier processing in mappers.
         """
         return self.expression.name
@@ -1494,7 +1494,7 @@ class Reference(pmbl.Expression):
     @property
     def type(self):
         """
-        Allowing the compound ``Reference(Variable(type))`` to appear 
+        Allowing the compound ``Reference(Variable(type))`` to appear
         with behaviour akin to a symbol itself for easier processing in mappers.
         """
         return self.expression.type
@@ -1502,7 +1502,7 @@ class Reference(pmbl.Expression):
     @property
     def scope(self):
         """
-        Allowing the compound ``Reference(Variable(scope))`` to appear 
+        Allowing the compound ``Reference(Variable(scope))`` to appear
         with behaviour akin to a symbol itself for easier processing in mappers.
         """
         return self.expression.scope
@@ -1510,7 +1510,7 @@ class Reference(pmbl.Expression):
     @property
     def initial(self):
         """
-        Allowing the compound ``Reference(Variable(initial))`` to appear 
+        Allowing the compound ``Reference(Variable(initial))`` to appear
         with behaviour akin to a symbol itself for easier processing in mappers.
         """
         return self.expression.initial
@@ -1544,7 +1544,7 @@ class Dereference(pmbl.Expression):
     @property
     def name(self):
         """
-        Allowing the compound ``Dereference(Variable(name))`` to appear 
+        Allowing the compound ``Dereference(Variable(name))`` to appear
         with behaviour akin to a symbol itself for easier processing in mappers.
         """
         return self.expression.name
@@ -1552,7 +1552,7 @@ class Dereference(pmbl.Expression):
     @property
     def type(self):
         """
-        Allowing the compound ``Dereference(Variable(type))`` to appear 
+        Allowing the compound ``Dereference(Variable(type))`` to appear
         with behaviour akin to a symbol itself for easier processing in mappers.
         """
         return self.expression.type
@@ -1560,7 +1560,7 @@ class Dereference(pmbl.Expression):
     @property
     def scope(self):
         """
-        Allowing the compound ``Dereference(Variable(scope))`` to appear 
+        Allowing the compound ``Dereference(Variable(scope))`` to appear
         with behaviour akin to a symbol itself for easier processing in mappers.
         """
         return self.expression.scope
@@ -1568,7 +1568,7 @@ class Dereference(pmbl.Expression):
     @property
     def initial(self):
         """
-        Allowing the compound ``Dereference(Variable(initial))`` to appear 
+        Allowing the compound ``Dereference(Variable(initial))`` to appear
         with behaviour akin to a symbol itself for easier processing in mappers.
         """
         return self.expression.initial
