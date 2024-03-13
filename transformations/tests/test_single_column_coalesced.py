@@ -28,6 +28,10 @@ from transformations import (
 def fixture_horizontal():
     return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'), aliases=('nproma',))
 
+@pytest.fixture(scope='module', name='horizontal_bounds_aliases')
+def fixture_horizontal_bounds_aliases():
+    return Dimension(name='horizontal_bounds_aliases', size='nlon', index='jl', bounds=('start', 'end'),
+                     aliases=('nproma',), bounds_aliases=('bnds%start', 'bnds%end'))
 
 @pytest.fixture(scope='module', name='vertical')
 def fixture_vertical():
@@ -1721,7 +1725,7 @@ def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_base_horizontal_bounds_checks(frontend, horizontal):
+def test_scc_base_horizontal_bounds_checks(frontend, horizontal, horizontal_bounds_aliases):
     """
     Test the SCCBaseTransformation checks for horizontal loop bounds.
     """
@@ -1742,14 +1746,35 @@ def test_scc_base_horizontal_bounds_checks(frontend, horizontal):
     end subroutine kernel
 """
 
+    fcode_alias = """
+    module bnds_type_mod
+    implicit none
+       type bnds_type
+          integer :: start
+          integer :: end
+       end type bnds_type
+    end module bnds_type_mod
+
+    subroutine kernel(bnds, work)
+      use bnds_type_mod, only : bnds_type
+      type(bnds_type), intent(in) :: bnds
+      real, intent(inout) :: work
+
+    end subroutine kernel
+"""
+
     no_start = Subroutine.from_source(fcode_no_start, frontend=frontend)
     no_end = Subroutine.from_source(fcode_no_end, frontend=frontend)
+    alias = Sourcefile.from_source(fcode_alias, frontend=frontend)
 
     transform = SCCBaseTransformation(horizontal=horizontal)
     with pytest.raises(RuntimeError):
         transform.apply(no_start, role='kernel')
     with pytest.raises(RuntimeError):
         transform.apply(no_end, role='kernel')
+
+    transform = SCCBaseTransformation(horizontal=horizontal_bounds_aliases)
+    transform.apply(alias, role='kernel')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

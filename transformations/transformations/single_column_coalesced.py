@@ -100,9 +100,13 @@ class SCCBaseTransformation(Transformation):
             to define the horizontal data dimension and iteration space.
         """
 
-        if horizontal.bounds[0] not in routine.variable_map and len(horizontal._bounds_aliases) < 2:
+        bounds_var_root = ''
+        if horizontal._bounds_aliases:
+            bounds_var_root = horizontal._bounds_aliases[0].split('%')[0]
+
+        if horizontal.bounds[0] not in routine.variable_map and bounds_var_root not in routine.variable_map:
             raise RuntimeError(f'No horizontal start variable found in {routine.name}')
-        if horizontal.bounds[1] not in routine.variable_map and len(horizontal._bounds_aliases) < 2:
+        if horizontal.bounds[1] not in routine.variable_map and bounds_var_root not in routine.variable_map:
             raise RuntimeError(f'No horizontal end variable found in {routine.name}')
 
     @classmethod
