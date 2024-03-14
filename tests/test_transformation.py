@@ -1,3 +1,4 @@
+from functools import partial
 from pathlib import Path
 import pytest
 
@@ -8,7 +9,7 @@ from loki import (
     ProcedureItem, Comment
 )
 from loki.transform import (
-    Transformation, replace_selected_kind,  FileWriteTransformation
+    Transformation, replace_selected_kind, FileWriteTransformation, Pipeline
 )
 
 
@@ -446,3 +447,97 @@ end subroutine rick
     # Check error behaviour if no item provided
     with pytest.raises(ValueError):
         FileWriteTransformation(builddir=here).apply(source=source)
+
+
+def test_transformation_pipeline_simple():
+    """
+    Test the instantiation of a :any:`Pipeline` from a partial definition.
+    """
+
+    class PrependTrafo(Transformation):
+        def __init__(self, name='Rick', relaxed=False):
+            self.name = name
+            self.relaxed = relaxed
+
+        def transform_subroutine(self, routine, **kwargs):
+            greeting = 'Whazzup' if self.relaxed else 'Hello'
+            routine.body.prepend(Comment(text=f'! {greeting} {self.name}'))
+
+    class AppendTrafo(Transformation):
+        def __init__(self, name='Dave', in_french=False):
+            self.name = name
+            self.in_french = in_french
+
+        def transform_subroutine(self, routine, **kwargs):
+            greeting = 'Au revoir' if self.in_french else 'Goodbye'
+            routine.body.append(Comment(text=f'! {greeting}, {self.name}'))
+
+    # Define a pipline as a combination of transformation classes
+    # and a set pre-defined constructor flags
+    GreetingPipeline = partial(
+        Pipeline, classes=(PrependTrafo, AppendTrafo), relaxed=True
+    )
+
+    # Instantiate the pipeline object with additional constructor flags
+    pipeline = GreetingPipeline(name='Bob', in_french=True)
+
+    assert pipeline.transformations and len(pipeline.transformations) == 2
+    assert isinstance(pipeline.transformations[0], PrependTrafo)
+    assert pipeline.transformations[0].name == 'Bob'
+    assert isinstance(pipeline.transformations[1], AppendTrafo)
+    assert pipeline.transformations[1].name == 'Bob'
+    assert pipeline.transformations[1].in_french
+
+    # Now apply the pipeline to a simple subroutine
+    fcode = """
+subroutine test_pipeline
+  integer :: i
+  real :: a, b
+
+  do i=1,3
+    a = a + b
+  end do
+end subroutine test_pipeline
+"""
+    routine = Subroutine.from_source(fcode)
+    pipeline.apply(routine)
+
+    assert isinstance(routine.body.body[0], Comment)
+    assert routine.body.body[0].text == '! Whazzup Bob'
+    assert isinstance(routine.body.body[-1], Comment)
+    assert routine.body.body[-1].text == '! Au revoir, Bob'
+
+
+def test_transformation_pipeline_constructor():
+    """
+    Test the correct argument handling when instantiating a
+    :any:`Pipeline` from a partial definitions.
+    """
+
+    class DoSomethingTrafo(Transformation):
+        def __init__(self, a, b=None, c=True, d='yes'):
+            self.a = a
+            self.b = b
+            self.c = c
+            self.d = d
+
+    class DoSomethingElseTrafo(Transformation):
+        def __init__(self, b=None, d='no'):
+            self.b = b
+            self.d = d
+
+    MyPipeline = partial(
+        Pipeline, classes=(
+            DoSomethingTrafo,
+            DoSomethingElseTrafo,
+        ),
+        a=42
+    )
+
+    p1 = MyPipeline(b=66, d='yes')
+    assert p1.transformations[0].a == 42
+    assert p1.transformations[0].b == 66
+    assert p1.transformations[0].c is True
+    assert p1.transformations[0].d == 'yes'
+    assert p1.transformations[1].b == 66
+    assert p1.transformations[1].d == 'yes'
