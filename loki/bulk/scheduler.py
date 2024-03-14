@@ -158,8 +158,14 @@ class Scheduler:
 
         self._discover()
 
+        # Explicitly rebuild the sgraph to allow parsing...
+        self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
+
         if self.full_parse:
             self._parse_items()
+
+            # And re-build it again, to pick up more subtle item definitions
+            self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
             # Attach interprocedural call-tree information
             self._enrich()
@@ -206,7 +212,7 @@ class Scheduler:
         """
         Create and return the :any:`SGraph` constructed from the :attr:`seeds` of the Scheduler.
         """
-        return SGraph.from_seed(self.seeds, self.item_factory, self.config)
+        return self._sgraph
 
     @property
     def items(self):
@@ -448,7 +454,12 @@ class Scheduler:
 
         if transformation.creates_items:
             self._discover()
+            # Rebuild after discovery
+            self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
+
             self._parse_items()
+            # And rebuild after parsing
+            self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
     def callgraph(self, path, with_file_graph=False, with_legend=False):
         """
@@ -632,6 +643,7 @@ class SGraph:
         self._graph = nx.DiGraph()
 
     @classmethod
+    @Timer(logger=info, text='[Loki::Scheduler] Built SGraph from seed in {:.2f}s')
     def from_seed(cls, seed, item_factory, config=None):
         """
         Create a new :any:`SGraph` using :data:`seed` as starting point.
