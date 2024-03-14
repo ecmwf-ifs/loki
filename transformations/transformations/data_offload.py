@@ -12,7 +12,7 @@ from loki import (
     CallStatement, Pragma, Scalar, Array, as_tuple, Transformer, warning, BasicType,
     SubroutineItem, GlobalVarImportItem, dataflow_analysis_attached, Import,
     Comment, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict,
-    FindInlineCalls, SubstituteExpressions
+    FindInlineCalls, SubstituteExpressions, RangeIndex
 )
 
 
@@ -318,7 +318,6 @@ class GlobalVariableAnalysis(Transformation):
                     module = var.type.module
                     return (module.variable_map[var.name], module.name.lower())
                 except:
-                    print(f"var: {var} | {var.type} | {module}")
                     return ()
 
             # Store symbol lists in trafo data
@@ -445,8 +444,9 @@ class GlobalVarOffloadTransformation(Transformation):
     # connectivity for traversal with the Scheduler
     item_filter = (SubroutineItem, GlobalVarImportItem)
 
-    def __init__(self, key=None):
+    def __init__(self, key=None, skip_driver_imports=False):
         self._key = key or GlobalVariableAnalysis._key
+        self.skip_driver_imports = skip_driver_imports
 
     def transform_module(self, module, **kwargs):
         """
@@ -607,7 +607,7 @@ class GlobalVarOffloadTransformation(Transformation):
         for module, variables in offload_map.items():
             missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
 
-        if missing_imports_map:
+        if missing_imports_map and not self.skip_driver_imports:
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarOffloadTransformation] ---------------------------------------'
             )))
@@ -770,7 +770,13 @@ class GlobalVarHoistTransformation(Transformation):
             )))
             for module, variables in missing_imports_map.items():
                 symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
-                routine.spec.prepend(Import(module=module, symbols=symbols))
+                _symbols = ()
+                for symbol in symbols:
+                    if isinstance(symbol, Array):
+                        _symbols += (symbol.clone(type=symbol.type.clone(shape=(RangeIndex((None, None)),) * len(symbol.shape))), )
+                    else:
+                        _symbols += (symbol,)
+                routine.spec.prepend(Import(module=module, symbols=_symbols))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarHoistTransformation] '
@@ -867,14 +873,11 @@ class GlobalVarHoistTransformation(Transformation):
         inline_calls = FindInlineCalls().visit(routine.body)
         inline_call_map = {}
         for call in inline_calls:
-            print(f"routine: {routine.name} | InlineCall: {call} ({uses_symbols})")
             if call.routine.name in uses_symbols:
-                print(f"  yes!!!!")
                 arguments = call.parameters
                 new_args = sorted([var.clone(dimensions=None) for var in symbol_map[call.routine.name]],
                         key=lambda symbol: symbol.name)
                 inline_call_map[call] = call.clone(parameters=arguments + tuple(new_args))
-        print(f"inline_call_map: {inline_call_map}")
         # routine.body = Transformer(inline_call_map).visit(routine.body)
         routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 

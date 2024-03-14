@@ -25,6 +25,7 @@ from loki.visitors import GenericVisitor, Transformer, FindNodes
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import read_file, FP, sanitize_ir
+from loki.backend import fgen
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
@@ -2020,7 +2021,15 @@ class FParser2IR(GenericVisitor):
         spec_ast = get_child(o, Fortran2003.Specification_Part)
         if spec_ast:
             spec = self.visit(spec_ast, **kwargs)
-            spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+            # # Update array shapes with Loki dimension pragmas
+            # with pragmas_attached(module, ir.VariableDeclaration):
+            #     spec = process_dimension_pragmas(spec)
+            # spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+            
+            # Infer any additional shape information from `!$loki dimension` pragmas
+            spec = attach_pragmas(spec, ir.VariableDeclaration)
+            spec = process_dimension_pragmas(spec)
+            spec = detach_pragmas(spec, ir.VariableDeclaration)
 
             # Another big hack: fparser allocates all comments before and after the
             # spec to the spec. We remove them from the beginning to get the docstring.

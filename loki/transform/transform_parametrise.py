@@ -317,11 +317,21 @@ class ParametriseArrayDimsTransformation(Transformation):
             new_shape = ()
             clone_var = False
             for dim in var.shape:
+                _tmp_vars_in_dim = FindVariables(unique=False).visit(dim)
+                # if len(_tmp_vars_in_dim) > 1:
+                print(f"tmp_vars_in_dim: {_tmp_vars_in_dim} | {any([var.name in var2p for var in FindVariables().visit(dim)])}")
                 if dim in var2p:
                     new_shape += (dim.clone(name=f"{dim.name}_loki_param"),)
                     vmap_dims[dim] = dim.clone(name=f"{dim.name}_loki_param")
                     introduce_loki_params.append(dim)
                     clone_var = True
+                elif any([var.name in var2p for var in FindVariables().visit(dim)]):
+                    _dic2p = {}
+                    for var in FindVariables().visit(dim):
+                        if var in var2p:
+                            introduce_loki_params.append(var)
+                            _dic2p[var] = var.clone(name=f"{dim.name}_loki_param") 
+                    vmap_dims[dim] = SubstituteExpressions(_dic2p).visit(dim)
                 else:
                     new_shape += (dim,)
             # if new_shape != var.shape:
@@ -330,9 +340,18 @@ class ParametriseArrayDimsTransformation(Transformation):
 
         print(f"herehere var_map: {var_map}")
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
-       
+      
+        new_variables = ()
         for var in list(dict.fromkeys(introduce_loki_params)):
-            routine.variables += (var.clone(name=f"{var.name}_loki_param", type=var.type.clone(intent=None, initial=sym.IntLiteral(self.dic2p[var.name.lower()]))),)
+            # routine.variables += (var.clone(name=f"{var.name}_loki_param", type=var.type.clone(intent=None, value=None, parameter=True, initial=sym.IntLiteral(self.dic2p[var.name.lower()]))),)
+            new_variables += (var.clone(name=f"{var.name}_loki_param", type=var.type.clone(intent=None, value=None, parameter=True, initial=sym.IntLiteral(self.dic2p[var.name.lower()]))),)
+        # routine.variables = new_variables + routine.variables
+        new_var_decls = ()
+        for new_parameter in new_variables:
+                # routine.spec.prepend(ir.VariableDeclaration(symbols=(new_parameter,)))
+                new_var_decls += (ir.VariableDeclaration(symbols=(new_parameter,)),)
+        decl_map = {FindNodes(ir.VariableDeclaration).visit(routine.spec)[0]: new_var_decls + (FindNodes(ir.VariableDeclaration).visit(routine.spec)[0],)}
+        routine.spec = Transformer(decl_map).visit(routine.spec)
 
         print(f"herehere vmap_dims: {vmap_dims}")
         for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):

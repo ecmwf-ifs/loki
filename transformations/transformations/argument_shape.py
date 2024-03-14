@@ -24,7 +24,7 @@ declarations and call signatures.
 from loki import (
     Transformation, FindNodes, CallStatement, Array, FindVariables,
     SubstituteExpressions, BasicType, as_tuple, Transformer,
-    CaseInsensitiveDict
+    CaseInsensitiveDict, VariableDeclaration
 )
 
 
@@ -149,8 +149,19 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
             new_args = tuple(d for d in dim_vars if d not in callee.arguments)
             new_args = tuple(d for d in new_args if d.type.dtype == BasicType.INTEGER)
             new_args = tuple(d for d in new_args if d not in imported_symbols)
+            new_parameters = tuple(d for d in new_args if d.type.parameter)
+            new_args = tuple(d for d in new_args if d not in new_parameters)
             new_args = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in new_args)
             callee.arguments += new_args
+            new_parameters = tuple(d.clone(scope=routine) for d in new_parameters)
+            # callee.variables += new_parameters
+            # callee.variables = new_parameters + callee.variables
+            new_var_decls = ()
+            for new_parameter in new_parameters:
+                # callee.spec.prepend(VariableDeclaration(symbols=(new_parameter,)))
+                new_var_decls += (VariableDeclaration(symbols=(new_parameter,)),)
+            decl_map = {FindNodes(VariableDeclaration).visit(callee.spec)[0]: new_var_decls + (FindNodes(VariableDeclaration).visit(callee.spec)[0],)}
+            callee.spec = Transformer(decl_map).visit(callee.spec)
 
             # Map all local dimension args to unknown callee dimension args
             if len(callee.arguments) > len(list(call.arg_iter())):

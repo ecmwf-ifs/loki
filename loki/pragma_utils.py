@@ -14,7 +14,7 @@ from loki.ir import VariableDeclaration, Pragma, PragmaRegion
 from loki.tools.util import as_tuple, flatten
 from loki.types import BasicType
 from loki.visitors import FindNodes, Visitor, Transformer, MaskedTransformer
-
+# from loki.frontend.fparser import parse_fparser_expression
 
 __all__ = [
     'is_loki_pragma', 'get_pragma_parameters', 'process_dimension_pragmas',
@@ -103,8 +103,11 @@ def process_dimension_pragmas(ir):
         Root node of the (section of the) internal representation to process
     """
     for decl in FindNodes(VariableDeclaration).visit(ir):
+        print(f"process_dimension_pragmas - decl: {decl} | decl.pragma: {decl.pragma}")
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
+            print(f"  yes override ...")
             for v in decl.symbols:
+                print(f"FOUND dimension override for variable: {decl.pragma}")
                 # Found dimension override for variable
                 dims = get_pragma_parameters(decl.pragma)['dimension']
                 dims = [d.strip() for d in dims.split(',')]
@@ -113,6 +116,7 @@ def process_dimension_pragmas(ir):
                     if d.isnumeric():
                         shape += [sym.Literal(value=int(d), type=BasicType.INTEGER)]
                     else:
+                        print(f"trying to parse '{d}'")
                         shape += [sym.Variable(name=d, scope=v.scope)]
                 v.scope.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(shape))
     return ir

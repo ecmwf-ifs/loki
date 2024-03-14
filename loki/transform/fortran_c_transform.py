@@ -131,6 +131,11 @@ class FortranCTransformation(Transformation):
             if isinstance(arg.type.dtype, DerivedType):
                 self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
 
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if call.name in as_tuple(targets):
+                # call.sort_kwarguments()
+                call.kwargs_to_args()
+
         if role == 'kernel':
             # Generate Fortran wrapper module
             bind_name = None if self.language == 'c' else f'{routine.name.lower()}_c_launch'
@@ -148,12 +153,13 @@ class FortranCTransformation(Transformation):
 
             # c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             for successor in successors:
-                print(f" routine: {routine.name} - successor {successor} adding module import: {successor.routine.name.lower()}_c.h")
-                if self.language == 'c':
-                    c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
-                else:
-                    # TODO: should include .h file, however problem compiling/running multiple compilation units ...
-                    c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
+                if successor.routine is None:
+                    continue
+                # if self.language == 'c':
+                c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
+                # else:
+                #     # TODO: should include .h file, however problem compiling/running multiple compilation units ...
+                #     c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
 
             # Sourcefile.to_file(source=self.langgen(c_kernel), path=self.c_path)
 
@@ -550,7 +556,6 @@ class FortranCTransformation(Transformation):
 
                 elif not im.c_import and im.symbols:
                     new_symbols = ()
-                    print(f"import : {im} | symbols {im.symbols} vs {targets}")
                     for symbol in im.symbols:
                         if symbol.name.lower() not in as_tuple(targets): # [target.name.lower() for target in targets]
                             new_symbols += (symbol,)
@@ -581,7 +586,6 @@ class FortranCTransformation(Transformation):
         to_be_dereferenced = []
         for arg in kernel.arguments:
             if arg.type.intent is None:
-                print(f"generate_c_kernel: {kernel.name} arg.type.intent is None for arg {arg}")
                 continue
             if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 _type = arg.type.clone(pointer=True)
@@ -628,8 +632,8 @@ class FortranCTransformation(Transformation):
             if call.name not in as_tuple(targets):
                 continue
             call._update(name=Variable(name=f'{call.name}_c'.lower()))
-            for arg in call.arguments:
-                print(f"afterwards ... call: {call.name} - arg {arg} | {type(arg)}")
+            # for arg in call.arguments:
+            #     print(f"afterwards ... call: {call.name} - arg {arg} | {type(arg)}")
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',

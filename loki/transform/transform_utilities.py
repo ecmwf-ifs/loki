@@ -90,8 +90,15 @@ def convert_to_lower_case(routine):
         if isinstance(v, (sym.Scalar, sym.Array, sym.DeferredTypeSymbol)) and not v.name.islower() and not v.case_sensitive
     }
 
+    if 'tau_phi' in routine.name.lower():
+        print(f"convert_to_lower_case before recursive ... - {vmap}")
+
     # Capture nesting by applying map to itself before applying to the routine
     vmap = recursive_expression_map_update(vmap)
+
+    if 'tau_phi' in routine.name.lower():
+        print(f"convert_to_lower_case after recursive ... - {vmap}")
+
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
@@ -459,8 +466,9 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
             for expr, replacement in expr_map.items()
         }
 
+        # TODO: problem with early exit for nested arrays e.g., arr1[arr2[ij]] ...
         # Check for early termination opportunities
-        if prev_map == expr_map:
-            break
+        # if prev_map == expr_map:
+        #     break
 
     return expr_map

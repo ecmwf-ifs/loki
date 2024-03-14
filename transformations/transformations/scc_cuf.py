@@ -287,7 +287,7 @@ def kernel_cuf(routine, horizontal, vertical, block_dim, transformation_type,
             if isinstance(var, sym.Array):
                 dimensions = list(var.dimensions)
                 sahpe = list(var.shape)
-                if horizontal.size in list(FindVariables().visit(var.dimensions)):
+                if horizontal.size in list(FindVariables().visit(var.dimensions)) and len(var.dimensions) > 1:
                     if transformation_type == 'hoist':
                         dimensions += [routine.variable_map[block_dim.size]]
                         shape = list(var.shape) + [routine.variable_map[block_dim.size]]
@@ -866,7 +866,7 @@ class SccCufTransformationNew(Transformation):
         else:
             depth = depths[item]
 
-        remove_pragmas(routine)
+        # remove_pragmas(routine)
         single_variable_declaration(routine=routine, group_by_shape=True)
         device_subroutine_prefix(routine, depth)
 
@@ -935,8 +935,8 @@ class SccCufTransformationNew(Transformation):
                         call_map[call] = call.clone(kwarguments=as_tuple(list(call.kwarguments) + [(upper.name, upper), (step.name, step)])) # , block_dim_size]))
                         # call.routine.spec.append((ir.Pragma(keyword='loki', content=f'blockdim {blockdim_assignment}'),ir.Pragma(keyword='loki', content=f'griddim {griddim_assignment}')))
                         # call.routine.body.prepend([blockdim_assignment, griddim_assignment])
-                        call.routine.variables += (blockdim_var, griddim_var)
-                        call.routine.body = (blockdim_assignment, griddim_assignment) + call.routine.body
+                    call.routine.variables += (blockdim_var, griddim_var)
+                    call.routine.body = (blockdim_assignment, griddim_assignment) + call.routine.body
             routine.body = Transformer(call_map).visit(routine.body)
         elif self.mode == 'cuf':
             # increase heap size (only for version with dynamic memory allocation on device)
@@ -950,14 +950,19 @@ class SccCufTransformationNew(Transformation):
 
     def kernel_cuf(self, routine, horizontal, vertical, block_dim, transformation_type,
                depth, derived_type_variables, targets=None):
-   
+  
+
+        # TODO: as all locals do have the block_dim index (because of SCCLowerLoop)
+        #  this does not make any difference ...
+        # self.kernel_demote_private_locals(routine, horizontal, vertical)
+
         if SCCBaseTransformation.is_elemental(routine):
             # TODO: correct "definition" of elemental/pure routines and corresponding removing
             #  of subroutine prefix(es)/specifier(s)
             routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]]) # , "PURE"]])
             return
 
-        single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
+        single_variable_declaration(routine) # variables=(horizontal.index, block_dim.index))
 
         # TODO: as all locals do have the block_dim index (because of SCCLowerLoop)
         #  this does not make any difference ...
@@ -1044,8 +1049,9 @@ class SccCufTransformationNew(Transformation):
                 if isinstance(var, sym.Array):
                     dimensions = list(var.dimensions)
                     shape = list(var.shape)
-                    if horizontal.size in list(FindVariables().visit(var.dimensions)):
+                    if horizontal.size in list(FindVariables().visit(var.dimensions)): # and len(var.dimensions) > 1:
                         if transformation_type == 'hoist':
+                            # pass
                             dimensions += [routine.variable_map[block_dim.size]]
                             shape = list(var.shape) + [routine.variable_map[block_dim.size]]
                             vtype = var.type.clone(shape=as_tuple(shape), intent=None) # , allocatable=False)
@@ -1055,6 +1061,7 @@ class SccCufTransformationNew(Transformation):
                             shape.remove(horizontal.size) 
                             relevant_local_arrays.append(var.name)
                             vtype = var.type.clone(device=True, shape=shape, intent=None) # allocatable=False)
+                            # var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=vtype)
                         var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=vtype)
                 else:
                     var_map[var] = var.clone(type=var.type.clone(intent=None, value=None))
@@ -1337,9 +1344,9 @@ class SccCufTransformationNew(Transformation):
         for loop in FindNodes(ir.Loop).visit(routine.body):
             # TODO: fix/check: do not use _aliases
             if loop.variable == block_dim.index or loop.variable in block_dim._aliases:
-                mapper[loop] = loop.body
+                # mapper[loop] = loop.body
                 kernel_within = False
-                for call in FindNodes(ir.CallStatement).visit(routine.body):
+                for call in FindNodes(ir.CallStatement).visit(loop.body):#(routine.body):
                     if call.name not in as_tuple(targets):
                         continue
 
@@ -1353,15 +1360,25 @@ class SccCufTransformationNew(Transformation):
                     if self.mode == 'cuf':
                         mapper[call] = (call.clone(chevron=(routine.variable_map["GRIDDIM"],
                                                             routine.variable_map["BLOCKDIM"]),), # arguments=call.arguments + (routine.variable_map[block_dim.size],)),
-                                       ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
-
+                                       ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))   
+                if kernel_within:
+                    mapper[loop] = loop.body
                 if kernel_within:
                     # upper = routine.variable_map[loop.bounds.children[1].name]
                     upper = SCCBaseTransformation.get_integer_variable(routine, loop.bounds.children[1].name)
                     if loop.bounds.children[2]:
                         step = routine.variable_map[loop.bounds.children[2].name]
                     else:
-                        step = sym.IntLiteral(1)
+                        # step = sym.IntLiteral(1)
+                        num_threads = None
+                        for size_expr in self.horizontal.size_expressions:
+                            if size_expr in routine.symbol_map:
+                                num_threads = routine.symbol_map[size_expr]
+                                break
+                        if num_threads is None:
+                            step = sym.IntLiteral(1)
+                        else:
+                            step = num_threads
 
                     # if self.mode == 'cuf':
                     # d_type = SymbolAttributes(types.DerivedType("DIM3"))
@@ -1379,13 +1396,17 @@ class SccCufTransformationNew(Transformation):
 
                         # GRIDDIM
                         lhs = routine.variable_map["griddim"]
-                        rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
-                                                                             sym.InlineCall(function=func_ceiling,
-                                                                                            parameters=as_tuple(
-                                                                                                sym.Cast(name="REAL",
-                                                                                                         expression=upper) /
-                                                                                                sym.Cast(name="REAL",
-                                                                                                         expression=step)))))
+                        if num_threads is None:
+                            rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
+                                                                                 sym.InlineCall(function=func_ceiling,
+                                                                                                parameters=as_tuple(
+                                                                                                    sym.Cast(name="REAL",
+                                                                                                             expression=upper) /
+                                                                                                    sym.Cast(name="REAL",
+                                                                                                             expression=step)))))
+                        else:
+                            rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1), upper))
+                        
                         griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
                         # if self.mode == 'cuf':
                         mapper[loop] = (blockdim_assignment, griddim_assignment, loop.body)
@@ -1400,17 +1421,23 @@ class SccCufTransformationNew(Transformation):
 
                         # GRIDDIM
                         lhs = griddim_var # routine.variable_map["griddim"]
-                        rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
-                                                                                            parameters=as_tuple(
-                                                                                                sym.Cast(name="REAL",
-                                                                                                         expression=upper) /
-                                                                                                sym.Cast(name="REAL",
-                                                                                                         expression=step))),
-                                                                                                sym.IntLiteral(1), sym.IntLiteral(1)))
+                        if num_threads is None:
+                            rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
+                                                                                                parameters=as_tuple(
+                                                                                                    sym.Cast(name="REAL",
+                                                                                                             expression=upper) /
+                                                                                                    sym.Cast(name="REAL",
+                                                                                                             expression=step))),
+                                                                                                    sym.IntLiteral(1), sym.IntLiteral(1)))
+                        else:
+                            rhs = sym.InlineCall(function=func_dim3, parameters=(upper, sym.IntLiteral(1), sym.IntLiteral(1)))
+
                         griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-                        mapper[loop] = loop.body
+                        # mapper[loop] = loop.body
                 else:
-                    mapper[loop] = loop.body
+                    pass
+                    # TODO: ...
+                    # mapper[loop] = loop.body
 
         routine.body = Transformer(mapper=mapper, inplace=True).visit(routine.body)
 
@@ -1419,6 +1446,7 @@ class SccCufTransformationNew(Transformation):
         # blockdim_assignment_2 =  
         # return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var, blockdim_assignment, griddim_assignment # blockdim_assignment_2, griddim_assignment_2
         return upper, step, SCCBaseTransformation.get_integer_variable(routine, block_dim.size), blockdim_var, griddim_var, blockdim_assignment, griddim_assignment
+    
     @staticmethod
     def kernel_demote_private_locals(routine, horizontal, vertical):
         """
@@ -1461,7 +1489,9 @@ class SccCufTransformationNew(Transformation):
         calls = FindNodes(ir.CallStatement).visit(routine.body)
         call_args = flatten(call.arguments for call in calls)
         call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
-        variables = [v for v in variables if v.name not in call_args]
+        call_args = [call_arg.name.lower() for call_arg in call_args if isinstance(call_arg, sym.Array)]
+        variables = [v for v in variables if v.name.lower() not in call_args]
+
 
         shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
         vmap = {}

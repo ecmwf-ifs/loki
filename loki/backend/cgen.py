@@ -14,6 +14,7 @@ from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import
 from loki.expression import LokiStringifyMapper, Array, symbolic_op, Literal
 from loki.types import BasicType, SymbolAttributes, DerivedType
+from loki.tools import as_tuple, JoinableStringList, flatten
 
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
 
@@ -146,6 +147,9 @@ class CCodegen(Stringifier):
 
     # Handler for outer objects
 
+    def visit_Interface(self, o, **kwargs):
+        return ''
+
     def visit_Sourcefile(self, o, **kwargs):
         """
         Format as
@@ -262,6 +266,14 @@ class CCodegen(Stringifier):
         ignore = ['shape', 'dimensions', 'source']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
         dtype = self.visit(types[0], **kwargs)
+        
+        # Dimensions specification
+        dimensions = None
+        if o.dimensions:
+            print(f"dimensions is not None in visit_VariableDeclaration!!")
+            dimensions = f'[{", ".join(self.visit_all(o.dimensions, **kwargs))}]'
+            print(f"  dimensions: {dimensions}")
+
         assert len(o.symbols) > 0
         variables = []
         for v in o.symbols:
@@ -274,6 +286,8 @@ class CCodegen(Stringifier):
             if v.type.pointer or v.type.allocatable:
                 var = '*' + var
                 # pass
+            if dimensions is not None:
+                var = var+dimensions
             variables += [f'{var}{initial}']
         if not variables:
             return None
@@ -397,6 +411,39 @@ class CCodegen(Stringifier):
         self.depth -= 1
         return self.join_lines(header, decls, footer)
 
+    def visit_MultiConditional(self, o, **kwargs):
+        """
+        Format as
+          [name:] SELECT CASE (<expr>)
+          CASE (<value>) [name]
+            ...body...
+          [CASE (<value>) [name]]
+            [...body...]
+          [CASE DEFAULT [name]]
+            [...body...]
+          END SELECT [name]
+        """
+        # assert False
+        # TODO: implement
+        # header_name = f'{o.name}: ' if o.name else ''
+        header_name = ''
+        header = self.format_line(header_name, 'switch case (', self.visit(o.expr, **kwargs), ') {')
+        cases = []
+        end_cases = []
+        name = '' # f' {o.name}' if o.name else ''
+        for value in o.values:
+            case = self.visit_all(as_tuple(value), **kwargs)
+            cases.append(self.format_line('case ', self.join_items(case), ':', name))
+            end_cases.append(self.format_line('break;')) 
+        if o.else_body:
+            cases.append(self.format_line('default: ', name))
+            end_cases.append(self.format_line('break;'))
+        footer = self.format_line('}')
+        self.depth += 1
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        self.depth -= 1
+        branches = [item for branch in zip(cases, bodies, end_cases) for item in branch]
+        return self.join_lines(header, *branches, footer)
 
 def cgen(ir):
     """

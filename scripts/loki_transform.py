@@ -199,7 +199,7 @@ def convert(
     block_dim = scheduler.config.dimensions.get('block_dim', None)
 
     # First, remove all derived-type arguments; caller first!
-    if remove_derived_args and mode not in ['cuf-parametrise-new', 'cuf-hoist-new']:
+    if remove_derived_args and mode not in ['cuf-parametrise-new', 'cuf-hoist-new', 'c-hoist']:
         scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
@@ -210,6 +210,10 @@ def convert(
         ))
     else:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
+    
+    # if True: # derive_argument_array_shape:
+    #     scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+    #     scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
     if mode in ['c-parametrise', 'c-hoist', 'hip-parametrise', 'hip-hoist', 'cuf-hoist-new']:
         # inline_trafo = type("InlineTrafo", (Transformation, object), {
@@ -217,12 +221,18 @@ def convert(
         # scheduler.process(transformation=inline_trafo)
 
         scheduler.process(transformation=GlobalVariableAnalysis())
+        ##
+        scheduler.process(transformation=GlobalVarOffloadTransformation(skip_driver_imports=True))
+        ##
         global_var_hoisting_trafo = GlobalVarHoistTransformation(hoist_parameters=True, ignore_modules=['parkind1'])
         scheduler.process(transformation=global_var_hoisting_trafo) # , reverse=True)
 
         derived_type_transformation = DerivedTypeArgumentsTransformation(all_derived_types=True)
         scheduler.process(transformation=derived_type_transformation) # , reverse=True)
 
+    if True: # derive_argument_array_shape:
+        scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+        scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
     # Perform general source sanitisation steps to level the playing field
     sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
@@ -242,7 +252,7 @@ def convert(
     scheduler.process(transformation=inline_trafo)
 
     # Backward insert argument shapes (for surface routines)
-    if derive_argument_array_shape:
+    if False: # derive_argument_array_shape:
         scheduler.process(transformation=ArgumentArrayShapeAnalysis())
         scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
@@ -288,7 +298,7 @@ def convert(
         scheduler.process( HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)) )
         scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
 
-    if mode in ['scc', 'scc-hoist', 'scc-stack']:
+    if mode in ['scc', 'scc-hoist', 'scc-stack']: # , 'cuf-hoist-new']:
         scheduler.process( SCCAnnotateTransformation(
                 horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
         ))
@@ -298,7 +308,9 @@ def convert(
 
     if mode == "cuf-parametrise-new" or mode == "cuf-hoist-new" or mode in ['c-parametrise', 'c-hoist', 'hip-parametrise', 'hip-hoist']:
         scc_extended = SCCLowerLoopTransformation(
-                dimension=block_dim, dim_name='ibl', keep_driver_loop=True,
+                dimension=block_dim,
+                # dim_name='ibl',
+                keep_driver_loop=True,
                 ignore_dim_name=True
         )
         scheduler.process(transformation=scc_extended)
@@ -321,9 +333,9 @@ def convert(
         # so we use the file-based transformation configuration.
         scheduler.process( transformation=scheduler.config.transformations[mode] )
 
-    if global_var_offload and mode not in ["cuf-hoist-new"]:
-        scheduler.process(transformation=GlobalVariableAnalysis())
-        scheduler.process(transformation=GlobalVarOffloadTransformation())
+    if global_var_offload and mode not in ["cuf-hoist-new", 'c-hoist']:
+        scheduler.process(transformation=GlobalVariableAnalysis(key='global_var_offload_offload'))
+        scheduler.process(transformation=GlobalVarOffloadTransformation(key='global_var_offload_offload'))
 
 
     if mode in ['idem-stack', 'scc-stack']:
@@ -349,7 +361,8 @@ def convert(
 
     if mode == "cuf-hoist" or mode == "cuf-hoist-new" or mode in ["c-hoist", "hip-hoist"]:
         vertical = scheduler.config.dimensions['vertical']
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
+        # scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size, horizontal.size)))
         if mode in ["c-hoist", "hip-hoist"]:
             # scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim, as_kwarguments=True) )
             scheduler.process( HoistTemporaryArraysCstyleTransformation(as_kwarguments=True) )
@@ -376,7 +389,7 @@ def convert(
         for h in definitions:
             f2c_transformation.apply(h, role='header')
         # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
-        dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
+        dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD', include_path=build)
         scheduler.process(dependency)
     else:
         # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module

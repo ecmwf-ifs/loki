@@ -112,7 +112,11 @@ class CudaCodegen(CppCodegen): # Stringifier):
         self.depth += 1
 
         # ...and generate the spec without imports and argument declarations
-        body = [self.visit(o.spec, skip_imports=True, skip_decls=skip_decls, skip_argument_declarations=True, **kwargs)]
+        skip_imports = kwargs.pop('skip_imports', True)
+        skip_decls = kwargs.pop('skip_decls', skip_decls)
+        skip_argument_declarations = kwargs.pop('skip_argument_declarations', True)
+        body = [self.visit(o.spec, skip_imports=skip_imports, skip_decls=skip_decls, skip_argument_declarations=True, **kwargs)]
+        # body = [self.visit(o.spec, skip_imports=True, skip_decls=skip_decls, skip_argument_declarations=True, **kwargs)]
 
         if skip_decls:
             body += [self.format_line('printf("executing c launch ...\\n");')]
@@ -138,6 +142,7 @@ class CudaCodegen(CppCodegen): # Stringifier):
 
     def visit_CallStatement(self, o, **kwargs):
         args = self.visit_all(o.arguments, **kwargs)
+        print(f"visit_CallStatement {o.name} | {o.kwarguments}")
         assert not o.kwarguments
         if o.chevron is not None:
             chevron = f"<<<{','.join([str(elem) for elem in o.chevron])}>>>"

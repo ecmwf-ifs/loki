@@ -534,6 +534,7 @@ def normalize_array_shape_and_access(routine):
                         start = simplify(v.dimensions[i] - d.start + 1) if d.start is not None else None
                         new_dims += [start]
                 else:
+                    print(f"routine {routine} | v {v} dims {v.dimensions} shape {v.shape} | {i}")
                     new_dims += [v.dimensions[i]]
             if new_dims:
                 vmap[v] = v.clone(dimensions=as_tuple(new_dims))
@@ -571,12 +572,18 @@ def flatten_arrays(routine, order='F', start_index=1):
             return None
         if len(dim) > 1:
             if isinstance(shape[-2], sym.RangeIndex):
-                raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening!')
+                raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening! | dim: {dim} | shape: {shape}')
             _dim = (sym.Sum((dim[-2], sym.Product((shape[-2], dim[-1] - start_index)))),)
             new_dim = dim[:-2]
             new_dim += _dim
             return new_dims(new_dim, shape[:-1])
         return dim
+
+    
+    print(f"flatten arrays for routine: {routine}")
+    for var in FindVariables().visit(routine.body):
+        if isinstance(var, sym.Array) and var.shape and len(var.shape):
+            print(f"  array {var} | shape: {var.shape} | dim: {var.dimensions}")
 
     if order == 'C':
         array_map = {

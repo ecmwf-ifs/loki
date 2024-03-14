@@ -3,9 +3,10 @@ from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
      NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
      is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached,
-     SubstituteExpressions, symbols as sym, fgen
+     SubstituteExpressions, symbols as sym, fgen, recursive_expression_map_update
 )
 from transformations.single_column_coalesced import SCCBaseTransformation
+# from loki.transform.transform_utilities import recursive_expression_map_update
 
 __all__ = [
     'SCCLowerLoopTransformation'
@@ -42,6 +43,7 @@ class SCCLowerLoopTransformation(Transformation):
         self.keep_driver_loop = keep_driver_loop
         self.ignore_dim_name = ignore_dim_name
         self.call_routines = []
+        self.already_processed = []
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -227,6 +229,7 @@ class SCCLowerLoopTransformation(Transformation):
         # insert loop in relevant kernel, 
         #  update call arguments and collect information in order to 
         #  promote/update callee arguments/variables in the next step
+        call_routine_map = {}
         if not loops:
             calls = FindNodes(ir.CallStatement).visit(routine.body)
             for call in calls:
@@ -234,19 +237,75 @@ class SCCLowerLoopTransformation(Transformation):
                     continue
                 if SCCBaseTransformation.is_elemental(call.routine):
                     continue
+                self.call_routines.append(call.routine.name)
                 if call.routine.name not in self.call_routines:
                     continue
                 additional_kwarguments = self._insert_index_in_kernel(routine, call) #  loop)
-                call._update(kwarguments=call.kwarguments + additional_kwarguments)
-        call_routine_map = {}
+                ###
+                relevant_callees.append(call.routine)
+                call_routine_map[call.routine.name] = {}
+                call_routine_map[call.routine.name]['shape'] = {}
+                call_routine_map[call.routine.name]['dim'] = {}
+
+                new_arguments = ()
+                new_kwargs = ()
+
+                if self.driver_dim_name is not None: # ignore_dim_name:
+                    if role == 'driver':
+                        dim_name = self.driver_dim_name
+                    else:
+                        dim_name = self.dim_name
+                else:
+                    dim_name = self.dim_name
+                # dim_name = self.dim_name
+                args_and_kwargs = list(chain(((None, arg) for arg in call.arguments), call.kwarguments)) # caller side
+                arg_iter = list(call.arg_iter()) # callee and caller
+                for i_arg, (keyword, arg) in enumerate(args_and_kwargs):
+                    if isinstance(arg, sym.Array):
+                        # replace_indices = [dim == self.dim_name for dim in arg.dimensions]
+                        replace_indices = [dim == dim_name for dim in arg.dimensions]
+                        corresponding_var = arg_iter[i_arg][0] # call.routine.arguments[i_arg]
+                        if any(replace_indices):
+                            relevant_index = [i for i, x in enumerate(replace_indices) if x][0]
+                            arg_shape = arg.shape
+                            call_arg_shape = list(call.routine.variable_map[corresponding_var.name].shape)
+                            call_arg_dim = list(call.routine.variable_map[corresponding_var.name].dimensions)
+                            call_routine_map[call.routine.name]['shape'][call.routine.variable_map[corresponding_var.name]] = (relevant_index, SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # (routine, self.dimension.size))arg_shape[relevant_index])
+                            # if loop.variable.name != dim_name: # self.dim_name:
+                            call_routine_map[call.routine.name]['dim'][corresponding_var.name] = (relevant_index, self.dim_name)
+                            # else:
+                            #     call_routine_map[call.routine.name]['dim'][corresponding_var.name] = (relevant_index, loop.variable.name)
+                        if arg.dimensions:
+                            # new_dimensions = [dim if dim != self.dim_name else sym.RangeIndex((None, None)) for dim in arg.dimensions]
+                            new_dimensions = [dim if dim != dim_name else sym.RangeIndex((None, None)) for dim in arg.dimensions]
+                        else:
+                            # TODO: this should never be called ...
+                            new_dimensions = ()
+                        # update dimensions of (kw)args
+                        if keyword is None:
+                            new_arguments += (arg.clone(dimensions=as_tuple(new_dimensions)),)
+                        else:
+                            new_kwargs += ((keyword, arg.clone(dimensions=as_tuple(new_dimensions))),)
+                    else:
+                        # nothing to replace, thus, just append as (kw)arg is
+                        if keyword is None:
+                            new_arguments += (arg,)
+                        else:
+                            new_kwargs += ((keyword, arg),)
+
+                call._update(arguments=new_arguments, kwarguments=new_kwargs+additional_kwarguments)
+                ###
+                # call._update(kwarguments=call.kwarguments + additional_kwarguments)
+        # call_routine_map = {}
         for loop in loops:
             # driver loop mapping
-            if remove_loop:
+            calls = FindNodes(ir.CallStatement).visit(loop.body)
+            if remove_loop and calls:
                 loop_node = loop if self.keep_driver_loop else loop.body
                 loop_map[loop] = (comment, ir.Pragma(keyword="loki", content=f"start: removed loop"), #  l-{loop.bounds.lower}-l u-{loop.bounds.upper}-u s-{loop.bounds.step}-s"),
                         comment, loop_node, comment, ir.Pragma(keyword="loki", content="end: removed loop"), comment)
             # calls
-            calls = FindNodes(ir.CallStatement).visit(loop.body)
+            # calls = FindNodes(ir.CallStatement).visit(loop.body)
             # call_routine_map = {}
             for call in calls:
                 # only those callees being in targets
@@ -290,7 +349,7 @@ class SCCLowerLoopTransformation(Transformation):
                             arg_shape = arg.shape
                             call_arg_shape = list(call.routine.variable_map[corresponding_var.name].shape)
                             call_arg_dim = list(call.routine.variable_map[corresponding_var.name].dimensions)
-                            call_routine_map[call.routine.name]['shape'][call.routine.variable_map[corresponding_var.name]] = (relevant_index, arg_shape[relevant_index])
+                            call_routine_map[call.routine.name]['shape'][call.routine.variable_map[corresponding_var.name]] = (relevant_index, SCCBaseTransformation.get_integer_variable(routine, self.dimension.size)) # (routine, self.dimension.size))arg_shape[relevant_index])
                             if loop.variable.name != dim_name: # self.dim_name:
                                 call_routine_map[call.routine.name]['dim'][corresponding_var.name] = (relevant_index, self.dim_name)
                             else:
@@ -312,17 +371,20 @@ class SCCLowerLoopTransformation(Transformation):
                             new_arguments += (arg,)
                         else:
                             new_kwargs += ((keyword, arg),)
-                           
+
                 call._update(arguments=new_arguments, kwarguments=new_kwargs+additional_kwarguments)
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # promote variables/arrays ...
         relevant_callees = set(relevant_callees)
         for relevant_callee in relevant_callees:
+            
+            if relevant_callee in self.already_processed:
+                continue
+            self.already_processed.append(relevant_callee)
 
             # promote locals/temporaries (TODO: if set ...)
             # self._promote_locals(relevant_callee)
-
             # Declarations
             shape_map = {}
             for key, elem in call_routine_map[relevant_callee.name]['shape'].items():
@@ -335,11 +397,11 @@ class SCCLowerLoopTransformation(Transformation):
             # Variable usages
             dim_map = {}
             relevant_variables = [key for key in call_routine_map[relevant_callee.name]['dim']]
-            variables = FindVariables().visit(relevant_callee.body)
+            variables = FindVariables(unique=False).visit(relevant_callee.body)
             for var in variables:
                 if var.name in relevant_variables:
                     if not var.dimensions:
-                        # TODO: why the ... is this necessary?!
+                        # TODO: why the ... is this necessary?! is this still necessary?
                         var_dims = [sym.RangeIndex((None, None))] * (len(var.shape) - 1)
                     else:
                         var_dims = list(var.dimensions)
@@ -347,5 +409,6 @@ class SCCLowerLoopTransformation(Transformation):
                     var_dims.insert(call_routine_map[relevant_callee.name]['dim'][var.name][0],
                             relevant_callee.variable_map[call_routine_map[relevant_callee.name]['dim'][var.name][1]])
                     dim_map[var] = var.clone(dimensions=as_tuple(var_dims))
+            dim_map = recursive_expression_map_update(dim_map)
             relevant_callee.body = SubstituteExpressions(dim_map).visit(relevant_callee.body)
 
