@@ -405,7 +405,7 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
                 and not var.type.parameter         # not a parameter
                 and isinstance(var, sym.Array)     # is an array
                 and (self.dim_vars is None         # if dim_vars not empty check if at least one dim is within dim_vars
-                     or any(dim_var in self.dim_vars for dim_var in FindVariables().visit(var.dimensions)))]
+                     or any(dim_var in self.dim_vars for dim_var in FindVariables().visit(var.dimensions)))] #  or any(dim_var in self.dim_vars for dim_var in FindVariables().visit(var.shape)))]
 
 
 class HoistTemporaryArraysTransformationAllocatable(HoistVariablesTransformation):

@@ -230,7 +230,7 @@ def convert(
         derived_type_transformation = DerivedTypeArgumentsTransformation(all_derived_types=True)
         scheduler.process(transformation=derived_type_transformation) # , reverse=True)
 
-    if True: # derive_argument_array_shape:
+    if mode in ['cuf-hoist-new', 'c-hoist']:
         scheduler.process(transformation=ArgumentArrayShapeAnalysis())
         scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
@@ -252,7 +252,7 @@ def convert(
     scheduler.process(transformation=inline_trafo)
 
     # Backward insert argument shapes (for surface routines)
-    if False: # derive_argument_array_shape:
+    if derive_argument_array_shape and mode not in ['cuf-hoist-new', 'c-hoist']:
         scheduler.process(transformation=ArgumentArrayShapeAnalysis())
         scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
@@ -334,8 +334,8 @@ def convert(
         scheduler.process( transformation=scheduler.config.transformations[mode] )
 
     if global_var_offload and mode not in ["cuf-hoist-new", 'c-hoist']:
-        scheduler.process(transformation=GlobalVariableAnalysis(key='global_var_offload_offload'))
-        scheduler.process(transformation=GlobalVarOffloadTransformation(key='global_var_offload_offload'))
+        scheduler.process(transformation=GlobalVariableAnalysis())
+        scheduler.process(transformation=GlobalVarOffloadTransformation())
 
 
     if mode in ['idem-stack', 'scc-stack']:

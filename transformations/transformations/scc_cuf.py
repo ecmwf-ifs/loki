@@ -162,7 +162,14 @@ def remove_pragmas(routine):
     routine: :any:`Subroutine`
         The subroutine in which to remove all pragmas
     """
-    pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body) if p.keyword.lower()!="loki"}
+    # pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body) if p.keyword.lower()!="loki"}
+    pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+    pragmas = [pragma for pragma in pragmas if pragma.keyword.lower() in ["acc"]]
+    remove_pragmas = ()
+    # pragmas = [pragma for pragma in pragmas if pragma.content.lower() in ["parallel loop"]]
+    remove_pragmas += tuple([p for p in pragmas if "parallel loop" in p.content.lower()])
+    remove_pragmas += tuple([p for p in pragmas if "update device" in p.content.lower()])
+    pragma_map = {p: None for p in remove_pragmas}
     routine.body = Transformer(pragma_map).visit(routine.body)
 
 
@@ -866,7 +873,7 @@ class SccCufTransformationNew(Transformation):
         else:
             depth = depths[item]
 
-        # remove_pragmas(routine)
+        remove_pragmas(routine)
         single_variable_declaration(routine=routine, group_by_shape=True)
         device_subroutine_prefix(routine, depth)
 
@@ -1484,6 +1491,7 @@ class SccCufTransformationNew(Transformation):
         # dimension and can thus be privatized.
         variables = [v for v in variables if v.shape is not None]
         variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
+        variables = [v for v in variables if not any(horizontal.size in d for d in v.shape)]
 
         # Filter out variables that we will pass down the call tree
         calls = FindNodes(ir.CallStatement).visit(routine.body)
