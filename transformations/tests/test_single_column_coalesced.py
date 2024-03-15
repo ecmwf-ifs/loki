@@ -36,7 +36,7 @@ def fixture_horizontal_bounds_aliases():
 
 @pytest.fixture(scope='module', name='vertical')
 def fixture_vertical():
-    return Dimension(name='vertical', size='nz', index='jk')
+    return Dimension(name='vertical', size='nz', index='jk', aliases=('nlev',))
 
 
 @pytest.fixture(scope='module', name='blocking')
@@ -731,26 +731,30 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking):
     """
 
     fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, nb)
+  SUBROUTINE column_driver(nlon, nproma, nlev, nz, q, nb)
     INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    INTEGER, INTENT(IN)   :: nproma, nlev  ! Aliases of horizontal and vertical sizes
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
     INTEGER :: b, start, end
 
     start = 1
     end = nlon
     do b=1, nb
-      call compute_column(start, end, nlon, nz, q(:,:,b))
+      call compute_column(start, end, nlon, nproma, nz, q(:,:,b))
     end do
   END SUBROUTINE column_driver
 """
 
     fcode_kernel = """
-  SUBROUTINE compute_column(start, end, nlon, nz, q)
-    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
-    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+  SUBROUTINE compute_column(start, end, nlon, nproma, nlev, nz, q)
+    INTEGER, INTENT(IN) :: start, end   ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz     ! Size of the horizontal and vertical
+    INTEGER, INTENT(IN) :: nproma, nlev ! Aliases of horizontal and vertical sizes
     REAL, INTENT(INOUT) :: q(nlon,nz)
     REAL :: t(nlon,nz)
     REAL :: a(nlon)
+    REAL :: d(nproma)
+    REAL :: e(nlev)
     REAL :: b(nlon,psize)
     INTEGER, PARAMETER :: psize = 3
     INTEGER :: jl, jk
