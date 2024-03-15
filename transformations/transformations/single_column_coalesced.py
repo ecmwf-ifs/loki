@@ -376,8 +376,10 @@ class SCCAnnotateTransformation(Transformation):
         argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
         private_arrays = [v for v in routine.variables if not v.name in argument_map]
         private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
-        private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
-        private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
+        private_arrays = [v for v in private_arrays
+                          if all(not any(s in d for d in v.shape) for s in [vertical.size, *vertical._aliases])]
+        private_arrays = [v for v in private_arrays
+                          if all(not any(s in d for d in v.shape) for s in [horizontal.size, *horizontal._aliases])]
 
         if private_arrays:
             # Log private arrays in vector regions, as these can impact performance
