@@ -42,6 +42,8 @@ class SchedulerConfig:
         visualisation. These are intended for utility routines that
         pop up in many routines but can be ignored in terms of program
         control flow, like ``flush`` or ``abort``.
+    enable_imports : bool
+￼        Disable the inclusion of module imports as scheduler dependencies.
     transformation_configs : dict
         Dicts with transformation-specific options
     frontend_args : dict
@@ -50,11 +52,12 @@ class SchedulerConfig:
 
     def __init__(
             self, default, routines, disable=None, dimensions=None,
-            transformation_configs=None, frontend_args=None
+            transformation_configs=None, enable_imports=False, frontend_args=None
     ):
         self.default = default
         self.disable = as_tuple(disable)
         self.dimensions = dimensions
+        self.enable_imports = enable_imports
 
         self.routines = CaseInsensitiveDict(routines)
         self.transformation_configs = transformation_configs
@@ -74,8 +77,7 @@ class SchedulerConfig:
         default = config.get('default', {})
         routines = config.get('routines', [])
         disable = default.get('disable', None)
-        if 'imports' in default:
-            warning('The enable_imports option in the scheduler config is deprecated. Imports are always enabled.')
+        enable_imports = default.get('enable_imports', False)
 
         # Add any dimension definitions contained in the config dict
         dimensions = config.get('dimensions', {})
@@ -91,7 +93,8 @@ class SchedulerConfig:
 
         return cls(
             default=default, routines=routines, disable=disable, dimensions=dimensions,
-            transformation_configs=transformation_configs, frontend_args=frontend_args
+            transformation_configs=transformation_configs, frontend_args=frontend_args,
+            enable_imports=enable_imports
         )
 
     @classmethod

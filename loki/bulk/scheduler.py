@@ -250,7 +250,10 @@ class Scheduler:
         :any:`SGraph`
             A dependency graph containing only :any:`FileItem` nodes
         """
-        return self.sgraph.as_filegraph(self.item_factory, self.config)
+        item_filter = None if self.config.enable_imports else ProcedureItem
+        return self.sgraph.as_filegraph(
+            self.item_factory, self.config, item_filter=item_filter
+        )
 
     def __getitem__(self, name):
         """
@@ -273,7 +276,7 @@ class Scheduler:
         # Force the parsing of the routines
         default_frontend_args = self.build_args.copy()
         default_frontend_args['definitions'] = as_tuple(default_frontend_args['definitions']) + self.definitions
-        for item in SFilter(self.sgraph.as_filegraph(self.item_factory, self.config), reverse=True):
+        for item in SFilter(self.file_graph, reverse=True):
             frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
             item.source.make_complete(**frontend_args)
 
@@ -588,7 +591,8 @@ class Scheduler:
         sources_to_transform = []
 
         # Filter the SGraph to get a pure call-tree
-        for item in SFilter(self.sgraph, item_filter=ProcedureItem):
+        item_filter = None if self.config.enable_imports else ProcedureItem
+        for item in SFilter(self.sgraph, item_filter=item_filter):
             if item.is_ignored:
                 continue
 
