@@ -230,7 +230,7 @@ class DependencyTransformation(Transformation):
         for im in imports:
             if im.c_import:
                 target_symbol = im.module.split('.')[0].lower()
-                if targets and target_symbol.lower() in targets:
+                if targets and target_symbol.lower() in targets and 'intfb' in im.module.lower():
                     # Modify the the basename of the C-style header import
                     s = '.'.join(im.module.split('.')[1:])
                     im._update(module=f'{target_symbol}{self.suffix}.{s}')
@@ -366,7 +366,7 @@ class ModuleWrapTransformation(Transformation):
         for im in imports:
             if im.c_import:
                 target_symbol = im.module.split('.')[0].lower()
-                if targets and target_symbol.lower() in targets:
+                if targets and target_symbol.lower() in targets and 'intfb' in im.module.lower():
                     # Create a new module import with explicitly qualified symbol
                     modname = f'{target_symbol}{self.module_suffix}'
                     new_symbol = Variable(name=f'{target_symbol}', scope=source)
