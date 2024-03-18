@@ -618,7 +618,6 @@ class Scheduler:
                     sources_to_append += [newsource]
                     sources_to_remove += [sourcepath]
 
-        info(f'[Loki] CMakePlanner writing plan: {filepath}')
         with Path(filepath).open('w') as f:
             s_transform = '\n'.join(f'    {s}' for s in sources_to_transform)
             f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
