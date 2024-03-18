@@ -64,7 +64,7 @@ from loki import (
     gettempdir, ProcedureSymbol, Item, ProcedureItem, ProcedureBindingItem, InterfaceItem,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, flatten, as_tuple, TypeDefItem, SFilter, CaseInsensitiveDict, Comment,
-    ModuleWrapTransformation, Dimension, PreprocessorDirective
+    ModuleWrapTransformation, Dimension, PreprocessorDirective, ExternalItem
 )
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
@@ -129,7 +129,8 @@ def fixture_driverB_dependencies():
         'kernelB_mod#kernelB': ('compute_l1_mod#compute_l1', 'ext_driver_mod#ext_driver'),
         'compute_l1_mod#compute_l1': ('compute_l2_mod#compute_l2',),
         'compute_l2_mod#compute_l2': (),
-        'ext_driver_mod#ext_driver': ('ext_kernel_mod#ext_kernel',),
+        'ext_driver_mod#ext_driver': ('ext_kernel_mod', 'ext_kernel_mod#ext_kernel',),
+        'ext_kernel_mod': (),
         'ext_kernel_mod#ext_kernel': (),
         'header_mod#header_type': (),
         'header_mod': (),
@@ -148,7 +149,6 @@ def fixture_proj_typebound_dependencies():
             # 'typebound_header#header_type',
             'typebound_header#header_type%member_routine',
             'typebound_header#header_type%routine',
-            'typebound_other',
             'typebound_other#other_type',
             'typebound_other#other_type%member',
             'typebound_other#other_type%var%member_routine',
@@ -202,17 +202,16 @@ def fixture_proj_typebound_dependencies():
             'typebound_header#header_type',
         ),
         'typebound_header#abor1': (),
-        'typebound_other': ('typebound_header', 'typebound_header#header_type',),
-        'typebound_other#other_type': ('typebound_header#header_type', 'typebound_header'),
+        'typebound_other#other_type': ('typebound_header#header_type',),
         'typebound_other#other_type%member': ('typebound_other#other_member',),
         'typebound_other#other_member': (
-            'typebound_header',
             'typebound_header#header_member_routine',
             'typebound_other#other_type',
             'typebound_other#other_type%var%member_routine'
         ),
         'typebound_other#other_type%var%member_routine': ('typebound_header#header_type%member_routine',)
     }
+
 
 class VisGraphWrapper:
     """
@@ -304,7 +303,8 @@ def test_scheduler_graph_simple(here, config, frontend, driverA_dependencies, wi
     vgraph = VisGraphWrapper(cg_path)
     if with_legend:
         assert set(vgraph.nodes) == {item.upper() for item in driverA_dependencies} | {
-            'FileItem', 'ModuleItem', 'ProcedureItem', 'TypeDefItem', 'ProcedureBindingItem', 'InterfaceItem'
+            'FileItem', 'ModuleItem', 'ProcedureItem', 'TypeDefItem',
+            'ProcedureBindingItem', 'InterfaceItem', 'ExternalItem'
         }
     else:
         assert set(vgraph.nodes) == {item.upper() for item in driverA_dependencies}
@@ -733,7 +733,8 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
     }
 
     ignored_dependenciesA = {
-        'ext_driver_mod#ext_driver': ('ext_kernel_mod#ext_kernel',),
+        'ext_driver_mod#ext_driver': ('ext_kernel_mod', 'ext_kernel_mod#ext_kernel',),
+        'ext_kernel_mod': (),
         'ext_kernel_mod#ext_kernel': (),
     }
 
@@ -822,32 +823,34 @@ def test_scheduler_graph_multiple_separate_enrich_fail(here, config, frontend, s
         },
     ]
 
+    schedulerA = Scheduler(
+        paths=[projA], includes=projA/'include', config=configA,
+        seed_routines=['driverB'], frontend=frontend
+    )
+
+    expected_dependenciesA = {
+        'driverB_mod#driverB': ('kernelB_mod#kernelB', 'header_mod', 'header_mod#header_type'),
+        'kernelB_mod#kernelB': ('compute_l1_mod#compute_l1', 'ext_driver_mod#ext_driver'),
+        'compute_l1_mod#compute_l1': ('compute_l2_mod#compute_l2',),
+        'compute_l2_mod#compute_l2': (),
+        'header_mod': (),
+        'header_mod#header_type': (),
+        'ext_driver_mod#ext_driver': (),
+    }
+
+    assert set(schedulerA.items) == {node.lower() for node in expected_dependenciesA}
+    assert set(schedulerA.dependencies) == {
+        (a.lower(), b.lower()) for a, deps in expected_dependenciesA.items() for b in deps
+    }
+
+    class DummyTrafo(Transformation):
+        pass
+
     if strict:
         with pytest.raises(RuntimeError):
-            Scheduler(
-                paths=[projA], includes=projA/'include', config=configA,
-                seed_routines=['driverB'], frontend=frontend
-            )
+            schedulerA.process(transformation=DummyTrafo())
     else:
-        schedulerA = Scheduler(
-            paths=[projA], includes=projA/'include', config=configA,
-            seed_routines=['driverB'], frontend=frontend
-        )
-
-        expected_itemsA = [
-            'driverB_mod#driverB', 'kernelB_mod#kernelB',
-            'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2',
-        ]
-        expected_dependenciesA = [
-            ('driverB_mod#driverB', 'kernelB_mod#kernelB'),
-            ('kernelB_mod#kernelB', 'compute_l1_mod#compute_l1'),
-            ('compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2'),
-        ]
-
-        assert all(n in schedulerA.items for n in expected_itemsA)
-        assert all(e in schedulerA.dependencies for e in expected_dependenciesA)
-        assert 'ext_driver' not in schedulerA.items
-        assert 'ext_kernel' not in schedulerA.items
+        schedulerA.process(transformation=DummyTrafo())
 
 
 def test_scheduler_module_dependency(here, config, frontend):
@@ -925,10 +928,11 @@ def test_scheduler_module_dependencies_unqualified(here, config, frontend):
     assert scheduler['proj_c_util_mod#routine_two'].ir.name == 'routine_two'
 
 
-def test_scheduler_missing_files(here, config, frontend):
+@pytest.mark.parametrize('strict', [True, False])
+def test_scheduler_missing_files(here, config, frontend, strict):
     """
     Ensure that ``strict=True`` triggers failure if source paths are
-    missing and that ``strict=Files`` goes through gracefully.
+    missing and that ``strict=False`` goes through gracefully.
 
     projA: driverC -> kernelC -> compute_l1<replicated> -> compute_l2
                            |
@@ -936,14 +940,7 @@ def test_scheduler_missing_files(here, config, frontend):
     """
     projA = here/'sources/projA'
 
-    config['default']['strict'] = True
-    with pytest.raises(RuntimeError):
-        scheduler = Scheduler(
-            paths=[projA], includes=projA/'include', config=config,
-            seed_routines=['driverC_mod#driverC'], frontend=frontend
-        )
-
-    config['default']['strict'] = False
+    config['default']['strict'] = strict
     scheduler = Scheduler(
         paths=[projA], includes=projA/'include', config=config,
         seed_routines=['driverC_mod#driverC'], frontend=frontend
@@ -951,11 +948,12 @@ def test_scheduler_missing_files(here, config, frontend):
 
     expected_dependencies = {
         'driverc_mod#driverc': ('kernelc_mod#kernelc', 'header_mod#header_type', 'header_mod'),
-        'kernelc_mod#kernelc': ('compute_l1_mod#compute_l1',),
+        'kernelc_mod#kernelc': ('compute_l1_mod#compute_l1', 'proj_c_util_mod#routine_one'),
         'compute_l1_mod#compute_l1': ('compute_l2_mod#compute_l2',),
         'compute_l2_mod#compute_l2': (),
         'header_mod#header_type': (),
         'header_mod': (),
+        'proj_c_util_mod#routine_one': (),
     }
     assert set(scheduler.items) == set(expected_dependencies)
     assert set(scheduler.dependencies) == {
@@ -963,11 +961,28 @@ def test_scheduler_missing_files(here, config, frontend):
     }
 
     # Ensure that the missing items are not in the graph
-    assert 'proj_c_util_mod#routine_one' not in scheduler.items
+    assert isinstance(scheduler['proj_c_util_mod#routine_one'], ExternalItem)
     assert 'proj_c_util_mod#routine_two' not in scheduler.items
 
+    # Check processing with missing items
+    class CheckApply(Transformation):
 
-def test_scheduler_dependencies_ignore(here, frontend):
+        def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
+            assert 'item' in kwargs
+            assert not isinstance(kwargs['item'], ExternalItem)
+            super().apply(source, post_apply_rescope_symbols=post_apply_rescope_symbols, **kwargs)
+
+    if strict:
+        with pytest.raises(RuntimeError):
+            scheduler.process(CheckApply())
+    else:
+        scheduler.process(CheckApply())
+
+
+@pytest.mark.parametrize('preprocess', [False, True])   # NB: With preprocessing, ext_driver is no longer
+                                                        #     wrapped inside a module but instead imported
+                                                        #     via an intfb.h
+def test_scheduler_dependencies_ignore(here, preprocess, frontend):
     """
     Test multi-lib transformation by applying the :any:`DependencyTransformation`
     over two distinct projects with two distinct invocations.
@@ -994,18 +1009,29 @@ def test_scheduler_dependencies_ignore(here, frontend):
         }
     })
 
-    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA, frontend=frontend)
+    schedulerA = Scheduler(
+        paths=[projA, projB], includes=projA/'include', config=configA,
+        frontend=frontend, preprocess=preprocess
+    )
 
-    schedulerB = Scheduler(paths=projB, includes=projB/'include', config=configB, frontend=frontend)
+    schedulerB = Scheduler(
+        paths=projB, includes=projB/'include', config=configB,
+        frontend=frontend, preprocess=preprocess
+    )
 
     expected_items_a = [
         'driverB_mod#driverB', 'kernelB_mod#kernelB',
         'compute_l1_mod#compute_l1', 'compute_l2_mod#compute_l2',
         'header_mod', 'header_mod#header_type'
     ]
-    expected_items_b = [
-        'ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel'
-    ]
+    if preprocess:
+        expected_items_b = [
+            '#ext_driver', 'ext_kernel_mod', 'ext_kernel_mod#ext_kernel'
+        ]
+    else:
+        expected_items_b = [
+            'ext_driver_mod#ext_driver', 'ext_kernel_mod', 'ext_kernel_mod#ext_kernel'
+        ]
 
     assert set(schedulerA.items) == {n.lower() for n in expected_items_a + expected_items_b}
     assert all(not schedulerA[name].is_ignored for name in expected_items_a)
@@ -1069,7 +1095,12 @@ def test_scheduler_dependencies_ignore(here, frontend):
         schedulerB.process(transformation=transformation)
 
     assert schedulerB.items[0].source.all_subroutines[0].name == 'ext_driver_test'
-    assert schedulerB.items[1].source.all_subroutines[0].name == 'ext_kernel_test'
+
+    # This is the untransformed original module
+    assert schedulerB['ext_kernel_mod'].source.all_subroutines[0].name == 'ext_kernel'
+
+    # This is the module-wrapped procedure
+    assert schedulerB['ext_kernel_test_mod#ext_kernel_test'].source.all_subroutines[0].name == 'ext_kernel_test'
 
 
 def test_scheduler_cmake_planner(here, frontend):
@@ -1294,17 +1325,15 @@ def test_scheduler_scopes(here, config, frontend):
 
     expected_dependencies = {
         '#driver': (
-            'kernel1_mod', 'kernel1_mod#kernel',
-            'kernel2_mod', 'kernel2_mod#kernel',
+            'kernel1_mod#kernel',
+            'kernel2_mod#kernel',
         ),
-        'kernel1_mod': (),
         'kernel1_mod#kernel': (
             'kernel1_impl',
             'kernel1_impl#kernel_impl',
         ),
         'kernel1_impl': (),
         'kernel1_impl#kernel_impl': (),
-        'kernel2_mod': (),
         'kernel2_mod#kernel': (
             'kernel2_impl',
             'kernel2_impl#kernel_impl',
@@ -1853,9 +1882,8 @@ end subroutine test_scheduler_interface_dependencies_driver
 
     expected_dependencies = {
         '#test_scheduler_interface_dependencies_driver': {
-            'test_scheduler_interface_dependencies_mod', 'test_scheduler_interface_dependencies_mod#my_intf'
+            'test_scheduler_interface_dependencies_mod#my_intf'
         },
-        'test_scheduler_interface_dependencies_mod': set(),
         'test_scheduler_interface_dependencies_mod#my_intf': {
             'test_scheduler_interface_dependencies_mod#proc1', 'test_scheduler_interface_dependencies_mod#proc2'
         },
@@ -1957,13 +1985,11 @@ end subroutine caller
 
     expected_dependencies = {
         '#caller': (
-            'some_mod',
             'some_mod#some_type',
             'some_mod#some_type%routine',
             'some_mod#some_type%do',
             'some_mod#some_type%other',
         ),
-        'some_mod': (),
         'some_mod#some_type': (),
         'some_mod#some_type%routine': ('some_mod#routine',),
         'some_mod#some_type%do': (
@@ -2121,11 +2147,9 @@ end subroutine caller
 
     expected_dependencies = {
         '#caller': (
-            'some_mod',
             'some_mod#some_type',
             'some_mod#some_type%some_routine',
         ),
-        'some_mod': (),
         'some_mod#some_type': (),
         'some_mod#some_type%some_routine': ('some_mod#some_routine',),
         'some_mod#some_routine': ('some_mod#some_type',),
@@ -2499,11 +2523,9 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
     # Only the driver and mod1 are in the Sgraph
     expected_dependencies = {
         '#test_scheduler_filter_program_units_file_graph_driver': {
-            'test_scheduler_filter_program_units_file_graph_mod1',
             'test_scheduler_filter_program_units_file_graph_mod1#proc1',
             'test_scheduler_filter_program_units_file_graph_mod3'
         },
-        'test_scheduler_filter_program_units_file_graph_mod1': set(),
         'test_scheduler_filter_program_units_file_graph_mod1#proc1': set(),
         'test_scheduler_filter_program_units_file_graph_mod3': set()
     }
@@ -2717,12 +2739,10 @@ end subroutine test_scheduler_frontend_overwrite_kernel
     )
 
     assert set(scheduler.items) == {
-        '#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header',
-        'test_scheduler_frontend_overwrite_header#some_type'
+        '#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header#some_type'
     }
 
     assert set(scheduler.dependencies) == {
-       ('#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header'),
        ('#test_scheduler_frontend_overwrite_kernel', 'test_scheduler_frontend_overwrite_header#some_type')
     }
 

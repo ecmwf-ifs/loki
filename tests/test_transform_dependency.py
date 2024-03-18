@@ -82,8 +82,8 @@ END SUBROUTINE driver
         scheduler.process(transformation)
 
         # Check that both, old and new module exist now in the scheduler graph
-        assert 'kernel_test_mod' in scheduler.items
-        assert 'kernel_mod' in scheduler.items
+        assert 'kernel_test_mod#kernel_test' in scheduler.items  # for the subroutine
+        assert 'kernel_mod' in scheduler.items  # for the global variable
 
         kernel = scheduler['kernel_test_mod#kernel_test'].source
         driver = scheduler['#driver'].source
@@ -834,11 +834,9 @@ end subroutine test_dependency_transformation_filter_items_driver
     # Only the driver and mod1 are in the Sgraph
     expected_dependencies = {
         '#test_dependency_transformation_filter_items_driver': {
-            'test_dependency_transformation_filter_items1_mod',
             'test_dependency_transformation_filter_items1_mod#proc1',
             'test_dependency_transformation_filter_items3_mod'
         },
-        'test_dependency_transformation_filter_items1_mod': set(),
         'test_dependency_transformation_filter_items1_mod#proc1': set(),
         'test_dependency_transformation_filter_items3_mod': set()
     }
@@ -868,11 +866,9 @@ end subroutine test_dependency_transformation_filter_items_driver
 
     expected_dependencies = {
         '#test_dependency_transformation_filter_items_driver': {
-            'test_dependency_transformation_filter_items1_foo_mod',
             'test_dependency_transformation_filter_items1_foo_mod#proc1_foo',
             'test_dependency_transformation_filter_items3_mod'
         },
-        'test_dependency_transformation_filter_items1_foo_mod': set(),
         'test_dependency_transformation_filter_items1_foo_mod#proc1_foo': set(),
         'test_dependency_transformation_filter_items3_mod': set()
     }

@@ -407,7 +407,6 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
             'offload': {'rdata(:, :, :)', 'tt', 'tt%vals'}
         },
         'global_var_analysis_data_mod#some_routine': {'defines_symbols': set(), 'uses_symbols': set()},
-        'global_var_analysis_kernel_mod': {'declares': set(), 'offload': set()},
         'global_var_analysis_kernel_mod#kernel_a': {
             'defines_symbols': set(),
             'uses_symbols': nval_data | nfld_data | {

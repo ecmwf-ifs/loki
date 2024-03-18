@@ -23,7 +23,7 @@ from loki.visitors import FindNodes
 
 __all__ = [
     'Item', 'FileItem', 'ModuleItem', 'ProcedureItem', 'TypeDefItem',
-    'InterfaceItem', 'ProcedureBindingItem', 'ItemFactory'
+    'InterfaceItem', 'ProcedureBindingItem', 'ExternalItem', 'ItemFactory'
 ]
 
 
@@ -890,6 +890,50 @@ class ProcedureBindingItem(Item):
         return as_tuple(ProcedureSymbol(name=proc_name, parent=symbol, scope=symbol.scope))
 
 
+class ExternalItem(Item):
+    """
+    Item class representing an external dependency that cannot be resolved
+
+    The name of this item may be a fully qualified name containing scope
+    and local name, or only a local name.
+
+    It does not define any child items or depend on other items.
+
+    It does not constitute a work item when applying transformations across the
+    call tree in the :any:`Scheduler`.
+
+    Parameters
+    ----------
+    origin_cls :
+        The subclass of :any:`Item` this item represents.
+    """
+
+    def __init__(self, name, source, config=None, origin_cls=None):
+        self.origin_cls = origin_cls
+        super().__init__(name, source, config)
+
+    @property
+    def ir(self):
+        """
+        This raises a :any:`RuntimeError`
+        """
+        raise RuntimeError(f'No .ir available for ExternalItem `{self.name}`')
+
+    @property
+    def scope(self):
+        """
+        This raises a :any:`RuntimeError`
+        """
+        raise RuntimeError(f'No .scope available for ExternalItem `{self.name}`')
+
+    @property
+    def path(self):
+        """
+        This raises a :any:`RuntimeError`
+        """
+        raise RuntimeError(f'No .path available for ExternalItem `{self.name}`')
+
+
 class ItemFactory:
     """
     Utility class to instantiate instances of :any:`Item`
@@ -940,8 +984,6 @@ class ItemFactory:
         ignore : list of str, optional
             A list of item names that should be ignored, i.e., not be created as an item.
         """
-        is_strict = not config or config.default.get('strict', True)
-
         if isinstance(node, Module):
             item_name = node.name.lower()
             if self._is_ignored(item_name, config, ignore):
@@ -981,10 +1023,8 @@ class ItemFactory:
             if self._is_ignored(scope_name, config, ignore):
                 return None
             if scope_name not in self.item_cache:
-                if is_strict:
-                    raise RuntimeError(f'Module {scope_name} not found in ItemFactory.item_cache')
-                warning(f'Module {scope_name} not found in ItemFactory.item_cache')
-                return None
+                # This will instantiate an ExternalItem
+                return as_tuple(self.get_or_create_item(ModuleItem, scope_name, scope_name, config))
 
             scope_item = self.item_cache[scope_name]
 
@@ -993,16 +1033,35 @@ class ItemFactory:
                     item.local_name: item
                     for item in scope_item.create_definition_items(item_factory=self, config=config)
                 }
-                return (
-                    (scope_item,) +
-                    tuple(
-                        it for smbl in node.symbols
-                        if (
-                            (it := scope_definitions.get(str(smbl.type.use_name or smbl).lower())) and
-                            not self._is_ignored(it.name, config, ignore)
-                        )
-                    )
+                symbol_names = tuple(str(smbl.type.use_name or smbl).lower() for smbl in node.symbols)
+                non_ignored_symbol_names = tuple(
+                    smbl for smbl in symbol_names
+                    if not self._is_ignored(f'{scope_name}#{smbl}', config, ignore)
                 )
+                imported_items = tuple(
+                    it for smbl in non_ignored_symbol_names
+                    if (it := scope_definitions.get(smbl)) is not None
+                )
+
+                # Global variable imports are filtered out in the previous statement because they
+                # are not represented by an Item. For these, we introduce a dependency on the
+                # module instead
+                has_globalvar_import = len(imported_items) != len(non_ignored_symbol_names)
+
+                # Filter out ProcedureItems corresponding to a subroutine:
+                # dependencies on subroutines are introduced via the call statements, as this avoids
+                # depending on imported but not called subroutines
+                imported_items = tuple(
+                    it for it in imported_items
+                    if not isinstance(it, ProcedureItem) or it.ir.is_function
+                )
+
+                if has_globalvar_import:
+                    return (scope_item,) + imported_items
+                if not imported_items:
+                    return None
+                return imported_items
+
             return (scope_item,)
 
         if isinstance(node, CallStatement):
@@ -1059,14 +1118,14 @@ class ItemFactory:
             return None
         if item_name in self.item_cache:
             return self.item_cache[item_name]
-        if scope_name not in self.item_cache:
-            if not config or config.default.get('strict', True):
-                raise RuntimeError(f'Module {scope_name} not found in self.item_cache')
-            warning(f'Module {scope_name} not found in self.item_cache')
-            return None
-        source = self.item_cache[scope_name].source
+
         item_conf = config.create_item_config(item_name) if config else None
-        item = item_cls(item_name, source=source, config=item_conf)
+        if scope_name not in self.item_cache:
+            warning(f'Module {scope_name} not found in self.item_cache. Marking {item_name} as an external dependency')
+            item = ExternalItem(item_name, source=None, config=item_conf, origin_cls=item_cls)
+        else:
+            source = self.item_cache[scope_name].source
+            item = item_cls(item_name, source=source, config=item_conf)
         self.item_cache[item_name] = item
         return item
 

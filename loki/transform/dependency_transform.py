@@ -471,6 +471,14 @@ class ModuleWrapTransformation(Transformation):
         if self.replace_ignore_items and (item := kwargs.get('item')):
             targets += tuple(str(i).lower() for i in item.ignore)
 
+        def _update_item(proc_name, module_name):
+            if item and (matched_keys := SchedulerConfig.match_item_keys(proc_name, item.ignore)):
+                # Add the module wrapped but ignored items to the block list because we won't be able to
+                # find them as dependencies under their new name anymore
+                item.config['block'] = item.block + tuple(
+                    module_name for name in item.ignore if name in matched_keys
+                )
+
         # Transformer map to remove any outdated imports
         removal_map = {}
 
@@ -481,7 +489,8 @@ class ModuleWrapTransformation(Transformation):
                 if targets and target_symbol.lower() in targets:
                     # Create a new module import with explicitly qualified symbol
                     modname = f'{target_symbol}{self.module_suffix}'
-                    new_symbol = Variable(name=f'{target_symbol}', scope=source)
+                    _update_item(target_symbol.lower(), modname)
+                    new_symbol = Variable(name=target_symbol, scope=source)
                     new_import = im.clone(module=modname, c_import=False, symbols=(new_symbol,))
                     source.spec.prepend(new_import)
 
