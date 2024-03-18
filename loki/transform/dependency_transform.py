@@ -299,8 +299,8 @@ class DependencyTransformation(Transformation):
         import_map = {}
         for im in imports:
             if im.c_import:
-                target_symbol = im.module.split('.')[0].lower()
-                if targets and target_symbol.lower() in targets:
+                target_symbol, *suffixes = im.module.lower().split('.', maxsplit=1)
+                if targets and target_symbol.lower() in targets and not 'func.h' in suffixes:
                     # Modify the the basename of the C-style header import
                     s = '.'.join(im.module.split('.')[1:])
                     im._update(module=f'{target_symbol}{self.suffix}.{s}')
@@ -469,8 +469,8 @@ class ModuleWrapTransformation(Transformation):
         # We go through the IR, as C-imports can be attributed to the body
         for im in imports:
             if im.c_import:
-                target_symbol = im.module.split('.')[0].lower()
-                if targets and target_symbol.lower() in targets:
+                target_symbol, *suffixes = im.module.lower().split('.', maxsplit=1)
+                if targets and target_symbol.lower() in targets and not 'func.h' in suffixes:
                     # Create a new module import with explicitly qualified symbol
                     modname = f'{target_symbol}{self.module_suffix}'
                     _update_item(target_symbol.lower(), modname)
