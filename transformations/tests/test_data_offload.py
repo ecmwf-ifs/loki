@@ -37,6 +37,7 @@ def fixture_config():
             'role': 'kernel',
             'expand': True,
             'strict': True,
+            'enable_imports': True,
         },
     }
 

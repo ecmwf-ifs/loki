@@ -63,7 +63,7 @@ def fixture_config(here):
     the file path
     """
     default_config = {
-        'default': {'role': 'kernel', 'expand': True, 'strict': True},
+        'default': {'role': 'kernel', 'expand': True, 'strict': True, 'enable_imports': True},
         'routines': {
             'driverB': {'role': 'driver'},
         }
