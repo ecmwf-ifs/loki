@@ -201,12 +201,15 @@ class Scheduler:
             }
             self.item_factory.item_cache.update(definition_items)
 
+        # (Re-)build the SGraph after discovery for later traversals
+        self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
+
     @property
     def sgraph(self):
         """
         Create and return the :any:`SGraph` constructed from the :attr:`seeds` of the Scheduler.
         """
-        return SGraph.from_seed(self.seeds, self.item_factory, self.config)
+        return self._sgraph
 
     @property
     def items(self):
@@ -244,7 +247,10 @@ class Scheduler:
         :any:`SGraph`
             A dependency graph containing only :any:`FileItem` nodes
         """
-        return self.sgraph.as_filegraph(self.item_factory, self.config)
+        item_filter = None if self.config.enable_imports else ProcedureItem
+        return self.sgraph.as_filegraph(
+            self.item_factory, self.config, item_filter=item_filter
+        )
 
     def __getitem__(self, name):
         """
@@ -267,9 +273,12 @@ class Scheduler:
         # Force the parsing of the routines
         default_frontend_args = self.build_args.copy()
         default_frontend_args['definitions'] = as_tuple(default_frontend_args['definitions']) + self.definitions
-        for item in SFilter(self.sgraph.as_filegraph(self.item_factory, self.config), reverse=True):
+        for item in SFilter(self.file_graph, reverse=True):
             frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
             item.source.make_complete(**frontend_args)
+
+        # Re-build the SGraph after parsing to pick up all new connections
+        self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
     @Timer(logger=info, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
@@ -448,6 +457,7 @@ class Scheduler:
 
         if transformation.creates_items:
             self._discover()
+
             self._parse_items()
 
     def callgraph(self, path, with_file_graph=False, with_legend=False):
@@ -576,7 +586,9 @@ class Scheduler:
         sources_to_remove = []
         sources_to_transform = []
 
-        for item in self.items:
+        # Filter the SGraph to get a pure call-tree
+        item_filter = None if self.config.enable_imports else ProcedureItem
+        for item in SFilter(self.sgraph, item_filter=item_filter):
             if item.is_ignored:
                 continue
 
@@ -602,7 +614,6 @@ class Scheduler:
                     sources_to_append += [newsource]
                     sources_to_remove += [sourcepath]
 
-        info(f'[Loki] CMakePlanner writing plan: {filepath}')
         with Path(filepath).open('w') as f:
             s_transform = '\n'.join(f'    {s}' for s in sources_to_transform)
             f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
@@ -631,6 +642,7 @@ class SGraph:
         self._graph = nx.DiGraph()
 
     @classmethod
+    @Timer(logger=info, text='[Loki::Scheduler] Built SGraph from seed in {:.2f}s')
     def from_seed(cls, seed, item_factory, config=None):
         """
         Create a new :any:`SGraph` using :data:`seed` as starting point.
@@ -748,7 +760,8 @@ class SGraph:
         if new_items:
             self.add_nodes(new_items)
 
-        self.add_edges((item, item_) for item_ in dependencies)
+        # Careful not to include cycles (from recursive TypeDefs)
+        self.add_edges((item, item_) for item_ in dependencies if not item == item_)
         return new_items
 
     def _populate(self, seed, item_factory, config):

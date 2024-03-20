@@ -86,7 +86,8 @@ def fixture_config():
             'role': 'kernel',
             'expand': True,
             'strict': True,
-            'disable': ['abort']
+            'disable': ['abort'],
+            'enable_imports': True,
         },
         'routines': {}
     }
@@ -995,7 +996,9 @@ def test_scheduler_dependencies_ignore(here, preprocess, frontend):
     projB = here/'sources/projB'
 
     configA = SchedulerConfig.from_dict({
-        'default': {'role': 'kernel', 'expand': True, 'strict': True},
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': True, 'enable_imports': True
+        },
         'routines': {
             'driverB': {'role': 'driver'},
             'kernelB': {'ignore': ['ext_driver']},
@@ -1003,7 +1006,9 @@ def test_scheduler_dependencies_ignore(here, preprocess, frontend):
     })
 
     configB = SchedulerConfig.from_dict({
-        'default': {'role': 'kernel', 'expand': True, 'strict': True},
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': True, 'enable_imports': True
+        },
         'routines': {
             'ext_driver': {'role': 'kernel'}
         }
@@ -1387,7 +1392,7 @@ def test_scheduler_typebound(here, config, frontend, proj_typebound_dependencies
 
     scheduler = Scheduler(
         paths=proj, seed_routines=['driver'], config=config,
-        full_parse=False, frontend=frontend
+        full_parse=False, frontend=frontend,
     )
 
     assert set(scheduler.items) == set(proj_typebound_dependencies)

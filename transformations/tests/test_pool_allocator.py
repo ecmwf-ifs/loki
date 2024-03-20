@@ -173,6 +173,7 @@ end module kernel_mod
             'role': 'kernel',
             'expand': True,
             'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -505,7 +506,8 @@ end module kernel_mod
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -789,7 +791,8 @@ end module kernel_mod
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver', 'real_kind': 'jwrb'}
@@ -1020,7 +1023,8 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'kernel': {}
@@ -1151,7 +1155,8 @@ end module kernel_mod
             'role': 'kernel',
             'expand': True,
             'strict': True,
-            'disable': ['parkind1']
+            'disable': ['parkind1'],
+            'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver'}
