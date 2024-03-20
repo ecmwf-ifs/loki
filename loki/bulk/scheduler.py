@@ -158,14 +158,8 @@ class Scheduler:
 
         self._discover()
 
-        # Explicitly rebuild the sgraph to allow parsing...
-        self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
-
         if self.full_parse:
             self._parse_items()
-
-            # And re-build it again, to pick up more subtle item definitions
-            self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
             # Attach interprocedural call-tree information
             self._enrich()
@@ -206,6 +200,9 @@ class Scheduler:
                 for item in file_item.create_definition_items(item_factory=self.item_factory, config=self.config)
             }
             self.item_factory.item_cache.update(definition_items)
+
+        # (Re-)build the SGraph after discovery for later traversals
+        self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
     @property
     def sgraph(self):
@@ -279,6 +276,9 @@ class Scheduler:
         for item in SFilter(self.file_graph, reverse=True):
             frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
             item.source.make_complete(**frontend_args)
+
+        # Re-build the SGraph after parsing to pick up all new connections
+        self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
     @Timer(logger=info, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
@@ -457,12 +457,8 @@ class Scheduler:
 
         if transformation.creates_items:
             self._discover()
-            # Rebuild after discovery
-            self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
             self._parse_items()
-            # And rebuild after parsing
-            self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
     def callgraph(self, path, with_file_graph=False, with_legend=False):
         """
