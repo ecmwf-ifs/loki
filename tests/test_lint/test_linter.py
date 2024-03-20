@@ -478,7 +478,8 @@ def test_linter_lint_files_scheduler(here, rules, routines, files):
                 'role': 'kernel',
                 'expand': True,
                 'strict': False,
-                'block': ['compute_l2']
+                'block': ['compute_l2'],
+                'enable_imports': True,
             },
             'routines': routines
         }
