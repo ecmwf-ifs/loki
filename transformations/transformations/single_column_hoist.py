@@ -29,13 +29,11 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
     block_dim : :any:`Dimension`
         :any:`Dimension` object to define the blocking dimension
         to use for hoisted array arguments on the driver side.
-    key : str, optional
-        Access identifier/key for the ``item.trafo_data`` dictionary.
     """
 
-    def __init__(self, key=None, block_dim=None, **kwargs):
+    def __init__(self, block_dim=None, **kwargs):
         self.block_dim = block_dim
-        super().__init__(key=key, **kwargs)
+        super().__init__(**kwargs)
 
     def driver_variable_declaration(self, routine, variables):
         """

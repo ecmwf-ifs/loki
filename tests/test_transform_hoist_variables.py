@@ -375,12 +375,17 @@ def test_hoist_allocatable(here, frontend, config, as_kwarguments):
     proj = here/'sources/projHoist'
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
-    key = "HoistVariablesAllocatable"
+    key = "HoistVariablesTransformation"
     # Transformation: Analysis
-    scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2'), key=key))
+    scheduler.process(
+        transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2'))
+    )
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key,
-        as_kwarguments=as_kwarguments))
+    scheduler.process(
+        transformation=HoistTemporaryArraysTransformationAllocatable(
+            as_kwarguments=as_kwarguments
+        )
+    )
 
     # check generated source code
     for item in scheduler.items:

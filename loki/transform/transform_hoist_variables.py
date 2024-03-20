@@ -101,12 +101,6 @@ class HoistVariablesAnalysis(Transformation):
     Traverses all subroutines to find the variables to be hoisted.
     Create a derived class and override :func:`find_variables<HoistVariablesAnalysis.find_variables>`
     to define which variables to be hoisted.
-
-    Parameters
-    ----------
-    key : str
-        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
-        these transformations are carried out in succession.
     """
 
     _key = 'HoistVariablesTransformation'
@@ -115,10 +109,6 @@ class HoistVariablesAnalysis(Transformation):
     reverse_traversal = True
 
     process_ignored_items = True
-
-    def __init__(self, key=None):
-        if key is not None:
-            self._key = key
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -197,18 +187,13 @@ class HoistVariablesTransformation(Transformation):
 
     Parameters
     ----------
-    key : str
-        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
-        these transformations are carried out in succession.
     as_kwarguments : boolean
         Whether to pass the hoisted arguments as `args` or `kwargs`.
     """
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, key=None, as_kwarguments=False):
-        if key is not None:
-            self._key = key
+    def __init__(self, as_kwarguments=False):
         self.as_kwarguments = as_kwarguments
 
     def transform_subroutine(self, routine, **kwargs):
@@ -371,19 +356,16 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
 
     Parameters
     ----------
-    key : str, optional
-        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
-        these transformations are carried out in succession.
     dim_vars: tuple of str, optional
-        Variables to be within the dimensions of the arrays to be hoisted. If not provided, no checks will be done
-        for the array dimensions.
+        Variables to be within the dimensions of the arrays to be
+        hoisted. If not provided, no checks will be done for the array
+        dimensions.
     """
 
     # Apply in reverse order to recursively find all variables to be hoisted.
     reverse_traversal = True
 
-    def __init__(self, key=None, dim_vars=None, **kwargs):
-        super().__init__(key=key, **kwargs)
+    def __init__(self, dim_vars=None):
         self.dim_vars = dim_vars
         if self.dim_vars is not None:
             assert is_iterable(self.dim_vars)
@@ -414,16 +396,7 @@ class HoistTemporaryArraysTransformationAllocatable(HoistVariablesTransformation
     functionality/transformation, to hoist temporary arrays and make
     them ``allocatable``, including the actual *allocation* and
     *de-allocation*.
-
-    Parameters
-    ----------
-    key : str, optional
-        Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
-        these transformations are carried out in succession.
     """
-
-    def __init__(self, key=None, **kwargs):
-        super().__init__(key=key, **kwargs)
 
     def driver_variable_declaration(self, routine, variables):
         """
