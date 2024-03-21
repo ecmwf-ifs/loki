@@ -7,15 +7,16 @@
 
 from functools import partial
 
-from loki.transform import Pipeline
+from loki.transform import Pipeline, HoistTemporaryArraysAnalysis
 from transformations.single_column_base import SCCBaseTransformation
 from transformations.single_column_annotate import SCCAnnotateTransformation
+from transformations.single_column_hoist import SCCHoistTemporaryArraysTransformation
 from transformations.single_column_coalesced_vector import (
     SCCDevectorTransformation, SCCDemoteTransformation, SCCRevectorTransformation
 )
 
 
-__all__ = ['SCCVectorPipeline']
+__all__ = ['SCCVectorPipeline', 'SCCHoistPipeline']
 
 
 """
@@ -74,6 +75,57 @@ SCCVectorPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCRevectorTransformation,
+        SCCAnnotateTransformation
+    )
+)
+
+
+"""
+SCC-style transformation that additionally hoists local temporary
+arrays that cannot be demoted to the outer driver call.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`HoistTemporaryArraysAnalysis` and
+:any:`SCCHoistTemporaryArraysTransformation` before the final
+annotation step to hoist multi-dimensional local temporary array
+variables to the "driver" routine, where they will be allocated on
+device and passed down as arguments.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+vertical : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the vertical dimension, as needed to decide array privatization.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+dim_vars: tuple of str, optional
+    Variables to be within the dimensions of the arrays to be
+    hoisted. If not provided, no checks will be done for the array
+    dimensions in :any:`HoistTemporaryArraysAnalysis`.
+"""
+SCCHoistPipeline = partial(
+    Pipeline, classes=(
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorTransformation,
+        HoistTemporaryArraysAnalysis,
+        SCCHoistTemporaryArraysTransformation,
         SCCAnnotateTransformation
     )
 )
