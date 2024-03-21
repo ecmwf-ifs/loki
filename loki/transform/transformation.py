@@ -11,7 +11,7 @@ Base class definition for :ref:`transformations`.
 from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
-from loki.bulk.item import ProcedureItem, ModuleItem
+from loki.batch.item import ProcedureItem, ModuleItem
 
 
 __all__ = ['Transformation']

@@ -11,8 +11,8 @@ from pathlib import Path
 import networkx as nx
 from codetiming import Timer
 
-from loki.bulk.configure import SchedulerConfig
-from loki.bulk.item import (
+from loki.batch.configure import SchedulerConfig
+from loki.batch.item import (
     Item, FileItem, ModuleItem, ProcedureItem, ProcedureBindingItem,
     InterfaceItem, TypeDefItem, ExternalItem, ItemFactory
 )

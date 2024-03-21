@@ -85,7 +85,7 @@ from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
 from loki.visitors import Transformer, FindNodes
 from loki.transform.transformation import Transformation
 from loki.transform.transform_utilities import single_variable_declaration
-from loki.bulk.item import ProcedureItem
+from loki.batch.item import ProcedureItem
 import loki.expression.symbols as sym
 
 

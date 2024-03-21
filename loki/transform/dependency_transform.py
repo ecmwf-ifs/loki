@@ -8,7 +8,7 @@
 from pathlib import Path
 
 from loki.backend import fgen
-from loki.bulk import SchedulerConfig
+from loki.batch import SchedulerConfig
 from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
 from loki.ir import CallStatement, Import, Section, Interface
 from loki.logging import warning

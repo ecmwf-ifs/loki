@@ -17,7 +17,7 @@ import shutil
 from codetiming import Timer
 
 from loki.build import workqueue
-from loki.bulk import Scheduler, SchedulerConfig, Item
+from loki.batch import Scheduler, SchedulerConfig, Item
 from loki.config import config as loki_config
 from loki.lint.reporter import (
     FileReport, RuleReport, Reporter, LazyTextfile,

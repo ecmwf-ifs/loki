@@ -8,7 +8,7 @@
 from functools import reduce
 import sys
 
-from loki.bulk.configure import SchedulerConfig, ItemConfig
+from loki.batch.configure import SchedulerConfig, ItemConfig
 from loki.frontend import REGEX, RegexParserClass
 from loki.expression import TypedSymbol, MetaSymbol, ProcedureSymbol, Variable, FindInlineCalls
 from loki.ir import Import, CallStatement, TypeDef, ProcedureDeclaration, Interface
@@ -136,7 +136,7 @@ class Item(ItemConfig):
         super().__init__(config)
 
     def __repr__(self):
-        return f'loki.bulk.{self.__class__.__name__}<{self.name}>'
+        return f'loki.batch.{self.__class__.__name__}<{self.name}>'
 
     def __eq__(self, other):
         """
