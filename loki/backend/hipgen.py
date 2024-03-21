@@ -116,15 +116,15 @@ class HipCodegen(CppCodegen): # Stringifier):
         # ...and generate the spec without imports and argument declarations
         body = [self.visit(o.spec, skip_imports=True, skip_decls=skip_decls, skip_argument_declarations=True, **kwargs)]
 
-        if skip_decls:
-            body += [self.format_line('printf("executing c launch ...\\n");')]
-            body += [self.format_line('printf("ngptot: %i,  nproma: %i\\n", ngptot, nproma);')]
-            # pragmas = FindNodes(Pragma).visit(o.spec)
-            # for pragma in pragmas:
-            #     if pragma.keyword == "loki" and "griddim" in pragma.content:
-            #         body += [self.format_line(f'{pragma.content.replace("griddim", "", 1)}')]
-            #     if pragma.keyword == "loki" and "blockdim" in pragma.content:
-            #         body += [self.format_line(f'{pragma.content.replace("blockdim", "", 1)}')]
+        # if skip_decls:
+        #     body += [self.format_line('printf("executing c launch ...\\n");')]
+        #     body += [self.format_line('printf("ngptot: %i,  nproma: %i\\n", ngptot, nproma);')]
+        #     # pragmas = FindNodes(Pragma).visit(o.spec)
+        #     # for pragma in pragmas:
+        #     #     if pragma.keyword == "loki" and "griddim" in pragma.content:
+        #     #         body += [self.format_line(f'{pragma.content.replace("griddim", "", 1)}')]
+        #     #     if pragma.keyword == "loki" and "blockdim" in pragma.content:
+        #     #         body += [self.format_line(f'{pragma.content.replace("blockdim", "", 1)}')]
 
         # Fill the body
         body += [self.visit(o.body, **kwargs)]

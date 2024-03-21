@@ -191,12 +191,16 @@ class DependencyTransformation(Transformation):
                 continue
             if targets is None or call.name in targets:
                 call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
-
+        callmap = {}
         for call in FindInlineCalls(unique=False).visit(routine.body):
             if call.function in members:
                 continue
             if targets is None or call.function in targets:
                 call.function = call.function.clone(name=f'{call.name}{self.suffix}')
+                # call._update(name=call.name.clone(name=f'{call.name}{self.suffix}'))
+                # callmap[call] = call.clone(name=f'{call.name}{self.suffix}')
+                # callmap[call.function] = call.function.clone(name=f'{call.name}{self.suffix}')
+        # routine.body = SubstituteExpressions(callmap).visit(routine.body)
 
     def rename_imports(self, source, imports, targets=None):
         """

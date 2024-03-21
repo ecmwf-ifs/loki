@@ -264,6 +264,7 @@ class SCCLowerLoopTransformation(Transformation):
                     if isinstance(arg, sym.Array):
                         # replace_indices = [dim == self.dim_name for dim in arg.dimensions]
                         replace_indices = [dim == dim_name for dim in arg.dimensions]
+                        # replace_indices = [dim == self.dimension.size for dim in arg.shape]
                         corresponding_var = arg_iter[i_arg][0] # call.routine.arguments[i_arg]
                         if any(replace_indices):
                             relevant_index = [i for i, x in enumerate(replace_indices) if x][0]
@@ -343,7 +344,10 @@ class SCCLowerLoopTransformation(Transformation):
                     if isinstance(arg, sym.Array):
                         # replace_indices = [dim == self.dim_name for dim in arg.dimensions]
                         replace_indices = [dim == dim_name for dim in arg.dimensions]
+                        # replace_indices = [dim == self.dimension.size for dim in arg.shape]
                         corresponding_var = arg_iter[i_arg][0] # call.routine.arguments[i_arg]
+                        if "snonli" in call.routine.name.lower() or "impls" in call.routine.name.lower():
+                            print(f"single column coalesced extended: {call.routine.name.lower()} {arg} - dim {arg.dimensions} | shape {arg.shape} | replace_indices {replace_indices}")
                         if any(replace_indices):
                             relevant_index = [i for i, x in enumerate(replace_indices) if x][0]
                             arg_shape = arg.shape
@@ -388,6 +392,7 @@ class SCCLowerLoopTransformation(Transformation):
             # Declarations
             shape_map = {}
             for key, elem in call_routine_map[relevant_callee.name]['shape'].items():
+                print(f"single_column_coalesced append block_dim for var {key} within routine {relevant_callee}")
                 var_dims = list(key.dimensions)
                 var_dims.insert(elem[0], elem[1])
                 var_shape = list(key.shape)

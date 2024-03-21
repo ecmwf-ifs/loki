@@ -27,7 +27,8 @@ from loki.visitors import Transformer, FindNodes
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'sanitise_imports',
-    'replace_selected_kind', 'single_variable_declaration', 'recursive_expression_map_update'
+    'replace_selected_kind', 'single_variable_declaration', 'recursive_expression_map_update',
+    'rename_variables'
 ]
 
 
@@ -115,6 +116,20 @@ def convert_to_lower_case(routine):
     routine.spec = SubstituteExpressions(mapper).visit(routine.spec)
     routine.body = SubstituteExpressions(mapper).visit(routine.body)
 
+def rename_variables(routine, symbol_map=None, case_sensitive=False):
+    symbol_map = symbol_map or {}
+    if not case_sensitive:
+        symbol_map = CaseInsensitiveDict(symbol_map)
+    var_map = {}
+    for var in FindVariables(unique=False).visit(routine.ir):
+        if var.name in symbol_map:
+            new_var = symbol_map[var.name]
+            if new_var is not None:
+                var_map[var] = var.clone(name=symbol_map[var.name])
+    if var_map:
+        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+        routine.body = SubstituteExpressions(var_map).visit(routine.body)
+
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensitive=False):
     """
@@ -141,11 +156,16 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
     callmap = {}
     for call in FindInlineCalls(unique=False).visit(routine.ir):
         if call.name in symbol_map:
-            callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
+            # callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
+            callmap[call] = call.clone(name=symbol_map[call.name])
 
         if call.name in function_map:
-            callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
+            print(f"replacing call {call} with {function_map[call.name]} | {call.parameters} | {call.arguments}")
+            # callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine, parameters=tuple(sym.Cast(name='REAL', expression=parameter) for parameter in call.parameters),
+            #         arguments=tuple(sym.Cast(name='REAL', expression=parameter) for parameter in call.arguments))
+            callmap[call] = call.clone(name=function_map[call.name], parameters=tuple(sym.Cast(name='REAL', expression=parameter) for parameter in call.parameters))
 
+    callmap = recursive_expression_map_update(callmap)
     routine.spec = SubstituteExpressions(callmap).visit(routine.spec)
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
 

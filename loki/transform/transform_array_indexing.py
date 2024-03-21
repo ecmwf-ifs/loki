@@ -22,7 +22,7 @@ from loki.ir import Assignment, Loop, VariableDeclaration
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType
 from loki.visitors import FindNodes, Transformer
-
+from loki.transform import recursive_expression_map_update
 
 __all__ = [
     'shift_to_zero_indexing', 'invert_array_indices',
@@ -56,6 +56,7 @@ def shift_to_zero_indexing(routine, ignore=()):
                     else:
                         new_dims += [d]
             vmap[v] = v.clone(dimensions=as_tuple(new_dims))
+    vmap = recursive_expression_map_update(vmap)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
@@ -73,6 +74,7 @@ def invert_array_indices(routine):
         if isinstance(v, sym.Array):
             rdim = as_tuple(reversed(v.dimensions))
             vmap[v] = v.clone(dimensions=rdim)
+    vmap = recursive_expression_map_update(vmap)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     # Invert variable and argument dimensions for the automatic cast generation
@@ -519,16 +521,21 @@ def normalize_array_shape_and_access(routine):
     print(f"normalize_array_shape_and_access - routine: {routine.name}")
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
+        if "snonlin" in routine.name.lower():
+            if isinstance(v, sym.Array):
+                print(f"normalize_array_shape... var {v} | dim {v.dimensions} | shape {v.shape}")
         if isinstance(v, sym.Array):
             # skip if e.g., `array(len)`, passed as `call routine(array)`
             if not v.dimensions:
                 continue
             new_dims = []
+            print(f"normalize var {v} | {v.dimensions} | {v.shape}")
             for i, d in enumerate(v.shape):
                 if is_explicit_range_index(d):
                     if isinstance(v.dimensions[i], sym.RangeIndex):
-                        start = simplify(v.dimensions[i].start - d.start + 1) if d.start is not None else None
-                        stop = simplify(v.dimensions[i].stop - d.start + 1) if d.stop is not None else None
+                        print(f"v.dimensions[i].start: {v.dimensions[i].start} - {type(v.dimensions[i].start)} | d.start: {d.start} - {type(d.start)}")
+                        start = simplify(v.dimensions[i].start - d.start + 1) if d.start is not None and v.dimensions[i].start is not None else None
+                        stop = simplify(v.dimensions[i].stop - d.start + 1) if d.stop is not None and v.dimensions[i].stop is not None else None
                         new_dims += [sym.RangeIndex((start, stop, d.step))]
                     else:
                         start = simplify(v.dimensions[i] - d.start + 1) if d.start is not None else None
@@ -538,6 +545,7 @@ def normalize_array_shape_and_access(routine):
                     new_dims += [v.dimensions[i]]
             if new_dims:
                 vmap[v] = v.clone(dimensions=as_tuple(new_dims))
+    vmap = recursive_expression_map_update(vmap)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     vmap = {}
@@ -600,6 +608,8 @@ def flatten_arrays(routine, order='F', start_index=1):
     else:
         raise ValueError(f'Unsupported array order "{order}"')
 
+    
+    array_map = recursive_expression_map_update(array_map)
     routine.body = SubstituteExpressions(array_map).visit(routine.body)
 
     routine.variables = [v.clone(dimensions=as_tuple(sym.Product(v.shape)),

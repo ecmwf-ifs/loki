@@ -145,7 +145,7 @@ class CppCodegen(CCodegen): # Stringifier):
                 else:
                     bptr += ['']
                 if is_device_function: # "global" in o.prefix[0].lower():
-                    aptr += ['* __restrict__ '] # ['* restrict '] # v_
+                    aptr += ['* '] # ['* __restrict__ '] # ['* restrict '] # v_
                 else:
                     aptr += ['* ']
             elif isinstance(a.type.dtype, DerivedType):
@@ -193,8 +193,9 @@ class CppCodegen(CCodegen): # Stringifier):
         body = [self.visit(o.spec, skip_imports=True, skip_decls=skip_decls, skip_argument_declarations=True, **kwargs)]
 
         if skip_decls:
-            body += [self.format_line('printf("executing c launch ...\\n");')]
-            body += [self.format_line('printf("ngptot: %i,  nproma: %i\\n", ngptot, nproma);')]
+            # body += [self.format_line('printf("executing c launch ...\\n");')]
+            # body += [self.format_line('printf("ngptot: %i,  nproma: %i\\n", ngptot, nproma);')]
+            # TODO: still necessary?
             pragmas = FindNodes(Pragma).visit(o.spec)
             for pragma in pragmas:
                 if pragma.keyword == "loki" and "griddim" in pragma.content:

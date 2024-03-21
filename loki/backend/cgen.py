@@ -427,7 +427,8 @@ class CCodegen(Stringifier):
         # TODO: implement
         # header_name = f'{o.name}: ' if o.name else ''
         header_name = ''
-        header = self.format_line(header_name, 'switch case (', self.visit(o.expr, **kwargs), ') {')
+        # header = self.format_line(header_name, 'switch case (', self.visit(o.expr, **kwargs), ') {')
+        header = self.format_line(header_name, 'switch (', self.visit(o.expr, **kwargs), ') {')
         cases = []
         end_cases = []
         name = '' # f' {o.name}' if o.name else ''

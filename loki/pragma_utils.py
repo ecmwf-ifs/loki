@@ -8,6 +8,7 @@
 import re
 from collections import defaultdict
 from contextlib import contextmanager
+import pymbolic as pb
 
 from loki.expression import symbols as sym
 from loki.ir import VariableDeclaration, Pragma, PragmaRegion
@@ -116,8 +117,24 @@ def process_dimension_pragmas(ir):
                     if d.isnumeric():
                         shape += [sym.Literal(value=int(d), type=BasicType.INTEGER)]
                     else:
-                        print(f"trying to parse '{d}'")
-                        shape += [sym.Variable(name=d, scope=v.scope)]
+                        # print(f"trying to parse '{d}' | {pb.parse(d)} | type{(pb.parse(d))} | {list(pb.parse(d).children) | {[type(ch) for ch in pb.parse(d).children]}}")
+                        if isinstance(pb.parse(d), pb.primitives.Slice):
+                            # shape += [sym.RangeIndex(tuple(sym.Variable(name=ch, scope=v.scope) if not d.isnumeric() else sym.Literal(value=int(ch), type=BasicType.INTEGER) for ch in pb.parse(d).children))]
+                            print(f"trying to parse slice '{d}' | {pb.parse(d)} | type{(pb.parse(d))} | {list(pb.parse(d).children)} | {[type(ch) for ch in pb.parse(d).children]}")
+                            d_slice = pb.parse(d)
+                            # d_slice_children = tuple(sym.Variable(name=ch.name, scope=v.scope) if isinstance(ch, pb.primitives.Variable) else sym.Literal(value=ch, type=BasicType.INTEGER) for ch in d_slice.children)
+                            d_slice_children = ()
+                            for ch in d_slice.children:
+                                if isinstance(ch, int):
+                                    d_slice_children += (sym.Literal(value=ch, type=BasicType.INTEGER),)
+                                elif isinstance(ch, pb.primitives.Variable):
+                                    d_slice_children += (sym.Variable(name=ch.name, scope=v.scope),)
+                                else:
+                                    d_slice_children += (sym.Variable(name=str(ch), scope=v.scope),)
+                            print(f"setting shape to {sym.RangeIndex(d_slice_children)} | {d_slice_children}")
+                            shape += [sym.RangeIndex(d_slice_children)]
+                        else:
+                            shape += [sym.Variable(name=d, scope=v.scope)]
                 v.scope.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(shape))
     return ir
 

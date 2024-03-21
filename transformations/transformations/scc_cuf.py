@@ -930,18 +930,22 @@ class SccCufTransformationNew(Transformation):
         # create variables needed for the device execution, especially generate device versions of arrays
         self.driver_device_variables(routine=routine, targets=targets)
         # remove block loop and generate launch configuration for CUF kernels
-        upper, step, block_dim_size, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment = self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
+        upper, step, num_threads, block_dim_size, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment = self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
        
         if self.mode in ['cuda', 'hip']:
             call_map = {}
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if call.name in as_tuple(targets):
                     if upper.name not in call.routine.arguments and step.name not in call.routine.arguments:
-                        call.routine.arguments = list(call.routine.arguments) + [upper, step] # , block_dim_size]
+                        call.routine.arguments = list(call.routine.arguments) + [upper, step, num_threads] # , block_dim_size]
                         # call_map[call] = call.clone(arguments=as_tuple(list(call.arguments) + [upper, step])) # , block_dim_size]))
-                        call_map[call] = call.clone(kwarguments=as_tuple(list(call.kwarguments) + [(upper.name, upper), (step.name, step)])) # , block_dim_size]))
+                        call_map[call] = call.clone(kwarguments=as_tuple(list(call.kwarguments) + [(upper.name, upper), (step.name, step), (num_threads.name, num_threads)])) # , block_dim_size]))
                         # call.routine.spec.append((ir.Pragma(keyword='loki', content=f'blockdim {blockdim_assignment}'),ir.Pragma(keyword='loki', content=f'griddim {griddim_assignment}')))
                         # call.routine.body.prepend([blockdim_assignment, griddim_assignment])
+                    elif num_threads.name not in call.routine.arguments:
+                        num_threads_var = SCCBaseTransformation.get_integer_variable(routine, num_threads.name)
+                        call.routine.arguments = list(call.routine.arguments) + [num_threads_var.clone(type=num_threads_var.type.clone(intent='in'))]# [num_threads.clone(type=num_threads.type.clone(intent='in'))]
+                        call_map[call] = call.clone(kwarguments=as_tuple(list(call.kwarguments) + [(num_threads.name, num_threads)]))
                     call.routine.variables += (blockdim_var, griddim_var)
                     call.routine.body = (blockdim_assignment, griddim_assignment) + call.routine.body
             routine.body = Transformer(call_map).visit(routine.body)
@@ -1059,6 +1063,7 @@ class SccCufTransformationNew(Transformation):
                     if horizontal.size in list(FindVariables().visit(var.dimensions)): # and len(var.dimensions) > 1:
                         if transformation_type == 'hoist':
                             # pass
+                            print(f"scc_cuf adding block_dim.size for var {var} within routine {routine.name}")
                             dimensions += [routine.variable_map[block_dim.size]]
                             shape = list(var.shape) + [routine.variable_map[block_dim.size]]
                             vtype = var.type.clone(shape=as_tuple(shape), intent=None) # , allocatable=False)
@@ -1169,6 +1174,10 @@ class SccCufTransformationNew(Transformation):
         relevant_arrays = list(dict.fromkeys(relevant_arrays))
 
         if self.mode in ['cuda', 'hip']:
+            # relevant_arrays_pointer = [array for array in relevant_arrays if array.type.pointer or 'dptr' in array.name.lower()]
+            # print(f"relevant_arrays_pointer scc_cuf: {relevant_arrays_pointer}")
+            # relevant_arrays = [array for array in relevant_arrays if not array in relevant_arrays_pointer]
+
             # Collect the three types of device data accesses from calls
             inargs = ()
             inoutargs = ()
@@ -1184,16 +1193,25 @@ class SccCufTransformationNew(Transformation):
                     continue
                 for param, arg in call.arg_iter():
                     if isinstance(param, sym.Array) and param.type.intent.lower() == 'in':
-                        inargs += (str(arg.name).lower(),)
+                        # inargs += (str(arg.name).lower(),)
+                        inargs += (arg,)
                     if isinstance(param, sym.Array) and param.type.intent.lower() == 'inout':
-                        inoutargs += (str(arg.name).lower(),)
+                        # inoutargs += (str(arg.name).lower(),)
+                        inoutargs += (arg,)
                     if isinstance(param, sym.Array) and param.type.intent.lower() == 'out':
-                        outargs += (str(arg.name).lower(),)
+                        # outargs += (str(arg.name).lower(),)
+                        outargs += (arg,)
 
             # Sanitize data access categories to avoid double-counting variables
             inoutargs += tuple(v for v in inargs if v in outargs)
             inargs = tuple(v for v in inargs if v not in inoutargs)
             outargs = tuple(v for v in outargs if v not in inoutargs)
+
+            all_args = inoutargs + inargs + outargs
+            pointer_args = tuple(arg for arg in all_args if arg.type.pointer)
+            inoutargs = tuple(str(arg.name).lower() for arg in inoutargs if arg not in pointer_args)
+            inargs = tuple(str(arg.name).lower() for arg in inargs if arg not in pointer_args)
+            outargs = tuple(str(arg.name).lower() for arg in outargs if arg not in pointer_args)
 
             # Filter for duplicates
             inargs = tuple(dict.fromkeys(inargs))
@@ -1212,10 +1230,12 @@ class SccCufTransformationNew(Transformation):
                 copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyin({", ".join(inargs)})')]
                 copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
 
+            print(f"routine {routine} | copy_pragmas: {copy_pragmas}")
             if copy_pragmas:
                 pragma_map = {}
                 for pragma in FindNodes(ir.Pragma).visit(routine.body):
                     if pragma.content == 'data' and 'loki' == pragma.keyword:
+                        print(f"found loki data pragma!!!")
                         pragma_map[pragma] = as_tuple(copy_pragmas)
                 if pragma_map:
                     routine.body = Transformer(pragma_map).visit(routine.body)
@@ -1373,11 +1393,12 @@ class SccCufTransformationNew(Transformation):
                 if kernel_within:
                     # upper = routine.variable_map[loop.bounds.children[1].name]
                     upper = SCCBaseTransformation.get_integer_variable(routine, loop.bounds.children[1].name)
+                    num_threads = None
                     if loop.bounds.children[2]:
                         step = routine.variable_map[loop.bounds.children[2].name]
                     else:
                         # step = sym.IntLiteral(1)
-                        num_threads = None
+                        # num_threads = None
                         for size_expr in self.horizontal.size_expressions:
                             if size_expr in routine.symbol_map:
                                 num_threads = routine.symbol_map[size_expr]
@@ -1452,7 +1473,7 @@ class SccCufTransformationNew(Transformation):
         # griddim_assignment_2 = f'dim3 griddim(ceil(((double){upper.name.lower()})/((double){step.name.lower()})),1,1);'
         # blockdim_assignment_2 =  
         # return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var, blockdim_assignment, griddim_assignment # blockdim_assignment_2, griddim_assignment_2
-        return upper, step, SCCBaseTransformation.get_integer_variable(routine, block_dim.size), blockdim_var, griddim_var, blockdim_assignment, griddim_assignment
+        return upper, step, num_threads, SCCBaseTransformation.get_integer_variable(routine, block_dim.size), blockdim_var, griddim_var, blockdim_assignment, griddim_assignment
     
     @staticmethod
     def kernel_demote_private_locals(routine, horizontal, vertical):

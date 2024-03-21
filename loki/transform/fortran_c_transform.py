@@ -16,7 +16,8 @@ from loki.transform.transform_array_indexing import (
 )
 from loki.transform.transform_sanitise import resolve_associates
 from loki.transform.transform_utilities import (
-    convert_to_lower_case, replace_intrinsics, sanitise_imports
+    convert_to_lower_case, replace_intrinsics, sanitise_imports,
+    rename_variables
 )
 from loki.transform.transform_inline import (
     inline_constant_parameters, inline_elemental_functions
@@ -32,7 +33,8 @@ from loki.module import Module
 from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
     ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
-    FindVariables, ExpressionRetriever, ExpressionFinder, SubstituteExpressionsMapper
+    FindVariables, ExpressionRetriever, ExpressionFinder, SubstituteExpressionsMapper,
+    FindInlineCalls
 )
 from loki.expression import symbols as sym
 from loki.visitors import Transformer, FindNodes
@@ -615,12 +617,18 @@ class FortranCTransformation(Transformation):
             def visit_CallStatement(self, o, **kwargs):
                 new_args = ()
                 arg_map = {}
+                call_arg_map = o.call_arg_map
                 for arg in o.arguments:
-                    if isinstance(arg, Array) and arg.dimensions and all(dim != sym.RangeIndex((None, None)) for dim in arg.dimensions): # TODO: any or all?
+                    if isinstance(arg, Array) and arg.dimensions and all(dim != sym.RangeIndex((None, None)) for dim in arg.dimensions) and (isinstance(call_arg_map[arg], Array) or call_arg_map[arg].type.intent.lower() != 'in'): # TODO: any or all?
                             new_args += (Reference(arg.clone()),)
                             arg_map[arg] = Reference(arg.clone())
                     else:
-                        new_args += (arg,)
+                        print(f"{o} - {arg} | {call_arg_map[arg]}")
+                        if isinstance(arg, Scalar) and call_arg_map[arg].type.intent.lower() != 'in':
+                            new_args += (Reference(arg.clone()),)
+                            arg_map[arg] = Reference(arg.clone())
+                        else:
+                            new_args += (arg,)
                 o._update(arguments=new_args)
                 return o
 
@@ -634,11 +642,24 @@ class FortranCTransformation(Transformation):
             call._update(name=Variable(name=f'{call.name}_c'.lower()))
             # for arg in call.arguments:
             #     print(f"afterwards ... call: {call.name} - arg {arg} | {type(arg)}")
+       
+        callmap = {}
+        for call in FindInlineCalls(unique=False).visit(kernel.body):
+            # if call.function in members:
+            #     continue
+            if targets is None or call.name in as_tuple(targets):
+                # callmap[call] = call.clone(name=f'{call.name}_c')
+                callmap[call.function] = call.function.clone(name=f'{call.name}_c')
+        if "imsstrn" in kernel.name:
+            print(f"callmap append _c: {callmap}")
+        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
                         'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
+        symbol_map = {'const': 'const_var'}
+        rename_variables(kernel, symbol_map=symbol_map)
 
         # Remove redundant imports
         sanitise_imports(kernel)

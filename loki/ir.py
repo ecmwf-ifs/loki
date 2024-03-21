@@ -941,6 +941,18 @@ class CallStatement(LeafNode, _CallStatementBase):
         """
         return dict(self.arg_iter())
 
+    def call_arg_iter(self):
+        routine = self.routine
+        assert routine is not BasicType.DEFERRED
+        r_args = CaseInsensitiveDict((arg.name, arg) for arg in routine.arguments)
+        args = zip(self.arguments, routine.arguments)
+        kwargs = ((arg, r_args[kw]) for kw, arg in as_tuple(self.kwarguments))
+        return chain(args, kwargs)
+
+    @property
+    def call_arg_map(self):
+        return dict(self.call_arg_iter())
+
     def _sort_kwarguments(self):
         """
         Helper routine to sort the kwarguments according to the order of the

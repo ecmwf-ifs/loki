@@ -290,6 +290,15 @@ def convert(
         scheduler.process( SCCDemoteTransformation(horizontal=horizontal))
         scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
 
+    if False: # mode == "cuf-hoist" or mode == "cuf-hoist-new" or mode in ["c-hoist", "hip-hoist"]:
+        vertical = scheduler.config.dimensions['vertical']
+        # scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size, horizontal.size)))
+        if mode in ["c-hoist", "hip-hoist"]:
+            # scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim, as_kwarguments=True) )
+            scheduler.process( HoistTemporaryArraysCstyleTransformation(as_kwarguments=True) )
+        else:
+            scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
 
     if mode == 'scc-hoist':
         # Apply recursive hoisting of local temporary arrays.
