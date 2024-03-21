@@ -254,7 +254,7 @@ class DependencyTransformation(Transformation):
             if item and (matched_keys := SchedulerConfig.match_item_keys(orig_name, item.ignore)):
                 # Add the renamed but ignored items to the block list because we won't be able to
                 # find them as dependencies under their new name anymore
-                item.config['block'] = item.block + tuple(
+                item.config['block'] = as_tuple(item.block) + tuple(
                     new_name for name in item.ignore if name in matched_keys
                 )
                 item.config['ignore'] = tuple(
@@ -475,7 +475,7 @@ class ModuleWrapTransformation(Transformation):
             if item and (matched_keys := SchedulerConfig.match_item_keys(proc_name, item.ignore)):
                 # Add the module wrapped but ignored items to the block list because we won't be able to
                 # find them as dependencies under their new name anymore
-                item.config['block'] = item.block + tuple(
+                item.config['block'] = as_tuple(item.block) + tuple(
                     module_name for name in item.ignore if name in matched_keys
                 )
 
