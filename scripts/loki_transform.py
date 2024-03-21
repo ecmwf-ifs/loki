@@ -319,7 +319,7 @@ def convert(
 
 @cli.command('plan')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack']))
+              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack']))
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
