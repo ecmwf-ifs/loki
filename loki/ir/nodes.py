@@ -29,7 +29,7 @@ from loki.frontend.source import Source
 
 __all__ = [
     # Abstract base classes
-    'Node', 'InternalNode', 'LeafNode',
+    'Node', 'InternalNode', 'LeafNode', 'ScopedNode',
     # Internal node classes
     'Section', 'Associate', 'Loop', 'WhileLoop', 'Conditional',
     'PragmaRegion', 'Interface',

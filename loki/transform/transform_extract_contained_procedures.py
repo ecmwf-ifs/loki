@@ -10,9 +10,8 @@ from loki.expression import (
     FindVariables, FindInlineCalls, SubstituteExpressions,
     DeferredTypeSymbol, Array
 )
-from loki.ir import (
-    CallStatement, DerivedType
-)
+from loki.ir import CallStatement
+from loki.types import DerivedType
 from loki.visitors import (
     Transformer, FindNodes,
 )
