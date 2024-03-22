@@ -63,46 +63,46 @@ def check_arguments_and_parameter(scheduler, subroutine_arguments, call_argument
     """
     Check the parameters, subroutine and call arguments of each subroutine.
     """
-    item = scheduler.item_map['parametrise#driver']
-    routine_parameters = [var for var in item.routine.variables if var.type.parameter]
+    item = scheduler['parametrise#driver']
+    routine_parameters = [var for var in item.ir.variables if var.type.parameter]
     assert routine_parameters == parameter_variables["driver"]
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["driver"]
-    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["driver"]
+    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "kernel1" in call.name:
             assert call.arguments == call_arguments["kernel1"]
         elif "kernel2" in call.name:
             assert call.arguments == call_arguments["kernel2"]
-    item = scheduler.item_map['parametrise#another_driver']
-    routine_parameters = [var for var in item.routine.variables if var.type.parameter]
+    item = scheduler['parametrise#another_driver']
+    routine_parameters = [var for var in item.ir.variables if var.type.parameter]
     assert routine_parameters == parameter_variables["another_driver"]
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["another_driver"]
-    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["another_driver"]
+    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "kernel1" in call.name:
             assert call.arguments == call_arguments["kernel1"]
-    item = scheduler.item_map['parametrise#kernel1']
-    routine_parameters = [var for var in item.routine.variables if var.type.parameter]
+    item = scheduler['parametrise#kernel1']
+    routine_parameters = [var for var in item.ir.variables if var.type.parameter]
     assert routine_parameters == parameter_variables["kernel1"]
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel1"]
-    item = scheduler.item_map['parametrise#kernel2']
-    routine_parameters = [var for var in item.routine.variables if var.type.parameter]
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel1"]
+    item = scheduler['parametrise#kernel2']
+    routine_parameters = [var for var in item.ir.variables if var.type.parameter]
     assert routine_parameters == parameter_variables["kernel2"]
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["kernel2"]
-    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel2"]
+    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "device1" in call.name:
             assert call.arguments == call_arguments["device1"]
         elif "device2" in call.name:
             assert call.arguments == call_arguments["device2"]
-    item = scheduler.item_map['parametrise#device1']
-    routine_parameters = [var for var in item.routine.variables if var.type.parameter]
+    item = scheduler['parametrise#device1']
+    routine_parameters = [var for var in item.ir.variables if var.type.parameter]
     assert routine_parameters == parameter_variables["device1"]
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device1"]
-    for call in FindNodes(ir.CallStatement).visit(item.routine.body):
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device1"]
+    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "device2" in call.name:
             assert call.arguments == call_arguments["device2"]
-    item = scheduler.item_map['parametrise#device2']
-    routine_parameters = [var for var in item.routine.variables if var.type.parameter]
+    item = scheduler['parametrise#device2']
+    routine_parameters = [var for var in item.ir.variables if var.type.parameter]
     assert routine_parameters == parameter_variables["device2"]
-    assert [arg.name for arg in item.routine.arguments] == subroutine_arguments["device2"]
+    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device2"]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -245,51 +245,51 @@ def test_parametrise_simple_replace_by_value(here, frontend, config):
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
     if frontend == OMNI:
-        routine_spec_str = fgen(scheduler.item_map['parametrise#driver'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#driver'].ir.spec)
         assert f'c(1:{a}, 1:{b})' in routine_spec_str
         assert f'd(1:{b})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#another_driver'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#another_driver'].ir.spec)
         assert f'c(1:{a}, 1:{b})' in routine_spec_str
         assert f'x(1:{a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#kernel1'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#kernel1'].ir.spec)
         assert f'c(1:{a}, 1:{b})' in routine_spec_str
         assert f'x(1:{a})' in routine_spec_str
         assert f'y(1:{a}, 1:{b})' in routine_spec_str
         assert f'k1_tmp(1:{a}, 1:{b})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#kernel2'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#kernel2'].ir.spec)
         assert f'd(1:{b})' in routine_spec_str
         assert f'x(1:{a})' in routine_spec_str
         assert f'k2_tmp(1:{a}, 1:{a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#device1'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#device1'].ir.spec)
         assert f'd(1:{b})' in routine_spec_str
         assert f'x(1:{a})' in routine_spec_str
         assert f'y(1:{a}, 1:{a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#device2'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#device2'].ir.spec)
         assert f'd(1:{b})' in routine_spec_str
         assert f'x(1:{a})' in routine_spec_str
         assert f'z(1:{b})' in routine_spec_str
         assert f'd2_tmp(1:{b})' in routine_spec_str
     else:
-        routine_spec_str = fgen(scheduler.item_map['parametrise#driver'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#driver'].ir.spec)
         assert f'c({a}, {b})' in routine_spec_str
         assert f'd({b})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#another_driver'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#another_driver'].ir.spec)
         assert f'c({a}, {b})' in routine_spec_str
         assert f'x({a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#kernel1'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#kernel1'].ir.spec)
         assert f'c({a}, {b})' in routine_spec_str
         assert f'x({a})' in routine_spec_str
         assert f'y({a}, {b})' in routine_spec_str
         assert f'k1_tmp({a}, {b})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#kernel2'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#kernel2'].ir.spec)
         assert f'd({b})' in routine_spec_str
         assert f'x({a})' in routine_spec_str
         assert f'k2_tmp({a}, {a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#device1'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#device1'].ir.spec)
         assert f'd({b})' in routine_spec_str
         assert f'x({a})' in routine_spec_str
         assert f'y({a}, {a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler.item_map['parametrise#device2'].routine.spec)
+        routine_spec_str = fgen(scheduler['parametrise#device2'].ir.spec)
         assert f'd({b})' in routine_spec_str
         assert f'x({a})' in routine_spec_str
         assert f'z({b})' in routine_spec_str

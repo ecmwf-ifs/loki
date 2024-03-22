@@ -11,7 +11,7 @@ Base class definition for :ref:`transformations`.
 from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
-from loki.bulk.item import SubroutineItem
+from loki.bulk.item import ProcedureItem, ModuleItem
 
 
 __all__ = ['Transformation']
@@ -31,18 +31,18 @@ class Transformation:
     * :meth:`transform_file`
 
     The generic dispatch mechanism behind the :meth:`apply` method will ensure
-    that all hierarchies of the data model are traversed and apply the specific
-    method for each level.
-
-    Note that in :any:`Sourcefile` objects, all :any:`Module` members will be
-    traversed before standalone :any:`Subroutine` objects.
+    that all hierarchies of the data model are traversed and the specific
+    method for each level is applied, if the relevant recursion mode is enabled
+    in the transformation's manifest (:attr:`recurse_to_modules` and/or
+    :attr:`recurse_to_procedures`). Note that in :any:`Sourcefile` objects,
+    :any:`Module` members will be traversed before standalone :any:`Subroutine` objects.
 
     Classes inheriting from :any:`Transformation` may configure the
     invocation and behaviour during batch processing via a predefined
     set of class attributes. These flags determine the underlying
     graph traversal when processing complex call trees and determine
-    how the transformations are invoked for a given type of scheduler
-    :any:`Item`.
+    how the transformations are invoked for a given type of :any:`Item` in the
+    :any:`Scheduler`.
 
     Attributes
     ----------
@@ -62,7 +62,7 @@ class Transformation:
         a :any:`Sourcefile` (default ``False``)
     recurse_to_procedures : bool
         Apply transformation to all :any:`Subroutine` objects when processing
-        :any:`Sourcefile` or :any:``Module`` objects (default ``False``)
+        :any:`Sourcefile` or :any:`Module` objects (default ``False``)
     recurse_to_internal_procedures : bool
         Apply transformation to all internal :any:`Subroutine` objects
         when processing :any:`Subroutine` objects (default ``False``)
@@ -70,6 +70,17 @@ class Transformation:
         Apply transformation to "ignored" :any:`Item` objects for analysis.
         This might be needed if IPO-information needs to be passed across
         library boundaries.
+    renames_items : bool
+        Indicates to the :any:`Scheduler` that a transformation may change the name of
+        the IR node corresponding to the processed :any:`Item` (e.g., by renaming
+        a module or subroutine). The transformation has to take care of renaming
+        processed the :any:`Item` itself but the :any:`Scheduler` will update its
+        internal cache after the transformation has been applied (default ``False``).
+    creates_items : bool
+        Indicates to the :any:`Scheduler` that a transformation may create new
+        scopes or other dependency nodes (e.g., by adding new routines to a
+        module). The scheduler will run a discovery step after the transformation has
+        been applied to include these new items in the dependency graph (default ``False``).
     """
 
     # Forces scheduler traversal in reverse order from the leaf nodes upwards
@@ -79,7 +90,7 @@ class Transformation:
     traverse_file_graph = False
 
     # Filter certain graph nodes to prune the graph and change connectivity
-    item_filter = SubroutineItem  # This can also be a tuple of types
+    item_filter = ProcedureItem  # This can also be a tuple of types
 
     # Recursion behaviour when invoking transformations via ``trafo.apply()``
     recurse_to_modules = False  # Recurse from Sourcefile to Module
@@ -88,6 +99,10 @@ class Transformation:
 
     # Option to process "ignored" items for analysis
     process_ignored_items = False
+
+    # Control Scheduler cache update requirements after applying the transformation
+    renames_items = False
+    creates_items = False
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -197,35 +212,45 @@ class Transformation:
         role = kwargs.pop('role', None)
         targets = kwargs.pop('targets', None)
 
-        if items:
-            # TODO: This special logic is required for the
-            # DependencyTransformation to capture certain corner
-            # cases. Once the module wrapping is split into its
-            # own transformation, we can probably simplify this.
-
-            # We consider the sourcefile to be a "kernel" file if all items are kernels
-            role = 'kernel' if all(item.role == 'kernel' for item in items) else 'driver'
-
-            if targets is None:
-                # We collect the targets for file/module-level imports from all items
-                targets = [target for item in items for target in item.targets]
-
         # Apply file-level transformations
         self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
 
         # Recurse to modules, if configured
         if self.recurse_to_modules:
-            for module in sourcefile.modules:
-                self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+            if items:
+                # Recursion into all module items in the current file
+                for item in items:
+                    if isinstance(item, ModuleItem):
+                        # Currently, we don't get the role for modules correct as 'driver'
+                        # if the role overwrite in the config marks only specific procedures
+                        # as driver, but everything else as kernel by default. This is in particular the
+                        # case, if the ModuleWrapTransformation is applied to a driver routine.
+                        # For that reason, we set the role as unspecified (None) if not the role is
+                        # universally equal throughout the module
+                        item_role = item.role
+                        definitions_roles = {_it.role for _it in items if _it.scope_name == item.name}
+                        if definitions_roles != {item_role}:
+                            item_role = None
+
+                        # Provide the list of items that belong to this module
+                        item_items = tuple(_it for _it in items if _it.scope is item.ir)
+
+                        self.transform_module(
+                            item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
+                        )
+            else:
+                for module in sourcefile.modules:
+                    self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
 
         # Recurse into procedures, if configured
         if self.recurse_to_procedures:
             if items:
                 # Recursion into all subroutine items in the current file
                 for item in items:
-                    self.transform_subroutine(
-                        item.routine, item=item, role=item.role, targets=item.targets, **kwargs
-                    )
+                    if isinstance(item, ProcedureItem):
+                        self.transform_subroutine(
+                            item.ir, item=item, role=item.role, targets=item.targets, **kwargs
+                        )
             else:
                 for routine in sourcefile.all_subroutines:
                     self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)

@@ -5,7 +5,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     OMNI, REGEX, Sourcefile, Subroutine, Import,
     FindNodes, FindInlineCalls, fgen, Assignment, IntLiteral, Module,
-    SubroutineItem, Comment
+    ProcedureItem, Comment
 )
 from loki.transform import (
     Transformation, replace_selected_kind,  FileWriteTransformation
@@ -417,7 +417,7 @@ end subroutine rick
 """
     source = Sourcefile.from_source(fcode)
     source.path = Path('rick.F90')
-    item = SubroutineItem(name='#rick', source=source)
+    item = ProcedureItem(name='#rick', source=source)
 
     # Test default file writes
     ricks_path = here/'rick.loki.F90'

@@ -12,7 +12,7 @@ import pytest
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
-    fgen, Sourcefile, Section, SubroutineItem, GlobalVarImportItem, pragma_regions_attached, PragmaRegion,
+    fgen, Sourcefile, Section, ProcedureItem, ModuleItem, pragma_regions_attached, PragmaRegion,
     is_loki_pragma, IntLiteral, RangeIndex, Comment, HoistTemporaryArraysAnalysis,
     gettempdir, Scheduler, SchedulerConfig, SanitiseTransformation, InlineTransformation
 )
@@ -349,8 +349,8 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     kernel = kernel_source['compute_column']
     driver.enrich(kernel)  # Attach kernel source to driver call
 
-    driver_item = SubroutineItem(name='#column_driver', source=driver_source)
-    kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
+    driver_item = ProcedureItem(name='#column_driver', source=driver_source)
+    kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
@@ -518,8 +518,8 @@ END MODULE kernel_mod
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
 
-    driver = scheduler.item_map["#driver"].routine
-    kernel = scheduler.item_map["kernel_mod#kernel"].routine
+    driver = scheduler["#driver"].ir
+    kernel = scheduler["kernel_mod#kernel"].ir
 
     transformation = (SCCBaseTransformation(horizontal=horizontal, directive='openacc'),)
     transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
@@ -777,9 +777,9 @@ end module my_scaling_value_mod
     kernel.enrich(module)
     driver.enrich(kernel)  # Attach kernel source to driver call
 
-    driver_item = SubroutineItem(name='#column_driver', source=driver_source)
-    kernel_item = SubroutineItem(name='#compute_column', source=kernel_source)
-    module_item = GlobalVarImportItem(name='my_scaling_value_mod#c', source=module_source)
+    driver_item = ProcedureItem(name='#column_driver', source=driver_source)
+    kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
+    module_item = ModuleItem(name='my_scaling_value_mod', source=module_source)
 
     # Test OpenACC annotations on hoisted version
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
@@ -915,9 +915,9 @@ def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vert
     outer_kernel.enrich(inner_kernel)  # Attach kernel source to driver call
     driver.enrich(outer_kernel)  # Attach kernel source to driver call
 
-    driver_item = SubroutineItem(name='#column_driver', source=driver)
-    outer_kernel_item = SubroutineItem(name='#compute_column', source=outer_kernel)
-    inner_kernel_item = SubroutineItem(name='#update_q', source=inner_kernel)
+    driver_item = ProcedureItem(name='#column_driver', source=driver)
+    outer_kernel_item = ProcedureItem(name='#compute_column', source=outer_kernel)
+    inner_kernel_item = ProcedureItem(name='#update_q', source=inner_kernel)
 
     # Test OpenACC annotations on hoisted version
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)

@@ -108,11 +108,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 item.trafo_data[self._key] = trafo_data
 
             # ...and make sure missing symbols are imported...
-            dependencies_updated = self.add_new_imports_kernel(routine, trafo_data)
-
-            # ...before invalidating cached properties if dependencies have changed
-            if dependencies_updated and item:
-                item.clear_cached_property('imports')
+            self.add_new_imports_kernel(routine, trafo_data)
 
             # For recursive routines, we have to update calls to itself
             if any('recursive' in prefix.lower() for prefix in routine.prefix or ()):
@@ -494,8 +490,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 for module, symbols in new_imports.items()
             )
             routine.spec.prepend(new_imports)
-            return True
-        return False
 
     @classmethod
     def expand_derived_args_recursion(cls, routine, trafo_data):
@@ -631,9 +625,6 @@ class TypeboundProcedureCallTransformer(Transformer):
         After a transformer pass, this will contain the mapping
         ``{module: {proc_name, proc_name, ...}}`` for new imports that are required
         as a consequence of the replacement.
-    new_dependencies : set
-        New dependencies due to inline function calls that are identified during the
-        transformer pass.
     """
 
     def __init__(self, routine_name, current_module, **kwargs):
@@ -641,7 +632,6 @@ class TypeboundProcedureCallTransformer(Transformer):
         self.routine_name = routine_name
         self.current_module = current_module
         self.new_procedure_imports = defaultdict(set)
-        self.new_dependencies = set()
         self._retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall) and e.function.parent)
 
     def retrieve(self, o):
@@ -703,7 +693,6 @@ class TypeboundProcedureCallTransformer(Transformer):
 
                 if module_name != self.current_module:
                     self.new_procedure_imports[module_name].add(new_proc_symbol.name.lower())
-                    self.new_dependencies.add(call.function.type.dtype.procedure)
 
         if not expr_map:
             return o
@@ -736,19 +725,12 @@ class TypeboundProcedureCallTransformation(Transformation):
         unchanged copy.
     fix_intent : bool
         Update intent on polymorphic dummy arguments missing an intent as ``INOUT``.
-
-    Attributes
-    ----------
-    inline_call_dependencies : dict
-        Additional call dependencies identified during the transformer pass that can
-        be registered in the :any:`Scheduler` via :any:`Scheduler.add_dependencies`.
     """
 
     def __init__(self, duplicate_typebound_kernels=False, fix_intent=True, **kwargs):
         super().__init__(**kwargs)
         self.duplicate_typebound_kernels = duplicate_typebound_kernels
         self.fix_intent = fix_intent
-        self.inline_call_dependencies = defaultdict(set)
 
     def apply_default_polymorphic_intent(self, routine):
         """
@@ -760,23 +742,10 @@ class TypeboundProcedureCallTransformation(Transformation):
             if type_.polymorphic and not type_.intent:
                 arg.type = type_.clone(intent='inout')
 
-    def add_inline_call_dependency(self, caller, callee):
-        """
-        Register a new dependency due to an inline call from :data:`caller` to :data:`callee`
-
-        These dependencies are later on available to query via :attr:`inline_call_dependencies`.
-        """
-        caller_module = getattr(caller.parent, 'name', '')
-        callee_module = getattr(callee.parent, 'name', '')
-        self.inline_call_dependencies[f'{caller_module}#{caller.name}'.lower()] |= {
-            f'{callee_module}#{callee.name}'.lower()
-        }
-
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply the transformation of calls to the given :data:`routine`
         """
-        item = kwargs.get('item')
         role = kwargs.get('role')
 
         # Fix any wrong intents on polymorphic arguments
@@ -824,10 +793,6 @@ class TypeboundProcedureCallTransformation(Transformation):
         routine.body = transformer.visit(routine.body, scope=routine)
         new_procedure_imports = transformer.new_procedure_imports
 
-        # Add new dependencies
-        for callee in transformer.new_dependencies:
-            self.add_inline_call_dependency(routine, callee)
-
         # Add missing imports
         imported_symbols = routine.imported_symbols
         new_imports = []
@@ -838,8 +803,6 @@ class TypeboundProcedureCallTransformation(Transformation):
 
         if new_imports:
             routine.spec.prepend(as_tuple(new_imports))
-            if item:
-                item.clear_cached_property('imports')
 
         # Update the procedure bindings in the typedefs
         if is_duplicate_kernels:

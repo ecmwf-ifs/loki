@@ -49,7 +49,7 @@ def fixture_bundle_create(here, local_loki_bundle):
 @pytest.mark.usefixtures('bundle_create')
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OFP, 'Lack of elemental support makes C-transpilation impossible')],
-    skip=[(OMNI, 'OMNI needs FParser for parsing dependencies')] if not HAVE_FP else None
+    skip=[(OMNI, 'OMNI needs FParser for parsing headers')] if not HAVE_FP else None
 ))
 def test_cloudsc(here, frontend):
     build_cmd = [

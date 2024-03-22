@@ -37,6 +37,7 @@ def fixture_config():
             'role': 'kernel',
             'expand': True,
             'strict': True,
+            'enable_imports': True,
         },
     }
 
@@ -370,7 +371,6 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
     config['routines'] = {
         'driver': {'role': 'driver'}
     }
-    config['default']['enable_imports'] = True
 
     scheduler = Scheduler(
         paths=(global_variable_analysis_code,), config=config, seed_routines='driver',
@@ -399,29 +399,13 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         nfld_offload = {'nfld'}
 
     expected_trafo_data = {
-        'global_var_analysis_header_mod#nval': {
+        'global_var_analysis_header_mod': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': nval_offload
+            'offload': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'} | nval_offload | nfld_offload,
         },
-        'global_var_analysis_header_mod#nfld': {
-            'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': nfld_offload
-        },
-        'global_var_analysis_header_mod#iarr': {
-            'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': {f'iarr({nfld_dim})'}
-        },
-        'global_var_analysis_header_mod#rarr': {
-            'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': {f'rarr({nval_dim}, {nfld_dim})'}
-        },
-        'global_var_analysis_data_mod#rdata': {
+        'global_var_analysis_data_mod': {
             'declares': {'rdata(:, :, :)', 'tt'},
-            'offload': {'rdata(:, :, :)'}
-        },
-        'global_var_analysis_data_mod#tt': {
-            'declares': {'rdata(:, :, :)', 'tt'},
-            'offload': {'tt', 'tt%vals'}
+            'offload': {'rdata(:, :, :)', 'tt', 'tt%vals'}
         },
         'global_var_analysis_data_mod#some_routine': {'defines_symbols': set(), 'uses_symbols': set()},
         'global_var_analysis_kernel_mod#kernel_a': {
@@ -469,7 +453,6 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
     config['routines'] = {
         'driver': {'role': 'driver'}
     }
-    config['default']['enable_imports'] = True
 
     scheduler = Scheduler(
         paths=(global_variable_analysis_code,), config=config, seed_routines='driver',
@@ -477,7 +460,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
     )
     scheduler.process(GlobalVariableAnalysis(key=key))
     scheduler.process(GlobalVarOffloadTransformation(key=key))
-    driver = scheduler['#driver'].routine
+    driver = scheduler['#driver'].ir
 
     # Verify imports have been added to the driver
     expected_imports = {
@@ -515,15 +498,15 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
     }
 
     modules = {
-        name: scheduler[f'{name}#{list(vars)[0]}'].source[name]
-        for name, vars in expected_declarations.items()
+        name: scheduler[name].ir for name in expected_declarations
     }
 
     for name, module in modules.items():
         acc_pragmas = [p for p in FindNodes(Pragma).visit(module.spec) if p.keyword.lower() == 'acc']
         variables = {
-            pragma.content.lower().split('(')[-1].strip()[:-1].strip()
+            v.strip()
             for pragma in acc_pragmas
+            for v in pragma.content.lower().split('(')[-1].strip()[:-1].split(',')
         }
         assert variables == expected_declarations[name]
 
@@ -533,7 +516,6 @@ def test_transformation_global_var_import(here, config, frontend):
     """
     Test the generation of offload instructions of global variable imports.
     """
-    config['default']['enable_imports'] = True
     config['routines'] = {
         'driver': {'role': 'driver'}
     }
@@ -542,10 +524,10 @@ def test_transformation_global_var_import(here, config, frontend):
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarOffloadTransformation())
 
-    driver = scheduler['#driver'].routine
-    moduleA = scheduler['modulea#var0'].scope
-    moduleB = scheduler['moduleb#var2'].scope
-    moduleC = scheduler['modulec#var4'].scope
+    driver = scheduler['#driver'].ir
+    moduleA = scheduler['modulea'].ir
+    moduleB = scheduler['moduleb'].ir
+    moduleC = scheduler['modulec'].ir
 
     # check that global variables have been added to driver symbol table
     imports = FindNodes(Import).visit(driver.spec)
@@ -579,20 +561,18 @@ def test_transformation_global_var_import(here, config, frontend):
 
     # check for device-side declarations where appropriate
     pragmas = FindNodes(Pragma).visit(moduleB.spec)
-    assert len(pragmas) == 2
-    assert pragmas[0].content != pragmas[1].content
-    assert all(p.keyword == 'acc' for p in pragmas)
-    assert all('declare create' in p.content for p in pragmas)
-    assert any('var2' in p.content for p in pragmas)
-    assert any('var3' in p.content for p in pragmas)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'acc'
+    assert 'declare create' in pragmas[0].content
+    assert 'var2' in pragmas[0].content
+    assert 'var3' in pragmas[0].content
 
     pragmas = FindNodes(Pragma).visit(moduleC.spec)
-    assert len(pragmas) == 2
-    assert pragmas[0].content != pragmas[1].content
-    assert all(p.keyword == 'acc' for p in pragmas)
-    assert all('declare create' in p.content for p in pragmas)
-    assert any('var4' in p.content for p in pragmas)
-    assert any('var5' in p.content for p in pragmas)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'acc'
+    assert 'declare create' in pragmas[0].content
+    assert 'var4' in pragmas[0].content
+    assert 'var5' in pragmas[0].content
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -610,8 +590,8 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarOffloadTransformation())
 
-    driver = scheduler['#driver_derived_type'].routine
-    module = scheduler['module_derived_type#p'].scope
+    driver = scheduler['#driver_derived_type'].ir
+    module = scheduler['module_derived_type'].ir
 
     # check that global variables have been added to driver symbol table
     imports = FindNodes(Import).visit(driver.spec)
@@ -646,13 +626,13 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
 
     # check for device-side declarations
     pragmas = FindNodes(Pragma).visit(module.spec)
-    assert len(pragmas) == 3
-    assert all(p.keyword == 'acc' for p in pragmas)
-    assert all('declare create' in p.content for p in pragmas)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'acc'
+    assert 'declare create' in pragmas[0].content
     assert 'p' in pragmas[0].content
+    assert 'p0' in pragmas[0].content
+    assert 'p_array' in pragmas[0].content
     # Note: g is not offloaded because it is not used by the kernel (albeit imported)
-    assert 'p0' in pragmas[1].content
-    assert 'p_array' in pragmas[2].content
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -672,9 +652,9 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
     scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters,
         ignore_modules=ignore_modules))
 
-    driver = scheduler['#driver'].routine
-    kernel0 = scheduler['#kernel0'].routine
-    kernel_map = {key: scheduler[f'#{key}'].routine for key in ['kernel1', 'kernel2', 'kernel3']}
+    driver = scheduler['#driver'].ir
+    kernel0 = scheduler['#kernel0'].ir
+    kernel_map = {key: scheduler[f'#{key}'].ir for key in ['kernel1', 'kernel2', 'kernel3']}
 
     # symbols within each module
     expected_symbols = {'modulea': ['var0', 'var1'], 'moduleb': ['var2', 'var3'],
@@ -760,8 +740,8 @@ def test_transformation_global_var_derived_type_hoist(here, config, frontend, ho
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters))
 
-    driver = scheduler['#driver_derived_type'].routine
-    kernel = scheduler['#kernel_derived_type'].routine
+    driver = scheduler['#driver_derived_type'].ir
+    kernel = scheduler['#kernel_derived_type'].ir
 
     # DRIVER
     imports = FindNodes(Import).visit(driver.spec)

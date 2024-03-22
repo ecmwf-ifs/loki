@@ -171,7 +171,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         # add qualified iso_c_binding import
         if not 'C_SIZEOF' in routine.imported_symbols:
-            imp = Import(module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)))
+            imp = Import(
+                module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)),
+                nature='intrinsic'
+            )
             routine.spec.prepend(imp)
 
     def import_allocation_types(self, routine, item):

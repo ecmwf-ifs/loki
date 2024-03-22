@@ -10,7 +10,7 @@ from itertools import chain
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
     CallStatement, Pragma, Scalar, Array, as_tuple, Transformer, warning, BasicType,
-    SubroutineItem, GlobalVarImportItem, dataflow_analysis_attached, Import,
+    ProcedureItem, ModuleItem, dataflow_analysis_attached, Import,
     Comment, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict
 )
 
@@ -119,7 +119,7 @@ class DataOffloadTransformation(Transformation):
 
                 for call in calls:
                     if call.routine is BasicType.DEFERRED:
-                        warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched with ' +
+                        warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched ' +
                                 f'in {str(call.name).lower()}')
 
                         continue
@@ -203,8 +203,8 @@ class GlobalVariableAnalysis(Transformation):
 
     This analysis is a requirement before applying :any:`GlobalVarOffloadTransformation`.
 
-    Collect data in :any:`Item.trafo_data` for :any:`SubroutineItem` and
-    :any:`GlobalVarImportItem` items and store analysis results under the
+    Collect data in :any:`Item.trafo_data` for :any:`ProcedureItem` and
+    :any:`ModuleItem` items and store analysis results under the
     provided :data:`key` (default: ``'GlobalVariableAnalysis'``) in the
     items' ``trafo_data``.
 
@@ -213,7 +213,7 @@ class GlobalVariableAnalysis(Transformation):
     Store these under the keys ``'uses_symbols'`` and ``'defines_symbols'``,
     respectively.
 
-    For modules/:any:`GlobalVarImportItem`, store the list of variables declared in the
+    For modules/:any:`ModuleItem`, store the list of variables declared in the
     module under the key ``'declares'`` and out of this the subset of variables that
     need offloading to device under the key ``'offload'``.
 
@@ -222,12 +222,12 @@ class GlobalVariableAnalysis(Transformation):
 
     The generated trafo_data has the following schema::
 
-        GlobalVarImportItem: {
+        ModuleItem: {
             'declares': set(Variable, Variable, ...),
             'offload': set(Variable, ...)
         }
 
-        SubroutineItem: {
+        ProcedureItem: {
             'uses_symbols': set( (Variable, '<module_name>'), (Variable, '<module_name>'), ...),
             'defines_symbols': set((Variable, '<module_name>'), (Variable, '<module_name>'), ...)
         }
@@ -245,7 +245,7 @@ class GlobalVariableAnalysis(Transformation):
     """Traversal from the leaves upwards, i.e., modules with global variables are processed first,
     then kernels using them before the driver."""
 
-    item_filter = (SubroutineItem, GlobalVarImportItem)
+    item_filter = (ProcedureItem, ModuleItem)
     """Process procedures and modules with global variable declarations."""
 
     def __init__(self, key=None):
@@ -257,9 +257,6 @@ class GlobalVariableAnalysis(Transformation):
             raise RuntimeError('Cannot apply GlobalVariableAnalysis without item to store analysis data')
 
         item = kwargs['item']
-
-        if not isinstance(item, GlobalVarImportItem):
-            raise RuntimeError('Module transformation applied for non-module item')
 
         # Gather all module variables and filter out parameters
         variables = {var for var in module.variables if not var.type.parameter}
@@ -327,24 +324,20 @@ class GlobalVariableAnalysis(Transformation):
 
         # Propagate offload requirement to the items of the global variables
         successors_map = CaseInsensitiveDict(
-            (item.name, item) for item in successors if isinstance(item, GlobalVarImportItem)
+            (item.name, item) for item in successors if isinstance(item, ModuleItem)
         )
         for var, module in chain(
             item.trafo_data[self._key]['uses_symbols'],
             item.trafo_data[self._key]['defines_symbols']
         ):
-            if var.parent:
-                successor = successors_map.get(f'{module}#{var.parents[0].name}')
-            else:
-                successor = successors_map.get(f'{module}#{var.name}')
-            if successor:
+            if successor := successors_map.get(module):
                 successor.trafo_data[self._key]['offload'].add(var)
 
         # Amend analysis data with data from successors
         # Note: This is a temporary workaround for the incomplete list of successor items
         # provided by the current scheduler implementation
         for successor in successors:
-            if isinstance(successor, SubroutineItem):
+            if isinstance(successor, ProcedureItem):
                 item.trafo_data[self._key]['uses_symbols'] |= successor.trafo_data[self._key]['uses_symbols']
                 item.trafo_data[self._key]['defines_symbols'] |= successor.trafo_data[self._key]['defines_symbols']
 
@@ -438,7 +431,7 @@ class GlobalVarOffloadTransformation(Transformation):
 
     # Include module variable imports in the underlying graph
     # connectivity for traversal with the Scheduler
-    item_filter = (SubroutineItem, GlobalVarImportItem)
+    item_filter = (ProcedureItem, ModuleItem)
 
     def __init__(self, key=None):
         self._key = key or GlobalVariableAnalysis._key
@@ -451,9 +444,6 @@ class GlobalVarOffloadTransformation(Transformation):
             raise RuntimeError('Cannot apply GlobalVarOffloadTransformation without trafo_data in item')
 
         item = kwargs['item']
-
-        if not isinstance(item, GlobalVarImportItem):
-            raise RuntimeError('Module transformation applied for non-module item')
 
         # Check for already declared offloads
         acc_pragmas = [pragma for pragma in FindNodes(Pragma).visit(module.spec) if pragma.keyword.lower() == 'acc']
@@ -623,11 +613,11 @@ class GlobalVarHoistTransformation(Transformation):
     This requires a prior analysis pass with :any:`GlobalVariableAnalysis` to collect
     the relevant global variable use information.
 
-    Modules to be ignored can be specified. Further, it is possible to 
-    configure whether parameters/compile time constants are hoisted as well 
+    Modules to be ignored can be specified. Further, it is possible to
+    configure whether parameters/compile time constants are hoisted as well
     or not.
 
-    .. note:: 
+    .. note::
       Hoisted variables that could theoretically be ``intent(out)``
       are despite specified as ``intent(inout)``.
 
@@ -707,7 +697,7 @@ class GlobalVarHoistTransformation(Transformation):
     key : str, optional
         Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
-    item_filter = (SubroutineItem,)
+    item_filter = ProcedureItem
 
     def __init__(self, hoist_parameters=False, ignore_modules=None, key=None):
         self._key = key or GlobalVariableAnalysis._key
@@ -732,7 +722,7 @@ class GlobalVarHoistTransformation(Transformation):
         Hoist module variables for driver routines.
 
         This includes: appending the corresponding variables
-        to calls within the driver and adding the relevant 
+        to calls within the driver and adding the relevant
         imports.
         """
         # get symbols per routine (successors)
@@ -800,8 +790,8 @@ class GlobalVarHoistTransformation(Transformation):
                 continue
             symbol_map[module].add(var.parents[0] if var.parent else var)
         import_map = CaseInsensitiveDict(
-                (s.name, imprt) for imprt in routine.all_imports[::-1] for s in imprt.symbols
-                )
+            (s.name, imprt) for imprt in routine.all_imports[::-1] for s in imprt.symbols
+        )
         redundant_imports_map = defaultdict(set)
         for module, variables in symbol_map.items():
             redundant = [var.parent[0] if var.parent else var for var in variables]
@@ -810,8 +800,10 @@ class GlobalVarHoistTransformation(Transformation):
         import_map = {}
         imports = FindNodes(Import).visit(routine.spec)
         for _import in imports:
-            new_symbols = tuple(var.clone(dimensions=None, scope=routine)
-                    for var in set(_import.symbols)-redundant_imports_map[_import.module.lower()])
+            new_symbols = tuple(
+                var.clone(dimensions=None, scope=routine)
+                for var in set(_import.symbols)-redundant_imports_map[_import.module.lower()]
+            )
             if new_symbols:
                 import_map[_import] = _import.clone(symbols=new_symbols)
             else:
@@ -825,16 +817,16 @@ class GlobalVarHoistTransformation(Transformation):
         defines_symbols = {}
         uses_symbols = {}
         for item in successors:
-            if isinstance(item, GlobalVarImportItem):
+            if not isinstance(item, ProcedureItem):
                 continue
-            defines_symbols[item.routine.name] = set()
-            uses_symbols[item.routine.name] = set()
-            defines_symbols[item.routine.name] = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
-            uses_symbols[item.routine.name] = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+            defines_symbols[item.local_name] = set()
+            uses_symbols[item.local_name] = set()
+            defines_symbols[item.local_name] = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
+            uses_symbols[item.local_name] = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
             # remove parameters if hoist_parameters is False
             if not self.hoist_parameters:
-                parameters = {(var, module) for var, module in uses_symbols[item.routine.name] if var.type.parameter}
-                uses_symbols[item.routine.name] ^= parameters
+                parameters = {(var, module) for var, module in uses_symbols[item.local_name] if var.type.parameter}
+                uses_symbols[item.local_name] ^= parameters
         return defines_symbols, uses_symbols
 
     def _append_call_arguments(self, routine, uses_symbols, defines_symbols):
@@ -854,8 +846,10 @@ class GlobalVarHoistTransformation(Transformation):
         for call in calls:
             if call.routine.name in uses_symbols:
                 arguments = call.arguments
-                new_args = sorted([var.clone(dimensions=None) for var in symbol_map[call.routine.name]],
-                        key=lambda symbol: symbol.name)
+                new_args = sorted(
+                    [var.clone(dimensions=None) for var in symbol_map[call.routine.name]],
+                    key=lambda symbol: symbol.name
+                )
                 call_map[call] = call.clone(arguments=arguments + tuple(new_args))
         routine.body = Transformer(call_map).visit(routine.body)
 
@@ -878,6 +872,10 @@ class GlobalVarHoistTransformation(Transformation):
                 continue
             new_arguments.append(var.parents[0] if var.parent else var)
         new_arguments = set(new_arguments) # remove duplicates
-        new_arguments = [arg.clone(type=arg.type.clone(intent='inout' if arg in all_defines_vars
-            else 'in', parameter=False, initial=None)) for arg in new_arguments]
+        new_arguments = [
+            arg.clone(type=arg.type.clone(
+                intent='inout' if arg in all_defines_vars else 'in',
+                parameter=False, initial=None
+            )) for arg in new_arguments
+        ]
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))

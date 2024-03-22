@@ -10,7 +10,7 @@ from shutil import rmtree
 import pytest
 
 from loki import (
-    OMNI, OFP, Sourcefile, Scheduler, SubroutineItem, as_tuple, gettempdir,
+    OMNI, OFP, Sourcefile, Scheduler, ProcedureItem, as_tuple, gettempdir,
     CallStatement, ProcedureDeclaration, Scalar, Array,
     FindNodes, FindVariables, FindInlineCalls, BasicType,
     CaseInsensitiveDict, resolve_associates
@@ -33,6 +33,7 @@ def fixture_config():
             'role': 'kernel',
             'expand': True,
             'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'driver': {
@@ -79,7 +80,7 @@ end module transform_derived_type_arguments_mod
     """.strip()
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
-    item = SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source)
+    item = ProcedureItem(name='transform_derived_type_arguments_mod#kernel', source=source)
     source['kernel'].apply(DerivedTypeArgumentsTransformation(), role='kernel', item=item)
 
     # Make sure the trafo data contains the right information
@@ -148,14 +149,14 @@ end module transform_derived_type_arguments_mod
     source = Sourcefile.from_source(fcode, frontend=frontend)
 
     call_tree = [
-        SubroutineItem(name='transform_derived_type_arguments_mod#caller', source=source, config={'role': 'driver'}),
-        SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}),
+        ProcedureItem(name='transform_derived_type_arguments_mod#caller', source=source, config={'role': 'driver'}),
+        ProcedureItem(name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}),
     ]
 
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation(all_derived_types=all_derived_types)
     for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        transformation.apply(item.routine, role=item.role, item=item, successors=as_tuple(successor))
+        transformation.apply(item.scope_ir, role=item.role, item=item, successors=as_tuple(successor))
 
     # all derived types, disregarding whether the derived type has pointer/allocatable/derived type members or not
     if all_derived_types:
@@ -264,14 +265,14 @@ end module transform_derived_type_arguments_mod
     source = Sourcefile.from_source(fcode, frontend=frontend)
 
     call_tree = [
-        SubroutineItem(name='transform_derived_type_arguments_mod#caller', source=source, config={'role': 'driver'}),
-        SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}),
+        ProcedureItem(name='transform_derived_type_arguments_mod#caller', source=source, config={'role': 'driver'}),
+        ProcedureItem(name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}),
     ]
 
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
     for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        transformation.apply(item.routine, role=item.role, item=item, successors=as_tuple(successor))
+        transformation.apply(item.ir, role=item.role, item=item, successors=as_tuple(successor))
 
     # Make sure derived type arguments are flattened
     call_args = (
@@ -334,21 +335,21 @@ end subroutine driver
     source_my_mod = Sourcefile.from_source(fcode_my_mod, frontend=frontend)
     source_driver = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=source_my_mod.definitions)
 
-    kernel = SubroutineItem('my_mod#kernel', config={'role': 'kernel'}, source=source_my_mod)
-    driver = SubroutineItem('#driver', config={'role': 'driver'}, source=source_driver)
+    kernel = ProcedureItem('my_mod#kernel', config={'role': 'kernel'}, source=source_my_mod)
+    driver = ProcedureItem('#driver', config={'role': 'driver'}, source=source_driver)
 
     transformation = DerivedTypeArgumentsTransformation()
-    transformation.apply(kernel.routine, item=kernel, role=kernel.role)
-    transformation.apply(driver.routine, item=driver, role=driver.role, successors=[kernel])
+    transformation.apply(kernel.ir, item=kernel, role=kernel.role)
+    transformation.apply(driver.ir, item=driver, role=driver.role, successors=[kernel])
 
     assert kernel.trafo_data[transformation._key] == {
         'orig_argnames': ('r', 's'),
         'expansion_map': {'r': ('r%a', 'r%b'), 's': ('s%a', 's%b')}
     }
 
-    assert kernel.routine.arguments == ('r_a(:)', 'r_b', 's_a(:)', 's_b')
+    assert kernel.ir.arguments == ('r_a(:)', 'r_b', 's_a(:)', 's_b')
 
-    inline_calls = list(FindInlineCalls().visit(driver.routine.body))
+    inline_calls = list(FindInlineCalls().visit(driver.ir.body))
     assert len(inline_calls) == 1
     assert inline_calls[0].parameters == ('arr(j)%a', 'arr(j)%b', 's%a', 's%b')
 
@@ -417,15 +418,15 @@ end module transform_derived_type_arguments_multilevel
         assert routine.arguments == orig_args[routine.name.lower()]
 
     call_tree = [
-        SubroutineItem(
+        ProcedureItem(
             name='transform_derived_type_arguments_multilevel#caller',
             source=source, config={'role': 'driver'}
         ),
-        SubroutineItem(
+        ProcedureItem(
             name='transform_derived_type_arguments_multilevel#setup_obj',
             source=source, config={'role': 'kernel'}
         ),
-        SubroutineItem(
+        ProcedureItem(
             name='transform_derived_type_arguments_multilevel#deallocate_obj',
             source=source, config={'role': 'kernel'}
         ),
@@ -434,13 +435,13 @@ end module transform_derived_type_arguments_multilevel
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
     for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        transformation.apply(item.routine, role=item.role, item=item, successors=as_tuple(successor))
+        transformation.apply(item.ir, role=item.role, item=item, successors=as_tuple(successor))
 
     for item in call_tree:
         if item.role == 'driver':
             assert not item.trafo_data[transformation._key]
         else:
-            assert item.trafo_data[transformation._key]['orig_argnames'] == orig_args[item.routine.name.lower()]
+            assert item.trafo_data[transformation._key]['orig_argnames'] == orig_args[item.ir.name.lower()]
 
     for routine in source.subroutines:
         assert routine.arguments == transformed_args[routine.name.lower()]
@@ -624,22 +625,22 @@ end subroutine caller
                                     definitions=header.definitions + bucket.definitions + layer.definitions)
 
     items = {
-        'caller': SubroutineItem(
+        'caller': ProcedureItem(
             name='#caller', source=source, config={'role': 'driver'}
         ),
-        'layer': SubroutineItem(
+        'layer': ProcedureItem(
             name='layer_mod#layer', source=layer, config={'role': 'kernel'}
         ),
-        'setup': SubroutineItem(
+        'setup': ProcedureItem(
             name='bucket_mod#setup', source=bucket, config={'role': 'kernel'}
         ),
-        'init': SubroutineItem(
+        'init': ProcedureItem(
             name='bucket_mod#init', source=bucket, config={'role': 'kernel'}
         ),
-        'kernel': SubroutineItem(
+        'kernel': ProcedureItem(
             name='bucket_mod#kernel', source=bucket, config={'role': 'kernel'}
         ),
-        'teardown': SubroutineItem(
+        'teardown': ProcedureItem(
             name='bucket_mod#teardown', source=bucket, config={'role': 'kernel'}
         ),
     }
@@ -653,14 +654,14 @@ end subroutine caller
         ('teardown', [])
     ]
 
-    assert len(items['layer'].imports) == 2
+    assert len(items['layer'].ir.imports) == 2
 
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
     for name, successors in reversed(call_tree):
         item = items[name]
         children = [items[c] for c in successors]
-        transformation.apply(item.routine, role=item.role, item=item, successors=as_tuple(children))
+        transformation.apply(item.ir, role=item.role, item=item, successors=as_tuple(children))
 
     key = DerivedTypeArgumentsTransformation._key
 
@@ -686,32 +687,32 @@ end subroutine caller
     )
 
     # Check arguments of setup
-    assert items['setup'].routine.arguments == (
+    assert items['setup'].ir.arguments == (
         't_a(:)', 't_b(:, :)', 'm', 'n'
     )
 
     # Check arguments of init
-    assert items['init'].routine.arguments == (
+    assert items['init'].ir.arguments == (
         't_a(:)', 't_b(:, :)', 'm', 'n'
     )
 
     # Check arguments of teardown
-    assert items['teardown'].routine.arguments == (
+    assert items['teardown'].ir.arguments == (
         't_a(:)', 't_b(:, :)'
     )
 
     # Check arguments of kernel
     if frontend == OMNI:
-        assert items['kernel'].routine.arguments == (
+        assert items['kernel'].ir.arguments == (
             'm', 'n', 'p_a(1:n)', 'p_b(1:m, 1:n)', 'q_a(:)', 'q_b(:, :)', 'r_a(:)', 'r_b(:, :)', 'c'
         )
     else:
-        assert items['kernel'].routine.arguments == (
+        assert items['kernel'].ir.arguments == (
             'm', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(:)', 'Q_b(:, :)', 'R_a(:)', 'R_b(:, :)', 'c'
         )
 
     # Check call arguments in layer
-    calls = FindNodes(CallStatement).visit(items['layer'].routine.ir)
+    calls = FindNodes(CallStatement).visit(items['layer'].ir.ir)
     assert len(calls) == 2
 
     assert calls[0].arguments == (
@@ -723,33 +724,33 @@ end subroutine caller
 
     # Check arguments of layer
     if frontend == OMNI:
-        assert items['layer'].routine.arguments == (
+        assert items['layer'].ir.arguments == (
             'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(1:5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)', 'q_constants(:)',
             'r_a_a(:)', 'r_a_b(:, :)', 'r_b(:)'
         )
     else:
-        assert items['layer'].routine.arguments == (
+        assert items['layer'].ir.arguments == (
             'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)', 'q_constants(:)',
             'r_a_a(:)', 'r_a_b(:, :)', 'r_b(:)'
         )
 
     # Check imports
-    assert 'constants_type' in items['layer'].routine.imported_symbols
+    assert 'constants_type' in items['layer'].ir.imported_symbols
     if frontend != OMNI:
         # OMNI inlines parameters
-        assert 'jprb' in items['layer'].routine.imported_symbols
-        assert 'jprb' in items['setup'].routine.imported_symbols
-        assert 'jprb' in items['teardown'].routine.imported_symbols
+        assert 'jprb' in items['layer'].ir.imported_symbols
+        assert 'jprb' in items['setup'].ir.imported_symbols
+        assert 'jprb' in items['teardown'].ir.imported_symbols
 
     # No additional imports added for init and kernel
-    assert len(items['init'].routine.imports) == 1
-    assert len(items['kernel'].routine.imports) == 1
+    assert len(items['init'].ir.imports) == 1
+    assert len(items['kernel'].ir.imports) == 1
 
     # Cached property updated?
-    assert len(items['layer'].imports) == 3
+    assert len(items['layer'].ir.imports) == 3
 
     # Check call arguments in caller
-    for call in FindNodes(CallStatement).visit(items['caller'].routine.body):
+    for call in FindNodes(CallStatement).visit(items['caller'].ir.body):
         if call.name in ('setup', 'init'):
             assert len(call.arguments) == 4
         elif call.name == 'teardown':
@@ -830,11 +831,11 @@ end subroutine driver
     """.strip()
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
-    kernel_a = SubroutineItem(name='transform_derived_type_arguments_mod#kernel_a', source=source)
-    kernel = SubroutineItem(name='transform_derived_type_arguments_mod#kernel', source=source)
-    reduce = SubroutineItem(name='transform_derived_type_arguments_mod#reduce', source=source)
+    kernel_a = ProcedureItem(name='transform_derived_type_arguments_mod#kernel_a', source=source)
+    kernel = ProcedureItem(name='transform_derived_type_arguments_mod#kernel', source=source)
+    reduce = ProcedureItem(name='transform_derived_type_arguments_mod#reduce', source=source)
     source_driver = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=source.definitions)
-    driver = SubroutineItem(name='#driver', source=source_driver)
+    driver = ProcedureItem(name='#driver', source=source_driver)
 
     # Check procedure bindings before the transformation
     typedef = source['some_derived_type']
@@ -874,11 +875,11 @@ end subroutine driver
     assert reduce.trafo_data['some_key']['orig_argnames'] == ('start', 'this')
 
     # Check transformation outcome
-    assert kernel_a.routine.arguments == ('this_a(:)', 'out(:)', 'n')
-    assert kernel.routine.arguments == ('this_b(:, :)', 'this_c(:, :)', 'other_b(:, :)', 'm', 'n')
-    assert reduce.routine.arguments == ('start', 'this_a(:)', 'this_b(:, :)', 'this_c(:, :)')
+    assert kernel_a.ir.arguments == ('this_a(:)', 'out(:)', 'n')
+    assert kernel.ir.arguments == ('this_b(:, :)', 'this_c(:, :)', 'other_b(:, :)', 'm', 'n')
+    assert reduce.ir.arguments == ('start', 'this_a(:)', 'this_b(:, :)', 'this_c(:, :)')
 
-    inline_calls = list(FindInlineCalls().visit(driver.routine.body))
+    inline_calls = list(FindInlineCalls().visit(driver.ir.body))
     assert len(inline_calls) == 1
     assert inline_calls[0].parameters == ('result', 'some%a', 'some%b', 'some%c')
 
@@ -923,8 +924,8 @@ end subroutine some_routine
     source1 = Sourcefile.from_source(fcode1, frontend=frontend)
     source2 = Sourcefile.from_source(fcode2, frontend=frontend, definitions=source1.definitions)
 
-    callee = SubroutineItem(name='some_mod#some_routine', source=source1)
-    caller = SubroutineItem(name='#some_routine', source=source2)
+    callee = ProcedureItem(name='some_mod#some_routine', source=source1)
+    caller = ProcedureItem(name='#some_routine', source=source2)
 
     transformation = DerivedTypeArgumentsTransformation()
     source1['some_routine'].apply(transformation, item=callee, role='kernel', successors=())
@@ -937,10 +938,10 @@ end subroutine some_routine
         't': ('t%a',),
     }
 
-    assert caller.routine.arguments == ('t_a(:)',)
-    assert callee.routine.arguments == ('t_a(:)',)
+    assert caller.ir.arguments == ('t_a(:)',)
+    assert callee.ir.arguments == ('t_a(:)',)
 
-    calls = FindNodes(CallStatement).visit(caller.routine.body)
+    calls = FindNodes(CallStatement).visit(caller.ir.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('t_a',)
 
@@ -980,8 +981,8 @@ end module some_mod
     """.strip()
     source = Sourcefile.from_source(fcode, frontend=frontend)
 
-    callee = SubroutineItem(name='some_mod#callee', source=source)
-    caller = SubroutineItem(name='some_mod#caller', source=source)
+    callee = ProcedureItem(name='some_mod#callee', source=source)
+    caller = ProcedureItem(name='some_mod#caller', source=source)
 
     transformation = DerivedTypeArgumentsTransformation()
     source['callee'].apply(transformation, item=callee, role='kernel', successors=())
@@ -992,7 +993,7 @@ end module some_mod
         't': ('t%arr',)
     }
 
-    calls = FindNodes(CallStatement).visit(caller.routine.body)
+    calls = FindNodes(CallStatement).visit(caller.ir.body)
     assert len(calls) == 3
     assert calls[0].arguments == ('t%arr', '1')
     assert calls[0].kwarguments == (('opt2', '2'),)
@@ -1069,9 +1070,9 @@ end module some_mod
     """.strip()
     source = Sourcefile.from_source(fcode, frontend=frontend)
 
-    callee = SubroutineItem(name='some_mod#callee', source=source)
-    caller = SubroutineItem(name='some_mod#caller', source=source)
-    plus = SubroutineItem(name='some_mod#plus', source=source)
+    callee = ProcedureItem(name='some_mod#callee', source=source)
+    caller = ProcedureItem(name='some_mod#caller', source=source)
+    plus = ProcedureItem(name='some_mod#plus', source=source)
 
     transformation = DerivedTypeArgumentsTransformation()
     source['callee'].apply(transformation, item=callee, role='kernel', successors=())
@@ -1086,27 +1087,27 @@ end module some_mod
         't': ('t%arr',)
     }
 
-    calls = FindNodes(CallStatement).visit(caller.routine.body)
+    calls = FindNodes(CallStatement).visit(caller.ir.body)
     assert len(calls) == 2
     assert calls[0].arguments == ('t%arr', '1')
     assert calls[0].kwarguments == (('opt2', '2'),)
     assert calls[1].arguments == ('t%arr', '1', '1')
     assert not calls[1].kwarguments
 
-    inline_calls = list(FindInlineCalls().visit(caller.routine.body))
+    inline_calls = list(FindInlineCalls().visit(caller.ir.body))
     assert len(inline_calls) == 1
     assert inline_calls[0].parameters == ('t%arr', '32', '1')
     assert not inline_calls[0].kw_parameters
 
-    assert callee.routine.arguments == ('t_arr(:)', 'val', 'opt1', 'opt2', 'recurse')
-    assert callee.routine.arguments[0].type.intent == 'inout'
+    assert callee.ir.arguments == ('t_arr(:)', 'val', 'opt1', 'opt2', 'recurse')
+    assert callee.ir.arguments[0].type.intent == 'inout'
 
-    calls = FindNodes(CallStatement).visit(callee.routine.body)
+    calls = FindNodes(CallStatement).visit(callee.ir.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('t_arr', 'val', 'opt1', 'opt2')
     assert calls[0].kwarguments == (('recurse', 'False'),)
 
-    inline_calls = list(FindInlineCalls().visit(plus.routine.body))
+    inline_calls = list(FindInlineCalls().visit(plus.ir.body))
     inline_calls = [call for call in inline_calls if call.name == 'plus']
     assert len(inline_calls) == 3
     for call in inline_calls:
@@ -1118,8 +1119,8 @@ end module some_mod
                 ('t_arr', '1', 'idx'), ('t_arr', 'val - 1', 'idx')
             ]
 
-    assert plus.routine.arguments == ('t_arr(:)', 'val', 'idx', 'stop_recurse')
-    assert plus.routine.arguments[0].type.intent == 'in'
+    assert plus.ir.arguments == ('t_arr(:)', 'val', 'idx', 'stop_recurse')
+    assert plus.ir.arguments[0].type.intent == 'in'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1175,18 +1176,18 @@ end subroutine caller
         definitions=source_header.definitions + source_some.definitions + source_other.definitions
     )
 
-    some_sub = SubroutineItem(name='some_mod#sub', source=source_some)
-    other_sub = SubroutineItem(name='other_mod#sub', source=source_other)
-    caller = SubroutineItem(name='#caller', source=source_caller)
+    some_sub = ProcedureItem(name='some_mod#sub', source=source_some)
+    other_sub = ProcedureItem(name='other_mod#sub', source=source_other)
+    caller = ProcedureItem(name='#caller', source=source_caller)
 
     transformation = DerivedTypeArgumentsTransformation()
     source_some['sub'].apply(transformation, item=some_sub, role='kernel', successors=())
     source_other['sub'].apply(transformation, item=other_sub, role='kernel', successors=())
     source_caller['caller'].apply(transformation, item=caller, role='driver', successors=(some_sub, other_sub))
 
-    assert some_sub.routine.arguments == ('t_some(:)',)
-    assert other_sub.routine.arguments == ('t_other(:)',)
-    calls = FindNodes(CallStatement).visit(caller.routine.body)
+    assert some_sub.ir.arguments == ('t_some(:)',)
+    assert other_sub.ir.arguments == ('t_other(:)',)
+    calls = FindNodes(CallStatement).visit(caller.ir.body)
     assert len(calls) == 2
     assert calls[0].arguments == ('t%some',)
     assert calls[1].arguments == ('t%other',)
@@ -1398,32 +1399,14 @@ end subroutine driver
     (workdir/'function_mod.F90').write_text(fcode3)
     (workdir/'driver.F90').write_text(fcode4)
 
-    # As long as the scheduler isn't able to find the dependency for inline calls,
-    # we have to provide it manually as a definition
-    function_mod = Sourcefile.from_file(workdir/'function_mod.F90', frontend=frontend)
-
     scheduler = Scheduler(
-        paths=[workdir], config=config, seed_routines=['driver'],
-        definitions=function_mod.definitions, frontend=frontend
+        paths=[workdir], config=config, seed_routines=['driver'], frontend=frontend
     )
 
     transformation = TypeboundProcedureCallTransformation(duplicate_typebound_kernels=duplicate)
     scheduler.process(transformation=transformation)
 
-    # Verify that new dependencies have been identified correctly...
-    assert transformation.inline_call_dependencies == {
-        '#driver': {'typebound_procedure_calls_mod#total_sum', 'function_mod#some_func'},
-        'other_typebound_procedure_calls_mod#print_content': {'typebound_procedure_calls_mod#total_sum'}
-    }
-
-    # ...which are not yet in the scheduler
-    assert 'typebound_procedure_calls_mod#total_sum' not in scheduler.item_graph.nodes
-
-    # Make sure that we can add them successfully to the scheduler
-    scheduler.add_dependencies(transformation.inline_call_dependencies)
-    assert 'typebound_procedure_calls_mod#total_sum' in scheduler.item_graph.nodes
-
-    driver = scheduler['#driver'].routine
+    driver = scheduler['#driver'].ir
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 3
     assert calls[0].name == 'init'
@@ -1444,13 +1427,13 @@ end subroutine driver
     assert 'print_content' in driver.imported_symbols
     assert 'total_sum' in driver.imported_symbols
 
-    add_other_type = scheduler['typebound_procedure_calls_mod#add_other_type'].routine
+    add_other_type = scheduler['typebound_procedure_calls_mod#add_other_type'].ir
     calls = FindNodes(CallStatement).visit(add_other_type.body)
     assert len(calls) == 1
     assert calls[0].name == 'add_my_type'
     assert calls[0].arguments == ('this%arr(i)', 'other%arr(i)%val')
 
-    init = scheduler['other_typebound_procedure_calls_mod#init'].routine
+    init = scheduler['other_typebound_procedure_calls_mod#init'].ir
     calls = FindNodes(CallStatement).visit(init.body)
     assert len(calls) == 2
     assert calls[0].name == 'reset'
@@ -1458,7 +1441,7 @@ end subroutine driver
     assert calls[1].name == 'add_my_type'
     assert calls[1].arguments == ('this%stuff(i)%arr(j)', 'i + j')
 
-    print_content = scheduler['other_typebound_procedure_calls_mod#print_content'].routine
+    print_content = scheduler['other_typebound_procedure_calls_mod#print_content'].ir
     calls = FindNodes(CallStatement).visit(print_content.body)
     assert len(calls) == 1
     assert calls[0].name == 'add_other_type'
@@ -1469,11 +1452,11 @@ end subroutine driver
     assert str(calls[0]).lower() == 'total_sum(this%stuff(1))'
 
     if duplicate:
-        mod = scheduler['typebound_procedure_calls_mod#add_other_type'].routine.parent
+        mod = scheduler['typebound_procedure_calls_mod#add_other_type'].ir.parent
 
         assert [r.name.lower() for r in mod.subroutines] == [
             'reset', 'add_my_type', 'add_other_type', 'total_sum',
-            'add_other_type_', 'reset_', 'add_my_type_',
+            'add_other_type_', 'total_sum_', 'reset_', 'add_my_type_',
         ]
 
         my_type = mod['my_type']
@@ -1481,9 +1464,9 @@ end subroutine driver
         assert my_type.variable_map['add'].type.bind_names == ('add_my_type_',)
         other_type = mod['other_type']
         assert other_type.variable_map['add'].type.bind_names == ('add_other_type_',)
-        # NB: total_sum is not duplicated because it is not part of the Scheduler graph
+        assert other_type.variable_map['total_sum'].type.bind_names == ('total_sum_',)
 
-        other_mod = scheduler['other_typebound_procedure_calls_mod#init'].routine.parent
+        other_mod = scheduler['other_typebound_procedure_calls_mod#init'].ir.parent
 
         assert [r.name.lower() for r in other_mod.subroutines] == [
             'init', 'print_content', 'init_', 'print_content_'

@@ -33,7 +33,8 @@ def fixture_config():
             'strict': True
         },
         'routines': {
-            'driver': {'role': 'driver'}
+            'driver': {'role': 'driver'},
+            # 'driver_mod': {'role': 'driver'}
         }
     }
 
@@ -80,15 +81,26 @@ END SUBROUTINE driver
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
         scheduler.process(transformation)
 
-        kernel = scheduler['kernel_mod#kernel'].source
+        # Check that both, old and new module exist now in the scheduler graph
+        assert 'kernel_test_mod#kernel_test' in scheduler.items  # for the subroutine
+        assert 'kernel_mod' in scheduler.items  # for the global variable
+
+        kernel = scheduler['kernel_test_mod#kernel_test'].source
         driver = scheduler['#driver'].source
+
+        # Check that the not-renamed module is indeed the original one
+        scheduler.item_factory.item_cache[str(tempdir/'kernel_mod.F90')].source.make_complete(frontend=frontend)
+        assert (
+            Sourcefile.from_source(kernel_fcode, frontend=frontend).to_fortran() ==
+            scheduler.item_factory.item_cache[str(tempdir/'kernel_mod.F90')].source.to_fortran()
+        )
 
     else:
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
         kernel.apply(transformation, role='kernel')
-        driver['driver'].apply(transformation, role='driver', targets=('kernel', 'some_const'))
+        driver['driver'].apply(transformation, role='driver', targets=('kernel', 'kernel_mod'))
 
     # Check that the global variable declaration remains unchanged
     assert kernel.modules[0].variables[0].name == 'some_const'
@@ -152,7 +164,7 @@ END MODULE DRIVER_MOD
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
         scheduler.process(transformation)
 
-        kernel = scheduler['kernel_mod#kernel'].source
+        kernel = scheduler['kernel_test_mod#kernel_test'].source
         driver = scheduler['driver_mod#driver'].source
 
     else:
@@ -160,7 +172,7 @@ END MODULE DRIVER_MOD
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
         kernel.apply(transformation, role='kernel')
-        driver.apply(transformation, role='driver', targets=('kernel', 'some_const'))
+        driver.apply(transformation, role='driver', targets=('kernel', 'kernel_mod'))
 
     # Check that the global variable declaration remains unchanged
     assert kernel.modules[0].variables[0].name == 'some_const'
@@ -278,16 +290,17 @@ END SUBROUTINE kernel
         for transformation in transformations:
             scheduler.process(transformation)
 
-        kernel = scheduler['#kernel'].source
+        kernel = scheduler['kernel_test_mod#kernel_test'].source
         driver = scheduler['#driver'].source
 
     else:
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
-        for transformation in transformations:
-            kernel.apply(transformation, role='kernel')
-            driver['driver'].apply(transformation, role='driver', targets='kernel')
+        kernel.apply(transformations[0], role='kernel')
+        driver['driver'].apply(transformations[0], role='driver', targets=('kernel',))
+        kernel.apply(transformations[1], role='kernel')
+        driver['driver'].apply(transformations[1], role='driver', targets=('kernel_mod', 'kernel'))
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -360,16 +373,22 @@ END SUBROUTINE kernel
         for transformation in transformations:
             scheduler.process(transformation)
 
-        kernel = scheduler['#kernel'].source
+        if module_wrap:
+            kernel = scheduler['kernel_test_mod#kernel_test'].source
+        else:
+            kernel = scheduler['#kernel_test'].source
         driver = scheduler['#driver'].source
 
     else:
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
+        targets = ('kernel',)
         for transformation in transformations:
             kernel.apply(transformation, role='kernel')
-            driver['driver'].apply(transformation, role='driver', targets='kernel')
+            driver.apply(transformation, role='driver', targets=targets)
+            # The import becomes another target after the ModuleWrapTransformation
+            targets += ('kernel_mod',)
 
     # Check that the kernel has been wrapped
     if module_wrap:
@@ -450,9 +469,12 @@ END FUNCTION kernel
         ModuleWrapTransformation(module_suffix='_mod'),
         DependencyTransformation(suffix='_test', module_suffix='_mod')
     )
+    targets = ('kernel',)
     for transformation in transformations:
         kernel.apply(transformation, role='kernel')
-        driver['driver'].apply(transformation, role='driver', targets='kernel')
+        driver.apply(transformation, role='driver', targets=targets)
+        # The import becomes another target after the ModuleWrapTransformation
+        targets += ('kernel_mod',)
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -522,9 +544,12 @@ END FUNCTION kernel
         ModuleWrapTransformation(module_suffix='_mod'),
         DependencyTransformation(suffix='_test', module_suffix='_mod')
     )
+    targets = ('kernel',)
     for transformation in transformations:
         kernel.apply(transformation, role='kernel')
-        driver['driver'].apply(transformation, role='driver', targets='kernel')
+        driver.apply(transformation, role='driver', targets=targets)
+        # The import becomes another target after the ModuleWrapTransformation
+        targets += ('kernel_mod',)
 
     # Check that the kernel has been wrapped
     assert len(kernel.subroutines) == 0
@@ -606,14 +631,14 @@ END SUBROUTINE driver
         scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
         scheduler.process(transformation)
 
-        kernel = scheduler['kernel_mod#kernel'].source
+        kernel = scheduler['kernel_test_mod#kernel_test'].source
         driver = scheduler['#driver'].source
     else:
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
 
         kernel.apply(transformation, role='kernel', targets=('set_a', 'get_b'))
-        driver['driver'].apply(transformation, role='driver', targets=('kernel', 'some_const'))
+        driver['driver'].apply(transformation, role='driver', targets=('kernel', 'kernel_mod'))
 
     # Check that calls and matching import have been diverted to the re-generated routine
     calls = FindNodes(CallStatement).visit(driver['driver'].body)
@@ -692,8 +717,8 @@ END MODULE header_mod
     config['default']['enable_imports'] = True
     scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
 
-    # Make sure the header var item exists
-    assert 'header_mod#header_var' in scheduler.items
+    # Make sure the header module item exists
+    assert 'header_mod' in scheduler.items
 
     transformations = (
         ModuleWrapTransformation(module_suffix='_mod'),
@@ -702,8 +727,8 @@ END MODULE header_mod
     for transformation in transformations:
         scheduler.process(transformation)
 
-    kernel = scheduler['kernel_mod#kernel'].source
-    header = scheduler['header_mod#header_var'].source
+    kernel = scheduler['kernel_test_mod#kernel_test'].source
+    header = scheduler['header_mod'].source
     driver = scheduler['#driver'].source
 
     # Check that the kernel mod has been changed
@@ -737,3 +762,154 @@ END MODULE header_mod
     assert len(imports) == 2
     assert 'header_var' in imports and imports['header_var'].module.lower() == 'header_mod'
     assert 'kernel_test' in imports and imports['kernel_test'].module.lower() == 'kernel_test_mod'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_filter_items_file_graph(frontend, config):
+    """
+    Ensure that the ``items`` list given to a transformation in
+    a file graph traversal is filtered to include only used items
+    """
+    fcode = """
+module test_dependency_transformation_filter_items1_mod
+implicit none
+contains
+subroutine proc1(arg)
+    integer, intent(inout) :: arg
+    arg = arg + 1
+end subroutine proc1
+
+subroutine unused_proc(arg)
+    integer, intent(inout) :: arg
+    arg = arg - 1
+end subroutine unused_proc
+end module test_dependency_transformation_filter_items1_mod
+
+module test_dependency_transformation_filter_items2_mod
+implicit none
+contains
+subroutine proc2(arg)
+    integer, intent(inout) :: arg
+    arg = arg + 2
+end subroutine proc2
+end module test_dependency_transformation_filter_items2_mod
+
+module test_dependency_transformation_filter_items3_mod
+implicit none
+integer, parameter :: param3 = 3
+contains
+subroutine proc3(arg)
+    integer, intent(inout) :: arg
+    arg = arg + 3
+end subroutine proc3
+end module test_dependency_transformation_filter_items3_mod
+
+subroutine test_dependency_transformation_filter_items_driver
+use test_dependency_transformation_filter_items1_mod, only: proc1
+use test_dependency_transformation_filter_items3_mod, only: param3
+implicit none
+integer :: i
+i = param3
+call proc1(i)
+end subroutine test_dependency_transformation_filter_items_driver
+    """
+
+    config['routines'] = {
+        'test_dependency_transformation_filter_items_driver': {'role': 'driver'},
+    }
+
+    workdir = gettempdir()/'test_dependency_transformation_filter_items'
+    if workdir.exists():
+        rmtree(workdir)
+    workdir.mkdir()
+    filepath = workdir/'test_dependency_transformation_filter_items.F90'
+    filepath.write_text(fcode)
+
+    scheduler = Scheduler(
+        paths=[workdir], config=config,
+        seed_routines=['test_dependency_transformation_filter_items_driver'],
+        frontend=frontend
+    )
+
+    # Only the driver and mod1 are in the Sgraph
+    expected_dependencies = {
+        '#test_dependency_transformation_filter_items_driver': {
+            'test_dependency_transformation_filter_items1_mod#proc1',
+            'test_dependency_transformation_filter_items3_mod'
+        },
+        'test_dependency_transformation_filter_items1_mod#proc1': set(),
+        'test_dependency_transformation_filter_items3_mod': set()
+    }
+
+    assert set(scheduler.items) == set(expected_dependencies)
+    assert set(scheduler.dependencies) == {
+        (a, b) for a, deps in expected_dependencies.items() for b in deps
+    }
+
+    # The other module and procedure are in the item_factory's cache...
+    assert 'test_dependency_transformation_filter_items2_mod' in scheduler.item_factory.item_cache
+    assert 'test_dependency_transformation_filter_items1_mod#unused_proc' in scheduler.item_factory.item_cache
+
+    # ...and share the same sourcefile object
+    assert (
+        scheduler.item_factory.item_cache['test_dependency_transformation_filter_items2_mod'].source is
+        scheduler.item_factory.item_cache['test_dependency_transformation_filter_items1_mod'].source
+    )
+
+    # The filegraph consists of the single file
+    filegraph = scheduler.file_graph
+    assert filegraph.items == (str(filepath).lower(),)
+
+    # Check that the DependencyTransformation changes only the active items
+    # and discards unused routines
+    scheduler.process(transformation=DependencyTransformation(suffix='_foo', module_suffix='_mod'))
+
+    expected_dependencies = {
+        '#test_dependency_transformation_filter_items_driver': {
+            'test_dependency_transformation_filter_items1_foo_mod#proc1_foo',
+            'test_dependency_transformation_filter_items3_mod'
+        },
+        'test_dependency_transformation_filter_items1_foo_mod#proc1_foo': set(),
+        'test_dependency_transformation_filter_items3_mod': set()
+    }
+
+    assert set(scheduler.items) == set(expected_dependencies)
+    assert set(scheduler.dependencies) == {
+        (a, b) for a, deps in expected_dependencies.items() for b in deps
+    }
+
+
+    # The other module is still in the item_factory's cache...
+    assert 'test_dependency_transformation_filter_items2_mod' in scheduler.item_factory.item_cache
+
+    # ...and so are the original modules
+    assert 'test_dependency_transformation_filter_items1_mod' in scheduler.item_factory.item_cache
+    assert 'test_dependency_transformation_filter_items3_mod' in scheduler.item_factory.item_cache
+
+    # ...but they don't share the same sourcefile object anymore
+    original_source = scheduler.item_factory.item_cache['test_dependency_transformation_filter_items2_mod'].source
+    new_src = scheduler.item_factory.item_cache['test_dependency_transformation_filter_items1_foo_mod'].source
+    assert new_src is not original_source
+
+    # The new source does not contain the unused module
+    assert [m.name.lower() for m in original_source.modules] == [
+        'test_dependency_transformation_filter_items1_mod',
+        'test_dependency_transformation_filter_items2_mod',
+        'test_dependency_transformation_filter_items3_mod'
+    ]
+    assert [m.name.lower() for m in new_src.modules] == [
+        'test_dependency_transformation_filter_items1_foo_mod',
+        'test_dependency_transformation_filter_items3_mod'
+    ]
+    # Note the idiosyncratic behaviour:
+    # items3_mod appears twice because the name is not updated but it is part of the
+    # scheduler graph. We need to see whether this is what we want...
+
+    # The new module does not contain the unused procedure
+    original_mod1 = original_source['test_dependency_transformation_filter_items1_mod']
+    new_mod1 = new_src['test_dependency_transformation_filter_items1_foo_mod']
+
+    assert [r.name.lower() for r in original_mod1.subroutines] == ['proc1', 'unused_proc']
+    assert [r.name.lower() for r in new_mod1.subroutines] == ['proc1_foo']
+
+    rmtree(workdir)

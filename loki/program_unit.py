@@ -11,7 +11,7 @@ from loki import ir
 from loki.expression import Variable
 from loki.frontend import (
     Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
-    RegexParserClass
+    RegexParserClass, preprocess_cpp, sanitize_input
 )
 from loki.logging import debug
 from loki.scope import Scope
@@ -97,7 +97,9 @@ class ProgramUnit(Scope):
             self.rescope_symbols()
 
     @classmethod
-    def from_source(cls, source, definitions=None, xmods=None, parser_classes=None, frontend=Frontend.FP, parent=None):
+    def from_source(cls, source, definitions=None, preprocess=False,
+                    includes = None, defines=None, xmods=None, omni_includes=None,
+                    frontend=Frontend.FP, parser_classes=None, parent=None):
         """
         Instantiate an object derived from :any:`ProgramUnit` from raw source string
 
@@ -108,30 +110,67 @@ class ProgramUnit(Scope):
         ----------
         source : str
             Fortran source string
-        definitions : list, optional
-            List of external :any:`Module` to provide derived-type and procedure declarations
-        xmods : list, optional
-            List of locations with "xmods" module files. Only relevant for :any:`OMNI` frontend
+        definitions : list of :any:`Module`, optional
+            :any:`Module` object(s) that may supply external type or procedure
+            definitions.
+        preprocess : bool, optional
+            Flag to trigger CPP preprocessing (by default `False`).
+
+            .. attention::
+                Please note that, when using the OMNI frontend, C-preprocessing
+                will always be applied, so :data:`includes` and :data:`defines`
+                may have to be defined even when disabling :data:`preprocess`.
+
+        includes : list of str, optional
+            Include paths to pass to the C-preprocessor.
+        defines : list of str, optional
+            Symbol definitions to pass to the C-preprocessor.
+        xmods : str, optional
+            Path to directory to find and store ``.xmod`` files when using the
+            OMNI frontend.
+        omni_includes: list of str, optional
+            Additional include paths to pass to the preprocessor run as part of
+            the OMNI frontend parse. If set, this **replaces** (!)
+            :data:`includes`, otherwise :data:`omni_includes` defaults to the
+            value of :data:`includes`.
         frontend : :any:`Frontend`, optional
-            Choice of frontend to use for parsing source (default :any:`Frontend.FP`)
+            Frontend to use for producing the AST (default :any:`FP`).
         parent : :any:`Scope`, optional
             The parent scope this module or subroutine is nested into
         """
+        if isinstance(frontend, str):
+            frontend = Frontend[frontend.upper()]
+
+        if preprocess:
+            # Trigger CPP-preprocessing explicitly, as includes and
+            # defines can also be used by our OMNI frontend
+            if frontend == Frontend.OMNI and omni_includes:
+                includes = omni_includes
+            source = preprocess_cpp(source=source, includes=includes, defines=defines)
+
+        # Preprocess using internal frontend-specific PP rules
+        # to sanitize input and work around known frontend problems.
+        if frontend != Frontend.OMNI:
+            source, pp_info = sanitize_input(source=source, frontend=frontend)
+
         if frontend == Frontend.REGEX:
             return cls.from_regex(raw_source=source, parser_classes=parser_classes, parent=parent)
 
         if frontend == Frontend.OMNI:
             ast = parse_omni_source(source, xmods=xmods)
             type_map = {t.attrib['type']: t for t in ast.find('typeTable')}
-            return cls.from_omni(ast=ast, raw_source=source, definitions=definitions, type_map=type_map, parent=parent)
+            return cls.from_omni(ast=ast, raw_source=source, definitions=definitions,
+                                 type_map=type_map, parent=parent)
 
         if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
-            return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions, parent=parent)
+            return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions,
+                                pp_info=pp_info, parent=parent)
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
-            return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions, parent=parent)
+            return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions,
+                                    pp_info=pp_info, parent=parent)
 
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 
@@ -242,6 +281,8 @@ class ProgramUnit(Scope):
         if not self._incomplete:
             return
         frontend = frontend_args.pop('frontend', Frontend.FP)
+        if isinstance(frontend, str):
+            frontend = Frontend[frontend.upper()]
         definitions = frontend_args.get('definitions')
         xmods = frontend_args.get('xmods')
         parser_classes = frontend_args.get('parser_classes', RegexParserClass.AllClasses)

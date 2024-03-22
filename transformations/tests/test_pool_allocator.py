@@ -9,10 +9,10 @@ from shutil import rmtree
 
 import pytest
 from loki import (
-    gettempdir, Scheduler, SchedulerConfig, Dimension, simplify, Sourcefile,
+    gettempdir, Scheduler, SchedulerConfig, Dimension, simplify,
     FindNodes, FindVariables, normalize_range_indexing, OMNI, FP, OFP, get_pragma_parameters,
     CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall, Pragma,
-    FindInlineCalls, Variable
+    FindInlineCalls, SFilter, ProcedureItem
 )
 from conftest import available_frontends
 
@@ -79,19 +79,7 @@ def check_stack_created_in_driver(
 @pytest.mark.parametrize('check_bounds', [False, True])
 @pytest.mark.parametrize('nclv_param', [False, True])
 def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds, nclv_param):
-    fcode_stack_mod = """
-MODULE STACK_MOD
-IMPLICIT NONE
-TYPE STACK
-  INTEGER*8 :: L, U
-END TYPE
-PRIVATE
-PUBLIC :: STACK
-END MODULE
-    """.strip()
-
-    fcode_stack_import = "use stack_mod, only: stack"
-    fcode_iso_c_binding = "use iso_c_binding, only: c_sizeof"
+    fcode_iso_c_binding = "use, intrinsic :: iso_c_binding, only: c_sizeof"
     fcode_nclv_param = 'integer, parameter :: nclv = 2'
     if frontend == OMNI:
         fcode_stack_decl = f"""
@@ -122,7 +110,6 @@ END MODULE
 
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
-    {fcode_stack_import if not generate_driver_stack else ''}
     {fcode_iso_c_binding if not generate_driver_stack else ''}
     use kernel_mod, only: kernel
     implicit none
@@ -144,7 +131,7 @@ module kernel_mod
     implicit none
 contains
     subroutine kernel(start, end, klon, klev, {'nclv, ' if not nclv_param else ''} field1, field2)
-        use iso_c_binding, only : c_size_t
+        use, intrinsic :: iso_c_binding, only : c_size_t
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
         {fcode_nclv_param if nclv_param else 'integer, intent(in) :: nclv'}
@@ -185,7 +172,8 @@ end module kernel_mod
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -200,21 +188,11 @@ end module kernel_mod
         Fortran2003.Intrinsic_Name.generic_function_names.update({"LOC": {'min': 1, 'max': 1}})
         Fortran2003.Intrinsic_Name.function_names += ["LOC"]
 
-    if frontend == OMNI:
-        (basedir/'stack_mod.F90').write_text(fcode_stack_mod)
-        stack_mod = Sourcefile.from_file(basedir/'stack_mod.F90', frontend=frontend)
-        definitions = stack_mod.definitions
-    else:
-        definitions = ()
-
-    scheduler = Scheduler(
-        paths=[basedir], config=SchedulerConfig.from_dict(config),
-        definitions=definitions, frontend=frontend
-    )
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
 
     if frontend == OMNI:
-        for item in scheduler.items:
-            normalize_range_indexing(item.routine)
+        for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
+            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(
         block_dim=block_dim, check_bounds=check_bounds
@@ -232,54 +210,66 @@ end module kernel_mod
 
     if nclv_param:
         if frontend == OMNI:
-            # pylint: disable-next=line-too-long
-            trafo_data_compare = f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * klon + ' \
-                                 f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon'
+            trafo_data_compare = (
+                f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * klon + '
+                f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon'
+            )
 
             if generate_driver_stack:
-                stack_size = f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / ' \
-                             f'max(c_sizeof(real(1, kind=jprb)), 8)'
-                stack_size += f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / ' \
-                              f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                stack_size = (
+                    f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / '
+                    f'max(c_sizeof(real(1, kind=jprb)), 8) '
+                    f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
+                    f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                )
             else:
-                stack_size = f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / ' \
-                             f'max(c_sizeof(real(1, kind={kind_real})), 8)'
-                stack_size += f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / ' \
-                              f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+                stack_size = (
+                    f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / '
+                    f'max(c_sizeof(real(1, kind={kind_real})), 8) '
+                    f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
+                    f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+                )
         else:
-            # pylint: disable-next=line-too-long
-            trafo_data_compare = f'max(c_sizeof(real(1, kind={kind_real})), 8) * klon + ' \
-                                 f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon'
-            trafo_data_compare += f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * klon * nclv'
+            trafo_data_compare = (
+                f'max(c_sizeof(real(1, kind={kind_real})), 8) * klon + '
+                f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon '
+                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * klon * nclv'
+            )
 
-            stack_size = f'max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / max(c_sizeof(real(1, kind=jprb)), 8)'
-            stack_size += f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / ' \
-                          f'max(c_sizeof(real(1, kind=jprb)), 8)'
-            stack_size += f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nclv * nlon / ' \
-                          f'max(c_sizeof(real(1, kind=jprb)), 8)'
+            stack_size = (
+                f'max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / max(c_sizeof(real(1, kind=jprb)), 8)'
+                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
+                f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nclv * nlon / '
+                f'max(c_sizeof(real(1, kind=jprb)), 8)'
+            )
 
     else:
-        # pylint: disable-next=line-too-long
-        trafo_data_compare = f'max(c_sizeof(real(1, kind={kind_real})), 8) * klon + ' \
-                             f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon'
-        # pylint: disable-next=line-too-long
-        trafo_data_compare += f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nclv + ' \
-                              f'max(c_sizeof(real(1, kind={kind_real})), 8) * klon * nclv'
+        trafo_data_compare = (
+            f'max(c_sizeof(real(1, kind={kind_real})), 8) * klon + '
+            f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon '
+            f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nclv '
+            f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * klon * nclv'
+        )
 
         if generate_driver_stack:
-            stack_size = f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / ' \
-                         f'max(c_sizeof(real(1, kind=jprb)), 8)'
-            stack_size += f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / ' \
-                          f'max(c_sizeof(real(1, kind=jprb)), 8)'
-            stack_size += f'+ 2 * max(c_sizeof(real(1, kind={kind_real})), 8) / ' \
-                          f'max(c_sizeof(real(1, kind=jprb)), 8)'
+            stack_size = (
+                f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / '
+                f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
+                f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                f'+ 2 * max(c_sizeof(real(1, kind={kind_real})), 8) / '
+                f'max(c_sizeof(real(1, kind=jprb)), 8)'
+            )
         else:
-            stack_size = f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / ' \
-                         f'max(c_sizeof(real(1, kind={kind_real})), 8)'
-            stack_size += f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / ' \
-                          f'max(c_sizeof(real(1, kind={kind_real})), 8)'
-            stack_size += f'+ 2 * max(c_sizeof(real(1, kind={kind_real})), 8) / ' \
-                          f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+            stack_size = (
+                f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / '
+                f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
+                f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+                f'+ 2 * max(c_sizeof(real(1, kind={kind_real})), 8) / '
+                f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+            )
 
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == trafo_data_compare
     assert all(v.scope is None for v in
@@ -288,7 +278,7 @@ end module kernel_mod
     #
     # A few checks on the driver
     #
-    driver = scheduler['#driver'].routine
+    driver = scheduler['#driver'].ir
 
     # Has c_sizeof procedure been imported?
     check_c_sizeof_import(driver)
@@ -316,7 +306,7 @@ end module kernel_mod
     #
     # A few checks on the kernel
     #
-    kernel = kernel_item.routine
+    kernel = kernel_item.ir
 
     # Has c_sizeof procedure been imported?
     check_c_sizeof_import(kernel)
@@ -509,30 +499,24 @@ end module kernel_mod
     basedir.mkdir(exist_ok=True)
     (basedir/'driver.F90').write_text(fcode_driver)
     (basedir/'kernel_mod.F90').write_text(fcode_kernel)
-
-    if frontend == OMNI:
-        (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
-        parkind_mod = Sourcefile.from_file(basedir/'parkind_mod.F90', frontend=frontend)
-        definitions = parkind_mod.definitions
-    else:
-        definitions = ()
+    (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
 
     config = {
         'default': {
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver'}
         }
     }
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend,
-                          definitions=definitions)
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
     if frontend == OMNI:
-        for item in scheduler.items:
-            normalize_range_indexing(item.routine)
+        for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
+            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive, key='some_key')
     scheduler.process(transformation=transformation)
@@ -559,17 +543,19 @@ end module kernel_mod
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
     exp_stack_size = f'3*{tsize_real}*klev*klon + {tsize_real}*klon'
     assert kernel2_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
-    assert all(v.scope is None for v in FindVariables().visit(
-        kernel_item.trafo_data[transformation._key]['stack_size'])
+    assert all(
+        v.scope is None
+        for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size'])
     )
-    assert all(v.scope is None for v in FindVariables().visit(
-        kernel2_item.trafo_data[transformation._key]['stack_size'])
+    assert all(
+        v.scope is None
+        for v in FindVariables().visit(kernel2_item.trafo_data[transformation._key]['stack_size'])
     )
 
     #
     # A few checks on the driver
     #
-    driver = scheduler['#driver'].routine
+    driver = scheduler['#driver'].ir
 
     stack_order = FindNodes(Assignment).visit(driver.body)
     if stack_insert_pragma:
@@ -579,8 +565,8 @@ end module kernel_mod
 
     # Check if allocation type symbols have been imported
     if frontend != OMNI:
-        assert Variable(name='jpim') in driver.imported_symbols
-        assert Variable(name='jplm') in driver.imported_symbols
+        assert 'jpim' in driver.imported_symbols
+        assert 'jplm' in driver.imported_symbols
         assert driver.import_map['jpim'] == driver.import_map['jplm']
         assert 'jprb' not in driver.import_map['jpim'].symbols
 
@@ -625,7 +611,7 @@ end module kernel_mod
     # A few checks on the kernel
     #
     for count, item in enumerate([kernel_item, kernel2_item]):
-        kernel = item.routine
+        kernel = item.ir
 
         # Has the stack been added to the arguments?
         assert 'ydstack_l' in kernel.arguments
@@ -798,31 +784,25 @@ end module kernel_mod
     basedir.mkdir(exist_ok=True)
     (basedir/'driver.F90').write_text(fcode_driver)
     (basedir/'kernel_mod.F90').write_text(fcode_kernel)
-
-    if frontend == OMNI:
-        (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
-        parkind_mod = Sourcefile.from_file(basedir/'parkind_mod.F90', frontend=frontend)
-        definitions = parkind_mod.definitions
-    else:
-        definitions = ()
+    (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
 
     config = {
         'default': {
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver', 'real_kind': 'jwrb'}
         }
     }
 
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend,
-                          definitions=definitions)
+    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
     if frontend == OMNI:
-        for item in scheduler.items:
-            normalize_range_indexing(item.routine)
+        for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
+            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive)
     scheduler.process(transformation=transformation)
@@ -847,22 +827,24 @@ end module kernel_mod
     exp_stack_size = f'{tsize_real}*klon + 4*{tsize_real}*klev*klon + 2*{tsize_int}*klon + {tsize_log}*klev'
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
     assert kernel2_item.trafo_data[transformation._key]['stack_size'] == f'3*{tsize_real}*columns*levels'
-    assert all(v.scope is None for v in FindVariables().visit(
-        kernel_item.trafo_data[transformation._key]['stack_size']
-    ))
-    assert all(v.scope is None for v in FindVariables().visit(
-        kernel2_item.trafo_data[transformation._key]['stack_size']
-    ))
+    assert all(
+        v.scope is None
+        for v in FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size'])
+    )
+    assert all(
+        v.scope is None
+        for v in FindVariables().visit(kernel2_item.trafo_data[transformation._key]['stack_size'])
+    )
 
     #
     # A few checks on the driver
     #
-    driver = scheduler['#driver'].routine
+    driver = scheduler['#driver'].ir
 
     # Check if allocation type symbols have been imported
     if frontend != OMNI:
-        assert Variable(name='jpim') in driver.imported_symbols
-        assert Variable(name='jplm') in driver.imported_symbols
+        assert 'jpim' in driver.imported_symbols
+        assert 'jplm' in driver.imported_symbols
         assert driver.import_map['jpim'] == driver.import_map['jplm']
 
     # Has the stack been added to the call statements?
@@ -910,13 +892,13 @@ end module kernel_mod
     #
     # A few checks on the kernels
     #
-    calls = FindNodes(CallStatement).visit(kernel_item.routine.body)
+    calls = FindNodes(CallStatement).visit(kernel_item.ir.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('start', 'end', 'klon', 'klev', 'field2')
     assert calls[0].kwarguments == (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
 
     for count, item in enumerate([kernel_item, kernel2_item]):
-        kernel = item.routine
+        kernel = item.ir
 
         # Has the stack been added to the arguments?
         assert 'ydstack_l' in kernel.arguments
@@ -1041,7 +1023,8 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'enable_imports': True,
         },
         'routines': {
             'kernel': {}
@@ -1049,13 +1032,13 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog):
     }
     scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
     if frontend == OMNI:
-        for item in scheduler.items:
-            normalize_range_indexing(item.routine)
+        for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
+            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
     scheduler.process(transformation=transformation)
     item = scheduler['kernel_mod#kernel']
-    kernel = item.routine
+    kernel = item.ir
 
     # Has the stack been added to the arguments?
     assert 'ydstack_l' in kernel.arguments
@@ -1171,7 +1154,9 @@ end module kernel_mod
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'disable': ['parkind1'],
+            'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -1181,14 +1166,14 @@ end module kernel_mod
 
     if frontend == OMNI:
         for item in scheduler.items:
-            normalize_range_indexing(item.routine)
+            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
     scheduler.process(transformation=transformation)
 
-    kernel = scheduler['kernel_mod#kernel'].routine
-    kernel2 = scheduler['kernel_mod#kernel2'].routine
-    driver = scheduler['#driver'].routine
+    kernel = scheduler['kernel_mod#kernel'].ir
+    kernel2 = scheduler['kernel_mod#kernel2'].ir
+    driver = scheduler['#driver'].ir
 
     assert 'ydstack_l' in kernel.arguments
     assert 'ydstack_u' in kernel.arguments
