@@ -24,10 +24,10 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11"]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -59,7 +59,7 @@ jobs:
           pytest --cov=./loki --cov-report=xml tests
 
       - name: Upload loki coverage report to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           flags: loki
           files: ./coverage.xml
@@ -70,7 +70,7 @@ jobs:
           pytest --cov=transformations/transformations --cov-report=xml transformations/tests
 
       - name: Upload transformations coverage report to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           flags: transformations
           files: ./coverage.xml
@@ -81,7 +81,7 @@ jobs:
           pytest --cov=lint_rules/lint_rules --cov-report=xml lint_rules/tests
 
       - name: Upload lint_rules coverage report to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           flags: lint_rules
           files: ./coverage.xml
