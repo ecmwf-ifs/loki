@@ -24,24 +24,24 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11"]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Clone CLOUDSC
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ecmwf-ifs/dwarf-p-cloudsc
           path: cloudsc
           ref: develop
 
       - name: Clone ECWAM
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ecmwf-ifs/ecwam
           path: ecwam
           ref: naan-phys-gpu
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -92,4 +92,4 @@ jobs:
           eval `ssh-agent -s`
           [ -n '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}' ] && ssh-add - <<< '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}'
           source loki-activate
-          pytest --cov=transformations/transformations transformations/tests -k 'cloudsc or ecwam'
+          pytest transformations/tests -k 'cloudsc or ecwam'
