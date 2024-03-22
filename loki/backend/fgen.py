@@ -712,6 +712,39 @@ class FortranCodegen(Stringifier):
         branches = [item for branch in zip(cases, bodies) for item in branch]
         return self.join_lines(*branches, footer)
 
+    def visit_Forall(self, o, **kwargs):
+        """
+        Format FORALL element in one of two manners:
+          1) Single-line FORALL statement (inlined):
+            FORALL (<variable> = <bound>[, <variable> = <bound>] ... [, <mask>]) assign-stmt
+          2) Multi-line FORALL construct:
+            [name:] FORALL (<variable> = <bound>[, <variable> = <bound>] ... [, <mask>])
+                ...body...
+            END FORALL [name]
+
+        Variable bounds with an optional mask condition constitute the "triplets" - specification list.
+        """
+        # Generate named bounds
+        triplets = [f"{self.visit(variable, **kwargs)} = {self.visit(bound, **kwargs)}"
+                    for variable, bound in o.named_bounds]
+        # Generate optional mask
+        if o.mask is not None:
+            triplets.append(self.visit(o.mask, **kwargs))
+        # Generate full header
+        name = f"{o.name}: " if o.name is not None else ""
+        header = self.format_line(name, "FORALL(", ", ".join(triplets), ")")
+        # Generate a single-line FORALL statement with one assignment
+        if o.inline:
+            assignment = self.visit(o.body[0], **kwargs).lstrip()
+            return f"{header} {assignment}"
+        # Generate a multi-line FORALL construct
+        name = f" {o.name}" if o.name is not None else ""
+        footer = self.format_line('END FORALL', name)
+        self.depth += 1
+        body = self.visit(o.body, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, body, footer)
+
     def visit_Section(self, o, **kwargs):
         """
         Format the section's body.
