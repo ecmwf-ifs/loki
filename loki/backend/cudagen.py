@@ -1,7 +1,6 @@
 # (C) Copyright 2018- ECMWF.
 # This software is licensed under the terms of the Apache Licence Version 2.0
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
-# In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
@@ -18,6 +17,18 @@ from loki.backend.cppgen import CppCodegen, CppCodeMapper
 
 __all__ = ['cudagen', 'CudaCodegen', 'CudaCodeMapper']
 
+def c_intrinsic_type(_type):
+    if _type.dtype == BasicType.LOGICAL:
+        return 'int'
+    if _type.dtype == BasicType.INTEGER:
+        if _type.parameter:
+            return 'const int'
+        return 'int'
+    if _type.dtype == BasicType.REAL:
+        if str(_type.kind) in ['real32']:
+            return 'float'
+        return 'double'
+    raise ValueError(str(_type))
 
 class CudaCodeMapper(CppCodeMapper): # LokiStringifyMapper):
 
@@ -51,6 +62,19 @@ class CudaCodegen(CppCodegen): # Stringifier):
         # ...and imports from the spec
         spec_imports = FindNodes(Import).visit(o.spec)
         header += [self.visit(spec_imports, **kwargs)]
+
+        ##
+        # ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
+        # prefix = self.join_items(o.prefix, sep=' ')
+        # if o.prefix:
+        #     prefix += ' '
+        # arguments = self.join_items(o.argnames)
+        # result = f' RESULT({o.result_name})' if o.result_name else ''
+        return_var = None
+        if o.is_function:
+            return_var_name = o.name.replace("_c", "")
+            if return_var_name in o.variable_map:
+                return_var = o.variable_map[return_var_name]
 
         subroutine_prefix = o.prefix[0].lower() if o.prefix else ''
         if 'global' in subroutine_prefix or 'device' in subroutine_prefix:
@@ -89,7 +113,7 @@ class CudaCodegen(CppCodegen): # Stringifier):
         postfix = ''
         skip_decls = False
         # global_whatever = False
-
+        return_type_specifier = c_intrinsic_type(return_var.type) + ' ' if return_var is not None else 'void '
         if o.prefix:
             if "global" in o.prefix[0].lower():
                 prefix = '__global__ '
@@ -98,7 +122,8 @@ class CudaCodegen(CppCodegen): # Stringifier):
             elif "header_only" in o.prefix[0].lower():
                 if "device" in o.prefix[0].lower():
                     prefix = "__device__ "
-                header += [self.format_line(extern), self.format_line(prefix, 'void ', o.name, '(', self.join_items(arguments), ');')]
+                # header += [self.format_line(extern), self.format_line(prefix, 'void ', o.name, '(', self.join_items(arguments), ');')]
+                header += [self.format_line(extern), self.format_line(prefix, return_type_specifier, o.name, '(', self.join_items(arguments), ');')]
                 return self.join_lines(*header)
             elif "device" in o.prefix[0].lower():
                 prefix = "__device__ "
@@ -107,7 +132,8 @@ class CudaCodegen(CppCodegen): # Stringifier):
                 postfix = '}'
                 skip_decls = True
         
-        header += [self.format_line(extern), self.format_line(prefix, 'void ', o.name, '(', self.join_items(arguments), ') {')]
+        # header += [self.format_line(extern), self.format_line(prefix, 'void ', o.name, '(', self.join_items(arguments), ') {')]
+        header += [self.format_line(extern), self.format_line(prefix, return_type_specifier, o.name, '(', self.join_items(arguments), ') {')]
 
         self.depth += 1
 
@@ -130,6 +156,10 @@ class CudaCodegen(CppCodegen): # Stringifier):
 
         # Fill the body
         body += [self.visit(o.body, **kwargs)]
+        
+        if return_var is not None:
+            body += [self.format_line(f'return {return_var.name.lower()};')]
+
         if skip_decls:
             body += [self.format_line('cudaDeviceSynchronize();')]
         # body += [self.format_line('return 0;')]
@@ -142,7 +172,6 @@ class CudaCodegen(CppCodegen): # Stringifier):
 
     def visit_CallStatement(self, o, **kwargs):
         args = self.visit_all(o.arguments, **kwargs)
-        print(f"visit_CallStatement {o.name} | {o.kwarguments}")
         assert not o.kwarguments
         if o.chevron is not None:
             chevron = f"<<<{','.join([str(elem) for elem in o.chevron])}>>>"
