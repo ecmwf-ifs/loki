@@ -67,6 +67,7 @@ examples = [
 [project.scripts]
 "loki-transform.py" = "scripts.loki_transform:cli"
 "loki-lint.py" = "scripts.loki_lint:cli"
+"loki-ecphys-gen.py" = "scripts.loki_ecphys_gen:cli"
 
 [tool.setuptools]
 license-files = ["LICENSE", "AUTHORS.md"]
