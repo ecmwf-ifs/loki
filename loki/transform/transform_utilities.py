@@ -91,15 +91,25 @@ def convert_to_lower_case(routine):
         if isinstance(v, (sym.Scalar, sym.Array, sym.DeferredTypeSymbol)) and not v.name.islower() and not v.case_sensitive
     }
 
-    if 'tau_phi' in routine.name.lower():
-        print(f"convert_to_lower_case before recursive ... - {vmap}")
+    # if routine.name.lower() == "sdiwbk":
+    """
+    if "sdiwbk" in routine.name.lower():
+        print(f"convert_to_lower_case | routine - sdiwbk")
+        print("")
+        print(f"  variables: {variables}")
+        print("")
+        print(f"  vmap: {vmap}")
+    """
 
     # Capture nesting by applying map to itself before applying to the routine
     vmap = recursive_expression_map_update(vmap)
-
-    if 'tau_phi' in routine.name.lower():
-        print(f"convert_to_lower_case after recursive ... - {vmap}")
-
+    
+    """
+    if "sdiwbk" in routine.name.lower():
+        print("")
+        print(f"  updated vmap: {vmap}")
+    """
+    
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
@@ -113,6 +123,7 @@ def convert_to_lower_case(routine):
         (stmt.variable, stmt.variable.clone(name=stmt.variable.name.lower()))
         for stmt in FindNodes(StatementFunction).visit(routine.spec)
     )
+    # mapper = recursive_expression_map_update(mapper)
     routine.spec = SubstituteExpressions(mapper).visit(routine.spec)
     routine.body = SubstituteExpressions(mapper).visit(routine.body)
 
@@ -160,7 +171,6 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
             callmap[call] = call.clone(name=symbol_map[call.name])
 
         if call.name in function_map:
-            print(f"replacing call {call} with {function_map[call.name]} | {call.parameters} | {call.arguments}")
             # callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine, parameters=tuple(sym.Cast(name='REAL', expression=parameter) for parameter in call.parameters),
             #         arguments=tuple(sym.Cast(name='REAL', expression=parameter) for parameter in call.arguments))
             callmap[call] = call.clone(name=function_map[call.name], parameters=tuple(sym.Cast(name='REAL', expression=parameter) for parameter in call.parameters))

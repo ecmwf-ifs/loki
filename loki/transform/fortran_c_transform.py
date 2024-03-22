@@ -403,7 +403,8 @@ class FortranCTransformation(Transformation):
                 # Pass by reference for array types
                 value = isinstance(arg, Scalar) and arg.type.intent is not None and arg.type.intent.lower() == 'in'
                 if arg.type.intent is None:
-                    print(f"WHY!?!?! {routine.name} -  arg.type.intent is None for arg: {arg}!!!!")
+                    pass
+                    # print(f"WHY!?!?! {routine.name} -  arg.type.intent is None for arg: {arg}!!!!")
                 # value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
                 kind = self.iso_c_intrinsic_kind(arg.type, intf_routine, is_array=isinstance(arg, Array))
                 if self.use_c_ptr:
@@ -623,7 +624,6 @@ class FortranCTransformation(Transformation):
                             new_args += (Reference(arg.clone()),)
                             arg_map[arg] = Reference(arg.clone())
                     else:
-                        print(f"{o} - {arg} | {call_arg_map[arg]}")
                         if isinstance(arg, Scalar) and call_arg_map[arg].type.intent.lower() != 'in':
                             new_args += (Reference(arg.clone()),)
                             arg_map[arg] = Reference(arg.clone())
@@ -640,8 +640,6 @@ class FortranCTransformation(Transformation):
             if call.name not in as_tuple(targets):
                 continue
             call._update(name=Variable(name=f'{call.name}_c'.lower()))
-            # for arg in call.arguments:
-            #     print(f"afterwards ... call: {call.name} - arg {arg} | {type(arg)}")
        
         callmap = {}
         for call in FindInlineCalls(unique=False).visit(kernel.body):
@@ -650,8 +648,6 @@ class FortranCTransformation(Transformation):
             if targets is None or call.name in as_tuple(targets):
                 # callmap[call] = call.clone(name=f'{call.name}_c')
                 callmap[call.function] = call.function.clone(name=f'{call.name}_c')
-        if "imsstrn" in kernel.name:
-            print(f"callmap append _c: {callmap}")
         kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}

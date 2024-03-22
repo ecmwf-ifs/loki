@@ -66,12 +66,10 @@ class SCCBaseTransformation(Transformation):
         pragmas = FindNodes(ir.Pragma).visit(routine.ir)
         routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
         routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
-        # print(f"routine_pragmas: {routine_pragmas} for routine {routine}")
         seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
         if seq_pragmas:
             # loki_seq_pragmas = [r for r in routine_pragmas if 'loki' == r.keyword.lower()]
             # if loki_seq_pragmas:
-            #     print(f"routine {routine} IS SEQUENTIAL!")
             return True
         return False
 

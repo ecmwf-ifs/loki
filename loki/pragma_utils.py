@@ -104,11 +104,8 @@ def process_dimension_pragmas(ir):
         Root node of the (section of the) internal representation to process
     """
     for decl in FindNodes(VariableDeclaration).visit(ir):
-        print(f"process_dimension_pragmas - decl: {decl} | decl.pragma: {decl.pragma}")
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
-            print(f"  yes override ...")
             for v in decl.symbols:
-                print(f"FOUND dimension override for variable: {decl.pragma}")
                 # Found dimension override for variable
                 dims = get_pragma_parameters(decl.pragma)['dimension']
                 dims = [d.strip() for d in dims.split(',')]
@@ -117,10 +114,8 @@ def process_dimension_pragmas(ir):
                     if d.isnumeric():
                         shape += [sym.Literal(value=int(d), type=BasicType.INTEGER)]
                     else:
-                        # print(f"trying to parse '{d}' | {pb.parse(d)} | type{(pb.parse(d))} | {list(pb.parse(d).children) | {[type(ch) for ch in pb.parse(d).children]}}")
                         if isinstance(pb.parse(d), pb.primitives.Slice):
                             # shape += [sym.RangeIndex(tuple(sym.Variable(name=ch, scope=v.scope) if not d.isnumeric() else sym.Literal(value=int(ch), type=BasicType.INTEGER) for ch in pb.parse(d).children))]
-                            print(f"trying to parse slice '{d}' | {pb.parse(d)} | type{(pb.parse(d))} | {list(pb.parse(d).children)} | {[type(ch) for ch in pb.parse(d).children]}")
                             d_slice = pb.parse(d)
                             # d_slice_children = tuple(sym.Variable(name=ch.name, scope=v.scope) if isinstance(ch, pb.primitives.Variable) else sym.Literal(value=ch, type=BasicType.INTEGER) for ch in d_slice.children)
                             d_slice_children = ()
@@ -131,7 +126,6 @@ def process_dimension_pragmas(ir):
                                     d_slice_children += (sym.Variable(name=ch.name, scope=v.scope),)
                                 else:
                                     d_slice_children += (sym.Variable(name=str(ch), scope=v.scope),)
-                            print(f"setting shape to {sym.RangeIndex(d_slice_children)} | {d_slice_children}")
                             shape += [sym.RangeIndex(d_slice_children)]
                         else:
                             shape += [sym.Variable(name=d, scope=v.scope)]

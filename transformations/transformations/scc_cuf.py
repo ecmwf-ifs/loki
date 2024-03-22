@@ -1063,7 +1063,6 @@ class SccCufTransformationNew(Transformation):
                     if horizontal.size in list(FindVariables().visit(var.dimensions)): # and len(var.dimensions) > 1:
                         if transformation_type == 'hoist':
                             # pass
-                            print(f"scc_cuf adding block_dim.size for var {var} within routine {routine.name}")
                             dimensions += [routine.variable_map[block_dim.size]]
                             shape = list(var.shape) + [routine.variable_map[block_dim.size]]
                             vtype = var.type.clone(shape=as_tuple(shape), intent=None) # , allocatable=False)
@@ -1230,12 +1229,10 @@ class SccCufTransformationNew(Transformation):
                 copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyin({", ".join(inargs)})')]
                 copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
 
-            print(f"routine {routine} | copy_pragmas: {copy_pragmas}")
             if copy_pragmas:
                 pragma_map = {}
                 for pragma in FindNodes(ir.Pragma).visit(routine.body):
                     if pragma.content == 'data' and 'loki' == pragma.keyword:
-                        print(f"found loki data pragma!!!")
                         pragma_map[pragma] = as_tuple(copy_pragmas)
                 if pragma_map:
                     routine.body = Transformer(pragma_map).visit(routine.body)
@@ -1268,7 +1265,6 @@ class SccCufTransformationNew(Transformation):
                 try:
                     dimensions=routine.variable_map[array.name].dimensions
                 except Exception as e:
-                    print(f"EXCEPTION {e} | instead use: {array.dimensions}")
                     dimensions=array.dimensions
                 array_mold = array.clone(dimensions=None) if any(dim == sym.RangeIndex((None, None)) for dim in dimensions) else None
                 if array_mold is not None:

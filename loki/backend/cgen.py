@@ -270,9 +270,7 @@ class CCodegen(Stringifier):
         # Dimensions specification
         dimensions = None
         if o.dimensions:
-            print(f"dimensions is not None in visit_VariableDeclaration!!")
             dimensions = f'[{", ".join(self.visit_all(o.dimensions, **kwargs))}]'
-            print(f"  dimensions: {dimensions}")
 
         assert len(o.symbols) > 0
         variables = []

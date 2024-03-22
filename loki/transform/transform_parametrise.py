@@ -319,7 +319,6 @@ class ParametriseArrayDimsTransformation(Transformation):
             for dim in var.shape:
                 _tmp_vars_in_dim = FindVariables(unique=False).visit(dim)
                 # if len(_tmp_vars_in_dim) > 1:
-                print(f"tmp_vars_in_dim: {_tmp_vars_in_dim} | {any([var.name in var2p for var in FindVariables().visit(dim)])}")
                 if dim in var2p:
                     new_shape += (dim.clone(name=f"{dim.name}_loki_param"),)
                     vmap_dims[dim] = dim.clone(name=f"{dim.name}_loki_param")
@@ -338,7 +337,6 @@ class ParametriseArrayDimsTransformation(Transformation):
             if clone_var:
                 var_map[var] = var.clone(type=var.type.clone(shape=new_shape), dimensions=new_shape)
 
-        print(f"herehere var_map: {var_map}")
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
       
         new_variables = ()
@@ -353,12 +351,9 @@ class ParametriseArrayDimsTransformation(Transformation):
         decl_map = {FindNodes(ir.VariableDeclaration).visit(routine.spec)[0]: new_var_decls + (FindNodes(ir.VariableDeclaration).visit(routine.spec)[0],)}
         routine.spec = Transformer(decl_map).visit(routine.spec)
 
-        print(f"herehere vmap_dims: {vmap_dims}")
         for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
             if decl.symbols[0].name in [var.name for var in variables]:
-                print(f"updating dimensions for decl: {decl}")
                 try:
-                    print(f" herehere updating to {vmap_dims[decl.symbols[0].name]}")
                     decl._update(dimensions=vmap_dims[decl.symbols[0].name])
                 except:
                     decl._update(dimensions=None)

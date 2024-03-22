@@ -518,22 +518,16 @@ def normalize_array_shape_and_access(routine):
         return (isinstance(dim, sym.RangeIndex)
                 and not (dim.lower == 1 or dim.lower is None or dim.upper is None))
 
-    print(f"normalize_array_shape_and_access - routine: {routine.name}")
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
-        if "snonlin" in routine.name.lower():
-            if isinstance(v, sym.Array):
-                print(f"normalize_array_shape... var {v} | dim {v.dimensions} | shape {v.shape}")
         if isinstance(v, sym.Array):
             # skip if e.g., `array(len)`, passed as `call routine(array)`
             if not v.dimensions:
                 continue
             new_dims = []
-            print(f"normalize var {v} | {v.dimensions} | {v.shape}")
             for i, d in enumerate(v.shape):
                 if is_explicit_range_index(d):
                     if isinstance(v.dimensions[i], sym.RangeIndex):
-                        print(f"v.dimensions[i].start: {v.dimensions[i].start} - {type(v.dimensions[i].start)} | d.start: {d.start} - {type(d.start)}")
                         start = simplify(v.dimensions[i].start - d.start + 1) if d.start is not None and v.dimensions[i].start is not None else None
                         stop = simplify(v.dimensions[i].stop - d.start + 1) if d.stop is not None and v.dimensions[i].stop is not None else None
                         new_dims += [sym.RangeIndex((start, stop, d.step))]
@@ -541,7 +535,6 @@ def normalize_array_shape_and_access(routine):
                         start = simplify(v.dimensions[i] - d.start + 1) if d.start is not None else None
                         new_dims += [start]
                 else:
-                    print(f"routine {routine} | v {v} dims {v.dimensions} shape {v.shape} | {i}")
                     new_dims += [v.dimensions[i]]
             if new_dims:
                 vmap[v] = v.clone(dimensions=as_tuple(new_dims))
@@ -588,11 +581,6 @@ def flatten_arrays(routine, order='F', start_index=1):
         return dim
 
     
-    print(f"flatten arrays for routine: {routine}")
-    for var in FindVariables().visit(routine.body):
-        if isinstance(var, sym.Array) and var.shape and len(var.shape):
-            print(f"  array {var} | shape: {var.shape} | dim: {var.dimensions}")
-
     if order == 'C':
         array_map = {
             var: var.clone(dimensions=new_dims(var.dimensions[::-1], var.shape[::-1]))

@@ -903,7 +903,6 @@ class GlobalVarHoistTransformation(Transformation):
         new_arguments = [arg.clone(type=arg.type.clone(intent='inout' if arg in all_defines_vars
             else 'in', parameter=None, initial=None, device=arg.type.allocatable, allocatable=None), scope=routine) for arg in new_arguments] # allocatable=None
         # new_arguments = [arg.clone(type=arg.type.clone(parameter=None, initial=None)) for arg in new_arguments]
-        # print(f"routine: {routine} | symbol_attrs: {routine.symbol_attrs}")
         for new_arg in new_arguments:
             pass
             # if new_arg.name in routine.symbol_attrs:

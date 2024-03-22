@@ -271,7 +271,6 @@ class DependencyTransformation(Transformation):
         """
         Generate external header file with interface block for this subroutine.
         """
-        print(f"generate_interfaces: {routine}")
         # No need to rename here, as this has already happened before
         intfb_path = self.include_path/f'{routine.name.lower()}.intfb.h'
         with intfb_path.open('w') as f:
