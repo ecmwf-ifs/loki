@@ -100,7 +100,7 @@ modules and procedures in a single command:
 
 Most transformations, however, will only require modifying those parts of a file
 that are part of the call tree that is to be transformed to avoid unexpected
-side-effects. For that reason,
+side-effects.
 
 Typically, transformations should be implemented by users to encode the
 transformation pipeline for their individual use-case. However, Loki comes
@@ -115,8 +115,8 @@ This includes also a number of tools for common transformation tasks that
 are provided as functions that can be readily used when implementing new
 transformations.
 
-Bulk processing large source trees
-==================================
+Batch processing large source trees
+===================================
 
 Transformations can be applied over source trees using the :any:`Scheduler`.
 It is a work queue manager that automatically discovers source files in a list
@@ -125,7 +125,7 @@ This dependency graph includes all called procedures and imported modules.
 
 Calling :any:`Scheduler.process` on a source tree and providing it with a
 :any:`Transformation` applies this transformation to all files, modules, or
-routines that are appear in the dependency graph. The exact traversal
+routines that appear in the dependency graph. The exact traversal
 behaviour can be parameterized in the implementation of the :any:`Transformation`.
 The behaviour modifications include:
 
@@ -147,6 +147,18 @@ provides certain information about the item to the transformation:
 * targets (dependencies that are depended on by the currently processed item,
   and are included in the scheduler's tree, i.e., are processed, too).
 
+.. note::
+   The scheduler's dependency graph will include all dependency types it discovers.
+   This includes not only control-flow dependencies via procedure calls, but also
+   dependencies on other modules via the import of global variables, or dependencies
+   on derived type definitions.
+
+   However, for backwards-compatibility with the original scheduler implementation,
+   only control-flow dependencies are followed and processed by default, and reported
+   as ``items`` in :any:`Scheduler.items`. To remove this limitation, which is required
+   e.g., for the :any:`GlobalVarOffloadTransformation`, the ``enable_imports`` option
+   can be set to ``True``. This can be done in the ``[default]`` block of the config,
+   or as a constructor argument in the :any:`Scheduler`.
 
 The Scheduler's dependency graph
 --------------------------------
@@ -184,6 +196,13 @@ to the scope node:
   a control flow dependency but is crucial to capture as a dependency to enable
   annotating type information for inter-procedural analysis.
 
+Finally, :any:`ExternalItem` denotes items that the scheduler was unable to discover.
+The expected item type of the missing item is stored in :any:`ExternalItem.origin_cls`.
+When batch processing a transformation, the external items are ignored, unless the
+config option ``strict=True`` is enabled. In that case, an error will be issued when
+an external item is encountered that matches the ``item_filter`` that is provided by
+the transformation's manifest (in :any:`Transformation.item_filter`).
+
 To facilitate the creation of the dependency tree, every :any:`Item`
 provides two key properties:
 
@@ -205,6 +224,49 @@ with additional :any:`RegexParserClass` enabled to discover definitions or depen
 as required. Only once the full dependency graph has been generated, a full parse
 of the source files in the graph is performed, providing the complete internal
 representation and automatically enriching type information with inter-procedural annotations.
+
+Pruning the dependency graph
+----------------------------
+
+If the intention is not to process some items it is recommended to not
+leave them dangling as :any:`ExternalItem`. Instead, they should be explicitly
+excluded from the dependency graph and the ``strict`` mode enabled.
+To exclude specific items, any of the following annotations can be used, resulting in
+different behaviour:
+
+* ``disable``: Dependency items matching an entry in this list are treated as if they
+  don't exist, and their definitions are not searched for or parsed. This is useful, e.g.,
+  to exclude frequently used utility routines or modules (such as the
+  `yomhook module in IFS <https://github.com/ecmwf-ifs/fiat/blob/main/src/fiat/drhook/yomhook.F90>`_),
+  which are not to be transformed.
+* ``block``: Dependency items matching an entry in this list are not parsed or added to
+  the dependency graph, and therefore excluded from transformations. They are, however,
+  included for reference in the dependency graph visualization produced by
+  :any:`Scheduler.callgraph`.
+* ``ignore``: Dependency items matching an entry in this list are parsed and added to the
+  dependency graph. This makes their definitions available for enrichment but they are
+  not processed *by default*. Transformations can include them during batch processing
+  by enabling the :any:`Transformation.process_ignored_items` option. A typical use case
+  for this are dependencies that are part of a separate compilation target (and therefore
+  transformed separately), but analysis passes may need to collect information across an
+  entire call tree (e.g., use of temporary arrays).
+
+These three lists can be supplied globally in the ``[default]`` section of the scheduler
+config file, or per routine. The matching of items against entries in these lists is
+supports basic patterns (via :any:`fnmatch`), and is also effective for entire scopes.
+For example, a subroutine ``my_routine`` that is defined in a module ``my_mod`` would be
+matched by any of the following:
+
+* ``my_routine``
+* ``my_mod``
+* ``my_mod#my_routine``
+* ``*_routine``
+
+By default, all items are expanded during dependency discovery, i.e., for every item
+all dependencies are added to the graph, and then dependencies of these dependencies are
+added as well. This procedure continues until all dependencies have been included.
+For individual items, this expansion can be disabled by setting ``expand=False`` for
+them in the scheduler config.
 
 
 Filtering graph traversals
