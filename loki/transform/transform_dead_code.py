@@ -8,10 +8,10 @@
 """
 Collection of utilities to perform Dead Code Elimination.
 """
-from loki.visitors import Transformer
+
 from loki.expression.symbolic import simplify
 from loki.tools import flatten, as_tuple
-from loki.ir import Conditional
+from loki.ir import Conditional, Transformer
 
 
 __all__ = ['dead_code_elimination', 'DeadCodeEliminationTransformer']

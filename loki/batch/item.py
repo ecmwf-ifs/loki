@@ -10,15 +10,18 @@ import sys
 
 from loki.batch.configure import SchedulerConfig, ItemConfig
 from loki.frontend import REGEX, RegexParserClass
-from loki.expression import TypedSymbol, MetaSymbol, ProcedureSymbol, Variable, FindInlineCalls
-from loki.ir import Import, CallStatement, TypeDef, ProcedureDeclaration, Interface
+from loki.expression import (
+    TypedSymbol, MetaSymbol, ProcedureSymbol, Variable, FindInlineCalls
+)
+from loki.ir import (
+    Import, CallStatement, TypeDef, ProcedureDeclaration, Interface, FindNodes
+)
 from loki.logging import warning
 from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import DerivedType
-from loki.visitors import FindNodes
 
 
 __all__ = [

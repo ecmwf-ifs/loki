@@ -17,12 +17,14 @@ from loki.expression import (
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
-from loki.ir import Import, TypeDef, VariableDeclaration, StatementFunction
+from loki.ir import (
+    Import, TypeDef, VariableDeclaration, StatementFunction,
+    Transformer, FindNodes
+)
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
 from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
-from loki.visitors import Transformer, FindNodes
 
 
 __all__ = [

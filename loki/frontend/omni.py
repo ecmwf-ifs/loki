@@ -12,7 +12,7 @@ from codetiming import Timer
 
 from loki.frontend.source import Source
 from loki.frontend.util import OMNI, sanitize_ir
-from loki.visitors import GenericVisitor, FindNodes, Transformer
+from loki.ir import GenericVisitor, FindNodes, Transformer
 from loki import ir
 from loki.expression import (
     symbols as sym, operations as op,

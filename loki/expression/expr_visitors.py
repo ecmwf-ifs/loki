@@ -11,13 +11,14 @@ Visitor classes for traversing and transforming all expression trees in
 """
 from pymbolic.primitives import Expression
 
-from loki.ir import Node
-from loki.visitors import Visitor, Transformer
+from loki.ir import Node, Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.expression.mappers import SubstituteExpressionsMapper, ExpressionRetriever, AttachScopesMapper
+from loki.expression.mappers import (
+    SubstituteExpressionsMapper, ExpressionRetriever, AttachScopesMapper
+)
 from loki.expression.symbols import (
-    Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral, LogicLiteral,
-    StringLiteral, IntrinsicLiteral, DeferredTypeSymbol
+    Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral,
+    LogicLiteral, StringLiteral, IntrinsicLiteral, DeferredTypeSymbol
 )
 
 __all__ = [

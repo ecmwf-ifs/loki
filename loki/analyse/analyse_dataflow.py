@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from loki.expression import FindVariables, Array, FindInlineCalls
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
-from loki.visitors import Visitor, Transformer
+from loki.ir import Visitor, Transformer
 from loki.subroutine import Subroutine
 from loki.tools.util import CaseInsensitiveDict
 

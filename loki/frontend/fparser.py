@@ -21,10 +21,11 @@ try:
 except ImportError:
     HAVE_FP = False
 
-from loki.visitors import GenericVisitor, Transformer, FindNodes
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import read_file, FP, sanitize_ir
+
+from loki.ir import GenericVisitor, Transformer, FindNodes
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (

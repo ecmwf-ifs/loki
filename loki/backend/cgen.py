@@ -10,8 +10,7 @@ from pymbolic.mapper.stringifier import (
     PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
 
-from loki.visitors import Stringifier, FindNodes
-from loki.ir import Import
+from loki.ir import Import, Stringifier, FindNodes
 from loki.expression import LokiStringifyMapper, Array, symbolic_op, Literal
 from loki.types import BasicType, SymbolAttributes, DerivedType
 

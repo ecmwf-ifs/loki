@@ -80,9 +80,10 @@ are provided to create derived classes for specialisation of the actual hoisting
         scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
 """
 from loki.expression import FindVariables, SubstituteExpressions
-from loki.ir import CallStatement, Allocation, Deallocation
+from loki.ir import (
+    CallStatement, Allocation, Deallocation, Transformer, FindNodes
+)
 from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
-from loki.visitors import Transformer, FindNodes
 from loki.transform.transformation import Transformation
 from loki.transform.transform_utilities import single_variable_declaration
 from loki.batch.item import ProcedureItem

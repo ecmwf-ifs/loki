@@ -10,8 +10,9 @@ Pretty-printer classes for IR
 """
 
 from sys import stdout
+
 from loki.tools import JoinableStringList, is_iterable, as_tuple
-from loki.visitors.visitor import Visitor
+from loki.ir.visitor import Visitor
 
 
 __all__ = ['Stringifier', 'pprint']

@@ -21,7 +21,8 @@ except ImportError:
     HAVE_IR_GRAPH = False
 
 from loki.tools import JoinableStringList, is_iterable, as_tuple
-from loki.visitors.visitor import Visitor
+from loki.ir.visitor import Visitor
+
 
 __all__ = ["HAVE_IR_GRAPH", "GraphCollector", "ir_graph"]
 

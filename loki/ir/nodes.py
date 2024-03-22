@@ -163,7 +163,7 @@ class Node:
         Pretty-print the node hierachy under this node.
         """
         # pylint: disable=import-outside-toplevel,cyclic-import
-        from loki.visitors import pprint
+        from loki.ir.pprint import pprint
         pprint(self)
 
     def ir_graph(self, show_comments=False, show_expressions=False, linewidth=40, symgen=str):
@@ -171,7 +171,7 @@ class Node:
         Get the IR graph to visualize the node hierachy under this node.
         """
         # pylint: disable=import-outside-toplevel,cyclic-import
-        from loki.visitors.ir_graph import ir_graph
+        from loki.ir.ir_graph import ir_graph
 
         return ir_graph(self, show_comments, show_expressions,linewidth, symgen)
 
@@ -1589,7 +1589,7 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
         return f'TypeDef:: {self.name}'
 
     def clone(self, **kwargs):
-        from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.ir.transformer import Transformer  # pylint: disable=import-outside-toplevel,cyclic-import
         if 'body' not in kwargs:
             kwargs['body'] = Transformer().visit(self.body)
         return super().clone(**kwargs)

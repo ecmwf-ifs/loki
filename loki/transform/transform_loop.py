@@ -18,7 +18,10 @@ from loki.expression import (
     simplify, is_constant, symbolic_op,
 )
 from loki.frontend.fparser import parse_fparser_expression
-from loki.ir import Loop, Conditional, Comment, Pragma
+from loki.ir import (
+    Loop, Conditional, Comment, Pragma, FindNodes, Transformer,
+    NestedMaskedTransformer, is_parent_of
+)
 from loki.logging import info, warning
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
 from loki.transform.transform_array_indexing import (
@@ -27,7 +30,6 @@ from loki.transform.transform_array_indexing import (
 from loki.tools import (
     flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort, optional
 )
-from loki.visitors import FindNodes, Transformer, NestedMaskedTransformer, is_parent_of
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )

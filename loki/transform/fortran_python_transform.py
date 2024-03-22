@@ -8,10 +8,10 @@
 from pathlib import Path
 
 from loki.backend import pygen, dacegen
-from loki import ir
 from loki.expression import (
     symbols as sym, FindInlineCalls, SubstituteExpressions
 )
+from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.pragma_utils import pragmas_attached
 from loki.sourcefile import Sourcefile
 from loki.transform.transformation import Transformation
@@ -22,7 +22,6 @@ from loki.transform.transform_sanitise import resolve_associates
 from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics
 )
-from loki.visitors import FindNodes, Transformer
 
 
 __all__ = ['FortranPythonTransformation']

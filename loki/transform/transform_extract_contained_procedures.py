@@ -10,12 +10,12 @@ from loki.expression import (
     FindVariables, FindInlineCalls, SubstituteExpressions,
     DeferredTypeSymbol, Array
 )
-from loki.ir import CallStatement
+from loki.ir import CallStatement, Transformer, FindNodes
 from loki.types import DerivedType
-from loki.visitors import (
-    Transformer, FindNodes,
-)
+
+
 __all__ = ['extract_contained_procedures', 'extract_contained_procedure']
+
 
 def extract_contained_procedures(procedure):
     """

@@ -10,7 +10,9 @@ from pathlib import Path
 from loki.backend import fgen
 from loki.batch import SchedulerConfig
 from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
-from loki.ir import CallStatement, Import, Section, Interface
+from loki.ir import (
+    CallStatement, Import, Section, Interface, FindNodes, Transformer
+)
 from loki.logging import warning
 from loki.module import Module
 from loki.scope import Scope
@@ -18,7 +20,6 @@ from loki.subroutine import Subroutine
 from loki.types import ProcedureType
 from loki.tools import as_tuple
 from loki.transform.transformation import Transformation
-from loki.visitors import FindNodes, Transformer
 
 
 __all__ = ['DependencyTransformation', 'ModuleWrapTransformation']
