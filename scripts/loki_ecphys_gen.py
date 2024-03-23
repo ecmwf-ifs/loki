@@ -14,8 +14,14 @@ EC-physics drivers.
 
 import click
 from pathlib import Path
+from codetiming import Timer
 
-from loki import config as loki_config, Sourcefile
+from loki import config as loki_config, Sourcefile, info
+from loki.ir import FindNodes, CallStatement, Transformer
+
+from loki.transformations.inline import inline_marked_subroutines
+from loki.transformations.sanitise import transform_sequence_association_append_map
+from loki.transformations.remove_code import do_remove_marked_regions
 
 
 @click.group()
@@ -28,17 +34,21 @@ def cli():
               help='Path to search for initial input sources.')
 @click.option('--build', '-b', '--out', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
+@click.option('--remove-regions/--no-remove-regions', default=True,
+              help='Remove pragma-marked code regions.')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during processing')
-def inline(source, build, log_level):
+def inline(source, build, remove_regions, log_level):
     """
     Inlines EC_PHYS and CALLPAR into EC_PHYS_DRV to expose the parallel loop.
     """
     loki_config['log-level'] = log_level
 
     source = Path(source)
+    build = Path(build)
 
+    # Get everything set up...
     ec_phys_drv = Sourcefile.from_file(source/'ec_phys_drv.F90')['EC_PHYS_DRV']
     ec_phys = Sourcefile.from_file(source/'ec_phys.F90')['EC_PHYS']
     callpar = Sourcefile.from_file(source/'callpar.F90')['CALLPAR']
@@ -48,6 +58,27 @@ def inline(source, build, log_level):
 
     # Clone original and change subroutine name
     ec_phys_fc = ec_phys_drv.clone(name='EC_PHYS_FC')
+
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Inlined EC_PHYS in {s:.2f}s'):
+        # First, get the outermost call
+        ecphys_calls = [
+            c for c in FindNodes(CallStatement).visit(ec_phys_fc.body) if c.name == 'EC_PHYS'
+        ]
+
+        # Ouch, this is horrible!
+        call_map = {}
+        transform_sequence_association_append_map(call_map, ecphys_calls[0])
+        ec_phys_fc.body = Transformer(call_map).visit(ec_phys_fc.body)
+
+        inline_marked_subroutines(ec_phys_fc)
+
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Inlined CALLPAR in {s:.2f}s'):
+        # Now just inline CALLPAR
+        inline_marked_subroutines(ec_phys_fc, allowed_aliases=('JL', 'JK', 'J2D'))
+
+    if remove_regions:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
+            do_remove_marked_regions(ec_phys_fc)
 
     # And write the generated subroutine to file
     Sourcefile(path=build/'ec_phys_fc.F90', ir=(ec_phys_fc,)).write()
