@@ -14,10 +14,15 @@ EC-physics drivers.
 
 from pathlib import Path
 import click
+from codetiming import Timer
 
-from loki import config as loki_config, Sourcefile, Scheduler
+from loki import config as loki_config, Sourcefile, info
+from loki.batch import Scheduler, Pipeline
 
 from loki.transformations.build_system import ModuleWrapTransformation
+from loki.transformations.inline import InlineTransformation
+from loki.transformations.remove_code import RemoveCodeTransformation
+from loki.transformations.sanitise import SequenceAssociationTransformation
 
 
 @click.group()
@@ -40,6 +45,7 @@ def inline(source, build, log_level):
     loki_config['log-level'] = log_level
 
     source = Path(source)
+    build = Path(build)
 
     config =  {
         'default': {
@@ -60,6 +66,24 @@ def inline(source, build, log_level):
     scheduler = Scheduler(config=config, paths=source, output_dir=build)
 
     ec_phys_fc = scheduler['#ec_phys_drv'].ir
+
+    # Create sanitisation and inlining pipeline for control flow routines
+    pipeline = Pipeline()
+    pipeline += SequenceAssociationTransformation()
+    pipeline += DrHookTransformation(kernel_only=True, remove=True)
+    pipeline += InlineTransformation(
+        inline_elementals=False, inline_marked=True, remove_dead_code=False,
+        allowed_aliases=('JL', 'JK', 'J2D')
+    )
+    pipeline += RemoveCodeTransformation(
+        remove_marked_regions=True, mark_with_comment=True
+    )
+
+    # Apply the inlining pipeline
+    info('[Loki::EC-Physics] Applying custom pipeline from config:')
+    info(pipeline)
+
+    scheduler.process(pipeline)
 
     # Change subroutine name
     ec_phys_fc.name = 'EC_PHYS_FC'
