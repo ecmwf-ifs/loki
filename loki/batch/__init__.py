@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.batch.scheduler import * # noqa
-from loki.batch.item import * # noqa
 from loki.batch.configure import * # noqa
+from loki.batch.item import * # noqa
+from loki.batch.scheduler import * # noqa
+from loki.batch.sfilter import * # noqa
+from loki.batch.sgraph import * # noqa
