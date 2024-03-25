@@ -10,12 +10,12 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
-from loki import Module, Subroutine, FindVariables, Array
+from loki import Module, Subroutine, FindVariables, Array, fgen
 from loki.expression import symbols as sym
 from loki.transform import (
         promote_variables, demote_variables, normalize_range_indexing,
         invert_array_indices, flatten_arrays,
-        normalize_array_shape_and_access
+        normalize_array_shape_and_access, shift_to_zero_indexing
         )
 from loki.transform import (
     FortranCTransformation
@@ -572,3 +572,59 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     clean_test(filepath)
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('ignore', ((), ('i2',), ('i4', 'i1')))
+def test_shift_to_zero_indexing(frontend, ignore):
+    """
+    Test shifting array dimensions to zero (or rather shift dimension `dim` 
+    to `dim - 1`). This does not produce valid Fortran, but is part of the 
+    F2C transpilation logic.
+    """
+    fcode = """
+    subroutine transform_shift_indexing(x1, x2, x3, x4, l1, l2, l3, l4)
+        implicit none
+        integer :: i1, i2, i3, i4, c1, c2, c3, c4
+        integer, intent(in) :: l1, l2, l3, l4
+        integer, intent(inout) :: x1(l1)
+        integer, intent(inout) :: x2(l2, l1)
+        integer, intent(inout) :: x3(l3, l2, l1)
+        integer, intent(inout) :: x4(l4, l3, l2, l1)
+        c1 = 1
+        c2 = 1
+        c3 = 1
+        c4 = 1
+        do i1=1,l1
+            x1(i1) = c1
+            do i2=1,l2
+                x2(i2, i1) = c2*10 + c1
+                do i3=1,l3
+                    x3(i3, i2, i1) = c3*100 + c2*10 + c1
+                    do i4=1,l4
+                        x4(i4, i3, i2, i1) = c4*1000 + c3*100 + c2*10 + c1
+                        c4 = c4 + 1
+                    end do
+                    c3 = c3 + 1
+                end do
+                c2 = c2 + 1
+            end do
+            c1 = c1 + 1
+        end do
+
+    end subroutine transform_shift_indexing
+    """
+
+    expected_dims = {'x1': ('i1',), 'x2': ('i2', 'i1'),
+            'x3': ('i3', 'i2', 'i1'), 'x4': ('i4', 'i3', 'i2', 'i1')}
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, sym.Array)]
+    for array in arrays:
+        assert array.dimensions == expected_dims[array.name]
+
+    shift_to_zero_indexing(routine, ignore=ignore)
+
+    arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, sym.Array)]
+    for array in arrays:
+        dimensions = tuple(sym.Sum((sym.Scalar(name=dim), sym.Product((-1, sym.IntLiteral(1)))))
+                if dim not in ignore else dim for dim in expected_dims[array.name])
+        assert fgen(array.dimensions) == fgen(dimensions)
