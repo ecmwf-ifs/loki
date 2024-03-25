@@ -11,7 +11,8 @@ from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
     CallStatement, Pragma, Scalar, Array, as_tuple, Transformer, warning, BasicType,
     ProcedureItem, ModuleItem, dataflow_analysis_attached, Import,
-    Comment, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict
+    Comment, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict,
+    FindInlineCalls, SubstituteExpressions
 )
 
 
@@ -851,7 +852,18 @@ class GlobalVarHoistTransformation(Transformation):
                     key=lambda symbol: symbol.name
                 )
                 call_map[call] = call.clone(arguments=arguments + tuple(new_args))
-        routine.body = Transformer(call_map).visit(routine.body)
+        if call_map:
+            routine.body = Transformer(call_map).visit(routine.body)
+        inline_calls = FindInlineCalls().visit(routine.body)
+        inline_call_map = {}
+        for call in inline_calls:
+            if call.routine.name in uses_symbols:
+                arguments = call.parameters
+                new_args = sorted([var.clone(dimensions=None) for var in symbol_map[call.routine.name]],
+                        key=lambda symbol: symbol.name)
+                inline_call_map[call] = call.clone(parameters=arguments + tuple(new_args))
+        if inline_call_map:
+            routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 
     def _append_routine_arguments(self, routine, item):
         """

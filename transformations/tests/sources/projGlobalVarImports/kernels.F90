@@ -1,10 +1,11 @@
 subroutine kernel0()
+use func_mod, only: some_func
 implicit none
-
+  real a
   call kernel1()
   call kernel2()
   call kernel3()
-
+  a = some_func()
 end subroutine kernel0
 
 subroutine kernel1()
