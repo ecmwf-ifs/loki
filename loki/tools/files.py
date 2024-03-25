@@ -64,7 +64,7 @@ class LokiTempdir:
         # Pick a unique prefix
         prefix = f'{os.getpid()!s}_'
 
-        self.tmp_dir = tempfile.TemporaryDirectory(prefix=prefix, dir=basedir)
+        self.tmp_dir = tempfile.TemporaryDirectory(prefix=prefix, dir=basedir) # pylint: disable=consider-using-with
         debug(f'Created temporary directory {self.tmp_dir.name}')
 
     def get(self):
