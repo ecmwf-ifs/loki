@@ -5,17 +5,19 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import os
-import re
-import sys
-import pickle
-import shutil
+
+import atexit
 import fnmatch
-import tempfile
 from functools import wraps
 from hashlib import md5
-from pathlib import Path
 from importlib import import_module, reload, invalidate_caches
+import os
+from pathlib import Path
+import pickle
+import re
+import shutil
+import sys
+import tempfile
 
 from loki.logging import debug, info
 from loki.tools.util import as_tuple, flatten
@@ -23,24 +25,97 @@ from loki.config import config
 
 
 __all__ = [
-    'gettempdir', 'filehash', 'delete', 'find_paths', 'find_files',
+    'LokiTempdir', 'gettempdir', 'filehash', 'delete', 'find_paths', 'find_files',
     'disk_cached', 'load_module'
 ]
 
 
+class LokiTempdir:
+    """
+    Data structure to hold an instance of :class:`tempfile.TemporaryDirectory`
+    to provide a Loki-specific temporary directory that is automatically
+    cleaned up when the Python interpreter is terminated
+
+    This class provides the temporary directory creation that :any:`gettempdir`
+    relies upon.
+    """
+
+    def __init__(self):
+        self.tmp_dir = None
+        atexit.register(self.cleanup)
+
+    def create(self):
+        """
+        Create the temporary directory
+        """
+        if self.tmp_dir is not None:
+            # The temporary directory has already been initialised
+            return
+
+        # Determine the basedir...
+        if config['tmp-dir']:
+            basedir = Path(config['tmp-dir'])
+        else:
+            basedir = Path(tempfile.gettempdir())/'loki'
+
+        # ...and make sure it exists
+        basedir.mkdir(parents=True, exist_ok=True)
+
+        # Pick a unique prefix
+        prefix = f'{os.getpid()!s}_'
+
+        self.tmp_dir = tempfile.TemporaryDirectory(prefix=prefix, dir=basedir) # pylint: disable=consider-using-with
+        debug(f'Created temporary directory {self.tmp_dir.name}')
+
+    def get(self):
+        """
+        Get the temporary directory path
+
+        Returns
+        -------
+        pathlib.Path
+        """
+        if self.tmp_dir is None:
+            self.create()
+        return Path(self.tmp_dir.name)
+
+    def cleanup(self):
+        """
+        Clean up the temporary directory
+        """
+        if self.tmp_dir is not None:
+            name = self.tmp_dir.name
+            self.tmp_dir.cleanup()
+            self.tmp_dir = None
+            debug(f'Cleaned up temporary directory {name}')
+
+
+TMP_DIR = LokiTempdir()
+"""
+An instance of :class:`LokiTempdir` representing the
+temporary directory that the current Loki instance uses.
+"""
+
+
 def gettempdir():
     """
-    Create a Loki-specific tempdir in the systems temporary directory.
+    Get a Loki-specific tempdir
+
+    Throughout the lifetime of the Python interpreter process, this will always
+    return the same temporary directory.
+
+    The base directory, under which the temporary directory resides, can be
+    specified by setting the environment variable ``LOKI_TMP_DIR``. Otherwise
+    the platform default will be used, observing the rules specified by
+    :any:`tempfile.gettempdir`.
+
+    The temporary directory is created, managed, and cleaned up by an instance of
+    :any:`LokiTempdir`. Loki will choose a process-specific temporary directory
+    under the base directory to avoid race conditions between concurrently running
+    Loki instances. The initialisation mechanism is lazy, creating the
+    temporary directory only when this function is called for the first time.
     """
-    if config['tmp-dir']:
-        tmpdir = Path(config['tmp-dir'])
-    else:
-        tmpdir = Path(tempfile.gettempdir())/'loki'
-
-    if not tmpdir.exists():
-        tmpdir.mkdir()
-
-    return tmpdir
+    return TMP_DIR.get()
 
 
 def filehash(source, prefix=None, suffix=None):
