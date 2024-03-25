@@ -2104,3 +2104,74 @@ end subroutine myroutine
     # Ensure that the original copy of the routine remains unaffected
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
     assert len(FindNodes(Assignment).visit(new_routine.body)) == 0
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_call_args_kwargs_conversion(frontend):
+
+    fcode_kernel = """
+    subroutine kernel(a,b,c,d,e,f,g)
+    implicit none
+    integer, intent(inout) :: a
+    integer, intent(out) :: b
+    integer, intent(in) :: c, d, e, f, g
+
+
+    a = a + 1
+    b = a + c + d + e + f + g
+
+    end subroutine kernel
+    """
+
+    fcode_driver = """
+    subroutine driver()
+    implicit none
+
+    integer :: a
+    integer :: b
+    integer :: driver_c
+    integer :: driver_d
+    integer :: driver_ze
+    integer :: driver_f
+    integer :: driver_g
+
+    a = 0
+
+    call kernel(a, b, driver_c, driver_d, driver_ze, driver_f, driver_g)
+    call kernel(a=a, b=b, c=driver_c, d=driver_d, e=driver_ze, f=driver_f, g=driver_g)
+    call kernel(b=b, e=driver_ze, c=driver_c, d=driver_d, f=driver_f, g=driver_g, a=a)
+    ! this is NOT allowed in Fortran
+    ! call kernel(driver_c, driver_d, driver_ze, driver_f, driver_g, a=a, b=b)
+    call kernel(a,b,driver_c, driver_d, driver_ze, g=driver_g, f=driver_f)
+
+    end subroutine driver
+    """
+
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich(kernel)
+
+    # already correct ordered kwarguments?
+    kwargs_in_order = [True, True, False, False]
+    # expected (kw)arguments in calls, 'driver_ze' to break alphabetical order
+    call_args = ('a', 'b', 'driver_c', 'driver_d', 'driver_ze', 'driver_f', 'driver_g')
+    # expected amount of kwargs for the corresponding calls
+    len_kwargs = (0, 7, 7, 2)
+
+    # sort kwargs
+    for i_call, call in enumerate(FindNodes(CallStatement).visit(driver.body)):
+        assert call.check_kwarguments_order() == kwargs_in_order[i_call]
+        call.sort_kwarguments()
+
+    # check calls with sorted kwargs
+    for i_call, call in enumerate(FindNodes(CallStatement).visit(driver.body)):
+        assert tuple(arg[1].name for arg in call.arg_iter()) == call_args
+        assert len(call.kwarguments) == len_kwargs[i_call]
+
+    # kwarg to arg conversion
+    for call in FindNodes(CallStatement).visit(driver.body):
+        call.convert_kwargs_to_args()
+
+    # check calls with kwargs converted to args
+    for call in FindNodes(CallStatement).visit(driver.body):
+        assert tuple(arg.name for arg in call.arguments) == call_args
+        assert call.kwarguments == ()
