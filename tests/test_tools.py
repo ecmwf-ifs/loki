@@ -24,9 +24,11 @@ except ImportError:
     HAVE_YAML = False
 
 from conftest import stdchannel_is_captured, stdchannel_redirected
+from loki.config import config_override
 from loki.tools import (
     JoinableStringList, truncate_string, binary_insertion_sort, is_subset,
-    optional, yaml_include_constructor, execute, timeout, dict_override
+    optional, yaml_include_constructor, execute, timeout, dict_override,
+    LokiTempdir
 )
 
 
@@ -353,3 +355,37 @@ def test_dict_override():
     assert kwargs['rick'] == 42
     assert 'joe' not in kwargs
     assert len(kwargs) == 2
+
+
+def test_loki_tempdir(here):
+    test_tmpdir = here/'loki_tempdir'
+    assert not test_tmpdir.exists()
+
+    # Create the object
+    tmp_dir = LokiTempdir()
+
+    # The directory still doesn't exist
+    assert not test_tmpdir.exists()
+
+    # It's created by the first call to get()
+    with config_override({'tmp-dir': str(test_tmpdir)}):
+        tmpdir_path = tmp_dir.get()
+
+    # Does the directory exist now and was created under the test_tmpdir?
+    assert tmpdir_path.exists()
+    assert test_tmpdir.exists()
+    assert tmpdir_path.parent == test_tmpdir
+
+    # Create a temporary file
+    tmp_file = tmpdir_path/'myfile'
+    tmp_file.write_text('Hello world')
+    assert tmp_file.exists()
+
+    # Make sure the cleanup works
+    tmp_dir.cleanup()
+    assert not tmp_file.exists()
+    assert not tmpdir_path.exists()
+
+    # But the parent directory should not be deleted
+    assert test_tmpdir.exists()
+    test_tmpdir.rmdir()
