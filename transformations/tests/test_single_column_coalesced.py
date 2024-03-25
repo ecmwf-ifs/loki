@@ -242,6 +242,7 @@ def test_scc_demote_transformation(frontend, horizontal):
     REAL :: t(nlon,nz)
     REAL :: a(nlon)
     REAL :: b(nlon,psize)
+    REAL :: unused(nlon)
     INTEGER, PARAMETER :: psize = 3
     INTEGER :: jl, jk
     REAL :: c
@@ -280,6 +281,7 @@ def test_scc_demote_transformation(frontend, horizontal):
     assert isinstance(kernel.variable_map['c'], Scalar)
     assert isinstance(kernel.variable_map['t'], Array)
     assert isinstance(kernel.variable_map['q'], Array)
+    assert isinstance(kernel.variable_map['unused'], Scalar)
 
     # Ensure that parameter-sized array b got demoted only
     assert kernel.variable_map['b'].shape == ((3,) if frontend is OMNI else ('psize',))
