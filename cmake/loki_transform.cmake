@@ -225,10 +225,10 @@ function( loki_transform_target )
 
     set( options
          NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS
-	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
+	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE TRIM_VECTOR_SECTIONS
     )
     set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
-    set( multi_value_args SOURCES HEADERS )
+    set( multi_value_args SOURCES HEADERS DEFINITIONS )
 
     cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
 
@@ -303,17 +303,22 @@ function( loki_transform_target )
             list( APPEND _TRANSFORM_OPTIONS DERIVE_ARGUMENT_ARRAY_SHAPE )
         endif()
 
+        if( _PAR_T_TRIM_VECTOR_SECTIONS )
+            list( APPEND _TRANSFORM_OPTIONS TRIM_VECTOR_SECTIONS )
+        endif()
+
         loki_transform(
-            COMMAND   ${_PAR_T_COMMAND}
-            OUTPUT    ${LOKI_SOURCES_TO_APPEND}
-            MODE      ${_PAR_T_MODE}
-            CONFIG    ${_PAR_T_CONFIG}
-            DIRECTIVE ${_PAR_T_DIRECTIVE}
-            FRONTEND  ${_PAR_T_FRONTEND}
-            BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
-            SOURCES   ${_PAR_T_SOURCES}
-            HEADERS   ${_PAR_T_HEADERS}
-            DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_T_HEADER} ${_PAR_T_CONFIG}
+            COMMAND     ${_PAR_T_COMMAND}
+            OUTPUT      ${LOKI_SOURCES_TO_APPEND}
+            MODE        ${_PAR_T_MODE}
+            CONFIG      ${_PAR_T_CONFIG}
+            DIRECTIVE   ${_PAR_T_DIRECTIVE}
+            FRONTEND    ${_PAR_T_FRONTEND}
+            BUILDDIR    ${CMAKE_CURRENT_BINARY_DIR}
+            SOURCES     ${_PAR_T_SOURCES}
+            HEADERS     ${_PAR_T_HEADERS}
+            DEFINITIONS ${_PAR_T_DEFINITIONS}
+            DEPENDS     ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_T_HEADER} ${_PAR_T_CONFIG}
             ${_TRANSFORM_OPTIONS}
         )
     endif()
