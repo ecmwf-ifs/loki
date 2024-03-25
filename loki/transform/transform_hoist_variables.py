@@ -199,13 +199,16 @@ class HoistVariablesTransformation(Transformation):
     key : str
         Access identifier/key for the ``item.trafo_data`` dictionary. Only necessary to provide if several of
         these transformations are carried out in succession.
+    as_kwarguments : boolean
+        Whether to pass the hoisted arguments as `args` or `kwargs`.
     """
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, key=None):
+    def __init__(self, key=None, as_kwarguments=False):
         if key is not None:
             self._key = key
+        self.as_kwarguments = as_kwarguments
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -257,7 +260,12 @@ class HoistVariablesTransformation(Transformation):
                 continue
 
             successor_item = successor_map[str(call.routine.name)]
-            hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
+            if self.as_kwarguments:
+                to_hoist = successor_item.trafo_data[self._key]["to_hoist"]
+                _hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
+                hoisted_variables = zip(to_hoist, _hoisted_variables)
+            else:
+                hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
             if role == "driver":
                 call_map[call] = self.driver_call_argument_remapping(
                     routine=routine, call=call, variables=hoisted_variables
@@ -307,8 +315,14 @@ class HoistVariablesTransformation(Transformation):
             Call object to which hoisted variables will be added.
         variables : tuple of :any:`Variable`
             The tuple of variables to be declared.
+        as_kwarguments : boolean
+            Whether to pass the hoisted arguments as `args` or `kwargs`.
         """
         # pylint: disable=unused-argument
+        if self.as_kwarguments:
+            new_kwargs = tuple((a.name, v.clone(dimensions=None)) for (a, v) in variables)
+            kwarguments = call.kwarguments if call.kwarguments is not None else ()
+            return call.clone(kwarguments=kwarguments + new_kwargs)
         new_args = tuple(v.clone(dimensions=None) for v in variables)
         return call.clone(arguments=call.arguments + new_args)
 
@@ -334,6 +348,10 @@ class HoistVariablesTransformation(Transformation):
             The tuple of variables to be declared.
         """
         # pylint: disable=unused-argument
+        if self.as_kwarguments:
+            new_kwargs = tuple((a.name, v.clone(dimensions=None)) for (a, v) in variables)
+            kwarguments = call.kwarguments if call.kwarguments is not None else ()
+            return call.clone(kwarguments=kwarguments + new_kwargs)
         new_args = tuple(v.clone(dimensions=None) for v in variables)
         return call.clone(arguments=call.arguments + new_args)
 

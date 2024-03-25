@@ -715,8 +715,14 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
                 '[Loki] SingleColumnCoalescedTransform: No blocking dimension found '
                 'for array argument hoisting.'
             )
-
         idx_var = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.index)
+        if self.as_kwarguments:
+            new_kwargs = tuple(
+                (a.name, v.clone(dimensions=tuple(sym.RangeIndex((None, None))
+                for _ in v.dimensions) + (idx_var,))) for (a, v) in variables
+            )
+            kwarguments = call.kwarguments if call.kwarguments is not None else ()
+            return call.clone(kwarguments=kwarguments + new_kwargs)
         new_args = tuple(
             v.clone(dimensions=tuple(sym.RangeIndex((None, None)) for _ in v.dimensions) + (idx_var,))
             for v in variables

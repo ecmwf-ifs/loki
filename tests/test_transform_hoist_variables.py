@@ -77,7 +77,7 @@ def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name=""):
     clean_test(filepath=here.parent / item.source.path.with_suffix(suffix).name)
 
 
-def check_arguments(scheduler, subroutine_arguments, call_arguments, include_device_functions=False):
+def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwarguments, include_device_functions=False):
     """
     Check the subroutine and call arguments of each subroutine.
     """
@@ -87,14 +87,17 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, include_dev
     for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "kernel1" in call.name:
             assert call.arguments == call_arguments["kernel1"]
+            assert call.kwarguments == call_kwarguments["kernel1"]
         elif "kernel2" in call.name:
             assert call.arguments == call_arguments["kernel2"]
+            assert call.kwarguments == call_kwarguments["kernel2"]
     # another driver
     item = scheduler['transformation_module_hoist#another_driver']
     assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["another_driver"]
     for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "kernel1" in call.name:
             assert call.arguments == call_arguments["kernel1"]
+            assert call.kwarguments == call_kwarguments["kernel1"]
     # kernel 1
     item = scheduler['subroutines_mod#kernel1']
     assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel1"]
@@ -104,8 +107,10 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, include_dev
     for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "device1" in call.name:
             assert call.arguments == call_arguments["device1"]
+            assert call.kwarguments == call_kwarguments["device1"]
         elif "device2" in call.name:
             assert call.arguments == call_arguments["device2"]
+            assert call.kwarguments == call_kwarguments["device2"]
     if include_device_functions:
         # device 1
         item = scheduler['subroutines_mod#device1']
@@ -113,13 +118,15 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, include_dev
         for call in FindNodes(ir.CallStatement).visit(item.ir.body):
             if "device2" in call.name:
                 assert call.arguments == call_arguments["device2"]
+                assert call.kwarguments == call_kwarguments["device2"]
         # device 2
         item = scheduler['subroutines_mod#device2']
         assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device2"]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_hoist(here, frontend, config):
+@pytest.mark.parametrize('as_kwarguments', [False, True])
+def test_hoist(here, frontend, config, as_kwarguments):
     """
     Basic testing of the non-modified Hoist functionality, thus hoisting all (non-parameter) local variables.
     """
@@ -133,7 +140,7 @@ def test_hoist(here, frontend, config):
     # Transformation: Analysis
     scheduler.process(transformation=HoistVariablesAnalysis())
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistVariablesTransformation())
+    scheduler.process(transformation=HoistVariablesTransformation(as_kwarguments=as_kwarguments))
 
     # check generated source code
     subroutine_arguments = {
@@ -146,19 +153,36 @@ def test_hoist(here, frontend, config):
     }
 
     call_arguments = {
-        "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
-        "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_y', 'kernel2_z', 'kernel2_k2_tmp', 'device1_z', 'device1_d1_tmp',
-                    'device2_z', 'device2_d2_tmp'),
-        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device2": ('a1', 'b', 'x', 'device2_z', 'device2_d2_tmp')
+        "kernel1": ('a', 'b', 'c'),
+        "kernel2": ('a', 'b'),
+        "device1": ('a1', 'b', 'x', 'k2_tmp'),
+        "device2": ('a1', 'b', 'x')
+    }
+    if not as_kwarguments:
+        call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_y', 'kernel2_z', 'kernel2_k2_tmp',
+                'device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp')
+        call_arguments["device1"] += ('device1_z', 'device1_d1_tmp', 'device2_z', 'device2_d2_tmp')
+        call_arguments["device2"] += ('device2_z', 'device2_d2_tmp')
+
+    call_kwarguments = {
+        "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
+        "kernel2": (('x', 'kernel2_x'), ('y', 'kernel2_y'), ('z', 'kernel2_z'), ('k2_tmp', 'kernel2_k2_tmp'),
+            ('device1_z', 'device1_z'), ('device1_d1_tmp', 'device1_d1_tmp'),
+            ('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp')) if as_kwarguments else (),
+        "device1": (('z', 'device1_z'), ('d1_tmp', 'device1_d1_tmp'), ('device2_z', 'device2_z'),
+            ('device2_d2_tmp', 'device2_d2_tmp')) if as_kwarguments else (),
+        "device2": (('z', 'device2_z'), ('d2_tmp', 'device2_d2_tmp')) if as_kwarguments else ()
     }
 
-    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
+    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
+            call_kwarguments=call_kwarguments)
     compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="all_hoisted")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_hoist_disable(here, frontend, config):
+@pytest.mark.parametrize('as_kwarguments', [False, True])
+def test_hoist_disable(here, frontend, config, as_kwarguments):
     """
     Basic testing of the non-modified Hoist functionality excluding/disabling some subroutines,
     thus hoisting all (non-parameter) local variables for the non-disabled subroutines.
@@ -174,7 +198,7 @@ def test_hoist_disable(here, frontend, config):
     # Transformation: Analysis
     scheduler.process(transformation=HoistVariablesAnalysis())
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistVariablesTransformation())
+    scheduler.process(transformation=HoistVariablesTransformation(as_kwarguments=as_kwarguments))
 
     # check generated source code
     subroutine_arguments = {
@@ -193,9 +217,28 @@ def test_hoist_disable(here, frontend, config):
         "device2": ('a1', 'b', 'x')
     }
 
+    call_arguments = {
+        "kernel1": ('a', 'b', 'c'),
+        "kernel2": ('a', 'b'), 
+        "device1": ('a1', 'b', 'x', 'k2_tmp'),
+        "device2": ('a1', 'b', 'x')
+    }
+    if not as_kwarguments:
+        call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_y', 'kernel2_z', 'kernel2_k2_tmp')
+
+    call_kwarguments = {
+        "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
+        "kernel2": (('x', 'kernel2_x'), ('y', 'kernel2_y'), ('z', 'kernel2_z'),
+            ('k2_tmp', 'kernel2_k2_tmp')) if as_kwarguments else (),
+        "device1": (),
+        "device2": ()
+    }
+
     check_arguments(
         scheduler=scheduler, subroutine_arguments=subroutine_arguments,
-        call_arguments=call_arguments, include_device_functions=False
+        call_arguments=call_arguments, call_kwarguments=call_kwarguments,
+        include_device_functions=False
     )
     compile_and_test(
         scheduler=scheduler, here=here, a=(5, 10, 100),
@@ -204,7 +247,8 @@ def test_hoist_disable(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_hoist_arrays(here, frontend, config):
+@pytest.mark.parametrize('as_kwarguments', [False, True])
+def test_hoist_arrays(here, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays using the :class:`HoistTemporaryArraysAnalysis` for the *Analysis*
     part.
@@ -216,7 +260,7 @@ def test_hoist_arrays(here, frontend, config):
     # Transformation: Analysis
     scheduler.process(transformation=HoistTemporaryArraysAnalysis())
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistVariablesTransformation())
+    scheduler.process(transformation=HoistVariablesTransformation(as_kwarguments=as_kwarguments))
 
     # check generated source code
     subroutine_arguments = {
@@ -229,18 +273,33 @@ def test_hoist_arrays(here, frontend, config):
     }
 
     call_arguments = {
-        "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
-        "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'),
-        "device2": ('a1', 'b', 'x', 'device2_z', 'device2_d2_tmp')
+        "kernel1": ('a', 'b', 'c'),
+        "kernel2": ('a', 'b'), 
+        "device1": ('a1', 'b', 'x', 'k2_tmp'),
+        "device2": ('a1', 'b', 'x')
+    }
+    if not as_kwarguments:
+        call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'device2_d2_tmp')
+        call_arguments["device1"] += ('device2_z', 'device2_d2_tmp')
+        call_arguments["device2"] += ('device2_z', 'device2_d2_tmp')
+
+    call_kwarguments = {
+        "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
+        "kernel2": (('x', 'kernel2_x'), ('k2_tmp', 'kernel2_k2_tmp'),
+            ('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp')) if as_kwarguments else (),
+        "device1": (('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp')) if as_kwarguments else (),
+        "device2": (('z', 'device2_z'), ('d2_tmp', 'device2_d2_tmp')) if as_kwarguments else ()
     }
 
-    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
+    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
+            call_kwarguments=call_kwarguments)
     compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="hoisted_arrays")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_hoist_specific_variables(here, frontend, config):
+@pytest.mark.parametrize('as_kwarguments', [False, True])
+def test_hoist_specific_variables(here, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays with variable ``a`` in the array dimensions using the
     :class:`HoistTemporaryArraysAnalysis` for the *Analysis* part.
@@ -252,7 +311,7 @@ def test_hoist_specific_variables(here, frontend, config):
     # Transformation: Analysis
     scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2')))
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistVariablesTransformation())
+    scheduler.process(transformation=HoistVariablesTransformation(as_kwarguments=as_kwarguments))
 
     # check generated source code
     subroutine_arguments = {
@@ -265,13 +324,27 @@ def test_hoist_specific_variables(here, frontend, config):
     }
 
     call_arguments = {
-        "kernel1": ('a', 'b', 'c', 'kernel1_x', 'kernel1_y', 'kernel1_k1_tmp'),
-        "kernel2": ('a', 'b', 'kernel2_x', 'kernel2_k2_tmp', 'device2_z'),
-        "device1": ('a1', 'b', 'x', 'k2_tmp', 'device2_z'),
-        "device2": ('a1', 'b', 'x', 'device2_z')
+        "kernel1": ('a', 'b', 'c'),
+        "kernel2": ('a', 'b'),
+        "device1": ('a1', 'b', 'x', 'k2_tmp'),
+        "device2": ('a1', 'b', 'x')
+    }
+    if not as_kwarguments:
+        call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z')
+        call_arguments["device1"] += ('device2_z',)
+        call_arguments["device2"] += ('device2_z',)
+
+    call_kwarguments = {
+        "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
+        "kernel2": (('x', 'kernel2_x'), ('k2_tmp', 'kernel2_k2_tmp'),
+            ('device2_z', 'device2_z')) if as_kwarguments else (),
+        "device1": (('device2_z', 'device2_z'),) if as_kwarguments else (),
+        "device2": (('z', 'device2_z'),) if as_kwarguments else ()
     }
 
-    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
+    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
+            call_kwarguments=call_kwarguments)
 
     compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend,
                      test_name="hoisted_specific_arrays")
@@ -290,7 +363,8 @@ def check_variable_declaration(item, key):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_hoist_allocatable(here, frontend, config):
+@pytest.mark.parametrize('as_kwarguments', [False, True])
+def test_hoist_allocatable(here, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays with variable ``a`` in the array dimensions using the
     :class:`HoistTemporaryArraysAnalysis` for the *Analysis* part **and** a *Synthesis* implementation using declaring
@@ -305,7 +379,8 @@ def test_hoist_allocatable(here, frontend, config):
     # Transformation: Analysis
     scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2'), key=key))
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
+    scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key,
+        as_kwarguments=as_kwarguments))
 
     # check generated source code
     for item in scheduler.items:
@@ -330,7 +405,28 @@ def test_hoist_allocatable(here, frontend, config):
         "device2": ('a1', 'b', 'x', 'device2_z')
     }
 
-    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments)
+    call_arguments = {
+        "kernel1": ('a', 'b', 'c'),
+        "kernel2": ('a', 'b'),
+        "device1": ('a1', 'b', 'x', 'k2_tmp'),
+        "device2": ('a1', 'b', 'x')
+    }
+    if not as_kwarguments:
+        call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z')
+        call_arguments["device1"] += ('device2_z',)
+        call_arguments["device2"] += ('device2_z',)
+
+    call_kwarguments = {
+        "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
+        "kernel2": (('x', 'kernel2_x'), ('k2_tmp', 'kernel2_k2_tmp'),
+            ('device2_z', 'device2_z')) if as_kwarguments else (),
+        "device1": (('device2_z', 'device2_z'),) if as_kwarguments else (),
+        "device2": (('z', 'device2_z'),) if as_kwarguments else ()
+    }
+
+    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
+            call_kwarguments=call_kwarguments)
     compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="allocatable")
 
 
