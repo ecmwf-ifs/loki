@@ -82,8 +82,7 @@ using the transformation
     scheduler.process(transformation=ParametriseTransformation(dic2p=dic2p, replace_by_value=True))
 """
 from loki.expression import symbols as sym
-from loki import ir
-from loki.visitors import Transformer, FindNodes
+from loki.ir import nodes as ir, Transformer, FindNodes
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 from loki.transform.transformation import Transformation
 from loki.transform.transform_inline import inline_constant_parameters

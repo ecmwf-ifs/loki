@@ -25,7 +25,7 @@ from loki.sourcefile import Sourcefile
 from loki.backend import cgen, fgen
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, VariableDeclaration,
-    TypeDef, Assignment
+    TypeDef, Assignment, Transformer, FindNodes
 )
 from loki.subroutine import Subroutine
 from loki.module import Module
@@ -34,7 +34,6 @@ from loki.expression import (
     ProcedureSymbol, SubstituteExpressions, Dereference,
 )
 from loki.expression import symbols as sym
-from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
 

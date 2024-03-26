@@ -12,7 +12,7 @@ Transformations to be used in build-system level tasks
 from pathlib import Path
 
 from loki.transform.transformation import Transformation
-from loki.bulk.item import ProcedureItem, ModuleItem#, GlobalVariableItem
+from loki.batch.item import ProcedureItem, ModuleItem#, GlobalVariableItem
 
 __all__ = ['FileWriteTransformation']
 

@@ -10,10 +10,8 @@ from pathlib import Path
 import pytest
 from conftest import graphviz_present
 from loki import Sourcefile
-from loki.visitors.ir_graph import ir_graph, GraphCollector
-from loki.visitors import FindNodes
 from loki.analyse import dataflow_analysis_attached
-from loki.ir import Node
+from loki.ir import Node, FindNodes, ir_graph, GraphCollector
 
 
 @pytest.fixture(scope="module", name="here")

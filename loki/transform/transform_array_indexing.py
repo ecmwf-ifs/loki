@@ -18,10 +18,11 @@ from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
     symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions
 )
-from loki.ir import Assignment, Loop, VariableDeclaration
+from loki.ir import (
+    Assignment, Loop, VariableDeclaration, FindNodes, Transformer
+)
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType
-from loki.visitors import FindNodes, Transformer
 
 
 __all__ = [

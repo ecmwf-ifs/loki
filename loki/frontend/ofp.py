@@ -23,7 +23,7 @@ except ImportError:
 from loki.frontend.source import extract_source, extract_source_from_range
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import OFP, sanitize_ir
-from loki.visitors import GenericVisitor
+from loki.ir import GenericVisitor
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (

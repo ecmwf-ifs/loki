@@ -11,12 +11,10 @@ import codecs
 from codetiming import Timer
 from more_itertools import split_after
 
-from loki.visitors import (
-    NestedTransformer, FindNodes, PatternFinder, Transformer
-)
 from loki.ir import (
-    Assignment, Comment, CommentBlock, VariableDeclaration, ProcedureDeclaration,
-    Loop, Intrinsic, Pragma
+    NestedTransformer, FindNodes, PatternFinder, Transformer,
+    Assignment, Comment, CommentBlock, VariableDeclaration,
+    ProcedureDeclaration, Loop, Intrinsic, Pragma
 )
 from loki.frontend.source import join_source_list
 from loki.logging import warning, perf

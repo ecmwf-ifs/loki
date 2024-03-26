@@ -20,7 +20,7 @@ from loki import (
     Scope, AttachScopes, OMNI
 )
 from loki.expression import symbols
-from loki.bulk import Item
+from loki.batch import Item
 
 
 @pytest.fixture(scope='module', name='here')

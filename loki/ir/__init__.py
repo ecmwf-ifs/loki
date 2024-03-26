@@ -5,7 +5,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.visitors.visitor import *  # noqa
-from loki.visitors.transform import *  # noqa
-from loki.visitors.find import *  # noqa
-from loki.visitors.pprint import *  # noqa
+from loki.ir.find import *  # noqa
+from loki.ir.ir_graph import *  # noqa
+from loki.ir.nodes import *  # noqa
+from loki.ir.pprint import *  # noqa
+from loki.ir.transformer import *  # noqa
+from loki.ir.visitor import *  # noqa

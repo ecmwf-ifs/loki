@@ -19,13 +19,12 @@ from loki.ir import *  # noqa
 from loki.expression import *  # noqa
 from loki.types import *  # noqa
 from loki.scope import *  # noqa
-from loki.visitors import *  # noqa
 from loki.tools import *  # noqa
 from loki.logging import *  # noqa
 from loki.backend import *  # noqa
 from loki.transform import * # noqa
 from loki.build import *  # noqa  # pylint: disable=redefined-builtin
-from loki.bulk import *  # noqa
+from loki.batch import *  # noqa
 from loki.lint import *  # noqa
 from loki.pragma_utils import *  # noqa
 from loki.analyse import *  # noqa

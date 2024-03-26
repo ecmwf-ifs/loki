@@ -8,9 +8,9 @@
 from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL, PREC_COMPARISON
 
 from loki.expression.mappers import LokiStringifyMapper
-from loki.ir import Import
+from loki.ir import Import, Stringifier, FindNodes
 from loki.types import BasicType, DerivedType
-from loki.visitors import Stringifier, FindNodes
+
 
 __all__ = ['maxjgen', 'MaxjCodegen', 'MaxjCodeMapper']
 

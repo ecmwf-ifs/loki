@@ -10,10 +10,13 @@ Visitor classes that allow searching the IR
 """
 from itertools import groupby
 
-from loki.visitors.visitor import Visitor
+from loki.ir.visitor import Visitor
 from loki.tools import flatten
 
-__all__ = ['FindNodes', 'SequenceFinder', 'PatternFinder', 'is_parent_of', 'is_child_of', 'FindScopes']
+__all__ = [
+    'FindNodes', 'SequenceFinder', 'PatternFinder', 'is_parent_of',
+    'is_child_of', 'FindScopes'
+]
 
 
 class FindNodes(Visitor):

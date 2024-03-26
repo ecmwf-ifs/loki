@@ -10,10 +10,12 @@ from collections import defaultdict
 from contextlib import contextmanager
 
 from loki.expression import symbols as sym
-from loki.ir import VariableDeclaration, Pragma, PragmaRegion
+from loki.ir import (
+    VariableDeclaration, Pragma, PragmaRegion,
+    FindNodes, Visitor, Transformer, MaskedTransformer
+)
 from loki.tools.util import as_tuple, flatten
 from loki.types import BasicType
-from loki.visitors import FindNodes, Visitor, Transformer, MaskedTransformer
 
 
 __all__ = [

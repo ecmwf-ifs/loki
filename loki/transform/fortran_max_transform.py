@@ -14,7 +14,7 @@ from loki.expression import (
     FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
     SubstituteExpressionsMapper, ExpressionRetriever, symbols as sym
 )
-from loki import ir
+from loki.ir import nodes as ir, Transformer, FindNodes
 from loki.module import Module
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.sourcefile import Sourcefile
@@ -28,7 +28,6 @@ from loki.transform.transform_array_indexing import (
 )
 from loki.transform.transform_utilities import replace_intrinsics
 from loki.types import SymbolAttributes, BasicType, DerivedType
-from loki.visitors import Transformer, FindNodes
 
 
 __all__ = ['FortranMaxTransformation']

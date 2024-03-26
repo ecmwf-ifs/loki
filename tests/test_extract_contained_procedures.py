@@ -10,14 +10,10 @@ from conftest import available_frontends
 from loki.sourcefile import Sourcefile
 from loki.expression import FindInlineCalls
 from loki import OMNI, OFP
-from loki.ir import (
-    CallStatement, Import,
-)
-from loki.visitors import FindNodes
-from loki.transform import (
-    extract_contained_procedures
-)
+from loki.ir import CallStatement, Import, FindNodes
+from loki.transform import extract_contained_procedures
 from loki.subroutine import Subroutine
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_extract_contained_procedures_basic_scalar(frontend):

@@ -8,12 +8,15 @@
 """
 Visitor classes for transforming the IR
 """
-from loki.ir import Node, Conditional, ScopedNode
+from loki.ir.nodes import Node, Conditional, ScopedNode
+from loki.ir.visitor import Visitor
 from loki.tools import flatten, is_iterable, as_tuple, replace_windowed
-from loki.visitors.visitor import Visitor
 
 
-__all__ = ['Transformer', 'NestedTransformer', 'MaskedTransformer', 'NestedMaskedTransformer']
+__all__ = [
+    'Transformer', 'NestedTransformer', 'MaskedTransformer',
+    'NestedMaskedTransformer'
+]
 
 
 class Transformer(Visitor):

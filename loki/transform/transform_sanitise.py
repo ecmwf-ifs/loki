@@ -13,10 +13,9 @@ code easier.
 """
 
 from loki.expression import FindVariables, SubstituteExpressions, Array, RangeIndex
-from loki.ir import CallStatement
+from loki.ir import CallStatement, FindNodes, Transformer, NestedTransformer
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
-from loki.visitors import FindNodes, Transformer, NestedTransformer
 
 from loki.transform.transform_utilities import recursive_expression_map_update
 from loki.transform.transformation import Transformation

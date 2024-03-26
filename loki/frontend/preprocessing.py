@@ -18,8 +18,7 @@ from codetiming import Timer
 from loki.logging import debug, perf
 from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash
-from loki.visitors import FindNodes
-from loki.ir import VariableDeclaration, Intrinsic
+from loki.ir import VariableDeclaration, Intrinsic, FindNodes
 from loki.frontend.util import OMNI, OFP, FP, REGEX
 
 

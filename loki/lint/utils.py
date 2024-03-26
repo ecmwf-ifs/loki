@@ -8,11 +8,10 @@
 from hashlib import md5
 import re
 
-from loki.ir import Comment, CommentBlock, LeafNode
+from loki.ir import Comment, CommentBlock, LeafNode, FindNodes, Transformer
 from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
-from loki.visitors import FindNodes, Transformer
 
 
 __all__ = ['Fixer', 'get_filename_from_parent', 'get_location_hash', 'is_rule_disabled']

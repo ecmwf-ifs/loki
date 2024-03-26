@@ -7,17 +7,16 @@
 
 from abc import abstractmethod
 
-from loki import ir
 from loki.expression import Variable
 from loki.frontend import (
     Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
 )
+from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.logging import debug
 from loki.scope import Scope
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
 from loki.types import BasicType, DerivedType, ProcedureType
-from loki.visitors import FindNodes, Transformer
 
 
 __all__ = ['ProgramUnit']

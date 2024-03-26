@@ -158,7 +158,7 @@ def test_file_item1(here, default_config):
     assert item.scope_name is None
     assert not item.scope
     assert item.ir is item.source
-    assert str(item) == 'loki.bulk.FileItem<module/a_mod.F90>'
+    assert str(item) == 'loki.batch.FileItem<module/a_mod.F90>'
 
     # A few checks on the item comparison
     assert item == 'module/a_mod.F90'
@@ -284,7 +284,7 @@ def test_module_item1(here):
     item = get_item(ModuleItem, proj/'module/a_mod.F90', 'a_mod', RegexParserClass.ProgramUnitClass)
     assert item.name == 'a_mod'
     assert item == 'a_mod'
-    assert str(item) == 'loki.bulk.ModuleItem<a_mod>'
+    assert str(item) == 'loki.batch.ModuleItem<a_mod>'
     assert item.ir is item.source['a_mod']
     assert item.definitions == (item.source['a'],)
 
@@ -358,7 +358,7 @@ def test_procedure_item1(here):
     item = get_item(ProcedureItem, proj/'source/comp1.F90', '#comp1', RegexParserClass.ProgramUnitClass)
     assert item.name == '#comp1'
     assert item == '#comp1'
-    assert str(item) == 'loki.bulk.ProcedureItem<#comp1>'
+    assert str(item) == 'loki.batch.ProcedureItem<#comp1>'
     assert item.ir is item.source['comp1']
     assert item.definitions is ()
 
@@ -629,7 +629,7 @@ def test_typedef_item(here):
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass
     )
     assert item.name == 't_mod#t'
-    assert str(item) == 'loki.bulk.TypeDefItem<t_mod#t>'
+    assert str(item) == 'loki.batch.TypeDefItem<t_mod#t>'
     assert item.ir is item.source['t']
     assert 'proc' in item.ir.variable_map
     assert item.definitions == item.ir.declarations
@@ -677,7 +677,7 @@ def test_interface_item_in_module(here):
     )
 
     assert item.name == 'some_module#add_args'
-    assert str(item) == 'loki.bulk.InterfaceItem<some_module#add_args>'
+    assert str(item) == 'loki.batch.InterfaceItem<some_module#add_args>'
     assert item.ir is item.source['some_module'].interface_map['add_args']
     assert {'add_args', 'add_two_args', 'add_three_args'} == set(item.ir.symbols)
 
@@ -764,7 +764,7 @@ def test_procedure_binding_item1(here):
     # 1. A direct procedure binding
     item = get_item(ProcedureBindingItem, proj/'module/t_mod.F90', 't_mod#t%proc', parser_classes)
     assert item.name == 't_mod#t%proc'
-    assert str(item) == 'loki.bulk.ProcedureBindingItem<t_mod#t%proc>'
+    assert str(item) == 'loki.batch.ProcedureBindingItem<t_mod#t%proc>'
     assert item.ir is item.source['t'].variable_map['proc']
     assert item.definitions is ()
     assert not item.create_definition_items(item_factory=ItemFactory())
