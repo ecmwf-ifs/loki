@@ -15,13 +15,36 @@ on:
 
 jobs:
   pytest:
-    name: Python ${{ matrix.python-version }}
+    name: pytest
 
-    runs-on: ubuntu-20.04
     strategy:
       fail-fast: false  # false: try to complete all jobs
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        name:
+          - linux python-3.8
+          - linux python-3.9
+          - linux python-3.10
+          - linux python-3.11
+          - macos python-3.11
+
+        include:
+          - name: linux python-3.8
+            os: ubuntu-22.04
+            python-version: 3.8
+          - name: linux python-3.9
+            os: ubuntu-22.04
+            python-version: 3.9
+          - name: linux python-3.10
+            os: ubuntu-22.04
+            python-version: 3.10
+          - name: linux python-3.11
+            os: ubuntu-22.04
+            python-version: 3.11
+          - name: macos python-3.11
+            os: macos-14
+            python-version: 3.11
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
