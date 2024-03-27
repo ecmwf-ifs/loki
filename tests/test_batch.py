@@ -620,6 +620,50 @@ def test_procedure_item_with_config2(here, disable):
     assert item.targets == ('t_mod', 't', 'nt1', 'header_mod', 'arg%proc', 'arg%no%way')
 
 
+@pytest.mark.parametrize('enable_imports', [False, True])
+def test_procedure_item_external_item(enable_imports, default_config):
+    """
+    Test that dependencies to external module procedures are marked as external item
+    """
+    fcode = """
+subroutine procedure_item_external_item
+    use external_mod, only: external_proc, unused_external_proc, external_type, external_var
+    implicit none
+    type(external_type) :: my_type
+
+    call external_proc(1)
+
+    my_type%my_val = external_var
+end subroutine procedure_item_external_item
+    """
+    workdir = gettempdir()/'test_procedure_item_external_item'
+    workdir.mkdir(exist_ok=True)
+    filepath = workdir/'procedure_item_external_item.F90'
+    filepath.write_text(fcode)
+
+    default_config['default']['enable_imports'] = enable_imports
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+    item = get_item(
+        ProcedureItem, filepath, '#procedure_item_external_item',
+        RegexParserClass.ProgramUnitClass, scheduler_config
+    )
+    item_factory = ItemFactory()
+    item_factory.item_cache[item.name] = item
+    items = item.create_dependency_items(item_factory=item_factory, config=scheduler_config)
+
+    # NB: dependencies to imported symbols are not added as external items because it would be impossible
+    #     to determine their type. Instead, the external module is marked as a dependency, regardless if
+    #     imports are enabled or not.
+    #     However, the external procedure with a call statement is recognized as an external procedure
+    #     and therefore included in the dependency tree.
+    assert items == ('external_mod', 'external_mod#external_proc')
+    assert all(isinstance(it, ExternalItem) for it in items)
+    assert [it.origin_cls for it in items] == [ModuleItem, ProcedureItem]
+
+    filepath.unlink(missing_ok=True)
+    workdir.rmdir()
+
+
 def test_typedef_item(here):
     proj = here/'sources/projBatch'
 

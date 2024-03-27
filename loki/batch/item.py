@@ -1123,11 +1123,12 @@ class ItemFactory:
             return self.item_cache[item_name]
 
         item_conf = config.create_item_config(item_name) if config else None
-        if scope_name not in self.item_cache:
+        scope_item = self.item_cache.get(scope_name)
+        if scope_item is None or isinstance(scope_item, ExternalItem):
             warning(f'Module {scope_name} not found in self.item_cache. Marking {item_name} as an external dependency')
             item = ExternalItem(item_name, source=None, config=item_conf, origin_cls=item_cls)
         else:
-            source = self.item_cache[scope_name].source
+            source = scope_item.source
             item = item_cls(item_name, source=source, config=item_conf)
         self.item_cache[item_name] = item
         return item
