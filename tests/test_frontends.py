@@ -471,8 +471,9 @@ def test_regex_module_from_source():
     """
     fcode = """
 module some_module
-    implicit none
     use foobar
+    implicit none
+    integer, parameter :: k = selected_int_kind(5)
 contains
     subroutine module_routine
         integer m
@@ -481,9 +482,9 @@ contains
         call routine_b(m, 6)
     end subroutine module_routine
 
-    function module_function(n)
+    integer(kind=k) function module_function(n)
         integer n
-        n = 3
+        module_function = n + 2
     end function module_function
 end module some_module
     """.strip()
