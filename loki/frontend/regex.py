@@ -389,7 +389,7 @@ class ModulePattern(Pattern):
             r'(?:[ \t\w()=]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]*\w+)?\n)|'
             r'(?:[ \t\w()=]*?function.*?^end[ \t]*function\b(?:[ \t]*\w+)?\n)|'
             r'(?:^#\w+.*?\n)'
-            r')*)?'
+            r')*?)?'
             r'^end[ \t]*module\b(?:[ \t](?P=name))?',
             re.IGNORECASE | re.DOTALL | re.MULTILINE
         )
@@ -473,7 +473,7 @@ class SubroutineFunctionPattern(Pattern):
             r'(?:[ \t\w()=]*?subroutine.*?^end[ \t]*subroutine\b(?:[ \t]\w+)?\n)|'
             r'(?:[ \t\w()=]*?function.*?^end[ \t]*function\b(?:[ \t]\w+)?\n)|'
             r'(?:^#\w+.*?\n)'
-            r')*)?'
+            r')*?)?'
             r'^end[ \t]*(?P=keyword)\b(?:[ \t](?P=name))?',
             re.IGNORECASE | re.DOTALL | re.MULTILINE
         )

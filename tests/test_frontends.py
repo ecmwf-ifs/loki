@@ -572,22 +572,47 @@ function function_d(d)
     integer d
     d = 6
 end function function_d
+
+module last_module
+    implicit none
+contains
+    subroutine last_routine1
+        call contained()
+        contains
+        subroutine contained
+        integer n
+        n = 1
+        end subroutine contained
+    end subroutine last_routine1
+    subroutine last_routine2
+        call contained2()
+        contains
+        subroutine contained2
+        integer m
+        m = 1
+        end subroutine contained2
+    end subroutine last_routine2
+end module last_module
     """.strip()
 
     sourcefile = Sourcefile.from_source(fcode, frontend=REGEX)
-    assert [m.name for m in sourcefile.modules] == ['some_module', 'other_module']
+    assert [m.name for m in sourcefile.modules] == ['some_module', 'other_module', 'last_module']
     assert [r.name for r in sourcefile.routines] == [
         'routine_a', 'routine_b', 'function_d'
     ]
     assert [r.name for r in sourcefile.all_subroutines] == [
-        'routine_a', 'routine_b', 'function_d', 'module_routine', 'module_function'
+        'routine_a', 'routine_b', 'function_d', 'module_routine', 'module_function',
+        'last_routine1', 'last_routine2'
     ]
 
+    assert len(r := sourcefile['last_module']['last_routine1'].routines) == 1 and r[0].name == 'contained'
+    assert len(r := sourcefile['last_module']['last_routine2'].routines) == 1 and r[0].name == 'contained2'
+
     code = sourcefile.to_fortran()
-    assert code.count('SUBROUTINE') == 10
+    assert code.count('SUBROUTINE') == 18
     assert code.count('FUNCTION') == 6
-    assert code.count('CONTAINS') == 2
-    assert code.count('MODULE') == 4
+    assert code.count('CONTAINS') == 5
+    assert code.count('MODULE') == 6
 
 
 def test_regex_sourcefile_from_file(here):
