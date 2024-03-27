@@ -36,7 +36,7 @@ jobs:
             python-version: 3.9
           - name: linux python-3.10
             os: ubuntu-22.04
-            python-version: 3.10
+            python-version: '3.10'
           - name: linux python-3.11
             os: ubuntu-22.04
             python-version: 3.11
@@ -55,21 +55,32 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
-      - name: Refresh package lists
+      - name: Refresh package lists and install Loki dependencies
         run: |
-          sudo apt-get -o Acquire::Retries=3 update || true
+          if [[ "${{ matrix.os }}" =~ macos ]]; then
+            brew install gcc@13 graphviz
+          else
+            sudo apt-get -o Acquire::Retries=3 update || true
+            sudo apt-get -o Acquire::Retries=3 install -y graphviz gfortran
+          fi
 
-      - name: Install Loki dependencies
-        run: |
-          sudo apt-get -o Acquire::Retries=3 install -y graphviz gfortran
-
-      - name: Install OMNI + CLAW dependencies
+      - name: Install OMNI + CLAW dependencies on Linux
+        if: ${{ ! startsWith(matrix.os, 'macos') }}
         run: |
           sudo apt-get -o Acquire::Retries=3 install -y byacc flex openjdk-11-jdk cmake ant
 
       - name: Install Loki
         run: |
-          ./install --with-claw --with-ofp --with-examples --with-tests --with-dace
+          if [[ "${{ matrix.os }}" =~ macos ]]; then
+            export CC=gcc-13 CXX=g++-13 FC=gfortran-13
+            ./install --with-examples --with-tests --with-dace
+            echo "export PATH=/opt/homebrew/bin:\${PATH}" >> loki-activate
+            echo "alias gcc=gcc-13" >> loki-activate
+            echo "alias g++=g++-13" >> loki-activate
+            echo "alias gfortran=gfortran-13" >> loki-activate
+          else
+            ./install --with-claw --with-ofp --with-examples --with-tests --with-dace
+          fi
 
       - name: Install up-to-date CMake
         run: |
@@ -83,6 +94,7 @@ jobs:
 
       - name: Upload loki coverage report to Codecov
         uses: codecov/codecov-action@v4
+        if: ${{ ! startsWith(matrix.os, 'macos') }}
         with:
           flags: loki
           files: ./coverage.xml
@@ -94,6 +106,7 @@ jobs:
 
       - name: Upload transformations coverage report to Codecov
         uses: codecov/codecov-action@v4
+        if: ${{ ! startsWith(matrix.os, 'macos') }}
         with:
           flags: transformations
           files: ./coverage.xml
@@ -105,6 +118,7 @@ jobs:
 
       - name: Upload lint_rules coverage report to Codecov
         uses: codecov/codecov-action@v4
+        if: ${{ ! startsWith(matrix.os, 'macos') }}
         with:
           flags: lint_rules
           files: ./coverage.xml
