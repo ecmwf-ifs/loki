@@ -521,12 +521,13 @@ contains
         m = 2
 
         call routine_b(m, 6)
-    end subroutine module_routine
+    end subroutine   module_routine
 
     function module_function(n)
         integer n
-        n = 3
-    end function module_function
+        integer module_function
+        module_function = n + 3
+    end function   module_function
 end module some_module
 
 module other_module
@@ -565,7 +566,7 @@ contains
         integer c
         c = 8
     end subroutine !add"£^£$
-end subroutine routine_b
+endsubroutine  routine_b
 
 function function_d(d)
     integer d
