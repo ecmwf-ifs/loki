@@ -11,7 +11,8 @@ from loki.expression import symbols as sym
 from loki import (
      Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
      NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
-     is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached
+     is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached,
+     SymbolAttributes, resolve_type_bound_var
 )
 from transformations.single_column_coalesced import SCCBaseTransformation
 
@@ -266,8 +267,19 @@ class SCCRevectorTransformation(Transformation):
         """
 
         # Create a single loop around the horizontal from a given body
-        v_start = routine.variable_map[horizontal.bounds[0]]
-        v_end = routine.variable_map[horizontal.bounds[1]]
+        if (routine.variable_map.get(horizontal.bounds[0], None) and
+            routine.variable_map.get(horizontal.bounds[1], None)):
+            v_start = routine.variable_map[horizontal.bounds[0]]
+            v_end = routine.variable_map[horizontal.bounds[1]]
+        else:
+            assert len(horizontal._bounds_aliases) == 2
+
+            int_type = SymbolAttributes(dtype=BasicType.INTEGER)
+            _name, _parent = resolve_type_bound_var(horizontal._bounds_aliases[0])
+            v_start = sym.Variable(name=_name, parent=_parent, type=int_type)
+
+            _name, _parent = resolve_type_bound_var(horizontal._bounds_aliases[1])
+            v_end = sym.Variable(name=_name, parent=_parent, type=int_type)
         index = SCCBaseTransformation.get_integer_variable(routine, horizontal.index)
         bounds = sym.LoopRange((v_start, v_end))
 
@@ -326,7 +338,8 @@ class SCCDemoteTransformation(Transformation):
             # Only demote local arrays with the horizontal as fast dimension
             arrays = [v for v in arrays if isinstance(v, sym.Array)]
             arrays = [v for v in arrays if v.name not in argument_names]
-            arrays = [v for v in arrays if v.shape and v.shape[0] == horizontal.size]
+            arrays = [v for v in arrays if v.shape and
+                      v.shape[0] in [horizontal.size, *horizontal._aliases]]
 
             # Also demote arrays whose remaning dimensions are known constants
             arrays = [v for v in arrays if all(is_dimension_constant(d) for d in v.shape[1:])]
@@ -370,11 +383,13 @@ class SCCDemoteTransformation(Transformation):
 
         if role == 'kernel':
             demote_locals = self.demote_local_arrays
+            preserve_arrays = []
             if item:
                 demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
-            self.process_kernel(routine, demote_locals=demote_locals)
+                preserve_arrays = item.config.get('preserve_arrays', [])
+            self.process_kernel(routine, demote_locals=demote_locals, preserve_arrays=preserve_arrays)
 
-    def process_kernel(self, routine, demote_locals=True):
+    def process_kernel(self, routine, demote_locals=True, preserve_arrays=None):
         """
         Applies the SCCDemote utilities to a "kernel" and demotes all suitable local arrays.
 
@@ -392,8 +407,13 @@ class SCCDemoteTransformation(Transformation):
         # may carry buffered values between them, so that we may not demote those!
         to_demote = self.kernel_get_locals_to_demote(routine, sections, self.horizontal)
 
+        # Filter out arrays marked explicitly for preservation
+        if preserve_arrays:
+            to_demote = [v for v in to_demote if not v.name in preserve_arrays]
+
         # Demote all private local variables that do not buffer values between sections
         if demote_locals:
             variables = tuple(v.name for v in to_demote)
             if variables:
-                demote_variables(routine, variable_names=variables, dimensions=self.horizontal.size)
+                demote_variables(routine, variable_names=variables,
+                                 dimensions=[self.horizontal.size, *self.horizontal._aliases])

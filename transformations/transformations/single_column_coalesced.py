@@ -14,7 +14,8 @@ from loki import (
     pragmas_attached, as_tuple, flatten, ir, FindExpressions,
     SymbolAttributes, BasicType, SubstituteExpressions, DerivedType,
     FindVariables, CaseInsensitiveDict, pragma_regions_attached,
-    PragmaRegion, is_loki_pragma, HoistVariablesTransformation
+    PragmaRegion, is_loki_pragma, HoistVariablesTransformation,
+    resolve_type_bound_var
 )
 
 __all__ = [
@@ -99,9 +100,13 @@ class SCCBaseTransformation(Transformation):
             to define the horizontal data dimension and iteration space.
         """
 
-        if horizontal.bounds[0] not in routine.variable_map:
+        bounds_var_root = ''
+        if horizontal._bounds_aliases:
+            bounds_var_root = horizontal._bounds_aliases[0].split('%')[0]
+
+        if horizontal.bounds[0] not in routine.variable_map and bounds_var_root not in routine.variable_map:
             raise RuntimeError(f'No horizontal start variable found in {routine.name}')
-        if horizontal.bounds[1] not in routine.variable_map:
+        if horizontal.bounds[1] not in routine.variable_map and bounds_var_root not in routine.variable_map:
             raise RuntimeError(f'No horizontal end variable found in {routine.name}')
 
     @classmethod
@@ -176,7 +181,11 @@ class SCCBaseTransformation(Transformation):
         """
         bounds_str = f'{bounds[0]}:{bounds[1]}'
 
-        bounds_v = (sym.Variable(name=bounds[0]), sym.Variable(name=bounds[1]))
+        _child, _parent = resolve_type_bound_var(bounds[0])
+        lbound_var = sym.Variable(name=_child, parent=_parent)
+        _child, _parent = resolve_type_bound_var(bounds[1])
+        ubound_var = sym.Variable(name=_child, parent=_parent)
+        bounds_v = (lbound_var, ubound_var)
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
@@ -296,7 +305,11 @@ class SCCBaseTransformation(Transformation):
         self.resolve_masked_stmts(routine, loop_variable=v_index)
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        if self.horizontal.bounds[0] in routine.variables and self.horizontal.bounds[1] in routine.variables:
+            _bounds = self.horizontal.bounds
+        else:
+            _bounds = self.horizontal._bounds_aliases
+        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=_bounds)
 
     def process_driver(self, routine):
         """
@@ -362,8 +375,10 @@ class SCCAnnotateTransformation(Transformation):
         argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
         private_arrays = [v for v in routine.variables if not v.name in argument_map]
         private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
-        private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
-        private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
+        private_arrays = [v for v in private_arrays
+                          if all(not any(s in d for d in v.shape) for s in [vertical.size, *vertical._aliases])]
+        private_arrays = [v for v in private_arrays
+                          if all(not any(s in d for d in v.shape) for s in [horizontal.size, *horizontal._aliases])]
 
         if private_arrays:
             # Log private arrays in vector regions, as these can impact performance
