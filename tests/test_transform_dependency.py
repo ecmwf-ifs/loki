@@ -205,6 +205,7 @@ SUBROUTINE driver(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
 #include "kernel.intfb.h"
+#include "kernel.func.h"
 
   CALL kernel(a, b ,c)
 END SUBROUTINE driver
@@ -245,6 +246,9 @@ END SUBROUTINE kernel
     assert '#include "kernel.intfb.h"' not in driver.to_fortran()
     assert '#include "kernel_test.intfb.h"' in driver.to_fortran()
 
+    # Check that imported function was not modified
+    assert '#include "kernel.func.h"' in driver.to_fortran()
+
     # Check that header file was generated and clean up
     assert header_file.exists()
     header_file.unlink()
@@ -262,6 +266,7 @@ def test_dependency_transformation_module_wrap(frontend, use_scheduler, tempdir,
 SUBROUTINE driver(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
+#include "kernel.func.h"
 #include "kernel.intfb.h"
 
   CALL kernel(a, b ,c)
@@ -320,10 +325,11 @@ END SUBROUTINE kernel
     calls = FindNodes(CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver'].spec)
-    assert len(imports) == 1
+    imports = FindNodes(Import).visit(driver['driver'].ir)
+    assert len(imports) == 2
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+    assert imports[1].module == 'kernel.func.h'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
