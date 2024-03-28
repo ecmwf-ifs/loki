@@ -50,6 +50,7 @@ Test directory structure
 
 from collections import deque
 from itertools import chain
+from functools import partial
 from pathlib import Path
 import re
 from shutil import rmtree
@@ -64,7 +65,8 @@ from loki import (
     gettempdir, ProcedureSymbol, Item, ProcedureItem, ProcedureBindingItem, InterfaceItem,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, flatten, as_tuple, TypeDefItem, SFilter, CaseInsensitiveDict, Comment,
-    ModuleWrapTransformation, Dimension, PreprocessorDirective, ExternalItem
+    ModuleWrapTransformation, Dimension, PreprocessorDirective, ExternalItem,
+    Pipeline, Assignment, Literal
 )
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
@@ -2757,3 +2759,87 @@ end subroutine test_scheduler_frontend_overwrite_kernel
     assert comments[0].text == '! We have a comment'
 
     rmtree(workdir)
+
+
+def test_scheduler_pipeline_simple(here, config, frontend):
+    """
+    Test processing a :any:`Pipeline` over a simple call-tree.
+
+    projA: driverA -> kernelA -> compute_l1 -> compute_l2
+                           |
+                           | --> another_l1 -> another_l2
+    """
+    projA = here/'sources/projA'
+
+    scheduler = Scheduler(
+        paths=projA, includes=projA/'include', config=config,
+        seed_routines='driverA', frontend=frontend
+    )
+
+    class ZeroMyStuffTrafo(Transformation):
+        """ Fill each argument array with 0.0 """
+
+        def transform_subroutine(self, routine, **kwargs):
+            for v in routine.variables:
+                if isinstance(v, Array):
+                    routine.body.append(Assignment(lhs=v, rhs=Literal(0.0)))
+
+    class AddSnarkTrafo(Transformation):
+        """ Add a snarky comment to the zeroing """
+
+        def __init__(self, name='Rick'):
+            self.name = name
+
+        def transform_subroutine(self, routine, **kwargs):
+            routine.body.append(Comment(text=''))  # Add a newline
+            routine.body.append(Comment(text=f'! Sorry {self.name}, no values for you!'))
+
+    def has_correct_assigns(routine, num_assign, values=None):
+        assigns = FindNodes(Assignment).visit(routine.body)
+        values = values or [0.0]
+        return len(assigns) == num_assign and all(a.rhs in values for a in assigns)
+
+    def has_correct_comments(routine, name='Dave'):
+        text = f'! Sorry {name}, no values for you!'
+        comments = FindNodes(Comment).visit(routine.body)
+        return len(comments) > 2 and comments[-1].text == text
+
+    # First apply in sequence and check effect
+    scheduler.process(transformation=ZeroMyStuffTrafo())
+    assert has_correct_assigns(scheduler['drivera_mod#drivera'].ir, 0)
+    assert has_correct_assigns(scheduler['kernela_mod#kernela'].ir, 2)
+    assert has_correct_assigns(scheduler['compute_l1_mod#compute_l1'].ir, 1)
+    assert has_correct_assigns(scheduler['compute_l2_mod#compute_l2'].ir, 2, values=[66.0, 00])
+    assert has_correct_assigns(scheduler['#another_l1'].ir, 1)
+    assert has_correct_assigns(scheduler['#another_l2'].ir, 2, values=[77.0, 00])
+
+    scheduler.process(transformation=AddSnarkTrafo(name='Dave'))
+    assert has_correct_comments(scheduler['drivera_mod#drivera'].ir)
+    assert has_correct_comments(scheduler['kernela_mod#kernela'].ir)
+    assert has_correct_comments(scheduler['compute_l1_mod#compute_l1'].ir)
+    assert has_correct_comments(scheduler['compute_l2_mod#compute_l2'].ir)
+    assert has_correct_comments(scheduler['#another_l1'].ir)
+    assert has_correct_comments(scheduler['#another_l2'].ir)
+
+    # Rebuild the scheduler to wipe the previous result
+    scheduler = Scheduler(
+        paths=projA, includes=projA/'include', config=config,
+        seed_routines='driverA', frontend=frontend
+    )
+
+    # Then apply as a simple pipeline and check again
+    MyPipeline = partial(Pipeline, classes=(ZeroMyStuffTrafo, AddSnarkTrafo))
+    scheduler.process(transformation=MyPipeline(name='Chad'))
+    assert has_correct_assigns(scheduler['drivera_mod#drivera'].ir, 0)
+    assert has_correct_assigns(scheduler['kernela_mod#kernela'].ir, 2)
+    assert has_correct_assigns(scheduler['compute_l1_mod#compute_l1'].ir, 1)
+    assert has_correct_assigns(scheduler['compute_l2_mod#compute_l2'].ir, 2, values=[66.0, 00])
+    assert has_correct_assigns(scheduler['#another_l1'].ir, 1)
+    assert has_correct_assigns(scheduler['#another_l2'].ir, 2, values=[77.0, 00])
+
+    assert has_correct_comments(scheduler['drivera_mod#drivera'].ir, name='Chad')
+    assert has_correct_comments(scheduler['kernela_mod#kernela'].ir, name='Chad')
+    assert has_correct_comments(scheduler['compute_l1_mod#compute_l1'].ir, name='Chad')
+    assert has_correct_comments(scheduler['compute_l2_mod#compute_l2'].ir, name='Chad')
+    assert has_correct_comments(scheduler['#another_l1'].ir, name='Chad')
+    assert has_correct_comments(scheduler['#another_l2'].ir, name='Chad')

@@ -104,11 +104,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
     process_ignored_items = True
 
-    def __init__(self, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
-                 stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
-                 local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
-                 check_bounds=True, key=None, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(
+            self, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
+            stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
+            local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
+            check_bounds=True, key=None
+    ):
         self.block_dim = block_dim
         self.stack_ptr_name = stack_ptr_name
         self.stack_end_name = stack_end_name

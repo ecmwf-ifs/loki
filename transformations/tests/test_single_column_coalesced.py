@@ -11,16 +11,17 @@ import pytest
 
 from loki import (
     OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
-    CallStatement, Conditional, Scalar, Array, Pragma, pragmas_attached,
-    fgen, Sourcefile, Section, ProcedureItem, ModuleItem, pragma_regions_attached, PragmaRegion,
-    is_loki_pragma, IntLiteral, RangeIndex, Comment, HoistTemporaryArraysAnalysis,
-    gettempdir, Scheduler, SchedulerConfig, SanitiseTransformation, InlineTransformation
+    CallStatement, Conditional, Scalar, Array, Pragma,
+    pragmas_attached, fgen, Sourcefile, Section, ProcedureItem,
+    ModuleItem, pragma_regions_attached, PragmaRegion, is_loki_pragma,
+    IntLiteral, RangeIndex, Comment, gettempdir, Scheduler,
+    SchedulerConfig, SanitiseTransformation, InlineTransformation
 )
 from conftest import available_frontends
 from transformations import (
     DataOffloadTransformation, SCCBaseTransformation, SCCDevectorTransformation,
     SCCDemoteTransformation, SCCRevectorTransformation, SCCAnnotateTransformation,
-    SCCHoistTemporaryArraysTransformation
+    SCCVectorPipeline, SCCHoistPipeline
 )
 #pylint: disable=too-many-lines
 
@@ -354,27 +355,16 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     driver_item = ProcedureItem(name='#column_driver', source=driver_source)
     kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
 
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-
-    for transform in scc_transform:
-        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-        transform.apply(kernel, role='kernel', item=kernel_item)
-
-    # Now apply the hoisting passes (anaylisis in reverse order)
-    analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
-    synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking)
-    analysis.apply(kernel, role='kernel', item=kernel_item)
-    analysis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(kernel, role='kernel', item=kernel_item)
-
-    annotate = SCCAnnotateTransformation(
-        horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
+    scc_hoist = SCCHoistPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
     )
-    annotate.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-    annotate.apply(kernel, role='kernel', item=kernel_item)
+
+    # Apply pipeline in reverse order to ensure analysis runs before hoisting
+    scc_hoist.apply(kernel, role='kernel', item=kernel_item)
+    scc_hoist.apply(
+        driver, role='driver', item=driver_item,
+        successors=(kernel_item,), targets=['compute_column']
+    )
 
     # Ensure we two loops left in kernel
     kernel_loops = FindNodes(Loop).visit(kernel.body)
@@ -783,35 +773,16 @@ end module my_scaling_value_mod
     kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
     module_item = ModuleItem(name='my_scaling_value_mod', source=module_source)
 
-    # Test OpenACC annotations on hoisted version
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-
-    for transform in scc_transform:
-        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'], successors=[kernel_item])
-        transform.apply(kernel, role='kernel', item=kernel_item, successors=[module_item])
-
-    # Now apply the hoisting passes (anaylisis in reverse order)
-    analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
-    synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking)
-
-    # The try-except is for checking a bug where HoistTemporaryArraysAnalysis would
-    # access a GlobalVarImportItem, which should not happen. Note that in case of a KeyError (which signifies
-    # the issue occurring), an explicit pytest failure is thrown to signify that there is no bug in the test itself.
-    try:
-        analysis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
-    except KeyError:
-        pytest.fail('`HoistTemporaryArraysAnalysis` should not attempt to access `GlobalVarImportItem`s')
-    analysis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(driver, role='driver', item=driver_item, successors=(kernel_item,))
-    synthesis.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
-
-    annotate = SCCAnnotateTransformation(
-        horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
+    scc_hoist = SCCHoistPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        directive='openacc', dim_vars=(vertical.size,)
     )
-    annotate.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-    annotate.apply(kernel, role='kernel', item=kernel_item)
+
+    # Apply in reverse order to ensure hoisting analysis gets run on kernel first
+    scc_hoist.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
+    scc_hoist.apply(
+        driver, role='driver', item=driver_item, successors=(kernel_item,), targets=['compute_column']
+    )
 
     with pragmas_attached(kernel, Loop):
         # Ensure kernel routine is anntoated at vector level
@@ -923,34 +894,21 @@ def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vert
     outer_kernel_item = ProcedureItem(name='#compute_column', source=outer_kernel)
     inner_kernel_item = ProcedureItem(name='#update_q', source=inner_kernel)
 
-    # Test OpenACC annotations on hoisted version
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-
-    for transform in scc_transform:
-        transform.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-        transform.apply(outer_kernel, role='kernel', item=outer_kernel_item, targets=['compute_q'])
-        transform.apply(inner_kernel, role='kernel', item=inner_kernel_item)
-
-    # Now apply the hoisting passes (anaylisis in reverse order)
-    analysis = HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,))
-    synthesis = SCCHoistTemporaryArraysTransformation(block_dim=blocking, as_kwarguments=as_kwarguments)
-    # analysis reverse order
-    analysis.apply(inner_kernel, role='kernel', item=inner_kernel_item)
-    analysis.apply(outer_kernel, role='kernel', item=outer_kernel_item, successors=(inner_kernel_item,))
-    analysis.apply(driver, role='driver', item=driver_item, successors=(outer_kernel_item,))
-    # synthesis
-    synthesis.apply(driver, role='driver', item=driver_item, successors=(outer_kernel_item,))
-    synthesis.apply(outer_kernel, role='kernel', item=outer_kernel_item, successors=(inner_kernel_item,))
-    synthesis.apply(inner_kernel, role='kernel', item=outer_kernel_item)
-
-    annotate = SCCAnnotateTransformation(
-        horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
+    scc_hoist = SCCHoistPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        dim_vars=(vertical.size,), as_kwarguments=as_kwarguments, directive='openacc'
     )
-    annotate.apply(driver, role='driver', item=driver_item, targets=['compute_column'])
-    annotate.apply(outer_kernel, role='kernel', item=outer_kernel_item, targets=['update_q'])
-    annotate.apply(inner_kernel, role='kernel', item=outer_kernel_item)
+
+    # Apply in reverse order to ensure hoisting analysis gets run on kernel first
+    scc_hoist.apply(inner_kernel, role='kernel', item=inner_kernel_item)
+    scc_hoist.apply(
+        outer_kernel, role='kernel', item=outer_kernel_item,
+        targets=['compute_q'], successors=(inner_kernel_item,)
+    )
+    scc_hoist.apply(
+        driver, role='driver', item=driver_item,
+        targets=['compute_column'], successors=(outer_kernel_item,)
+    )
 
     # Ensure calls have correct arguments
     # driver
@@ -1106,22 +1064,21 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
     outer_kernel.enrich(inner_kernel)  # Attach kernel source to driver call
     driver.enrich(outer_kernel)  # Attach kernel source to driver call
 
-    # Test SCC transform for plain nested kernel
-    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
-    scc_transform += (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
-                                                directive='openacc', block_dim=blocking),)
+    # Instantial SCCVector pipeline and apply
+    scc_pipeline = SCCVectorPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+    )
+    scc_pipeline.apply(driver, role='driver', targets=['compute_column'])
+    scc_pipeline.apply(outer_kernel, role='kernel', targets=['compute_q'])
+    scc_pipeline.apply(inner_kernel, role='kernel')
 
     # Apply annotate twice to test bailing out mechanism
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
-                                                directive='openacc', block_dim=blocking),)
-
-
-    for transform in scc_transform:
-        transform.apply(driver, role='driver', targets=['compute_column'])
-        transform.apply(outer_kernel, role='kernel', targets=['compute_q'])
-        transform.apply(inner_kernel, role='kernel')
+    scc_annotate = SCCAnnotateTransformation(
+        horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
+    )
+    scc_annotate.apply(driver, role='driver', targets=['compute_column'])
+    scc_annotate.apply(outer_kernel, role='kernel', targets=['compute_q'])
+    scc_annotate.apply(inner_kernel, role='kernel')
 
     # Ensure a single outer parallel loop in driver
     with pragmas_attached(driver, Loop):
@@ -1241,12 +1198,10 @@ def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, bloc
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
     # Test SCC transform for kernel with scope-splitting outer loop
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
-                                                directive='openacc', block_dim=blocking),)
-    for transform in scc_transform:
-        transform.apply(kernel, role='kernel')
+    scc_pipeline = SCCVectorPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+    )
+    scc_pipeline.apply(kernel, role='kernel')
 
     # Ensure that we capture vector loops outside the outer vertical loop, as well as the one vector loop inside it.
     with pragmas_attached(kernel, Loop):
@@ -1446,13 +1401,10 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
 
     kernel = Subroutine.from_source(fcode, frontend=frontend)
 
-    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
-    scc_transform += (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
-                                                directive='openacc', block_dim=blocking),)
-    for transform in scc_transform:
-        transform.apply(kernel, role='kernel')
+    scc_pipeline = SCCVectorPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+    )
+    scc_pipeline.apply(kernel, role='kernel')
 
     # Ensure we have three vector loops in the kernel
     kernel_loops = FindNodes(Loop).visit(kernel.body)
@@ -1521,12 +1473,10 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     data_offload = DataOffloadTransformation(remove_openmp=True)
     data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
-                                                directive='openacc', block_dim=blocking),)
-    for transform in scc_transform:
-        transform.apply(routine, role='driver', targets=['some_kernel',])
+    scc_pipeline = SCCVectorPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+    )
+    scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
 
     # Check that both acc pragmas are created
     pragmas = FindNodes(Pragma).visit(routine.ir)
@@ -1660,10 +1610,9 @@ def test_single_column_coalesced_vector_reduction(frontend, horizontal, vertical
     end subroutine some_kernel
     """
 
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical,
-                                                directive='openacc', block_dim=blocking),)
+    scc_pipeline = SCCVectorPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+    )
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['some_kernel']
@@ -1672,8 +1621,8 @@ def test_single_column_coalesced_vector_reduction(frontend, horizontal, vertical
         region = FindNodes(PragmaRegion).visit(routine.body)
         assert is_loki_pragma(region[0].pragma, starts_with = 'vector-reduction')
 
-    for transform in scc_transform:
-        transform.apply(routine, role='kernel', targets=['some_kernel',])
+
+    scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.body)
     assert len(pragmas) == 3
@@ -1877,7 +1826,9 @@ def test_single_column_coalesced_vector_section_trim_nested(frontend, horizontal
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('trim_vector_sections', [False, True])
-def test_single_column_coalesced_vector_section_trim_complex(frontend, horizontal, trim_vector_sections):
+def test_single_column_coalesced_vector_section_trim_complex(
+        frontend, horizontal, vertical, blocking, trim_vector_sections
+):
     """
     Test to highlight the limitations of vector-section trimming.
     """
@@ -1908,12 +1859,11 @@ def test_single_column_coalesced_vector_section_trim_complex(frontend, horizonta
 
     routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
-    scc_transform = (SCCBaseTransformation(horizontal=horizontal),)
-    scc_transform += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-
-    for transform in scc_transform:
-        transform.apply(routine, role='kernel', targets=['some_kernel',])
+    scc_pipeline = SCCVectorPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        directive='openacc', trim_vector_sections=trim_vector_sections
+    )
+    scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
 
     assign = FindNodes(Assignment).visit(routine.body)[0]
 

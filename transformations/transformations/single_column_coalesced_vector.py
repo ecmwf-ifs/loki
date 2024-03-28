@@ -13,7 +13,7 @@ from loki import (
      NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
      is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached
 )
-from transformations.single_column_coalesced import SCCBaseTransformation
+from transformations.single_column_base import SCCBaseTransformation
 
 __all__ = ['SCCDevectorTransformation', 'SCCRevectorTransformation', 'SCCDemoteTransformation']
 
