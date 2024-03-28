@@ -541,3 +541,28 @@ def test_transformation_pipeline_constructor():
     assert p1.transformations[0].d == 'yes'
     assert p1.transformations[1].b == 66
     assert p1.transformations[1].d == 'yes'
+
+    # Now we use inheritance to propagate defaults
+
+    class DoSomethingDifferentTrafo(DoSomethingTrafo):
+        def __init__(self, e=1969, **kwargs):
+            super().__init__(**kwargs)
+            self.e = e
+
+    MyOtherPipeline = partial(
+        Pipeline, classes=(
+            DoSomethingDifferentTrafo,
+            DoSomethingElseTrafo,
+        ),
+        a=42
+    )
+
+    # Now check if inheritance works
+    p2 = MyOtherPipeline(b=66, d='yes', e=1977)
+    assert p2.transformations[0].a == 42
+    assert p2.transformations[0].b == 66
+    assert p2.transformations[0].c is True
+    assert p2.transformations[0].d == 'yes'
+    assert p2.transformations[0].e == 1977
+    assert p2.transformations[1].b == 66
+    assert p2.transformations[1].d == 'yes'
