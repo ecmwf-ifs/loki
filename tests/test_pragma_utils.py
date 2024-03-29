@@ -4,7 +4,7 @@ import pytest
 from conftest import available_frontends
 from loki import Module, Subroutine, FindNodes, flatten, pprint, fgen
 from loki.ir import Pragma, Loop, VariableDeclaration, PragmaRegion
-from loki.pragma_utils import (
+from loki.ir.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
     pragmas_attached, pragma_regions_attached
 )

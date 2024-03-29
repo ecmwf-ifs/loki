@@ -12,8 +12,12 @@ from codetiming import Timer
 
 from loki.frontend.source import Source
 from loki.frontend.util import OMNI, sanitize_ir
-from loki.ir import GenericVisitor, FindNodes, Transformer
+
 from loki import ir
+from loki.ir import (
+    GenericVisitor, FindNodes, Transformer,
+    process_dimension_pragmas, pragmas_attached
+)
 from loki.expression import (
     symbols as sym, operations as op,
     ExpressionDimensionsMapper, StringConcat, AttachScopesMapper
@@ -22,9 +26,6 @@ from loki.logging import debug, info, warning, error
 from loki.config import config
 from loki.tools import (
     as_tuple, execute, gettempdir, filehash, CaseInsensitiveDict
-)
-from loki.pragma_utils import (
-    process_dimension_pragmas, pragmas_attached
 )
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 

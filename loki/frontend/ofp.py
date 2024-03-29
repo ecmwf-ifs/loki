@@ -23,8 +23,12 @@ except ImportError:
 from loki.frontend.source import extract_source, extract_source_from_range
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import OFP, sanitize_ir
-from loki.ir import GenericVisitor
+
 from loki import ir
+from loki.ir import (
+    GenericVisitor, attach_pragmas, process_dimension_pragmas,
+    detach_pragmas, pragmas_attached
+)
 import loki.expression.symbols as sym
 from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, ParenthesisedDiv,
@@ -34,7 +38,6 @@ from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
 from loki.tools import (
     as_tuple, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
 )
-from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
 from loki.logging import debug, info, warning, error
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.config import config

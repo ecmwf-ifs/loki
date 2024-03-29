@@ -26,7 +26,6 @@ from loki.transform import * # noqa
 from loki.build import *  # noqa  # pylint: disable=redefined-builtin
 from loki.batch import *  # noqa
 from loki.lint import *  # noqa
-from loki.pragma_utils import *  # noqa
 from loki.analyse import *  # noqa
 from loki.dimension import *  # noqa
 

@@ -10,9 +10,10 @@ from loki.frontend import (
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, get_fparser_node,
     parse_regex_source
 )
-from loki.ir import nodes as ir, FindNodes, Transformer
+from loki.ir import (
+    nodes as ir, FindNodes, Transformer, is_loki_pragma, pragmas_attached
+)
 from loki.logging import debug
-from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.program_unit import ProgramUnit
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, ProcedureType, SymbolAttributes

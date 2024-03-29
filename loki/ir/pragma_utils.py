@@ -10,11 +10,11 @@ from collections import defaultdict
 from contextlib import contextmanager
 from codetiming import Timer
 
-from loki.expression import symbols as sym
-from loki.ir import (
-    VariableDeclaration, Pragma, PragmaRegion, FindNodes, Visitor,
-    Transformer
-)
+from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion
+from loki.ir.find import FindNodes
+from loki.ir.transformer import Transformer, MaskedTransformer
+from loki.ir.visitor import Visitor
+
 from loki.tools.util import as_tuple, replace_windowed
 from loki.types import BasicType
 from loki.logging import debug, warning
@@ -106,6 +106,8 @@ def process_dimension_pragmas(ir):
     ir : :any:`Node`
         Root node of the (section of the) internal representation to process
     """
+    from loki.expression.symbols import Literal, Variable  # pylint: disable=import-outside-toplevel
+
     for decl in FindNodes(VariableDeclaration).visit(ir):
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
             for v in decl.symbols:
@@ -115,9 +117,9 @@ def process_dimension_pragmas(ir):
                 shape = []
                 for d in dims:
                     if d.isnumeric():
-                        shape += [sym.Literal(value=int(d), type=BasicType.INTEGER)]
+                        shape += [Literal(value=int(d), type=BasicType.INTEGER)]
                     else:
-                        shape += [sym.Variable(name=d, scope=v.scope)]
+                        shape += [Variable(name=d, scope=v.scope)]
                 v.scope.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(shape))
     return ir
 

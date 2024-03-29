@@ -15,7 +15,7 @@ from loki import Subroutine, OMNI, FindNodes, Loop, Conditional, Assignment
 from loki.frontend.fparser import HAVE_FP
 from loki.transform import loop_interchange, loop_fusion, loop_fission, normalize_range_indexing
 from loki.expression import symbols as sym
-from loki.pragma_utils import is_loki_pragma, pragmas_attached
+from loki.ir import is_loki_pragma, pragmas_attached
 
 
 # Polyhedron functionality relies on FParser's expression parsing

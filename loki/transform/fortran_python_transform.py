@@ -11,8 +11,7 @@ from loki.backend import pygen, dacegen
 from loki.expression import (
     symbols as sym, FindInlineCalls, SubstituteExpressions
 )
-from loki.ir import nodes as ir, FindNodes, Transformer
-from loki.pragma_utils import pragmas_attached
+from loki.ir import nodes as ir, FindNodes, Transformer, pragmas_attached
 from loki.sourcefile import Sourcefile
 from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (

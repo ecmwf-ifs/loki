@@ -12,8 +12,9 @@ from loki.frontend import (
     get_fparser_node, parse_omni_ast, parse_ofp_ast, parse_fparser_ast,
     parse_regex_source
 )
-from loki.ir import VariableDeclaration
-from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
+from loki.ir import (
+    VariableDeclaration, pragmas_attached, process_dimension_pragmas
+)
 from loki.program_unit import ProgramUnit
 from loki.scope import Scope
 from loki.subroutine import Subroutine
