@@ -7,6 +7,8 @@
 
 from inspect import signature, Parameter
 
+from loki.transform.transformation import Transformation
+
 
 class Pipeline:
     """
@@ -54,6 +56,45 @@ class Pipeline:
 
             # Then instantiate with the default *args and the derived **t_kwargs
             self.transformations.append(cls(*args, **t_kwargs))
+
+    def prepend(self, transformation):
+        """
+        Prepend a fully instantiated :any:`Transformation` object to this pipeline.
+
+        Parameters
+        ----------
+        transformation : :any:`Transformation`
+            Transformation object to prepend
+        """
+        assert isinstance(transformation, Transformation)
+
+        self.transformations.insert(0, transformation)
+
+    def append(self, transformation):
+        """
+        Append a fully instantiated :any:`Transformation` object to this pipeline.
+
+        Parameters
+        ----------
+        transformation : :any:`Transformation`
+            Transformation object to append
+        """
+        assert isinstance(transformation, Transformation)
+
+        self.transformations.append(transformation)
+
+    def extend(self, pipeline):
+        """
+        Append all :any`Transformation` objects of a given :any:`Pipeline`
+
+        Parameters
+        ----------
+        pipeline : :any:`Pipeline`
+            Pipeline whose transformations will be appended
+        """
+        assert isinstance(pipeline, Pipeline)
+
+        self.transformations.extend(pipeline.transformations)
 
     def apply(self, source, **kwargs):
         """

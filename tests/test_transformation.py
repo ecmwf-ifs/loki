@@ -566,3 +566,47 @@ def test_transformation_pipeline_constructor():
     assert p2.transformations[0].e == 1977
     assert p2.transformations[1].b == 66
     assert p2.transformations[1].d == 'yes'
+
+
+def test_transformation_pipeline_compose():
+    """
+    Test append / prepend functionalities of :any:`Pipeline` objects.
+    """
+
+    fcode = """
+subroutine test_pipeline_compose(a)
+  implicit none
+  real, intent(inout) :: a
+  a = a + 1.0
+end subroutine test_pipeline_compose
+"""
+
+    class YesTrafo(Transformation):
+        def transform_subroutine(self, routine, **kwargs):
+            routine.body.append( Comment(text='! Yes !') )
+
+    class NoTrafo(Transformation):
+        def transform_subroutine(self, routine, **kwargs):
+            routine.body.append( Comment(text='! No !') )
+
+    class MaybeTrafo(Transformation):
+        def transform_subroutine(self, routine, **kwargs):
+            routine.body.append( Comment(text='! Maybe !') )
+
+    class MaybeNotTrafo(Transformation):
+        def transform_subroutine(self, routine, **kwargs):
+            routine.body.append( Comment(text='! Maybe not !') )
+
+    pipeline = Pipeline(classes=(YesTrafo, NoTrafo))
+    pipeline.prepend(MaybeTrafo())
+    pipeline.append(MaybeNotTrafo())
+
+    routine = Subroutine.from_source(fcode)
+    pipeline.apply(routine)
+
+    comments = FindNodes(Comment).visit(routine.body)
+    assert len(comments) == 4
+    assert comments[0].text == '! Maybe !'
+    assert comments[1].text == '! Yes !'
+    assert comments[2].text == '! No !'
+    assert comments[3].text == '! Maybe not !'
