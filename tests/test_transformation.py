@@ -610,3 +610,19 @@ end subroutine test_pipeline_compose
     assert comments[1].text == '! Yes !'
     assert comments[2].text == '! No !'
     assert comments[3].text == '! Maybe not !'
+
+    # Now try the same trick, but with the native addition API
+    pipe_a = Pipeline(classes=(MaybeTrafo,))
+    pipe_b = Pipeline(classes=(MaybeNotTrafo,YesTrafo))
+    pipe = YesTrafo() + pipe_a + pipe_b + NoTrafo()
+
+    routine = Subroutine.from_source(fcode)
+    pipe.apply(routine)
+
+    comments = FindNodes(Comment).visit(routine.body)
+    assert len(comments) == 5
+    assert comments[0].text == '! Yes !'
+    assert comments[1].text == '! Maybe !'
+    assert comments[2].text == '! Maybe not !'
+    assert comments[3].text == '! Yes !'
+    assert comments[4].text == '! No !'

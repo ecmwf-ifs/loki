@@ -57,6 +57,26 @@ class Pipeline:
             # Then instantiate with the default *args and the derived **t_kwargs
             self.transformations.append(cls(*args, **t_kwargs))
 
+    def __add__(self, other):
+        """ Support native addition via ``+`` operands """
+        if isinstance(other, Transformation):
+            self.append(other)
+            return self
+        if isinstance(other, Pipeline):
+            self.extend(other)
+            return self
+        raise RuntimeError(f'[Loki::Pipeline] Can not append {other} to pipeline!')
+
+    def __radd__(self, other):
+        """ Support native addition via ``+`` operands """
+        if isinstance(other, Transformation):
+            self.prepend(other)
+            return self
+        if isinstance(other, Pipeline):
+            other.extend(self)
+            return other
+        raise RuntimeError(f'[Loki::Pipeline] Can not append {other} to pipeline!')
+
     def prepend(self, transformation):
         """
         Prepend a fully instantiated :any:`Transformation` object to this pipeline.
