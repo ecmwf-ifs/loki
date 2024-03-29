@@ -190,12 +190,16 @@ def transform_sequence_association_append_map(call_map, call):
 
             n_dims = len(dummy.shape)
             new_dims = []
-            for s, lower in zip(arg.shape[:n_dims], arg.dimensions[:n_dims]):
 
-                if isinstance(s, RangeIndex):
-                    new_dims += [RangeIndex((lower, s.stop))]
-                else:
-                    new_dims += [RangeIndex((lower, s))]
+            if not arg.shape:
+                # Hack: If we don't have a shape, short-circuit here
+                new_dims = tuple(RangeIndex((None, None)) for _ in dummy.shape)
+            else:
+                for s, lower in zip(arg.shape[:n_dims], arg.dimensions[:n_dims]):
+                    if isinstance(s, RangeIndex):
+                        new_dims += [RangeIndex((lower, s.stop))]
+                    else:
+                        new_dims += [RangeIndex((lower, s))]
 
             if len(arg.dimensions) > n_dims:
                 new_dims += arg.dimensions[len(dummy.shape):]
