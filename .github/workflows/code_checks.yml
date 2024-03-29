@@ -39,7 +39,7 @@ jobs:
       uses: pr-annotators/pylint-pr-annotator@v0.0.1
     - name: Analysing the code with pylint
       run: |
-        pylint --rcfile=.pylintrc loki tests
+        pylint --rcfile=.pylintrc loki
         pushd transformations && pylint --rcfile=../.pylintrc transformations tests; popd
         pushd lint_rules && pylint --rcfile=../.pylintrc lint_rules tests; popd
         jupyter nbconvert --to=script --output-dir=example_converted example/*.ipynb

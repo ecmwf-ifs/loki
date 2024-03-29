@@ -105,11 +105,12 @@ def fixture_loki_install(here, ecbuild, silent, request):
     if builddir.exists():
         shutil.rmtree(builddir)
     builddir.mkdir()
-    cmd = [f'{ecbuild}/bin/ecbuild', str(here.parent), '-DENABLE_CLAW=OFF']
+    cmd = [f'{ecbuild}/bin/ecbuild', str(here.parent.parent), '-DENABLE_CLAW=OFF']
     if request.param:
         cmd += ['-DENABLE_EDITABLE=ON']
     else:
         cmd += ['-DENABLE_EDITABLE=OFF']
+                
     execute(cmd, silent=silent, cwd=builddir)
 
     lokidir = gettempdir()/'loki'
@@ -197,7 +198,7 @@ def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild, silent
     assert cmake_project.exists()
 
     for loki_root in loki_install:
-        with clean_builddir('test_cmake_plan') as builddir:
+        with clean_builddir('test_cmake_plan') as builddir:            
             execute(
                 [f'{ecbuild}/bin/ecbuild', str(srcdir), f'-Dloki_ROOT={loki_root}'],
                 cwd=builddir, silent=silent
