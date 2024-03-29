@@ -232,6 +232,10 @@ def convert(
 
         scheduler.process( NormalizeRangeIndexingTransformation() )
 
+    if global_var_offload:
+        scheduler.process(transformation=GlobalVariableAnalysis())
+        scheduler.process(transformation=GlobalVarOffloadTransformation())
+
     # Now we create and apply the main transformation pipeline
     if mode == 'idem':
         pipeline = IdemTransformation()
@@ -285,10 +289,6 @@ def convert(
         # These transformations requires complex constructor arguments,
         # so we use the file-based transformation configuration.
         scheduler.process( transformation=scheduler.config.transformations[mode] )
-
-    if global_var_offload:
-        scheduler.process(transformation=GlobalVariableAnalysis())
-        scheduler.process(transformation=GlobalVarOffloadTransformation())
 
     if mode == 'cuf-parametrise':
         # This transformation requires complex constructora arguments,
