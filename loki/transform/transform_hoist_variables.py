@@ -87,6 +87,7 @@ from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
 from loki.transform.transformation import Transformation
 from loki.transform.transform_utilities import single_variable_declaration
 from loki.batch.item import ProcedureItem
+from loki.expression.expr_visitors import FindInlineCalls
 import loki.expression.symbols as sym
 
 
@@ -141,6 +142,7 @@ class HoistVariablesAnalysis(Transformation):
             item.trafo_data[self._key]["hoist_variables"] = []
 
         calls = FindNodes(CallStatement).visit(routine.body)
+        calls += FindInlineCalls().visit(routine.body)
         call_map = CaseInsensitiveDict((str(call.name), call) for call in calls)
 
         for child in successors:
@@ -240,7 +242,7 @@ class HoistVariablesTransformation(Transformation):
             routine.arguments += hoisted_temporaries
 
         call_map = {}
-        for call in FindNodes(CallStatement).visit(routine.body):
+        for call in FindNodes(CallStatement).visit(routine.body) + list(FindInlineCalls().visit(routine.body)):
             # Only process calls in this call tree
             if str(call.name) not in successor_map:
                 continue
@@ -257,9 +259,14 @@ class HoistVariablesTransformation(Transformation):
                     routine=routine, call=call, variables=hoisted_variables
                 )
             elif role == "kernel":
-                call_map[call] = self.kernel_call_argument_remapping(
-                    routine=routine, call=call, variables=hoisted_variables
-                )
+                if isinstance(call, CallStatement):
+                    call_map[call] = self.kernel_call_argument_remapping(
+                        routine=routine, call=call, variables=hoisted_variables
+                    )
+                else:
+                    self.kernel_inline_call_argument_remapping(
+                        routine=routine, call=call, variables=hoisted_variables
+                    )
 
         routine.body = Transformer(call_map).visit(routine.body)
 
@@ -341,6 +348,30 @@ class HoistVariablesTransformation(Transformation):
         new_args = tuple(v.clone(dimensions=None) for v in variables)
         return call.clone(arguments=call.arguments + new_args)
 
+    def kernel_inline_call_argument_remapping(self, routine, call, variables):
+        """
+        Append hoisted temporaries to inline function call arguments.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The subroutine to add the variable declaration to.
+        call : :any:`InlineCall`
+            ProcedureSymbol to which hoisted variables will be added.
+        variables : tuple of :any:`Variable`
+            The tuple of variables to be declared.
+        """
+
+        if self.as_kwarguments:
+            new_args = dict((a.name, v.clone(dimensions=None)) for (a, v) in variables)
+            _call_clone = call.clone(kwparameters=call.kw_parameters)
+            _call_clone.kw_parameters.update(new_args)
+            vmap = {call: _call_clone}
+            routine.body = SubstituteExpressions(vmap).visit(routine.body)
+        else:
+            new_args = tuple(v.clone(dimensions=None) for v in variables)
+            vmap = {call: call.clone(parameters=call.parameters + new_args)}
+            routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
     """
@@ -382,10 +413,16 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
         routine : :any:`Subroutine`
             The subroutine find the variables.
         """
+
+        # Determine function result variable name
+        if not (result_name := routine.result_name):
+            result_name = routine.name
+
         return [var for var in routine.variables
                 if var not in routine.arguments    # local variable
                 and not var.type.parameter         # not a parameter
                 and isinstance(var, sym.Array)     # is an array
+                and not var.name.lower() == result_name.lower()
                 and (self.dim_vars is None         # if dim_vars not empty check if at least one dim is within dim_vars
                      or any(dim_var in self.dim_vars for dim_var in FindVariables().visit(var.dimensions)))]
 
