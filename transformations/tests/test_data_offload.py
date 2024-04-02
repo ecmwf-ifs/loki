@@ -421,21 +421,12 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
                 ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
                 ('tt%vals', 'global_var_analysis_data_mod'), (f'iarr({nfld_dim})', 'global_var_analysis_header_mod')
             }
-        },
-        '#driver': {
-            'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
-            'uses_symbols': nval_data | nfld_data | {
-                ('rdata(:, :, :)', 'global_var_analysis_data_mod'),
-                ('tt', 'global_var_analysis_data_mod'), ('tt%vals', 'global_var_analysis_data_mod'),
-                (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
-                (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
-            }
         }
     }
 
-    assert set(scheduler.items) == set(expected_trafo_data) | {'global_var_analysis_data_mod#some_type'}
+    assert set(scheduler.items) == set(expected_trafo_data) | {'global_var_analysis_data_mod#some_type', '#driver'}
     for item in scheduler.items:
-        if item == 'global_var_analysis_data_mod#some_type':
+        if item == 'global_var_analysis_data_mod#some_type' or item.config['role'] == 'driver':
             continue
         for trafo_data_key, trafo_data_value in item.trafo_data[key].items():
             assert (

@@ -274,6 +274,9 @@ class GlobalVariableAnalysis(Transformation):
         if 'successors' not in kwargs:
             raise RuntimeError('Cannot apply GlobalVariableAnalysis without successors to store offload analysis data')
 
+        if kwargs['role'] == 'driver':
+            return
+
         item = kwargs['item']
         successors = kwargs['successors']
 
