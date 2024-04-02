@@ -171,7 +171,18 @@ class CCodegen(Stringifier):
                 aptr += ['']
         arguments = [f'{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
                      for a, p in zip(o.arguments, aptr)]
-        header += [self.format_line('int ', o.name, '(', self.join_items(arguments), ') {')]
+
+        # check whether to return something and define function return type accordingly
+        return_var = None
+        if o.is_function:
+            # Determine function result variable name
+            if not (result_name := o.result_name):
+                result_name = o.name.replace('_c', '')
+            if result_name in o.variable_map:
+                return_var = o.variable_map[result_name]
+        return_type = c_intrinsic_type(return_var.type) if return_var is not None else 'void'
+
+        header += [self.format_line(f'{return_type} ', o.name, '(', self.join_items(arguments), ') {')]
 
         self.depth += 1
 
@@ -180,7 +191,11 @@ class CCodegen(Stringifier):
 
         # Fill the body
         body += [self.visit(o.body, **kwargs)]
-        body += [self.format_line('return 0;')]
+        # body += [self.format_line('return 0;')]
+
+        # if something to be returned, add 'return <var>' statement
+        if return_var is not None:
+            body += [self.format_line(f'return {return_var.name.lower()};')]
 
         # Close everything off
         self.depth -= 1

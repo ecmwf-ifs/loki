@@ -11,7 +11,7 @@ import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-    Subroutine, Module, FortranCTransformation, OFP
+    Subroutine, Module, FortranCTransformation, OFP, cgen
 )
 from loki.build import Builder
 from loki.transform import normalize_range_indexing
@@ -1003,3 +1003,53 @@ end subroutine transpile_expressions
     clean_test(filepath)
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('f_type', ['integer', 'real'])
+def test_transpile_inline_functions(here, frontend, f_type):
+    """
+    Test correct transpilation of functions in C transpilation.
+    """
+
+    fcode = f"""
+function add(a, b)
+    {f_type} :: add
+    {f_type}, intent(in) :: a, b
+
+    add = a + b
+end function add
+""".format(f_type)
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+
+    f_type_map = {'integer': 'int', 'real': 'double'}
+    c_routine = cgen(routine)
+    assert 'return add;' in c_routine
+    assert f'{f_type_map[f_type]} add(' in c_routine
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('f_type', ['integer', 'real'])
+def test_transpile_inline_functions_return(here, frontend, f_type):
+    """
+    Test correct transpilation of functions in C transpilation.
+    """
+
+    fcode = f"""
+function add(a, b) result(res)
+    {f_type} :: res
+    {f_type}, intent(in) :: a, b
+
+    res = a + b
+end function add
+""".format(f_type)
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+
+    f_type_map = {'integer': 'int', 'real': 'double'}
+    c_routine = cgen(routine)
+    assert 'return res;' in c_routine
+    assert f'{f_type_map[f_type]} add(' in c_routine
