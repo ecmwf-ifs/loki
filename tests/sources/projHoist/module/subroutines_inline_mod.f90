@@ -57,7 +57,7 @@ contains
         integer, intent(inout) :: b(a2)
         real, intent(inout) :: x(a2)
         integer z(a2)
-        integer :: d2_tmp(len)
+        integer :: d2_tmp(len,len)
         z = init_int(a2)
         b = z
     end subroutine device2

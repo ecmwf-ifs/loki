@@ -89,6 +89,7 @@ from loki.transform.transform_utilities import single_variable_declaration
 from loki.batch.item import ProcedureItem
 from loki.expression.expr_visitors import FindInlineCalls
 import loki.expression.symbols as sym
+from loki.expression.symbolic import is_dimension_constant
 
 
 __all__ = ['HoistVariablesAnalysis', 'HoistVariablesTransformation',
@@ -418,10 +419,10 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
         if not (result_name := routine.result_name):
             result_name = routine.name
 
-        return [var for var in routine.variables
+        variables = [var for var in routine.variables if isinstance(var, sym.Array)]
+        return [var for var in variables
                 if var not in routine.arguments    # local variable
-                and not var.type.parameter         # not a parameter
-                and isinstance(var, sym.Array)     # is an array
+                and not all(is_dimension_constant(d) for d in var.shape)
                 and not var.name.lower() == result_name.lower()
                 and (self.dim_vars is None         # if dim_vars not empty check if at least one dim is within dim_vars
                      or any(dim_var in self.dim_vars for dim_var in FindVariables().visit(var.dimensions)))]

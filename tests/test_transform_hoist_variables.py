@@ -283,9 +283,9 @@ def test_hoist_arrays_inline(here, frontend, config, as_kwarguments):
     subroutine_arguments = {
         "inline_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp', 'init_int_tmp0'],
-        "device1": ['a1', 'b', 'x', 'y', 'device2_z', 'device2_d2_tmp', 'init_int_tmp0'],
-        "device2": ['a2', 'b', 'x', 'z', 'd2_tmp', 'init_int_tmp0'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z', 'init_int_tmp0'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z', 'init_int_tmp0'],
+        "device2": ['a2', 'b', 'x', 'z', 'init_int_tmp0'],
         "init_int": ['a2', 'tmp0'],
         "func1": ['a']
     }
@@ -300,20 +300,17 @@ def test_hoist_arrays_inline(here, frontend, config, as_kwarguments):
     }
     if not as_kwarguments:
         call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
-        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'device2_d2_tmp', 'init_int_tmp0')
-        call_arguments["device1"] += ('device2_z', 'device2_d2_tmp', 'init_int_tmp0')
-        call_arguments["device2"] += ('device2_z', 'device2_d2_tmp', 'init_int_tmp0')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'init_int_tmp0')
+        call_arguments["device1"] += ('device2_z', 'init_int_tmp0')
+        call_arguments["device2"] += ('device2_z', 'init_int_tmp0')
         call_arguments["init_int"] += ('tmp0',)
 
     call_kwarguments = {
         "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
         "kernel2": (('x', 'kernel2_x'), ('k2_tmp', 'kernel2_k2_tmp'),
-            ('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp'), ('init_int_tmp0', 'init_int_tmp0'))
-            if as_kwarguments else (),
-        "device1": (('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp'),
-                    ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
-        "device2": (('z', 'device2_z'), ('d2_tmp', 'device2_d2_tmp'), ('init_int_tmp0', 'init_int_tmp0'))
-                   if as_kwarguments else (),
+            ('device2_z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
+        "device1": (('device2_z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
+        "device2": (('z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
         "init_int": (('init_int_tmp0', 'init_int_tmp0'),) if as_kwarguments else ()
     }
 
@@ -346,9 +343,9 @@ def test_hoist_arrays(here, frontend, config, as_kwarguments):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'],
-        "device1": ['a1', 'b', 'x', 'y', 'device2_z', 'device2_d2_tmp'],
-        "device2": ['a2', 'b', 'x', 'z', 'd2_tmp'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z'],
+        "device2": ['a2', 'b', 'x', 'z'],
     }
 
     call_arguments = {
@@ -359,16 +356,16 @@ def test_hoist_arrays(here, frontend, config, as_kwarguments):
     }
     if not as_kwarguments:
         call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
-        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'device2_d2_tmp')
-        call_arguments["device1"] += ('device2_z', 'device2_d2_tmp')
-        call_arguments["device2"] += ('device2_z', 'device2_d2_tmp')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z')
+        call_arguments["device1"] += ('device2_z',)
+        call_arguments["device2"] += ('device2_z',)
 
     call_kwarguments = {
         "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
         "kernel2": (('x', 'kernel2_x'), ('k2_tmp', 'kernel2_k2_tmp'),
-            ('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp')) if as_kwarguments else (),
-        "device1": (('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp')) if as_kwarguments else (),
-        "device2": (('z', 'device2_z'), ('d2_tmp', 'device2_d2_tmp')) if as_kwarguments else ()
+            ('device2_z', 'device2_z')) if as_kwarguments else (),
+        "device1": (('device2_z', 'device2_z'), ) if as_kwarguments else (),
+        "device2": (('z', 'device2_z'), ) if as_kwarguments else ()
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
