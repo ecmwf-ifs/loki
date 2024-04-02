@@ -220,7 +220,7 @@ def convert(
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
             eliminate_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
-            resolve_sequence_association=resolve_sequence_association_inlined_calls 
+            resolve_sequence_association=resolve_sequence_association_inlined_calls
         )
     scheduler.process(transformation=inline_trafo)
 
@@ -275,27 +275,26 @@ def convert(
 
     if mode == 'scc':
         pipeline = SCCVectorPipeline(
-            horizontal=horizontal, vertical=vertical,
+            horizontal=horizontal,
             block_dim=block_dim, directive=directive,
-            dim_vars=(vertical.size,),
             trim_vector_sections=trim_vector_sections
         )
         scheduler.process( pipeline )
 
     if mode == 'scc-hoist':
         pipeline = SCCHoistPipeline(
-            horizontal=horizontal, vertical=vertical,
+            horizontal=horizontal,
             block_dim=block_dim, directive=directive,
-            dim_vars=(vertical.size,),
+            dim_vars=(vertical.size,) if vertical else None,
             trim_vector_sections=trim_vector_sections
         )
         scheduler.process( pipeline )
 
     if mode == 'scc-stack':
         pipeline = SCCStackPipeline(
-            horizontal=horizontal, vertical=vertical,
+            horizontal=horizontal,
             block_dim=block_dim, directive=directive,
-            dim_vars=(vertical.size,), check_bounds=False,
+            check_bounds=False,
             trim_vector_sections=trim_vector_sections )
         scheduler.process( pipeline )
 

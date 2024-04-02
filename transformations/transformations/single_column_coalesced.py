@@ -55,9 +55,6 @@ Parameters
 horizontal : :any:`Dimension`
     :any:`Dimension` object describing the variable conventions used in code
     to define the horizontal data dimension and iteration space.
-vertical : :any:`Dimension`
-    :any:`Dimension` object describing the variable conventions used in code
-    to define the vertical dimension, as needed to decide array privatization.
 block_dim : :any:`Dimension`
     Optional ``Dimension`` object to define the blocking dimension
     to use for hoisted column arrays if hoisting is enabled.
@@ -100,9 +97,6 @@ Parameters
 horizontal : :any:`Dimension`
     :any:`Dimension` object describing the variable conventions used in code
     to define the horizontal data dimension and iteration space.
-vertical : :any:`Dimension`
-    :any:`Dimension` object describing the variable conventions used in code
-    to define the vertical dimension, as needed to decide array privatization.
 block_dim : :any:`Dimension`
     Optional ``Dimension`` object to define the blocking dimension
     to use for hoisted column arrays if hoisting is enabled.
@@ -149,9 +143,6 @@ Parameters
 horizontal : :any:`Dimension`
     :any:`Dimension` object describing the variable conventions used in code
     to define the horizontal data dimension and iteration space.
-vertical : :any:`Dimension`
-    :any:`Dimension` object describing the variable conventions used in code
-    to define the vertical dimension, as needed to decide array privatization.
 block_dim : :any:`Dimension`
     Optional ``Dimension`` object to define the blocking dimension
     to use for hoisted column arrays if hoisting is enabled.

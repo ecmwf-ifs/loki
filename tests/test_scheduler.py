@@ -2853,7 +2853,6 @@ def test_pipeline_config_compose(config):
     my_config = config.copy()
     my_config['dimensions'] = {
         'horizontal': { 'size': 'KLON', 'index': 'JL', 'bounds': ['KIDIA', 'KFDIA'] },
-        'vertical': { 'size': 'KLEV', 'index': 'JK' },
         'block_dim': { 'size': 'NGPBLKS', 'index': 'IBL' },
     }
     my_config['transformations'] = {
@@ -2863,7 +2862,6 @@ def test_pipeline_config_compose(config):
             'options':
             {
                 'horizontal': '%dimensions.horizontal%',
-                'vertical': '%dimensions.vertical%',
                 'block_dim': '%dimensions.block_dim%',
                 'directive': 'openacc',
                 'trim_vector_sections': True,
@@ -2920,7 +2918,4 @@ def test_pipeline_config_compose(config):
     assert pipeline.transformations[1].horizontal.index == 'JL'
     assert pipeline.transformations[1].directive == 'openacc'
     assert pipeline.transformations[2].trim_vector_sections is True
-    assert isinstance(pipeline.transformations[5].vertical, Dimension)
-    assert pipeline.transformations[5].vertical.size == 'KLEV'
-    assert pipeline.transformations[5].vertical.index == 'JK'
     assert pipeline.transformations[6].replace_ignore_items is True

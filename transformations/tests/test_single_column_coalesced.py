@@ -301,7 +301,7 @@ def test_scc_demote_transformation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
+def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking):
     """
     Test hoisting of column temporaries to "driver" level.
     """
@@ -356,7 +356,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
     kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
 
     scc_hoist = SCCHoistPipeline(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
 
     # Apply pipeline in reverse order to ensure analysis runs before hoisting
@@ -403,7 +403,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, vertical, blocking):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('trim_vector_sections', [True, False])
-def test_scc_hoist_multiple_kernels_loops(frontend, trim_vector_sections, horizontal, vertical, blocking):
+def test_scc_hoist_multiple_kernels_loops(frontend, trim_vector_sections, horizontal, blocking):
     """
     Test hoisting of column temporaries to "driver" level.
     """
@@ -518,7 +518,7 @@ END MODULE kernel_mod
     transformation += (SCCDemoteTransformation(horizontal=horizontal),)
     transformation += (SCCRevectorTransformation(horizontal=horizontal),)
     transformation += (SCCAnnotateTransformation(
-        horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking,
+        horizontal=horizontal, directive='openacc', block_dim=blocking,
     ),)
     for transform in transformation:
         scheduler.process(transformation=transform)
@@ -608,7 +608,7 @@ END MODULE kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
+def test_scc_annotate_openacc(frontend, horizontal, blocking):
     """
     Test the correct addition of OpenACC pragmas to SCC format code (no hoisting).
     """
@@ -666,8 +666,8 @@ def test_scc_annotate_openacc(frontend, horizontal, vertical, blocking):
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal, vertical=vertical, directive='openacc',
-                                              block_dim=blocking),)
+    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal,
+                                                directive='openacc', block_dim=blocking),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=['compute_column'])
         transform.apply(kernel, role='kernel')
@@ -774,7 +774,7 @@ end module my_scaling_value_mod
     module_item = ModuleItem(name='my_scaling_value_mod', source=module_source)
 
     scc_hoist = SCCHoistPipeline(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        horizontal=horizontal, block_dim=blocking,
         directive='openacc', dim_vars=(vertical.size,)
     )
 
@@ -895,7 +895,7 @@ def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vert
     inner_kernel_item = ProcedureItem(name='#update_q', source=inner_kernel)
 
     scc_hoist = SCCHoistPipeline(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        horizontal=horizontal, block_dim=blocking,
         dim_vars=(vertical.size,), as_kwarguments=as_kwarguments, directive='openacc'
     )
 
@@ -998,7 +998,7 @@ def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vert
         assert outer_kernel_pragmas[2].content == 'end data'
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking):
+def test_single_column_coalesced_nested(frontend, horizontal, blocking):
     """
     Test the correct handling of nested vector-level routines in SCC.
     """
@@ -1066,7 +1066,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
     # Instantial SCCVector pipeline and apply
     scc_pipeline = SCCVectorPipeline(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
     scc_pipeline.apply(driver, role='driver', targets=['compute_column'])
     scc_pipeline.apply(outer_kernel, role='kernel', targets=['compute_q'])
@@ -1074,7 +1074,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
     # Apply annotate twice to test bailing out mechanism
     scc_annotate = SCCAnnotateTransformation(
-        horizontal=horizontal, vertical=vertical, directive='openacc', block_dim=blocking
+        horizontal=horizontal, directive='openacc', block_dim=blocking
     )
     scc_annotate.apply(driver, role='driver', targets=['compute_column'])
     scc_annotate.apply(outer_kernel, role='kernel', targets=['compute_q'])
@@ -1148,7 +1148,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, blocking):
+def test_single_column_coalesced_outer_loop(frontend, horizontal, blocking):
     """
     Test the correct handling of an outer loop that breaks scoping.
     """
@@ -1199,7 +1199,7 @@ def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, bloc
 
     # Test SCC transform for kernel with scope-splitting outer loop
     scc_pipeline = SCCVectorPipeline(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
     scc_pipeline.apply(kernel, role='kernel')
 
@@ -1366,7 +1366,7 @@ def test_single_column_coalesced_variable_demotion(frontend, horizontal):
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP,
                          'OFP fails to parse multiconditional with embedded call.')]))
-def test_single_column_coalesced_multicond(frontend, horizontal, vertical, blocking):
+def test_single_column_coalesced_multicond(frontend, horizontal, blocking):
     """
     Test if horizontal loops in multiconditionals with CallStatements are
     correctly transformed.
@@ -1402,7 +1402,7 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
     kernel = Subroutine.from_source(fcode, frontend=frontend)
 
     scc_pipeline = SCCVectorPipeline(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
     scc_pipeline.apply(kernel, role='kernel')
 
@@ -1428,7 +1428,7 @@ def test_single_column_coalesced_multicond(frontend, horizontal, vertical, block
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vertical, blocking):
+def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, blocking):
     """
     Test that both '!$acc data' and '!$acc parallel loop gang' pragmas are created at the
     driver layer.
@@ -1474,7 +1474,7 @@ def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, vert
     data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
     scc_pipeline = SCCVectorPipeline(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
     scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
 
@@ -1588,7 +1588,7 @@ def test_single_column_coalesced_vector_inlined_call(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_vector_reduction(frontend, horizontal, vertical, blocking):
+def test_single_column_coalesced_vector_reduction(frontend, horizontal, blocking):
     """
     Test for the insertion of OpenACC vector reduction directives.
     """
@@ -1611,7 +1611,7 @@ def test_single_column_coalesced_vector_reduction(frontend, horizontal, vertical
     """
 
     scc_pipeline = SCCVectorPipeline(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
