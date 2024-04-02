@@ -9,11 +9,12 @@ import pytest
 
 from conftest import available_frontends
 from loki.transform import (
-    single_variable_declaration, recursive_expression_map_update, convert_to_lower_case
+    single_variable_declaration, recursive_expression_map_update, convert_to_lower_case,
+    replace_intrinsics, rename_variables
 )
 from loki import (
     Module, Subroutine, OMNI, FindNodes, VariableDeclaration, FindVariables,
-    SubstituteExpressions, fgen
+    SubstituteExpressions, fgen, FindInlineCalls
 )
 from loki.expression import symbols as sym
 
@@ -193,3 +194,69 @@ end module some_mod
     assert fgen(routine.body.body[0]).lower() == 'my_obj%a = my_obj%my_add(my_obj%a(1:my_obj%m, 1:my_obj%n), 1.)'
     routine.body = SubstituteExpressions(expr_map).visit(routine.body)
     assert fgen(routine.body.body[0]) == 'obj%a = obj%my_add(obj%a(1:obj%m, 1:obj%n), 1.)'
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Argument mismatch for "min"')]))
+def test_tranform_utilites_replace_intrinsics(frontend):
+    fcode = """
+subroutine replace_intrinsics()
+    implicit none
+    real :: a, b, eps
+    real, parameter :: param = min(0.1, epsilon*1000.)
+
+    eps = param * 10.
+    eps = 0.1
+    b = max(10., eps)
+    a = min(1. + b, 1. - eps)
+
+end subroutine replace_intrinsics
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    symbol_map = {'epsilon': 'DBL_EPSILON'}
+    function_map = {'min': 'fmin', 'max': 'fmax'}
+    replace_intrinsics(routine, symbol_map=symbol_map, function_map=function_map)
+    inline_calls = FindInlineCalls(unique=False).visit(routine.ir)
+    assert inline_calls[0].name == 'fmin'
+    assert inline_calls[1].name == 'fmax'
+    assert inline_calls[2].name == 'fmin'
+    variables = FindVariables(unique=False).visit(routine.ir)
+    assert 'DBL_EPSILON' in variables
+    assert 'epsilon' not in variables
+    # check wether it really worked for variable declarations or rather parameters
+    assert 'DBL_EPSILON' in FindVariables().visit(routine.variable_map['param'].initial)
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_tranform_utilites_rename_variables(frontend):
+    fcode = """
+subroutine rename_variables(some_arg, rename_arg)
+    implicit none
+    integer, intent(inout) :: some_arg, rename_arg
+    integer :: some_var, rename_var
+    integer :: i, j
+    real :: some_array(10, 10), rename_array(10, 10)
+
+    do i=1,10
+        some_var = i
+        rename_var = i + 1
+        do J=1,10
+            some_array(i, j) = 10. * some_arg * rename_arg
+	        rename_array(i, j) = 5. * some_arg * rename_arg
+        end do
+    end do
+
+end subroutine rename_variables
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    symbol_map = {'rename_var': 'renamed_var',
+                  'rename_arg': 'renamed_arg',
+                  'rename_array': 'renamed_array'}
+    rename_variables(routine, symbol_map=symbol_map)
+    variables = [var.name for var in FindVariables(unique=False).visit(routine.ir)]
+    assert 'renamed_var' in variables
+    assert 'rename_var'  not in variables
+    assert 'renamed_arg' in variables
+    assert 'rename_arg' not in variables
+    assert 'renamed_array' in variables
+    assert 'rename_array' not in variables
+    # check routine arguments
+    assert 'renamed_arg' in routine.arguments
+    assert 'rename_arg' not in routine.arguments
