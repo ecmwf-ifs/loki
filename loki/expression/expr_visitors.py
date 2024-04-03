@@ -142,8 +142,12 @@ class ExpressionFinder(Visitor):
         expressions = ()
         for v in o.symbols:
             if v.type.initial is not None:
-                expressions += (self.retrieve(v.type.initial),)
-        return self._return(o, expressions)
+                retrieved = self.retrieve(v.type.initial)
+                if retrieved:
+                    expressions += as_tuple(retrieved)
+        if expressions:
+            return self._return(o, expressions)
+        return super().visit(o.children, **kwargs)
 
 
 class FindExpressions(ExpressionFinder):
