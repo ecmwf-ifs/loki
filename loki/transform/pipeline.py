@@ -7,6 +7,7 @@
 
 from inspect import signature, Parameter
 
+from loki.tools import as_tuple
 from loki.transform.transformation import Transformation
 
 
@@ -37,7 +38,7 @@ class Pipeline:
 
     def __init__(self, *args, classes=None, **kwargs):
         self.transformations = []
-        for cls in classes:
+        for cls in as_tuple(classes):
 
             # Get all relevant constructor parameters from teh MRO,
             # but exclude catch-all keyword args, like ``**kwargs``

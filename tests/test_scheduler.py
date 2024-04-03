@@ -2843,3 +2843,84 @@ def test_scheduler_pipeline_simple(here, config, frontend):
     assert has_correct_comments(scheduler['compute_l2_mod#compute_l2'].ir, name='Chad')
     assert has_correct_comments(scheduler['#another_l1'].ir, name='Chad')
     assert has_correct_comments(scheduler['#another_l2'].ir, name='Chad')
+
+
+def test_pipeline_config_compose(config):
+    """
+    Test the correct instantiation of a custom :any:`Pipeline`
+    object from config.
+    """
+    my_config = config.copy()
+    my_config['dimensions'] = {
+        'horizontal': { 'size': 'KLON', 'index': 'JL', 'bounds': ['KIDIA', 'KFDIA'] },
+        'vertical': { 'size': 'KLEV', 'index': 'JK' },
+        'block_dim': { 'size': 'NGPBLKS', 'index': 'IBL' },
+    }
+    my_config['transformations'] = {
+        'VectorWithTrim': {
+            'classname': 'SCCVectorPipeline',
+            'module': 'transformations.single_column_coalesced',
+            'options':
+            {
+                'horizontal': '%dimensions.horizontal%',
+                'vertical': '%dimensions.vertical%',
+                'block_dim': '%dimensions.block_dim%',
+                'directive': 'openacc',
+                'trim_vector_sections': True,
+            },
+        },
+        'preprocess': {
+            'classname': 'RemoveCallsTransformation',
+            'module': 'transformations.utility_routines',
+            'options': {
+                'routines': 'dr_hook',
+                'include_intrinsics': True
+            }
+        },
+        'postprocess': {
+            'classname': 'ModuleWrapTransformation',
+            'module': 'loki.transform',
+            'options': { 'module_suffix': '_module' }
+        }
+    }
+    my_config['pipelines'] = {
+        'MyVectorPipeline': {
+            'transformations': [
+                'preprocess',
+                'VectorWithTrim',
+                'postprocess',
+            ],
+        }
+    }
+    cfg = SchedulerConfig.from_dict(my_config)
+
+    # Check that transformations and pipelines were created correctly
+    assert cfg.transformations['VectorWithTrim']
+    assert cfg.transformations['preprocess']
+    assert cfg.transformations['postprocess']
+
+    assert cfg.pipelines['MyVectorPipeline']
+    pipeline = cfg.pipelines['MyVectorPipeline']
+    assert isinstance(pipeline, Pipeline)
+
+    # Check that the pipeline is correctly composed
+    assert len(pipeline.transformations) == 7
+    assert type(pipeline.transformations[0]).__name__ == 'RemoveCallsTransformation'
+    assert type(pipeline.transformations[1]).__name__ == 'SCCBaseTransformation'
+    assert type(pipeline.transformations[2]).__name__ == 'SCCDevectorTransformation'
+    assert type(pipeline.transformations[3]).__name__ == 'SCCDemoteTransformation'
+    assert type(pipeline.transformations[4]).__name__ == 'SCCRevectorTransformation'
+    assert type(pipeline.transformations[5]).__name__ == 'SCCAnnotateTransformation'
+    assert type(pipeline.transformations[6]).__name__ == 'ModuleWrapTransformation'
+
+    # Check for some specified and default constructor flags
+    assert pipeline.transformations[0].include_intrinsics is True
+    assert isinstance(pipeline.transformations[1].horizontal, Dimension)
+    assert pipeline.transformations[1].horizontal.size == 'KLON'
+    assert pipeline.transformations[1].horizontal.index == 'JL'
+    assert pipeline.transformations[1].directive == 'openacc'
+    assert pipeline.transformations[2].trim_vector_sections is True
+    assert isinstance(pipeline.transformations[5].vertical, Dimension)
+    assert pipeline.transformations[5].vertical.size == 'KLEV'
+    assert pipeline.transformations[5].vertical.index == 'JK'
+    assert pipeline.transformations[6].replace_ignore_items is True
