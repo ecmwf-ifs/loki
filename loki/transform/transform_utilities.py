@@ -132,16 +132,6 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
     if not case_sensitive:
         symbol_map = CaseInsensitiveDict(symbol_map)
         function_map = CaseInsensitiveDict(function_map)
-    # intrinsic symbols
-    var_map = {}
-    for var in FindVariables(unique=False).visit(routine.ir):
-        if var.name in symbol_map:
-            new_var = symbol_map[var.name]
-            if new_var is not None:
-                var_map[var] = var.clone(name=symbol_map[var.name])
-    if var_map:
-        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
-        routine.body = SubstituteExpressions(var_map).visit(routine.body)
     # (intrinsic) functions
     callmap = {}
     for call in FindInlineCalls(unique=False).visit(routine.ir):

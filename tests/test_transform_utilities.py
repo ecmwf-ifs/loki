@@ -201,7 +201,7 @@ def test_tranform_utilites_replace_intrinsics(frontend):
 subroutine replace_intrinsics()
     implicit none
     real :: a, b, eps
-    real, parameter :: param = min(0.1, epsilon*1000.)
+    real, parameter :: param = min(0.1, epsilon(param)*1000.)
 
     eps = param * 10.
     eps = 0.1
