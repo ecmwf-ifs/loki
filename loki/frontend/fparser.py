@@ -15,10 +15,14 @@ try:
     from fparser.two.utils import get_child, walk, BlockBase
     from fparser.two import Fortran2003
     from fparser.common.readfortran import FortranStringReader
+    from fparser.two.Fortran2003 import Intrinsic_Name
 
+    FORTRAN_INTRINSIC_PROCEDURES = Intrinsic_Name.function_names
+    """list of intrinsic fortran procedure(s) names"""
     HAVE_FP = True
     """Indicate whether fparser frontend is available."""
 except ImportError:
+    FORTRAN_INTRINSIC_PROCEDURES = ()
     HAVE_FP = False
 
 from loki.frontend.source import Source
@@ -44,8 +48,8 @@ from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.config import config
 
 
-__all__ = ['HAVE_FP', 'FParser2IR', 'parse_fparser_file', 'parse_fparser_source',
-           'parse_fparser_ast', 'parse_fparser_expression', 'get_fparser_node']
+__all__ = ['HAVE_FP', 'FORTRAN_INTRINSIC_PROCEDURES', 'FParser2IR', 'parse_fparser_file',
+        'parse_fparser_source', 'parse_fparser_ast', 'parse_fparser_expression', 'get_fparser_node']
 
 
 @Timer(logger=debug, text=lambda s: f'[Loki::FP] Executed parse_fparser_file in {s:.2f}s')

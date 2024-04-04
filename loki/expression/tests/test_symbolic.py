@@ -13,8 +13,8 @@ import pytest
 import pymbolic.primitives as pmbl
 
 from loki import Scope, is_dimension_constant, Subroutine
-from loki.expression import symbols as sym, simplify, Simplification, symbolic_op
-from loki.frontend import available_frontends, HAVE_FP, parse_fparser_expression
+from loki.expression import symbols as sym, simplify, Simplification, symbolic_op, parse_expr
+from loki.frontend import available_frontends
 
 
 @pytest.mark.parametrize('a, b, lt, eq', [
@@ -72,7 +72,6 @@ def test_symbolic_literal_comparison(a, b, lt, eq):
     assert (a == b) is eq
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('a, _op, b, ref', [
     ('1', op.eq, '2', False),
     ('1', op.ne, '2', True),
@@ -99,8 +98,8 @@ def test_symbolic_op(a, _op, b, ref):
     Test correct evaluation of operators on expressions.
     """
     scope = Scope()
-    expr_a = parse_fparser_expression(a, scope)
-    expr_b = parse_fparser_expression(b, scope)
+    expr_a = parse_expr(a, scope)
+    expr_b = parse_expr(b, scope)
     ret = symbolic_op(expr_a, _op, expr_b)
     if isinstance(ret, pmbl.Expression):
         assert simplify(ret) == ref
@@ -108,7 +107,6 @@ def test_symbolic_op(a, _op, b, ref):
         assert ret == ref
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('1 + 1', '1 + 1'),
     ('1 + (2 + (3 + (4 + 5) + 6)) + 7', '1 + 2 + 3 + 4 + 5 + 6 + 7'),
@@ -129,12 +127,11 @@ def test_symbolic_op(a, _op, b, ref):
 ])
 def test_simplify_flattened(source, ref):
     scope = Scope()
-    expr = parse_fparser_expression(source, scope)
+    expr = parse_expr(source, scope)
     expr = simplify(expr, enabled_simplifications=Simplification.Flatten)
     assert str(expr) == ref
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('1 + 1', '2'),
     ('2 - 1', '1'),
@@ -148,7 +145,7 @@ def test_simplify_flattened(source, ref):
     ('3*7*0*10', '0'),
     ('1/1', '1'),
     ('0/1', '0'),
-    ('4/2', '2'),
+    ( '4/2', '2'),
     ('-1/1', '-1'),
     ('7/(-1)', '-7'),
     ('10*a/5', '2*a'),
@@ -158,12 +155,11 @@ def test_simplify_flattened(source, ref):
 ])
 def test_simplify_integer_arithmetic(source, ref):
     scope = Scope()
-    expr = parse_fparser_expression(source, scope)
+    expr = parse_expr(source, scope)
     expr = simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
     assert str(expr) == ref
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('a + a + a', '3*a'),
     ('2*a + 1*a + a*3', '6*a'),
@@ -175,18 +171,17 @@ def test_simplify_integer_arithmetic(source, ref):
     ('3*a - 2*a', 'a'),
     ('1*a + 0*a', 'a'),
     ('1*a*b + 0*a*b', '1*a*b + 0*a*b'),  # Note that this does not reduce without flattening
-    ('5*5 + 3*3', '34'),
+    ( '5*5 + 3*3', '34'),
     ('5 + (-1)', '4'),
     ('(5 + 3) * a - 8 * a / 2 + a * ((7 - 1) / 3)', '8*a - 8*a / 2 + 6 / 3*a')
 ])
 def test_simplify_collect_coefficients(source, ref):
     scope = Scope()
-    expr = parse_fparser_expression(source, scope)
+    expr = parse_expr(source, scope)
     expr = simplify(expr, enabled_simplifications=Simplification.CollectCoefficients)
     assert str(expr) == ref
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('1 == 1', 'True'),
     ('2 == 1', 'False'),
@@ -200,12 +195,11 @@ def test_simplify_collect_coefficients(source, ref):
 ])
 def test_simplify_logic_evaluation(source, ref):
     scope = Scope()
-    expr = parse_fparser_expression(source, scope)
+    expr = parse_expr(source, scope)
     expr = simplify(expr, enabled_simplifications=Simplification.LogicEvaluation)
     assert str(expr) == ref
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('5 * (4 + 3 * (2 + 1) )', '65'),
     ('1 - (-1 - (-1 - (-1 - (-1 - 1) - 1) - 1) - 1) - 1', '0'),
@@ -226,7 +220,7 @@ def test_simplify_logic_evaluation(source, ref):
 ])
 def test_simplify(source,ref):
     scope = Scope()
-    expr = parse_fparser_expression(source, scope)
+    expr = parse_expr(source, scope)
     expr = simplify(expr)
     assert str(expr) == ref
 

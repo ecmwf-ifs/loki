@@ -12,10 +12,8 @@ import numpy as np
 from loki.ir import Loop, FindNodes
 from loki.scope import Scope
 from loki.sourcefile import Sourcefile
-from loki.frontend.fparser import parse_fparser_expression, HAVE_FP
 from loki.analyse.util_polyhedron import Polyhedron
-from loki.expression import symbols as sym
-
+from loki.expression import symbols as sym, parse_expr
 
 @pytest.fixture(scope="module", name="here")
 def fixture_here():
@@ -26,9 +24,6 @@ def fixture_here():
 def fixture_testdir(here):
     return here.parent.parent/'tests'
 
-
-# Polyhedron functionality relies on FParser's expression parsing
-pytestmark = pytest.mark.skipif(not HAVE_FP, reason="Fparser not available")
 
 
 @pytest.mark.parametrize(
@@ -81,9 +76,9 @@ def test_polyhedron_from_loop_ranges(variables, lbounds, ubounds, A, b, variable
     Test converting loop ranges to polyedron representation of iteration space.
     """
     scope = Scope()
-    loop_variables = [parse_fparser_expression(expr, scope) for expr in variables]
-    loop_lbounds = [parse_fparser_expression(expr, scope) for expr in lbounds]
-    loop_ubounds = [parse_fparser_expression(expr, scope) for expr in ubounds]
+    loop_variables = [parse_expr(expr, scope) for expr in variables]
+    loop_lbounds = [parse_expr(expr, scope) for expr in lbounds]
+    loop_ubounds = [parse_expr(expr, scope) for expr in ubounds]
     loop_ranges = [sym.LoopRange((l, u)) for l, u in zip(loop_lbounds, loop_ubounds)]
     p = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
     assert np.all(p.A == np.array(A, dtype=np.dtype(int)))
@@ -97,15 +92,15 @@ def test_polyhedron_from_loop_ranges_failures():
     """
     # m*n is non-affine and thus can't be represented
     scope = Scope()
-    loop_variable = parse_fparser_expression("i", scope)
-    lower_bound = parse_fparser_expression("1", scope)
-    upper_bound = parse_fparser_expression("m * n", scope)
+    loop_variable = parse_expr("i", scope)
+    lower_bound = parse_expr("1", scope)
+    upper_bound = parse_expr("m * n", scope)
     loop_range = sym.LoopRange((lower_bound, upper_bound))
     with pytest.raises(ValueError):
         _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
 
     # no functionality to flatten exponentials, yet
-    upper_bound = parse_fparser_expression("5**2", scope)
+    upper_bound = parse_expr("5**2", scope)
     loop_range = sym.LoopRange((lower_bound, upper_bound))
     with pytest.raises(ValueError):
         _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
@@ -148,7 +143,7 @@ def test_polyhedron_bounds(A, b, variable_names, lower_bounds, upper_bounds):
     Test the production of lower and upper bounds.
     """
     scope = Scope()
-    variables = [parse_fparser_expression(v, scope) for v in variable_names]
+    variables = [parse_expr(v, scope) for v in variable_names]
     p = Polyhedron(A, b, variables)
     for var, ref_bounds in zip(variables, lower_bounds):
         lbounds = p.lower_bounds(var)
