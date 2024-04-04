@@ -29,7 +29,7 @@ from loki.subroutine import Subroutine
 
 from loki.transform.transform_sanitise import transform_sequence_association_append_map
 from loki.transform.transformation import Transformation
-from loki.transform.transform_dead_code import dead_code_elimination
+from loki.transform.transform_remove_code import dead_code_elimination
 from loki.transform.transform_utilities import (
     single_variable_declaration,
     recursive_expression_map_update
