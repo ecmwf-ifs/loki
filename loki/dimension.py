@@ -34,15 +34,19 @@ class Dimension:
     bounds_aliases : list or tuple of strings
         String representations of alternative bounds variables that are
         used to define loop ranges.
+    index_aliases : list or tuple of strings
+        String representations of alternative loop index variables associated
+        with this dimension.
     """
 
     def __init__(self, name=None, index=None, bounds=None, size=None, aliases=None,
-                 bounds_aliases=None):
+                 bounds_aliases=None, index_aliases=None):
         self.name = name
         self._index = index
         self._bounds = as_tuple(bounds)
         self._size = size
         self._aliases = as_tuple(aliases)
+        self._index_aliases = as_tuple(index_aliases)
 
         if bounds_aliases:
             if len(bounds_aliases) != 2:
