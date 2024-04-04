@@ -8,8 +8,10 @@
 import pytest
 
 from conftest import available_frontends
-from loki import Subroutine, FindNodes, Conditional, Assignment, OMNI
-from loki.transform import dead_code_elimination
+from loki import (
+    Subroutine, FindNodes, Conditional, Assignment, Loop, Comment, OMNI
+)
+from loki.transform import dead_code_elimination, remove_marked_regions
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -127,3 +129,61 @@ end subroutine test_dead_code_conditional
     assert assigns[4].lhs == 'a' and assigns[4].rhs == 'a + 5.0'
     assert assigns[5].lhs == 'a' and assigns[5].rhs == 'a + 2.0'
     assert assigns[6].lhs == 'a' and assigns[6].rhs == 'a + 1.0'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('mark_with_comment', [True, False])
+def test_transform_remove_code_pragma_region(frontend, mark_with_comment):
+    """
+    Test correct removal of pragma-marked code regions.
+    """
+    fcode = """
+subroutine test_remove_code(a, b, n, flag)
+  real(kind=8), intent(inout) :: a, b(n)
+  integer, intent(in) :: n
+  logical, intent(in) :: flag
+  integer :: i
+
+  if (flag) then
+    a = a + 1.0
+  end if
+
+  !$loki remove
+  do i=1, n
+    !$loki rick-roll
+    a = a + 3.0
+    !$loki end rick-roll
+  end do
+  !$loki end remove
+
+  b(:) = 1.0
+
+  !$acc parallel
+  do i=1, n
+    b(i) = b(i) + a
+
+    !$loki remove
+    a = b(i) + 42.
+    !$loki end remove
+  end do
+end subroutine test_remove_code
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    remove_marked_regions(routine, mark_with_comment=mark_with_comment)
+
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 3
+    assert assigns[0].lhs == 'a' and assigns[0].rhs == 'a + 1.0'
+    assert assigns[1].lhs == 'b(:)' and assigns[1].rhs == '1.0'
+    assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + a'
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert assigns[2] in loops[0].body
+
+    comments = [
+        c for c in FindNodes(Comment).visit(routine.body)
+        if '[Loki] Removed content' in c.text
+    ]
+    assert len(comments) == (2 if mark_with_comment else 0)

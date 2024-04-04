@@ -11,10 +11,14 @@ Collection of utilities to perform Dead Code Elimination.
 
 from loki.expression.symbolic import simplify
 from loki.tools import flatten, as_tuple
-from loki.ir import Conditional, Transformer
+from loki.ir import Conditional, Transformer, Comment
+from loki.pragma_utils import is_loki_pragma, pragma_regions_attached
 
 
-__all__ = ['dead_code_elimination', 'DeadCodeEliminationTransformer']
+__all__ = [
+    'dead_code_elimination', 'DeadCodeEliminationTransformer',
+    'remove_marked_regions', 'RemoveRegionTransformer'
+]
 
 
 def dead_code_elimination(routine, use_simplify=True):
@@ -66,3 +70,64 @@ class DeadCodeEliminationTransformer(Transformer):
 
         has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
+
+
+def remove_marked_regions(routine, mark_with_comment=True):
+    """
+    Utility routine to remove code regions marked with
+    ``!$loki remove`` pragmas from a subroutine's body.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine to which to apply dead code elimination.
+    mark_with_comment : boolean
+        Flag to trigger the insertion of a marker comment when
+        removing a region; default: ``True``.
+    """
+
+    transformer = RemoveRegionTransformer(
+        mark_with_comment=mark_with_comment
+    )
+
+    with pragma_regions_attached(routine):
+        routine.body = transformer.visit(routine.body)
+
+
+class RemoveRegionTransformer(Transformer):
+    """
+    A :any:`Transformer` that removes code regions marked with
+    ``!$loki remove`` pragmas.
+
+    This :any:`Transformer` only removes :any:`PragmaRegion` nodes,
+    and thus requires the IR tree to have pragma regions attached, for
+    example via :method:`pragma_regions_attached`.
+
+    When removing a marked code region the transformer may leave a
+    comment in the source to mark the previous location, or remove the
+    code region entirely.
+
+    Parameters
+    ----------
+    mark_with_comment : boolean
+        Flag to trigger the insertion of a marker comment when
+        removing a region; default: ``True``.
+    """
+
+    def __init__(self, mark_with_comment=True, **kwargs):
+        super().__init__(**kwargs)
+        self.mark_with_comment = mark_with_comment
+
+    def visit_PragmaRegion(self, o, **kwargs):
+        """ Remove :any:`PragmaRegion` nodes with ``!$loki remove`` pragmas """
+
+        if is_loki_pragma(o.pragma, starts_with='remove'):
+            # Leave a comment to mark the removed region in source
+            if self.mark_with_comment:
+                return Comment(text='![Loki] Removed content of pragma-marked region!')
+
+            return None
+
+        # Recurse into the pragama region and rebuild
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._rebuild(o, rebuilt)
