@@ -7,7 +7,7 @@
 
 from inspect import signature, Parameter
 
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten
 from loki.transform.transformation import Transformation
 
 
@@ -57,6 +57,11 @@ class Pipeline:
 
             # Then instantiate with the default *args and the derived **t_kwargs
             self.transformations.append(cls(*args, **t_kwargs))
+
+    def __str__(self):
+        """ Pretty-print pipeline details """
+        trafo_str = '\n  '.join(flatten(str(t).splitlines() for t in self.transformations))
+        return f'<{self.__class__.__name__}\n  {trafo_str}\n>'
 
     def __add__(self, other):
         """ Support native addition via ``+`` operands """
