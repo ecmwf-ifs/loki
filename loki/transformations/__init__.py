@@ -30,3 +30,4 @@ from loki.transformations.transform_loop import * # noqa
 from loki.transformations.transform_region import * # noqa
 from loki.transformations.pool_allocator import * # noqa
 from loki.transformations.utilities import * # noqa
+from transformations.deprivatise_structs import * # noqa
