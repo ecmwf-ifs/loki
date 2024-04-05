@@ -7,12 +7,12 @@
 
 from loki import (
     Transformation, ProcedureItem, ir, Module, as_tuple, fgen, SymbolAttributes, BasicType, Variable,
-    RangeIndex, Array, FindVariables, resolve_associates, SubstituteExpressions, FindNodes
+    RangeIndex, Array, FindVariables, resolve_associates, SubstituteExpressions, FindNodes, resolve_type_bound_var
 )
 
 from transformations.single_column_coalesced import SCCBaseTransformation
 
-__all__ = ['DeprivatiseStructsTransformation']
+__all__ = ['DeprivatiseStructsTransformation', 'BlockIndexInjectTransformation']
 
 def get_parent_typedef(var, routine):
 
@@ -142,8 +142,7 @@ class DeprivatiseStructsTransformation(Transformation):
 
         # build list of type-bound array access using the horizontal index
         vars = [var for var in FindVariables().visit(routine.body)
-                if isinstance(var, Array) and var.parents]
-        vars = [var for var in vars if self.horizontal.index in var.dimensions]
+                if isinstance(var, Array) and var.parents and self.horizontal.index in getattr(var, 'dimensions', ())]
 
         # remove YDCPG_SL1 members, as these are not memory blocked
         vars = [var for var in vars if not 'ydcpg_sl1' in var]
@@ -159,7 +158,7 @@ class DeprivatiseStructsTransformation(Transformation):
         for var in vars:
             typedef = get_parent_typedef(var, routine)
             name = var.name_parts[-1] + '_FIELD'
-            if not name in [v.name for v in typedef.variables]:
+            if not name in typedef.variable_map:
                 raise RuntimeError(f'Container data-type {typedef.name} does not contain *_FIELD pointer')
 
         # replace view pointers with array pointers
@@ -171,3 +170,86 @@ class DeprivatiseStructsTransformation(Transformation):
         definitions = item.trafo_data[self._key]['definitions']
         self.propagate_defs_to_children(self._key, definitions, successors)
 
+
+class BlockIndexInjectTransformation(Transformation):
+
+    _key = 'BlockIndexInjectTransformation'
+
+    # This trafo only operates on procedures
+    item_filter = (ProcedureItem,)
+
+    def __init__(self, horizontal, block_dim, key=None):
+        self.horizontal = horizontal
+        self.block_dim = block_dim
+        if key:
+             self._key = key
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        role = kwargs['role']
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+
+        if role == 'kernel':
+            self.process_kernel(routine, targets)
+
+    @staticmethod
+    def get_derived_type_member_rank(a, routine):
+        typedef = get_parent_typedef(a, routine)
+        return len(typedef.variable_map[a.name_parts[-1]].shape)
+
+    @staticmethod
+    def _update_expr_map(var, rank, index):
+        if getattr(var, 'dimensions', None):
+            return {var: var.clone(dimensions=var.dimensions + as_tuple(index))}
+        else:
+            return {var:
+                    var.clone(dimensions=((RangeIndex(children=(None, None)),) * (rank - 1)) + as_tuple(index))}
+
+    def process_kernel(self, routine, targets):
+
+        # Check that the block index is defined
+        if self.block_dim.index in routine.variables:
+            block_index = routine.variable_map[self.block_dim.index]
+        elif any(i.rsplit('%')[0] in routine.variables for i in self.block_dim._index_aliases):
+            index_name = [alias for alias in self.block_dim._index_aliases
+                          if alias.rsplit('%')[0] in routine.variables][0]
+
+            child, parent = resolve_type_bound_var(index_name)
+            block_index = Variable(name=child, parent=parent, scope=routine)
+        else:
+            # we skip routines that do not contain the block index
+            return
+
+        # The logic for callstatement args differs from other array instances in the body,
+        # so we build a list to filter
+        call_args = [a for call in FindNodes(ir.CallStatement).visit(routine.body) for a in call.arguments]
+
+        # First get rank mismatched call statement args
+        vmap = {}
+        for call in [call for call in FindNodes(ir.CallStatement).visit(routine.body) if call.name in targets]:
+            _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)
+                     if any([v in getattr(d, 'shape', None) for v in self.horizontal.size_expressions])}
+
+            for arg, dummy in _args.items():
+                if arg.parents:
+                    rank = self.get_derived_type_member_rank(arg, routine)
+                else:
+                    rank = len(arg.shape)
+
+                if rank - 1 == len(dummy.shape):
+                    vmap.update(self._update_expr_map(arg, rank, block_index))
+
+        # Now get the rest of the horizontal arrays
+        for var in [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)
+                    and self.horizontal.index in getattr(var, 'dimensions', ()) and not var in call_args]:
+
+            local_rank = len(var.dimensions)
+            if var.parents:
+                decl_rank = self.get_derived_type_member_rank(var, routine)
+            else:
+                decl_rank = len(var.shape)
+
+            if local_rank == decl_rank - 1:
+                vmap.update(self._update_expr_map(var, decl_rank, block_index))
+
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
