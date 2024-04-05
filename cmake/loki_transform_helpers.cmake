@@ -120,6 +120,10 @@ macro( _loki_transform_parse_options )
         list( APPEND _ARGS --derive-argument-array-shape )
     endif()
 
+    if( _PAR_UNPRIVATISE_STRUCTS )
+        list( APPEND _ARGS --unprivatise-structs )
+    endif()
+
 endmacro()
 
 ##############################################################################
