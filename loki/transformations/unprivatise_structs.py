@@ -12,7 +12,7 @@ from loki import (
 
 from transformations.single_column_coalesced import SCCBaseTransformation
 
-__all__ = ['DeprivatiseStructsTransformation', 'BlockIndexInjectTransformation']
+__all__ = ['UnprivatiseStructsTransformation', 'BlockIndexInjectTransformation']
 
 def get_parent_typedef(var, routine):
 
@@ -23,10 +23,10 @@ def get_parent_typedef(var, routine):
     else:
         raise RuntimeError(f'Container data-type {var.parent.type.dtype.name} not enriched')
 
-class DeprivatiseStructsTransformation(Transformation):
+class UnprivatiseStructsTransformation(Transformation):
 
 
-    _key = 'DeprivatiseStructsTransformation'
+    _key = 'UnprivatiseStructsTransformation'
 
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
