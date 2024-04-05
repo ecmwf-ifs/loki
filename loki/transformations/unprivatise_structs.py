@@ -6,8 +6,9 @@
 # nor does it submit to any jurisdiction.
 
 from loki import (
-    Transformation, ProcedureItem, ir, Module, as_tuple, fgen, SymbolAttributes, BasicType, Variable,
-    RangeIndex, Array, FindVariables, resolve_associates, SubstituteExpressions, FindNodes, resolve_type_bound_var
+    Transformation, ProcedureItem, ir, Module, as_tuple, SymbolAttributes, BasicType, Variable,
+    RangeIndex, Array, FindVariables, resolve_associates, SubstituteExpressions, FindNodes,
+    resolve_typebound_var
 )
 
 from transformations.single_column_coalesced import SCCBaseTransformation
@@ -205,19 +206,39 @@ class BlockIndexInjectTransformation(Transformation):
             return {var:
                     var.clone(dimensions=((RangeIndex(children=(None, None)),) * (rank - 1)) + as_tuple(index))}
 
+    def get_variable_rank(self, var, routine):
+        if var.parents:
+            rank = self.get_derived_type_member_rank(var, routine)
+        else:
+            rank = len(var.shape)
+
+        return rank
+
+    def get_call_arg_rank(self, arg, routine):
+        if getattr(arg, 'dimensions', None):
+            # We assume here that the callstatement is free of sequence association
+            rank = max(1, len([d for d in arg.dimensions if isinstance(d, RangeIndex)]))
+        else:
+            rank = self.get_variable_rank(arg, routine)
+
+        return rank
+
+    def get_block_index(self, routine):
+        variable_map = routine.variable_map
+        if (block_index := variable_map.get(self.block_dim.index, None)):
+            return block_index
+        elif any(i.rsplit('%')[0] in variable_map for i in self.block_dim._index_aliases):
+            index_name = [alias for alias in self.block_dim._index_aliases
+                          if alias.rsplit('%')[0] in variable_map][0]
+
+            block_index = resolve_typebound_var(index_name, variable_map)
+
+        return block_index
+
     def process_kernel(self, routine, targets):
 
-        # Check that the block index is defined
-        if self.block_dim.index in routine.variables:
-            block_index = routine.variable_map[self.block_dim.index]
-        elif any(i.rsplit('%')[0] in routine.variables for i in self.block_dim._index_aliases):
-            index_name = [alias for alias in self.block_dim._index_aliases
-                          if alias.rsplit('%')[0] in routine.variables][0]
-
-            child, parent = resolve_type_bound_var(index_name)
-            block_index = Variable(name=child, parent=parent, scope=routine)
-        else:
-            # we skip routines that do not contain the block index
+        # we skip routines that do not contain the block index or any known alias
+        if not (block_index := self.get_block_index(routine)):
             return
 
         # The logic for callstatement args differs from other array instances in the body,
@@ -231,11 +252,7 @@ class BlockIndexInjectTransformation(Transformation):
                      if any([v in getattr(d, 'shape', None) for v in self.horizontal.size_expressions])}
 
             for arg, dummy in _args.items():
-                if arg.parents:
-                    rank = self.get_derived_type_member_rank(arg, routine)
-                else:
-                    rank = len(arg.shape)
-
+                rank = self.get_call_arg_rank(arg, routine)
                 if rank - 1 == len(dummy.shape):
                     vmap.update(self._update_expr_map(arg, rank, block_index))
 
@@ -244,10 +261,7 @@ class BlockIndexInjectTransformation(Transformation):
                     and self.horizontal.index in getattr(var, 'dimensions', ()) and not var in call_args]:
 
             local_rank = len(var.dimensions)
-            if var.parents:
-                decl_rank = self.get_derived_type_member_rank(var, routine)
-            else:
-                decl_rank = len(var.shape)
+            decl_rank = self.get_variable_rank(var, routine)
 
             if local_rank == decl_rank - 1:
                 vmap.update(self._update_expr_map(var, decl_rank, block_index))
