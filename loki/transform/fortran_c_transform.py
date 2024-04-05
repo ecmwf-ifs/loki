@@ -31,7 +31,8 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
-    ProcedureSymbol, SubstituteExpressions, Dereference,
+    ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
+    ExpressionRetriever, SubstituteExpressionsMapper,
 )
 from loki.expression import symbols as sym
 from loki.tools import as_tuple, flatten
@@ -477,7 +478,7 @@ class FortranCTransformation(Transformation):
         convert_to_lower_case(kernel)
 
         # Force pointer on reference-passed arguments
-        var_map = {}
+        to_be_dereferenced = []
         for arg in kernel.arguments:
             if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 _type = arg.type.clone(pointer=True)
@@ -485,9 +486,43 @@ class FortranCTransformation(Transformation):
                     # Lower case type names for derived types
                     typedef = _type.dtype.typedef.clone(name=_type.dtype.typedef.name.lower())
                     _type = _type.clone(dtype=typedef.dtype)
-                var_map[arg] = Dereference(arg)
+                to_be_dereferenced.append(arg.name.lower())
                 kernel.symbol_attrs[arg.name] = _type
-        kernel.body = SubstituteExpressions(var_map).visit(kernel.body)
+
+        class DeReferenceTrafo(Transformer):
+
+            def __init__(self, vars2dereference):
+                super().__init__()
+                self.retriever = ExpressionRetriever(lambda e: isinstance(e, (DerivedType, Array, Scalar))\
+                        and e.name.lower() in vars2dereference)
+
+            def visit_Expression(self, o, **kwargs):
+                symbols = self.retriever.retrieve(o)
+                symbol_map = {}
+                for symbol in symbols:
+                    if isinstance(symbol, Array) and symbol.dimensions is not None\
+                            and not all(dim == sym.RangeIndex((None, None)) for dim in symbol.dimensions):
+                        continue
+                    symbol_map[symbol] = Dereference(symbol.clone())
+                return SubstituteExpressionsMapper(symbol_map)(o)
+
+            def visit_CallStatement(self, o, **kwargs):
+                new_args = ()
+                call_arg_map = dict((v,k) for k,v in o.arg_map.items())
+                for arg in o.arguments:
+                    if isinstance(arg, Array) and arg.dimensions\
+                            and all(dim != sym.RangeIndex((None, None)) for dim in arg.dimensions) \
+                            and (isinstance(call_arg_map[arg], Array) or call_arg_map[arg].type.intent.lower() != 'in'):
+                        new_args += (Reference(arg.clone()),)
+                    else:
+                        if isinstance(arg, Scalar) and call_arg_map[arg].type.intent.lower() != 'in':
+                            new_args += (Reference(arg.clone()),)
+                        else:
+                            new_args += (arg,)
+                o._update(arguments=new_args)
+                return o
+
+        kernel.body = DeReferenceTrafo(to_be_dereferenced).visit(kernel.body)
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',

@@ -349,7 +349,7 @@ class CCodegen(Stringifier):
         """
         args = self.visit_all(o.arguments, **kwargs)
         assert not o.kwarguments
-        return self.format_line(o.name, '(', self.join_items(args), ');')
+        return self.format_line(str(o.name), '(', self.join_items(args), ');')
 
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):
