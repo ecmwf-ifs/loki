@@ -368,11 +368,11 @@ class HoistVariablesTransformation(Transformation):
             _call_clone = call.clone(kwparameters=call.kw_parameters)
             _call_clone.kw_parameters.update(new_args)
             vmap = {call: _call_clone}
-            routine.body = SubstituteExpressions(vmap).visit(routine.body)
         else:
             new_args = tuple(v.clone(dimensions=None) for v in variables)
             vmap = {call: call.clone(parameters=call.parameters + new_args)}
-            routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
     """
