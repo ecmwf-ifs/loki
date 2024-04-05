@@ -8,10 +8,12 @@
 import pytest
 
 from conftest import available_frontends
-from loki import (
-    Subroutine, FindNodes, Conditional, Assignment, Loop, Comment, OMNI
+
+from loki import Subroutine, Module, FindNodes, OMNI
+from loki.ir import nodes as ir
+from loki.transform import (
+    dead_code_elimination, remove_marked_regions, remove_calls
 )
-from loki.transform import dead_code_elimination, remove_marked_regions
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -50,15 +52,15 @@ end subroutine test_dead_code_conditional
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     # Please note that nested conditionals (elseif) counts as two
-    assert len(FindNodes(Conditional).visit(routine.body)) == 5
-    assert len(FindNodes(Assignment).visit(routine.body)) == 7
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 5
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 7
 
     dead_code_elimination(routine)
 
-    conditionals = FindNodes(Conditional).visit(routine.body)
+    conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 1
     assert conditionals[0].condition == 'flag'
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
     assert assigns[0].lhs == 'b' and assigns[0].rhs == 'b + 2.0'
     assert assigns[1].lhs == 'b' and assigns[1].rhs == 'b + a'
@@ -104,12 +106,12 @@ end subroutine test_dead_code_conditional
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     # Please note that nested conditionals (elseif) counts as two
-    assert len(FindNodes(Conditional).visit(routine.body)) == 7
-    assert len(FindNodes(Assignment).visit(routine.body)) == 10
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 7
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 10
 
     dead_code_elimination(routine)
 
-    conditionals = FindNodes(Conditional).visit(routine.body)
+    conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 4
     assert conditionals[0].condition == 'flag'
     assert not conditionals[0].has_elseif
@@ -120,7 +122,7 @@ end subroutine test_dead_code_conditional
         assert conditionals[2].has_elseif
     assert conditionals[3].condition == 'a > 1.0'
     assert not conditionals[3].has_elseif
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 7
     assert assigns[0].lhs == 'b' and assigns[0].rhs == 'b + 4'
     assert assigns[1].lhs == 'b' and assigns[1].rhs == 'a + 3'
@@ -172,18 +174,111 @@ end subroutine test_remove_code
 
     remove_marked_regions(routine, mark_with_comment=mark_with_comment)
 
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
     assert assigns[0].lhs == 'a' and assigns[0].rhs == 'a + 1.0'
     assert assigns[1].lhs == 'b(:)' and assigns[1].rhs == '1.0'
     assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + a'
 
-    loops = FindNodes(Loop).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 1
     assert assigns[2] in loops[0].body
 
     comments = [
-        c for c in FindNodes(Comment).visit(routine.body)
+        c for c in FindNodes(ir.Comment).visit(routine.body)
         if '[Loki] Removed content' in c.text
     ]
     assert len(comments) == (2 if mark_with_comment else 0)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_remove_calls(frontend):
+    """
+    Test removal of utility calls and intrinsics with custom patterns.
+    """
+
+    fcode_yomhook = """
+module yomhook
+  logical lhook
+contains
+  subroutine dr_hook(name, id, handle)
+    character(len=*), intent(in) :: name
+    integer(kind=8), intent(in) :: id, handle
+  end subroutine dr_hook
+end module yomhook
+    """
+
+    fcode_abor1 = """
+module abor1_mod
+implicit none
+integer(kind=8) :: NULOUT
+contains
+  subroutine abor1(msg)
+    character(len=*), intent(in) :: msg
+    write(*,*) msg
+  end subroutine abor1
+end module abor1_mod
+    """
+
+    fcode = """
+subroutine never_gonna_give(dave)
+    use yomhook, only : lhook, dr_hook
+    use abor1_mod, only : abor1, NULOUT
+    implicit none
+
+    integer, parameter :: jprb = 8
+    logical, intent(in) :: dave
+    real(kind=jprb) :: zhook_handle
+    if (lhook) call dr_hook('never_gonna_give',0,zhook_handle)
+
+    CALL ABOR1('[SUBROUTINE CALL]')
+
+    print *, 'never gonna let you down'
+
+    if (dave) call abor1('[INLINE CONDITIONAL]')
+
+    call never_gonna_run_around()
+
+    WRITE(NULOUT,*) "[WRITE INTRINSIC]"
+    if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
+
+    if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
+
+end subroutine
+    """
+
+    # Parse utility module first, to get type info for OMNI
+    _ = Module.from_source(fcode_yomhook, frontend=frontend)
+    _ = Module.from_source(fcode_abor1, frontend=frontend)
+
+    # Parse the main test function and remove calls
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Note that OMNI enforces keyword-arg passing for intrinsic
+    # call to ``write``, so we match both conventions.
+    remove_calls(
+        routine, call_names=('ABOR1', 'DR_HOOK'),
+        intrinsic_names=('WRITE(NULOUT', 'write(unit=nulout'),
+        import_names=('yomhook',)
+    )
+
+    # Check that all but one specific call have been removed
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'never_gonna_run_around'
+
+    # OMNI resolves inline-conditionals and expands the keyword-args,
+    # so neither the inline-conditional removal, nor the intrinsic
+    # matching works with it.
+    conditionals = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conditionals) == (4 if frontend == OMNI else 0)
+
+    # Check that all intrinsic calls to WRITE have been removed
+    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
+    assert len(intrinsics) == 1
+    assert 'never gonna let you down' in intrinsics[0].text
+
+    # Check that the repsective imports have also been stripped
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    assert len(imports) == 1
+    assert imports[0].module == 'abor1_mod'

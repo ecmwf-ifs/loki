@@ -17,7 +17,8 @@ from loki.pragma_utils import is_loki_pragma, pragma_regions_attached
 
 __all__ = [
     'dead_code_elimination', 'DeadCodeEliminationTransformer',
-    'remove_marked_regions', 'RemoveRegionTransformer'
+    'remove_marked_regions', 'RemoveRegionTransformer',
+    'remove_calls', 'RemoveCallsTransformer'
 ]
 
 
@@ -129,5 +130,116 @@ class RemoveRegionTransformer(Transformer):
             return None
 
         # Recurse into the pragama region and rebuild
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._rebuild(o, rebuilt)
+
+
+def remove_calls(
+        routine, call_names=None, intrinsic_names=None,
+        import_names=None
+):
+    """
+    Utility routine to remove all :any:`CallStatement` nodes
+    to specific named subroutines in a :any:`Subroutine`.
+
+    For more information, see :any:`RemoveCallsTransformer`.
+
+    Parameters
+    ----------
+    call_names : list of str
+        List of subroutine names against which to match
+        :any:`CallStatement` nodes.
+    intrinsic_names : list of str
+        List of module names against which to match :any:`Intrinsic`
+        nodes.
+    import_names : list of str
+        List of module names against which to match :any:`Import`
+        nodes.
+    """
+
+    transformer = RemoveCallsTransformer(
+        call_names=call_names, intrinsic_names=intrinsic_names,
+        import_names=import_names
+    )
+    routine.spec = transformer.visit(routine.spec)
+    routine.body = transformer.visit(routine.body)
+
+
+class RemoveCallsTransformer(Transformer):
+    """
+    A :any:`Transformer` that removes all :any:`CallStatement` nodes
+    to specific named subroutines.
+
+    This :any:`Transformer` will by default also remove the enclosing
+    inline-conditional when encountering calls of the form ```if
+    (flag) call named_procedure()``.`
+
+    This :any:`Transformer` will also attempt to match and remove
+    :any:`Intrinsic` nodes against a given list of name strings.  This
+    allows removing intrinsic calls like ``write (*,*) "..."``.
+
+    In addition, this :any:`Transformer` can also attempt to match and
+    remove :any:`Import` nodes if given a list of strings to
+    match. This can be used to remove the associated imports of the
+    removed subroutines.
+
+    Parameters
+    ----------
+    call_names : list of str
+        List of subroutine names against which to match
+        :any:`CallStatement` nodes.
+    intrinsic_names : list of str
+        List of module names against which to match :any:`Intrinsic`
+        nodes.
+    import_names : list of str
+        List of module names against which to match :any:`Import`
+        nodes.
+    """
+
+    def __init__(
+            self, call_names=None, intrinsic_names=None,
+            import_names=None, **kwargs
+    ):
+        super().__init__(**kwargs)
+
+        self.call_names = as_tuple(call_names)
+        self.intrinsic_names = as_tuple(intrinsic_names)
+        self.import_names = as_tuple(import_names)
+
+    def visit_CallStatement(self, o, **kwargs):
+        """ Match and remove :any:`CallStatement` nodes against name patterns """
+        if o.name in self.call_names:
+            return None
+
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._rebuild(o, rebuilt)
+
+    def visit_Conditional(self, o, **kwargs):
+        """ Remove inline-conditionals after recursing into their body """
+
+        # First, recurse into condition and bodies
+        cond, body, else_body = tuple(self.visit(i, **kwargs) for i in o.children)
+
+        # Capture and remove newly empty inline conditionals
+        if o.inline and len(body) == 0:
+            return None
+
+        return self._rebuild(o, (cond, body, else_body))
+
+    def visit_Intrinsic(self, o, **kwargs):
+        """ Match and remove :any:`Intrinsic` nodes against name patterns """
+        if self.intrinsic_names:
+            if any(str(c).lower() in o.text.lower() for c in self.intrinsic_names):
+                return None
+
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._rebuild(o, rebuilt)
+
+    def visit_Import(self, o, **kwargs):
+        """ Match and remove :any:`Import` nodes against name patterns """
+        if self.import_names:
+            if any(str(c).lower() in o.module.lower() for c in self.import_names):
+                return None
+
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
         return self._rebuild(o, rebuilt)
