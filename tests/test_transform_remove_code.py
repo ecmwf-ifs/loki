@@ -12,7 +12,7 @@ from conftest import available_frontends
 from loki import Subroutine, Module, FindNodes, OMNI
 from loki.ir import nodes as ir
 from loki.transform import (
-    dead_code_elimination, remove_marked_regions, remove_calls
+    remove_dead_code, remove_marked_regions, remove_calls
 )
 
 
@@ -55,7 +55,7 @@ end subroutine test_dead_code_conditional
     assert len(FindNodes(ir.Conditional).visit(routine.body)) == 5
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 7
 
-    dead_code_elimination(routine)
+    remove_dead_code(routine)
 
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 1
@@ -109,7 +109,7 @@ end subroutine test_dead_code_conditional
     assert len(FindNodes(ir.Conditional).visit(routine.body)) == 7
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 10
 
-    dead_code_elimination(routine)
+    remove_dead_code(routine)
 
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 4

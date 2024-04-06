@@ -29,7 +29,7 @@ from loki.subroutine import Subroutine
 
 from loki.transform.transform_sanitise import transform_sequence_association_append_map
 from loki.transform.transformation import Transformation
-from loki.transform.transform_remove_code import dead_code_elimination
+from loki.transform.transform_remove_code import remove_dead_code
 from loki.transform.transform_utilities import (
     single_variable_declaration,
     recursive_expression_map_update
@@ -62,7 +62,7 @@ class InlineTransformation(Transformation):
     inline_marked : bool
         Inline :any:`Subroutine` objects marked by pragma annotations
         (see :any:`inline_marked_subroutines`); default: True.
-    eliminate_dead_code : bool
+    remove_dead_code : bool
         Perform dead code elimination, where unreachable branches are
         trimmed from the code (see :any:`dead_code_elimination`); default: True
     allowed_aliases : tuple or list of str or :any:`Expression`, optional
@@ -83,7 +83,7 @@ class InlineTransformation(Transformation):
     def __init__(
             self, inline_constants=False, inline_elementals=True,
             inline_internals=False, inline_marked=True,
-            eliminate_dead_code=True, allowed_aliases=None,
+            remove_dead_code=True, allowed_aliases=None,
             remove_imports=True, external_only=True,
             resolve_sequence_association=False
     ):
@@ -91,7 +91,7 @@ class InlineTransformation(Transformation):
         self.inline_elementals = inline_elementals
         self.inline_internals = inline_internals
         self.inline_marked = inline_marked
-        self.eliminate_dead_code = eliminate_dead_code
+        self.remove_dead_code = remove_dead_code
         self.allowed_aliases = allowed_aliases
         self.remove_imports = remove_imports
         self.external_only = external_only
@@ -129,8 +129,8 @@ class InlineTransformation(Transformation):
             )
 
         # After inlining, attempt to trim unreachable code paths
-        if self.eliminate_dead_code:
-            dead_code_elimination(routine)
+        if self.remove_dead_code:
+            remove_dead_code(routine)
 
 
 class InlineSubstitutionMapper(LokiIdentityMapper):

@@ -6,7 +6,8 @@
 # nor does it submit to any jurisdiction.
 
 """
-Collection of utilities to perform Dead Code Elimination.
+Collection of utilities to automatically remove code elements or
+section and to perform Dead Code Elimination.
 """
 
 from loki.expression.symbolic import simplify
@@ -16,13 +17,13 @@ from loki.pragma_utils import is_loki_pragma, pragma_regions_attached
 
 
 __all__ = [
-    'dead_code_elimination', 'DeadCodeEliminationTransformer',
+    'remove_dead_code', 'RemoveDeadCodeTransformer',
     'remove_marked_regions', 'RemoveRegionTransformer',
     'remove_calls', 'RemoveCallsTransformer'
 ]
 
 
-def dead_code_elimination(routine, use_simplify=True):
+def remove_dead_code(routine, use_simplify=True):
     """
     Perform Dead Code Elimination on the given :any:`Subroutine` object.
 
@@ -34,11 +35,11 @@ def dead_code_elimination(routine, use_simplify=True):
         Use :any:`simplify` when evaluating expressions for branch pruning.
     """
 
-    transformer = DeadCodeEliminationTransformer(use_simplify=use_simplify)
+    transformer = RemoveDeadCodeTransformer(use_simplify=use_simplify)
     routine.body = transformer.visit(routine.body)
 
 
-class DeadCodeEliminationTransformer(Transformer):
+class RemoveDeadCodeTransformer(Transformer):
     """
     :any:`Transformer` class that removes provably unreachable code paths.
 
