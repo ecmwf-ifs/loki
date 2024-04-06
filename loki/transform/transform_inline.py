@@ -29,7 +29,7 @@ from loki.subroutine import Subroutine
 
 from loki.transform.transform_sanitise import transform_sequence_association_append_map
 from loki.transform.transformation import Transformation
-from loki.transform.transform_remove_code import remove_dead_code
+from loki.transform.transform_remove_code import do_remove_dead_code
 from loki.transform.transform_utilities import (
     single_variable_declaration,
     recursive_expression_map_update
@@ -130,7 +130,7 @@ class InlineTransformation(Transformation):
 
         # After inlining, attempt to trim unreachable code paths
         if self.remove_dead_code:
-            remove_dead_code(routine)
+            do_remove_dead_code(routine)
 
 
 class InlineSubstitutionMapper(LokiIdentityMapper):

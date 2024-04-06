@@ -5,15 +5,111 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import shutil
 import pytest
 
 from conftest import available_frontends
 
-from loki import Subroutine, Module, FindNodes, OMNI
+from loki import (
+    Subroutine, Module, Sourcefile, FindNodes, OMNI, gettempdir
+)
+from loki.batch import Scheduler, SchedulerConfig
 from loki.ir import nodes as ir
 from loki.transform import (
-    remove_dead_code, remove_marked_regions, remove_calls
+    do_remove_dead_code, do_remove_marked_regions, do_remove_calls,
+    RemoveCodeTransformation
 )
+
+
+@pytest.fixture(scope='module', name='srcdir')
+def fixture_srcdir():
+    """
+    Create a src directory in the temp directory
+    """
+    srcdir = gettempdir()/'test_remove_code'
+    if srcdir.exists():
+        shutil.rmtree(srcdir)
+    srcdir.mkdir()
+    yield srcdir
+    shutil.rmtree(srcdir)
+
+
+@pytest.fixture(scope='module', name='source')
+def fixture_source(srcdir):
+    """
+    Write some source files to use in the test
+    """
+    fcode_driver = """
+subroutine rick_astley
+    use parkind1, only: jprb
+    use yomhook, only : lhook, dr_hook
+    use rick_rolled, only : never_gonna_give
+    implicit none
+
+    real(kind=jprb) :: zhook_handle
+    if (lhook) call dr_hook('rick_astley',0,zhook_handle)
+    call never_gonna_give()
+    if (lhook) call dr_hook('rick_astley',1,zhook_handle)
+end subroutine
+    """.strip()
+
+    fcode_kernel = """
+module rick_rolled
+contains
+subroutine never_gonna_give
+    use parkind1, only: jprb
+    use yomhook, only : lhook, dr_hook
+    implicit none
+
+    real(kind=jprb) :: zhook_handle
+    if (lhook) call dr_hook('never_gonna_give',0,zhook_handle)
+
+    CALL ABOR1('[SUBROUTINE CALL]')
+
+    print *, 'never gonna let you down'
+
+    if (dave) call abor1('[INLINE CONDITIONAL]')
+
+    call never_gonna_run_around()
+
+    WRITE(NULOUT,*) "[WRITE INTRINSIC]"
+    if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
+
+    if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
+
+contains
+
+subroutine never_gonna_run_around
+
+    implicit none
+
+    if (lhook) call dr_hook('never_gonna_run_around',0,zhook_handle)
+
+    if (dave) call abor1('[INLINE CONDITIONAL]')
+    WRITE(NULOUT,*) "[WRITE INTRINSIC]"
+    if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
+
+    if (lhook) call dr_hook('never_gonna_run_around',1,zhook_handle)
+
+end subroutine never_gonna_run_around
+
+end subroutine
+subroutine i_hope_you_havent_let_me_down
+    real(kind=jprb) :: zhook_handle
+    if (lhook) call dr_hook('i_hope_you_havent_let_me_down',0,zhook_handle)
+
+    if (lhook) call dr_hook('i_hope_you_havent_let_me_down',1,zhook_handle)
+end subroutine i_hope_you_havent_let_me_down
+end module rick_rolled
+    """.strip()
+
+    (srcdir/'rick_astley.F90').write_text(fcode_driver)
+    (srcdir/'never_gonna_give.F90').write_text(fcode_kernel)
+
+    yield srcdir
+
+    (srcdir/'rick_astley.F90').unlink()
+    (srcdir/'never_gonna_give.F90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -55,7 +151,7 @@ end subroutine test_dead_code_conditional
     assert len(FindNodes(ir.Conditional).visit(routine.body)) == 5
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 7
 
-    remove_dead_code(routine)
+    do_remove_dead_code(routine)
 
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 1
@@ -109,7 +205,7 @@ end subroutine test_dead_code_conditional
     assert len(FindNodes(ir.Conditional).visit(routine.body)) == 7
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 10
 
-    remove_dead_code(routine)
+    do_remove_dead_code(routine)
 
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 4
@@ -172,7 +268,7 @@ end subroutine test_remove_code
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    remove_marked_regions(routine, mark_with_comment=mark_with_comment)
+    do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
@@ -256,7 +352,7 @@ end subroutine
 
     # Note that OMNI enforces keyword-arg passing for intrinsic
     # call to ``write``, so we match both conventions.
-    remove_calls(
+    do_remove_calls(
         routine, call_names=('ABOR1', 'DR_HOOK'),
         intrinsic_names=('WRITE(NULOUT', 'write(unit=nulout'),
         import_names=('yomhook',)
@@ -282,3 +378,59 @@ end subroutine
     imports = FindNodes(ir.Import).visit(routine.spec)
     assert len(imports) == 1
     assert imports[0].module == 'abor1_mod'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'Incomplete source tree impossible with OMNI')]
+))
+@pytest.mark.parametrize('include_intrinsics', (True, False))
+@pytest.mark.parametrize('kernel_only', (True, False))
+def test_remove_code_transformation(frontend, source, include_intrinsics, kernel_only):
+    """
+    Test the use of code removal utilities, in particular the call
+    removal, via the scheduler.
+    """
+
+    config = {
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': False,
+            'disable': ['dr_hook', 'abor1']
+        },
+        'routines': {
+            'rick_astley': {'role': 'driver'},
+        }
+    }
+    scheduler_config = SchedulerConfig.from_dict(config)
+    scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
+
+    # Apply the transformation to the call tree
+    transformation = RemoveCodeTransformation(
+        call_names=('ABOR1', 'DR_HOOK'), import_names=('yomhook'),
+        intrinsic_names=('WRITE(NULOUT',) if include_intrinsics else (),
+        kernel_only=kernel_only
+    )
+    scheduler.process(transformation=transformation)
+
+    routine = scheduler['rick_rolled#never_gonna_give'].ir
+    transformed = routine.to_fortran()
+
+    assert '[SUBROUTINE CALL]' not in transformed
+    assert '[INLINE CONDITIONAL]' not in transformed
+    assert ('dave' not in transformed) == include_intrinsics
+    assert ('[WRITE INTRINSIC]' not in transformed) == include_intrinsics
+
+    for r in routine.members:
+        transformed = r.to_fortran()
+        assert '[SUBROUTINE CALL]' not in transformed
+        assert '[INLINE CONDITIONAL]' not in transformed
+        assert ('dave' not in transformed) == include_intrinsics
+
+    routine = Sourcefile.from_file(
+        source/'never_gonna_give.F90', frontend=frontend
+    )['i_hope_you_havent_let_me_down']
+    assert 'zhook_handle' in routine.variables
+    assert len([call for call in FindNodes(ir.CallStatement).visit(routine.body) if call.name == 'dr_hook']) == 2
+
+    driver = scheduler['#rick_astley'].ir
+    drhook_calls = [call for call in FindNodes(ir.CallStatement).visit(driver.body) if call.name == 'dr_hook']
+    assert len(drhook_calls) == (2 if kernel_only else 0)

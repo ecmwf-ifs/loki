@@ -14,16 +14,102 @@ from loki.expression.symbolic import simplify
 from loki.tools import flatten, as_tuple
 from loki.ir import Conditional, Transformer, Comment
 from loki.pragma_utils import is_loki_pragma, pragma_regions_attached
+from loki.transform.transformation import Transformation
 
 
 __all__ = [
-    'remove_dead_code', 'RemoveDeadCodeTransformer',
-    'remove_marked_regions', 'RemoveRegionTransformer',
-    'remove_calls', 'RemoveCallsTransformer'
+    'RemoveCodeTransformation',
+    'do_remove_dead_code', 'RemoveDeadCodeTransformer',
+    'do_remove_marked_regions', 'RemoveRegionTransformer',
+    'do_remove_calls', 'RemoveCallsTransformer'
 ]
 
 
-def remove_dead_code(routine, use_simplify=True):
+class RemoveCodeTransformation(Transformation):
+    """
+    A :any:`Transformation` that provides named call and import
+    removal, code removal of pragma-marked regions and Dead Code
+    Elimination for batch processing vis the :any:`Scheduler`.
+
+    The transformation will apply the following methods in order:
+    * :method:`do_remove_calls`
+    * :method:`do_remove_marked_regions`
+    * :method:`do_remove_dead_code`
+
+    Parameters
+    ----------
+    remove_marked_regions : boolean
+        Flag to trigger the use of :method:`remove_marked_regions`;
+        default: ``True``
+    mark_with_comment : boolean
+        Flag to trigger the insertion of a marker comment when
+        removing a region; default: ``True``.
+    remove_dead_code : boolean
+        Flag to trigger the use of :method:`remove_dead_code`;
+        default: ``False``
+    use_simplify : boolean
+        Use :any:`simplify` when branch pruning in during
+        :method:`remove_dead_code`.
+    call_names : list of str
+        List of subroutine names against which to match
+        :any:`CallStatement` nodes during :method:`remove_calls`.
+    import_names : list of str
+        List of module names against which to match :any:`Import`
+        nodes during :method:`remove_calls`.
+    intrinsic_names : list of str
+        List of module names against which to match :any:`Intrinsic`
+        nodes during :method:`remove_calls`.
+    kernel_only : boolean
+        Only apply the configured removal to subroutines marked as
+        "kernel"; default: ``False``
+    """
+
+    # Recurse to subroutines in ``contains`` clause
+    recurse_to_internal_procedures = True
+
+    def __init__(
+            self, remove_marked_regions=True, mark_with_comment=True,
+            remove_dead_code=False, use_simplify=True,
+            call_names=None, import_names=None,
+            intrinsic_names=None, kernel_only=False
+    ):
+        self.remove_marked_regions = remove_marked_regions
+        self.mark_with_comment = mark_with_comment
+
+        self.remove_dead_code = remove_dead_code
+        self.use_simplify = use_simplify
+
+        self.call_names = as_tuple(call_names)
+        self.import_names = as_tuple(import_names)
+        self.intrinsic_names = as_tuple(intrinsic_names)
+
+        self.kernel_only = kernel_only
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        if self.kernel_only and not kwargs.get('role') == 'kernel':
+            return
+
+        # Apply named node removal to strip specific calls
+        if self.call_names or self.intrinsic_names:
+            do_remove_calls(
+                routine, call_names=self.call_names,
+                import_names=self.import_names,
+                intrinsic_names=self.intrinsic_names
+            )
+
+        # Apply marked region removal
+        if self.remove_marked_regions:
+            do_remove_marked_regions(
+                routine, mark_with_comment=self.mark_with_comment
+            )
+
+        # Apply Dead Code Elimination
+        if self.remove_dead_code:
+            do_remove_dead_code(routine, use_simplify=self.use_simplify)
+
+
+def do_remove_dead_code(routine, use_simplify=True):
     """
     Perform Dead Code Elimination on the given :any:`Subroutine` object.
 
@@ -48,7 +134,7 @@ class RemoveDeadCodeTransformer(Transformer):
 
     Parameters
     ----------
-    simplify : boolean
+    use_simplify : boolean
         Use :any:`simplify` when evaluating expressions for branch pruning.
     """
 
@@ -74,7 +160,7 @@ class RemoveDeadCodeTransformer(Transformer):
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
 
 
-def remove_marked_regions(routine, mark_with_comment=True):
+def do_remove_marked_regions(routine, mark_with_comment=True):
     """
     Utility routine to remove code regions marked with
     ``!$loki remove`` pragmas from a subroutine's body.
@@ -135,9 +221,8 @@ class RemoveRegionTransformer(Transformer):
         return self._rebuild(o, rebuilt)
 
 
-def remove_calls(
-        routine, call_names=None, intrinsic_names=None,
-        import_names=None
+def do_remove_calls(
+        routine, call_names=None, import_names=None, intrinsic_names=None,
 ):
     """
     Utility routine to remove all :any:`CallStatement` nodes
@@ -150,11 +235,11 @@ def remove_calls(
     call_names : list of str
         List of subroutine names against which to match
         :any:`CallStatement` nodes.
-    intrinsic_names : list of str
-        List of module names against which to match :any:`Intrinsic`
-        nodes.
     import_names : list of str
         List of module names against which to match :any:`Import`
+        nodes.
+    intrinsic_names : list of str
+        List of module names against which to match :any:`Intrinsic`
         nodes.
     """
 
@@ -189,17 +274,17 @@ class RemoveCallsTransformer(Transformer):
     call_names : list of str
         List of subroutine names against which to match
         :any:`CallStatement` nodes.
-    intrinsic_names : list of str
-        List of module names against which to match :any:`Intrinsic`
-        nodes.
     import_names : list of str
         List of module names against which to match :any:`Import`
+        nodes.
+    intrinsic_names : list of str
+        List of module names against which to match :any:`Intrinsic`
         nodes.
     """
 
     def __init__(
-            self, call_names=None, intrinsic_names=None,
-            import_names=None, **kwargs
+            self, call_names=None, import_names=None,
+            intrinsic_names=None, **kwargs
     ):
         super().__init__(**kwargs)
 
