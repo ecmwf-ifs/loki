@@ -24,7 +24,7 @@ from loki import (
 from loki.transform import (
     DependencyTransformation, ModuleWrapTransformation, FortranCTransformation,
     FileWriteTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
-    InlineTransformation, SanitiseTransformation, Pipeline
+    InlineTransformation, SanitiseTransformation, RemoveCodeTransformation, Pipeline
 )
 
 # pylint: disable=wrong-import-order
@@ -197,14 +197,20 @@ def convert(
     if remove_derived_args:
         scheduler.process( DerivedTypeArgumentsTransformation() )
 
-    # Remove DR_HOOK and other utility calls first, so they don't interfere with SCC loop hoisting
-    if 'scc' in mode:
-        scheduler.process( RemoveCallsTransformation(
-            routines=config.default.get('utility_routines', None) or ['DR_HOOK', 'ABOR1', 'WRITE(NULOUT'],
-            include_intrinsics=True, kernel_only=True
-        ))
-    else:
+    # Re-write DR_HOOK labels for non-GPU paths
+    if 'scc' not in mode:
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
+
+    # Perform general source removal of unwanted calls or code regions
+    # (do not perfrom Dead Code Elimination yet, inlining will do this.)
+    remove_code_trafo = scheduler.config.transformations.get('RemoveCodeTransformation', None)
+    if not remove_code_trafo:
+        remove_code_trafo = RemoveCodeTransformation(
+            remove_marked_regions=True, remove_dead_code=False,
+            call_names=('ABOR1', 'DR_HOOK'), import_names=('yomhook'),
+            intrinsic_names=('WRITE(NULOUT',)
+        )
+    scheduler.process(transformation=remove_code_trafo)
 
     # Perform general source sanitisation steps to level the playing field
     sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
@@ -219,7 +225,7 @@ def convert(
     if not inline_trafo:
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
-            eliminate_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
+            remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
             resolve_sequence_association=resolve_sequence_association_inlined_calls 
         )
     scheduler.process(transformation=inline_trafo)
