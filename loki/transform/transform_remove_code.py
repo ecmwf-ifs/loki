@@ -53,12 +53,12 @@ class RemoveCodeTransformation(Transformation):
     call_names : list of str
         List of subroutine names against which to match
         :any:`CallStatement` nodes during :method:`remove_calls`.
-    import_names : list of str
-        List of module names against which to match :any:`Import`
-        nodes during :method:`remove_calls`.
     intrinsic_names : list of str
         List of module names against which to match :any:`Intrinsic`
         nodes during :method:`remove_calls`.
+    remove_imports : boolean
+        Flag indicating whether to remove symbols from :any:`Import`
+        objects during :method:`remove_calls`; default: ``True``
     kernel_only : boolean
         Only apply the configured removal to subroutines marked as
         "kernel"; default: ``False``
@@ -70,8 +70,8 @@ class RemoveCodeTransformation(Transformation):
     def __init__(
             self, remove_marked_regions=True, mark_with_comment=True,
             remove_dead_code=False, use_simplify=True,
-            call_names=None, import_names=None,
-            intrinsic_names=None, kernel_only=False
+            call_names=None, intrinsic_names=None,
+            remove_imports=True, kernel_only=False
     ):
         self.remove_marked_regions = remove_marked_regions
         self.mark_with_comment = mark_with_comment
@@ -80,8 +80,8 @@ class RemoveCodeTransformation(Transformation):
         self.use_simplify = use_simplify
 
         self.call_names = as_tuple(call_names)
-        self.import_names = as_tuple(import_names)
         self.intrinsic_names = as_tuple(intrinsic_names)
+        self.remove_imports = remove_imports
 
         self.kernel_only = kernel_only
 
@@ -94,8 +94,8 @@ class RemoveCodeTransformation(Transformation):
         if self.call_names or self.intrinsic_names:
             do_remove_calls(
                 routine, call_names=self.call_names,
-                import_names=self.import_names,
-                intrinsic_names=self.intrinsic_names
+                intrinsic_names=self.intrinsic_names,
+                remove_imports=self.remove_imports
             )
 
         # Apply marked region removal
@@ -222,7 +222,7 @@ class RemoveRegionTransformer(Transformer):
 
 
 def do_remove_calls(
-        routine, call_names=None, import_names=None, intrinsic_names=None,
+        routine, call_names=None, intrinsic_names=None, remove_imports=True
 ):
     """
     Utility routine to remove all :any:`CallStatement` nodes
@@ -235,17 +235,17 @@ def do_remove_calls(
     call_names : list of str
         List of subroutine names against which to match
         :any:`CallStatement` nodes.
-    import_names : list of str
-        List of module names against which to match :any:`Import`
-        nodes.
     intrinsic_names : list of str
         List of module names against which to match :any:`Intrinsic`
         nodes.
+    remove_imports : boolean
+        Flag indicating whether to remove the respective procedure
+        symbols from :any:`Import` objects; default: ``True``.
     """
 
     transformer = RemoveCallsTransformer(
         call_names=call_names, intrinsic_names=intrinsic_names,
-        import_names=import_names
+        remove_imports=remove_imports
     )
     routine.spec = transformer.visit(routine.spec)
     routine.body = transformer.visit(routine.body)
@@ -274,23 +274,23 @@ class RemoveCallsTransformer(Transformer):
     call_names : list of str
         List of subroutine names against which to match
         :any:`CallStatement` nodes.
-    import_names : list of str
-        List of module names against which to match :any:`Import`
-        nodes.
     intrinsic_names : list of str
         List of module names against which to match :any:`Intrinsic`
         nodes.
+    remove_imports : boolean
+        Flag indicating whether to remove the respective procedure
+        symbols from :any:`Import` objects; default: ``True``.
     """
 
     def __init__(
-            self, call_names=None, import_names=None,
-            intrinsic_names=None, **kwargs
+            self, call_names=None, intrinsic_names=None,
+            remove_imports=True, **kwargs
     ):
         super().__init__(**kwargs)
 
         self.call_names = as_tuple(call_names)
         self.intrinsic_names = as_tuple(intrinsic_names)
-        self.import_names = as_tuple(import_names)
+        self.remove_imports = remove_imports
 
     def visit_CallStatement(self, o, **kwargs):
         """ Match and remove :any:`CallStatement` nodes against name patterns """
@@ -322,10 +322,12 @@ class RemoveCallsTransformer(Transformer):
         return self._rebuild(o, rebuilt)
 
     def visit_Import(self, o, **kwargs):
-        """ Match and remove :any:`Import` nodes against name patterns """
-        if self.import_names:
-            if any(str(c).lower() in o.module.lower() for c in self.import_names):
-                return None
+        """ Remove the symbol of any named calls from Import nodes """
+
+        symbols_found = any(s in self.call_names for s in o.symbols)
+        if self.remove_imports and symbols_found:
+            new_symbols = tuple(s for s in o.symbols if s not in self.call_names)
+            return o.clone(symbols=new_symbols) if new_symbols else None
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
         return self._rebuild(o, rebuilt)

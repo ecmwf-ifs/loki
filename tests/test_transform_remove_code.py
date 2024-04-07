@@ -288,7 +288,8 @@ end subroutine test_remove_code
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_remove_calls(frontend):
+@pytest.mark.parametrize('remove_imports', [True, False])
+def test_transform_remove_calls(frontend, remove_imports):
     """
     Test removal of utility calls and intrinsics with custom patterns.
     """
@@ -307,7 +308,6 @@ end module yomhook
     fcode_abor1 = """
 module abor1_mod
 implicit none
-integer(kind=8) :: NULOUT
 contains
   subroutine abor1(msg)
     character(len=*), intent(in) :: msg
@@ -319,9 +319,10 @@ end module abor1_mod
     fcode = """
 subroutine never_gonna_give(dave)
     use yomhook, only : lhook, dr_hook
-    use abor1_mod, only : abor1, NULOUT
+    use abor1_mod, only : abor1
     implicit none
 
+    integer(kind=8), parameter :: NULOUT = 6
     integer, parameter :: jprb = 8
     logical, intent(in) :: dave
     real(kind=jprb) :: zhook_handle
@@ -355,7 +356,7 @@ end subroutine
     do_remove_calls(
         routine, call_names=('ABOR1', 'DR_HOOK'),
         intrinsic_names=('WRITE(NULOUT', 'write(unit=nulout'),
-        import_names=('yomhook',)
+        remove_imports=remove_imports
     )
 
     # Check that all but one specific call have been removed
@@ -376,8 +377,14 @@ end subroutine
 
     # Check that the repsective imports have also been stripped
     imports = FindNodes(ir.Import).visit(routine.spec)
-    assert len(imports) == 1
-    assert imports[0].module == 'abor1_mod'
+    assert len(imports) == 1 if remove_imports else 2
+    assert imports[0].module == 'yomhook'
+    if remove_imports:
+        assert imports[0].symbols == ('lhook',)
+    else:
+        assert imports[0].symbols == ('lhook', 'dr_hook')
+        assert imports[1].module == 'abor1_mod'
+        assert imports[1].symbols == ('abor1',)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -405,7 +412,7 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
 
     # Apply the transformation to the call tree
     transformation = RemoveCodeTransformation(
-        call_names=('ABOR1', 'DR_HOOK'), import_names=('yomhook'),
+        call_names=('ABOR1', 'DR_HOOK'),
         intrinsic_names=('WRITE(NULOUT',) if include_intrinsics else (),
         kernel_only=kernel_only
     )

@@ -207,8 +207,7 @@ def convert(
     if not remove_code_trafo:
         remove_code_trafo = RemoveCodeTransformation(
             remove_marked_regions=True, remove_dead_code=False,
-            call_names=('ABOR1', 'DR_HOOK'), import_names=('yomhook'),
-            intrinsic_names=('WRITE(NULOUT',)
+            call_names=('ABOR1', 'DR_HOOK'), intrinsic_names=('WRITE(NULOUT',)
         )
     scheduler.process(transformation=remove_code_trafo)
 
