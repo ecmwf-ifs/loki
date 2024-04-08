@@ -63,6 +63,8 @@ jobs:
         with:
           flags: loki
           files: ./coverage.xml
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Run transformations tests
         run: |
@@ -74,6 +76,8 @@ jobs:
         with:
           flags: transformations
           files: ./coverage.xml
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Run lint_rules tests
         run: |
@@ -85,3 +89,5 @@ jobs:
         with:
           flags: lint_rules
           files: ./coverage.xml
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
