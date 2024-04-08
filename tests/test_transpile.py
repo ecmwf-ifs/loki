@@ -1068,7 +1068,6 @@ end subroutine transpile_multi_conditional
     f2c.c_path.unlink()
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.xfail(raises=NotImplementedError)
 def test_transpile_multiconditional_range(here, frontend):
     """
     A simple test to verify multiconditionals/select case statements.
@@ -1112,4 +1111,5 @@ end subroutine transpile_multi_conditional_range
     # TODO: RangeIndex as case is not yet implemented!
     #  'NotImplementedError' is raised
     f2c = FortranCTransformation()
-    f2c.apply(source=routine, path=here)
+    with pytest.raises(NotImplementedError):
+        f2c.apply(source=routine, path=here)
