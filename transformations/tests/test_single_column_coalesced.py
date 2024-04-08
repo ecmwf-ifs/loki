@@ -706,9 +706,16 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     when hoisting array temporaries to driver.
     """
 
+    fcode_mod = """
+  MODULE BLOCK_DIM_MOD
+     INTEGER :: nb
+  END MODULE BLOCK_DIM_MOD
+  """
+
     fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, nb)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+  SUBROUTINE column_driver(nlon, nz, q)
+    USE BLOCK_DIM_MOD, ONLY : nb
+    INTEGER, INTENT(IN)   :: nlon, nz  ! Size of the horizontal and vertical
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
     INTEGER :: b, start, end
 
@@ -760,8 +767,9 @@ end module my_scaling_value_mod
 """.strip()
 
     # Mimic the scheduler internal mechanis to apply the transformation cascade
+    mod_source = Sourcefile.from_source(fcode_mod, frontend=frontend)
     kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
-    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=mod_source.modules)
     module_source = Sourcefile.from_source(fcode_module, frontend=frontend)
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
@@ -783,6 +791,9 @@ end module my_scaling_value_mod
     scc_hoist.apply(
         driver, role='driver', item=driver_item, successors=(kernel_item,), targets=['compute_column']
     )
+
+    # Check that blocking size has not been redefined
+    assert driver.symbol_map[blocking.size].type.module.name.lower() == 'block_dim_mod'
 
     with pragmas_attached(kernel, Loop):
         # Ensure kernel routine is anntoated at vector level

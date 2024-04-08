@@ -110,9 +110,7 @@ class SCCBaseTransformation(Transformation):
         name : string
             Name of the variable to find the in the routine.
         """
-        if name in routine.variable_map:
-            v_index = routine.variable_map[name]
-        else:
+        if not (v_index := routine.symbol_map.get(name, None)):
             dtype = SymbolAttributes(BasicType.INTEGER)
             v_index = sym.Variable(name=name, type=dtype, scope=routine)
         return v_index
