@@ -1066,3 +1066,50 @@ end subroutine transpile_multi_conditional
     clean_test(filepath)
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.xfail(raises=NotImplementedError)
+def test_transpile_multiconditional_range(here, frontend):
+    """
+    A simple test to verify multiconditionals/select case statements.
+    """
+
+    fcode = """
+subroutine transpile_multi_conditional_range(in, out)
+  implicit none
+  integer, intent(in) :: in
+  integer, intent(inout) :: out
+
+  select case (in)
+    case (1:5)
+        out = 10
+    case default
+        out = 100
+  end select
+
+end subroutine transpile_multi_conditional_range
+""".strip()
+
+    # for testing purposes
+    in_var = 0
+    test_vals = [0, 1, 2, 5, 6]
+    expected_results = [100, 10, 10, 10, 100]
+    out_var = np.int_([0])
+
+    # compile original Fortran version
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/f'{routine.name}_{frontend!s}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    # test Fortran version
+    for i, val in enumerate(test_vals):
+        in_var = val
+        function(in_var, out_var)
+        assert out_var == expected_results[i]
+
+    clean_test(filepath)
+
+    # apply F2C trafo
+    # TODO: RangeIndex as case is not yet implemented!
+    #  'NotImplementedError' is raised
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)

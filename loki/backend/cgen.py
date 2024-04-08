@@ -12,9 +12,11 @@ from pymbolic.mapper.stringifier import (
 
 from loki.tools import as_tuple
 from loki.ir import Import, Stringifier, FindNodes
-from loki.expression import LokiStringifyMapper, Array, symbolic_op, Literal
+from loki.expression import (
+        LokiStringifyMapper, Array, symbolic_op, Literal,
+        symbols as sym
+)
 from loki.types import BasicType, SymbolAttributes, DerivedType
-
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
 
 
@@ -381,6 +383,11 @@ class CCodegen(Stringifier):
         cases = []
         end_cases = []
         for value in o.values:
+            if any(isinstance(val, sym.RangeIndex) for val in value):
+                # TODO: in Fortran a case can be a range, which is not straight-forward
+                #  to translate/transfer to C
+                #  https://j3-fortran.org/doc/year/10/10-007.pdf#page=200
+                raise NotImplementedError
             case = self.visit_all(as_tuple(value), **kwargs)
             cases.append(self.format_line('case ', self.join_items(case), ':'))
             end_cases.append(self.format_line('break;'))
