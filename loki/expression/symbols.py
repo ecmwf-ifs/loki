@@ -128,6 +128,7 @@ class TypedSymbol:
         self.name = kwargs['name']
         self.parent = kwargs.pop('parent', None)
         self.scope = kwargs.pop('scope', None)
+        self.case_sensitive = kwargs.pop('case_sensitive', False)
 
         # Use provided type or try to determine from scope
         self._type = None
@@ -339,6 +340,8 @@ class TypedSymbol:
                 kwargs['type'] = self.type
         if 'parent' not in kwargs and self.parent:
             kwargs['parent'] = self.parent
+        if 'case_sensitive' not in kwargs and self.case_sensitive:
+            kwargs['case_sensitive'] = self.case_sensitive
 
         return Variable(**kwargs)
 
@@ -502,6 +505,7 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     """
 
     def __init__(self, symbol, *args, **kwargs):
+        self.case_sensitive = kwargs.pop('case_sensitive', False)
         super().__init__(*args, **kwargs)
         self._symbol = symbol
 
@@ -666,8 +670,9 @@ class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
     def __init__(self, name, scope=None, type=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        symbol = VariableSymbol(name=name, scope=scope, type=type, **kwargs)
-        super().__init__(symbol=symbol)
+        case_sensitive = kwargs.pop('case_sensitive', False)
+        symbol = VariableSymbol(name=name, scope=scope, type=type, case_sensitive=case_sensitive, **kwargs)
+        super().__init__(symbol=symbol, case_sensitive=case_sensitive)
 
     mapper_method = intern('map_scalar')
 

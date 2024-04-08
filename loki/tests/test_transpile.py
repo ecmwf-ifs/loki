@@ -11,7 +11,9 @@ import numpy as np
 
 from loki import Subroutine, Module, FortranCTransformation, cgen
 from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
+import loki.expression.symbols as sym
 from loki.frontend import available_frontends, OFP
+import loki.ir as ir
 from loki.transform import normalize_range_indexing
 
 
@@ -24,6 +26,49 @@ def fixture_here():
 def fixture_builder(here):
     return Builder(source_dirs=here, build_dir=here/'build')
 
+
+@pytest.mark.parametrize('case_sensitive', (False, True))
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transpile_case_sensitivity(here, frontend, case_sensitive):
+    """
+    A simple test for testing lowering the case and case-sensitivity
+    for specific symbols.
+    """
+
+    fcode = """
+subroutine transpile_case_sensitivity(a)
+    integer, intent(in) :: a
+
+end subroutine transpile_case_sensitivity
+"""
+    def convert_case(_str, case_sensitive):
+        return _str.lower() if not case_sensitive else _str
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=case_sensitive)
+    var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=case_sensitive)
+    assignment = ir.Assignment(lhs=routine.variable_map['a'], rhs=var_x)
+    routine.arguments=routine.arguments + (routine.arguments[0].clone(name='sOmE_vAr', case_sensitive=case_sensitive),
+            sym.Variable(name="oTher_VaR", case_sensitive=case_sensitive, type=routine.arguments[0].type.clone()))
+
+    call = ir.CallStatement(sym.Variable(name='somE_cALl', case_sensitive=case_sensitive),
+            arguments=(routine.variable_map['a'],))
+    inline_call = sym.InlineCall(function=sym.Variable(name='somE_InlINeCaLl', case_sensitive=case_sensitive),
+            parameters=(sym.IntLiteral(1),))
+    inline_call_assignment = ir.Assignment(lhs=routine.variable_map['a'], rhs=inline_call)
+    routine.body = (routine.body, assignment, call, inline_call_assignment)
+
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    ccode = f2c.c_path.read_text().replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '')
+    assert convert_case('transpile_case_sensitivity_c(inta,intsOmE_vAr,intoTher_VaR)', case_sensitive) in ccode
+    assert convert_case('a=threadIdx%x;', case_sensitive) in ccode
+    assert convert_case('somE_cALl(a);', case_sensitive) in ccode
+    assert convert_case('a=somE_InlINeCaLl(1);', case_sensitive) in ccode
+
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
 
 @pytest.mark.parametrize('use_c_ptr', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
