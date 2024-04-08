@@ -35,7 +35,7 @@ from transformations.data_offload import (
     DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
 )
 from transformations.derived_types import DerivedTypeArgumentsTransformation
-from transformations.utility_routines import DrHookTransformation, RemoveCallsTransformation
+from transformations.drhook import DrHookTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import (
