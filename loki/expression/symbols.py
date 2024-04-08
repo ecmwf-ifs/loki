@@ -122,7 +122,7 @@ class TypedSymbol:
         Any other keyword arguments for other parent classes
     """
 
-    init_arg_names = ('name', 'scope', 'parent', 'type', )
+    init_arg_names = ('name', 'scope', 'parent', 'type', 'case_sensitive', )
 
     def __init__(self, *args, **kwargs):
         self.name = kwargs['name']
@@ -155,7 +155,7 @@ class TypedSymbol:
         symbol objects. We do not recurse here, since we own the
         "name" attribute, which pymbolic will otherwise replicate.
         """
-        return (self.name, None, self._parent, self._type, )
+        return (self.name, None, self._parent, self._type, self.case_sensitive, )
 
     @property
     def scope(self):
