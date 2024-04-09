@@ -10,10 +10,13 @@ from pymbolic.mapper.stringifier import (
     PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
 
+from loki.tools import as_tuple
 from loki.ir import Import, Stringifier, FindNodes
-from loki.expression import LokiStringifyMapper, Array, symbolic_op, Literal
+from loki.expression import (
+        LokiStringifyMapper, Array, symbolic_op, Literal,
+        symbols as sym
+)
 from loki.types import BasicType, SymbolAttributes, DerivedType
-
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
 
 
@@ -378,6 +381,40 @@ class CCodegen(Stringifier):
         decls = self.visit(o.declarations, **kwargs)
         self.depth -= 1
         return self.join_lines(header, decls, footer)
+
+    def visit_MultiConditional(self, o, **kwargs):
+        """
+        Format as
+          switch case (<expr>) {
+          case <value>:
+            ...body...
+          [case <value>:]
+            [...body...]
+          [default:]
+            [...body...]
+          }
+        """
+        header = self.format_line('switch (', self.visit(o.expr, **kwargs), ') {')
+        cases = []
+        end_cases = []
+        for value in o.values:
+            if any(isinstance(val, sym.RangeIndex) for val in value):
+                # TODO: in Fortran a case can be a range, which is not straight-forward
+                #  to translate/transfer to C
+                #  https://j3-fortran.org/doc/year/10/10-007.pdf#page=200
+                raise NotImplementedError
+            case = self.visit_all(as_tuple(value), **kwargs)
+            cases.append(self.format_line('case ', self.join_items(case), ':'))
+            end_cases.append(self.format_line('break;'))
+        if o.else_body:
+            cases.append(self.format_line('default: '))
+            end_cases.append(self.format_line('break;'))
+        footer = self.format_line('}')
+        self.depth += 1
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        self.depth -= 1
+        branches = [item for branch in zip(cases, bodies, end_cases) for item in branch]
+        return self.join_lines(header, *branches, footer)
 
 
 def cgen(ir):

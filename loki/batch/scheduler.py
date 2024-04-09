@@ -18,7 +18,7 @@ from loki.batch.item import (
 )
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
-from loki.logging import info, perf, warning, debug
+from loki.logging import info, perf, warning, debug, error
 
 
 __all__ = ['Scheduler']
@@ -378,6 +378,46 @@ class Scheduler:
 
     def process(self, transformation):
         """
+        Process all :attr:`items` in the scheduler's graph with either
+        a :any:`Pipeline` or a single :any:`Transformation`.
+
+        A single :any:`Transformation` pass invokes
+        :meth:`process_transformation` individually, while a
+        :any:`Pipeline` will apply each contained transformation in
+        turn over the full dependency graph of the scheduler.
+
+        Parameters
+        ----------
+        transformation : :any:`Transformation` or :any:`Pipeline`
+            The transformation or transformation pipeline to apply
+        """
+        from loki.transform import Transformation, Pipeline  # pylint: disable=import-outside-toplevel
+
+        if isinstance(transformation, Transformation):
+            self.process_transformation(transformation=transformation)
+
+        elif isinstance(transformation, Pipeline):
+            self.process_pipeline(pipeline=transformation)
+
+        else:
+            error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
+            raise RuntimeError('[Loki] Could not batch process {transformation_or_pipeline}')
+
+    def process_pipeline(self, pipeline):
+        """
+        Process a given :any:`Pipeline` by applying its assocaited
+        transformations in turn.
+
+        Parameters
+        ----------
+        transformation : :any:`Pipeline`
+            The transformation pipeline to apply
+        """
+        for transformation in pipeline.transformations:
+            self.process_transformation(transformation)
+
+    def process_transformation(self, transformation):
+        """
         Process all :attr:`items` in the scheduler's graph
 
         By default, the traversal is performed in topological order, which
@@ -396,6 +436,11 @@ class Scheduler:
         to ``True``. This uses the :attr:`filegraph` to process the dependency tree.
         If combined with a :any:`Transformation.item_filter`, only source files with
         at least one object corresponding to an item of that type are processed.
+
+        Parameters
+        ----------
+        transformation : :any:`Transformation`
+            The transformation to apply over the dependency tree
         """
         def _get_definition_items(_item, sgraph_items):
             # For backward-compatibility with the DependencyTransform and LinterTransformation

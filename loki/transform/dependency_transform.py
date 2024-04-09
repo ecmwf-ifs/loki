@@ -8,7 +8,6 @@
 from pathlib import Path
 
 from loki.backend import fgen
-from loki.batch import SchedulerConfig
 from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
 from loki.ir import (
     CallStatement, Import, Section, Interface, FindNodes, Transformer
@@ -250,6 +249,8 @@ class DependencyTransformation(Transformation):
             Optional list of subroutine names for which to modify the corresponding
             calls. If not provided, all calls are updated
         """
+        from loki.batch import SchedulerConfig  # pylint: disable=import-outside-toplevel,cyclic-import
+
         def _update_item(orig_name, new_name):
             # Update the ignore property if necessary
             if item and (matched_keys := SchedulerConfig.match_item_keys(orig_name, item.ignore)):
@@ -319,7 +320,7 @@ class DependencyTransformation(Transformation):
         for im in imports:
             if im.c_import:
                 target_symbol = im.module.split('.')[0].lower()
-                if targets and target_symbol.lower() in targets:
+                if targets and target_symbol.lower() in targets and 'intfb' in im.module.lower():
                     # Modify the the basename of the C-style header import
                     s = '.'.join(im.module.split('.')[1:])
                     im._update(module=f'{target_symbol}{self.suffix}.{s}')
@@ -468,6 +469,8 @@ class ModuleWrapTransformation(Transformation):
         """
         Update imports of wrapped subroutines.
         """
+        from loki.batch import SchedulerConfig  # pylint: disable=import-outside-toplevel,cyclic-import
+
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets')))
         if self.replace_ignore_items and (item := kwargs.get('item')):
             targets += tuple(str(i).lower() for i in item.ignore)
@@ -487,7 +490,7 @@ class ModuleWrapTransformation(Transformation):
         for im in imports:
             if im.c_import:
                 target_symbol = im.module.split('.')[0].lower()
-                if targets and target_symbol.lower() in targets:
+                if targets and target_symbol.lower() in targets and 'intfb' in im.module.lower():
                     # Create a new module import with explicitly qualified symbol
                     modname = f'{target_symbol}{self.module_suffix}'
                     _update_item(target_symbol.lower(), modname)
