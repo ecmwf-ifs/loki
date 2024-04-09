@@ -146,24 +146,39 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
 
 def rename_variables(routine, symbol_map=None):
     """
-    Replace symbols/variables including (routine) arguments.
+    Rename symbols/variables including (routine) arguments.
 
     Parameters
     ----------
     routine : :any:`Subroutine`
-        The subroutine object in which to replace intrinsic calls
+        The subroutine object in which to rename variables.
     symbol_map : dict[str, str]
-        Mapping from symbol/variable names to their replacement
+        Mapping from symbol/variable names to their replacement.
     """
     symbol_map = CaseInsensitiveDict(symbol_map) or {}
     # rename arguments if necessary
     arguments = ()
+    renamed_arguments = ()
     for arg in routine.arguments:
         if arg.name in symbol_map:
             arguments += (arg.clone(name=symbol_map[arg.name]),)
+            renamed_arguments += (arg,)
         else:
             arguments += (arg,)
     routine.arguments = arguments
+    # remove variable declarations
+    var_decls = FindNodes(VariableDeclaration).visit(routine.spec)
+    var_decl_map = {}
+    for var_decl in var_decls:
+        new_symbols = ()
+        for symbol in var_decl.symbols:
+            if symbol not in renamed_arguments:
+                new_symbols += (symbol,)
+        if new_symbols:
+            var_decl_map[var_decl] = var_decl.clone(symbols=new_symbols)
+        else:
+            var_decl_map[var_decl] = None
+    routine.spec = Transformer(var_decl_map).visit(routine.spec)
     # rename variable declarations and usages
     var_map = {}
     for var in FindVariables(unique=False).visit(routine.ir):
@@ -174,6 +189,12 @@ def rename_variables(routine, symbol_map=None):
     if var_map:
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
+    # update symbol table - remove entries under the previous name
+    var_map_names = [key.name.lower() for key in var_map]
+    delete = [key for key in routine.symbol_attrs if key.lower() in var_map_names\
+            or key.split('%')[0].lower() in var_map_names] # derived types
+    for key in delete:
+        del routine.symbol_attrs[key]
 
 def used_names_from_symbol(symbol, modifier=str.lower):
     """
