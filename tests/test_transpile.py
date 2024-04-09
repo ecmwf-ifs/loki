@@ -11,7 +11,7 @@ import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-    Subroutine, Module, FortranCTransformation, OFP, cgen
+    Subroutine, Module, FortranCTransformation, OFP, cgen, cppgen
 )
 from loki.build import Builder
 from loki.transform import normalize_range_indexing
@@ -28,7 +28,8 @@ def fixture_builder(here):
 
 @pytest.mark.parametrize('use_c_ptr', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transpile_simple_loops(here, builder, frontend, use_c_ptr):
+@pytest.mark.parametrize('codegen', (cgen, cppgen))
+def test_transpile_simple_loops(here, builder, frontend, use_c_ptr, codegen):
     """
     A simple test routine to test C transpilation of loops
     """
@@ -74,7 +75,7 @@ end subroutine transpile_simple_loops
                              [13., 23., 33., 43.]])
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation(use_c_ptr=use_c_ptr, codegen=codegen)
     f2c.apply(source=routine, path=here)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
