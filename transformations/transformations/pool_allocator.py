@@ -93,8 +93,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     check_bounds : bool, optional
         Insert bounds-checks in the kernel to make sure the allocated stack size is not
         exceeded (default: `True`)
-    key : str, optional
-        Overwrite the key that is used to store analysis results in ``trafo_data``.
     """
 
     _key = 'TemporariesPoolAllocatorTransformation'
@@ -108,7 +106,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             self, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
             stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
             local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
-            check_bounds=True, key=None
+            check_bounds=True,
     ):
         self.block_dim = block_dim
         self.stack_ptr_name = stack_ptr_name
@@ -125,9 +123,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if self.stack_ptr_name == self.stack_end_name:
             raise ValueError(f'"stack_ptr_name": "{self.stack_ptr_name}" and '
                 f'"stack_end_name": "{self.stack_end_name}" must be different!')
-
-        if key:
-            self._key = key
 
     def transform_subroutine(self, routine, **kwargs):
 
