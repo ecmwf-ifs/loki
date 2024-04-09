@@ -24,11 +24,13 @@ from loki import (
 from loki.transform import (
     DependencyTransformation, ModuleWrapTransformation, FortranCTransformation,
     FileWriteTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
-    InlineTransformation, SanitiseTransformation
+    InlineTransformation, SanitiseTransformation, Pipeline
 )
 
 # pylint: disable=wrong-import-order
-from transformations.argument_shape import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
+from transformations.argument_shape import (
+    ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
+)
 from transformations.data_offload import (
     DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
 )
@@ -37,11 +39,7 @@ from transformations.utility_routines import DrHookTransformation, RemoveCallsTr
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import (
-    SCCBaseTransformation, SCCAnnotateTransformation,
-    SCCHoistTemporaryArraysTransformation
-)
-from transformations.single_column_coalesced_vector import (
-    SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
+    SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline
 )
 from transformations.scc_cuf import (
     HoistTemporaryArraysDeviceAllocatableTransformation
@@ -225,65 +223,72 @@ def convert(
         scheduler.process(offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
 
-    # Now we instantiate our transformation pipeline and apply the main changes
-    transformation = None
-    if mode in ['idem', 'idem-stack']:
-        scheduler.process( IdemTransformation() )
+    if frontend == Frontend.OMNI and mode in ['idem-stack', 'scc-stack']:
+        # To make the pool allocator size derivation work correctly, we need
+        # to normalize the 1:end-style index ranges that OMNI introduces
+        class NormalizeRangeIndexingTransformation(Transformation):
+            def transform_subroutine(self, routine, **kwargs):
+                normalize_range_indexing(routine)
 
-    if mode == 'sca':
-        scheduler.process( ExtractSCATransformation(horizontal=horizontal) )
-
-    if mode == 'claw':
-        scheduler.process( CLAWTransformation(
-            horizontal=horizontal, claw_data_offload=use_claw_offload
-        ))
-
-    if mode in ['scc', 'scc-hoist', 'scc-stack']:
-        # Apply the basic SCC transformation set
-        scheduler.process( SCCBaseTransformation(
-            horizontal=horizontal, directive=directive
-        ))
-        scheduler.process( SCCDevectorTransformation(
-            horizontal=horizontal, trim_vector_sections=trim_vector_sections
-        ))
-        scheduler.process( SCCDemoteTransformation(horizontal=horizontal))
-        scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
-
-    if mode == 'scc-hoist':
-        # Apply recursive hoisting of local temporary arrays.
-        # This requires a first analysis pass to run in reverse
-        # direction through the call graph to gather temporary arrays.
-        scheduler.process( HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)) )
-        scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim) )
-
-    if mode in ['scc', 'scc-hoist', 'scc-stack']:
-        scheduler.process( SCCAnnotateTransformation(
-                horizontal=horizontal, vertical=vertical, directive=directive, block_dim=block_dim
-        ))
-
-    if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        # These transformations requires complex constructor arguments,
-        # so we use the file-based transformation configuration.
-        scheduler.process( transformation=scheduler.config.transformations[mode] )
+        scheduler.process( NormalizeRangeIndexingTransformation() )
 
     if global_var_offload:
         scheduler.process(transformation=GlobalVariableAnalysis())
         scheduler.process(transformation=GlobalVarOffloadTransformation())
 
-    if mode in ['idem-stack', 'scc-stack']:
-        if frontend == Frontend.OMNI:
-            # To make the pool allocator size derivation work correctly, we need
-            # to normalize the 1:end-style index ranges that OMNI introduces
-            class NormalizeRangeIndexingTransformation(Transformation):
-                def transform_subroutine(self, routine, **kwargs):
-                    normalize_range_indexing(routine)
+    # Now we create and apply the main transformation pipeline
+    if mode == 'idem':
+        pipeline = IdemTransformation()
+        scheduler.process( pipeline )
 
-            scheduler.process( NormalizeRangeIndexingTransformation() )
+    if mode == 'idem-stack':
+        pipeline = Pipeline(
+            classes=(IdemTransformation, TemporariesPoolAllocatorTransformation),
+            block_dim=block_dim, directive='openmp', check_bounds=True
+        )
+        scheduler.process( pipeline )
 
-        directive = {'idem-stack': 'openmp', 'scc-stack': 'openacc'}[mode]
-        scheduler.process(transformation=TemporariesPoolAllocatorTransformation(
-            block_dim=block_dim, directive=directive, check_bounds='scc' not in mode
-        ))
+    if mode == 'sca':
+        pipeline = ExtractSCATransformation(horizontal=horizontal)
+        scheduler.process( pipeline )
+
+    if mode == 'claw':
+        pipeline = CLAWTransformation(
+            horizontal=horizontal, claw_data_offload=use_claw_offload
+        )
+        scheduler.process( pipeline )
+
+    if mode == 'scc':
+        pipeline = SCCVectorPipeline(
+            horizontal=horizontal, vertical=vertical,
+            block_dim=block_dim, directive=directive,
+            dim_vars=(vertical.size,),
+            trim_vector_sections=trim_vector_sections
+        )
+        scheduler.process( pipeline )
+
+    if mode == 'scc-hoist':
+        pipeline = SCCHoistPipeline(
+            horizontal=horizontal, vertical=vertical,
+            block_dim=block_dim, directive=directive,
+            dim_vars=(vertical.size,),
+            trim_vector_sections=trim_vector_sections
+        )
+        scheduler.process( pipeline )
+
+    if mode == 'scc-stack':
+        pipeline = SCCStackPipeline(
+            horizontal=horizontal, vertical=vertical,
+            block_dim=block_dim, directive=directive,
+            dim_vars=(vertical.size,), check_bounds=False,
+            trim_vector_sections=trim_vector_sections )
+        scheduler.process( pipeline )
+
+
+    if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
+        # These transformations requires complex constructor arguments,
+        # so we use the file-based transformation configuration.
+        scheduler.process( transformation=scheduler.config.transformations[mode] )
 
     if mode == 'cuf-parametrise':
         # This transformation requires complex constructora arguments,

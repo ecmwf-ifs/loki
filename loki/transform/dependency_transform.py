@@ -8,7 +8,6 @@
 from pathlib import Path
 
 from loki.backend import fgen
-from loki.batch import SchedulerConfig
 from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
 from loki.ir import (
     CallStatement, Import, Section, Interface, FindNodes, Transformer
@@ -250,6 +249,8 @@ class DependencyTransformation(Transformation):
             Optional list of subroutine names for which to modify the corresponding
             calls. If not provided, all calls are updated
         """
+        from loki.batch import SchedulerConfig  # pylint: disable=import-outside-toplevel,cyclic-import
+
         def _update_item(orig_name, new_name):
             # Update the ignore property if necessary
             if item and (matched_keys := SchedulerConfig.match_item_keys(orig_name, item.ignore)):
@@ -468,6 +469,8 @@ class ModuleWrapTransformation(Transformation):
         """
         Update imports of wrapped subroutines.
         """
+        from loki.batch import SchedulerConfig  # pylint: disable=import-outside-toplevel,cyclic-import
+
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets')))
         if self.replace_ignore_items and (item := kwargs.get('item')):
             targets += tuple(str(i).lower() for i in item.ignore)
