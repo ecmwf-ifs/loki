@@ -595,8 +595,9 @@ end module kernel_mod
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive,
-            cray_ptr_loc_rhs=cray_ptr_loc_rhs, key='some_key')
+    transformation = TemporariesPoolAllocatorTransformation(
+        block_dim=block_dim, directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs
+    )
     scheduler.process(transformation=transformation)
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
@@ -615,7 +616,6 @@ end module kernel_mod
     tsize_int = f'max(c_sizeof(int(1, kind={kind_int})), 8)'
     tsize_log = f'max(c_sizeof(logical(true, kind={kind_log})), 8)'
 
-    assert transformation._key == 'some_key'
     assert transformation._key in kernel_item.trafo_data
     if cray_ptr_loc_rhs:
         exp_stack_size = '3*klon + klev*klon + klev'
