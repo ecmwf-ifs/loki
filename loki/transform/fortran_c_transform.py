@@ -105,6 +105,8 @@ class FortranCTransformation(Transformation):
     use_c_ptr : bool, optional
         Use ``c_ptr`` for array declarations in the F2C wrapper and ``c_loc(...)`` to pass
         the corresponding argument. Default is ``False``.
+    codegen : 
+        Wrapper function calling the Stringifier instance. 
     path : str, optional
         Path to generate C sources.
     """
@@ -113,10 +115,11 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None):
+    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None, codegen=cgen):
         self.inline_elementals = inline_elementals
         self.use_c_ptr = use_c_ptr
         self.path = Path(path) if path is not None else None
+        self.codegen = codegen
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -140,7 +143,7 @@ class FortranCTransformation(Transformation):
             # Generate C header file from module
             c_header = self.generate_c_header(module)
             self.c_path = (path/c_header.name.lower()).with_suffix('.h')
-            Sourcefile.to_file(source=cgen(c_header), path=self.c_path)
+            Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
 
     def transform_subroutine(self, routine, **kwargs):
         if self.path is None:
@@ -167,7 +170,7 @@ class FortranCTransformation(Transformation):
             # Generate C source file from Loki IR
             c_kernel = self.generate_c_kernel(routine)
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-            Sourcefile.to_file(source=cgen(c_kernel), path=self.c_path)
+            Sourcefile.to_file(source=self.codegen(c_kernel), path=self.c_path)
 
     def c_struct_typedef(self, derived):
         """
