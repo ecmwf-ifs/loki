@@ -27,7 +27,7 @@ vector-level kernel parallelism.
 This tranformation will convert kernels with innermost vectorisation
 along a common horizontal dimension to a GPU-friendly loop-layout via
 loop inversion and local array variable demotion. The resulting kernel
-remains "vector-parallel", but with the ``hosrizontal`` loop as the
+remains "vector-parallel", but with the ``horizontal`` loop as the
 outermost iteration dimension (as far as data dependencies
 allow). This allows local temporary arrays to be demoted to scalars,
 where possible.

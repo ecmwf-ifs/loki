@@ -383,7 +383,7 @@ class Scheduler:
 
         A single :any:`Transformation` pass invokes
         :meth:`process_transformation` individually, while a
-        :any:`Pipeline` will apply each contrained transformation in
+        :any:`Pipeline` will apply each contained transformation in
         turn over the full dependency graph of the scheduler.
 
         Parameters

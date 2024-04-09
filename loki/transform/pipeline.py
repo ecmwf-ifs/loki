@@ -38,7 +38,7 @@ class Pipeline:
         for cls in classes:
 
             # Get all relevant constructor parameters from teh MRO,
-            # but exclude catch-all kwyward args, like ``**kwargs``
+            # but exclude catch-all keyword args, like ``**kwargs``
             t_parameters = {
                 k: v for c in cls.__mro__ for k, v in signature(c).parameters.items()
                 if not v.kind == Parameter.VAR_KEYWORD
