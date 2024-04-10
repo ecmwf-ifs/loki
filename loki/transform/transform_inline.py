@@ -498,6 +498,10 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     # Replace calls to child procedure with the child's body
     routine.body = Transformer(call_map).visit(routine.body)
 
+    # We need this to ensure that symbols, as well as nested scopes
+    # are correctly attached to each other (eg. nested associates).
+    routine.rescope_symbols()
+
 
 def inline_internal_procedures(routine, allowed_aliases=None):
     """

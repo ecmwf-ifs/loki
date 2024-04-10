@@ -297,7 +297,7 @@ class Scope:
         to a scope in the scope hierarchy
         """
         from loki.expression import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
-        AttachScopes().visit(self)
+        AttachScopes().visit(self, scope=self)
 
     def make_complete(self, **frontend_args):
         """
