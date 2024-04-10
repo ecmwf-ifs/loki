@@ -492,8 +492,9 @@ END FUNCTION kernel
     assert kernel.modules[0].name == 'kernel_test_mod'
     assert kernel['kernel_test_mod'] == kernel.modules[0]
 
-    # Check that the return name has been added as a variable
-    assert 'kernel_test' in kernel['kernel_test'].variables
+    # Check that the return name hasn't changed
+    assert 'kernel' in kernel['kernel_test'].variables
+    assert kernel['kernel_test'].result_name == 'kernel'
 
     # Check that the driver name has not changed
     assert len(driver.modules) == 0
