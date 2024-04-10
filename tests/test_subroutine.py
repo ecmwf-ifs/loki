@@ -1646,7 +1646,7 @@ end module subroutine_suffix_mod
 
     check_value = module.interface_map['check_value'].body[0]
     assert check_value.is_function
-    assert check_value.result_name is None
+    assert check_value.result_name == 'check_value'
     assert check_value.return_type.dtype is BasicType.INTEGER
     assert check_value.return_type.kind == 'c_int'
     if frontend != OMNI:

@@ -104,6 +104,10 @@ class Subroutine(ProgramUnit):
         self.result_name = result_name
         self.is_function = is_function
 
+        # Make sure 'result_name' is defined if it's a function
+        if self.result_name is None and self.is_function:
+            self.result_name = name
+
         # Additional IR components
         if body is not None and not isinstance(body, ir.Section):
             body = ir.Section(body=body)
@@ -327,9 +331,7 @@ class Subroutine(ProgramUnit):
         """
         if not self.is_function:
             return None
-        if self.result_name is not None:
-            return self.symbol_attrs.get(self.result_name)
-        return self.symbol_attrs.get(self.name)
+        return self.symbol_attrs.get(self.result_name)
 
     variables = ProgramUnit.variables
 
