@@ -19,7 +19,8 @@ from loki.ir import Assignment
 from loki.transform import (
     inline_elemental_functions, inline_constant_parameters,
     replace_selected_kind, inline_member_procedures,
-    inline_marked_subroutines, InlineTransformation
+    inline_marked_subroutines, InlineTransformation,
+    ResolveAssociatesTransformer
 )
 from loki.expression import symbols as sym
 
@@ -854,6 +855,72 @@ end module util_mod
 
     imports = FindNodes(Import).visit(driver.spec)
     assert len(imports) == 0 if remove_imports else 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI has no sense of humour!')])
+)
+def test_inline_marked_subroutines_with_associates(frontend):
+    """ Test subroutine inlining via marker pragmas with nested associates. """
+
+    fcode_outer = """
+subroutine test_pragma_inline_associates(never)
+  use peter_pan, only: neverland
+  implicit none
+  type(neverland), intent(inout) :: never
+
+  associate(going=>never%going_to)
+
+  associate(up=>give_you%up)
+
+  !$loki inline
+  call dave(going, up)
+
+  end associate
+
+  end associate
+end subroutine test_pragma_inline_associates
+    """
+
+    fcode_inner = """
+subroutine dave(going)
+  use your_imagination, only: astley
+  implicit none
+  type(astley), intent(inout) :: going
+
+  associate(give_you=>going%give_you)
+
+  associate(up=>give_you%up)
+
+  call rick_is(up)
+
+  end associate
+
+  end associate
+end subroutine dave
+    """
+
+    outer = Subroutine.from_source(fcode_outer, frontend=frontend)
+    inner = Subroutine.from_source(fcode_inner, frontend=frontend)
+    outer.enrich(inner)
+
+    assert FindNodes(CallStatement).visit(outer.body)[0].routine == inner
+
+    inline_marked_subroutines(routine=outer, remove_imports=True)
+
+    # Ensure that all associates are perfectly nested afterwards
+    assocs = FindNodes(Associate).visit(outer.body)
+    assert len(assocs) == 4
+    assert assocs[1].parent == assocs[0]
+    assert assocs[2].parent == assocs[1]
+    assert assocs[3].parent == assocs[2]
+
+    # And, because we can...
+    outer.body = ResolveAssociatesTransformer().visit(outer.body)
+    call = FindNodes(CallStatement).visit(outer.body)[0]
+    assert call.name == 'rick_is'
+    assert call.arguments == ('never%going_to%give_you%up',)
+    # Q. E. D.
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
