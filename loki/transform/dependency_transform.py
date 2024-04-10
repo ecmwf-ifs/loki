@@ -155,7 +155,7 @@ class DependencyTransformation(Transformation):
                 return
 
             # Change the name of kernel routines
-            if routine.is_function and not routine.result_name:
+            if routine.is_function and routine.result_name.lower() == routine.name.lower():
                 self.update_result_var(routine)
             routine.name += self.suffix
             if item:
