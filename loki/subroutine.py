@@ -331,9 +331,7 @@ class Subroutine(ProgramUnit):
         """
         if not self.is_function:
             return None
-        if self.result_name is not None:
-            return self.symbol_attrs.get(self.result_name)
-        return self.symbol_attrs.get(self.name)
+        return self.symbol_attrs.get(self.result_name)
 
     variables = ProgramUnit.variables
 
