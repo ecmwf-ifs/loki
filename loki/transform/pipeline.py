@@ -71,7 +71,7 @@ class Pipeline:
         if isinstance(other, Pipeline):
             self.extend(other)
             return self
-        raise RuntimeError(f'[Loki::Pipeline] Can not append {other} to pipeline!')
+        raise TypeError(f'[Loki::Pipeline] Can not append {other} to pipeline!')
 
     def __radd__(self, other):
         """ Support native addition via ``+`` operands """
@@ -81,7 +81,7 @@ class Pipeline:
         if isinstance(other, Pipeline):
             other.extend(self)
             return other
-        raise RuntimeError(f'[Loki::Pipeline] Can not append {other} to pipeline!')
+        raise TypeError(f'[Loki::Pipeline] Can not append {other} to pipeline!')
 
     def prepend(self, transformation):
         """

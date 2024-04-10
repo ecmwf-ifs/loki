@@ -616,6 +616,9 @@ end subroutine test_pipeline_compose
     pipe_b = Pipeline(classes=(MaybeNotTrafo,YesTrafo))
     pipe = YesTrafo() + pipe_a + pipe_b + NoTrafo()
 
+    with pytest.raises(TypeError):
+        pipe += lambda t: t
+
     routine = Subroutine.from_source(fcode)
     pipe.apply(routine)
 
@@ -626,3 +629,10 @@ end subroutine test_pipeline_compose
     assert comments[2].text == '! Maybe not !'
     assert comments[3].text == '! Yes !'
     assert comments[4].text == '! No !'
+
+    # Check that the string representation is sane
+    assert '<YesTrafo  [test_transformation]' in str(pipe)
+    assert '<MaybeTrafo  [test_transformation]' in str(pipe)
+    assert '<MaybeNotTrafo  [test_transformation]' in str(pipe)
+    assert '<YesTrafo  [test_transformation]' in str(pipe)
+    assert '<NoTrafo  [test_transformation]' in str(pipe)
