@@ -407,8 +407,8 @@ class FortranCTransformation(Transformation):
         such as the explicit getter calls for imported module-level variables.
         """
 
-        # Work with a copy of the original routine to not break the
-        # dependency graph of the Scheduler through the rename
+        # CAUTION! Work with a copy of the original routine to not break the
+        #  dependency graph of the Scheduler through the rename
         kernel = routine.clone()
         kernel.name = f'{kernel.name.lower()}_c'
 
