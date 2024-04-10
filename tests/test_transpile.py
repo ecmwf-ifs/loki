@@ -11,7 +11,7 @@ import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-    Subroutine, Module, FortranCTransformation, OFP
+    Subroutine, Module, FortranCTransformation, OFP, cgen
 )
 from loki.build import Builder
 from loki.transform import normalize_range_indexing
@@ -1004,6 +1004,7 @@ end subroutine transpile_expressions
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
 
+
 @pytest.mark.parametrize('use_c_ptr', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_call(here, frontend, use_c_ptr):
@@ -1055,3 +1056,114 @@ end subroutine transpile_call_driver
 
     for path in unlink_paths:
         path.unlink()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transpile_multiconditional(here, builder, frontend):
+    """
+    A simple test to verify multiconditionals/select case statements.
+    """
+
+    fcode = """
+subroutine transpile_multi_conditional(in, out)
+  implicit none
+  integer, intent(in) :: in
+  integer, intent(inout) :: out
+
+  select case (in)
+    case (1)
+        out = 10
+    case (2)
+        out = 20
+    case default
+        out = 100
+  end select
+
+end subroutine transpile_multi_conditional
+""".strip()
+
+    # for testing purposes
+    in_var = 0
+    test_vals = [0, 1, 2, 5]
+    expected_results = [100, 10, 20, 100]
+    out_var = np.int_([0])
+
+    # compile original Fortran version
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/f'{routine.name}_{frontend!s}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    # test Fortran version
+    for i, val in enumerate(test_vals):
+        in_var = val
+        function(in_var, out_var)
+        assert out_var == expected_results[i]
+
+    # apply F2C trafo
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+
+    # check whether 'switch' statement is within C code
+    assert 'switch' in cgen(routine)
+
+    # compile C version
+    libname = f'fc_{routine.name}_{frontend}'
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    fc_function = c_kernel.transpile_multi_conditional_fc_mod.transpile_multi_conditional_fc
+    # test C version
+    for i, val in enumerate(test_vals):
+        in_var = val
+        fc_function(in_var, out_var)
+        assert out_var == expected_results[i]
+
+    # cleanup ...
+    builder.clean()
+    clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transpile_multiconditional_range(here, frontend):
+    """
+    A simple test to verify multiconditionals/select case statements.
+    """
+
+    fcode = """
+subroutine transpile_multi_conditional_range(in, out)
+  implicit none
+  integer, intent(in) :: in
+  integer, intent(inout) :: out
+
+  select case (in)
+    case (1:5)
+        out = 10
+    case default
+        out = 100
+  end select
+
+end subroutine transpile_multi_conditional_range
+""".strip()
+
+    # for testing purposes
+    in_var = 0
+    test_vals = [0, 1, 2, 5, 6]
+    expected_results = [100, 10, 10, 10, 100]
+    out_var = np.int_([0])
+
+    # compile original Fortran version
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/f'{routine.name}_{frontend!s}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    # test Fortran version
+    for i, val in enumerate(test_vals):
+        in_var = val
+        function(in_var, out_var)
+        assert out_var == expected_results[i]
+
+    clean_test(filepath)
+
+    # apply F2C trafo
+    # TODO: RangeIndex as case is not yet implemented!
+    #  'NotImplementedError' is raised
+    f2c = FortranCTransformation()
+    with pytest.raises(NotImplementedError):
+        f2c.apply(source=routine, path=here)
