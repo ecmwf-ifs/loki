@@ -116,6 +116,8 @@ class TypedSymbol:
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     parent : :any:`Scalar` or :any:`Array`, optional
         The derived type variable this variable belongs to.
+    case_sensitive : bool, optional
+        Mark the name of this symbol as case-sensitive (default: `False`)
     *args : optional
         Any other positional arguments for other parent classes
     **kwargs : optional
@@ -128,7 +130,7 @@ class TypedSymbol:
         self.name = kwargs['name']
         self.parent = kwargs.pop('parent', None)
         self.scope = kwargs.pop('scope', None)
-        self.case_sensitive = kwargs.pop('case_sensitive', False)
+        self.case_sensitive = kwargs.pop('case_sensitive', config['case-sensitive'])
 
         # Use provided type or try to determine from scope
         self._type = None
@@ -505,7 +507,6 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     """
 
     def __init__(self, symbol, *args, **kwargs):
-        self.case_sensitive = kwargs.pop('case_sensitive', False)
         super().__init__(*args, **kwargs)
         self._symbol = symbol
 
@@ -643,6 +644,13 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         """
         return self.symbol.rescope(scope)
 
+    @property
+    def case_sensitive(self):
+        """
+        Property to indicate that the name of this symbol is case-sensitive.
+        """
+        return self.symbol.case_sensitive
+
     def get_derived_type_member(self, name_str):
         """
         Resolve type-bound variables of arbitrary nested depth.
@@ -670,9 +678,8 @@ class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
     def __init__(self, name, scope=None, type=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        case_sensitive = kwargs.pop('case_sensitive', False)
-        symbol = VariableSymbol(name=name, scope=scope, type=type, case_sensitive=case_sensitive, **kwargs)
-        super().__init__(symbol=symbol, case_sensitive=case_sensitive)
+        symbol = VariableSymbol(name=name, scope=scope, type=type, **kwargs)
+        super().__init__(symbol=symbol)
 
     mapper_method = intern('map_scalar')
 
@@ -703,7 +710,6 @@ class Array(MetaSymbol):
     def __init__(self, name, scope=None, type=None, dimensions=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-
         symbol = VariableSymbol(name=name, scope=scope, type=type, **kwargs)
         if dimensions:
             symbol = ArraySubscript(symbol, dimensions)
