@@ -21,3 +21,4 @@ from loki.transform.transform_parametrise import * # noqa
 from loki.transform.transform_extract_contained_procedures import * # noqa
 from loki.transform.transform_dead_code import * # noqa
 from loki.transform.transform_sanitise import * # noqa
+from loki.transform.pipeline import * # noqa
