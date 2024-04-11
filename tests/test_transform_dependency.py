@@ -204,37 +204,38 @@ def test_dependency_transformation_header_includes(here, frontend):
 SUBROUTINE driver(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
-#include "kernel.intfb.h"
+#include "myfunc.intfb.h"
+#include "myfunc.func.h"
 
-  CALL kernel(a, b ,c)
+  CALL myfunc(a, b ,c)
 END SUBROUTINE driver
 """, frontend=frontend)
 
     kernel = Sourcefile.from_source(source="""
-SUBROUTINE kernel(a, b, c)
+SUBROUTINE myfunc(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
   a = 1
   b = 2
   c = 3
-END SUBROUTINE kernel
+END SUBROUTINE myfunc
 """, frontend=frontend)
 
     # Ensure header file does not exist a-priori
-    header_file = here/'kernel_test.intfb.h'
+    header_file = here/'myfunc_test.intfb.h'
     if header_file.exists():
         header_file.unlink()
 
     # Apply injection transformation via C-style includes by giving `include_path`
     transformation = DependencyTransformation(suffix='_test', include_path=here)
-    kernel['kernel'].apply(transformation, role='kernel')
-    driver['driver'].apply(transformation, role='driver', targets='kernel')
+    kernel['myfunc'].apply(transformation, role='kernel')
+    driver['driver'].apply(transformation, role='driver', targets='myfunc')
 
     # Check that the subroutine name in the kernel source has changed
     assert len(kernel.modules) == 0
     assert len(kernel.subroutines) == 1
-    assert kernel.subroutines[0].name == 'kernel_test'
-    assert kernel['kernel_test'] == kernel.all_subroutines[0]
+    assert kernel.subroutines[0].name == 'myfunc_test'
+    assert kernel['myfunc_test'] == kernel.all_subroutines[0]
 
     # Check that the driver name has not changed
     assert len(kernel.modules) == 0
@@ -242,8 +243,11 @@ END SUBROUTINE kernel
     assert driver.subroutines[0].name == 'driver'
 
     # Check that the import has been updated
-    assert '#include "kernel.intfb.h"' not in driver.to_fortran()
-    assert '#include "kernel_test.intfb.h"' in driver.to_fortran()
+    assert '#include "myfunc.intfb.h"' not in driver.to_fortran()
+    assert '#include "myfunc_test.intfb.h"' in driver.to_fortran()
+
+    # Check that imported function was not modified
+    assert '#include "myfunc.func.h"' in driver.to_fortran()
 
     # Check that header file was generated and clean up
     assert header_file.exists()
@@ -262,6 +266,7 @@ def test_dependency_transformation_module_wrap(frontend, use_scheduler, tempdir,
 SUBROUTINE driver(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
+#include "kernel.func.h"
 #include "kernel.intfb.h"
 
   CALL kernel(a, b ,c)
@@ -320,10 +325,11 @@ END SUBROUTINE kernel
     calls = FindNodes(CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver'].spec)
-    assert len(imports) == 1
+    imports = FindNodes(Import).visit(driver['driver'].ir)
+    assert len(imports) == 2
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+    assert imports[1].module == 'kernel.func.h'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
