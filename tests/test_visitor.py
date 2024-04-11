@@ -979,6 +979,14 @@ end subroutine masked_transformer
     assert len(FindNodes(Assignment).visit(body)) == 3
     assert not FindNodes(Associate).visit(body)
 
+    # Retains all nodes but the last, but check with ``inplace=True``
+    body = MaskedTransformer(start=None, stop=assignments[-1], active=True, inplace=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == len(assignments) - 1
+    assocs = FindNodes(Associate).visit(body)
+    assert len(assocs) == 1
+    assert len(assocs[0].body) == len(assignments) - 1
+    assert all(isinstance(n, Assignment) for n in assocs[0].body)
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_nested_masked_transformer(frontend):
