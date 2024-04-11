@@ -388,24 +388,20 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         nval_dim = '1:5'
         nfld_data = set()
         nval_data = set()
-        nval_offload = set()
-        nfld_offload = set()
     else:
         nfld_dim = 'nfld'
         nval_dim = 'nval'
         nfld_data = {('nfld', 'global_var_analysis_header_mod')}
         nval_data = {('nval', 'global_var_analysis_header_mod')}
-        nval_offload = {'nval'}
-        nfld_offload = {'nfld'}
 
     expected_trafo_data = {
         'global_var_analysis_header_mod': {
             'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'} | nval_offload | nfld_offload,
+            'offload': {}
         },
         'global_var_analysis_data_mod': {
             'declares': {'rdata(:, :, :)', 'tt'},
-            'offload': {'rdata(:, :, :)', 'tt', 'tt%vals'}
+            'offload': {}
         },
         'global_var_analysis_data_mod#some_routine': {'defines_symbols': set(), 'uses_symbols': set()},
         'global_var_analysis_kernel_mod#kernel_a': {
@@ -454,6 +450,14 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
         'driver': {'role': 'driver'}
     }
 
+    # OMNI handles array indices and parameters differently
+    if frontend == OMNI:
+        nfld_dim = '1:3'
+        nval_dim = '1:5'
+    else:
+        nfld_dim = 'nfld'
+        nval_dim = 'nval'
+
     scheduler = Scheduler(
         paths=(global_variable_analysis_code,), config=config, seed_routines='driver',
         frontend=frontend, xmods=(global_variable_analysis_code,)
@@ -461,6 +465,30 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
     scheduler.process(GlobalVariableAnalysis(key=key))
     scheduler.process(GlobalVarOffloadTransformation(key=key))
     driver = scheduler['#driver'].ir
+
+    if key is None:
+        key = GlobalVariableAnalysis._key
+
+    expected_trafo_data = {
+        'global_var_analysis_header_mod': {
+            'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
+            'offload': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'}
+        },
+        'global_var_analysis_data_mod': {
+            'declares': {'rdata(:, :, :)', 'tt'},
+            'offload': {'rdata(:, :, :)', 'tt', 'tt%vals'}
+        },
+    }
+
+    # Verify module offload sets
+    for item in [scheduler['global_var_analysis_header_mod'], scheduler['global_var_analysis_data_mod']]:
+        for trafo_data_key, trafo_data_value in item.trafo_data[key].items():
+            assert (
+                sorted(
+                    tuple(str(vv) for vv in v) if isinstance(v, tuple) else str(v)
+                    for v in trafo_data_value
+                ) == sorted(expected_trafo_data[item.name][trafo_data_key])
+            )
 
     # Verify imports have been added to the driver
     expected_imports = {
