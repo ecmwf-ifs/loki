@@ -346,6 +346,11 @@ class AttachScopes(Visitor):
         # entry in the scope's table
         self._update_symbol_table_with_decls_and_imports(o)
 
+        # Attach parent scope if it is new before passing self down to children
+        parent_scope = kwargs.get('scope', o.parent)
+        if o.parent is not parent_scope and o is not parent_scope:
+            o._reset_parent(parent=parent_scope)
+
         # Then recurse to all children
         kwargs['scope'] = o
         children = tuple(self.visit(i, **kwargs) for i in o.children)
