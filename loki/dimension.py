@@ -40,6 +40,14 @@ class Dimension:
         self._size = size
         self._aliases = as_tuple(aliases)
 
+    def __repr__(self):
+        """ Pretty-print dimension details """
+        name = f'<{self.name}>' if self.name else ''
+        index = str(self.index) or ''
+        size = str(self.size) or ''
+        bounds = ','.join(str(b) for b in self.bounds) if self.bounds else ''
+        return f'Dimension{name}[{index},{size},({bounds})]'
+
     @property
     def variables(self):
         return (self.index, self.size) + self.bounds

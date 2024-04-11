@@ -173,6 +173,21 @@ def convert(
         paths=paths, config=config, frontend=frontend, definitions=definitions, **build_args
     )
 
+    # If requested, apply a custom pipeline from the scheduler config
+    # Note that this new entry point will bypass all other default
+    # behaviour and exit immediately after.
+    if mode in config.pipelines:
+        info(f'[Loki-transform] Applying custom pipeline {mode} from config:')
+        info(str(config.pipelines[mode]))
+
+        scheduler.process( config.pipelines[mode] )
+
+        # Write out all modified source files into the build directory
+        file_write_trafo = FileWriteTransformation(builddir=build, mode=mode)
+        scheduler.process(transformation=file_write_trafo)
+
+        return
+
     # Pull dimension definition from configuration
     horizontal = scheduler.config.dimensions.get('horizontal', None)
     vertical = scheduler.config.dimensions.get('vertical', None)

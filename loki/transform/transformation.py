@@ -8,6 +8,8 @@
 """
 Base class definition for :ref:`transformations`.
 """
+from pprint import pformat
+
 from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
@@ -103,6 +105,12 @@ class Transformation:
     # Control Scheduler cache update requirements after applying the transformation
     renames_items = False
     creates_items = False
+
+    def __str__(self):
+        """ Pretty-print transformation details """
+        attrs = '\n    '.join(pformat(self.__dict__).splitlines())
+        header = f'<{self.__class__.__name__}  [{self.__class__.__module__}]'
+        return f'{header}\n    {attrs}>'
 
     def transform_subroutine(self, routine, **kwargs):
         """

@@ -7,6 +7,9 @@
 
 from inspect import signature, Parameter
 
+from loki.tools import as_tuple, flatten
+from loki.transform.transformation import Transformation
+
 
 class Pipeline:
     """
@@ -35,7 +38,7 @@ class Pipeline:
 
     def __init__(self, *args, classes=None, **kwargs):
         self.transformations = []
-        for cls in classes:
+        for cls in as_tuple(classes):
 
             # Get all relevant constructor parameters from teh MRO,
             # but exclude catch-all keyword args, like ``**kwargs``
@@ -54,6 +57,70 @@ class Pipeline:
 
             # Then instantiate with the default *args and the derived **t_kwargs
             self.transformations.append(cls(*args, **t_kwargs))
+
+    def __str__(self):
+        """ Pretty-print pipeline details """
+        trafo_str = '\n  '.join(flatten(str(t).splitlines() for t in self.transformations))
+        return f'<{self.__class__.__name__}\n  {trafo_str}\n>'
+
+    def __add__(self, other):
+        """ Support native addition via ``+`` operands """
+        if isinstance(other, Transformation):
+            self.append(other)
+            return self
+        if isinstance(other, Pipeline):
+            self.extend(other)
+            return self
+        raise TypeError(f'[Loki::Pipeline] Can not append {other} to pipeline!')
+
+    def __radd__(self, other):
+        """ Support native addition via ``+`` operands """
+        if isinstance(other, Transformation):
+            self.prepend(other)
+            return self
+        if isinstance(other, Pipeline):
+            other.extend(self)
+            return other
+        raise TypeError(f'[Loki::Pipeline] Can not append {other} to pipeline!')
+
+    def prepend(self, transformation):
+        """
+        Prepend a fully instantiated :any:`Transformation` object to this pipeline.
+
+        Parameters
+        ----------
+        transformation : :any:`Transformation`
+            Transformation object to prepend
+        """
+        assert isinstance(transformation, Transformation)
+
+        self.transformations.insert(0, transformation)
+
+    def append(self, transformation):
+        """
+        Append a fully instantiated :any:`Transformation` object to this pipeline.
+
+        Parameters
+        ----------
+        transformation : :any:`Transformation`
+            Transformation object to append
+        """
+        assert isinstance(transformation, Transformation)
+
+        self.transformations.append(transformation)
+
+    def extend(self, pipeline):
+        """
+        Append all :any`Transformation` objects of a given :any:`Pipeline`
+
+        Parameters
+        ----------
+        pipeline : :any:`Pipeline`
+            Pipeline whose transformations will be appended
+        """
+        assert isinstance(pipeline, Pipeline)
+
+        self.transformations.extend(pipeline.transformations)
 
     def apply(self, source, **kwargs):
         """
