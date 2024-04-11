@@ -31,13 +31,62 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (
     Variable, InlineCall, RangeIndex, Scalar, Array,
-    ProcedureSymbol, SubstituteExpressions, Dereference,
+    ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
+    ExpressionRetriever, SubstituteExpressionsMapper,
 )
 from loki.expression import symbols as sym
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
 
 __all__ = ['FortranCTransformation']
+
+
+class DeReferenceTrafo(Transformer):
+    """
+    Transformation to apply/insert Dereference = `*` and
+    Reference/*address-of* = `&` operators.
+
+    Parameters
+    ----------
+    vars2dereference : list
+        Variables to be dereferenced. Ususally the arguments except
+        for scalars with `intent=in`.
+    """
+    # pylint: disable=unused-argument
+
+    def __init__(self, vars2dereference):
+        super().__init__()
+        self.retriever = ExpressionRetriever(self.is_dereference)
+        self.vars2dereference = vars2dereference
+
+    @staticmethod
+    def is_dereference(symbol):
+        return isinstance(symbol, (DerivedType, Array, Scalar)) and not (
+            isinstance(symbol, Array) and symbol.dimensions is not None
+            and not all(dim == sym.RangeIndex((None, None)) for dim in symbol.dimensions)
+        )
+
+    def visit_Expression(self, o, **kwargs):
+        symbol_map = {
+            symbol: Dereference(symbol.clone()) for symbol in self.retriever.retrieve(o)
+            if symbol.name.lower() in self.vars2dereference
+        }
+        return SubstituteExpressionsMapper(symbol_map)(o)
+
+    def visit_CallStatement(self, o, **kwargs):
+        new_args = ()
+        call_arg_map = dict((v,k) for k,v in o.arg_map.items())
+        for arg in o.arguments:
+            if not self.is_dereference(arg) and (isinstance(call_arg_map[arg], Array)\
+                    or call_arg_map[arg].type.intent.lower() != 'in'):
+                new_args += (Reference(arg.clone()),)
+            else:
+                if isinstance(arg, Scalar) and call_arg_map[arg].type.intent.lower() != 'in':
+                    new_args += (Reference(arg.clone()),)
+                else:
+                    new_args += (arg,)
+        o._update(arguments=new_args)
+        return o
 
 
 class FortranCTransformation(Transformation):
@@ -401,6 +450,19 @@ class FortranCTransformation(Transformation):
         header_module.rescope_symbols()
         return header_module
 
+    @staticmethod
+    def apply_de_reference(routine):
+        """
+        Utility method to apply/insert Dereference = `*` and
+        Reference/*address-of* = `&` operators.
+        """
+        to_be_dereferenced = []
+        for arg in routine.arguments:
+            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+                to_be_dereferenced.append(arg.name.lower())
+
+        routine.body = DeReferenceTrafo(to_be_dereferenced).visit(routine.body)
+
     def generate_c_kernel(self, routine):
         """
         Re-generate the C kernel and insert wrapper-specific peculiarities,
@@ -476,8 +538,7 @@ class FortranCTransformation(Transformation):
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         convert_to_lower_case(kernel)
 
-        # Force pointer on reference-passed arguments
-        var_map = {}
+        # Force pointer on reference-passed arguments (and lower case type names for derived types)
         for arg in kernel.arguments:
             if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 _type = arg.type.clone(pointer=True)
@@ -485,9 +546,10 @@ class FortranCTransformation(Transformation):
                     # Lower case type names for derived types
                     typedef = _type.dtype.typedef.clone(name=_type.dtype.typedef.name.lower())
                     _type = _type.clone(dtype=typedef.dtype)
-                var_map[arg] = Dereference(arg)
                 kernel.symbol_attrs[arg.name] = _type
-        kernel.body = SubstituteExpressions(var_map).visit(kernel.body)
+
+        # apply dereference and reference where necessary
+        self.apply_de_reference(kernel)
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',

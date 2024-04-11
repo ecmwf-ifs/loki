@@ -1005,6 +1005,59 @@ end subroutine transpile_expressions
     f2c.c_path.unlink()
 
 
+@pytest.mark.parametrize('use_c_ptr', (False, True))
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transpile_call(here, frontend, use_c_ptr):
+    fcode_module = """
+module transpile_call_kernel_mod
+  implicit none
+contains
+
+  subroutine transpile_call_kernel(a, b, c, arr1, len)
+    integer, intent(inout) :: a, c
+    integer, intent(in) :: b
+    integer, intent(in) :: len
+    integer, intent(inout) :: arr1(len, len)
+    a = b
+    c = b
+  end subroutine transpile_call_kernel
+end module transpile_call_kernel_mod
+"""
+
+    fcode = """
+subroutine transpile_call_driver(a)
+  use transpile_call_kernel_mod, only: transpile_call_kernel
+    integer, intent(inout) :: a
+    integer, parameter :: len = 5
+    integer :: arr1(len, len)
+    integer :: arr2(len, len)
+    integer :: b
+    b = 2 * len
+    call transpile_call_kernel(a, b, arr2(1, 1), arr1, len)
+end subroutine transpile_call_driver
+"""
+    unlink_paths = []
+    module = Module.from_source(fcode_module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module)
+    f2c = FortranCTransformation(use_c_ptr=use_c_ptr, path=here)
+    f2c.apply(source=module.subroutine_map['transpile_call_kernel'], path=here, role='kernel')
+    unlink_paths.extend([f2c.wrapperpath, f2c.c_path])
+    ccode_kernel = f2c.c_path.read_text().replace(' ', '').replace('\n', '')
+    f2c.apply(source=routine, path=here, role='kernel')
+    unlink_paths.extend([f2c.wrapperpath, f2c.c_path])
+    ccode_driver = f2c.c_path.read_text().replace(' ', '').replace('\n', '')
+
+    assert "int*a,intb,int*c" in ccode_kernel
+    # check for applied Dereference
+    assert "(*a)=b;" in ccode_kernel
+    assert "(*c)=b;" in ccode_kernel
+    # check for applied Reference
+    assert "transpile_call_kernel((&a),b,(&arr2[" in ccode_driver
+
+    for path in unlink_paths:
+        path.unlink()
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('f_type', ['integer', 'real'])
 def test_transpile_inline_functions(here, frontend, f_type):
