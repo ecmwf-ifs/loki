@@ -323,17 +323,6 @@ class GlobalVariableAnalysis(Transformation):
                 _map_var_to_module(var) for var in defines_imported_symbols
             }
 
-        # Propagate offload requirement to the items of the global variables
-        successors_map = CaseInsensitiveDict(
-            (item.name, item) for item in successors if isinstance(item, ModuleItem)
-        )
-        for var, module in chain(
-            item.trafo_data[self._key]['uses_symbols'],
-            item.trafo_data[self._key]['defines_symbols']
-        ):
-            if successor := successors_map.get(module):
-                successor.trafo_data[self._key]['offload'].add(var)
-
         # Amend analysis data with data from successors
         # Note: This is a temporary workaround for the incomplete list of successor items
         # provided by the current scheduler implementation
@@ -476,9 +465,28 @@ class GlobalVarOffloadTransformation(Transformation):
         """
         role = kwargs.get('role')
         successors = kwargs.get('successors', ())
+        item = kwargs['item']
 
         if role == 'driver':
             self.process_driver(routine, successors)
+        elif role == 'kernel':
+            self.process_kernel(item, successors)
+
+    def process_kernel(self, item, successors):
+        """
+        Propagate offload requirement to the items of the global variables
+        """
+        successors_map = CaseInsensitiveDict(
+            (item.name, item) for item in successors if isinstance(item, ModuleItem)
+        )
+        for var, module in chain(
+            item.trafo_data[self._key]['uses_symbols'],
+            item.trafo_data[self._key]['defines_symbols']
+        ):
+            if var.type.parameter:
+                continue
+            if successor := successors_map.get(module):
+                successor.trafo_data[self._key]['offload'].add(var)
 
     def process_driver(self, routine, successors):
         """
