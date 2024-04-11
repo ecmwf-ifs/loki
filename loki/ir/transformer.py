@@ -485,7 +485,7 @@ class MaskedTransformer(Transformer):
 
         # Update rebuilt node
         if kwargs['parent_active']:
-            o._update(rebuilt)
+            o._update(*rebuilt)
             return o
         return tuple(i for i in rebuilt if i is not None) or None
 
