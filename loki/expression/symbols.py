@@ -361,14 +361,10 @@ class TypedSymbol:
         """
         Resolve type-bound variables of arbitrary nested depth.
         """
-
         name_parts = name_str.split('%', maxsplit=1)
-        if not (declared_var := self.variable_map.get(name_parts[0], None)):
-            declared_var = Variable(name=name_parts[0], scope=self.scope, parent=self)
-
+        declared_var = Variable(name=f'{self.name}%{name_parts[0]}', scope=self.scope, parent=self)
         if len(name_parts) > 1:
-            declared_var = declared_var.get_derived_type_member(name_parts[1])
-
+            return declared_var.get_derived_type_member(name_parts[1])  # pylint:disable=no-member
         return declared_var
 
 

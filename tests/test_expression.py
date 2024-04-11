@@ -1570,3 +1570,78 @@ def test_typebound_resolution(expr):
 
     assert var == expr
     assert var.scope == scope
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OMNI: "OMNI fails on missing module"}
+))
+def test_typebound_resolution_type_info(frontend):
+    fcode = """
+module typebound_resolution_type_info_mod
+    use some_mod, only: tt
+    implicit none
+    type t_a
+        logical :: a
+    end type t_a
+
+    type t_b
+        type(t_a) :: b_a
+        integer :: b
+    end type t_b
+
+    type t_c
+        type(t_b) :: c_b
+        real :: c
+    end type t_c
+contains
+    subroutine sub ()
+        type(t_c) :: var_c
+        type(tt) :: var_tt
+    end subroutine sub
+end module typebound_resolution_type_info_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    sub = module['sub']
+    var_c = sub.variable_map['var_c']
+    var_tt = sub.variable_map['var_tt']
+
+    t_a = module['t_a']
+    t_b = module['t_b']
+
+    var_c_to_try = {
+        'c': BasicType.REAL,
+        'c_b': t_b.dtype,
+        'c_b%b': BasicType.INTEGER,
+        'c_b%b_a': t_a.dtype,
+        'c_b%b_a%a': BasicType.LOGICAL,
+    }
+
+    var_tt_to_try = {
+        'some': BasicType.DEFERRED,
+        'some%member': BasicType.DEFERRED
+    }
+
+    # Make sure none of the derived type members exist
+    # in the symbol table initially
+    for var_name in var_c_to_try:
+        assert f'var_c%{var_name}' not in sub.symbol_attrs
+
+    for var_name in var_tt_to_try:
+        assert f'var_tt%{var_name}' not in sub.symbol_attrs
+
+    # Create each derived type member and verify its type
+    for var_name, dtype in var_c_to_try.items():
+        var = var_c.get_derived_type_member(var_name)
+        assert var == f'var_c%{var_name}'
+        assert var.scope is sub
+        assert isinstance(var, symbols.Scalar)
+        assert var.type.dtype == dtype
+
+    for var_name, dtype in var_tt_to_try.items():
+        var = var_tt.get_derived_type_member(var_name)
+        assert var == f'var_tt%{var_name}'
+        assert var.scope is sub
+        assert isinstance(var, symbols.DeferredTypeSymbol)
+        assert var.type.dtype == dtype
