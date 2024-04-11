@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 
 from conftest import available_frontends, jit_compile_lib, clean_test
-from loki import FindNodes, Scheduler, Builder, SchedulerConfig, OMNI
+from loki import FindNodes, Scheduler, Builder, SchedulerConfig, OMNI, FindInlineCalls
 from loki import ir, is_iterable, gettempdir, normalize_range_indexing
 from loki.transform import (
     HoistVariablesAnalysis, HoistVariablesTransformation,
@@ -119,6 +119,12 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwargu
 
     item = scheduler[subroutine_mod + '#kernel1']
     assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel1"]
+
+    for call in FindInlineCalls().visit(item.ir.body):
+        if 'func1' in call.name:
+            assert call.arguments == call_arguments["func1"]
+            assert call.kwarguments == call_kwarguments["func1"]
+
     # kernel 2
     item = scheduler[subroutine_mod + '#kernel2']
     assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel2"]
@@ -140,6 +146,11 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwargu
         # device 2
         item = scheduler[subroutine_mod + '#device2']
         assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device2"]
+
+        for call in FindInlineCalls().visit(item.ir.body):
+            if 'init_int' in call.name:
+                assert call.arguments == call_arguments["init_int"]
+                assert call.kwarguments == call_kwarguments["init_int"]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -303,7 +314,7 @@ def test_hoist_arrays_inline(here, frontend, config, as_kwarguments):
         call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'init_int_tmp0')
         call_arguments["device1"] += ('device2_z', 'init_int_tmp0')
         call_arguments["device2"] += ('device2_z', 'init_int_tmp0')
-        call_arguments["init_int"] += ('tmp0',)
+        call_arguments["init_int"] += ('init_int_tmp0',)
 
     call_kwarguments = {
         "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
@@ -311,12 +322,14 @@ def test_hoist_arrays_inline(here, frontend, config, as_kwarguments):
             ('device2_z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
         "device1": (('device2_z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
         "device2": (('z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
-        "init_int": (('init_int_tmp0', 'init_int_tmp0'),) if as_kwarguments else ()
+        "init_int": (('tmp0', 'init_int_tmp0'),) if as_kwarguments else (),
+        "func1": ()
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
            call_kwarguments=call_kwarguments, driver_item=scheduler['transformation_module_hoist_inline#inline_driver'],
-           driver_name='inline_driver', include_another_driver=False, subroutine_mod='subroutines_inline_mod')
+           driver_name='inline_driver', include_another_driver=False, subroutine_mod='subroutines_inline_mod',
+           include_device_functions=True)
     compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend,
                      test_name="hoisted_arrays_inline",
                      items=[scheduler["transformation_module_hoist_inline#inline_driver"],
