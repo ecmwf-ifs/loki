@@ -525,7 +525,7 @@ end subroutine routine_dim_shapes
                       ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
 
     # Ensure that all spec variables (including dimension symbols) are scoped correctly
-    spec_vars = FindVariables(unique=False).visit(routine.spec)
+    spec_vars = [v for v in FindVariables(unique=False).visit(routine.spec) if v.name.lower() != 'selected_real_kind']
     assert all(v.scope == routine for v in spec_vars)
     assert all(isinstance(v, (Scalar, Array)) for v in spec_vars)
 
@@ -1343,6 +1343,8 @@ end subroutine test_subroutine_rescope
         if var.name == 'ext1':
             assert var.scope is routine
         else:
+            if var.name.lower() == 'selected_int_kind':
+                continue
             assert var.scope is nested_routine
 
     # Make sure the KIND parameter symbol in the variable's type is also correctly rescoped
@@ -1644,7 +1646,7 @@ end module subroutine_suffix_mod
 
     check_value = module.interface_map['check_value'].body[0]
     assert check_value.is_function
-    assert check_value.result_name is None
+    assert check_value.result_name == 'check_value'
     assert check_value.return_type.dtype is BasicType.INTEGER
     assert check_value.return_type.kind == 'c_int'
     if frontend != OMNI:

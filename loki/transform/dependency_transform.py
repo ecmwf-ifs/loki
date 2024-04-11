@@ -8,7 +8,7 @@
 from pathlib import Path
 
 from loki.backend import fgen
-from loki.expression import Variable, FindInlineCalls, SubstituteExpressions
+from loki.expression import Variable, FindInlineCalls
 from loki.ir import (
     CallStatement, Import, Section, Interface, FindNodes, Transformer
 )
@@ -155,8 +155,6 @@ class DependencyTransformation(Transformation):
                 return
 
             # Change the name of kernel routines
-            if routine.is_function and not routine.result_name:
-                self.update_result_var(routine)
             routine.name += self.suffix
             if item:
                 item.name += self.suffix.lower()
@@ -219,24 +217,6 @@ class DependencyTransformation(Transformation):
         if self.module_suffix:
             return f'{modname}{self.suffix}{self.module_suffix}'
         return f'{modname}{self.suffix}'
-
-    def update_result_var(self, routine):
-        """
-        Update name of result variable for function calls.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            The function object for which the result variable is to be renamed
-        """
-        assert routine.name in routine.variables
-
-        vmap = {
-            v: v.clone(name=v.name + self.suffix)
-            for v in routine.variables if v == routine.name
-        }
-        routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
-        routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     def rename_calls(self, routine, targets=None, item=None):
         """
@@ -320,7 +300,7 @@ class DependencyTransformation(Transformation):
         for im in imports:
             if im.c_import:
                 target_symbol = im.module.split('.')[0].lower()
-                if targets and target_symbol.lower() in targets and 'intfb' in im.module.lower():
+                if targets and target_symbol.lower() in targets:
                     # Modify the the basename of the C-style header import
                     s = '.'.join(im.module.split('.')[1:])
                     im._update(module=f'{target_symbol}{self.suffix}.{s}')
@@ -490,7 +470,7 @@ class ModuleWrapTransformation(Transformation):
         for im in imports:
             if im.c_import:
                 target_symbol = im.module.split('.')[0].lower()
-                if targets and target_symbol.lower() in targets and 'intfb' in im.module.lower():
+                if targets and target_symbol.lower() in targets:
                     # Create a new module import with explicitly qualified symbol
                     modname = f'{target_symbol}{self.module_suffix}'
                     _update_item(target_symbol.lower(), modname)

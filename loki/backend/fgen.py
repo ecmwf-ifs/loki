@@ -210,7 +210,8 @@ class FortranCodegen(Stringifier):
         if o.prefix:
             prefix += ' '
         arguments = self.join_items(o.argnames)
-        result = f' RESULT({o.result_name})' if o.result_name else ''
+        result = f' RESULT({o.result_name})' if o.result_name\
+                and o.result_name.lower() != o.name.lower() else ''
         if isinstance(o.bind, str):
             bind_c = f' BIND(c, name="{o.bind}")'
         elif isinstance(o.bind, StringLiteral):

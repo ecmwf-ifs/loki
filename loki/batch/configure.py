@@ -16,7 +16,10 @@ from loki.types import ProcedureType, DerivedType
 from loki.logging import error, warning
 
 
-__all__ = ['SchedulerConfig', 'TransformationConfig', 'ItemConfig']
+__all__ = [
+    'SchedulerConfig', 'TransformationConfig', 'PipelineConfig',
+    'ItemConfig'
+]
 
 
 class SchedulerConfig:
@@ -52,7 +55,8 @@ class SchedulerConfig:
 
     def __init__(
             self, default, routines, disable=None, dimensions=None,
-            transformation_configs=None, enable_imports=False, frontend_args=None
+            transformation_configs=None, pipeline_configs=None,
+            enable_imports=False, frontend_args=None
     ):
         self.default = default
         self.disable = as_tuple(disable)
@@ -61,6 +65,7 @@ class SchedulerConfig:
 
         self.routines = CaseInsensitiveDict(routines)
         self.transformation_configs = transformation_configs
+        self.pipeline_configs = pipeline_configs
         self.frontend_args = frontend_args
 
         # Resolve the dimensions for trafo configurations
@@ -70,6 +75,12 @@ class SchedulerConfig:
         # Instantiate Transformation objects
         self.transformations = {
             name: config.instantiate() for name, config in self.transformation_configs.items()
+        }
+
+        # Instantiate Pipeline objects
+        self.pipelines = {
+            name: config.instantiate(transformation_map=self.transformations)
+            for name, config in self.pipeline_configs.items()
         }
 
     @classmethod
@@ -91,10 +102,16 @@ class SchedulerConfig:
         }
         frontend_args = config.get('frontend_args', {})
 
+        pipeline_configs = config.get('pipelines', {})
+        pipeline_configs = {
+            name: PipelineConfig(name=name, **cfg)
+            for name, cfg in pipeline_configs.items()
+        }
+
         return cls(
             default=default, routines=routines, disable=disable, dimensions=dimensions,
-            transformation_configs=transformation_configs, frontend_args=frontend_args,
-            enable_imports=enable_imports
+            transformation_configs=transformation_configs, pipeline_configs=pipeline_configs,
+            frontend_args=frontend_args, enable_imports=enable_imports
         )
 
     @classmethod
@@ -302,6 +319,47 @@ class TransformationConfig:
             raise e
 
         return transformation
+
+
+class PipelineConfig:
+    """
+    Configuration object for custom :any:`Pipeline` instances that can
+    be used to create pipelines from other transformations stored in
+    the config.
+
+    Parameters
+    ----------
+    name : str
+        Name of the transformation object
+    transformations : list of str
+        List of transformation names for which to look when
+        instnatiating thie pipeline.
+    """
+
+
+    def __init__(self, name, transformations=None):
+        self.name = name
+        self.transformations = transformations or []
+
+    def instantiate(self, transformation_map=None):
+        """
+        Creates a custom :any:`Pipeline` object from instantiated
+        :any:`Transformation` or :any:`Pipeline` objects in the given map.
+        """
+        from loki.transform import Pipeline  # pylint: disable=import-outside-toplevel,cyclic-import
+
+        # Create an empty pipeline and add from the map
+        pipeline = Pipeline(classes=())
+        for name in self.transformations:
+            if name not in transformation_map:
+                error(f'[Loki::Pipeline] Failed to find {name} in transformation config!')
+                raise RuntimeError(f'[Loki::Pipeline] Transformation {name} not found!')
+
+            # Use native notation to append transformation/pipeline,
+            # so that we may use them interchangably in config
+            pipeline += transformation_map[name]
+
+        return pipeline
 
 
 class ItemConfig:

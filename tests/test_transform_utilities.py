@@ -9,11 +9,12 @@ import pytest
 
 from conftest import available_frontends
 from loki.transform import (
-    single_variable_declaration, recursive_expression_map_update, convert_to_lower_case
+    single_variable_declaration, recursive_expression_map_update, convert_to_lower_case,
+    replace_intrinsics, rename_variables
 )
 from loki import (
     Module, Subroutine, OMNI, FindNodes, VariableDeclaration, FindVariables,
-    SubstituteExpressions, fgen
+    SubstituteExpressions, fgen, FindInlineCalls
 )
 from loki.expression import symbols as sym
 
@@ -193,3 +194,132 @@ end module some_mod
     assert fgen(routine.body.body[0]).lower() == 'my_obj%a = my_obj%my_add(my_obj%a(1:my_obj%m, 1:my_obj%n), 1.)'
     routine.body = SubstituteExpressions(expr_map).visit(routine.body)
     assert fgen(routine.body.body[0]) == 'obj%a = obj%my_add(obj%a(1:obj%m, 1:obj%n), 1.)'
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Argument mismatch for "min"')]))
+def test_transform_utilites_replace_intrinsics(frontend):
+    fcode = """
+subroutine replace_intrinsics()
+    implicit none
+    real :: a, b, eps
+    real, parameter :: param = min(0.1, epsilon(param)*1000.)
+
+    eps = param * 10.
+    eps = 0.1
+    b = max(10., eps)
+    a = min(1. + b, 1. - eps)
+
+end subroutine replace_intrinsics
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    symbol_map = {'epsilon': 'DBL_EPSILON'}
+    function_map = {'min': 'fmin', 'max': 'fmax'}
+    replace_intrinsics(routine, symbol_map=symbol_map, function_map=function_map)
+    inline_calls = FindInlineCalls(unique=False).visit(routine.ir)
+    assert inline_calls[0].name == 'fmin'
+    assert inline_calls[1].name == 'fmax'
+    assert inline_calls[2].name == 'fmin'
+    variables = FindVariables(unique=False).visit(routine.ir)
+    assert 'DBL_EPSILON' in variables
+    assert 'epsilon' not in variables
+    # check wether it really worked for variable declarations or rather parameters
+    assert 'DBL_EPSILON' in FindVariables().visit(routine.variable_map['param'].initial)
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilites_rename_variables(frontend):
+    fcode = """
+subroutine rename_variables(some_arg, rename_arg)
+    implicit none
+    integer, intent(inout) :: some_arg, rename_arg
+    integer :: some_var, rename_var
+    integer :: i, j
+    real :: some_array(10, 10), rename_array(10, 10)
+
+    do i=1,10
+        some_var = i
+        rename_var = i + 1
+        do J=1,10
+            some_array(i, j) = 10. * some_arg * rename_arg
+	        rename_array(i, j) = 5. * some_arg * rename_arg
+        end do
+    end do
+
+end subroutine rename_variables
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    symbol_map = {'rename_var': 'renamed_var',
+                  'rename_arg': 'renamed_arg',
+                  'rename_array': 'renamed_array'}
+    rename_variables(routine, symbol_map=symbol_map)
+    variables = [var.name for var in FindVariables(unique=False).visit(routine.ir)]
+    assert 'renamed_var' in variables
+    assert 'rename_var'  not in variables
+    assert 'renamed_arg' in variables
+    assert 'rename_arg' not in variables
+    assert 'renamed_array' in variables
+    assert 'rename_array' not in variables
+    # check routine arguments
+    assert 'renamed_arg' in routine.arguments
+    assert 'rename_arg' not in routine.arguments
+    # check symbol table
+    assert 'renamed_arg' in routine.symbol_attrs
+    assert 'rename_arg' not in routine.symbol_attrs
+    assert 'renamed_array' in routine.symbol_attrs
+    assert 'rename_array' not in routine.symbol_attrs
+    assert 'renamed_arg' in routine.symbol_attrs
+    assert 'rename_arg' not in routine.symbol_attrs
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_utilites_rename_variables_extended(frontend):
+    fcode = """
+subroutine rename_variables_extended(KLON, ARR, TT)
+    implicit none
+    
+    INTEGER, INTENT(IN) :: KLON
+    REAL, INTENT(INOUT) :: ARR(KLON)
+    REAL :: MY_TMP(KLON)
+    TYPE(SOME_TYPE), INTENT(INOUT) :: TT
+    TYPE(OTHER_TYPE) :: TMP_TT
+
+    TMP_TT%SOME_MEMBER = TT%SOME_MEMBER + TT%PROC_FUNC(5.0)
+    CALL TT%NESTED%PROC_SUB(TT%NESTED%VAR)
+    TT%VAL = TMP_TT%VAL
+
+end subroutine rename_variables_extended
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    symbol_map = {'klon': 'ncol', 'tt': 'arg_tt'}
+    rename_variables(routine, symbol_map=symbol_map)
+    # check arguments
+    arguments = [arg.name.lower() for arg in routine.arguments]
+    assert 'ncol' in arguments
+    assert 'klon' not in arguments
+    assert 'arg_tt' in arguments
+    assert 'tt' not in arguments
+    # check array shape
+    assert routine.variable_map['arr'].shape == ('ncol',)
+    assert routine.variable_map['my_tmp'].shape == ('ncol',)
+    # check variables
+    variables = [var.name.lower() for var in FindVariables(unique=False).visit(routine.ir)]
+    assert 'ncol' in variables
+    assert 'klon' not in variables
+    assert 'arg_tt' in variables
+    assert 'tt' not in variables
+    assert 'arg_tt%some_member' in variables
+    assert 'tt%some_member' not in variables
+    assert 'arg_tt%proc_func' in variables
+    assert 'tt%proc_func' not in variables
+    assert 'arg_tt%nested' in variables
+    assert 'tt%nested' not in variables
+    assert 'arg_tt%nested%proc_sub' in variables
+    assert 'tt%nested%proc_sub' not in variables
+    assert 'arg_tt%nested%var' in variables
+    assert 'tt%nested%var' not in variables
+    # check symbol table
+    routine_symbol_attrs_name = tuple(key.lower() for key in routine.symbol_attrs)+\
+            tuple(key.split('%')[0].lower() for key in routine.symbol_attrs)
+    assert 'ncol' in routine_symbol_attrs_name
+    assert 'klon' not in routine_symbol_attrs_name
+    assert 'arg_tt' in routine_symbol_attrs_name
+    assert 'tt' not in routine_symbol_attrs_name
