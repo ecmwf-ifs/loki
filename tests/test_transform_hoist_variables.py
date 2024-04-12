@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 
 from conftest import available_frontends, jit_compile_lib, clean_test
-from loki import FindNodes, Scheduler, Builder, SchedulerConfig, OMNI
+from loki import FindNodes, Scheduler, Builder, SchedulerConfig, OMNI, FindInlineCalls
 from loki import ir, is_iterable, gettempdir, normalize_range_indexing
 from loki.transform import (
     HoistVariablesAnalysis, HoistVariablesTransformation,
@@ -47,28 +47,36 @@ def fixture_config():
                 'role': 'driver',
                 'expand': True,
             },
+            'inline_driver': {
+                'role': 'driver',
+                'expand': True,
+            },
         }
     }
 
 
-def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name=""):
+def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name="", items=None, inline=False):
     """
     Compile the source code and call the driver function in order to test the results for correctness.
     """
     assert is_iterable(a) and all(isinstance(_a, int) for _a in a)
-    items = [scheduler["transformation_module_hoist#driver"], scheduler["subroutines_mod#kernel1"]]
+    if not items:
+        items = [scheduler["transformation_module_hoist#driver"], scheduler["subroutines_mod#kernel1"]]
     for item in items:
         suffix = '.F90'
         item.source.path = here / 'build' / Path(f"{item.source.path.stem}").with_suffix(suffix=suffix)
     libname = f'lib_{test_name}_{frontend}'
     builder = Builder(source_dirs=here/'build', build_dir=here/'build')
     lib = jit_compile_lib([item.source for item in items], path=here/'build', name=libname, builder=builder)
-    item = scheduler["transformation_module_hoist#driver"]
+    item = items[0]
     for _a in a:
         parameter_length = 3
         b = np.zeros((_a,), dtype=np.int32, order='F')
         c = np.zeros((_a, parameter_length), dtype=np.int32, order='F')
-        lib.Transformation_Module_Hoist.driver(_a, b, c)
+        if inline:
+            lib.Transformation_Module_Hoist_Inline.inline_driver(_a, b, c)
+        else:
+            lib.Transformation_Module_Hoist.driver(_a, b, c)
         assert (b == 42).all()
         assert (c == 11).all()
     builder.clean()
@@ -77,14 +85,20 @@ def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name=""):
     clean_test(filepath=here.parent / item.source.path.with_suffix(suffix).name)
 
 
-def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwarguments, include_device_functions=False):
+def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwarguments, driver_item=None,
+                    driver_name=None, include_device_functions=False, include_another_driver=True,
+                    subroutine_mod=None):
     """
     Check the subroutine and call arguments of each subroutine.
     """
     # driver
-    item = scheduler['transformation_module_hoist#driver']
-    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["driver"]
-    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
+    if not driver_item:
+        driver_item = scheduler['transformation_module_hoist#driver']
+    if not driver_name:
+        driver_name = "driver"
+
+    assert [arg.name for arg in driver_item.ir.arguments] == subroutine_arguments[driver_name]
+    for call in FindNodes(ir.CallStatement).visit(driver_item.ir.body):
         if "kernel1" in call.name:
             assert call.arguments == call_arguments["kernel1"]
             assert call.kwarguments == call_kwarguments["kernel1"]
@@ -92,17 +106,27 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwargu
             assert call.arguments == call_arguments["kernel2"]
             assert call.kwarguments == call_kwarguments["kernel2"]
     # another driver
-    item = scheduler['transformation_module_hoist#another_driver']
-    assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["another_driver"]
-    for call in FindNodes(ir.CallStatement).visit(item.ir.body):
-        if "kernel1" in call.name:
-            assert call.arguments == call_arguments["kernel1"]
-            assert call.kwarguments == call_kwarguments["kernel1"]
+    if include_another_driver:
+        item = scheduler['transformation_module_hoist#another_driver']
+        assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["another_driver"]
+        for call in FindNodes(ir.CallStatement).visit(item.ir.body):
+            if "kernel1" in call.name:
+                assert call.arguments == call_arguments["kernel1"]
+                assert call.kwarguments == call_kwarguments["kernel1"]
     # kernel 1
-    item = scheduler['subroutines_mod#kernel1']
+    if not subroutine_mod:
+        subroutine_mod = 'subroutines_mod'
+
+    item = scheduler[subroutine_mod + '#kernel1']
     assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel1"]
+
+    for call in FindInlineCalls().visit(item.ir.body):
+        if 'func1' in call.name:
+            assert call.arguments == call_arguments["func1"]
+            assert call.kwarguments == call_kwarguments["func1"]
+
     # kernel 2
-    item = scheduler['subroutines_mod#kernel2']
+    item = scheduler[subroutine_mod + '#kernel2']
     assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["kernel2"]
     for call in FindNodes(ir.CallStatement).visit(item.ir.body):
         if "device1" in call.name:
@@ -113,15 +137,20 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwargu
             assert call.kwarguments == call_kwarguments["device2"]
     if include_device_functions:
         # device 1
-        item = scheduler['subroutines_mod#device1']
+        item = scheduler[subroutine_mod + '#device1']
         assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device1"]
         for call in FindNodes(ir.CallStatement).visit(item.ir.body):
             if "device2" in call.name:
                 assert call.arguments == call_arguments["device2"]
                 assert call.kwarguments == call_kwarguments["device2"]
         # device 2
-        item = scheduler['subroutines_mod#device2']
+        item = scheduler[subroutine_mod + '#device2']
         assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device2"]
+
+        for call in FindInlineCalls().visit(item.ir.body):
+            if 'init_int' in call.name:
+                assert call.arguments == call_arguments["init_int"]
+                assert call.kwarguments == call_kwarguments["init_int"]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -219,7 +248,7 @@ def test_hoist_disable(here, frontend, config, as_kwarguments):
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c'),
-        "kernel2": ('a', 'b'), 
+        "kernel2": ('a', 'b'),
         "device1": ('a1', 'b', 'x', 'k2_tmp'),
         "device2": ('a1', 'b', 'x')
     }
@@ -245,6 +274,66 @@ def test_hoist_disable(here, frontend, config, as_kwarguments):
         frontend=frontend, test_name="all_hoisted_disable"
     )
 
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('as_kwarguments', [False, True])
+def test_hoist_arrays_inline(here, frontend, config, as_kwarguments):
+    """
+    Testing hoist functionality for local arrays using the :class:`HoistTemporaryArraysAnalysis` for the *Analysis*
+    part. The hoisted kernel contains inline function calls.
+    """
+
+    proj = here/'sources/projHoist'
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['inline_driver',], frontend=frontend)
+
+    # Transformation: Analysis
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis())
+    # Transformation: Synthesis
+    scheduler.process(transformation=HoistVariablesTransformation(as_kwarguments=as_kwarguments))
+
+    # check generated source code
+    subroutine_arguments = {
+        "inline_driver": ['a', 'b', 'c'],
+        "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z', 'init_int_tmp0'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z', 'init_int_tmp0'],
+        "device2": ['a2', 'b', 'x', 'z', 'init_int_tmp0'],
+        "init_int": ['a2', 'tmp0'],
+        "func1": ['a']
+    }
+
+    call_arguments = {
+        "kernel1": ('a', 'b', 'c'),
+        "kernel2": ('a', 'b'),
+        "device1": ('a1', 'b', 'x', 'k2_tmp'),
+        "device2": ('a1', 'b', 'x'),
+        "init_int": ('a2',),
+        "func1": ('a',)
+    }
+    if not as_kwarguments:
+        call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'init_int_tmp0')
+        call_arguments["device1"] += ('device2_z', 'init_int_tmp0')
+        call_arguments["device2"] += ('device2_z', 'init_int_tmp0')
+        call_arguments["init_int"] += ('init_int_tmp0',)
+
+    call_kwarguments = {
+        "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
+        "kernel2": (('x', 'kernel2_x'), ('k2_tmp', 'kernel2_k2_tmp'),
+            ('device2_z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
+        "device1": (('device2_z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
+        "device2": (('z', 'device2_z'), ('init_int_tmp0', 'init_int_tmp0')) if as_kwarguments else (),
+        "init_int": (('tmp0', 'init_int_tmp0'),) if as_kwarguments else (),
+        "func1": ()
+    }
+
+    check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
+           call_kwarguments=call_kwarguments, driver_item=scheduler['transformation_module_hoist_inline#inline_driver'],
+           driver_name='inline_driver', include_another_driver=False, subroutine_mod='subroutines_inline_mod',
+           include_device_functions=True)
+    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend,
+                     test_name="hoisted_arrays_inline",
+                     items=[scheduler["transformation_module_hoist_inline#inline_driver"],
+                            scheduler["subroutines_inline_mod#kernel1"]], inline=True)
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
@@ -267,29 +356,29 @@ def test_hoist_arrays(here, frontend, config, as_kwarguments):
         "driver": ['a', 'b', 'c'],
         "another_driver": ['a', 'b', 'c'],
         "kernel1": ['a', 'b', 'c', 'x', 'y', 'k1_tmp'],
-        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z', 'device2_d2_tmp'],
-        "device1": ['a1', 'b', 'x', 'y', 'device2_z', 'device2_d2_tmp'],
-        "device2": ['a2', 'b', 'x', 'z', 'd2_tmp'],
+        "kernel2": ['a1', 'b', 'x', 'k2_tmp', 'device2_z'],
+        "device1": ['a1', 'b', 'x', 'y', 'device2_z'],
+        "device2": ['a2', 'b', 'x', 'z'],
     }
 
     call_arguments = {
         "kernel1": ('a', 'b', 'c'),
-        "kernel2": ('a', 'b'), 
+        "kernel2": ('a', 'b'),
         "device1": ('a1', 'b', 'x', 'k2_tmp'),
         "device2": ('a1', 'b', 'x')
     }
     if not as_kwarguments:
         call_arguments["kernel1"] += ('kernel1_x', 'kernel1_y', 'kernel1_k1_tmp')
-        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z', 'device2_d2_tmp')
-        call_arguments["device1"] += ('device2_z', 'device2_d2_tmp')
-        call_arguments["device2"] += ('device2_z', 'device2_d2_tmp')
+        call_arguments["kernel2"] += ('kernel2_x', 'kernel2_k2_tmp', 'device2_z')
+        call_arguments["device1"] += ('device2_z',)
+        call_arguments["device2"] += ('device2_z',)
 
     call_kwarguments = {
         "kernel1": (('x', 'kernel1_x'), ('y', 'kernel1_y'), ('k1_tmp', 'kernel1_k1_tmp')) if as_kwarguments else (),
         "kernel2": (('x', 'kernel2_x'), ('k2_tmp', 'kernel2_k2_tmp'),
-            ('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp')) if as_kwarguments else (),
-        "device1": (('device2_z', 'device2_z'), ('device2_d2_tmp', 'device2_d2_tmp')) if as_kwarguments else (),
-        "device2": (('z', 'device2_z'), ('d2_tmp', 'device2_d2_tmp')) if as_kwarguments else ()
+            ('device2_z', 'device2_z')) if as_kwarguments else (),
+        "device1": (('device2_z', 'device2_z'), ) if as_kwarguments else (),
+        "device2": (('z', 'device2_z'), ) if as_kwarguments else ()
     }
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
