@@ -9,9 +9,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import Module, Subroutine, FindVariables, Array, FindNodes, CallStatement, fgen
-from loki.build import Builder
+from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.transform import (

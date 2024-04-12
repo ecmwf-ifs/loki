@@ -20,8 +20,6 @@ from time import perf_counter
 import numpy as np
 import pytest
 
-from conftest import jit_compile, clean_test
-
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation,
     Deallocation, Associate, BasicType, Enumeration,
@@ -30,6 +28,7 @@ from loki import (
     PreprocessorDirective, config_override, Section, CommentBlock,
     Assignment, VariableDeclaration, ProcedureDeclaration, gettempdir
 )
+from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP, FP, REGEX
 

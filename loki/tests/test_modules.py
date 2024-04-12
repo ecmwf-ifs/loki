@@ -8,13 +8,13 @@
 from pathlib import Path
 import pytest
 
-from conftest import jit_compile, clean_test
 from loki import (
     Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
     Transformer, fgen, SymbolAttributes, Variable, Import, Section, Intrinsic,
     Scalar, DeferredTypeSymbol, FindVariables, SubstituteExpressions, Literal
 )
+from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends, OFP, OMNI
 
 

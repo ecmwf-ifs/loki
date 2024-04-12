@@ -5,10 +5,11 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
-from loki import ir, fgen, Scheduler, FindNodes
+from loki import Scheduler, fgen
+from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes
 from loki.transform import ParametriseTransformation
 
 

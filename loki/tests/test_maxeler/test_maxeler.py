@@ -11,9 +11,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import jit_compile, clean_test
 from loki import Subroutine, FortranMaxTransformation, execute, delete
-from loki.build import Builder, Obj, Lib
+from loki.build import Builder, Obj, Lib, jit_compile, clean_test
 from loki.build.max_compiler import (
     compile_all, compile_maxj, compile_max, generate_max,
     get_max_includes, get_max_libs, get_max_libdirs

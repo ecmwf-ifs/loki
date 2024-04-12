@@ -12,8 +12,8 @@ from collections import namedtuple
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
 from loki import Subroutine, FortranPythonTransformation, pygen
+from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends, OFP, OMNI
 
 

@@ -9,9 +9,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
-
 from loki import OMNI, Subroutine, FindNodes, Loop, Conditional, Node, Intrinsic
+from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends
 
 

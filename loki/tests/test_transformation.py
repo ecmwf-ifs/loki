@@ -2,11 +2,11 @@ from functools import partial
 from pathlib import Path
 import pytest
 
-from conftest import jit_compile, clean_test
 from loki import (
     Sourcefile, Subroutine, Import, FindNodes, FindInlineCalls, fgen,
     Assignment, IntLiteral, Module, ProcedureItem, Comment
 )
+from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI, REGEX
 from loki.transform import (
     Transformation, replace_selected_kind, FileWriteTransformation, Pipeline

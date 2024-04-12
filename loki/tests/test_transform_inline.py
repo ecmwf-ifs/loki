@@ -9,12 +9,12 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib
 from loki import (
-    Builder, Module, Subroutine, FindNodes, Import, FindVariables,
+    Module, Subroutine, FindNodes, Import, FindVariables,
     CallStatement, Loop, BasicType, DerivedType, Associate,
     Conditional, FindInlineCalls
 )
+from loki.build import jit_compile, jit_compile_lib, Builder
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import Assignment

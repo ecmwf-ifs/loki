@@ -13,7 +13,6 @@ import re
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import (
     Module, Subroutine, BasicType, DerivedType, TypeDef, fgen,
     FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
@@ -21,6 +20,7 @@ from loki import (
     StringSubscript, Conditional, CallStatement, ProcedureSymbol,
     FindVariables
 )
+from loki.build import jit_compile, jit_compile_lib, clean_test
 from loki.frontend import available_frontends, OMNI, OFP
 
 

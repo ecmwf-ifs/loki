@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
 from loki import Subroutine, FindNodes, Loop, Conditional, Assignment
+from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, HAVE_FP, OMNI
 from loki.ir import is_loki_pragma, pragmas_attached

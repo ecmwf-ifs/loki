@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import (
-    Builder, Module, Subroutine, Section, as_tuple,
-    FindNodes, Loop, Assignment, CallStatement, Intrinsic
+    Module, Subroutine, Section, as_tuple, FindNodes, Loop,
+    Assignment, CallStatement, Intrinsic
 )
+from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.transform import region_hoist, region_to_call, normalize_range_indexing

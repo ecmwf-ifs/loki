@@ -11,8 +11,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import jit_compile, clean_test
 from loki import Subroutine, FortranPythonTransformation
+from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends
 
 

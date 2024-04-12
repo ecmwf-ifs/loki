@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import (
     Sourcefile, Module, Subroutine, FindVariables, FindNodes, Section,
     CallStatement, BasicType, Array, Scalar, Variable,
@@ -20,6 +19,7 @@ from loki import (
     normalize_range_indexing, DeferredTypeSymbol, Assignment,
     Interface
 )
+from loki.build import jit_compile, jit_compile_lib, clean_test
 from loki.frontend import available_frontends, OFP, OMNI, REGEX
 
 

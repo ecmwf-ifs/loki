@@ -12,11 +12,11 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile_lib, clean_test
 from loki import (
-    Scheduler, Builder, SchedulerConfig, is_iterable,
-    gettempdir, normalize_range_indexing, FindInlineCalls
+    Scheduler, SchedulerConfig, is_iterable, gettempdir,
+    normalize_range_indexing, FindInlineCalls
 )
+from loki.build import jit_compile_lib, clean_test, Builder
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 from loki.transform import (
