@@ -12,7 +12,7 @@ from loki import (
     Transformation, FindNodes, Transformer, info, pragmas_attached,
     as_tuple, flatten, ir, DerivedType, FindVariables,
     CaseInsensitiveDict, pragma_regions_attached, PragmaRegion,
-    is_loki_pragma
+    is_loki_pragma, is_dimension_constant
 )
 from transformations.single_column_base import SCCBaseTransformation
 
@@ -30,9 +30,6 @@ class SCCAnnotateTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
-    vertical : :any:`Dimension`
-        :any:`Dimension` object describing the variable conventions used in code
-        to define the vertical dimension, as needed to decide array privatization.
     block_dim : :any:`Dimension`
         Optional ``Dimension`` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
@@ -41,14 +38,13 @@ class SCCAnnotateTransformation(Transformation):
         ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, vertical, directive, block_dim):
+    def __init__(self, horizontal, directive, block_dim):
         self.horizontal = horizontal
-        self.vertical = vertical
         self.directive = directive
         self.block_dim = block_dim
 
     @classmethod
-    def kernel_annotate_vector_loops_openacc(cls, routine, horizontal, vertical):
+    def kernel_annotate_vector_loops_openacc(cls, routine, horizontal):
         """
         Insert ``!$acc loop vector`` annotations around horizontal vector
         loops, including the necessary private variable declarations.
@@ -59,16 +55,14 @@ class SCCAnnotateTransformation(Transformation):
             The subroutine in the vector loops should be removed.
         horizontal: :any:`Dimension`
             The dimension object specifying the horizontal vector dimension
-        vertical: :any:`Dimension`
-            The dimension object specifying the vertical loop dimension
         """
 
         # Find any local arrays that need explicitly privatization
         argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
         private_arrays = [v for v in routine.variables if not v.name in argument_map]
         private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
-        private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
-        private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
+        private_arrays = [v for v in private_arrays
+                          if all(is_dimension_constant(d) for d in v.shape)]
 
         if private_arrays:
             # Log private arrays in vector regions, as these can impact performance
@@ -158,10 +152,10 @@ class SCCAnnotateTransformation(Transformation):
         routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
 
     @classmethod
-    def insert_annotations(cls, routine, horizontal, vertical):
+    def insert_annotations(cls, routine, horizontal):
 
         # Mark all parallel vector loops as `!$acc loop vector`
-        cls.kernel_annotate_vector_loops_openacc(routine, horizontal, vertical)
+        cls.kernel_annotate_vector_loops_openacc(routine, horizontal)
 
         # Mark all non-parallel loops as `!$acc loop seq`
         cls.kernel_annotate_sequential_loops_openacc(routine, horizontal)
@@ -209,7 +203,7 @@ class SCCAnnotateTransformation(Transformation):
             return
 
         if self.directive == 'openacc':
-            self.insert_annotations(routine, self.horizontal, self.vertical)
+            self.insert_annotations(routine, self.horizontal)
 
         # Remove the vector section wrappers
         # These have been inserted by SCCDevectorTransformation
