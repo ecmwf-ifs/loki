@@ -17,10 +17,7 @@ from contextlib import contextmanager
 import pytest
 import toml
 
-from conftest import graphviz_present
-from loki import (
-    gettempdir, execute
-)
+from loki import gettempdir, execute, graphviz_present
 
 
 def check_cmake():

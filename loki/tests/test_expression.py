@@ -14,8 +14,6 @@ import numpy as np
 
 import pymbolic.primitives as pmbl
 
-from conftest import stdchannel_redirected, stdchannel_is_captured
-
 from loki import (
     Sourcefile, cgen, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
@@ -27,7 +25,9 @@ from loki import (
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols
 from loki.frontend import available_frontends, OFP, OMNI, FP
-from loki.tools import gettempdir, filehash
+from loki.tools import (
+    gettempdir, filehash, stdchannel_redirected, stdchannel_is_captured
+)
 
 # pylint: disable=too-many-lines
 

@@ -57,8 +57,6 @@ from shutil import rmtree
 from subprocess import CalledProcessError
 import pytest
 
-from conftest import graphviz_present
-
 from loki import (
     Scheduler, SchedulerConfig, DependencyTransformation,
     HAVE_FP, HAVE_OFP, HAVE_OMNI, Sourcefile, FindNodes, CallStatement,
@@ -67,7 +65,7 @@ from loki import (
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
     Import, flatten, as_tuple, TypeDefItem, SFilter, CaseInsensitiveDict, Comment,
     ModuleWrapTransformation, Dimension, PreprocessorDirective, ExternalItem,
-    Pipeline, Assignment, Literal
+    Pipeline, Assignment, Literal, graphviz_present
 )
 from loki.frontend import available_frontends, OMNI, OFP, FP, REGEX
 

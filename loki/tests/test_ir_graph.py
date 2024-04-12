@@ -8,8 +8,8 @@
 import re
 from pathlib import Path
 import pytest
-from conftest import graphviz_present
-from loki import Sourcefile
+
+from loki import Sourcefile, graphviz_present
 from loki.analyse import dataflow_analysis_attached
 from loki.ir import Node, FindNodes, ir_graph, GraphCollector
 

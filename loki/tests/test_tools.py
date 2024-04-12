@@ -23,12 +23,11 @@ try:
 except ImportError:
     HAVE_YAML = False
 
-from conftest import stdchannel_is_captured, stdchannel_redirected
 from loki.config import config_override
 from loki.tools import (
     JoinableStringList, truncate_string, binary_insertion_sort, is_subset,
     optional, yaml_include_constructor, execute, timeout, dict_override,
-    LokiTempdir
+    LokiTempdir, stdchannel_is_captured, stdchannel_redirected
 )
 
 
