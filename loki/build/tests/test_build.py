@@ -21,6 +21,11 @@ def fixture_builder(path):
     return Builder(source_dirs=path, build_dir=path/'build')
 
 
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(path):
+    return path.parent.parent/'tests'
+
+
 def test_build_clean(builder):
     """
     Test basic `make clean`-style functionality.
@@ -37,7 +42,7 @@ def test_build_clean(builder):
         assert 'xxx' not in str(f)
 
 
-def test_build_object(builder):
+def test_build_object(testdir, builder):
     """
     Test basic object compilation and wrapping via f90wrap.
     """
@@ -47,11 +52,11 @@ def test_build_object(builder):
     obj.build(builder=builder)
     assert (builder.build_dir/'base.o').exists
 
-    base = obj.wrap(builder=builder, kind_map=Path(__file__).parent.parent/'kind_map')
+    base = obj.wrap(builder=builder, kind_map=testdir/'kind_map')
     assert base.Base.a_times_b_plus_c(a=2, b=3, c=1) == 7
 
 
-def test_build_lib(builder):
+def test_build_lib(testdir, builder):
     """
     Test basic library compilation and wrapping via f90wrap
     from a specific list of source objects.
@@ -67,11 +72,11 @@ def test_build_lib(builder):
     assert (builder.build_dir/'liblibrary.a').exists
 
     test = lib.wrap(modname='test', sources=['extension.f90'], builder=builder,
-                    kind_map=Path(__file__).parent.parent/'kind_map')
+                    kind_map=testdir/'kind_map')
     assert test.extended_fma(2., 3., 1.) == 7.
 
 
-def test_build_lib_with_c(builder):
+def test_build_lib_with_c(testdir, builder):
     """
     Test basic library compilation and wrapping via f90wrap
     from a specific list of source objects.
@@ -87,7 +92,7 @@ def test_build_lib_with_c(builder):
     assert (builder.build_dir/'liblibrary.so').exists
 
     wrap = lib.wrap(modname='wrap', sources=['wrapper.f90'], builder=builder,
-                    kind_map=Path(__file__).parent.parent/'kind_map')
+                    kind_map=testdir/'kind_map')
     assert wrap.wrapper.mult_add_external(2., 3., 1.) == 7.
 
 
