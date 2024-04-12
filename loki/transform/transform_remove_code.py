@@ -32,6 +32,7 @@ class RemoveCodeTransformation(Transformation):
     Elimination for batch processing vis the :any:`Scheduler`.
 
     The transformation will apply the following methods in order:
+
     * :any:`do_remove_calls`
     * :any:`do_remove_marked_regions`
     * :any:`do_remove_dead_code`
@@ -39,26 +40,26 @@ class RemoveCodeTransformation(Transformation):
     Parameters
     ----------
     remove_marked_regions : boolean
-        Flag to trigger the use of :method:`remove_marked_regions`;
+        Flag to trigger the use of :meth:`remove_marked_regions`;
         default: ``True``
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
     remove_dead_code : boolean
-        Flag to trigger the use of :method:`remove_dead_code`;
+        Flag to trigger the use of :meth:`remove_dead_code`;
         default: ``False``
     use_simplify : boolean
         Use :any:`simplify` when branch pruning in during
-        :method:`remove_dead_code`.
+        :meth:`remove_dead_code`.
     call_names : list of str
         List of subroutine names against which to match
-        :any:`CallStatement` nodes during :method:`remove_calls`.
+        :any:`CallStatement` nodes during :meth:`remove_calls`.
     intrinsic_names : list of str
         List of module names against which to match :any:`Intrinsic`
-        nodes during :method:`remove_calls`.
+        nodes during :meth:`remove_calls`.
     remove_imports : boolean
         Flag indicating whether to remove symbols from :any:`Import`
-        objects during :method:`remove_calls`; default: ``True``
+        objects during :meth:`remove_calls`; default: ``True``
     kernel_only : boolean
         Only apply the configured removal to subroutines marked as
         "kernel"; default: ``False``
@@ -189,7 +190,7 @@ class RemoveRegionTransformer(Transformer):
 
     This :any:`Transformer` only removes :any:`PragmaRegion` nodes,
     and thus requires the IR tree to have pragma regions attached, for
-    example via :method:`pragma_regions_attached`.
+    example via :meth:`pragma_regions_attached`.
 
     When removing a marked code region the transformer may leave a
     comment in the source to mark the previous location, or remove the
