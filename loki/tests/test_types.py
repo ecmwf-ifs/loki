@@ -9,13 +9,13 @@ from pathlib import Path
 from random import choice
 import pytest
 
-from conftest import available_frontends
 from loki import (
-    OFP, OMNI, Sourcefile, Module, Subroutine, BasicType,
-    SymbolAttributes, DerivedType, TypeDef, FCodeMapper,
-    DataType, fgen, ProcedureType, FindNodes, ProcedureDeclaration
+    Sourcefile, Module, Subroutine, BasicType, SymbolAttributes,
+    DerivedType, TypeDef, FCodeMapper, DataType, fgen, ProcedureType,
+    FindNodes, ProcedureDeclaration
 )
 from loki.expression import symbols as sym
+from loki.frontend import available_frontends, OFP, OMNI
 
 
 @pytest.fixture(scope='module', name='here')

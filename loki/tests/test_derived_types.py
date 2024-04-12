@@ -13,13 +13,15 @@ import re
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
+from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import (
-    OMNI, OFP, Module, Subroutine, BasicType, DerivedType, TypeDef,
-    fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
-    VariableDeclaration, Assignment, InlineCall, Builder, StringSubscript,
-    Conditional, CallStatement, ProcedureSymbol, FindVariables
+    Module, Subroutine, BasicType, DerivedType, TypeDef, fgen,
+    FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
+    VariableDeclaration, Assignment, InlineCall, Builder,
+    StringSubscript, Conditional, CallStatement, ProcedureSymbol,
+    FindVariables
 )
+from loki.frontend import available_frontends, OMNI, OFP
 
 
 @pytest.fixture(scope='module', name='here')

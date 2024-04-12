@@ -9,18 +9,17 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
+from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import Module, Subroutine, FindVariables, Array, FindNodes, CallStatement, fgen
-from loki.expression import symbols as sym
-from loki.transform import (
-        promote_variables, demote_variables, normalize_range_indexing,
-        invert_array_indices, flatten_arrays,
-        normalize_array_shape_and_access, shift_to_zero_indexing
-        )
-from loki.transform import (
-    FortranCTransformation
-    )
 from loki.build import Builder
+from loki.expression import symbols as sym
+from loki.frontend import available_frontends
+from loki.transform import (
+    promote_variables, demote_variables, normalize_range_indexing,
+    invert_array_indices, flatten_arrays,
+    normalize_array_shape_and_access, shift_to_zero_indexing,
+    FortranCTransformation
+)
 
 
 @pytest.fixture(scope='module', name='here')

@@ -1,8 +1,8 @@
 from io import StringIO
 import pytest
 
-from conftest import available_frontends
 from loki import Module, Subroutine, FindNodes, flatten, pprint, fgen
+from loki.frontend import available_frontends
 from loki.ir import Pragma, Loop, VariableDeclaration, PragmaRegion
 from loki.ir.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,

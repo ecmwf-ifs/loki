@@ -8,16 +8,16 @@
 import pytest
 from pymbolic.primitives import Expression
 
-from conftest import available_frontends
 from loki import (
-    OMNI,
-    Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
-    Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral,
-    FindNodes, FindVariables, ExpressionFinder,
-    ExpressionCallbackMapper, ExpressionRetriever, Stringifier, Transformer,
-    NestedTransformer, MaskedTransformer, NestedMaskedTransformer, SubstituteExpressions,
-    is_parent_of, is_child_of, fgen, FindScopes, Intrinsic
+    Module, Subroutine, Section, Loop, Assignment, Conditional, Sum,
+    Associate, Array, ArraySubscript, LoopRange, IntLiteral,
+    FloatLiteral, LogicLiteral, FindNodes, FindVariables,
+    ExpressionFinder, ExpressionCallbackMapper, ExpressionRetriever,
+    Stringifier, Transformer, NestedTransformer, MaskedTransformer,
+    NestedMaskedTransformer, SubstituteExpressions, is_parent_of,
+    is_child_of, fgen, FindScopes, Intrinsic
 )
+from loki.frontend import available_frontends, OMNI
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

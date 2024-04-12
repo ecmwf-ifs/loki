@@ -5,10 +5,11 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import available_frontends, jit_compile, clean_test
-from loki import ir, fgen, Scheduler, FindNodes, OMNI
+from conftest import jit_compile, clean_test
+from loki import ir, fgen, Scheduler, FindNodes
+from loki.expression import symbols as sym
+from loki.frontend import available_frontends, OMNI
 from loki.transform import ParametriseTransformation
-import loki.expression.symbols as sym
 
 
 @pytest.fixture(scope='module', name='here')

@@ -57,10 +57,11 @@ from shutil import rmtree
 from subprocess import CalledProcessError
 import pytest
 
-from conftest import available_frontends, graphviz_present
+from conftest import graphviz_present
+
 from loki import (
-    Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP, OMNI,
-    HAVE_FP, HAVE_OFP, HAVE_OMNI, REGEX, Sourcefile, FindNodes, CallStatement,
+    Scheduler, SchedulerConfig, DependencyTransformation,
+    HAVE_FP, HAVE_OFP, HAVE_OMNI, Sourcefile, FindNodes, CallStatement,
     fexprgen, Transformation, BasicType, Subroutine,
     gettempdir, ProcedureSymbol, Item, ProcedureItem, ProcedureBindingItem, InterfaceItem,
     ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
@@ -68,6 +69,7 @@ from loki import (
     ModuleWrapTransformation, Dimension, PreprocessorDirective, ExternalItem,
     Pipeline, Assignment, Literal
 )
+from loki.frontend import available_frontends, OMNI, OFP, FP, REGEX
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
 

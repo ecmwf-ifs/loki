@@ -13,14 +13,13 @@ from pathlib import Path
 from pickle import dumps, loads
 import pytest
 
-from conftest import available_frontends
-
 from loki import (
     Subroutine, Module, Sourcefile, SymbolAttributes, BasicType,
-    Scope, AttachScopes, OMNI
+    Scope, AttachScopes
 )
-from loki.expression import symbols
 from loki.batch import Item
+from loki.expression import symbols
+from loki.frontend import available_frontends, OMNI
 
 
 @pytest.fixture(scope='module', name='here')

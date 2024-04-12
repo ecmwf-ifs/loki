@@ -7,15 +7,14 @@
 
 import pytest
 
-from conftest import available_frontends
-from loki.frontend import OMNI
-from loki.ir import Assignment, Associate, CallStatement, Conditional
-
-from loki.transform import (
-    resolve_associates, transform_sequence_association, SanitiseTransformation
-)
 from loki import (
     BasicType, FindNodes, Subroutine, Module, fgen
+)
+from loki.frontend import available_frontends, OMNI
+from loki.ir import Assignment, Associate, CallStatement, Conditional
+from loki.transform import (
+    resolve_associates, transform_sequence_association,
+    SanitiseTransformation
 )
 
 

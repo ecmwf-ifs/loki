@@ -2,11 +2,11 @@ from pathlib import Path
 from shutil import rmtree
 import pytest
 
-from conftest import available_frontends
 from loki import (
-    gettempdir, OMNI, OFP, Sourcefile, CallStatement, Import, Interface,
+    gettempdir, Sourcefile, CallStatement, Import, Interface,
     FindNodes, FindInlineCalls, Intrinsic, Scheduler, SchedulerConfig
 )
+from loki.frontend import available_frontends, OMNI, OFP
 from loki.transform import DependencyTransformation, ModuleWrapTransformation
 
 

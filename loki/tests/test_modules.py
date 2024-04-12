@@ -8,13 +8,14 @@
 from pathlib import Path
 import pytest
 
-from conftest import available_frontends, jit_compile, clean_test
+from conftest import jit_compile, clean_test
 from loki import (
-    OFP, OMNI, Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
+    Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
     Transformer, fgen, SymbolAttributes, Variable, Import, Section, Intrinsic,
     Scalar, DeferredTypeSymbol, FindVariables, SubstituteExpressions, Literal
 )
+from loki.frontend import available_frontends, OFP, OMNI
 
 
 @pytest.fixture(scope='module', name='here')

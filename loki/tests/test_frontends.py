@@ -20,16 +20,18 @@ from time import perf_counter
 import numpy as np
 import pytest
 
-from conftest import jit_compile, clean_test, available_frontends
+from conftest import jit_compile, clean_test
+
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation,
-    Deallocation, Associate, BasicType, OMNI, OFP, FP, Enumeration,
-    config, REGEX, Sourcefile, Import, RawSource, CallStatement,
+    Deallocation, Associate, BasicType, Enumeration,
+    config, Sourcefile, Import, RawSource, CallStatement,
     RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
     PreprocessorDirective, config_override, Section, CommentBlock,
     Assignment, VariableDeclaration, ProcedureDeclaration, gettempdir
 )
 from loki.expression import symbols as sym
+from loki.frontend import available_frontends, OMNI, OFP, FP, REGEX
 
 
 @pytest.fixture(scope='module', name='here')

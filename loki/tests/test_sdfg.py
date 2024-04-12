@@ -11,9 +11,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import jit_compile, clean_test, available_frontends
+from conftest import jit_compile, clean_test
 from loki import Subroutine, FortranPythonTransformation
-
+from loki.frontend import available_frontends
 
 
 pytestmark = [

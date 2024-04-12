@@ -15,10 +15,10 @@ import numpy as np
 import pymbolic.primitives as pmbl
 
 from conftest import (
-    available_frontends, jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
+    jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 )
 from loki import (
-    OFP, OMNI, FP, Sourcefile, cgen, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
+    Sourcefile, cgen, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
@@ -26,6 +26,7 @@ from loki import (
     AttachScopesMapper, FindTypedSymbols, Reference, Dereference
 )
 from loki.expression import symbols
+from loki.frontend import available_frontends, OFP, OMNI, FP
 from loki.tools import gettempdir, filehash
 
 # pylint: disable=too-many-lines

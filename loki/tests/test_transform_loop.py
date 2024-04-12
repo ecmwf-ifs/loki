@@ -10,12 +10,14 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test, available_frontends
-from loki import Subroutine, OMNI, FindNodes, Loop, Conditional, Assignment
-from loki.frontend.fparser import HAVE_FP
-from loki.transform import loop_interchange, loop_fusion, loop_fission, normalize_range_indexing
+from conftest import jit_compile, clean_test
+from loki import Subroutine, FindNodes, Loop, Conditional, Assignment
 from loki.expression import symbols as sym
+from loki.frontend import available_frontends, HAVE_FP, OMNI
 from loki.ir import is_loki_pragma, pragmas_attached
+from loki.transform import (
+    loop_interchange, loop_fusion, loop_fission, normalize_range_indexing
+)
 
 
 # Polyhedron functionality relies on FParser's expression parsing

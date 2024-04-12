@@ -12,8 +12,9 @@ from collections import namedtuple
 import pytest
 import numpy as np
 
-from conftest import available_frontends, jit_compile, clean_test
-from loki import Subroutine, FortranPythonTransformation, pygen, OFP, OMNI
+from conftest import jit_compile, clean_test
+from loki import Subroutine, FortranPythonTransformation, pygen
+from loki.frontend import available_frontends, OFP, OMNI
 
 
 @pytest.fixture(scope='module', name='here')

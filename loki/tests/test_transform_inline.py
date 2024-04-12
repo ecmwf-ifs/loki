@@ -9,12 +9,14 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, available_frontends
+from conftest import jit_compile, jit_compile_lib
 from loki import (
     Builder, Module, Subroutine, FindNodes, Import, FindVariables,
-    CallStatement, Loop, BasicType, DerivedType, Associate, OMNI,
-    Conditional, FindInlineCalls, OFP
+    CallStatement, Loop, BasicType, DerivedType, Associate,
+    Conditional, FindInlineCalls
 )
+from loki.expression import symbols as sym
+from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import Assignment
 from loki.transform import (
     inline_elemental_functions, inline_constant_parameters,
@@ -22,7 +24,6 @@ from loki.transform import (
     inline_marked_subroutines, InlineTransformation,
     ResolveAssociatesTransformer
 )
-from loki.expression import symbols as sym
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():

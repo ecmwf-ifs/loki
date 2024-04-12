@@ -7,16 +7,16 @@
 
 import pytest
 
-from conftest import available_frontends
-from loki.transform import (
-    single_variable_declaration, recursive_expression_map_update, convert_to_lower_case,
-    replace_intrinsics, rename_variables
-)
 from loki import (
-    Module, Subroutine, OMNI, FindNodes, VariableDeclaration, FindVariables,
+    Module, Subroutine, FindNodes, VariableDeclaration, FindVariables,
     SubstituteExpressions, fgen, FindInlineCalls
 )
 from loki.expression import symbols as sym
+from loki.frontend import available_frontends, OMNI
+from loki.transform import (
+    single_variable_declaration, recursive_expression_map_update,
+    convert_to_lower_case, replace_intrinsics, rename_variables
+)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Makes variable declaration already unique')]))

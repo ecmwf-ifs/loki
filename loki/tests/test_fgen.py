@@ -7,11 +7,8 @@
 
 import pytest
 
-from conftest import available_frontends
-
-from loki import (
-    Module, Subroutine, fgen, OMNI, OFP, Intrinsic, DataDeclaration,
-)
+from loki import Module, Subroutine, fgen, Intrinsic, DataDeclaration
+from loki.frontend import available_frontends, OMNI, OFP
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

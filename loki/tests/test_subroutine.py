@@ -10,15 +10,17 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import available_frontends, jit_compile, jit_compile_lib, clean_test
+from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import (
-    Sourcefile, Module, Subroutine, OFP, OMNI, REGEX, FindVariables, FindNodes,
-    Section, CallStatement, BasicType, Array, Scalar, Variable,
-    SymbolAttributes, StringLiteral, fgen, fexprgen, VariableDeclaration,
-    Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType,
-    StatementFunction, normalize_range_indexing, DeferredTypeSymbol,
-    Assignment, Interface
+    Sourcefile, Module, Subroutine, FindVariables, FindNodes, Section,
+    CallStatement, BasicType, Array, Scalar, Variable,
+    SymbolAttributes, StringLiteral, fgen, fexprgen,
+    VariableDeclaration, Transformer, FindTypedSymbols,
+    ProcedureSymbol, ProcedureType, StatementFunction,
+    normalize_range_indexing, DeferredTypeSymbol, Assignment,
+    Interface
 )
+from loki.frontend import available_frontends, OFP, OMNI, REGEX
 
 
 @pytest.fixture(scope='module', name='here')

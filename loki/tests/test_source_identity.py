@@ -14,10 +14,11 @@ they mostly check whether at the end comes out what went in at the beginning.
 """
 from pathlib import Path
 import pytest
-from conftest import clean_test, available_frontends
-from loki import (
-  Sourcefile, Subroutine, OMNI, fgen, FindNodes, ir
-)
+from conftest import clean_test
+
+from loki import Sourcefile, Subroutine, fgen, FindNodes
+from loki.ir import nodes as ir
+from loki.frontend import available_frontends, OMNI
 
 
 @pytest.fixture(scope='module', name='here')

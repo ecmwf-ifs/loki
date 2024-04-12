@@ -9,11 +9,12 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
+from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import (
-    Subroutine, Module, FortranCTransformation, OFP, cgen
+    Subroutine, Module, FortranCTransformation, cgen
 )
 from loki.build import Builder
+from loki.frontend import available_frontends, OFP
 from loki.transform import normalize_range_indexing
 
 @pytest.fixture(scope='module', name='here')

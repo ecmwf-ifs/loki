@@ -8,8 +8,9 @@
 from pathlib import Path
 import pytest
 
-from conftest import available_frontends
-from loki import OMNI, Sourcefile, fexprgen
+from loki import Sourcefile, fexprgen
+from loki.frontend import available_frontends, OMNI
+
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki annotations break frontend parser')]))
 def test_nested_types(frontend):

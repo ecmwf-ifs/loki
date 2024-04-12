@@ -8,12 +8,11 @@
 import shutil
 import pytest
 
-from conftest import available_frontends
-
 from loki import (
     Subroutine, Module, Sourcefile, FindNodes, OMNI, gettempdir
 )
 from loki.batch import Scheduler, SchedulerConfig
+from loki.frontend import available_frontends
 from loki.ir import nodes as ir
 from loki.transform import (
     do_remove_dead_code, do_remove_marked_regions, do_remove_calls,

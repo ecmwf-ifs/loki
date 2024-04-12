@@ -6,12 +6,12 @@
 # nor does it submit to any jurisdiction.
 
 import pytest
-
-from conftest import available_frontends
 from pydantic import ValidationError
+
 from loki import Module, FindNodes, Transformer
-from loki import ir
+from loki.ir import nodes as ir
 from loki.expression import symbols as sym
+from loki.frontend import available_frontends
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

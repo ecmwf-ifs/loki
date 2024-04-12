@@ -7,7 +7,6 @@
 
 import pytest
 
-from conftest import available_frontends
 from loki import (
     Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
     CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol, WhileLoop,
@@ -16,6 +15,8 @@ from loki import (
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )
+from loki.frontend import available_frontends
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_live_symbols(frontend):

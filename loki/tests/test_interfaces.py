@@ -8,11 +8,11 @@
 from pathlib import Path
 import pytest
 
-from conftest import available_frontends
 from loki import (
-    Module, Subroutine, FindNodes, Interface, Import, fgen, OMNI, REGEX,
+    Module, Subroutine, FindNodes, Interface, Import, fgen,
     ProcedureSymbol, ProcedureType
 )
+from loki.frontend import available_frontends, OMNI, REGEX
 
 
 @pytest.fixture(scope='module', name='here')

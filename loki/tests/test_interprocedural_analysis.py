@@ -11,11 +11,10 @@ Various tests for interprocedural analysis features in Loki
 
 import pytest
 
-from conftest import available_frontends
 from loki import (
-    Sourcefile, FindNodes, FindInlineCalls,
-    CallStatement, IntLiteral
+    Sourcefile, FindNodes, FindInlineCalls, CallStatement, IntLiteral
 )
+from loki.frontend import available_frontends
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

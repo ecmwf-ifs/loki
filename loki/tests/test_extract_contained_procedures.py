@@ -6,12 +6,12 @@
 # nor does it submit to any jurisdiction.
 
 import pytest
-from conftest import available_frontends
-from loki.sourcefile import Sourcefile
+
 from loki.expression import FindInlineCalls
-from loki import OMNI, OFP
+from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import CallStatement, Import, FindNodes
 from loki.transform import extract_contained_procedures
+from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 
 

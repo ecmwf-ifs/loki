@@ -9,8 +9,10 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test, available_frontends
+from conftest import jit_compile, clean_test
+
 from loki import OMNI, Subroutine, FindNodes, Loop, Conditional, Node, Intrinsic
+from loki.frontend import available_frontends
 
 
 @pytest.fixture(scope='module', name='here')

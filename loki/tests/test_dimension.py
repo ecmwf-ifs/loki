@@ -7,8 +7,8 @@
 
 import pytest
 
-from conftest import available_frontends
 from loki import Subroutine, Dimension, FindNodes, Loop
+from loki.frontend import available_frontends
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

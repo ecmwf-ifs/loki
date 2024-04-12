@@ -10,12 +10,13 @@ from subprocess import CalledProcessError
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test, available_frontends
+from conftest import jit_compile, clean_test
 from loki import (
-    Sourcefile, OFP, OMNI, FP, REGEX, FindNodes, PreprocessorDirective,
-    Intrinsic, Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
+    Sourcefile, FindNodes, PreprocessorDirective, Intrinsic,
+    Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
     StatementFunction, Comment, CommentBlock, RawSource, Scalar
 )
+from loki.frontend import available_frontends, OFP, OMNI, FP, REGEX
 
 
 @pytest.fixture(scope='module', name='here')

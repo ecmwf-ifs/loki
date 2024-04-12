@@ -11,11 +11,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import jit_compile, clean_test, available_frontends
+from conftest import jit_compile, clean_test
 from loki import Subroutine, FortranMaxTransformation, execute, delete
 from loki.build import Builder, Obj, Lib
-from loki.build.max_compiler import (compile_all, compile_maxj, compile_max, generate_max,
-                                     get_max_includes, get_max_libs, get_max_libdirs)
+from loki.build.max_compiler import (
+    compile_all, compile_maxj, compile_max, generate_max,
+    get_max_includes, get_max_libs, get_max_libdirs
+)
+from loki.frontend import available_frontends
 
 
 def is_maxeler_available():

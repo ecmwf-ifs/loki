@@ -10,11 +10,13 @@ A selection of tests for symbolic computations using expression tree nodes.
 """
 import operator as op
 import pytest
-
-from conftest import available_frontends
 import pymbolic.primitives as pmbl
-from loki import parse_fparser_expression, Scope, HAVE_FP, is_dimension_constant, Subroutine
+
+from loki import (
+    parse_fparser_expression, Scope, is_dimension_constant, Subroutine
+)
 from loki.expression import symbols as sym, simplify, Simplification, symbolic_op
+from loki.frontend import available_frontends, HAVE_FP
 
 
 @pytest.mark.parametrize('a, b, lt, eq', [
