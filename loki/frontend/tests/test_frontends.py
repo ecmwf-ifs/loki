@@ -21,21 +21,24 @@ import numpy as np
 import pytest
 
 from loki import (
-    Module, Subroutine, FindNodes, FindVariables, Allocation,
-    Deallocation, Associate, BasicType, Enumeration,
-    config, Sourcefile, Import, RawSource, CallStatement,
-    RegexParserClass, ProcedureType, DerivedType, Comment, Pragma,
-    PreprocessorDirective, config_override, Section, CommentBlock,
-    Assignment, VariableDeclaration, ProcedureDeclaration, gettempdir
+    Module, Subroutine, FindVariables, BasicType, config, Sourcefile,
+    RawSource, RegexParserClass, ProcedureType, DerivedType,
+    PreprocessorDirective, config_override, gettempdir
 )
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP, FP, REGEX
+from loki.ir import nodes as ir, FindNodes
 
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
 
 
 @pytest.fixture(name='reset_frontend_mode')
@@ -107,18 +110,18 @@ end module alloc_mod
     # Parse the source and validate the IR
     module = Module.from_source(fcode, frontend=frontend)
 
-    allocations = FindNodes(Allocation).visit(module['check_alloc_source'].body)
+    allocations = FindNodes(ir.Allocation).visit(module['check_alloc_source'].body)
     assert len(allocations) == 2
     assert all(alloc.data_source is not None for alloc in allocations)
     assert all(alloc.status_var is None for alloc in allocations)
 
-    allocations = FindNodes(Allocation).visit(module['alloc_deferred'].body)
+    allocations = FindNodes(ir.Allocation).visit(module['alloc_deferred'].body)
     assert len(allocations) == 2
     assert all(alloc.data_source is None for alloc in allocations)
     assert allocations[0].status_var is not None
     assert allocations[1].status_var is None
 
-    deallocs = FindNodes(Deallocation).visit(module['free_deferred'].body)
+    deallocs = FindNodes(ir.Deallocation).visit(module['free_deferred'].body)
     assert len(deallocs) == 2
     assert deallocs[0].status_var is not None
     assert deallocs[1].status_var is None
@@ -216,7 +219,7 @@ end module
         assert all(v.shape == ('3',)
                    for v in variables if v.name in ['vector', 'vector2'])
 
-    for assoc in FindNodes(Associate).visit(routine.body):
+    for assoc in FindNodes(ir.Associate).visit(routine.body):
         for var in FindVariables().visit(assoc.body):
             if var.name in assoc.variables:
                 assert var.scope is assoc
@@ -263,7 +266,7 @@ END SUBROUTINE
     assert isinstance(some_var, sym.DeferredTypeSymbol)
     assert some_var.name.upper() == 'SOME_VAR'
     assert some_var.type.dtype == BasicType.DEFERRED
-    associate = FindNodes(Associate).visit(routine.body)[0]
+    associate = FindNodes(ir.Associate).visit(routine.body)[0]
     assert some_var.scope is associate
 
     some_other_var = variables['SOME_OTHER_VAR']
@@ -338,7 +341,7 @@ end subroutine test_enum
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Check Enum exists
-    enums = FindNodes(Enumeration).visit(routine.spec)
+    enums = FindNodes(ir.Enumeration).visit(routine.spec)
     assert len(enums) == 1
 
     # Check symbols are available
@@ -616,13 +619,13 @@ end module last_module
     assert code.count('MODULE') == 6
 
 
-def test_regex_sourcefile_from_file(here):
+def test_regex_sourcefile_from_file(testdir):
     """
     Verify that the regex frontend is able to parse source files containing
     multiple modules and subroutines
     """
 
-    sourcefile = Sourcefile.from_file(here/'sources/sourcefile.f90', frontend=REGEX)
+    sourcefile = Sourcefile.from_file(testdir/'sources/sourcefile.f90', frontend=REGEX)
     assert [m.name for m in sourcefile.modules] == ['some_module']
     assert [r.name for r in sourcefile.routines] == [
         'routine_a', 'routine_b', 'function_d'
@@ -652,9 +655,9 @@ def test_regex_sourcefile_from_file(here):
     assert code.count('MODULE') == 2
 
 
-def test_regex_sourcefile_from_file_parser_classes(here):
+def test_regex_sourcefile_from_file_parser_classes(testdir):
 
-    filepath = here/'sources/Fortran-extract-interface-source.f90'
+    filepath = testdir/'sources/Fortran-extract-interface-source.f90'
     module_names = {'bar', 'foo'}
     routine_names = {
         'func_simple', 'func_simple_1', 'func_simple_2', 'func_simple_pure', 'func_simple_recursive_pure',
@@ -841,7 +844,7 @@ end module some_mod
     module = source['some_mod']
     assert len(module.spec.body) == 3
     assert isinstance(module.spec.body[0], RawSource)
-    assert isinstance(module.spec.body[1], Import)
+    assert isinstance(module.spec.body[1], ir.Import)
     assert isinstance(module.spec.body[2], RawSource)
 
     assert module.spec.body[0].text.count('docstring') == 3
@@ -932,7 +935,7 @@ END SUBROUTINE SOME_ROUTINE
     # Ensure completion handles the non-supported features (@PROCESS)
     source.make_complete(frontend=frontend)
 
-    comments = FindNodes(Comment).visit(source.ir)
+    comments = FindNodes(ir.Comment).visit(source.ir)
     assert len(comments) == 2 if frontend == FP else 1
     assert comments[0].text == '! Some comment before the subroutine'
     if frontend == FP:
@@ -989,7 +992,7 @@ end module some_mod
     """.strip()
 
     module = Module.from_source(fcode, frontend=REGEX)
-    imports = FindNodes(Import).visit(module.spec)
+    imports = FindNodes(ir.Import).visit(module.spec)
     assert len(imports) == 5
     assert [import_.module for import_ in imports] == [
         'no_symbols_mod', 'only_mod', 'test_rename_mod', 'test_other_rename_mod',
@@ -1022,7 +1025,7 @@ end subroutine some_routine
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=REGEX)
-    imports = FindNodes(Import).visit(routine.spec)
+    imports = FindNodes(ir.Import).visit(routine.spec)
     assert len(imports) == 5
     assert [import_.module for import_ in imports] == [
         'no_symbols_mod', 'only_mod', 'test_rename_mod', 'test_other_rename_mod',
@@ -1070,7 +1073,7 @@ module file_io_mod
 end module file_io_mod
     """.strip()
     module = Module.from_source(fcode, frontend=REGEX)
-    imports = FindNodes(Import).visit(module.spec)
+    imports = FindNodes(ir.Import).visit(module.spec)
     assert len(imports) == 4
     assert [import_.module for import_ in imports] == ['PARKIND1', 'm_serialize', 'utils_ppser', 'hdf5_file_mod']
     assert all(
@@ -1270,7 +1273,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     assert [r.name for r in source.all_subroutines] == ['random_call_0', 'random_call_2', 'test']
 
-    calls = FindNodes(CallStatement).visit(source['test'].ir)
+    calls = FindNodes(ir.CallStatement).visit(source['test'].ir)
     assert [call.name for call in calls] == ['RANDOM_CALL_0', 'random_call_2']
 
     variable_map_test = source['test'].variable_map
@@ -1279,11 +1282,11 @@ end subroutine test
     assert v_in_type.kind == 'jprb'
 
 
-def test_regex_variable_declaration(here):
+def test_regex_variable_declaration(testdir):
     """
     Test correct parsing of derived type variable declarations
     """
-    filepath = here/'sources/projTypeBound/typebound_item.F90'
+    filepath = testdir/'sources/projTypeBound/typebound_item.F90'
     source = Sourcefile.from_file(filepath, frontend=REGEX)
 
     driver = source['driver']
@@ -1312,7 +1315,7 @@ def test_regex_variable_declaration(here):
         assert var_map['i'].type.dtype is BasicType.INTEGER
 
         # While we're here: let's check the call statements, too
-        calls = FindNodes(CallStatement).visit(driver.ir)
+        calls = FindNodes(ir.CallStatement).visit(driver.ir)
         assert len(calls) == 7
         assert all(isinstance(call.name.type.dtype, ProcedureType) for call in calls)
 
@@ -1422,8 +1425,8 @@ end module frontend_pragma_vs_comment
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend)
-    pragmas = FindNodes(Pragma).visit(module.ir)
-    comments = FindNodes(Comment).visit(module.ir)
+    pragmas = FindNodes(ir.Pragma).visit(module.ir)
+    comments = FindNodes(ir.Comment).visit(module.ir)
     assert len(pragmas) == 2
     assert len(comments) == 3
     assert all(pragma.keyword == 'some' for pragma in pragmas)
@@ -1465,7 +1468,7 @@ def test_frontend_source_lineno(frontend):
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['driver']
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert calls[0] != calls[1]
     assert calls[1] != calls[2]
     assert calls[0].source.lines[0] < calls[1].source.lines[0] < calls[2].source.lines[0]
@@ -1704,7 +1707,7 @@ end module fypp_mod
 def test_frontend_empty_file(frontend, fcode):
     """Ensure that all frontends can handle empty source files correctly (#186)"""
     source = Sourcefile.from_source(fcode, frontend=frontend)
-    assert isinstance(source.ir, Section)
+    assert isinstance(source.ir, ir.Section)
     assert not source.to_fortran().strip()
 
 
@@ -1730,7 +1733,7 @@ END SUBROUTINE TOTO
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    pragmas = FindNodes(Pragma).visit(routine.body)
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
 
     assert len(pragmas) == 2
     assert pragmas[0].keyword == 'ACC'
@@ -1771,21 +1774,21 @@ end subroutine test_comment_block
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    comments = FindNodes(Comment).visit(routine.spec)
+    comments = FindNodes(ir.Comment).visit(routine.spec)
     assert len(comments) == 0
-    blocks = FindNodes(CommentBlock).visit(routine.spec)
+    blocks = FindNodes(ir.CommentBlock).visit(routine.spec)
     assert len(blocks) == 0
 
-    assert isinstance(routine.docstring[0], CommentBlock)
+    assert isinstance(routine.docstring[0], ir.CommentBlock)
     assert len(routine.docstring[0].comments) == 2
     assert routine.docstring[0].comments[0].text == '! What is this?'
     assert routine.docstring[0].comments[1].text == '! Ohhh, ... a docstring?'
 
-    comments = FindNodes(Comment).visit(routine.body)
+    comments = FindNodes(ir.Comment).visit(routine.body)
     assert len(comments) == 2 if frontend == FP else 1
     assert comments[-1].text == '! Never gonna'
 
-    blocks = FindNodes(CommentBlock).visit(routine.body)
+    blocks = FindNodes(ir.CommentBlock).visit(routine.body)
     assert len(blocks) == 2
     assert len(blocks[0].comments) == 3 if frontend == FP else 2
     assert blocks[0].comments[0].text == '! give you'
@@ -1822,23 +1825,23 @@ end subroutine test_inline_comments
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    decls = FindNodes(VariableDeclaration).visit(routine.spec)
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assert len(decls) == 2
     assert decls[0].comment.text == "! We don't need no education"
     assert decls[1].comment is None
 
-    proc_decls = FindNodes(ProcedureDeclaration).visit(routine.spec)
+    proc_decls = FindNodes(ir.ProcedureDeclaration).visit(routine.spec)
     assert len(proc_decls) == 1
     assert proc_decls[0].comment.text == "! We don't need no thought control"
 
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 4
     assert assigns[0].comment is None
     assert assigns[1].comment.text == "! All in all it's just another"
     assert assigns[2].comment.text == '! Brick in the ...'
     assert assigns[3].comment.text == '! wall !'
 
-    comments = FindNodes(Comment).visit(routine.body)
+    comments = FindNodes(ir.Comment).visit(routine.body)
     assert len(comments) == 1 if frontend == OFP else 4
     if frontend == OFP:
         assert comments[0].text == '! Who said that?'
