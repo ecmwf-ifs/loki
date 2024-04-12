@@ -8,16 +8,21 @@
 import pytest
 from pymbolic.primitives import Expression
 
-from loki import (
-    Module, Subroutine, Section, Loop, Assignment, Conditional, Sum,
-    Associate, Array, ArraySubscript, LoopRange, IntLiteral,
-    FloatLiteral, LogicLiteral, FindNodes, FindVariables,
-    ExpressionFinder, ExpressionCallbackMapper, ExpressionRetriever,
-    Stringifier, Transformer, NestedTransformer, MaskedTransformer,
-    NestedMaskedTransformer, SubstituteExpressions, is_parent_of,
-    is_child_of, fgen, FindScopes, Intrinsic
-)
+from loki import Module, Subroutine, fgen
 from loki.frontend import available_frontends, OMNI
+from loki.ir.nodes import (
+    Assignment, Associate, Conditional, Loop, Intrinsic, Section
+)
+from loki.ir import (
+    is_parent_of, is_child_of, FindNodes, FindScopes, Transformer,
+    NestedTransformer, MaskedTransformer, NestedMaskedTransformer,
+    Stringifier
+)
+from loki.expression import (
+    symbols as sym, FindVariables, ExpressionFinder,
+    ExpressionCallbackMapper, ExpressionRetriever,
+    SubstituteExpressions
+)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -269,7 +274,7 @@ end subroutine routine_simple
 
     # Nonsense example that singles out anything that is a matrix
     def is_matrix(expr, *args, **kwargs):  # pylint: disable=unused-argument
-        if isinstance(expr, Array) and expr.type.shape and len(expr.type.shape) == 2:
+        if isinstance(expr, sym.Array) and expr.type.shape and len(expr.type.shape) == 2:
             return expr
         return None
 
@@ -320,8 +325,8 @@ end subroutine routine_simple
     # Find all literals except when they appear in array subscripts or loop ranges
     class FindLiteralsNotInSubscriptsOrRanges(ExpressionFinder):
         retriever = ExpressionRetriever(
-            query=lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral)),
-            recurse_query=lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
+            query=lambda expr: isinstance(expr, (sym.IntLiteral, sym.FloatLiteral, sym.LogicLiteral)),
+            recurse_query=lambda expr, *args, **kwargs: not isinstance(expr, (sym.ArraySubscript, sym.LoopRange))
         )
     literals = FindLiteralsNotInSubscriptsOrRanges(unique=False).visit(routine.body)
 
@@ -568,12 +573,12 @@ end subroutine routine_simple
     # Replace the innermost statement in the body of the conditional
     def get_innermost_statement(ir):
         for stmt in FindNodes(Assignment).visit(ir):
-            if 'matrix' in str(stmt.lhs) and isinstance(stmt.rhs, Sum):
+            if 'matrix' in str(stmt.lhs) and isinstance(stmt.rhs, sym.Sum):
                 return stmt
         return None
 
     stmt = get_innermost_statement(routine.ir)
-    new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
+    new_expr = sym.Sum((*stmt.rhs.children[:-1], sym.FloatLiteral(2.)))
     new_stmt = Assignment(stmt.lhs, new_expr)
     mapper = {stmt: new_stmt}
 
@@ -714,12 +719,12 @@ end subroutine routine_simple
     # Replace the innermost statement in the body of the conditional
     def get_innermost_statement(ir):
         for stmt in FindNodes(Assignment).visit(ir):
-            if 'matrix' in str(stmt.lhs) and isinstance(stmt.rhs, Sum):
+            if 'matrix' in str(stmt.lhs) and isinstance(stmt.rhs, sym.Sum):
                 return stmt
         return None
 
     stmt = get_innermost_statement(routine.ir)
-    new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
+    new_expr = sym.Sum((*stmt.rhs.children[:-1], sym.FloatLiteral(2.)))
     new_stmt = Assignment(stmt.lhs, new_expr)
     mapper = {stmt: new_stmt}
 
@@ -778,7 +783,7 @@ end subroutine routine_simple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     assigns = FindNodes(Assignment).visit(routine.body)
-    bounds = LoopRange((IntLiteral(1), routine.variable_map['x']))
+    bounds = sym.LoopRange((sym.IntLiteral(1), routine.variable_map['x']))
 
     # Filter out only the two middle assignments to wrap in a loop.
     # Note that we need to be careful to clone loop body nodes to

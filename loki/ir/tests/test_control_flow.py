@@ -9,9 +9,10 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import OMNI, Subroutine, FindNodes, Loop, Conditional, Node, Intrinsic
+from loki import Subroutine
 from loki.build import jit_compile, clean_test
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes
 
 
 @pytest.fixture(scope='module', name='here')
@@ -196,7 +197,7 @@ end subroutine loop_labeled_continue
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     if frontend != OMNI:  # OMNI doesn't read the Loop label...
-        assert FindNodes(Loop).visit(routine.ir)[0].loop_label == '101'
+        assert FindNodes(ir.Loop).visit(routine.ir)[0].loop_label == '101'
 
     function = jit_compile(routine, filepath=filepath, objname='loop_labeled_continue')
 
@@ -265,7 +266,7 @@ end subroutine multi_body_conditionals
     filepath = here/(f'control_flow_multi_body_conditionals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    conditionals = FindNodes(Conditional).visit(routine.body)
+    conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 4
     if frontend != OMNI:
         assert sum(int(cond.has_elseif) for cond in conditionals) == 2
@@ -446,14 +447,14 @@ end subroutine conditional_body
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    conditionals = FindNodes(Conditional).visit(routine.ir)
+    conditionals = FindNodes(ir.Conditional).visit(routine.ir)
     assert len(conditionals) == 5
     assert all(
-        c.body and isinstance(c.body, tuple) and all(isinstance(n, Node) for n in c.body)
+        c.body and isinstance(c.body, tuple) and all(isinstance(n, ir.Node) for n in c.body)
         for c in conditionals
     )
     assert all(
-        c.else_body and isinstance(c.else_body, tuple) and all(isinstance(n, Node) for n in c.else_body)
+        c.else_body and isinstance(c.else_body, tuple) and all(isinstance(n, ir.Node) for n in c.else_body)
         for c in conditionals
     )
 
@@ -489,12 +490,12 @@ END FUNCTION FUNC
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    conditionals = FindNodes(Conditional).visit(routine.body)
+    conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 2
-    assert isinstance(conditionals[0].body[-1], Intrinsic)
+    assert isinstance(conditionals[0].body[-1], ir.Intrinsic)
     assert conditionals[0].body[-1].text.upper() == 'RETURN'
     assert conditionals[0].else_body == (conditionals[1],)
-    assert isinstance(conditionals[1].body[-1], Intrinsic)
+    assert isinstance(conditionals[1].body[-1], ir.Intrinsic)
     assert conditionals[1].body[-1].text.upper() == 'RETURN'
-    assert isinstance(conditionals[1].else_body[-1], Intrinsic)
+    assert isinstance(conditionals[1].else_body[-1], ir.Intrinsic)
     assert conditionals[1].else_body[-1].text.upper() == 'RETURN'

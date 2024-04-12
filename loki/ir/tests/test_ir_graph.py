@@ -19,6 +19,11 @@ def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
+
+
 test_files = [
     "sources/trivial_fortran_files/case_statement_subroutine.f90",
     "sources/trivial_fortran_files/if_else_statement_subroutine.f90",
@@ -190,10 +195,10 @@ def get_property(node_edge_info, name):
 @pytest.mark.parametrize("show_comments", [True, False])
 @pytest.mark.parametrize("show_expressions", [True, False])
 def test_graph_collector_node_edge_count_only(
-    here, test_file, show_comments, show_expressions
+    testdir, test_file, show_comments, show_expressions
 ):
     solution = solutions_node_edge_counts[test_file]
-    source = Sourcefile.from_file(here / test_file)
+    source = Sourcefile.from_file(testdir / test_file)
 
     graph_collector = GraphCollector(
         show_comments=show_comments, show_expressions=show_expressions
@@ -222,9 +227,9 @@ def test_graph_collector_node_edge_count_only(
 
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
-def test_graph_collector_detail(here, test_file):
+def test_graph_collector_detail(testdir, test_file):
     solution = solutions_default_parameters[test_file]
-    source = Sourcefile.from_file(here / test_file)
+    source = Sourcefile.from_file(testdir / test_file)
 
     graph_collector = GraphCollector()
     node_edge_info = [
@@ -251,8 +256,8 @@ def test_graph_collector_detail(here, test_file):
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
 @pytest.mark.parametrize("linewidth", [40, 60, 80])
-def test_graph_collector_maximum_label_length(here, test_file, linewidth):
-    source = Sourcefile.from_file(here / test_file)
+def test_graph_collector_maximum_label_length(testdir, test_file, linewidth):
+    source = Sourcefile.from_file(testdir / test_file)
 
     graph_collector = GraphCollector(
         show_comments=True, show_expressions=True, linewidth=linewidth
@@ -288,9 +293,9 @@ def find_label_content_inside_nodes(input_text):
 
 @pytest.mark.skipif(not graphviz_present(), reason="Graphviz is not installed")
 @pytest.mark.parametrize("test_file", test_files)
-def test_ir_graph_writes_correct_graphs(here, test_file):
+def test_ir_graph_writes_correct_graphs(testdir, test_file):
     solution = solutions_default_parameters[test_file]
-    source = Sourcefile.from_file(here / test_file)
+    source = Sourcefile.from_file(testdir / test_file)
 
     graph = ir_graph(source.ir)
 
@@ -319,8 +324,8 @@ def test_ir_graph_writes_correct_graphs(here, test_file):
 
 
 @pytest.mark.parametrize("test_file", test_files)
-def test_ir_graph_dataflow_analysis_attached(here, test_file):
-    source = Sourcefile.from_file(here / test_file)
+def test_ir_graph_dataflow_analysis_attached(testdir, test_file):
+    source = Sourcefile.from_file(testdir / test_file)
 
     def find_lives_defines_uses(text):
         # Regular expression pattern to match content within square brackets after 'live:', 'defines:', and 'uses:'
