@@ -22,6 +22,11 @@ def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
+
+
 # Polyhedron functionality relies on FParser's expression parsing
 pytestmark = pytest.mark.skipif(not HAVE_FP, reason="Fparser not available")
 
@@ -279,9 +284,9 @@ def assert_equal_polyhedron(poly_A, poly_B):
     ],
 )
 def test_polyhedron_construction_from_nested_loops(
-    here, filename, loop_extractor, polyhedrons_per_subroutine
+    testdir, filename, loop_extractor, polyhedrons_per_subroutine
 ):
-    source = Sourcefile.from_file(here / filename)
+    source = Sourcefile.from_file(testdir / filename)
 
     for subroutine in source.all_subroutines:
         expected_polyhedrons = polyhedrons_per_subroutine[subroutine.name]
