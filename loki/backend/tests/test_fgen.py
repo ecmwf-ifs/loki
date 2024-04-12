@@ -7,8 +7,10 @@
 
 import pytest
 
-from loki import Module, Subroutine, fgen, Intrinsic, DataDeclaration
+from loki import Module, Subroutine
+from loki.backend import fgen
 from loki.frontend import available_frontends, OMNI, OFP
+from loki.ir import Intrinsic, DataDeclaration
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -8,8 +8,8 @@
 import pytest
 from pydantic import ValidationError
 
-from loki import Module, FindNodes, Transformer
-from loki.ir import nodes as ir
+from loki import Module
+from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 

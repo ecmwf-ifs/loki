@@ -11,9 +11,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from loki import Subroutine, FortranPythonTransformation
+from loki import Subroutine
 from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends
+from loki.transform import FortranPythonTransformation
 
 
 pytestmark = [
