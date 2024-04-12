@@ -15,16 +15,19 @@ import numpy as np
 import pymbolic.primitives as pmbl
 
 from loki import (
-    Sourcefile, cgen, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
-    Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
-    parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
-    DeferredTypeSymbol, Module, HAVE_FP, FindExpressions, LiteralList, FindInlineCalls,
-    AttachScopesMapper, FindTypedSymbols, Reference, Dereference
+    Sourcefile, Subroutine, Module, Scope, BasicType,
+    SymbolAttributes, DerivedType, ProcedureType
 )
+from loki.backend import cgen, fgen
 from loki.build import jit_compile, clean_test
-from loki.expression import symbols
-from loki.frontend import available_frontends, OFP, OMNI, FP
+from loki.expression import (
+    symbols as sym, FindVariables, FindExpressions, FindTypedSymbols,
+    FindInlineCalls, SubstituteExpressions, AttachScopesMapper
+)
+from loki.frontend import (
+    available_frontends, OFP, OMNI, FP, HAVE_FP, parse_fparser_expression
+)
+from loki.ir import nodes as ir, FindNodes
 from loki.tools import (
     gettempdir, filehash, stdchannel_redirected, stdchannel_is_captured
 )
@@ -153,19 +156,19 @@ end subroutine literals
 
     # In addition to value testing, let's make sure
     # that we created the correct expression types
-    stmts = FindNodes(Assignment).visit(routine.body)
-    assert isinstance(stmts[0].rhs, IntLiteral)
-    assert isinstance(stmts[1].rhs, FloatLiteral)
-    assert isinstance(stmts[2].rhs, FloatLiteral)
-    assert isinstance(stmts[3].rhs, FloatLiteral)
+    stmts = FindNodes(ir.Assignment).visit(routine.body)
+    assert isinstance(stmts[0].rhs, sym.IntLiteral)
+    assert isinstance(stmts[1].rhs, sym.FloatLiteral)
+    assert isinstance(stmts[2].rhs, sym.FloatLiteral)
+    assert isinstance(stmts[3].rhs, sym.FloatLiteral)
     assert stmts[3].rhs.kind in ['jprb']
-    assert isinstance(stmts[4].rhs, Sum)
+    assert isinstance(stmts[4].rhs, sym.Sum)
     for expr in stmts[4].rhs.children:
-        assert isinstance(expr, Cast)
+        assert isinstance(expr, sym.Cast)
         assert str(expr.kind).lower() in ['selected_real_kind(13, 300)', 'jprb']
-    assert isinstance(stmts[5].rhs, Cast)
+    assert isinstance(stmts[5].rhs, sym.Cast)
     assert str(stmts[5].rhs.kind).lower() in ['selected_real_kind(13, 300)', 'jprb']
-    assert isinstance(stmts[6].rhs, Cast)
+    assert isinstance(stmts[6].rhs, sym.Cast)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -197,10 +200,10 @@ end subroutine boz_literals
     if frontend is not OMNI:
         # Note: Omni evaluates BOZ constants, so it creates IntegerLiteral instead...
         # Note: FP converts constants to upper case
-        stmts = FindNodes(Assignment).visit(routine.body)
+        stmts = FindNodes(ir.Assignment).visit(routine.body)
 
         for stmt in stmts:
-            assert isinstance(stmt.rhs.parameters[0], IntrinsicLiteral)
+            assert isinstance(stmt.rhs.parameters[0], sym.IntrinsicLiteral)
 
         assert stmts[0].rhs.parameters[0].value == "B'00000'"
         assert stmts[1].rhs.parameters[0].value == 'b"101010"'
@@ -235,11 +238,11 @@ end subroutine complex_literals
     assert c1 == (1-1j) and c2 == (3+2e8j) and c3 == (21+4j)
 
     # In addition to value testing, let's make sure that we created the correct expression types
-    stmts = FindNodes(Assignment).visit(routine.body)
-    assert isinstance(stmts[0].rhs, IntrinsicLiteral) and stmts[0].rhs.value == '(1.0, -1.0)'
+    stmts = FindNodes(ir.Assignment).visit(routine.body)
+    assert isinstance(stmts[0].rhs, sym.IntrinsicLiteral) and stmts[0].rhs.value == '(1.0, -1.0)'
     # Note: Here, for inconsistency, FP converts the exponential letter 'e' to lower case...
-    assert isinstance(stmts[1].rhs, IntrinsicLiteral) and stmts[1].rhs.value.lower() == '(3, 2e8)'
-    assert isinstance(stmts[2].rhs, IntrinsicLiteral)
+    assert isinstance(stmts[1].rhs, sym.IntrinsicLiteral) and stmts[1].rhs.value.lower() == '(3, 2e8)'
+    assert isinstance(stmts[2].rhs, sym.IntrinsicLiteral)
     try:
         assert stmts[2].rhs.value == '(21_2, 4._8)'
     except AssertionError as excinfo:
@@ -346,7 +349,7 @@ end subroutine array_constructor
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='array_constructor')
 
-    literal_lists = [e for e in FindExpressions().visit(routine.body) if isinstance(e, LiteralList)]
+    literal_lists = [e for e in FindExpressions().visit(routine.body) if isinstance(e, sym.LiteralList)]
     assert len(literal_lists) == 8
     assert {str(l).lower() for l in literal_lists} == {
         '[ 3.6, ( 3.6 / i, i = 1:dim ) ]',
@@ -411,7 +414,7 @@ subroutine parenthesis(v1, v2, v3, i)
 end subroutine parenthesis
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    stmts = FindNodes(Assignment).visit(routine.body)
+    stmts = FindNodes(ir.Assignment).visit(routine.body)
 
     # Check that the reduntant bracket around the minus
     # and the first exponential are still there.
@@ -445,7 +448,7 @@ subroutine commutativity(v1, v2, v3)
 end subroutine commutativity
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    stmt = FindNodes(Assignment).visit(routine.body)[0]
+    stmt = FindNodes(ir.Assignment).visit(routine.body)[0]
 
     assert fgen(stmt) in ('v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)',
                           'v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)')
@@ -572,7 +575,7 @@ end subroutine output_intrinsics
         ref[1] = ref[1].replace(' * ', '*')
         ref[1] = ref[1].replace('- 1', '-1')
 
-    intrinsics = FindNodes(Intrinsic).visit(routine.body)
+    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
     assert len(intrinsics) == 2
     assert intrinsics[0].text.lower() == ref[0]
     assert intrinsics[1].text.lower() == ref[1]
@@ -657,16 +660,18 @@ end subroutine my_routine
     if frontend != OMNI:
         routine = Subroutine.from_source(fcode_routine, frontend=frontend)
         assert routine.symbol_attrs['my_func'].dtype is BasicType.DEFERRED
-        assignment = FindNodes(Assignment).visit(routine.body)[0]
+        assignment = FindNodes(ir.Assignment).visit(routine.body)[0]
         assert assignment.lhs == 'var'
-        assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, DeferredTypeSymbol)
+        assert isinstance(assignment.rhs, sym.InlineCall)
+        assert isinstance(assignment.rhs.function, sym.DeferredTypeSymbol)
 
     module = Module.from_source(fcode_mod, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, frontend=frontend, definitions=module)
     assert isinstance(routine.symbol_attrs['my_func'].dtype, ProcedureType)
-    assignment = FindNodes(Assignment).visit(routine.body)[0]
+    assignment = FindNodes(ir.Assignment).visit(routine.body)[0]
     assert assignment.lhs == 'var'
-    assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, ProcedureSymbol)
+    assert isinstance(assignment.rhs, sym.InlineCall)
+    assert isinstance(assignment.rhs.function, sym.ProcedureSymbol)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -903,12 +908,12 @@ end subroutine pointer_nullify
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     assert np.all(v.type.pointer for v in routine.variables)
-    assert np.all(isinstance(v.initial, InlineCall) and v.type.initial.name.lower() == 'null'
+    assert np.all(isinstance(v.initial, sym.InlineCall) and v.type.initial.name.lower() == 'null'
                   for v in routine.variables)
-    nullify_stmts = FindNodes(Nullify).visit(routine.body)
+    nullify_stmts = FindNodes(ir.Nullify).visit(routine.body)
     assert len(nullify_stmts) == 1
     assert nullify_stmts[0].variables[0].name == 'pp'
-    assert [stmt.ptr for stmt in FindNodes(Assignment).visit(routine.body)].count(True) == 2
+    assert [stmt.ptr for stmt in FindNodes(ir.Assignment).visit(routine.body)].count(True) == 2
 
     # Execute the generated identity (to verify it is valid Fortran)
     function = jit_compile(routine, filepath=filepath, objname='pointer_nullify')
@@ -953,47 +958,47 @@ def test_string_compare():
     type_int = SymbolAttributes(dtype=BasicType.INTEGER)
     type_real = SymbolAttributes(dtype=BasicType.REAL)
 
-    i = Variable(name='i', scope=scope, type=type_int)
-    j = Variable(name='j', scope=scope, type=type_int)
+    i = sym.Variable(name='i', scope=scope, type=type_int)
+    j = sym.Variable(name='j', scope=scope, type=type_int)
 
     # Test a scalar variable
-    u = Variable(name='u', scope=scope, type=SymbolAttributes(dtype=BasicType.REAL))
+    u = sym.Variable(name='u', scope=scope, type=SymbolAttributes(dtype=BasicType.REAL))
     assert all(u == exp for exp in ['u', 'U', 'u ', 'U '])
     assert not all(u == exp for exp in ['u()', '_u', 'U()', '_U'])
 
     # Test an array variable
-    v = Variable(name='v', dimensions=(i, j), scope=scope, type=type_real)
+    v = sym.Variable(name='v', dimensions=(i, j), scope=scope, type=type_real)
     assert all(v == exp for exp in ['v(i,j)', 'v(i, j)', 'v (i , j)', 'V(i,j)', 'V(I, J)'])
     assert not all(v == exp for exp in ['v(i,j())', 'v(i,_j)', '_V(i,j)'])
 
     # Test a standard array dimension range
-    r = RangeIndex(children=(i, j))
-    w = Variable(name='w', dimensions=(r,), scope=scope, type=type_real)
+    r = sym.RangeIndex(children=(i, j))
+    w = sym.Variable(name='w', dimensions=(r,), scope=scope, type=type_real)
     assert all(w == exp for exp in ['w(i:j)', 'w (i : j)', 'W(i:J)', ' w( I:j)'])
 
     # Test simple arithmetic expressions
-    assert all(symbols.Sum((i, u)) == exp for exp in ['i+u', 'i + u', 'i +  U', ' I + u'])
-    assert all(symbols.Product((i, u)) == exp for exp in ['i*u', 'i * u', 'i *  U', ' I * u'])
-    assert all(symbols.Quotient(i, u) == exp for exp in ['i/u', 'i / u', 'i /  U', ' I / u'])
-    assert all(symbols.Power(i, u) == exp for exp in ['i**u', 'i ** u', 'i **  U', ' I ** u'])
-    assert all(symbols.Comparison(i, '==', u) == exp for exp in ['i==u', 'i == u', 'i ==  U', ' I == u'])
-    assert all(symbols.LogicalAnd((i, u)) == exp for exp in ['i AND u', 'i and u', 'i and  U', ' I and u'])
-    assert all(symbols.LogicalOr((i, u)) == exp for exp in ['i OR u', 'i or u', 'i or  U', ' I oR u'])
-    assert all(symbols.LogicalNot(u) == exp for exp in ['not u', ' nOt u', 'not  U', ' noT u'])
+    assert all(sym.Sum((i, u)) == exp for exp in ['i+u', 'i + u', 'i +  U', ' I + u'])
+    assert all(sym.Product((i, u)) == exp for exp in ['i*u', 'i * u', 'i *  U', ' I * u'])
+    assert all(sym.Quotient(i, u) == exp for exp in ['i/u', 'i / u', 'i /  U', ' I / u'])
+    assert all(sym.Power(i, u) == exp for exp in ['i**u', 'i ** u', 'i **  U', ' I ** u'])
+    assert all(sym.Comparison(i, '==', u) == exp for exp in ['i==u', 'i == u', 'i ==  U', ' I == u'])
+    assert all(sym.LogicalAnd((i, u)) == exp for exp in ['i AND u', 'i and u', 'i and  U', ' I and u'])
+    assert all(sym.LogicalOr((i, u)) == exp for exp in ['i OR u', 'i or u', 'i or  U', ' I oR u'])
+    assert all(sym.LogicalNot(u) == exp for exp in ['not u', ' nOt u', 'not  U', ' noT u'])
 
     # Test literal behaviour
-    assert symbols.Literal(41) == 41
-    assert symbols.Literal(41) == '41'
-    assert symbols.Literal(41) != symbols.Literal(41, kind='jpim')
-    assert symbols.Literal(66.6) == 66.6
-    assert symbols.Literal(66.6) == '66.6'
-    assert symbols.Literal(66.6) != symbols.Literal(66.6, kind='jprb')
-    assert symbols.Literal('u') == 'u'
-    assert symbols.Literal('u') != 'U'
-    assert symbols.Literal('u') != u  # The `Variable(name='u', ...) from above
-    assert symbols.Literal('.TrUe.') == 'true'
+    assert sym.Literal(41) == 41
+    assert sym.Literal(41) == '41'
+    assert sym.Literal(41) != sym.Literal(41, kind='jpim')
+    assert sym.Literal(66.6) == 66.6
+    assert sym.Literal(66.6) == '66.6'
+    assert sym.Literal(66.6) != sym.Literal(66.6, kind='jprb')
+    assert sym.Literal('u') == 'u'
+    assert sym.Literal('u') != 'U'
+    assert sym.Literal('u') != u  # The `Variable(name='u', ...) from above
+    assert sym.Literal('.TrUe.') == 'true'
     # Specific test for constructor checks
-    assert symbols.LogicLiteral(value=True) == 'true'
+    assert sym.LogicLiteral(value=True) == 'true'
 
 
 @pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
@@ -1036,24 +1041,24 @@ def test_parse_fparser_expression(source, ref):
 
 
 @pytest.mark.parametrize('kwargs,reftype', [
-    ({}, symbols.DeferredTypeSymbol),
-    ({'type': SymbolAttributes(BasicType.DEFERRED)}, symbols.DeferredTypeSymbol),
-    ({'type': SymbolAttributes(BasicType.INTEGER)}, symbols.Scalar),
-    ({'type': SymbolAttributes(BasicType.REAL)}, symbols.Scalar),
-    ({'type': SymbolAttributes(DerivedType('t'))}, symbols.Scalar),
-    ({'type': SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),))}, symbols.Array),
-    ({'type': SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)),
-      'dimensions': (symbols.Literal(1),)}, symbols.Array),
-    ({'type': SymbolAttributes(BasicType.INTEGER), 'dimensions': (symbols.Literal(1),)}, symbols.Array),
-    ({'type': SymbolAttributes(BasicType.DEFERRED), 'dimensions': (symbols.Literal(1),)}, symbols.Array),
-    ({'type': SymbolAttributes(ProcedureType('routine'))}, symbols.ProcedureSymbol),
+    ({}, sym.DeferredTypeSymbol),
+    ({'type': SymbolAttributes(BasicType.DEFERRED)}, sym.DeferredTypeSymbol),
+    ({'type': SymbolAttributes(BasicType.INTEGER)}, sym.Scalar),
+    ({'type': SymbolAttributes(BasicType.REAL)}, sym.Scalar),
+    ({'type': SymbolAttributes(DerivedType('t'))}, sym.Scalar),
+    ({'type': SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(3),))}, sym.Array),
+    ({'type': SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(3),)),
+      'dimensions': (sym.Literal(1),)}, sym.Array),
+    ({'type': SymbolAttributes(BasicType.INTEGER), 'dimensions': (sym.Literal(1),)}, sym.Array),
+    ({'type': SymbolAttributes(BasicType.DEFERRED), 'dimensions': (sym.Literal(1),)}, sym.Array),
+    ({'type': SymbolAttributes(ProcedureType('routine'))}, sym.ProcedureSymbol),
 ])
 def test_variable_factory(kwargs, reftype):
     """
     Test the factory class :any:`Variable` and the dispatch to correct classes.
     """
     scope = Scope()
-    assert isinstance(symbols.Variable(name='var', scope=scope, **kwargs), reftype)
+    assert isinstance(sym.Variable(name='var', scope=scope, **kwargs), reftype)
 
 
 def test_variable_factory_invalid():
@@ -1061,52 +1066,52 @@ def test_variable_factory_invalid():
     Test invalid variable instantiations
     """
     with pytest.raises(KeyError):
-        _ = symbols.Variable()
+        _ = sym.Variable()
 
 
 @pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
     # From deferred type to other type
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(BasicType.REAL), symbols.Scalar),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(DerivedType('t')), symbols.Scalar),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(ProcedureType('routine')), symbols.ProcedureSymbol),
-    (None, symbols.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER), sym.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.REAL), sym.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(DerivedType('t')), sym.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(4),)), sym.Array),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(ProcedureType('routine')), sym.ProcedureSymbol),
+    (None, sym.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), sym.Scalar),
     # From Scalar to other type
-    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
-    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    (SymbolAttributes(BasicType.INTEGER), sym.Scalar,
+     SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), sym.Scalar,
+     SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(3),)), sym.Array),
+    (SymbolAttributes(BasicType.INTEGER), sym.Scalar,
+     SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol),
     # From Array to other type
-    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
-    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(4),)), sym.Array,
+     SymbolAttributes(BasicType.INTEGER), sym.Scalar),
+    (SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(4),)), sym.Array,
+     SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(4),)), sym.Array,
+     SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol),
     # From ProcedureSymbol to other type
-    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
-    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(5),)), symbols.Array),
+    (SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol,
+     SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol),
+    (SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER), sym.Scalar),
+    (SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(5),)), sym.Array),
 ])
 def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     """
     Test that rebuilding a variable object changes class according to symmbol type
     """
     scope = Scope()
-    var = symbols.Variable(name='var', scope=scope, type=initype)
+    var = sym.Variable(name='var', scope=scope, type=initype)
     assert isinstance(var, inireftype)
     assert 'var' in scope.symbol_attrs
     scope.symbol_attrs['var'] = newtype
@@ -1117,47 +1122,47 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
 
 @pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
     # From deferred type to other type
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(BasicType.REAL), symbols.Scalar),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(DerivedType('t')), symbols.Scalar),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     SymbolAttributes(ProcedureType('routine')), symbols.ProcedureSymbol),
-    (None, symbols.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER), sym.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.REAL), sym.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(DerivedType('t')), sym.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(4),)), sym.Array),
+    (SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol,
+     SymbolAttributes(ProcedureType('routine')), sym.ProcedureSymbol),
+    (None, sym.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), sym.Scalar),
     # From Scalar to other type
-    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
-    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    (SymbolAttributes(BasicType.INTEGER), sym.Scalar,
+     SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), sym.Scalar,
+     SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(3),)), sym.Array),
+    (SymbolAttributes(BasicType.INTEGER), sym.Scalar,
+     SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol),
     # From Array to other type
-    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
-    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(4),)), sym.Array,
+     SymbolAttributes(BasicType.INTEGER), sym.Scalar),
+    (SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(4),)), sym.Array,
+     SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(4),)), sym.Array,
+     SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol),
     # From ProcedureSymbol to other type
-    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
-    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(5),)), symbols.Array),
+    (SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol,
+     SymbolAttributes(BasicType.DEFERRED), sym.DeferredTypeSymbol),
+    (SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER), sym.Scalar),
+    (SymbolAttributes(ProcedureType('foo')), sym.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(sym.Literal(5),)), sym.Array),
 ])
 def test_variable_clone_class(initype, inireftype, newtype, newreftype):
     """
     Test that cloning a variable object changes class according to symbol type
     """
     scope = Scope()
-    var = symbols.Variable(name='var', scope=scope, type=initype)
+    var = sym.Variable(name='var', scope=scope, type=initype)
     assert isinstance(var, inireftype)
     assert 'var' in scope.symbol_attrs
     var = var.clone(type=newtype)  # pylint: disable=no-member
@@ -1190,7 +1195,7 @@ def test_variable_clone_type(initype, newtype, reftype):
     Test type updates are handled as expected and types are never ``None``.
     """
     scope = Scope()
-    var = symbols.Variable(name='var', scope=scope, type=initype)
+    var = sym.Variable(name='var', scope=scope, type=initype)
     assert 'var' in scope.symbol_attrs
     new = var.clone(type=newtype)  # pylint: disable=no-member
     assert new.type == reftype
@@ -1203,57 +1208,57 @@ def test_variable_without_scope():
     """
     # pylint: disable=no-member
     # Create a plain variable without type or scope
-    var = symbols.Variable(name='var')
-    assert isinstance(var, symbols.DeferredTypeSymbol)
+    var = sym.Variable(name='var')
+    assert isinstance(var, sym.DeferredTypeSymbol)
     assert var.type and var.type.dtype is BasicType.DEFERRED
     # Attach a scope with a data type for this variable
     scope = Scope()
     scope.symbol_attrs['var'] = SymbolAttributes(BasicType.INTEGER)
-    assert isinstance(var, symbols.DeferredTypeSymbol)
+    assert isinstance(var, sym.DeferredTypeSymbol)
     assert var.type and var.type.dtype is BasicType.DEFERRED
     var = var.clone(scope=scope)
     assert var.scope is scope
-    assert isinstance(var, symbols.Scalar)
+    assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.INTEGER
     # Change the data type via constructor
     var = var.clone(type=SymbolAttributes(BasicType.REAL))
-    assert isinstance(var, symbols.Scalar)
+    assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.REAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Detach the scope (type remains)
     var = var.clone(scope=None)
     assert var.scope is None
-    assert isinstance(var, symbols.Scalar)
+    assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.REAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Assign a data type locally
     var = var.clone(type=SymbolAttributes(BasicType.LOGICAL))
     assert var.scope is None
-    assert isinstance(var, symbols.Scalar)
+    assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.LOGICAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Re-attach the scope without specifying type
     var = var.clone(scope=scope, type=None)
     assert var.scope is scope
-    assert isinstance(var, symbols.Scalar)
+    assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.REAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Detach the scope and specify new type
     var = var.clone(scope=None, type=SymbolAttributes(BasicType.LOGICAL))
     assert var.scope is None
-    assert isinstance(var, symbols.Scalar)
+    assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.LOGICAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Rescope (doesn't overwrite scope-stored type with local type)
     rescoped_var = var.rescope(scope)
     assert rescoped_var.scope is scope
-    assert isinstance(rescoped_var, symbols.Scalar)
+    assert isinstance(rescoped_var, sym.Scalar)
     assert rescoped_var.type.dtype is BasicType.REAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Re-attach the scope (uses scope-stored type over local type)
     var = var.clone(scope=scope)
     assert var.scope is scope
-    assert isinstance(var, symbols.Scalar)
+    assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.REAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
 
@@ -1284,7 +1289,7 @@ def test_array_to_inline_call_rescope():
     # Parse the expression, which fparser will interpret as an array
     scope = Scope()
     expr = parse_fparser_expression('FLUX%OUT_OF_PHYSICAL_BOUNDS(KIDIA, KFDIA)', scope=scope)
-    assert isinstance(expr, symbols.Array)
+    assert isinstance(expr, sym.Array)
 
     # Detach the expression from the scope and update the type information in the scope
     expr = expr.clone(scope=None)
@@ -1294,7 +1299,7 @@ def test_array_to_inline_call_rescope():
 
     # Re-attach the scope to trigger the rescoping (and symbol rebuild)
     expr = AttachScopesMapper()(expr, scope=scope)
-    assert isinstance(expr, symbols.InlineCall)
+    assert isinstance(expr, sym.InlineCall)
     assert expr.function.type.dtype is proc_type
     assert expr.function == 'flux%out_of_physical_bounds'
     assert expr.parameters == ('kidia', 'kfdia')
@@ -1318,15 +1323,15 @@ end subroutine my_routine
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assignment = FindNodes(Assignment).visit(routine.body)[0]
+    assignment = FindNodes(ir.Assignment).visit(routine.body)[0]
     assert assignment.lhs == 'var(j)'
 
     # Replace Array subscript by j+1
     j = routine.variable_map['j']
-    expr_map = {j: symbols.Sum((j, symbols.Literal(1)))}
+    expr_map = {j: sym.Sum((j, sym.Literal(1)))}
     assert j in FindVariables().visit(list(expr_map.values()))
     routine.body = SubstituteExpressions(expr_map).visit(routine.body)
-    assignment = FindNodes(Assignment).visit(routine.body)[0]
+    assignment = FindNodes(ir.Assignment).visit(routine.body)[0]
     assert assignment.lhs == 'var(j + 1)'
 
 
@@ -1337,9 +1342,9 @@ def test_nested_derived_type_substitution():
     """
 
     type_int = SymbolAttributes(dtype=BasicType.INTEGER)
-    original = symbols.Scalar(name='ydphy3')
-    expr = symbols.Scalar(name='n_spband', type=type_int, parent=symbols.Scalar(name='ydphy3'))
-    replace = symbols.Scalar(name='yrphy3', parent=symbols.Scalar(name='ydml_phy_mf'))
+    original = sym.Scalar(name='ydphy3')
+    expr = sym.Scalar(name='n_spband', type=type_int, parent=sym.Scalar(name='ydphy3'))
+    replace = sym.Scalar(name='yrphy3', parent=sym.Scalar(name='ydml_phy_mf'))
     new_expr = SubstituteExpressions({original:replace}).visit(expr)
 
     assert fgen(new_expr) == 'ydml_phy_mf%yrphy3%n_spband'
@@ -1412,7 +1417,7 @@ end module some_mod
     shape = routine.symbol_attrs['levels%data'].shape
     assert len(shape) == 2
     for i, dim in enumerate(shape):
-        assert isinstance(dim, symbols.InlineCall)
+        assert isinstance(dim, sym.InlineCall)
         assert str(dim).lower() == f'size(levels(jscale - 1)%data, {i+1})'
 
 
@@ -1425,9 +1430,9 @@ def test_expression_container_matching():
     t_real = SymbolAttributes(BasicType.REAL)
     t_int = SymbolAttributes(BasicType.INTEGER)
 
-    i = symbols.Variable(name='i', scope=scope, type=t_int)
-    a = symbols.Variable(name='a', scope=scope, type=t_real)
-    b = symbols.Variable(name='b', scope=scope, type=t_real, dimensions=(i,))
+    i = sym.Variable(name='i', scope=scope, type=t_int)
+    a = sym.Variable(name='a', scope=scope, type=t_real)
+    b = sym.Variable(name='b', scope=scope, type=t_real, dimensions=(i,))
 
     # Test for simple containment of scalars
     assert a in (a, b)
@@ -1521,8 +1526,10 @@ end subroutine some_routine
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    var_map = {routine.variable_map['var_reference']: Reference(routine.variable_map['var_reference']),
-            routine.variable_map['var_dereference']: Dereference(routine.variable_map['var_dereference'])}
+    var_map = {
+        routine.variable_map['var_reference']: sym.Reference(routine.variable_map['var_reference']),
+        routine.variable_map['var_dereference']: sym.Dereference(routine.variable_map['var_dereference'])
+    }
     routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
     f_str = fgen(routine).replace(' ', '')
@@ -1564,7 +1571,7 @@ def test_typebound_resolution(expr):
 
     scope = Scope()
     name_parts = expr.split('%', maxsplit=1)
-    var = Variable(name=name_parts[0], scope=scope)
+    var = sym.Variable(name=name_parts[0], scope=scope)
 
     if len(name_parts) > 1:
         var = var.get_derived_type_member(name_parts[1]) # pylint: disable=no-member
@@ -1637,12 +1644,12 @@ end module typebound_resolution_type_info_mod
         var = var_c.get_derived_type_member(var_name)
         assert var == f'var_c%{var_name}'
         assert var.scope is sub
-        assert isinstance(var, symbols.Scalar)
+        assert isinstance(var, sym.Scalar)
         assert var.type.dtype == dtype
 
     for var_name, dtype in var_tt_to_try.items():
         var = var_tt.get_derived_type_member(var_name)
         assert var == f'var_tt%{var_name}'
         assert var.scope is sub
-        assert isinstance(var, symbols.DeferredTypeSymbol)
+        assert isinstance(var, sym.DeferredTypeSymbol)
         assert var.type.dtype == dtype

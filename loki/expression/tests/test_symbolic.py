@@ -12,11 +12,9 @@ import operator as op
 import pytest
 import pymbolic.primitives as pmbl
 
-from loki import (
-    parse_fparser_expression, Scope, is_dimension_constant, Subroutine
-)
+from loki import Scope, is_dimension_constant, Subroutine
 from loki.expression import symbols as sym, simplify, Simplification, symbolic_op
-from loki.frontend import available_frontends, HAVE_FP
+from loki.frontend import available_frontends, HAVE_FP, parse_fparser_expression
 
 
 @pytest.mark.parametrize('a, b, lt, eq', [
