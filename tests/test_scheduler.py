@@ -2870,11 +2870,11 @@ def test_pipeline_config_compose(config):
             },
         },
         'preprocess': {
-            'classname': 'RemoveCallsTransformation',
-            'module': 'transformations.utility_routines',
+            'classname': 'RemoveCodeTransformation',
+            'module': 'loki.transform.transform_remove_code',
             'options': {
-                'routines': 'dr_hook',
-                'include_intrinsics': True
+                'call_names': 'dr_hook',
+                'remove_imports': False
             }
         },
         'postprocess': {
@@ -2905,7 +2905,7 @@ def test_pipeline_config_compose(config):
 
     # Check that the pipeline is correctly composed
     assert len(pipeline.transformations) == 7
-    assert type(pipeline.transformations[0]).__name__ == 'RemoveCallsTransformation'
+    assert type(pipeline.transformations[0]).__name__ == 'RemoveCodeTransformation'
     assert type(pipeline.transformations[1]).__name__ == 'SCCBaseTransformation'
     assert type(pipeline.transformations[2]).__name__ == 'SCCDevectorTransformation'
     assert type(pipeline.transformations[3]).__name__ == 'SCCDemoteTransformation'
@@ -2914,7 +2914,8 @@ def test_pipeline_config_compose(config):
     assert type(pipeline.transformations[6]).__name__ == 'ModuleWrapTransformation'
 
     # Check for some specified and default constructor flags
-    assert pipeline.transformations[0].include_intrinsics is True
+    assert pipeline.transformations[0].call_names == ('dr_hook',)
+    assert pipeline.transformations[0].remove_imports is False
     assert isinstance(pipeline.transformations[1].horizontal, Dimension)
     assert pipeline.transformations[1].horizontal.size == 'KLON'
     assert pipeline.transformations[1].horizontal.index == 'JL'
