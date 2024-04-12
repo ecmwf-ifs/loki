@@ -35,7 +35,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     on the driver and maps temporary arrays in kernels to this scratch space
 
     The stack is provided via two integer variables, ``<stack name>_L`` and ``<stack name>_U``, which are
-    used as a stack pointer and stack end pointer, respectively. 
+    used as a stack pointer and stack end pointer, respectively.
     Naming is flexible and can be changed via options to the transformation.
 
     The transformation needs to be applied in reverse order, which will do the following for each **kernel**:
@@ -61,8 +61,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     * Pass the stack argument(s) to kernel calls
 
 
-    With ``cray_ptr_loc_rhs=False`` the following stack/pool allocator will be generated: 
-    
+    With ``cray_ptr_loc_rhs=False`` the following stack/pool allocator will be generated:
+
     .. code-block:: fortran
 
         SUBROUTINE DRIVER (...)
@@ -71,7 +71,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           REAL, ALLOCATABLE :: ZSTACK(:, :)
           INTEGER(KIND=8) :: YLSTACK_L
           INTEGER(KIND=8) :: YLSTACK_U
-          ISTSZ = (MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)*<array dim1>*<array dim2> + ...) / & 
+          ISTSZ = (MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)*<array dim1>*<array dim2> + ...) / &
            & MAX(C_SIZEOF(REAL(1, kind=JPRB)), 8)
           ALLOCATE (ZSTACK(ISTSZ, nb))
           DO b=1,nb
@@ -101,7 +101,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           IF (YLSTACK_L > YLSTACK_U) STOP
         END SUBROUTINE KERNEL
 
-    With ``cray_ptr_loc_rhs=True`` the following stack/pool allocator will be generated: 
+    With ``cray_ptr_loc_rhs=True`` the following stack/pool allocator will be generated:
 
     .. code-block:: fortran
 
@@ -115,7 +115,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           ALLOCATE (ZSTACK(ISTSZ, nb))
           DO b=1,nb
             YLSTACK_L = 1
-            YLSTACK_U = YLSTACK_L + ISTSZ 
+            YLSTACK_U = YLSTACK_L + ISTSZ
             CALL KERNEL(..., YDSTACK_L=YLSTACK_L, YDSTACK_U=YLSTACK_U, ZSTACK=ZSTACK(:, b))
           END DO
           DEALLOCATE (ZSTACK)
@@ -148,7 +148,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         :any:`Dimension` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
     stack_ptr_name : str, optional
-        Name of the stack pointer variable to be appended to the generic 
+        Name of the stack pointer variable to be appended to the generic
         stack name (default: ``'L'``) resulting in e.g., ``'<stack name>_L'``
     stack_end_name : str, optional
         Name of the stack end pointer variable to be appendend to the generic
@@ -176,8 +176,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         Insert bounds-checks in the kernel to make sure the allocated stack size is not
         exceeded (default: `True`)
     cray_ptr_loc_rhs : bool, optional
-        Whether to only pass the stack variable as integer to the kernel(s) or 
-        whether to pass the whole stack array to the driver and the calls to ``LOC()`` 
+        Whether to only pass the stack variable as integer to the kernel(s) or
+        whether to pass the whole stack array to the driver and the calls to ``LOC()``
         within the kernel(s) itself (default: `False`)
     """
 
@@ -435,9 +435,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_storage]
 
+            name_parts = self.block_dim.size.split('%', maxsplit=1)
+            block_size = routine.symbol_map[name_parts[0]]
+            if len(name_parts) > 1:
+                block_size = block_size.get_derived_type_member(name_parts[1])
+
             stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
-                stack_size_var, Variable(name=self.block_dim.size, scope=routine)
-            )),))
+                stack_size_var, block_size)),))
             stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member
 
             body_prepend += [stack_alloc]
@@ -679,6 +683,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         temporary_arrays = [
             var for var in temporary_arrays
             if not all(is_dimension_constant(d) for d in var.shape)
+        ]
+
+        # Filter out pointers
+        temporary_arrays = [
+            var for var in temporary_arrays
+            if not var.type.pointer or var.type.allocatable
         ]
 
         # Create stack argument and local stack var
