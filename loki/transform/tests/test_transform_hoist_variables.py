@@ -30,6 +30,11 @@ def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
+
+
 @pytest.fixture(name='config')
 def fixture_config():
     """
@@ -159,12 +164,12 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwargu
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist(here, frontend, config, as_kwarguments):
+def test_hoist(here, testdir, frontend, config, as_kwarguments):
     """
     Basic testing of the non-modified Hoist functionality, thus hoisting all (non-parameter) local variables.
     """
 
-    proj = here/'sources/projHoist'
+    proj = testdir/'sources/projHoist'
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
     # check correctness of original source code
@@ -215,7 +220,7 @@ def test_hoist(here, frontend, config, as_kwarguments):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_disable(here, frontend, config, as_kwarguments):
+def test_hoist_disable(here, testdir, frontend, config, as_kwarguments):
     """
     Basic testing of the non-modified Hoist functionality excluding/disabling some subroutines,
     thus hoisting all (non-parameter) local variables for the non-disabled subroutines.
@@ -223,7 +228,7 @@ def test_hoist_disable(here, frontend, config, as_kwarguments):
 
     disable = ("device1", "device2")
     config['routines']['kernel2'] = {'role': 'kernel', 'block': disable}
-    proj = here/'sources/projHoist'
+    proj = testdir/'sources/projHoist'
     scheduler = Scheduler(
         paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend
     )
@@ -280,13 +285,13 @@ def test_hoist_disable(here, frontend, config, as_kwarguments):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_arrays_inline(here, frontend, config, as_kwarguments):
+def test_hoist_arrays_inline(here, testdir, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays using the :class:`HoistTemporaryArraysAnalysis` for the *Analysis*
     part. The hoisted kernel contains inline function calls.
     """
 
-    proj = here/'sources/projHoist'
+    proj = testdir/'sources/projHoist'
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['inline_driver',], frontend=frontend)
 
     # Transformation: Analysis
@@ -341,13 +346,13 @@ def test_hoist_arrays_inline(here, frontend, config, as_kwarguments):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_arrays(here, frontend, config, as_kwarguments):
+def test_hoist_arrays(here, testdir, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays using the :class:`HoistTemporaryArraysAnalysis` for the *Analysis*
     part.
     """
 
-    proj = here/'sources/projHoist'
+    proj = testdir/'sources/projHoist'
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
     # Transformation: Analysis
@@ -392,13 +397,13 @@ def test_hoist_arrays(here, frontend, config, as_kwarguments):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_specific_variables(here, frontend, config, as_kwarguments):
+def test_hoist_specific_variables(here, testdir, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays with variable ``a`` in the array dimensions using the
     :class:`HoistTemporaryArraysAnalysis` for the *Analysis* part.
     """
 
-    proj = here/'sources/projHoist'
+    proj = testdir/'sources/projHoist'
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
     # Transformation: Analysis
@@ -457,7 +462,7 @@ def check_variable_declaration(item, key):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_allocatable(here, frontend, config, as_kwarguments):
+def test_hoist_allocatable(here, testdir, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays with variable ``a`` in the array dimensions using the
     :class:`HoistTemporaryArraysAnalysis` for the *Analysis* part **and** a *Synthesis* implementation using declaring
@@ -465,7 +470,7 @@ def test_hoist_allocatable(here, frontend, config, as_kwarguments):
     :class:`HoistTemporaryArraysTransformationAllocatable`.
     """
 
-    proj = here/'sources/projHoist'
+    proj = testdir/'sources/projHoist'
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
 
     key = "HoistVariablesTransformation"

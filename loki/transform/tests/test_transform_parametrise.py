@@ -18,6 +18,11 @@ def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
+
+
 @pytest.fixture(name='config')
 def fixture_config():
     """
@@ -108,12 +113,12 @@ def check_arguments_and_parameter(scheduler, subroutine_arguments, call_argument
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_source(here, frontend, config):
+def test_parametrise_source(here, testdir, frontend, config):
     """
     Test the actual source code without any transformations applied.
     """
 
-    proj = here/'sources/projParametrise'
+    proj = testdir/'sources/projParametrise'
 
     dic2p = {'a': 12, 'b': 11}
     a = dic2p['a']
@@ -154,12 +159,12 @@ def test_parametrise_source(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_simple(here, frontend, config):
+def test_parametrise_simple(here, testdir, frontend, config):
     """
     Basic testing of parametrisation functionality.
     """
 
-    proj = here/'sources/projParametrise'
+    proj = testdir/'sources/projParametrise'
 
     dic2p = {'a': 12, 'b': 11}
     a = dic2p['a']
@@ -202,12 +207,12 @@ def test_parametrise_simple(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_simple_replace_by_value(here, frontend, config):
+def test_parametrise_simple_replace_by_value(here, testdir, frontend, config):
     """
     Basic testing of parametrisation functionality including replacing of the variables with the actual values.
     """
 
-    proj = here/'sources/projParametrise'
+    proj = testdir/'sources/projParametrise'
 
     dic2p = {'a': 12, 'b': 11}
     a = dic2p['a']
@@ -301,12 +306,12 @@ def test_parametrise_simple_replace_by_value(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_modified_callback(here, frontend, config):
+def test_parametrise_modified_callback(here, testdir, frontend, config):
     """
     Testing of the parametrisation functionality with modified callbacks for failed sanity checks.
     """
 
-    proj = here/'sources/projParametrise'
+    proj = testdir/'sources/projParametrise'
 
     dic2p = {'a': 12, 'b': 11}
     a = dic2p['a']
@@ -362,13 +367,13 @@ def test_parametrise_modified_callback(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_modified_callback_wrong_input(here, frontend, config):
+def test_parametrise_modified_callback_wrong_input(here, testdir, frontend, config):
     """
     Testing of the parametrisation functionality with modified callback for failed sanity checks including test of
     a failed sanity check.
     """
 
-    proj = here/'sources/projParametrise'
+    proj = testdir/'sources/projParametrise'
 
     dic2p = {'a': 12, 'b': 11}
     a = dic2p['a']
@@ -429,12 +434,12 @@ def test_parametrise_modified_callback_wrong_input(here, frontend, config):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_non_driver_entry_points(here, frontend, config):
+def test_parametrise_non_driver_entry_points(here, testdir, frontend, config):
     """
     Testing of parametrisation functionality with defined entry points/functions, thus not being the default (driver).
     """
 
-    proj = here/'sources/projParametrise'
+    proj = testdir/'sources/projParametrise'
 
     dic2p = {'a': 12, 'b': 11}
     a = dic2p['a']

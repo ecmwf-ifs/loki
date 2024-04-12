@@ -9,10 +9,11 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import Module, Subroutine, FindVariables, Array, FindNodes, CallStatement, fgen
+from loki import Module, Subroutine, fgen
 from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, FindVariables
 from loki.frontend import available_frontends
+from loki.ir import FindNodes, CallStatement
 from loki.transform import (
     promote_variables, demote_variables, normalize_range_indexing,
     invert_array_indices, flatten_arrays,
@@ -405,7 +406,7 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
         return x1, x2, x3, x4, assumed_x1
 
     def validate_routine(routine):
-        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)]
+        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, sym.Array)]
         for arr in arrays:
             assert all(not isinstance(shape, sym.RangeIndex) for shape in arr.shape)
 
@@ -500,7 +501,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
         return x1, x2, x3, x4
 
     def validate_routine(routine):
-        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)]
+        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, sym.Array)]
         assert all(len(arr.dimensions) == 1 for arr in arrays)
         assert all(len(arr.shape) == 1 for arr in arrays)
 
@@ -678,7 +679,7 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
         return a, b
 
     def validate_routine(routine):
-        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, Array)]
+        arrays = [var for var in FindVariables().visit(routine.body) if isinstance(var, sym.Array)]
         assert all(len(arr.dimensions) == 1 or not arr.dimensions for arr in arrays)
         assert all(len(arr.shape) == 1 for arr in arrays)
 

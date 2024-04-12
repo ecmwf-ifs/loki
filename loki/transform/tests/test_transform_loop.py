@@ -10,11 +10,14 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import Subroutine, FindNodes, Loop, Conditional, Assignment
+from loki import Subroutine
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, HAVE_FP, OMNI
-from loki.ir import is_loki_pragma, pragmas_attached
+from loki.ir import (
+    is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
+    Assignment
+)
 from loki.transform import (
     loop_interchange, loop_fusion, loop_fission, normalize_range_indexing
 )

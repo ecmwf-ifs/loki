@@ -10,14 +10,13 @@ import pytest
 import numpy as np
 
 from loki import (
-    Module, Subroutine, FindNodes, Import, FindVariables,
-    CallStatement, Loop, BasicType, DerivedType, Associate,
-    Conditional, FindInlineCalls
+    Module, Subroutine, FindVariables, BasicType, DerivedType,
+    FindInlineCalls
 )
 from loki.build import jit_compile, jit_compile_lib, Builder
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP
-from loki.ir import Assignment
+from loki.ir import nodes as ir, FindNodes
 from loki.transform import (
     inline_elemental_functions, inline_constant_parameters,
     replace_selected_kind, inline_member_procedures,
@@ -144,10 +143,10 @@ end module transform_inline_constant_parameters_mod
 
     # Now transform with supplied elementals but without module
     module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
-    assert len(FindNodes(Import).visit(module['transform_inline_constant_parameters'].spec)) == 1
+    assert len(FindNodes(ir.Import).visit(module['transform_inline_constant_parameters'].spec)) == 1
     for routine in module.subroutines:
         inline_constant_parameters(routine, external_only=True)
-    assert not FindNodes(Import).visit(module['transform_inline_constant_parameters'].spec)
+    assert not FindNodes(ir.Import).visit(module['transform_inline_constant_parameters'].spec)
 
     # Hack: rename module to use a different filename in the build
     module.name = f'{module.name}_'
@@ -197,10 +196,10 @@ end module transform_inline_constant_parameters_kind_mod
 
     # Now transform with supplied elementals but without module
     module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
-    assert len(FindNodes(Import).visit(module['transform_inline_constant_parameters_kind'].spec)) == 1
+    assert len(FindNodes(ir.Import).visit(module['transform_inline_constant_parameters_kind'].spec)) == 1
     for routine in module.subroutines:
         inline_constant_parameters(routine, external_only=True)
-    assert not FindNodes(Import).visit(module['transform_inline_constant_parameters_kind'].spec)
+    assert not FindNodes(ir.Import).visit(module['transform_inline_constant_parameters_kind'].spec)
 
     # Hack: rename module to use a different filename in the build
     module.name = f'{module.name}_'
@@ -251,12 +250,12 @@ end module transform_inline_constant_parameters_replace_kind_mod
 
     # Now transform with supplied elementals but without module
     module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
-    imports = FindNodes(Import).visit(module.subroutines[0].spec)
+    imports = FindNodes(ir.Import).visit(module.subroutines[0].spec)
     assert len(imports) == 1 and imports[0].module.lower() == param_module.name.lower()
     for routine in module.subroutines:
         inline_constant_parameters(routine, external_only=True)
         replace_selected_kind(routine)
-    imports = FindNodes(Import).visit(module.subroutines[0].spec)
+    imports = FindNodes(ir.Import).visit(module.subroutines[0].spec)
     assert len(imports) == 1 and imports[0].module.lower() == 'iso_fortran_env'
 
     # Hack: rename module to use a different filename in the build
@@ -289,7 +288,7 @@ end subroutine kernel
     assert len(routine.variables) == 2
     assert 'a' in routine.variables and 'b' in routine.variables
 
-    stmts = FindNodes(Assignment).visit(routine.body)
+    stmts = FindNodes(ir.Assignment).visit(routine.body)
     assert len(stmts) == 1
     assert stmts[0].rhs == 'b + 10'
 
@@ -348,8 +347,8 @@ end subroutine member_routines
     inline_member_procedures(routine=routine)
 
     assert not routine.members
-    assert not FindNodes(CallStatement).visit(routine.body)
-    assert len(FindNodes(Loop).visit(routine.body)) == 3
+    assert not FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 3
     assert 'n' in routine.variables
 
     # An verify compiled behaviour
@@ -408,13 +407,13 @@ end subroutine member_routines_arg_dimensions
     assert len([v for v in FindVariables().visit(routine.body) if v.name == 'b']) == 0
     assert len([v for v in FindVariables().visit(routine.spec) if v.name == 'a']) == 0
     assert len([v for v in FindVariables().visit(routine.spec) if v.name == 'b']) == 0
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 2
     assert assigns[0].lhs == 'matrix(j, i)' and assigns[0].rhs =='matrix(j, i) + 1'
     assert assigns[1].lhs == 'tensor(j, i, :)'
 
     # Ensure the `n` in the inner loop bound has been substituted too
-    loops = FindNodes(Loop).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 2
     assert loops[0].bounds == '1:3'
     assert loops[1].bounds == '1:3'
@@ -454,7 +453,7 @@ end subroutine outer
 
     assert routine.variable_map['x'].type.dtype == BasicType.REAL
     assert isinstance(routine.variable_map['a'].type.dtype, DerivedType)
-    call = FindNodes(CallStatement).visit(routine.body)[0]
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
     assert isinstance(call.arguments[0], sym.Array)
     assert isinstance(call.arguments[1], sym.DeferredTypeSymbol)
     assert isinstance(call.arguments[2], sym.DeferredTypeSymbol)
@@ -462,7 +461,7 @@ end subroutine outer
     # Now inline the member routines and check again
     inline_member_procedures(routine=routine)
 
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 2
     assert assigns[0].rhs =='x + a%b(j)'
     assert assigns[1].lhs == 'a%b(j)' and assigns[1].rhs == 'a%c(a%k, j)'
@@ -516,7 +515,7 @@ end subroutine outer
     assert routine.variable_map['inner_x'].type.shape == (3,)
 
     # Check inner 'y' was substituted, not renamed!
-    assign = FindNodes(Assignment).visit(routine.body)
+    assign = FindNodes(ir.Assignment).visit(routine.body)
     assert routine.variable_map['y'] == 'y'
     assert assign[2].lhs == 'y' and assign[2].rhs == 'y + sum(inner_x)'
 
@@ -565,7 +564,7 @@ end subroutine outer
     assert 'jlon' in routine.variable_map
     assert 'jg' in routine.variable_map
 
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 6
     assert assigns[2].lhs == 'jlon' and assigns[2].rhs == '1'
     assert assigns[3].lhs == 'jg' and assigns[3].rhs == '2'
@@ -603,7 +602,7 @@ def test_inline_member_routines_indexing_of_shadowed_array(frontend):
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     inline_member_procedures(routine)
-    innerloop = FindNodes(Loop).visit(routine.body)[1]
+    innerloop = FindNodes(ir.Loop).visit(routine.body)[1]
     innerloopvars = FindVariables().visit(innerloop)
     assert 'inner2_arr(inner2_jlon,inner2_jg)' in innerloopvars
 
@@ -687,15 +686,15 @@ end subroutine acraneb_transt
     inline_member_procedures(routine=routine)
 
     assert not routine.members
-    loops = FindNodes(Loop).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 3
 
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 2
     assert assigns[0].rhs == 'x + zq1(jlon)'
     assert assigns[1].rhs == 'x + zq2(jlon, jlev)'
 
-    assocs = FindNodes(Associate).visit(routine.body)
+    assocs = FindNodes(ir.Associate).visit(routine.body)
     assert len(assocs) == 2
 
 
@@ -753,7 +752,7 @@ end module util_mod
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich(module)
 
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert calls[0].routine == module['add_one']
     assert calls[1].routine == module['add_a_to_b']
     assert calls[2].routine == module['add_one']
@@ -763,19 +762,19 @@ end module util_mod
     )
 
     # Check inlined loops and assignments
-    assert len(FindNodes(Loop).visit(driver.body)) == 3
-    assign = FindNodes(Assignment).visit(driver.body)
+    assert len(FindNodes(ir.Loop).visit(driver.body)) == 3
+    assign = FindNodes(ir.Assignment).visit(driver.body)
     assert len(assign) == 2
     assert assign[0].lhs == 'a(i)' and assign[0].rhs == 'a(i) + 1'
     assert assign[1].lhs == 'a(i)' and assign[1].rhs == 'a(i) + b(i)'
 
     # Check that the last call is left untouched
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls) == 1
     assert calls[0].routine.name == 'add_one'
     assert calls[0].arguments == ('b(i)',)
 
-    imports = FindNodes(Import).visit(driver.spec)
+    imports = FindNodes(ir.Import).visit(driver.spec)
     assert len(imports) == 1
     if remove_imports:
         assert imports[0].symbols == ('add_one',)
@@ -830,15 +829,15 @@ end module util_mod
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich(module)
 
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert calls[0].routine == module['add_one']
     assert calls[1].routine == module['add_one']
 
     inline_marked_subroutines(routine=driver, remove_imports=remove_imports)
 
     # Check inlined loops and assignments
-    assert len(FindNodes(Loop).visit(driver.body)) == 2
-    assign = FindNodes(Assignment).visit(driver.body)
+    assert len(FindNodes(ir.Loop).visit(driver.body)) == 2
+    assign = FindNodes(ir.Assignment).visit(driver.body)
     assert len(assign) == 4
     assert assign[0].lhs == 'a(i)' and assign[0].rhs == 'a(i) + 1'
     assert assign[1].lhs == 'a(i)' and assign[1].rhs == 'a(i) + 2.0'
@@ -847,14 +846,14 @@ end module util_mod
     assert assign[3].lhs == 'b(i)' and assign[3].rhs == 'b(i) + two'
 
     # Check that the PRESENT checks have been resolved
-    assert len(FindNodes(CallStatement).visit(driver.body)) == 0
+    assert len(FindNodes(ir.CallStatement).visit(driver.body)) == 0
     assert len(FindInlineCalls().visit(driver.body)) == 0
-    checks = FindNodes(Conditional).visit(driver.body)
+    checks = FindNodes(ir.Conditional).visit(driver.body)
     assert len(checks) == 2
     assert checks[0].condition == 'True'
     assert checks[1].condition == 'False'
 
-    imports = FindNodes(Import).visit(driver.spec)
+    imports = FindNodes(ir.Import).visit(driver.spec)
     assert len(imports) == 0 if remove_imports else 1
 
 
@@ -905,12 +904,12 @@ end subroutine dave
     inner = Subroutine.from_source(fcode_inner, frontend=frontend)
     outer.enrich(inner)
 
-    assert FindNodes(CallStatement).visit(outer.body)[0].routine == inner
+    assert FindNodes(ir.CallStatement).visit(outer.body)[0].routine == inner
 
     inline_marked_subroutines(routine=outer, remove_imports=True)
 
     # Ensure that all associates are perfectly nested afterwards
-    assocs = FindNodes(Associate).visit(outer.body)
+    assocs = FindNodes(ir.Associate).visit(outer.body)
     assert len(assocs) == 4
     assert assocs[1].parent == assocs[0]
     assert assocs[2].parent == assocs[1]
@@ -918,7 +917,7 @@ end subroutine dave
 
     # And, because we can...
     outer.body = ResolveAssociatesTransformer().visit(outer.body)
-    call = FindNodes(CallStatement).visit(outer.body)[0]
+    call = FindNodes(ir.CallStatement).visit(outer.body)[0]
     assert call.name == 'rick_is'
     assert call.arguments == ('never%going_to%give_you%up',)
     # Q. E. D.
@@ -987,14 +986,14 @@ end subroutine test_inline_pragma
         inline_constants=True, external_only=True, inline_elementals=True
     )
 
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 2
     assert all(c.routine == inner for c in calls)
 
     # Apply to the inner subroutine first to resolve parameter and calls
     trafo.apply(inner)
 
-    assigns = FindNodes(Assignment).visit(inner.body)
+    assigns = FindNodes(ir.Assignment).visit(inner.body)
     assert len(assigns) == 2
     assert assigns[0].lhs == 'a' and assigns[0].rhs == 'a + 1.0'
     assert assigns[1].lhs == 'a' and assigns[1].rhs == 'a + 2.0'
@@ -1002,9 +1001,9 @@ end subroutine test_inline_pragma
     # Apply to the outer routine, but with resolved body of the inner
     trafo.apply(routine)
 
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 0
-    assigns = FindNodes(Assignment).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 4
     assert assigns[0].lhs == 'a(i)' and assigns[0].rhs == 'a(i) + 1.0'
     assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
@@ -1064,7 +1063,7 @@ end module somemod
     )
     outer = module["outer"]
     trafo.apply(outer)
-    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    callnames = [call.name for call in FindNodes(ir.CallStatement).visit(outer.body)]
     assert 'plusone' in callnames
     assert 'inner' in callnames
     assert 'minusone_second' in callnames
@@ -1080,7 +1079,7 @@ end module somemod
     )
     outer = module["outer"]
     trafo.apply(outer)
-    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    callnames = [call.name for call in FindNodes(ir.CallStatement).visit(outer.body)]
     assert 'plusone' not in callnames
     assert 'inner' in callnames
     assert 'minusone_second' in callnames
@@ -1094,7 +1093,7 @@ end module somemod
     outer = module["outer"]
     with pytest.raises(RuntimeError):
         trafo.apply(outer)
-    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    callnames = [call.name for call in FindNodes(ir.CallStatement).visit(outer.body)]
 
     # Test case that sequence association is run and corresponding call inlined, avoiding crash.
     module = Module.from_source(fcode, frontend=frontend)
@@ -1104,7 +1103,7 @@ end module somemod
     )
     outer = module["outer"]
     trafo.apply(outer)
-    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    callnames = [call.name for call in FindNodes(ir.CallStatement).visit(outer.body)]
     assert 'plusone' in callnames
     assert 'inner' not in callnames
     assert 'minusone_second' in callnames
@@ -1117,7 +1116,7 @@ end module somemod
     )
     outer = module["outer"]
     trafo.apply(outer)
-    callnames = [call.name for call in FindNodes(CallStatement).visit(outer.body)]
+    callnames = [call.name for call in FindNodes(ir.CallStatement).visit(outer.body)]
     assert 'plusone' not in callnames
     assert 'inner' not in callnames
     assert 'minusone_second' in callnames
@@ -1166,7 +1165,7 @@ end module somemod
     )
     outer = module["outer"]
     trafo.apply(outer)
-    assert len(FindNodes(CallStatement).visit(outer.body)) == 0
+    assert len(FindNodes(ir.CallStatement).visit(outer.body)) == 0
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_transformation_local_seq_assoc_crash_value_err_no_source(frontend):
