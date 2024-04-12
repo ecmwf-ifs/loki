@@ -32,9 +32,9 @@ class RemoveCodeTransformation(Transformation):
     Elimination for batch processing vis the :any:`Scheduler`.
 
     The transformation will apply the following methods in order:
-    * :method:`do_remove_calls`
-    * :method:`do_remove_marked_regions`
-    * :method:`do_remove_dead_code`
+    * :any:`do_remove_calls`
+    * :any:`do_remove_marked_regions`
+    * :any:`do_remove_dead_code`
 
     Parameters
     ----------
@@ -129,7 +129,7 @@ class RemoveDeadCodeTransformer(Transformer):
     """
     :any:`Transformer` class that removes provably unreachable code paths.
 
-    The pirmary modification performed is to prune individual code branches
+    The primary modification performed is to prune individual code branches
     under :any:`Conditional` nodes.
 
     Parameters
@@ -212,7 +212,7 @@ class RemoveRegionTransformer(Transformer):
         if is_loki_pragma(o.pragma, starts_with='remove'):
             # Leave a comment to mark the removed region in source
             if self.mark_with_comment:
-                return Comment(text='![Loki] Removed content of pragma-marked region!')
+                return Comment(text='! [Loki] Removed content of pragma-marked region!')
 
             return None
 
@@ -258,7 +258,7 @@ class RemoveCallsTransformer(Transformer):
 
     This :any:`Transformer` will by default also remove the enclosing
     inline-conditional when encountering calls of the form ```if
-    (flag) call named_procedure()``.`
+    (flag) call named_procedure()``.
 
     This :any:`Transformer` will also attempt to match and remove
     :any:`Intrinsic` nodes against a given list of name strings.  This
