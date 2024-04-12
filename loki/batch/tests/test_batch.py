@@ -14,11 +14,17 @@ import networkx as nx
 import pytest
 
 from loki import (
-    HAVE_FP, HAVE_OFP, REGEX, RegexParserClass, as_tuple, gettempdir,
-    FileItem, ModuleItem, ProcedureItem, TypeDefItem, ProcedureBindingItem, ExternalItem,
-    InterfaceItem, SGraph, SchedulerConfig, ItemFactory,
-    Sourcefile, Subroutine, Section, TypeDef, RawSource, Import, CallStatement, Scalar, ProcedureSymbol
+    Sourcefile, Subroutine, as_tuple, gettempdir, RawSource, TypeDef,
+    Scalar, ProcedureSymbol
 )
+from loki.batch import (
+    FileItem, ModuleItem, ProcedureItem, TypeDefItem,
+    ProcedureBindingItem, ExternalItem, InterfaceItem, SGraph,
+    SchedulerConfig, ItemFactory
+)
+from loki.frontend import HAVE_FP, HAVE_OFP, REGEX, RegexParserClass
+from loki.ir import nodes as ir
+
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
 
@@ -26,6 +32,11 @@ pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser an
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
 
 
 @pytest.fixture(name='default_config', scope='function')
@@ -148,8 +159,8 @@ def get_item(cls, path, name, parser_classes, scheduler_config=None):
     return cls(name, source=source, config=config)
 
 
-def test_file_item1(here, default_config):
-    proj = here/'sources/projBatch'
+def test_file_item1(testdir, default_config):
+    proj = testdir/'sources/projBatch'
 
     # A file with simple module that contains a single subroutine
     item = get_item(FileItem, proj/'module/a_mod.F90', 'module/a_mod.F90', RegexParserClass.EmptyClass)
@@ -167,7 +178,7 @@ def test_file_item1(here, default_config):
 
     # The file is not parsed at all
     assert not item.source.definitions
-    assert isinstance(item.source.ir, Section)
+    assert isinstance(item.source.ir, ir.Section)
     assert len(item.source.ir.body) == 1
     assert isinstance(item.source.ir.body[0], RawSource)
 
@@ -213,8 +224,8 @@ def test_file_item1(here, default_config):
     assert items[0].definitions == (item.source['a'],)
 
 
-def test_file_item2(here):
-    proj = here/'sources/projBatch'
+def test_file_item2(testdir):
+    proj = testdir/'sources/projBatch'
 
     # A file with a simple module that contains a single typedef
     item = get_item(FileItem, proj/'module/t_mod.F90', 'module/t_mod.F90', RegexParserClass.ProgramUnitClass)
@@ -241,8 +252,8 @@ def test_file_item2(here):
     assert item.dependencies is ()
 
 
-def test_file_item3(here):
-    proj = here/'sources/projBatch'
+def test_file_item3(testdir):
+    proj = testdir/'sources/projBatch'
 
     # The same file but with typedefs parsed from the get-go
     item = get_item(
@@ -276,8 +287,8 @@ def test_file_item3(here):
     assert items[0].ir == item.source['t_mod']
 
 
-def test_module_item1(here):
-    proj = here/'sources/projBatch'
+def test_module_item1(testdir):
+    proj = testdir/'sources/projBatch'
 
     # A file with simple module that contains a single subroutine and has no dependencies on
     # the module level
@@ -298,8 +309,8 @@ def test_module_item1(here):
     assert not item.dependencies
 
 
-def test_module_item2(here):
-    proj = here/'sources/projBatch'
+def test_module_item2(testdir):
+    proj = testdir/'sources/projBatch'
 
     # A different file with a simple module that contains a single subroutine but has an import
     # dependency on the module level
@@ -317,12 +328,12 @@ def test_module_item2(here):
 
     dependencies = item.dependencies
     assert len(dependencies) == 1
-    assert isinstance(dependencies[0], Import)
+    assert isinstance(dependencies[0], ir.Import)
     assert dependencies[0].module == 'header_mod'
 
 
-def test_module_item3(here):
-    proj = here/'sources/projBatch'
+def test_module_item3(testdir):
+    proj = testdir/'sources/projBatch'
 
     # Make sure the dependencies are also found correctly if done without parsing definitions first
     item = get_item(ModuleItem, proj/'module/b_mod.F90', 'b_mod', RegexParserClass.ProgramUnitClass)
@@ -330,8 +341,8 @@ def test_module_item3(here):
     assert len(dependencies) == 1 and dependencies[0].module == 'header_mod'
 
 
-def test_module_item4(here):
-    proj = here/'sources/projInlineCalls'
+def test_module_item4(testdir):
+    proj = testdir/'sources/projInlineCalls'
 
     # Make sure interfaces are correctly identified as definitions
     item = get_item(ModuleItem, proj/'some_module.F90', 'some_module', RegexParserClass.ProgramUnitClass)
@@ -351,8 +362,8 @@ def test_module_item4(here):
     assert item_factory.item_cache['some_module#add_args'] in items
 
 
-def test_procedure_item1(here):
-    proj = here/'sources/projBatch'
+def test_procedure_item1(testdir):
+    proj = testdir/'sources/projBatch'
 
     # A file with a single subroutine definition that calls a routine via interface block
     item = get_item(ProcedureItem, proj/'source/comp1.F90', '#comp1', RegexParserClass.ProgramUnitClass)
@@ -366,15 +377,15 @@ def test_procedure_item1(here):
 
     dependencies = item.dependencies
     assert len(dependencies) == 5
-    assert isinstance(dependencies[0], Import)
+    assert isinstance(dependencies[0], ir.Import)
     assert dependencies[0].module == 't_mod'
-    assert isinstance(dependencies[1], Import)
+    assert isinstance(dependencies[1], ir.Import)
     assert dependencies[1].module == 'header_mod'
-    assert isinstance(dependencies[2], CallStatement)
+    assert isinstance(dependencies[2], ir.CallStatement)
     assert dependencies[2].name == 'arg%proc'
-    assert isinstance(dependencies[3], CallStatement)
+    assert isinstance(dependencies[3], ir.CallStatement)
     assert dependencies[3].name == 'comp2'
-    assert isinstance(dependencies[4], CallStatement)
+    assert isinstance(dependencies[4], ir.CallStatement)
     assert dependencies[4].name == 'arg%no%way'
 
     assert item.targets == ('t_mod', 't', 'nt1', 'header_mod', 'arg%proc', 'comp2', 'arg%no%way')
@@ -403,8 +414,8 @@ def test_procedure_item1(here):
     assert items[3] is t_mod_t_proc
 
 
-def test_procedure_item2(here):
-    proj = here/'sources/projBatch'
+def test_procedure_item2(testdir):
+    proj = testdir/'sources/projBatch'
 
     # A file with a single subroutine definition that calls two routines via module imports
     item = get_item(ProcedureItem, proj/'source/comp2.f90', '#comp2', RegexParserClass.ProgramUnitClass)
@@ -417,19 +428,19 @@ def test_procedure_item2(here):
 
     dependencies = item.dependencies
     assert len(dependencies) == 7
-    assert isinstance(dependencies[0], Import)
+    assert isinstance(dependencies[0], ir.Import)
     assert dependencies[0].module == 't_mod'
-    assert isinstance(dependencies[1], Import)
+    assert isinstance(dependencies[1], ir.Import)
     assert dependencies[1].module == 'header_mod'
-    assert isinstance(dependencies[2], Import)
+    assert isinstance(dependencies[2], ir.Import)
     assert dependencies[2].module == 'a_mod'
-    assert isinstance(dependencies[3], Import)
+    assert isinstance(dependencies[3], ir.Import)
     assert dependencies[3].module == 'b_mod'
-    assert isinstance(dependencies[4], CallStatement)
+    assert isinstance(dependencies[4], ir.CallStatement)
     assert dependencies[4].name == 'a'
-    assert isinstance(dependencies[5], CallStatement)
+    assert isinstance(dependencies[5], ir.CallStatement)
     assert dependencies[5].name == 'b'
-    assert isinstance(dependencies[6], CallStatement)
+    assert isinstance(dependencies[6], ir.CallStatement)
     assert dependencies[6].name == 'arg%yay%proc'
 
     assert item.targets == (
@@ -453,8 +464,8 @@ def test_procedure_item2(here):
     assert items == item.create_dependency_items(item_factory=item_factory)
 
 
-def test_procedure_item3(here):
-    proj = here/'sources/projBatch'
+def test_procedure_item3(testdir):
+    proj = testdir/'sources/projBatch'
 
     # A file with a single subroutine declared in a module that calls a typebound procedure
     # where the type is imported via an import statement in the module scope
@@ -479,8 +490,8 @@ def test_procedure_item3(here):
     assert item.create_dependency_items(item_factory=item_factory) == ('tt_mod#tt', 'tt_mod#tt%proc', 'b_mod#b')
 
 
-def test_procedure_item4(here):
-    proj = here/'sources/projBatch'
+def test_procedure_item4(testdir):
+    proj = testdir/'sources/projBatch'
 
     # A routine with a typebound procedure call where the typedef is in the same module
     item = get_item(
@@ -564,8 +575,8 @@ def test_procedure_item4(here):
         ('t_mod', 't', 'header_mod', 'a_mod', 'a', 'b_mod', 'b', 'arg%yay%proc')
     ),
 ])
-def test_procedure_item_with_config(here, config, expected_dependencies, expected_targets):
-    proj = here/'sources/projBatch'
+def test_procedure_item_with_config(testdir, config, expected_dependencies, expected_targets):
+    proj = testdir/'sources/projBatch'
     scheduler_config = SchedulerConfig.from_dict(config)
 
     # A file with a single subroutine definition that calls two routines via module imports
@@ -595,8 +606,8 @@ def test_procedure_item_with_config(here, config, expected_dependencies, expecte
 
 
 @pytest.mark.parametrize('disable', ['#comp2', 'comp2'])
-def test_procedure_item_with_config2(here, disable):
-    proj = here/'sources/projBatch'
+def test_procedure_item_with_config2(testdir, disable):
+    proj = testdir/'sources/projBatch'
     scheduler_config = SchedulerConfig.from_dict({'default': {'disable': [disable]}})
 
     # Similar to the previous test but checking disabling of subroutines without scope
@@ -664,8 +675,8 @@ end subroutine procedure_item_external_item
     workdir.rmdir()
 
 
-def test_typedef_item(here):
-    proj = here/'sources/projBatch'
+def test_typedef_item(testdir):
+    proj = testdir/'sources/projBatch'
 
     # A file with multiple type definitions, of which we pick one
     item = get_item(
@@ -710,8 +721,8 @@ def test_typedef_item(here):
     assert not items[1].dependencies
 
 
-def test_interface_item_in_module(here):
-    proj = here/'sources/projInlineCalls'
+def test_interface_item_in_module(testdir):
+    proj = testdir/'sources/projInlineCalls'
 
     # A file containing a module, with an interface to declare multiple functions
     # with a common name
@@ -756,8 +767,8 @@ def test_interface_item_in_module(here):
     assert all(isinstance(i, ProcedureItem) for i in items)
 
 
-def test_interface_item_in_subroutine(here):
-    proj = here/'sources/projInlineCalls'
+def test_interface_item_in_subroutine(testdir):
+    proj = testdir/'sources/projInlineCalls'
 
     # A file containing the driver subroutine, which uses an interface to declare an
     # inline call
@@ -797,8 +808,8 @@ def test_interface_item_in_subroutine(here):
     }
 
 
-def test_procedure_binding_item1(here):
-    proj = here/'sources/projBatch'
+def test_procedure_binding_item1(testdir):
+    proj = testdir/'sources/projBatch'
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -822,8 +833,8 @@ def test_procedure_binding_item1(here):
     assert items[0].ir is item.source['t_proc']
 
 
-def test_procedure_binding_item2(here, default_config):
-    proj = here/'sources/projBatch'
+def test_procedure_binding_item2(testdir, default_config):
+    proj = testdir/'sources/projBatch'
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -863,8 +874,8 @@ def test_procedure_binding_item2(here, default_config):
     assert 't_mod#my_way' in item_factory.item_cache
 
 
-def test_procedure_binding_item3(here):
-    proj = here/'sources/projBatch'
+def test_procedure_binding_item3(testdir):
+    proj = testdir/'sources/projBatch'
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -901,8 +912,8 @@ def test_procedure_binding_item3(here):
     ({'default': {'disable': ['tt%proc']}}, ((),)),
     ({'default': {'disable': ['tt_mod#tt%proc']}}, ((),)),
 ])
-def test_procedure_binding_with_config(here, config, expected_dependencies):
-    proj = here/'sources/projBatch'
+def test_procedure_binding_with_config(testdir, config, expected_dependencies):
+    proj = testdir/'sources/projBatch'
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -924,12 +935,12 @@ def test_procedure_binding_with_config(here, config, expected_dependencies):
             item = items[0]
 
 
-def test_item_graph(here, comp1_expected_dependencies):
+def test_item_graph(testdir, comp1_expected_dependencies):
     """
     Build a :any:`nx.Digraph` from a dummy call hierarchy to check the incremental parsing and
     discovery behaves as expected.
     """
-    proj = here/'sources/projBatch'
+    proj = testdir/'sources/projBatch'
     suffixes = ['.f90', '.F90']
 
     path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
@@ -989,9 +1000,9 @@ def test_item_graph(here, comp1_expected_dependencies):
      # Not fully-qualified procedure name for a module procedure
     ('mod_proc', 'mod_proc_expected_dependencies'),
 ])
-def test_sgraph_from_seed(here, default_config, seed, dependencies_fixture, request):
+def test_sgraph_from_seed(testdir, default_config, seed, dependencies_fixture, request):
     expected_dependencies = request.getfixturevalue(dependencies_fixture)
-    proj = here/'sources/projBatch'
+    proj = testdir/'sources/projBatch'
     suffixes = ['.f90', '.F90']
 
     path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
@@ -1062,8 +1073,8 @@ def test_sgraph_from_seed(here, default_config, seed, dependencies_fixture, requ
         't_mod#t%yay%proc', 'tt_mod#tt%proc'
     ))
 ])
-def test_sgraph_disable(here, default_config, expected_dependencies, seed, disable, active_nodes):
-    proj = here/'sources/projBatch'
+def test_sgraph_disable(testdir, default_config, expected_dependencies, seed, disable, active_nodes):
+    proj = testdir/'sources/projBatch'
     suffixes = ['.f90', '.F90']
 
     path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
@@ -1127,8 +1138,8 @@ def test_sgraph_disable(here, default_config, expected_dependencies, seed, disab
         )
     ),
 ])
-def test_sgraph_routines(here, default_config, expected_dependencies, seed, routines, active_nodes):
-    proj = here/'sources/projBatch'
+def test_sgraph_routines(testdir, default_config, expected_dependencies, seed, routines, active_nodes):
+    proj = testdir/'sources/projBatch'
     suffixes = ['.f90', '.F90']
 
     path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
@@ -1196,8 +1207,8 @@ def test_sgraph_routines(here, default_config, expected_dependencies, seed, rout
     assert set(item_factory.item_cache[seed].targets) == set(targets)
 
 
-def test_sgraph_filegraph(here, default_config, file_dependencies):
-    proj = here/'sources/projBatch'
+def test_sgraph_filegraph(testdir, default_config, file_dependencies):
+    proj = testdir/'sources/projBatch'
     suffixes = ['.f90', '.F90']
 
     path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
@@ -1232,8 +1243,8 @@ def test_sgraph_filegraph(here, default_config, file_dependencies):
         for dependency in dependencies
     }
 
-def discover_proj_typebound_item_factory(here, scheduler_config):
-    proj = here/'sources/projTypeBound'
+def discover_proj_typebound_item_factory(testdir, scheduler_config):
+    proj = testdir/'sources/projTypeBound'
     suffixes = ['.f90', '.F90']
 
     path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
@@ -1494,7 +1505,7 @@ def discover_proj_typebound_item_factory(here, scheduler_config):
     ),
 ])
 def test_batch_typebound_item(
-    here, default_config,
+    testdir, default_config,
     name, config_override, item_type, ir_type, attrs_to_check, dependency_items
 ):
     """
@@ -1503,7 +1514,7 @@ def test_batch_typebound_item(
     """
     default_config['default'].update(config_override)
     scheduler_config = SchedulerConfig.from_dict(default_config)
-    item_factory = discover_proj_typebound_item_factory(here, scheduler_config)
+    item_factory = discover_proj_typebound_item_factory(testdir, scheduler_config)
 
     item = item_factory.item_cache[name]
     assert isinstance(item, item_type)
@@ -1515,20 +1526,20 @@ def test_batch_typebound_item(
     assert item.create_dependency_items(item_factory, scheduler_config) == dependency_items
 
 
-def test_batch_typebound_nested_item(here, default_config):
+def test_batch_typebound_nested_item(testdir, default_config):
     """
     Test the basic regex frontend nodes in :any:`Item` objects for fast dependency detection
     for type-bound procedures for calls to nested derived type bindings
     """
     scheduler_config = SchedulerConfig.from_dict(default_config)
-    item_factory = discover_proj_typebound_item_factory(here, scheduler_config)
+    item_factory = discover_proj_typebound_item_factory(testdir, scheduler_config)
 
     item = item_factory.item_cache['typebound_other#other_member']
     assert isinstance(item, ProcedureItem)
     assert isinstance(item.ir, Subroutine)
     assert len(item.dependencies) == 4
 
-    assert isinstance(item.dependencies[0], Import)
+    assert isinstance(item.dependencies[0], ir.Import)
     assert item.dependencies[0].module == 'typebound_header'
 
     # Verify that the call to the nested type's routine is added when creating

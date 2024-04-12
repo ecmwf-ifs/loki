@@ -58,16 +58,26 @@ from subprocess import CalledProcessError
 import pytest
 
 from loki import (
-    Scheduler, SchedulerConfig, DependencyTransformation,
-    HAVE_FP, HAVE_OFP, HAVE_OMNI, Sourcefile, FindNodes, CallStatement,
-    fexprgen, Transformation, BasicType, Subroutine,
-    gettempdir, ProcedureSymbol, Item, ProcedureItem, ProcedureBindingItem, InterfaceItem,
-    ProcedureType, DerivedType, TypeDef, Scalar, Array, FindInlineCalls,
-    Import, flatten, as_tuple, TypeDefItem, SFilter, CaseInsensitiveDict, Comment,
-    ModuleWrapTransformation, Dimension, PreprocessorDirective, ExternalItem,
-    Pipeline, Assignment, Literal, graphviz_present
+    Sourcefile, Subroutine, Dimension, Pipeline, fexprgen, BasicType,
+    gettempdir, ProcedureType, DerivedType, flatten, as_tuple,
+    CaseInsensitiveDict, graphviz_present
 )
-from loki.frontend import available_frontends, OMNI, OFP, FP, REGEX
+from loki.batch import (
+    Scheduler, SchedulerConfig, Item, ProcedureItem,
+    ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
+    ExternalItem
+)
+from loki.expression import (
+    Scalar, Array, Literal, ProcedureSymbol, FindInlineCalls
+)
+from loki.frontend import (
+    available_frontends, OMNI, OFP, FP, REGEX, HAVE_FP, HAVE_OFP, HAVE_OMNI
+)
+from loki.ir import nodes as ir, FindNodes
+from loki.transform import (
+    Transformation, DependencyTransformation, ModuleWrapTransformation
+)
+
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
 
@@ -75,6 +85,11 @@ pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser an
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
 
 
 @pytest.fixture(name='config')
@@ -237,8 +252,8 @@ class VisGraphWrapper:
         return list(self._re_edges.findall(self.text))
 
 
-def test_scheduler_enrichment(here, config, frontend):
-    projA = here/'sources/projA'
+def test_scheduler_enrichment(testdir, config, frontend):
+    projA = testdir/'sources/projA'
 
     scheduler = Scheduler(
         paths=projA, includes=projA/'include', config=config,
@@ -249,7 +264,7 @@ def test_scheduler_enrichment(here, config, frontend):
         dependency_map = CaseInsensitiveDict(
             (item_.local_name, item_) for item_ in scheduler.sgraph.successors(item)
         )
-        for call in FindNodes(CallStatement).visit(item.ir.body):
+        for call in FindNodes(ir.CallStatement).visit(item.ir.body):
             if call_item := dependency_map.get(str(call.name)):
                 assert call.routine is call_item.ir
 
@@ -258,7 +273,10 @@ def test_scheduler_enrichment(here, config, frontend):
 @pytest.mark.parametrize('with_file_graph', [True, False, 'filegraph_simple'])
 @pytest.mark.parametrize('with_legend', [True, False])
 @pytest.mark.parametrize('seed', ['driverA', 'driverA_mod#driverA'])
-def test_scheduler_graph_simple(here, config, frontend, driverA_dependencies, with_file_graph, with_legend, seed):
+def test_scheduler_graph_simple(
+        here, testdir, config, frontend, driverA_dependencies,
+        with_file_graph, with_legend, seed
+):
     """
     Create a simple task graph from a single sub-project:
 
@@ -266,7 +284,7 @@ def test_scheduler_graph_simple(here, config, frontend, driverA_dependencies, wi
                            |
                            | --> another_l1 -> another_l2
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
 
     scheduler = Scheduler(
         paths=projA, includes=projA/'include', config=config,
@@ -338,7 +356,7 @@ def test_scheduler_graph_simple(here, config, frontend, driverA_dependencies, wi
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 @pytest.mark.parametrize('seed', ['compute_l1', 'compute_l1_mod#compute_l1'])
-def test_scheduler_graph_partial(here, config, frontend, seed):
+def test_scheduler_graph_partial(here, testdir, config, frontend, seed):
     """
     Create a sub-graph from a select set of branches in  single project:
 
@@ -346,7 +364,7 @@ def test_scheduler_graph_partial(here, config, frontend, seed):
 
            another_l1 -> another_l2
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
 
     config['routines'] = {
         seed: {
@@ -391,7 +409,7 @@ def test_scheduler_graph_partial(here, config, frontend, seed):
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
-def test_scheduler_graph_config_file(here, frontend):
+def test_scheduler_graph_config_file(here, testdir, frontend):
     """
     Create a sub-graph from a branches using a config file:
 
@@ -399,7 +417,7 @@ def test_scheduler_graph_config_file(here, frontend):
 
            another_l1 -> another_l2
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
     config = projA/'scheduler_partial.config'
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
@@ -436,7 +454,7 @@ def test_scheduler_graph_config_file(here, frontend):
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 @pytest.mark.parametrize('seed', ['driverA', 'driverA_mod#driverA'])
-def test_scheduler_graph_blocked(here, config, frontend, seed):
+def test_scheduler_graph_blocked(here, testdir, config, frontend, seed):
     """
     Create a simple task graph with a single branch blocked:
 
@@ -444,7 +462,7 @@ def test_scheduler_graph_blocked(here, config, frontend, seed):
                            |
                            X --> <blocked>
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
 
     config['default']['block'] = ['another_l1']
 
@@ -506,7 +524,7 @@ def test_scheduler_graph_blocked(here, config, frontend, seed):
 
 
 @pytest.mark.parametrize('seed', ['driverA', 'driverA_mod#driverA'])
-def test_scheduler_definitions(here, config, frontend, seed):
+def test_scheduler_definitions(testdir, config, frontend, seed):
     """
     Create a simple task graph and inject type info via `definitions`.
 
@@ -515,7 +533,7 @@ def test_scheduler_definitions(here, config, frontend, seed):
                      <header_type>
                            | --> another_l1 -> another_l2
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
 
     header = Sourcefile.from_file(projA/'module/header_mod.f90', frontend=frontend)
 
@@ -525,7 +543,7 @@ def test_scheduler_definitions(here, config, frontend, seed):
     )
 
     driver = scheduler.item_factory.item_cache['drivera_mod#drivera'].ir
-    call = FindNodes(CallStatement).visit(driver.body)[0]
+    call = FindNodes(ir.CallStatement).visit(driver.body)[0]
     assert call.arguments[0].parent.type.dtype.typedef is not BasicType.DEFERRED
     assert fexprgen(call.arguments[0].shape) == '(:,)'
     assert call.arguments[1].parent.type.dtype.typedef is not BasicType.DEFERRED
@@ -533,7 +551,7 @@ def test_scheduler_definitions(here, config, frontend, seed):
 
 
 @pytest.mark.parametrize('seed', ['compute_l1', 'compute_l1_mod#compute_l1'])
-def test_scheduler_process(here, config, frontend, seed):
+def test_scheduler_process(testdir, config, frontend, seed):
     """
     Create a simple task graph from a single sub-project
     and apply a simple transformation to it.
@@ -544,7 +562,7 @@ def test_scheduler_process(here, config, frontend, seed):
                            | --> another_l1 -> another_l2
                                   <driver>      <kernel>
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
 
     config['routines'] = {
         seed: {
@@ -565,7 +583,7 @@ def test_scheduler_process(here, config, frontend, seed):
         """
         def transform_subroutine(self, routine, **kwargs):
             role = kwargs.get('role', None)
-            routine.body.prepend(Comment(f'! {role}'))
+            routine.body.prepend(ir.Comment(f'! {role}'))
 
     # Apply re-naming transformation and check result
     scheduler.process(transformation=RoleComment())
@@ -578,13 +596,13 @@ def test_scheduler_process(here, config, frontend, seed):
     }
     for key, role in key_role_map.items():
         comment = scheduler[key].ir.body.body[0]
-        assert isinstance(comment, Comment)
+        assert isinstance(comment, ir.Comment)
         assert comment.text == f'! {role}'
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 @pytest.mark.parametrize('seed', ['driverE_single', 'driverE_mod#driverE_single'])
-def test_scheduler_process_filter(here, config, frontend, seed):
+def test_scheduler_process_filter(testdir, config, frontend, seed):
     """
     Applies simple kernels over complex callgraphs to check that we
     only apply to the entities requested and only once!
@@ -593,8 +611,8 @@ def test_scheduler_process_filter(here, config, frontend, seed):
                                   |
                                   | --> ghost_busters
     """
-    projA = here/'sources/projA'
-    projB = here/'sources/projB'
+    projA = testdir/'sources/projA'
+    projB = testdir/'sources/projB'
 
     config['routines'] = {
         seed: {'role': 'driver', 'expand': True,},
@@ -609,7 +627,7 @@ def test_scheduler_process_filter(here, config, frontend, seed):
         Prepend an 'X' comment to a given :any:`Subroutine`
         """
         def transform_subroutine(self, routine, **kwargs):
-            routine.body.prepend(Comment('! X'))
+            routine.body.prepend(ir.Comment('! X'))
 
     # Apply transformation and check result
     scheduler.process(transformation=XMarksTheSpot())
@@ -632,21 +650,21 @@ def test_scheduler_process_filter(here, config, frontend, seed):
     for key, is_transformed in key_x_map.items():
         item = scheduler[key]
         if is_transformed:
-            ir = item.ir
+            item_ir = item.ir
         else:
             # key should not be found in the callgraph but scope should still exist in the
             # item_cache because the file has been indexed
             assert item is None
             scope_name, local_name = key.split('#')
             assert scope_name in scheduler.item_factory.item_cache
-            ir = scheduler.item_factory.item_cache[scope_name].ir[local_name]
-        first_node = ir.body.body[0]
-        first_node_is_x = isinstance(first_node, Comment) and first_node.text == '! X'
+            item_ir = scheduler.item_factory.item_cache[scope_name].ir[local_name]
+        first_node = item_ir.body.body[0]
+        first_node_is_x = isinstance(first_node, ir.Comment) and first_node.text == '! X'
         assert first_node_is_x == is_transformed
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
-def test_scheduler_graph_multiple_combined(here, config, driverB_dependencies, frontend):
+def test_scheduler_graph_multiple_combined(here, testdir, config, driverB_dependencies, frontend):
     """
     Create a single task graph spanning two projects
 
@@ -654,8 +672,8 @@ def test_scheduler_graph_multiple_combined(here, config, driverB_dependencies, f
                          |
     projB:          ext_driver -> ext_kernel
     """
-    projA = here/'sources/projA'
-    projB = here/'sources/projB'
+    projA = testdir/'sources/projA'
+    projB = testdir/'sources/projB'
 
     scheduler = Scheduler(
         paths=[projA, projB], includes=projA/'include', config=config,
@@ -687,7 +705,7 @@ def test_scheduler_graph_multiple_combined(here, config, driverB_dependencies, f
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
-def test_scheduler_graph_multiple_separate(here, config, frontend):
+def test_scheduler_graph_multiple_separate(here, testdir, config, frontend):
     """
     Tests combining two scheduler graphs, where that an individual
     sub-branch is pruned in the driver schedule, while IPA meta-info
@@ -700,8 +718,8 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
 
     projB:            ext_driver -> ext_kernel
     """
-    projA = here/'sources/projA'
-    projB = here/'sources/projB'
+    projA = testdir/'sources/projA'
+    projB = testdir/'sources/projB'
 
     configA = config.copy()
     configA['routines'] = {
@@ -783,7 +801,7 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
     assert ('ext_driver_mod#ext_driver', 'ext_kernel_mod#ext_kernel') in schedulerB.dependencies
 
     # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
-    call = FindNodes(CallStatement).visit(schedulerA['kernelb_mod#kernelb'].ir.body)[1]
+    call = FindNodes(ir.CallStatement).visit(schedulerA['kernelb_mod#kernelb'].ir.body)[1]
     assert isinstance(call.routine, Subroutine)
     assert fexprgen(call.routine.arguments) == '(vector(:), matrix(:, :))'
 
@@ -802,7 +820,7 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
 
 
 @pytest.mark.parametrize('strict', [True, False])
-def test_scheduler_graph_multiple_separate_enrich_fail(here, config, frontend, strict):
+def test_scheduler_graph_multiple_separate_enrich_fail(testdir, config, frontend, strict):
     """
     Tests that explicit enrichment in "strict" mode will fail because it can't
     find ext_driver
@@ -813,7 +831,7 @@ def test_scheduler_graph_multiple_separate_enrich_fail(here, config, frontend, s
 
     projB:            ext_driver -> ext_kernelfail
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
 
     configA = config.copy()
     configA['default']['strict'] = strict
@@ -856,7 +874,7 @@ def test_scheduler_graph_multiple_separate_enrich_fail(here, config, frontend, s
         schedulerA.process(transformation=DummyTrafo())
 
 
-def test_scheduler_module_dependency(here, config, frontend):
+def test_scheduler_module_dependency(testdir, config, frontend):
     """
     Ensure dependency chasing is done correctly, even with surboutines
     that do not match module names.
@@ -865,8 +883,8 @@ def test_scheduler_module_dependency(here, config, frontend):
                            |
     projC:                 | --> routine_one -> routine_two
     """
-    projA = here/'sources/projA'
-    projC = here/'sources/projC'
+    projA = testdir/'sources/projA'
+    projC = testdir/'sources/projC'
 
     scheduler = Scheduler(
         paths=[projA, projC], includes=projA/'include', config=config,
@@ -893,7 +911,7 @@ def test_scheduler_module_dependency(here, config, frontend):
     assert scheduler['proj_c_util_mod#routine_two'].ir.name == 'routine_two'
 
 
-def test_scheduler_module_dependencies_unqualified(here, config, frontend):
+def test_scheduler_module_dependencies_unqualified(testdir, config, frontend):
     """
     Ensure dependency chasing is done correctly for unqualified module imports.
 
@@ -903,8 +921,8 @@ def test_scheduler_module_dependencies_unqualified(here, config, frontend):
                            |
     projC:                 | --> routine_one -> routine_two
     """
-    projA = here/'sources/projA'
-    projC = here/'sources/projC'
+    projA = testdir/'sources/projA'
+    projC = testdir/'sources/projC'
 
     scheduler = Scheduler(
         paths=[projA, projC], includes=projA/'include', config=config,
@@ -932,7 +950,7 @@ def test_scheduler_module_dependencies_unqualified(here, config, frontend):
 
 
 @pytest.mark.parametrize('strict', [True, False])
-def test_scheduler_missing_files(here, config, frontend, strict):
+def test_scheduler_missing_files(testdir, config, frontend, strict):
     """
     Ensure that ``strict=True`` triggers failure if source paths are
     missing and that ``strict=False`` goes through gracefully.
@@ -941,7 +959,7 @@ def test_scheduler_missing_files(here, config, frontend, strict):
                            |
     projC:                 < cannot find path >
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
 
     config['default']['strict'] = strict
     scheduler = Scheduler(
@@ -985,7 +1003,7 @@ def test_scheduler_missing_files(here, config, frontend, strict):
 @pytest.mark.parametrize('preprocess', [False, True])   # NB: With preprocessing, ext_driver is no longer
                                                         #     wrapped inside a module but instead imported
                                                         #     via an intfb.h
-def test_scheduler_dependencies_ignore(here, preprocess, frontend):
+def test_scheduler_dependencies_ignore(here, testdir, preprocess, frontend):
     """
     Test multi-lib transformation by applying the :any:`DependencyTransformation`
     over two distinct projects with two distinct invocations.
@@ -994,8 +1012,8 @@ def test_scheduler_dependencies_ignore(here, preprocess, frontend):
                          |
     projB:          ext_driver -> ext_kernel
     """
-    projA = here/'sources/projA'
-    projB = here/'sources/projB'
+    projA = testdir/'sources/projA'
+    projB = testdir/'sources/projB'
 
     configA = SchedulerConfig.from_dict({
         'default': {
@@ -1110,7 +1128,7 @@ def test_scheduler_dependencies_ignore(here, preprocess, frontend):
     assert schedulerB['ext_kernel_test_mod#ext_kernel_test'].source.all_subroutines[0].name == 'ext_kernel_test'
 
 
-def test_scheduler_cmake_planner(here, frontend):
+def test_scheduler_cmake_planner(here, testdir, frontend):
     """
     Test the plan generation feature over a call hierarchy spanning two
     distinctive projects.
@@ -1120,7 +1138,7 @@ def test_scheduler_cmake_planner(here, frontend):
     projB:          ext_driver -> ext_kernel
     """
 
-    sourcedir = here/'sources'
+    sourcedir = testdir/'sources'
     proj_a = sourcedir/'projA'
     proj_b = sourcedir/'projB'
 
@@ -1182,7 +1200,7 @@ def test_scheduler_cmake_planner(here, frontend):
     builddir.rmdir()
 
 
-def test_scheduler_item_dependencies(here):
+def test_scheduler_item_dependencies(testdir):
     """
     Make sure children are correct and unique for items
     """
@@ -1194,7 +1212,7 @@ def test_scheduler_item_dependencies(here):
         }
     })
 
-    proj_hoist = here/'sources/projHoist'
+    proj_hoist = testdir/'sources/projHoist'
 
     scheduler = Scheduler(paths=proj_hoist, config=config)
 
@@ -1223,7 +1241,7 @@ def test_scheduler_item_dependencies(here):
 
 
 @pytest.fixture(name='loki_69_dir')
-def fixture_loki_69_dir(here):
+def fixture_loki_69_dir(testdir):
     """
     Fixture to write test file for LOKI-69 test.
     """
@@ -1277,7 +1295,7 @@ implicit none
 end subroutine test
     """.strip()
 
-    dirname = here/'loki69'
+    dirname = testdir/'loki69'
     dirname.mkdir(exist_ok=True)
     filename = dirname/'test.F90'
     filename.write_text(fcode)
@@ -1318,7 +1336,7 @@ def test_scheduler_loki_69(loki_69_dir):
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
-def test_scheduler_scopes(here, config, frontend):
+def test_scheduler_scopes(here, testdir, config, frontend):
     """
     Test discovery with import renames and duplicate names in separate scopes
 
@@ -1326,7 +1344,7 @@ def test_scheduler_scopes(here, config, frontend):
         |
         +--------> kernel2_mod#kernel ----> kernel2_impl#kernel_impl
     """
-    proj = here/'sources/projScopes'
+    proj = testdir/'sources/projScopes'
 
     scheduler = Scheduler(paths=proj, seed_routines=['driver'], config=config, frontend=frontend)
 
@@ -1373,7 +1391,7 @@ def test_scheduler_scopes(here, config, frontend):
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
-def test_scheduler_typebound(here, config, frontend, proj_typebound_dependencies):
+def test_scheduler_typebound(here, testdir, config, frontend, proj_typebound_dependencies):
     """
     Test correct dependency chasing for typebound procedure calls.
 
@@ -1390,7 +1408,7 @@ def test_scheduler_typebound(here, config, frontend, proj_typebound_dependencies
                  |                                                                             |
                  +------------>other_type%var%%member_routine -> header_type%member_routine  --+
     """
-    proj = here/'sources/projTypeBound'
+    proj = testdir/'sources/projTypeBound'
 
     scheduler = Scheduler(
         paths=proj, seed_routines=['driver'], config=config,
@@ -1417,7 +1435,7 @@ def test_scheduler_typebound(here, config, frontend, proj_typebound_dependencies
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
-def test_scheduler_typebound_ignore(here, config, frontend, proj_typebound_dependencies):
+def test_scheduler_typebound_ignore(here, testdir, config, frontend, proj_typebound_dependencies):
     """
     Test correct dependency chasing for typebound procedure calls with ignore working for
     typebound procedures correctly.
@@ -1433,7 +1451,7 @@ def test_scheduler_typebound_ignore(here, config, frontend, proj_typebound_depen
                    |                           +---> header_type%routine_integer -> routine_integer
                    +---------->other_type%member -> other_member -> header_member_routine
     """
-    proj = here/'sources/projTypeBound'
+    proj = testdir/'sources/projTypeBound'
 
     config['default']['disable'] += [
         'some_type%some_routine',
@@ -1484,12 +1502,12 @@ def test_scheduler_typebound_ignore(here, config, frontend, proj_typebound_depen
 
 @pytest.mark.parametrize('use_file_graph', [False, True])
 @pytest.mark.parametrize('reverse', [False, True])
-def test_scheduler_traversal_order(here, config, frontend, use_file_graph, reverse):
+def test_scheduler_traversal_order(here, testdir, config, frontend, use_file_graph, reverse):
     """
     Test correct traversal order for scheduler processing
 
     """
-    proj = here/'sources/projHoist'
+    proj = testdir/'sources/projHoist'
 
     scheduler = Scheduler(
         paths=proj, seed_routines=['driver'], config=config,
@@ -1726,7 +1744,7 @@ end subroutine driver
     scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['driver'], frontend=frontend)
 
     driver = scheduler['#driver'].source['driver']
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls) == 3
     for call in calls:
         assert isinstance(call.name, ProcedureSymbol)
@@ -1738,21 +1756,21 @@ end subroutine driver
 
     assert isinstance(calls[0].name.parent, Scalar)
     assert calls[0].name.parent.type.dtype.name == 'third_type'
-    assert isinstance(calls[0].name.parent.type.dtype.typedef, TypeDef)
+    assert isinstance(calls[0].name.parent.type.dtype.typedef, ir.TypeDef)
 
     assert isinstance(calls[1].name.parent, Array)
     assert calls[1].name.parent.type.dtype.name == 'my_type'
-    assert isinstance(calls[1].name.parent.type.dtype.typedef, TypeDef)
+    assert isinstance(calls[1].name.parent.type.dtype.typedef, ir.TypeDef)
 
     assert isinstance(calls[1].name.parent.parent, Array)
     assert isinstance(calls[1].name.parent.parent.type.dtype, DerivedType)
     assert calls[1].name.parent.parent.type.dtype.name == 'other_type'
-    assert isinstance(calls[1].name.parent.parent.type.dtype.typedef, TypeDef)
+    assert isinstance(calls[1].name.parent.parent.type.dtype.typedef, ir.TypeDef)
 
     assert isinstance(calls[1].name.parent.parent.parent, Scalar)
     assert isinstance(calls[1].name.parent.parent.parent.type.dtype, DerivedType)
     assert calls[1].name.parent.parent.parent.type.dtype.name == 'third_type'
-    assert isinstance(calls[1].name.parent.parent.parent.type.dtype.typedef, TypeDef)
+    assert isinstance(calls[1].name.parent.parent.parent.type.dtype.typedef, ir.TypeDef)
 
     inline_calls = FindInlineCalls().visit(driver.body)
     assert len(inline_calls) == 2
@@ -1764,19 +1782,19 @@ end subroutine driver
         assert isinstance(call.function.parent, Array)
         assert isinstance(call.function.parent.type.dtype, DerivedType)
         assert call.function.parent.type.dtype.name == 'other_type'
-        assert isinstance(call.function.parent.type.dtype.typedef, TypeDef)
+        assert isinstance(call.function.parent.type.dtype.typedef, ir.TypeDef)
 
         assert call.function.parent.parent
         assert isinstance(call.function.parent.parent, Scalar)
         assert isinstance(call.function.parent.parent.type.dtype, DerivedType)
         assert call.function.parent.parent.type.dtype.name == 'third_type'
-        assert isinstance(call.function.parent.parent.type.dtype.typedef, TypeDef)
+        assert isinstance(call.function.parent.parent.type.dtype.typedef, ir.TypeDef)
 
     rmtree(workdir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scheduler_interface_inline_call(here, config, frontend):
+def test_scheduler_interface_inline_call(here, testdir, config, frontend):
     """
     Test that inline function calls declared via an explicit interface are added as dependencies.
     """
@@ -1789,7 +1807,7 @@ def test_scheduler_interface_inline_call(here, config, frontend):
         }
     }
 
-    scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
+    scheduler = Scheduler(paths=testdir/'sources/projInlineCalls', config=my_config, frontend=frontend)
 
     expected_dependencies = {
         '#driver': (
@@ -1910,7 +1928,7 @@ end subroutine test_scheduler_interface_dependencies_driver
     rmtree(workdir)
 
 
-def test_scheduler_item_successors(here, config, frontend):
+def test_scheduler_item_successors(testdir, config, frontend):
     """
     Test that scheduler.item_successors always returns the original item.
     """
@@ -1920,7 +1938,7 @@ def test_scheduler_item_successors(here, config, frontend):
         'driver': { 'role': 'driver' }
     }
 
-    scheduler = Scheduler(paths=here/'sources/projInlineCalls', config=my_config, frontend=frontend)
+    scheduler = Scheduler(paths=testdir/'sources/projInlineCalls', config=my_config, frontend=frontend)
     import_item = scheduler['vars_module']
     driver_item = scheduler['#driver']
     kernel_item = scheduler['#double_real']
@@ -2260,20 +2278,20 @@ def test_scheduler_unqualified_imports(config):
     assert len(item.dependencies) == 3
     children = set()
     for dep in item.dependencies:
-        if isinstance(dep, Import):
+        if isinstance(dep, ir.Import):
             if dep.symbols:
                 children |= {f'{dep.module}#{str(s)}'.lower() for s in dep.symbols}
             else:
                 children.add(dep.module.lower())
-        elif isinstance(dep, CallStatement):
+        elif isinstance(dep, ir.CallStatement):
             children.add(str(dep.name).lower())
         else:
             assert False, 'Unexpected dependency type'
     assert children == {'some_mod', 'other_mod#other_routine', 'other_routine'}
 
 
-def test_scheduler_depths(here, config, frontend):
-    projA = here/'sources/projA'
+def test_scheduler_depths(testdir, config, frontend):
+    projA = testdir/'sources/projA'
 
     scheduler = Scheduler(
         paths=projA, includes=projA/'include', config=config,
@@ -2293,7 +2311,7 @@ def test_scheduler_depths(here, config, frontend):
     assert scheduler.sgraph.depths == expected_depths
 
 
-def test_scheduler_disable_wildcard(here, config):
+def test_scheduler_disable_wildcard(testdir, config):
 
     fcode_mod = """
 module field_mod
@@ -2330,7 +2348,7 @@ end subroutine my_driver
 """
 
     # Set up the test files
-    dirname = here/'test_scheduler_disable_wildcard'
+    dirname = testdir/'test_scheduler_disable_wildcard'
     dirname.mkdir(exist_ok=True)
     modfile = dirname/'field_mod.F90'
     modfile.write_text(fcode_mod)
@@ -2420,7 +2438,7 @@ def test_transformation_config(config):
         cfg = SchedulerConfig.from_dict(worst_config)
 
 
-def test_transformation_config_external_with_dimension(here, config):
+def test_transformation_config_external_with_dimension(testdir, config):
     """
     Test instantiation of :any:`Transformation` from config with
     :any:`Dimension` argument.
@@ -2433,7 +2451,7 @@ def test_transformation_config_external_with_dimension(here, config):
         'CallMeRick': {
             'classname': 'CallMeMaybeTrafo',
             'module': 'call_me_trafo',
-            'path': str(here/'sources'),
+            'path': str(testdir/'sources'),
             'options': { 'name': 'Rick', 'horizontal': '%dimensions.ij%' }
         }
     }
@@ -2682,7 +2700,7 @@ end subroutine test_scheduler_frontend_args4
     }
 
     for item in scheduler.items:
-        cpp_directives = FindNodes(PreprocessorDirective).visit(item.ir.ir)
+        cpp_directives = FindNodes(ir.PreprocessorDirective).visit(item.ir.ir)
         assert bool(cpp_directives) == (item in has_cpp_directives and frontend != OMNI)
         # NB: OMNI always does preprocessing, therefore we won't find the CPP directives
         #     after the full parse
@@ -2754,14 +2772,14 @@ end subroutine test_scheduler_frontend_overwrite_kernel
     }
 
     # ...and the derived type has it's comment
-    comments = FindNodes(Comment).visit(scheduler['test_scheduler_frontend_overwrite_header#some_type'].ir.body)
+    comments = FindNodes(ir.Comment).visit(scheduler['test_scheduler_frontend_overwrite_header#some_type'].ir.body)
     assert len(comments) == 1
     assert comments[0].text == '! We have a comment'
 
     rmtree(workdir)
 
 
-def test_scheduler_pipeline_simple(here, config, frontend):
+def test_scheduler_pipeline_simple(testdir, config, frontend):
     """
     Test processing a :any:`Pipeline` over a simple call-tree.
 
@@ -2769,7 +2787,7 @@ def test_scheduler_pipeline_simple(here, config, frontend):
                            |
                            | --> another_l1 -> another_l2
     """
-    projA = here/'sources/projA'
+    projA = testdir/'sources/projA'
 
     scheduler = Scheduler(
         paths=projA, includes=projA/'include', config=config,
@@ -2782,7 +2800,7 @@ def test_scheduler_pipeline_simple(here, config, frontend):
         def transform_subroutine(self, routine, **kwargs):
             for v in routine.variables:
                 if isinstance(v, Array):
-                    routine.body.append(Assignment(lhs=v, rhs=Literal(0.0)))
+                    routine.body.append(ir.Assignment(lhs=v, rhs=Literal(0.0)))
 
     class AddSnarkTrafo(Transformation):
         """ Add a snarky comment to the zeroing """
@@ -2791,17 +2809,17 @@ def test_scheduler_pipeline_simple(here, config, frontend):
             self.name = name
 
         def transform_subroutine(self, routine, **kwargs):
-            routine.body.append(Comment(text=''))  # Add a newline
-            routine.body.append(Comment(text=f'! Sorry {self.name}, no values for you!'))
+            routine.body.append(ir.Comment(text=''))  # Add a newline
+            routine.body.append(ir.Comment(text=f'! Sorry {self.name}, no values for you!'))
 
     def has_correct_assigns(routine, num_assign, values=None):
-        assigns = FindNodes(Assignment).visit(routine.body)
+        assigns = FindNodes(ir.Assignment).visit(routine.body)
         values = values or [0.0]
         return len(assigns) == num_assign and all(a.rhs in values for a in assigns)
 
     def has_correct_comments(routine, name='Dave'):
         text = f'! Sorry {name}, no values for you!'
-        comments = FindNodes(Comment).visit(routine.body)
+        comments = FindNodes(ir.Comment).visit(routine.body)
         return len(comments) > 2 and comments[-1].text == text
 
     # First apply in sequence and check effect
