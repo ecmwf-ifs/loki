@@ -31,6 +31,11 @@ def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
+
+
 @pytest.fixture(scope='module', name='rules')
 def fixture_rules():
     rules = importlib.import_module('rules')
@@ -145,7 +150,7 @@ def test_lazy_textfile():
 
 @pytest.mark.parametrize('max_workers', [None, 1])
 @pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',4)])
-def test_linter_junitxml(here, max_workers, fail_on, failures):
+def test_linter_junitxml(testdir, max_workers, fail_on, failures):
     class RandomFailingRule(GenericRule):
         type = RuleType.WARN
         docs = {'title': 'A dummy rule for the sake of testing the Linter'}
@@ -156,7 +161,7 @@ def test_linter_junitxml(here, max_workers, fail_on, failures):
             if fail_on and fail_on in subroutine.name:
                 rule_report.add(cls.__name__, subroutine)
 
-    basedir = here.parent/'sources'
+    basedir = testdir/'sources'
     junitxml_file = gettempdir()/'linter_junitxml_outputfile.xml'
     junitxml_file.unlink(missing_ok=True)
     config = {
@@ -184,7 +189,7 @@ def test_linter_junitxml(here, max_workers, fail_on, failures):
 @pytest.mark.parametrize('max_workers', [None, 1])
 @pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',4)])
 @pytest.mark.parametrize('use_line_hashes', [None, False, True])
-def test_linter_violation_file(here, rules, max_workers, fail_on, failures, use_line_hashes):
+def test_linter_violation_file(testdir, rules, max_workers, fail_on, failures, use_line_hashes):
     class RandomFailingRule(GenericRule):
         type = RuleType.WARN
         docs = {'title': 'A dummy rule for the sake of testing the Linter'}
@@ -195,7 +200,7 @@ def test_linter_violation_file(here, rules, max_workers, fail_on, failures, use_
             if fail_on and fail_on in subroutine.name:
                 rule_report.add(cls.__name__, subroutine)
 
-    basedir = here.parent/'sources'
+    basedir = testdir/'sources'
     violations_file = gettempdir()/'linter_violations_file.yml'
     violations_file.unlink(missing_ok=True)
     config = {

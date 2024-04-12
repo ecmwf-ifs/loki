@@ -29,6 +29,11 @@ def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='testdir')
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
+
+
 @pytest.fixture(scope='module', name='dummy_file')
 def dummy_file_fixture(here):
     file_path = here/'test_linter_dummy_file.F90'
@@ -393,8 +398,8 @@ class PicklableTestHandler(GenericHandler):
         'projA/source/another_l2.F90'
     ])
 ])
-def test_linter_lint_files_glob(here, rules, counter, exclude, files, max_workers):
-    basedir = here.parent/'sources'
+def test_linter_lint_files_glob(testdir, rules, counter, exclude, files, max_workers):
+    basedir = testdir/'sources'
     config = {
         'basedir': str(basedir),
         'include': ['projA/**/*.f90', 'projA/**/*.F90'],
@@ -454,8 +459,8 @@ def test_linter_lint_files_glob(here, rules, counter, exclude, files, max_worker
         'module/header_mod.f90'
     ]),
 ])
-def test_linter_lint_files_scheduler(here, rules, routines, files):
-    basedir = here.parent/'sources/projA'
+def test_linter_lint_files_scheduler(testdir, rules, routines, files):
+    basedir = testdir/'sources/projA'
 
     class TestHandler(GenericHandler):
         def __init__(self, **kwargs):
