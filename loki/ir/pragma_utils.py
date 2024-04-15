@@ -12,7 +12,7 @@ from codetiming import Timer
 
 from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion
 from loki.ir.find import FindNodes
-from loki.ir.transformer import Transformer, MaskedTransformer
+from loki.ir.transformer import Transformer
 from loki.ir.visitor import Visitor
 
 from loki.tools.util import as_tuple, replace_windowed

@@ -14,8 +14,7 @@ from loki.build.builder import Builder
 from loki.build.compiler import compile_and_load
 from loki.build.lib import Lib
 from loki.build.obj import Obj
-from loki.frontend import OFP
-from loki.ir import CallStatement, FindNodes, Section
+from loki.ir import Section
 from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
