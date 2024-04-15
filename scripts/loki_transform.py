@@ -207,7 +207,8 @@ def convert(
     if not remove_code_trafo:
         remove_code_trafo = RemoveCodeTransformation(
             remove_marked_regions=True, remove_dead_code=False,
-            call_names=('ABOR1', 'DR_HOOK'), intrinsic_names=('WRITE(NULOUT',)
+            call_names=scheduler.config.default.get('call_names', None) or ('ABOR1', 'DR_HOOK'),
+            intrinsic_names=scheduler.config.default.get('intrinsic_names', None) or ('WRITE(NULOUT',)
         )
     scheduler.process(transformation=remove_code_trafo)
 
@@ -225,7 +226,7 @@ def convert(
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
             remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
-            resolve_sequence_association=resolve_sequence_association_inlined_calls 
+            resolve_sequence_association=resolve_sequence_association_inlined_calls
         )
     scheduler.process(transformation=inline_trafo)
 

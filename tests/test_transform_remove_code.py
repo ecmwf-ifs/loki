@@ -401,7 +401,9 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
     config = {
         'default': {
             'role': 'kernel', 'expand': True, 'strict': False,
-            'disable': ['dr_hook', 'abor1']
+            'disable': ['dr_hook', 'abor1'],
+            'call_names': ['dr_hook', 'abor1'],
+            'intrinsic_names': ['write(nulout']
         },
         'routines': {
             'rick_astley': {'role': 'driver'},
@@ -412,8 +414,8 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
 
     # Apply the transformation to the call tree
     transformation = RemoveCodeTransformation(
-        call_names=('ABOR1', 'DR_HOOK'),
-        intrinsic_names=('WRITE(NULOUT',) if include_intrinsics else (),
+        call_names=scheduler.config.default['call_names'],
+        intrinsic_names=scheduler.config.default['intrinsic_names'] if include_intrinsics else (),
         kernel_only=kernel_only
     )
     scheduler.process(transformation=transformation)
