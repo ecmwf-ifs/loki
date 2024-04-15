@@ -195,7 +195,7 @@ def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild, silent
     assert cmake_project.exists()
 
     for loki_root in loki_install:
-        with clean_builddir('test_cmake_plan') as builddir:            
+        with clean_builddir('test_cmake_plan') as builddir:
             execute(
                 [f'{ecbuild}/bin/ecbuild', str(srcdir), f'-Dloki_ROOT={loki_root}'],
                 cwd=builddir, silent=silent

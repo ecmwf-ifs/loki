@@ -22,7 +22,7 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple, gettempdir, filehash
 
 
-__all__ = ['jit_compile', 'jit_compile_lib', 'generate_identity' ,'clean_test']
+__all__ = ['jit_compile', 'jit_compile_lib', 'clean_test']
 
 
 _f90wrap_kind_map = Path(__file__).parent.parent/'tests/kind_map'
@@ -103,34 +103,6 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
     lib.build(builder=builder)
     wrap = wrap or sourcefiles
     return lib.wrap(modname=name, sources=wrap, builder=builder, kind_map=_f90wrap_kind_map)
-
-
-def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
-    """
-    Generate the "identity" of a single subroutine with a frontend-specific suffix.
-    """
-    testname = refpath.parent/(f'{refpath.stem}_{routinename}_{frontend}.f90')
-    source = Sourcefile.from_file(refpath, frontend=frontend)
-
-    if modulename:
-        module = [m for m in source.modules if m.name == modulename][0]
-        module.name += f'_{routinename}_{frontend}'
-        for routine in source.all_subroutines:
-            routine.name += f'_{frontend}'
-            for call in FindNodes(CallStatement).visit(routine.body):  # pylint: disable=no-member
-                call.name += f'_{frontend}'
-        source.write(path=testname, source=fgen(module))
-    else:
-        routine = [r for r in source.subroutines if r.name == routinename][0]
-        routine.name += f'_{frontend}'
-        source.write(path=testname, source=fgen(routine))
-
-    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True, f90wrap_kind_map=_f90wrap_kind_map)
-
-    if modulename:
-        # modname = '_'.join(s.capitalize() for s in refpath.stem.split('_'))
-        return getattr(pymod, testname.stem)
-    return pymod
 
 
 def clean_test(filepath):
