@@ -215,11 +215,10 @@ class BlockIndexInjectTransformation(Transformation):
         return rank
 
     def get_call_arg_rank(self, arg, routine):
+        rank = self.get_variable_rank(arg, routine)
         if getattr(arg, 'dimensions', None):
             # We assume here that the callstatement is free of sequence association
-            rank = max(1, len([d for d in arg.dimensions if isinstance(d, RangeIndex)]))
-        else:
-            rank = self.get_variable_rank(arg, routine)
+            rank = rank - len([d for d in arg.dimensions if not isinstance(d, RangeIndex)])
 
         return rank
 
