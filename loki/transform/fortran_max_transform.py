@@ -10,6 +10,7 @@ from pathlib import Path
 from hashlib import sha256
 
 from loki.backend import maxjgen, fgen, cgen
+from loki.batch import Transformation
 from loki.expression import (
     FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
     SubstituteExpressionsMapper, ExpressionRetriever, symbols as sym
@@ -21,8 +22,8 @@ from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten
+
 from loki.transform.fortran_c_transform import FortranCTransformation
-from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_range_indexing

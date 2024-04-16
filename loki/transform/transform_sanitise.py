@@ -12,13 +12,13 @@ constructs to unify code structure and make reasoning about Fortran
 code easier.
 """
 
+from loki.batch import Transformation
 from loki.expression import FindVariables, SubstituteExpressions, Array, RangeIndex
 from loki.ir import CallStatement, FindNodes, Transformer, NestedTransformer
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
 
 from loki.transform.transform_utilities import recursive_expression_map_update
-from loki.transform.transformation import Transformation
 
 
 __all__ = [

@@ -7,7 +7,8 @@
 
 from functools import partial
 
-from loki.transform import Pipeline, HoistTemporaryArraysAnalysis
+from loki.batch import Pipeline
+from loki.transform import HoistTemporaryArraysAnalysis
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from transformations.single_column_base import SCCBaseTransformation
 from transformations.single_column_annotate import SCCAnnotateTransformation

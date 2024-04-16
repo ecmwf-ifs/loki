@@ -81,10 +81,12 @@ using the transformation
     dic2p = {'a': 10}
     scheduler.process(transformation=ParametriseTransformation(dic2p=dic2p, replace_by_value=True))
 """
+
+from loki.batch import Transformation
 from loki.expression import symbols as sym
 from loki.ir import nodes as ir, Transformer, FindNodes
 from loki.tools.util import as_tuple, CaseInsensitiveDict
-from loki.transform.transformation import Transformation
+
 from loki.transform.transform_inline import inline_constant_parameters
 
 

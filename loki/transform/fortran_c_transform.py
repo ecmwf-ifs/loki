@@ -8,7 +8,7 @@
 from pathlib import Path
 from collections import OrderedDict
 
-from loki.transform.transformation import Transformation
+from loki.batch import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_array_shape_and_access,

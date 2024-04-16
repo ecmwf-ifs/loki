@@ -12,6 +12,7 @@ Collection of utility routines to perform code-level force-inlining.
 """
 from collections import defaultdict
 
+from loki.batch import Transformation
 from loki.expression import (
     FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, LokiIdentityMapper
@@ -27,7 +28,6 @@ from loki.logging import warning, error
 from loki.subroutine import Subroutine
 
 from loki.transform.transform_sanitise import transform_sequence_association_append_map
-from loki.transform.transformation import Transformation
 from loki.transform.transform_remove_code import do_remove_dead_code
 from loki.transform.transform_utilities import (
     single_variable_declaration,

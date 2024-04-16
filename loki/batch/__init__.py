@@ -7,6 +7,8 @@
 
 from loki.batch.configure import * # noqa
 from loki.batch.item import * # noqa
+from loki.batch.pipeline import * # noqa
 from loki.batch.scheduler import * # noqa
 from loki.batch.sfilter import * # noqa
 from loki.batch.sgraph import * # noqa
+from loki.batch.transformation import * # noqa

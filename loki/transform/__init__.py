@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.transform.transformation import * # noqa
 from loki.transform.transform_utilities import * # noqa
 from loki.transform.transform_array_indexing import * # noqa
 from loki.transform.transform_inline import * # noqa
@@ -21,4 +20,3 @@ from loki.transform.transform_parametrise import * # noqa
 from loki.transform.transform_extract_contained_procedures import * # noqa
 from loki.transform.transform_remove_code import * # noqa
 from loki.transform.transform_sanitise import * # noqa
-from loki.transform.pipeline import * # noqa

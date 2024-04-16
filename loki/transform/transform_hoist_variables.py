@@ -79,21 +79,24 @@ are provided to create derived classes for specialisation of the actual hoisting
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a',), key=key))
         scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
 """
+
+from loki.batch import Transformation, ProcedureItem
 from loki.expression import FindVariables, SubstituteExpressions
+from loki.expression.expr_visitors import FindInlineCalls
+import loki.expression.symbols as sym
+from loki.expression.symbolic import is_dimension_constant
 from loki.ir import (
     CallStatement, Allocation, Deallocation, Transformer, FindNodes
 )
 from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
-from loki.transform.transformation import Transformation
+
 from loki.transform.transform_utilities import single_variable_declaration
-from loki.batch.item import ProcedureItem
-from loki.expression.expr_visitors import FindInlineCalls
-import loki.expression.symbols as sym
-from loki.expression.symbolic import is_dimension_constant
 
 
-__all__ = ['HoistVariablesAnalysis', 'HoistVariablesTransformation',
-           'HoistTemporaryArraysAnalysis', 'HoistTemporaryArraysTransformationAllocatable']
+__all__ = [
+    'HoistVariablesAnalysis', 'HoistVariablesTransformation',
+    'HoistTemporaryArraysAnalysis', 'HoistTemporaryArraysTransformationAllocatable'
+]
 
 
 class HoistVariablesAnalysis(Transformation):

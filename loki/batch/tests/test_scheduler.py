@@ -58,14 +58,14 @@ from subprocess import CalledProcessError
 import pytest
 
 from loki import (
-    Sourcefile, Subroutine, Dimension, Pipeline, fexprgen, BasicType,
+    Sourcefile, Subroutine, Dimension, fexprgen, BasicType,
     gettempdir, ProcedureType, DerivedType, flatten, as_tuple,
     CaseInsensitiveDict, graphviz_present
 )
 from loki.batch import (
     Scheduler, SchedulerConfig, Item, ProcedureItem,
     ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
-    ExternalItem
+    ExternalItem, Transformation, Pipeline
 )
 from loki.expression import (
     Scalar, Array, Literal, ProcedureSymbol, FindInlineCalls
@@ -74,9 +74,7 @@ from loki.frontend import (
     available_frontends, OMNI, OFP, FP, REGEX, HAVE_FP, HAVE_OFP, HAVE_OMNI
 )
 from loki.ir import nodes as ir, FindNodes
-from loki.transform import (
-    Transformation, DependencyTransformation, ModuleWrapTransformation
-)
+from loki.transform import DependencyTransformation, ModuleWrapTransformation
 
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')

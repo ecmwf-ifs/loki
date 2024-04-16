@@ -7,8 +7,8 @@
 
 from inspect import signature, Parameter
 
+from loki.batch.transformation import Transformation
 from loki.tools import as_tuple, flatten
-from loki.transform.transformation import Transformation
 
 
 class Pipeline:

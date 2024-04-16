@@ -16,15 +16,16 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info
+    Sourcefile, Frontend, as_tuple, set_excepthook,
+    auto_post_mortem_debugger, info
 )
+from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
     DependencyTransformation, ModuleWrapTransformation, FortranCTransformation,
     FileWriteTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
-    InlineTransformation, SanitiseTransformation, RemoveCodeTransformation, Pipeline
+    InlineTransformation, SanitiseTransformation, RemoveCodeTransformation
 )
 
 # pylint: disable=wrong-import-order

@@ -3,13 +3,14 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Sourcefile, Subroutine, Import, FindNodes, FindInlineCalls, fgen,
-    Assignment, IntLiteral, Module, ProcedureItem, Comment
+    Sourcefile, Subroutine, FindInlineCalls, fgen, IntLiteral, Module
 )
+from loki.batch import Transformation, Pipeline, ProcedureItem
 from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI, REGEX
+from loki.ir import nodes as ir, FindNodes
 from loki.transform import (
-    Transformation, replace_selected_kind, FileWriteTransformation, Pipeline
+    replace_selected_kind, FileWriteTransformation
 )
 
 
@@ -28,7 +29,7 @@ def fixture_rename_transform():
 
         def transform_file(self, sourcefile, **kwargs):
             sourcefile.ir.prepend(
-                Comment(text="! [Loki] RenameTransform applied")
+                ir.Comment(text="! [Loki] RenameTransform applied")
             )
 
         def transform_subroutine(self, routine, **kwargs):
@@ -79,7 +80,7 @@ end subroutine myroutine
         raise ValueError(f'Unknown method "{method}"')
     assert not source._incomplete
 
-    assert isinstance(source.ir.body[0], Comment)
+    assert isinstance(source.ir.body[0], ir.Comment)
     assert source.ir.body[0].text == '! [Loki] RenameTransform applied'
 
     assert source.modules[0].name == 'mymodule'
@@ -246,7 +247,7 @@ end subroutine transform_replace_selected_kind
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    imports = FindNodes(Import).visit(routine.spec)
+    imports = FindNodes(ir.Import).visit(routine.spec)
     assert len(imports) == 1 and imports[0].module.lower() == 'iso_fortran_env'
     assert len(imports[0].symbols) == 1 and imports[0].symbols[0].name.lower() == 'int8'
 
@@ -263,7 +264,7 @@ end subroutine transform_replace_selected_kind
     assert not [call for call in FindInlineCalls().visit(routine.ir)
                 if call.name.lower().startswith('selected')]
 
-    imports = FindNodes(Import).visit(routine.spec)
+    imports = FindNodes(ir.Import).visit(routine.spec)
     assert len(imports) == 1 and imports[0].module.lower() == 'iso_fortran_env'
 
     source = fgen(routine).lower()
@@ -307,8 +308,8 @@ def test_transformation_post_apply_subroutine(here, frontend, post_apply_rescope
             i = routine.variable_map['i']
             j = i.clone(name='j', scope=tmp_routine, type=i.type.clone(intent=None))
             routine.variables += (j,)
-            routine.body.append(Assignment(lhs=j, rhs=IntLiteral(2)))
-            routine.body.append(Assignment(lhs=i, rhs=j))
+            routine.body.append(ir.Assignment(lhs=j, rhs=IntLiteral(2)))
+            routine.body.append(ir.Assignment(lhs=i, rhs=j))
             routine.name += '_transformed'
             assert routine.variable_map['j'].scope is tmp_routine
 
@@ -363,8 +364,8 @@ def test_transformation_post_apply_module(here, frontend, post_apply_rescope_sym
             j = i.clone(name='j', scope=tmp_scope, type=i.type.clone(intent=None))
             module.variables += (j,)
             routine = module.subroutines[0]
-            routine.body.prepend(Assignment(lhs=i, rhs=j))
-            routine.body.prepend(Assignment(lhs=j, rhs=IntLiteral(2)))
+            routine.body.prepend(ir.Assignment(lhs=i, rhs=j))
+            routine.body.prepend(ir.Assignment(lhs=j, rhs=IntLiteral(2)))
             module.name += '_transformed'
             assert module.variable_map['j'].scope is tmp_scope
 
@@ -461,7 +462,7 @@ def test_transformation_pipeline_simple():
 
         def transform_subroutine(self, routine, **kwargs):
             greeting = 'Whazzup' if self.relaxed else 'Hello'
-            routine.body.prepend(Comment(text=f'! {greeting} {self.name}'))
+            routine.body.prepend(ir.Comment(text=f'! {greeting} {self.name}'))
 
     class AppendTrafo(Transformation):
         def __init__(self, name='Dave', in_french=False):
@@ -470,7 +471,7 @@ def test_transformation_pipeline_simple():
 
         def transform_subroutine(self, routine, **kwargs):
             greeting = 'Au revoir' if self.in_french else 'Goodbye'
-            routine.body.append(Comment(text=f'! {greeting}, {self.name}'))
+            routine.body.append(ir.Comment(text=f'! {greeting}, {self.name}'))
 
     # Define a pipline as a combination of transformation classes
     # and a set pre-defined constructor flags
@@ -502,9 +503,9 @@ end subroutine test_pipeline
     routine = Subroutine.from_source(fcode)
     pipeline.apply(routine)
 
-    assert isinstance(routine.body.body[0], Comment)
+    assert isinstance(routine.body.body[0], ir.Comment)
     assert routine.body.body[0].text == '! Whazzup Bob'
-    assert isinstance(routine.body.body[-1], Comment)
+    assert isinstance(routine.body.body[-1], ir.Comment)
     assert routine.body.body[-1].text == '! Au revoir, Bob'
 
 
@@ -583,19 +584,19 @@ end subroutine test_pipeline_compose
 
     class YesTrafo(Transformation):
         def transform_subroutine(self, routine, **kwargs):
-            routine.body.append( Comment(text='! Yes !') )
+            routine.body.append( ir.Comment(text='! Yes !') )
 
     class NoTrafo(Transformation):
         def transform_subroutine(self, routine, **kwargs):
-            routine.body.append( Comment(text='! No !') )
+            routine.body.append( ir.Comment(text='! No !') )
 
     class MaybeTrafo(Transformation):
         def transform_subroutine(self, routine, **kwargs):
-            routine.body.append( Comment(text='! Maybe !') )
+            routine.body.append( ir.Comment(text='! Maybe !') )
 
     class MaybeNotTrafo(Transformation):
         def transform_subroutine(self, routine, **kwargs):
-            routine.body.append( Comment(text='! Maybe not !') )
+            routine.body.append( ir.Comment(text='! Maybe not !') )
 
     pipeline = Pipeline(classes=(YesTrafo, NoTrafo))
     pipeline.prepend(MaybeTrafo())
@@ -604,7 +605,7 @@ end subroutine test_pipeline_compose
     routine = Subroutine.from_source(fcode)
     pipeline.apply(routine)
 
-    comments = FindNodes(Comment).visit(routine.body)
+    comments = FindNodes(ir.Comment).visit(routine.body)
     assert len(comments) == 4
     assert comments[0].text == '! Maybe !'
     assert comments[1].text == '! Yes !'
@@ -622,7 +623,7 @@ end subroutine test_pipeline_compose
     routine = Subroutine.from_source(fcode)
     pipe.apply(routine)
 
-    comments = FindNodes(Comment).visit(routine.body)
+    comments = FindNodes(ir.Comment).visit(routine.body)
     assert len(comments) == 5
     assert comments[0].text == '! Yes !'
     assert comments[1].text == '! Maybe !'
