@@ -21,7 +21,8 @@ from loki import (
 from transformations.single_column_base import SCCBaseTransformation
 from transformations.single_column_coalesced_vector import SCCDevectorTransformation
 
-__all__ = ['SccCufTransformation', 'HoistTemporaryArraysDeviceAllocatableTransformation']
+__all__ = ['SccCufTransformation', 'HoistTemporaryArraysDeviceAllocatableTransformation',
+        'HoistTemporaryArraysPragmaOffloadTransformation']
 
 
 class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransformation):
@@ -58,6 +59,35 @@ class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransfor
                 routine.body.insert(insert_index + 1, ir.Deallocation((var.clone(dimensions=None),)))
             else:
                 routine.body.append(ir.Deallocation((var.clone(dimensions=None),)))
+
+
+class HoistTemporaryArraysPragmaOffloadTransformation(HoistVariablesTransformation):
+    """
+    Synthesis part for variable/array hoisting, offload via pragmas e.g., OpenACC.
+    """
+
+    def driver_variable_declaration(self, routine, variables):
+        """
+        Standard Variable/Array declaration including
+        device offload via pragmas.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to add the variable declaration
+        var: :any:`Variable`
+            The variable to be declared
+        """
+        for var in variables:
+            routine.variables += tuple([var.clone(scope=routine)])
+
+        vnames = ', '.join(v.name for v in variables)
+        pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+        pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+
+        # Add comments around standalone pragmas to avoid false attachment
+        routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+        routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
 
 def dynamic_local_arrays(routine, vertical):
