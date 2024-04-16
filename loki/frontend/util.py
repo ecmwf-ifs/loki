@@ -10,7 +10,6 @@ from pathlib import Path
 import codecs
 from codetiming import Timer
 from more_itertools import split_after
-import pytest
 
 from loki.ir import (
     NestedTransformer, FindNodes, PatternFinder, Transformer,
@@ -18,7 +17,7 @@ from loki.ir import (
     ProcedureDeclaration, Loop, Intrinsic, Pragma
 )
 from loki.frontend.source import join_source_list
-from loki.logging import warning, perf
+from loki.logging import warning, perf, error
 from loki.tools import group_by_class, replace_windowed, as_tuple
 
 
@@ -91,6 +90,12 @@ def available_frontends(xfail=None, skip=None, include_regex=False):
         skip = dict((as_tuple(f) + (None,))[:2] for f in skip)
     else:
         skip = {}
+
+    try:
+        import pytest  # pylint: disable=import-outside-toplevel
+    except ImportError as e:
+        error('Pytest is not installed.')
+        raise e
 
     from loki import frontend  # pylint: disable=import-outside-toplevel,cyclic-import
 
