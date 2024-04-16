@@ -497,6 +497,7 @@ subroutine masked_statements(n, mask, vec1, vec2)
 
   where (mask(:) < -5)
     vec1(:) = -5.0
+    vec1(:) = vec1(:) -5.0
   elsewhere (mask(:) > 5)
     vec1(:) =  5.0
   elsewhere
@@ -508,11 +509,14 @@ end subroutine masked_statements
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     mask = FindNodes(MaskedStatement).visit(routine.body)[0]
+    num_bodies = len(mask.bodies)
     with dataflow_analysis_attached(routine):
         assert len(mask.uses_symbols) == 1
         assert len(mask.defines_symbols) == 1
         assert 'mask' in mask.uses_symbols
         assert 'vec1' in mask.defines_symbols
+
+    assert len(mask.bodies) == num_bodies
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

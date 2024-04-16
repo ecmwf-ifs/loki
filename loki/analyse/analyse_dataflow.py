@@ -189,8 +189,14 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_MaskedStatement(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
         conditions = self._symbols_from_expr(o.conditions)
-        body, defines, uses = self._visit_body(o.bodies, live=live, uses=conditions, **kwargs)
-        body = tuple(as_tuple(b,) for b in body)
+
+        body = ()
+        defines = set()
+        uses = set(conditions)
+        for b in o.bodies:
+            _b, defines, uses = self._visit_body(b, live=live, uses=uses, defines=defines, **kwargs)
+            body += (_b,)
+
         default, default_defs, uses = self._visit_body(o.default, live=live, uses=uses, **kwargs)
         o._update(bodies=body, default=default)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines|default_defs, uses_symbols=uses, **kwargs)
