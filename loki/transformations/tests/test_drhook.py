@@ -14,7 +14,7 @@ from loki import (
 )
 
 from conftest import available_frontends
-from transformations import DrHookTransformation
+from loki.transformations import DrHookTransformation
 
 
 @pytest.fixture(scope='module', name='config')

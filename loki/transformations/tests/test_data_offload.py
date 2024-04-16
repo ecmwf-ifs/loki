@@ -15,9 +15,9 @@ from loki import (
     gettempdir, Scheduler, OMNI, Import, FindInlineCalls
 )
 from conftest import available_frontends
-from transformations import (
-        DataOffloadTransformation, GlobalVariableAnalysis,
-        GlobalVarOffloadTransformation, GlobalVarHoistTransformation
+from loki.transformations import (
+    DataOffloadTransformation, GlobalVariableAnalysis,
+    GlobalVarOffloadTransformation, GlobalVarHoistTransformation
 )
 
 

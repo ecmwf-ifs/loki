@@ -7,13 +7,21 @@
 
 from more_itertools import split_at
 
-from loki.expression import symbols as sym
-from loki import (
-     Transformation, FindNodes, ir, FindScopes, as_tuple, flatten, Transformer,
-     NestedTransformer, FindVariables, demote_variables, is_dimension_constant,
-     is_loki_pragma, dataflow_analysis_attached, BasicType, pragmas_attached
+from loki.analyse import dataflow_analysis_attached
+from loki.batch import Transformation
+from loki.expression import (
+    symbols as sym, is_dimension_constant, FindVariables
 )
-from transformations.single_column_base import SCCBaseTransformation
+from loki.ir import (
+    nodes as ir, FindNodes, FindScopes, Transformer,
+    NestedTransformer, is_loki_pragma, pragmas_attached
+)
+from loki.tools import as_tuple, flatten
+from loki.types import BasicType
+from loki.transform import demote_variables
+
+from loki.transformations.single_column_base import SCCBaseTransformation
+
 
 __all__ = ['SCCDevectorTransformation', 'SCCRevectorTransformation', 'SCCDemoteTransformation']
 

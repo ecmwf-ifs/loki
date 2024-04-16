@@ -9,7 +9,7 @@ import pytest
 
 from loki import Sourcefile, Dimension
 from conftest import available_frontends
-from transformations import ExtractSCATransformation
+from loki.transformations import ExtractSCATransformation
 
 
 @pytest.fixture(scope='module', name='horizontal')

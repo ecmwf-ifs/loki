@@ -9,10 +9,12 @@
 Utility transformations to update or remove calls to DR_HOOK.
 """
 
-from loki import (
-    FindNodes, Transformer, Transformation, CallStatement,
-    Conditional, as_tuple, Literal, Import
+from loki.batch import Transformation
+from loki.expression import Literal
+from loki.ir import (
+    FindNodes, Transformer, CallStatement, Conditional, Import
 )
+from loki.tools import as_tuple
 
 
 __all__ = ['DrHookTransformation']

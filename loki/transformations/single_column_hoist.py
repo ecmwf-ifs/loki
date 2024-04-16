@@ -6,9 +6,10 @@
 # nor does it submit to any jurisdiction.
 
 from loki.expression import symbols as sym
+from loki.ir import nodes as ir
 from loki.transform import HoistVariablesTransformation
-from loki import ir
-from transformations.single_column_base import SCCBaseTransformation
+
+from loki.transformations.single_column_base import SCCBaseTransformation
 
 
 __all__ = ['SCCHoistTemporaryArraysTransformation']

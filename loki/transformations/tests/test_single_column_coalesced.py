@@ -18,7 +18,7 @@ from loki import (
     SchedulerConfig, SanitiseTransformation, InlineTransformation
 )
 from conftest import available_frontends
-from transformations import (
+from loki.transformations import (
     DataOffloadTransformation, SCCBaseTransformation, SCCDevectorTransformation,
     SCCDemoteTransformation, SCCRevectorTransformation, SCCAnnotateTransformation,
     SCCVectorPipeline, SCCHoistPipeline

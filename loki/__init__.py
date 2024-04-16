@@ -28,6 +28,7 @@ from loki.batch import *  # noqa
 from loki.lint import *  # noqa
 from loki.analyse import *  # noqa
 from loki.dimension import *  # noqa
+from loki.transformations import *  # noqa
 
 
 try:

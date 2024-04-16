@@ -8,13 +8,18 @@
 from pathlib import Path
 import pytest
 
-from conftest import available_frontends
-from loki import CallStatement, FindNodes, OMNI, Subroutine, Scheduler, Sourcefile, flatten
-from transformations import ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
+from loki import  Subroutine, Scheduler, Sourcefile, flatten
+from loki.frontend import available_frontends, OMNI
+from loki.ir import CallStatement, FindNodes
+from loki.transformations import (
+    ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
+)
+
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_argument_shape_simple(frontend):

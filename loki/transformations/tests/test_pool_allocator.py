@@ -16,7 +16,7 @@ from loki import (
 )
 from conftest import available_frontends
 
-from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 
 
 @pytest.fixture(scope='module', name='block_dim')

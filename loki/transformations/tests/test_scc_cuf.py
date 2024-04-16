@@ -16,7 +16,7 @@ from loki import (
 )
 from loki.transform import HoistTemporaryArraysAnalysis, ParametriseTransformation
 from loki.expression import symbols as sym
-from transformations import (
+from loki.transformations import (
         SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation,
         HoistTemporaryArraysPragmaOffloadTransformation
 )

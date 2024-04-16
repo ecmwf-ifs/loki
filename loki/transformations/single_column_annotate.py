@@ -7,14 +7,19 @@
 
 import re
 
-from loki.expression import symbols as sym
-from loki import (
-    Transformation, FindNodes, Transformer, info, pragmas_attached,
-    as_tuple, flatten, ir, DerivedType, FindVariables,
-    CaseInsensitiveDict, pragma_regions_attached, PragmaRegion,
-    is_loki_pragma, is_dimension_constant
+from loki.batch import Transformation
+from loki.expression import (
+    symbols as sym, FindVariables, is_dimension_constant
 )
-from transformations.single_column_base import SCCBaseTransformation
+from loki.ir import (
+    nodes as ir, FindNodes, Transformer, pragmas_attached,
+    pragma_regions_attached, is_loki_pragma
+)
+from loki.logging import info
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.types import DerivedType
+
+from loki.transformations.single_column_base import SCCBaseTransformation
 
 
 __all__ = ['SCCAnnotateTransformation']
@@ -73,7 +78,7 @@ class SCCAnnotateTransformation(Transformation):
 
         mapper = {}
         with pragma_regions_attached(routine):
-            for region in FindNodes(PragmaRegion).visit(routine.body):
+            for region in FindNodes(ir.PragmaRegion).visit(routine.body):
                 if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
                     if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
 

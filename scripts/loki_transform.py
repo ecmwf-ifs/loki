@@ -28,21 +28,20 @@ from loki.transform import (
     InlineTransformation, SanitiseTransformation, RemoveCodeTransformation
 )
 
-# pylint: disable=wrong-import-order
-from transformations.argument_shape import (
+from loki.transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
-from transformations.data_offload import (
+from loki.transformations.data_offload import (
     DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
 )
-from transformations.derived_types import DerivedTypeArgumentsTransformation
-from transformations.drhook import DrHookTransformation
-from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
-from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
-from transformations.single_column_coalesced import (
+from loki.transformations.derived_types import DerivedTypeArgumentsTransformation
+from loki.transformations.drhook import DrHookTransformation
+from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from loki.transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
+from loki.transformations.single_column_coalesced import (
     SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline
 )
-from transformations.scc_cuf import (
+from loki.transformations.scc_cuf import (
     HoistTemporaryArraysDeviceAllocatableTransformation
 )
 

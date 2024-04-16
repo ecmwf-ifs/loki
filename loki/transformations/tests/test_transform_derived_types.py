@@ -17,7 +17,7 @@ from loki import (
     CaseInsensitiveDict, resolve_associates
 )
 from conftest import available_frontends
-from transformations import (
+from loki.transformations import (
     DerivedTypeArgumentsTransformation,
     TypeboundProcedureCallTransformation
 )
