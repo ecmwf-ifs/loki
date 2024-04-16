@@ -20,10 +20,10 @@ from loki.expression import (
 from loki.frontend.fparser import parse_fparser_expression
 from loki.ir import (
     Loop, Conditional, Comment, Pragma, FindNodes, Transformer,
-    NestedMaskedTransformer, is_parent_of
+    NestedMaskedTransformer, is_parent_of, is_loki_pragma,
+    get_pragma_parameters, pragmas_attached
 )
 from loki.logging import info, warning
-from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
 from loki.transform.transform_array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
 )

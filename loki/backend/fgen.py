@@ -10,11 +10,10 @@ from pymbolic.mapper.stringifier import (
 )
 from pymbolic.primitives import FloorDiv, Remainder
 
-from loki.ir import Stringifier
+from loki.ir import Stringifier, get_pragma_parameters
 from loki.tools import as_tuple, JoinableStringList, flatten
 from loki.expression import LokiStringifyMapper, StringLiteral
 from loki.types import DataType, BasicType, DerivedType, ProcedureType
-from loki.pragma_utils import get_pragma_parameters
 
 
 __all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']

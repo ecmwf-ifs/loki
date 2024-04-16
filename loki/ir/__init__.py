@@ -9,5 +9,6 @@ from loki.ir.find import *  # noqa
 from loki.ir.ir_graph import *  # noqa
 from loki.ir.nodes import *  # noqa
 from loki.ir.pprint import *  # noqa
+from loki.ir.pragma_utils import *  # noqa
 from loki.ir.transformer import *  # noqa
 from loki.ir.visitor import *  # noqa

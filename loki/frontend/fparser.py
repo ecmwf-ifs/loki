@@ -25,8 +25,11 @@ from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import read_file, FP, sanitize_ir
 
-from loki.ir import GenericVisitor, Transformer, FindNodes
 from loki import ir
+from loki.ir import (
+    GenericVisitor, Transformer, FindNodes, attach_pragmas,
+    process_dimension_pragmas, detach_pragmas, pragmas_attached
+)
 import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedDiv, ParenthesisedPow
@@ -35,9 +38,6 @@ from loki.expression import ExpressionDimensionsMapper, AttachScopes, AttachScop
 from loki.logging import debug, perf, info, warning, error
 from loki.tools import (
     as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup, dict_override
-)
-from loki.pragma_utils import (
-    attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
 )
 from loki.scope import Scope
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes

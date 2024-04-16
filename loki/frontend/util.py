@@ -10,6 +10,7 @@ from pathlib import Path
 import codecs
 from codetiming import Timer
 from more_itertools import split_after
+import pytest
 
 from loki.ir import (
     NestedTransformer, FindNodes, PatternFinder, Transformer,
@@ -22,9 +23,10 @@ from loki.tools import group_by_class, replace_windowed, as_tuple
 
 
 __all__ = [
-    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'read_file',
-    'InlineCommentTransformer', 'ClusterCommentTransformer',
-    'CombineMultilinePragmasTransformer', 'sanitize_ir'
+    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'available_frontends',
+    'read_file', 'InlineCommentTransformer',
+    'ClusterCommentTransformer', 'CombineMultilinePragmasTransformer',
+    'sanitize_ir'
 ]
 
 
@@ -48,6 +50,68 @@ OMNI = Frontend.OMNI
 OFP = Frontend.OFP
 FP = Frontend.FP
 REGEX = Frontend.REGEX
+
+
+def available_frontends(xfail=None, skip=None, include_regex=False):
+    """
+    Provide list of available frontends to parametrize tests with
+
+    To run tests for every frontend, an argument :attr:`frontend` can be added to
+    a test with the return value of this function as parameter.
+
+    For any unavailable frontends where ``HAVE_<frontend>`` is `False` (e.g.
+    because required dependencies are not installed), :attr:`test` is marked as
+    skipped.
+
+    Use as
+
+    ..code-block::
+        @pytest.mark.parametrize('frontend', available_frontends(xfail=[OMNI, (OFP, 'Because...')]))
+        def my_test(frontend):
+            source = Sourcefile.from_file('some.F90', frontend=frontend)
+            # ...
+
+    Parameters
+    ----------
+    xfail : list, optional
+        Provide frontends that are expected to fail, optionally as tuple with reason
+        provided as string. By default `None`
+    skip : list, optional
+        Provide frontends that are always skipped, optionally as tuple with reason
+        provided as string. By default `None`
+    include_regex : bool, optional
+        Include the :any:`REGEX` frontend in the list. By default `false`.
+    """
+    if xfail:
+        xfail = dict((as_tuple(f) + (None,))[:2] for f in xfail)
+    else:
+        xfail = {}
+
+    if skip:
+        skip = dict((as_tuple(f) + (None,))[:2] for f in skip)
+    else:
+        skip = {}
+
+    from loki import frontend  # pylint: disable=import-outside-toplevel,cyclic-import
+
+    # Unavailable frontends
+    unavailable_frontends = {
+        f: f'{f} is not available' for f in Frontend
+        if not getattr(frontend, f'HAVE_{str(f).upper()}')
+    }
+    skip.update(unavailable_frontends)
+
+    # Build the list of parameters
+    params = []
+    for f in Frontend:
+        if f in skip:
+            params += [pytest.param(f, marks=pytest.mark.skip(reason=skip[f]))]
+        elif f in xfail:
+            params += [pytest.param(f, marks=pytest.mark.xfail(reason=xfail[f]))]
+        elif f != REGEX or include_regex:
+            params += [f]
+
+    return params
 
 
 def match_type_pattern(pattern, sequence):

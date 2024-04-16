@@ -14,9 +14,10 @@ from loki.expression import (
     FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
     SubstituteExpressionsMapper, ExpressionRetriever, symbols as sym
 )
-from loki.ir import nodes as ir, Transformer, FindNodes
+from loki.ir import (
+    nodes as ir, Transformer, FindNodes, is_loki_pragma, pragmas_attached
+)
 from loki.module import Module
-from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten

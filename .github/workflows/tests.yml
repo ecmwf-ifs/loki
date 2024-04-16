@@ -56,7 +56,7 @@ jobs:
       - name: Run Loki tests
         run: |
           source loki-activate
-          pytest --cov=./loki --cov-report=xml tests
+          pytest --cov=./loki --cov-report=xml loki
 
       - name: Upload loki coverage report to Codecov
         uses: codecov/codecov-action@v4
