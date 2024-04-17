@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Sourcefile, Dimension
-from conftest import available_frontends
+from loki.frontend import available_frontends
 from loki.transformations import ExtractSCATransformation
 
 

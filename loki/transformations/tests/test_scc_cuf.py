@@ -8,14 +8,17 @@
 from pathlib import Path
 import pytest
 
-from conftest import available_frontends
-from loki import (
-    Scheduler, Subroutine, Dimension, FindNodes, Loop, Assignment,
-    CallStatement, Allocation, Deallocation, VariableDeclaration, Import, FindVariables,
-    Pragma
+from loki import Scheduler, Subroutine, Dimension
+from loki.expression import symbols as sym, FindVariables
+from loki.frontend import available_frontends
+from loki.ir import (
+    FindNodes, Loop, Assignment, CallStatement, Allocation,
+    Deallocation, VariableDeclaration, Import, Pragma
 )
-from loki.transform import HoistTemporaryArraysAnalysis, ParametriseTransformation
-from loki.expression import symbols as sym
+from loki.transform import (
+    HoistTemporaryArraysAnalysis, ParametriseTransformation
+)
+
 from loki.transformations import (
         SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation,
         HoistTemporaryArraysPragmaOffloadTransformation

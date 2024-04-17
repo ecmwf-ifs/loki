@@ -10,11 +10,13 @@ from shutil import rmtree
 import pytest
 
 from loki import (
-    Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
-    CallStatement, pragma_regions_attached, get_pragma_parameters,
-    gettempdir, Scheduler, OMNI, Import, FindInlineCalls
+    Sourcefile, gettempdir, Scheduler,  FindInlineCalls
 )
-from conftest import available_frontends
+from loki.frontend import available_frontends, OMNI
+from loki.ir import (
+    FindNodes, Pragma, PragmaRegion, Loop, CallStatement, Import,
+    pragma_regions_attached, get_pragma_parameters
+)
 from loki.transformations import (
     DataOffloadTransformation, GlobalVariableAnalysis,
     GlobalVarOffloadTransformation, GlobalVarHoistTransformation

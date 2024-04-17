@@ -25,8 +25,10 @@ from loki.config import config
 
 
 __all__ = [
-    'LokiTempdir', 'gettempdir', 'filehash', 'delete', 'find_paths', 'find_files',
-    'disk_cached', 'load_module'
+    'LokiTempdir', 'gettempdir', 'filehash', 'delete', 'find_paths',
+    'find_files', 'disk_cached', 'load_module',
+    'write_env_launch_script', 'local_loki_setup',
+    'local_loki_cleanup'
 ]
 
 
@@ -242,3 +244,39 @@ def load_module(module, path=None):
         # If module caching interferes, try again with clean caches
         invalidate_caches()
         return import_module(module)
+
+
+def write_env_launch_script(here, binary, args):
+    # Write a script to source env.sh and launch the binary
+    script = Path(here/f'build/run_{binary}.sh')
+    script.write_text(f"""
+#!/bin/bash
+
+source env.sh >&2
+bin/{binary} {' '.join(args)}
+exit $?
+    """.strip())
+    script.chmod(0o750)
+
+    return script
+
+
+def local_loki_setup(here):
+    lokidir = Path(__file__).parent.parent.parent
+    target = here/'source/loki'
+    backup = here/'source/loki.bak'
+
+    # Do not overwrite any existing Loki copy
+    if target.exists():
+        if backup.exists():
+            shutil.rmtree(backup)
+        shutil.move(target, backup)
+
+    return str(lokidir.resolve()), target, backup
+
+
+def local_loki_cleanup(target, backup):
+    if target.is_symlink():
+        target.unlink()
+    if not target.exists() and backup.exists():
+        shutil.move(backup, target)

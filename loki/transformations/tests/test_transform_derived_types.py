@@ -11,12 +11,14 @@ from shutil import rmtree
 import pytest
 
 from loki import (
-    OMNI, OFP, Sourcefile, Scheduler, ProcedureItem, as_tuple, gettempdir,
-    CallStatement, ProcedureDeclaration, Scalar, Array,
-    FindNodes, FindVariables, FindInlineCalls, BasicType,
-    CaseInsensitiveDict, resolve_associates
+    Sourcefile, Scheduler, ProcedureItem, as_tuple, gettempdir,
+    ProcedureDeclaration, BasicType, CaseInsensitiveDict,
 )
-from conftest import available_frontends
+from loki.expression import Scalar, Array, FindVariables, FindInlineCalls
+from loki.frontend import available_frontends, OMNI, OFP
+from loki.ir import FindNodes, CallStatement
+
+from loki.transform import resolve_associates
 from loki.transformations import (
     DerivedTypeArgumentsTransformation,
     TypeboundProcedureCallTransformation

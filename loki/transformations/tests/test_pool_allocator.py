@@ -8,13 +8,17 @@
 from shutil import rmtree
 
 import pytest
-from loki import (
-    gettempdir, Scheduler, SchedulerConfig, Dimension, simplify,
-    FindNodes, FindVariables, normalize_range_indexing, OMNI, FP, OFP, get_pragma_parameters,
-    CallStatement, Assignment, Allocation, Deallocation, Loop, InlineCall, Pragma,
-    FindInlineCalls, SFilter, ProcedureItem
+
+from loki import gettempdir, Dimension, normalize_range_indexing
+from loki.batch import Scheduler, SchedulerConfig, SFilter, ProcedureItem
+from loki.expression import (
+    FindVariables, FindInlineCalls, InlineCall, simplify
 )
-from conftest import available_frontends
+from loki.frontend import available_frontends, OMNI, FP, OFP
+from loki.ir import (
+    FindNodes, CallStatement, Assignment, Allocation, Deallocation,
+    Loop, Pragma, get_pragma_parameters
+)
 
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 

@@ -11,8 +11,10 @@ from subprocess import CalledProcessError
 from pathlib import Path
 import pytest
 
-from conftest import write_env_launch_script, local_loki_setup, local_loki_cleanup
-from loki import execute, HAVE_FP, FP
+from loki.tools import (
+    execute, write_env_launch_script, local_loki_setup, local_loki_cleanup
+)
+from loki.frontend import HAVE_FP, FP
 
 pytestmark = pytest.mark.skipif('ECWAM_DIR' not in os.environ, reason='ECWAM_DIR not set')
 

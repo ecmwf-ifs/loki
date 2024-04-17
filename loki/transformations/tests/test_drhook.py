@@ -8,12 +8,12 @@
 import shutil
 import pytest
 
-from loki import (
-    Scheduler, SFilter, ProcedureItem, SchedulerConfig, FindNodes,
-    CallStatement, gettempdir, OMNI, Import
+from loki.batch import (
+    Scheduler, SFilter, ProcedureItem, SchedulerConfig
 )
-
-from conftest import available_frontends
+from loki.frontend import available_frontends, OMNI
+from loki.ir import FindNodes, CallStatement, Import
+from loki.tools import gettempdir
 from loki.transformations import DrHookTransformation
 
 

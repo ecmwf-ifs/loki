@@ -13,10 +13,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from conftest import (
-    available_frontends, write_env_launch_script, local_loki_setup, local_loki_cleanup
+from loki.tools import (
+    execute, write_env_launch_script, local_loki_setup, local_loki_cleanup
 )
-from loki import execute, OMNI, OFP, HAVE_FP, HAVE_OMNI, warning
+from loki.frontend import available_frontends, OMNI, OFP, HAVE_FP, HAVE_OMNI
+from loki.logging import warning
 
 pytestmark = pytest.mark.skipif('CLOUDSC_DIR' not in os.environ, reason='CLOUDSC_DIR not set')
 

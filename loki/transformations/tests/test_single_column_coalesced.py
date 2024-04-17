@@ -9,19 +9,20 @@ from shutil import rmtree
 
 import pytest
 
-from loki import (
-    OMNI, OFP, Subroutine, Dimension, FindNodes, Loop, Assignment,
-    CallStatement, Conditional, Scalar, Array, Pragma,
-    pragmas_attached, fgen, Sourcefile, Section, ProcedureItem,
-    ModuleItem, pragma_regions_attached, PragmaRegion, is_loki_pragma,
-    IntLiteral, RangeIndex, Comment, gettempdir, Scheduler,
-    SchedulerConfig, SanitiseTransformation, InlineTransformation
+from loki import Subroutine, Sourcefile, Dimension, fgen, gettempdir
+from loki.batch import Scheduler, SchedulerConfig, ProcedureItem, ModuleItem
+from loki.expression import Scalar, Array, IntLiteral, RangeIndex
+from loki.frontend import available_frontends, OMNI, OFP
+from loki.ir import (
+    FindNodes, Assignment, CallStatement, Conditional, Comment, Loop,
+    Pragma, PragmaRegion, Section, pragmas_attached, is_loki_pragma,
+    pragma_regions_attached
 )
-from conftest import available_frontends
+from loki.transform import SanitiseTransformation, InlineTransformation
 from loki.transformations import (
     DataOffloadTransformation, SCCBaseTransformation, SCCDevectorTransformation,
     SCCDemoteTransformation, SCCRevectorTransformation, SCCAnnotateTransformation,
-    SCCVectorPipeline, SCCHoistPipeline
+    SCCVectorPipeline, SCCHoistPipeline,
 )
 #pylint: disable=too-many-lines
 
