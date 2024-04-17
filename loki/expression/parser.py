@@ -206,7 +206,7 @@ class LokiEvaluationMapper(EvaluationMapper):
 
 class ExpressionParser(ParserBase):
     """
-    String Parser based on `pymbolic's <https://github.com/inducer/pymbolic>`_ parser for
+    String Parser based on :any:`pymbolic.parser.Parser` for
     parsing expressions from strings.
 
     The Loki String Parser utilises and extends pymbolic's parser to incorporate
@@ -253,6 +253,8 @@ class ExpressionParser(ParserBase):
             >>> ir = parse_expr('a + add(a, b)', evaluate=True, context={'a': 2, 'b': 3, 'add': add})
             >>> ir
             >>> IntLiteral(7, None)
+
+    .. automethod:: __call__
     """
 
     _f_true = intern("f_true")
@@ -291,6 +293,9 @@ class ExpressionParser(ParserBase):
             (_f_openbracket, pytools.lex.RE(r"\(/")),
             (_f_closebracket, pytools.lex.RE(r"/\)")),
             ] + ParserBase.lex_table
+    """
+    Extend :any:`pymbolic.parser.Parser.lex_table` to accomodate for Fortran specifix syntax/expressions.
+    """
 
     ParserBase._COMP_TABLE.update({
          _f_lessequal: "<=",
@@ -303,6 +308,12 @@ class ExpressionParser(ParserBase):
 
     @staticmethod
     def _parenthesise(expr):
+        """
+        Utility method to parenthesise specific expressions.
+
+        E.g., from :any:`pymbolic.primitives.Sum` to 
+        :any:`ParenthesisedAdd`.
+        """
         if isinstance(expr, pmbl.Sum):
             return sym_ops.ParenthesisedAdd(expr.children)
         if isinstance(expr, pmbl.Product):
@@ -423,17 +434,30 @@ class ExpressionParser(ParserBase):
         return AttachScopes().visit(ir, scope=scope or Scope())
 
     def parse_f_float(self, s):
+        """
+        Parse "Fortran-style" float literals.
+
+        E.g., ``3.1415_my_real_kind``.
+        """
         stripped = s.split('_', 1)
         if len(stripped) == 2:
             return sym.Literal(value=self.parse_float(stripped[0]), kind=sym.Variable(name=stripped[1].lower()))
         return self.parse_float(stripped[0])
 
     def parse_f_int(self, s):
+        """
+        Parse "Fortran-style" int literals.
+
+        E.g., ``1_my_int_kind``.
+        """
         stripped = s.split('_', 1)
         value = int(stripped[0].replace("d", "e").replace("D", "e"))
         return sym.IntLiteral(value=value, kind=sym.Variable(name=stripped[1].lower()))
 
     def parse_f_string(self, s):
+        """
+        Parse string literals.
+        """
         return sym.StringLiteral(s)
 
 
