@@ -22,8 +22,8 @@ from loki.transform.transform_inline import (
     inline_constant_parameters, inline_elemental_functions
 )
 from loki.sourcefile import Sourcefile
-from loki.backend import cgen, fgen
 from loki.logging import debug
+from loki.backend import cgen, fgen, cudagen
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, VariableDeclaration,
     TypeDef, Assignment, Transformer, FindNodes
@@ -115,11 +115,23 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None, codegen=cgen):
+    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None, language='c'): # codegen=cgen):
         self.inline_elementals = inline_elementals
         self.use_c_ptr = use_c_ptr
         self.path = Path(path) if path is not None else None
-        self.codegen = codegen
+        # self.codegen = codegen
+        self.language = language.lower()
+        assert self.language in ['c', 'cuda'] # , 'hip']
+
+        # self.langgen = cgen if self.language == 'c' else cppgen
+        if self.language == 'c':
+            self.codegen = cgen
+        elif self.language == 'cuda':
+            self.codegen = cudagen
+            # elif self.language == 'hip':
+            #     self.langgen = hipgen
+        else:
+            assert False
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -161,7 +173,8 @@ class FortranCTransformation(Transformation):
 
         if role == 'kernel':
             # Generate Fortran wrapper module
-            wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
+            bind_name = None if self.language == 'c' else f'{routine.name.lower()}_c_launch'
+            wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs, bind_name=bind_name)
             contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
@@ -366,10 +379,11 @@ class FortranCTransformation(Transformation):
         intf_name = f'{routine.name}_iso_c'
         intf_routine = Subroutine(name=intf_name, body=None, args=(), parent=scope, bind=bind_name)
         intf_spec = Section(body=as_tuple(self.iso_c_intrinsic_import(intf_routine)))
-        for im in FindNodes(Import).visit(routine.spec):
-            if not im.c_import:
-                im_symbols = tuple(s.clone(scope=intf_routine) for s in im.symbols)
-                intf_spec.append(im.clone(symbols=im_symbols))
+        if self.language == 'c': 
+            for im in FindNodes(Import).visit(routine.spec):
+                if not im.c_import:
+                    im_symbols = tuple(s.clone(scope=intf_routine) for s in im.symbols)
+                    intf_spec.append(im.clone(symbols=im_symbols))
         intf_spec.append(Intrinsic(text='implicit none'))
         intf_spec.append(c_structs.values())
         intf_routine.spec = intf_spec
@@ -500,39 +514,41 @@ class FortranCTransformation(Transformation):
             inline_elemental_functions(kernel)
 
         # Create declarations for module variables
-        module_variables = {
-            im.module.lower(): [
-                s.clone(scope=kernel, type=s.type.clone(imported=None, module=None)) for s in im.symbols
-                if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED and not s.type.parameter
-            ]
-            for im in kernel.imports
-        }
-        kernel.variables += as_tuple(flatten(list(module_variables.values())))
+        # TODO: can't just comment that ...
+        if True: # self.language == 'c':
+            module_variables = {
+                im.module.lower(): [
+                    s.clone(scope=kernel, type=s.type.clone(imported=None, module=None)) for s in im.symbols
+                    if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED and not s.type.parameter
+                ]
+                for im in kernel.imports
+            }
+            kernel.variables += as_tuple(flatten(list(module_variables.values())))
 
-        # Create calls to getter routines for module variables
-        getter_calls = []
-        for module, variables in module_variables.items():
-            for var in variables:
-                getter = f'{module}__get__{var.name.lower()}'
-                vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
-                getter_calls += [vget]
-        kernel.body.prepend(getter_calls)
+            # Create calls to getter routines for module variables
+            getter_calls = []
+            for module, variables in module_variables.items():
+                for var in variables:
+                    getter = f'{module}__get__{var.name.lower()}'
+                    vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
+                    getter_calls += [vget]
+            kernel.body.prepend(getter_calls)
 
-        # Change imports to C header includes
-        import_map = {}
-        for im in kernel.imports:
-            if str(im.module).upper() in self.__fortran_intrinsic_modules:
-                # Remove imports of Fortran intrinsic modules
-                import_map[im] = None
+            # Change imports to C header includes
+            import_map = {}
+            for im in kernel.imports:
+                if str(im.module).upper() in self.__fortran_intrinsic_modules:
+                    # Remove imports of Fortran intrinsic modules
+                    import_map[im] = None
 
-            elif not im.c_import and im.symbols:
-                # Create a C-header import for any converted modules
-                import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=())
+                elif not im.c_import and im.symbols:
+                    # Create a C-header import for any converted modules
+                    import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=())
 
-            else:
-                # Remove other imports, as they might include untreated Fortran code
-                import_map[im] = None
-        kernel.spec = Transformer(import_map).visit(kernel.spec)
+                else:
+                    # Remove other imports, as they might include untreated Fortran code
+                    import_map[im] = None
+            kernel.spec = Transformer(import_map).visit(kernel.spec)
 
         # Remove intrinsics from spec (eg. implicit none)
         intrinsic_map = {i: None for i in FindNodes(Intrinsic).visit(kernel.spec)

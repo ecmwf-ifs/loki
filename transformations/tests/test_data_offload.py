@@ -12,7 +12,8 @@ import pytest
 from loki import (
     Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
     CallStatement, pragma_regions_attached, get_pragma_parameters,
-    gettempdir, Scheduler, OMNI, Import, FindInlineCalls
+    gettempdir, Scheduler, OMNI, Import, FindInlineCalls,
+    VariableDeclaration, fgen
 )
 from conftest import available_frontends
 from transformations import (
@@ -718,6 +719,15 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
     expected_vars.append('a')
     assert [arg.name for arg in kernel0.arguments] == sorted(expected_args)
     assert [arg.name for arg in kernel0.variables] == sorted(expected_vars)
+    for arg in kernel0.arguments:
+        assert arg.scope == kernel0
+    var_decls = FindNodes(VariableDeclaration).visit(kernel0.spec)
+    print(fgen(kernel0))
+    print(f"var_decls: {var_decls}")
+    for var_decl in var_decls:
+        print(f"var_decl: {var_decl}")
+        for symbol in var_decl.symbols:
+            print(f"  symbol {symbol} | intent: {symbol.type.intent} | scope: {symbol.scope}")
     for var in kernel0.arguments:
         assert kernel0.variable_map[var.name.lower()].type.intent == var_intent_map[var.name.lower()]
         assert var.scope == kernel0

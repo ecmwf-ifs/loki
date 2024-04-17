@@ -107,6 +107,7 @@ class ResolveAssociatesTransformer(NestedTransformer):
         # Apply the expression substitution map to itself to handle nested expressions
         vmap = recursive_expression_map_update(vmap)
 
+        print(f"ResolveAssociatesTransformer vmap: {vmap}")
         # Mark the associate block for replacement with its body, with all expressions replaced
         self.mapper[o] = SubstituteExpressions(vmap).visit(body)
 

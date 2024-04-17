@@ -269,7 +269,8 @@ class CCodegen(Stringifier):
         """
         Format comments.
         """
-        text = o.text or o.source.string
+        # TODO: why is o.text AND o.source None?
+        text = o.text or (o.source.string if o.source else '')
         text = str(text).lstrip().replace('!', '//', 1)
         return self.format_line(text, no_wrap=True)
 
@@ -325,10 +326,13 @@ class CCodegen(Stringifier):
             ...body...
           }
         """
+        print(f"visit_Loop: {o} | {o.bounds.step}")
         control = 'for ({var} = {start}; {var} {crit} {end}; {var} += {incr})'.format(
             var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
             end=self.visit(o.bounds.stop, **kwargs),
-            crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
+            # TODO: !!! pymbolic/primitives.py", line 664, in __gt__ raise TypeError("expressions don't have an order") 
+            # crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
+            crit='<=',
             incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
         header = self.format_line(control, ' {')
         footer = self.format_line('}')

@@ -17,7 +17,8 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info
+    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info,
+    FindNodes, VariableDeclaration
 )
 
 # Get generalized transformations provided by Loki
@@ -32,19 +33,30 @@ from transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
 from transformations.data_offload import (
-    DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
+    DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation,
+    GlobalVarHoistTransformation
 )
 from transformations.derived_types import DerivedTypeArgumentsTransformation
 from transformations.drhook import DrHookTransformation
 from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from transformations.single_column_base import SCCBaseTransformation
 from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
 from transformations.single_column_coalesced import (
     SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline
 )
-from transformations.scc_cuf import (
-    HoistTemporaryArraysDeviceAllocatableTransformation
+from transformations.single_column_coalesced_vector import (
+    SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
 )
-
+from transformations.scc_cuf import (
+    HoistTemporaryArraysDeviceAllocatableTransformation,
+    HoistTemporaryArraysCstyleTransformation, SccCufTransformationNew
+)
+from loki.transform.transform_inline import (
+    inline_constant_parameters, inline_elemental_functions
+)
+from transformations.single_column_coalesced_extended import (
+        SCCLowerLoopTransformation
+)
 
 class IdemTransformation(Transformation):
     """
@@ -55,6 +67,22 @@ class IdemTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):
         pass
 
+class DebugTransformation(Transformation):
+
+    def transform_subroutine(self, routine, **kwargs):
+        print(f"-----")
+        role = kwargs.get('role')
+        if role == 'kernel':
+            print(f"after process_kernel - routine {routine.name}")
+            var_decls = FindNodes(VariableDeclaration).visit(routine.spec)
+            # print(f"var_decls: {var_decls}")
+            print(f"len(var_decls): {len(var_decls)}")
+            for i, var_decl in enumerate(var_decls):
+                # print(f" {i}: var_decl: {var_decl}")
+                for symbol in var_decl.symbols:
+                    print(f"{i}  var_decl {var_decl} - symbol {symbol} | intent: {symbol.type.intent}")
+        print(f"-----")
+
 
 @click.group()
 @click.option('--debug/--no-debug', default=False, show_default=True,
@@ -64,11 +92,18 @@ def cli(debug):
     if debug:
         set_excepthook(hook=auto_post_mortem_debugger)
 
+def inline_elemental_kernel(routine, **kwargs):
+    role = kwargs['role']
+
+    if role == 'kernel':
+
+        inline_constant_parameters(routine, external_only=True)
+        inline_elemental_functions(routine)
 
 @cli.command()
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
-                  ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                  ['idem', "c", 'cuda-hoist', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
                    'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
@@ -198,8 +233,8 @@ def convert(
         scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Re-write DR_HOOK labels for non-GPU paths
-    if 'scc' not in mode:
-        scheduler.process( DrHookTransformation(mode=mode, remove=False) )
+    # if 'scc' not in mode:
+    #     scheduler.process( DrHookTransformation(mode=mode, remove=False) )
 
     # Perform general source removal of unwanted calls or code regions
     # (do not perfrom Dead Code Elimination yet, inlining will do this.)
@@ -210,10 +245,23 @@ def convert(
             call_names=('ABOR1', 'DR_HOOK'), intrinsic_names=('WRITE(NULOUT',)
         )
     scheduler.process(transformation=remove_code_trafo)
+    if mode in ['cuda-hoist']: # ['c-parametrise', 'c-hoist', 'hip-parametrise', 'hip-hoist']:
+        inline_trafo = type("InlineTrafo", (Transformation, object), {
+            "transform_subroutine": lambda self, routine, **kwargs: inline_elemental_kernel(routine, **kwargs)})()
+        scheduler.process(transformation=inline_trafo)
+
+        scheduler.process(transformation=GlobalVariableAnalysis())
+        global_var_hoisting_trafo = GlobalVarHoistTransformation(hoist_parameters=True, ignore_modules=['parkind1'])
+        scheduler.process(transformation=global_var_hoisting_trafo) # , reverse=True)
+
+        derived_type_transformation = DerivedTypeArgumentsTransformation(all_derived_types=True)
+        scheduler.process(transformation=derived_type_transformation) # , reverse=True)
 
     # Perform general source sanitisation steps to level the playing field
     sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
     if not sanitise_trafo:
+        if mode in ['cuda-hoist']:
+            print(f"\nexecuting resolve_sequence_association!!!\n")
         sanitise_trafo = SanitiseTransformation(
             resolve_sequence_association=resolve_sequence_association,
         )
@@ -235,13 +283,14 @@ def convert(
         scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
-    use_claw_offload = True
-    if data_offload:
-        offload_transform = DataOffloadTransformation(
-            remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
-        )
-        scheduler.process(offload_transform)
-        use_claw_offload = not offload_transform.has_data_regions
+    if mode in ['cuda-hoist']:
+        use_claw_offload = True
+        if data_offload:
+            offload_transform = DataOffloadTransformation(
+                remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
+            )
+            scheduler.process(offload_transform)
+            use_claw_offload = not offload_transform.has_data_regions
 
     if frontend == Frontend.OMNI and mode in ['idem-stack', 'scc-stack']:
         # To make the pool allocator size derivation work correctly, we need
@@ -251,6 +300,32 @@ def convert(
                 normalize_range_indexing(routine)
 
         scheduler.process( NormalizeRangeIndexingTransformation() )
+    
+    # if mode in ['scc', 'scc-hoist', 'scc-stack', 'cuda-hoist']:
+    if mode in ['cuda-hoist']:
+        # Apply the basic SCC transformation set
+        scheduler.process( SCCBaseTransformation(
+            horizontal=horizontal, directive=directive
+        ))
+        scheduler.process( SCCDevectorTransformation(
+            horizontal=horizontal, trim_vector_sections=trim_vector_sections
+        ))
+        scheduler.process( SCCDemoteTransformation(horizontal=horizontal))
+        scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
+
+    if mode in ['cuda-hoist']:
+        scc_extended = SCCLowerLoopTransformation(
+                dimension=block_dim, dim_name='ibl', keep_driver_loop=True,
+                ignore_dim_name=True
+        )
+        scheduler.process(transformation=scc_extended)
+        # SccCufTransformationNew !
+        scheduler.process( transformation=scheduler.config.transformations[mode] )
+
+    if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
+        # These transformations requires complex constructor arguments,
+        # so we use the file-based transformation configuration.
+        scheduler.process( transformation=scheduler.config.transformations[mode] )
 
     if global_var_offload:
         scheduler.process(transformation=GlobalVariableAnalysis())
@@ -304,25 +379,25 @@ def convert(
         scheduler.process( pipeline )
 
 
-    if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        # These transformations requires complex constructor arguments,
-        # so we use the file-based transformation configuration.
-        scheduler.process( transformation=scheduler.config.transformations[mode] )
-
-    if mode == 'cuf-parametrise':
-        # This transformation requires complex constructora arguments,
-        # so we use the file-based transformation configuration.
-        transformation = scheduler.config.transformations['ParametriseTransformation']
-        scheduler.process(transformation=transformation)
-
-    if mode == "cuf-hoist":
+    if mode in ['cuda-hoist']:
         vertical = scheduler.config.dimensions['vertical']
         scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
-        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
+        # scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
+        if mode in ["cuda-hoist"]:
+            # scheduler.process( SCCHoistTemporaryArraysTransformation(block_dim=block_dim, as_kwarguments=True) )
+            scheduler.process( HoistTemporaryArraysCstyleTransformation(as_kwarguments=True) )
+        else:
+            scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
+
 
     mode = mode.replace('-', '_')  # Sanitize mode string
-    if mode in ["c"]:
-        f2c_transformation = FortranCTransformation(path=build)
+    if mode in ["c", "cuda_hoist"]:
+        if mode in ['c']:
+            f2c_transformation = FortranCTransformation(path=build, language='c', use_c_ptr=True)
+        elif mode in ['cuda_hoist']:
+            f2c_transformation = FortranCTransformation(path=build, language='cuda', use_c_ptr=True)
+        else:
+            assert False
         scheduler.process(f2c_transformation)
         for h in definitions:
             f2c_transformation.apply(h, role='header')

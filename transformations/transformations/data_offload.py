@@ -12,7 +12,7 @@ from loki import (
     CallStatement, Pragma, Scalar, Array, as_tuple, Transformer, warning, BasicType,
     ProcedureItem, ModuleItem, dataflow_analysis_attached, Import,
     Comment, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict,
-    FindInlineCalls, SubstituteExpressions
+    FindInlineCalls, SubstituteExpressions, VariableDeclaration
 )
 
 
@@ -804,7 +804,7 @@ class GlobalVarHoistTransformation(Transformation):
         redundant_imports_map = defaultdict(set)
         for module, variables in symbol_map.items():
             redundant = [var.parent[0] if var.parent else var for var in variables]
-            redundant = {var.clone(dimensions=None) for var in redundant if var.name in import_map}
+            redundant = {var.clone(dimensions=None, scope=routine) for var in redundant if var.name in import_map}
             redundant_imports_map[module] |= redundant
         import_map = {}
         imports = FindNodes(Import).visit(routine.spec)
@@ -819,12 +819,24 @@ class GlobalVarHoistTransformation(Transformation):
                 import_map[_import] = None
         routine.spec = Transformer(import_map).visit(routine.spec)
 
+        """
+        print(f"after process_kernel - routine {routine.name}")
+        var_decls = FindNodes(VariableDeclaration).visit(routine.spec)
+        # print(f"var_decls: {var_decls}")
+        print(f"len(var_decls): {len(var_decls)}")
+        for i, var_decl in enumerate(var_decls):
+            print(f" {i}: var_decl: {var_decl}")
+            for symbol in var_decl.symbols:
+                print(f"  symbol {symbol} | intent: {symbol.type.intent}")
+        """
+
+
     def _get_symbols(self, successors):
         """
         Get module variables/symbols (grouped by routine/successor).
         """
-        defines_symbols = {}
-        uses_symbols = {}
+        defines_symbols = CaseInsensitiveDict() # {}
+        uses_symbols = CaseInsensitiveDict() # {}
         for item in successors:
             if not isinstance(item, ProcedureItem):
                 continue
@@ -842,7 +854,8 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Helper to append variables to the call(s) (arguments).
         """
-        symbol_map = defaultdict(set)
+        print(f"append call arguments!")
+        symbol_map = defaultdict(set) # CaseInsensitiveDict(set) # defaultdict(set)
         for key, _ in uses_symbols.items():
             all_symbols = uses_symbols[key]|defines_symbols[key]
             for var, module in all_symbols:
@@ -850,15 +863,19 @@ class GlobalVarHoistTransformation(Transformation):
                 if module.lower() in self.ignore_modules:
                     continue
                 symbol_map[key].add(var.parents[0] if var.parent else var)
+        symbol_map = CaseInsensitiveDict(symbol_map)
         call_map = {}
         calls = FindNodes(CallStatement).visit(routine.body)
         for call in calls:
+            print(f"call {call} in uses_symbols? {uses_symbols}")
             if call.routine.name in uses_symbols:
+                print(f"  true for call.routine.name {call.routine.name} | symbol_map: {symbol_map}")
                 arguments = call.arguments
                 new_args = sorted(
-                    [var.clone(dimensions=None) for var in symbol_map[call.routine.name]],
+                    [var.clone(dimensions=None, scope=routine, type=var.type.clone(parameter=False, initial=None)) for var in symbol_map[call.routine.name]],
                     key=lambda symbol: symbol.name
                 )
+                print(f"new_args for call {call} - {new_args}")
                 call_map[call] = call.clone(arguments=arguments + tuple(new_args))
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
@@ -867,7 +884,7 @@ class GlobalVarHoistTransformation(Transformation):
         for call in inline_calls:
             if call.routine.name in uses_symbols:
                 arguments = call.parameters
-                new_args = sorted([var.clone(dimensions=None) for var in symbol_map[call.routine.name]],
+                new_args = sorted([var.clone(dimensions=None, scope=routine) for var in symbol_map[call.routine.name]],
                         key=lambda symbol: symbol.name)
                 inline_call_map[call] = call.clone(parameters=arguments + tuple(new_args))
         if inline_call_map:
@@ -877,6 +894,7 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Helper to append variables to the routine (arguments).
         """
+        print(f"routine symbol table ... {routine.symbol_attrs}")
         all_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
         all_defines_vars = [var.parents[0] if var.parent else var for var, _ in all_defines_symbols]
         all_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
@@ -895,7 +913,14 @@ class GlobalVarHoistTransformation(Transformation):
         new_arguments = [
             arg.clone(scope=routine, type=arg.type.clone(
                 intent='inout' if arg in all_defines_vars else 'in',
+                # parameter=None, initial=None
                 parameter=False, initial=None
             )) for arg in new_arguments
         ]
+        for arg in new_arguments:
+            assert arg.scope == routine
+        # TODO: necessary?
+        for new_arg in new_arguments:
+            if new_arg.name in routine.symbol_attrs:
+                routine.symbol_attrs.update({new_arg.name: new_arg.type.clone(parameter=None)})
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
