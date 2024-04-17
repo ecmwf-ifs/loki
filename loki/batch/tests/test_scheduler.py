@@ -2874,7 +2874,7 @@ def test_pipeline_config_compose(config):
     my_config['transformations'] = {
         'VectorWithTrim': {
             'classname': 'SCCVectorPipeline',
-            'module': 'transformations.single_column_coalesced',
+            'module': 'loki.transformations.single_column',
             'options':
             {
                 'horizontal': '%dimensions.horizontal%',

@@ -37,11 +37,9 @@ from loki.transformations.data_offload import (
 from loki.transformations.derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
-from loki.transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
-from loki.transformations.single_column_coalesced import (
-    SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline
-)
-from loki.transformations.scc_cuf import (
+from loki.transformations.single_column import (
+    ExtractSCATransformation, CLAWTransformation,
+    SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline,
     HoistTemporaryArraysDeviceAllocatableTransformation
 )
 

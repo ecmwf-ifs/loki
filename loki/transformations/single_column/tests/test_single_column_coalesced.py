@@ -19,10 +19,11 @@ from loki.ir import (
     pragma_regions_attached
 )
 from loki.transform import SanitiseTransformation, InlineTransformation
-from loki.transformations import (
-    DataOffloadTransformation, SCCBaseTransformation, SCCDevectorTransformation,
-    SCCDemoteTransformation, SCCRevectorTransformation, SCCAnnotateTransformation,
-    SCCVectorPipeline, SCCHoistPipeline,
+from loki.transformations import DataOffloadTransformation
+from loki.transformations.single_column import (
+    SCCBaseTransformation, SCCDevectorTransformation,
+    SCCDemoteTransformation, SCCRevectorTransformation,
+    SCCAnnotateTransformation, SCCVectorPipeline, SCCHoistPipeline,
 )
 #pylint: disable=too-many-lines
 

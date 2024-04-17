@@ -19,7 +19,7 @@ from loki.logging import info
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import DerivedType
 
-from loki.transformations.single_column_base import SCCBaseTransformation
+from loki.transformations.single_column.base import SCCBaseTransformation
 
 
 __all__ = ['SCCAnnotateTransformation']

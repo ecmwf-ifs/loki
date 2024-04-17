@@ -9,7 +9,7 @@ from loki.expression import symbols as sym
 from loki.ir import nodes as ir
 from loki.transform import HoistVariablesTransformation
 
-from loki.transformations.single_column_base import SCCBaseTransformation
+from loki.transformations.single_column.base import SCCBaseTransformation
 
 
 __all__ = ['SCCHoistTemporaryArraysTransformation']

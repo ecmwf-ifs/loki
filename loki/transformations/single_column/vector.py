@@ -20,7 +20,7 @@ from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.transform import demote_variables
 
-from loki.transformations.single_column_base import SCCBaseTransformation
+from loki.transformations.single_column.base import SCCBaseTransformation
 
 
 __all__ = ['SCCDevectorTransformation', 'SCCRevectorTransformation', 'SCCDemoteTransformation']
