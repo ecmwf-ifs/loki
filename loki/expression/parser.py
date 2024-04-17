@@ -17,15 +17,21 @@ from pymbolic.parser import (
     _openpar, _closepar, _minus, FinalizedTuple, _PREC_UNARY,
     _PREC_TIMES, _PREC_PLUS, _times, _plus
 )
+try:
+    from fparser.two.Fortran2003 import Intrinsic_Name
 
-from loki.frontend.fparser import FORTRAN_INTRINSIC_PROCEDURES
+    FORTRAN_INTRINSIC_PROCEDURES = Intrinsic_Name.function_names
+    """list of intrinsic fortran procedure(s) names"""
+except ImportError:
+    FORTRAN_INTRINSIC_PROCEDURES = ()
+
 from loki.tools.util import CaseInsensitiveDict
 import loki.expression.symbols as sym
 import loki.expression.operations as sym_ops
 from loki.expression.expr_visitors import AttachScopes
 from loki.scope import Scope
 
-__all__ = ['ExpressionParser', 'parse_expr']
+__all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES']
 
 
 class PymbolicMapper(Mapper):
