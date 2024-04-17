@@ -226,7 +226,7 @@ def convert(
 
     if unprivatise_structs:
         scheduler.process( UnprivatiseStructsTransformation(horizontal) )
-        scheduler.process( BlockIndexInjectTransformation(horizontal, block_dim) )
+        scheduler.process( BlockIndexInjectTransformation(block_dim) )
 
     # Perform source-inlining either from CLI arguments or from config
     inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
