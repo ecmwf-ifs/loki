@@ -1009,18 +1009,18 @@ def test_string_compare():
     ('ansatz(a + 1)', 'a', True),
     ('ansatz(b + 1)', 'a', False),  # Ensure no false positives
 ])
-@pytest.mark.parametrize('parse', (parse_expr, parse_fparser_expression))
+@pytest.mark.parametrize('parse', (
+    parse_expr,
+    pytest.param(parse_fparser_expression,
+        marks=pytest.mark.skipif(not HAVE_FP, reason='parse_fparser_expression not available!'))
+))
 def test_subexpression_match(parse, expr, string, ref):
     """
     Test that we can identify individual symbols or sub-expressions in
     expressions via canonical string matching.
     """
     scope = Scope()
-    if parse is parse_fparser_expression and not HAVE_FP:
-        with pytest.raises(RuntimeError):
-            expr = parse(expr, scope)
-    else:
-        expr = parse(expr, scope)
+    expr = parse(expr, scope)
     assert (string in expr) == ref
 
 
@@ -1033,17 +1033,17 @@ def test_subexpression_match(parse, expr, string, ref):
     ('5 + (4 + 3) - (2*1)', '5 + (4 + 3) - (2*1)'),
     ('a*(b*(c+(d+e)))', 'a*(b*(c + (d + e)))'),
 ])
-@pytest.mark.parametrize('parse', (parse_expr, parse_fparser_expression))
+@pytest.mark.parametrize('parse', (
+    parse_expr,
+    pytest.param(parse_fparser_expression,
+        marks=pytest.mark.skipif(not HAVE_FP, reason='parse_fparser_expression not available!'))
+))
 def test_parse_expression(parse, source, ref):
     """
     Test the utility function that parses simple expressions.
     """
     scope = Scope()
-    if parse is parse_fparser_expression and not HAVE_FP:
-        with pytest.raises(RuntimeError):
-            ir = parse(source, scope)
-    else:
-        ir = parse(source, scope)
+    ir = parse(source, scope)  # pylint: disable=redefined-outer-name
     assert isinstance(ir, pmbl.Expression)
     assert str(ir) == ref
 
