@@ -50,9 +50,17 @@ def is_loki_pragma(pragma, starts_with=None):
     return True
 
 
-_get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.*)\))?')
+_get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.+?)\))?')
+"""
+Regular expression pattern to match pragma parameters.
 
-def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
+E.g., match ``!$loki something key1(val1) key2(val2)``.
+Problematic for e.g., ``!$loki something key1((val1 + 1)/2)``,
+use instead: `_get_pragma_dim_parameter_re`.
+"""
+
+def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True,
+        pattern=_get_pragma_parameters_re):
     """
     Parse the pragma content for parameters in the form ``<command>[(<arg>)]`` and
     return them as a map ``{<command>: <arg> or None}``.
@@ -70,6 +78,8 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
         the keyword the pragma content should start with.
     only_loki_pragmas : bool, optional
         restrict parameter extraction to ``loki`` pragmas only.
+    pattern : :any:`regex.Pattern`, optional
+        Regex pattern (default: `_get_pragma_dim_parameter_re`).
 
     Returns
     -------
@@ -87,11 +97,20 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
             if not content.lower().startswith(starts_with.lower()):
                 continue
             content = content[len(starts_with):]
-        for match in re.finditer(_get_pragma_parameters_re, content):
+        for match in re.finditer(pattern, content):
             parameters[match.group('command')].append(match.group('arg'))
     parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
     return parameters
 
+
+_get_pragma_dim_parameter_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.*)\))?')
+"""
+Regular expression pattern to match pragma dimension parameter.
+
+E.g., match ``!$loki something key1((val1 + 1)/2)``.
+Problematic for e.g., ``!$loki something key1(val1) key2(val2)``,
+use instead: `_get_pragma_parameters_re`.
+"""
 
 def process_dimension_pragmas(ir, scope=None):
     """
@@ -111,7 +130,8 @@ def process_dimension_pragmas(ir, scope=None):
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
             for v in decl.symbols:
                 # Found dimension override for variable
-                dims = get_pragma_parameters(decl.pragma)['dimension']
+                dims = get_pragma_parameters(decl.pragma,
+                        pattern=_get_pragma_dim_parameter_re)['dimension']
                 dims = [d.strip() for d in dims.split(',')]
                 # parse each dimension
                 shape = tuple(parse_expr(d, scope=scope) for d in dims)
