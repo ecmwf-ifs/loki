@@ -1747,6 +1747,10 @@ end module external_mod
     assert all(_parsed.scope == routine for _parsed in [parsed.base, parsed.exponent])
     assert to_str(parsed) == 'a**b'
 
+    parsed = parse_expr(convert_to_case(':', mode=case))
+    assert isinstance(parsed, sym.RangeIndex)
+    assert to_str(parsed) == ':'
+
     parsed = parse_expr(convert_to_case('a:b', mode=case), scope=routine)
     assert isinstance(parsed, sym.RangeIndex)
     assert all(isinstance(_parsed,  sym.Scalar) for _parsed in [parsed.lower, parsed.upper])

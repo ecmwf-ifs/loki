@@ -109,7 +109,11 @@ class PymbolicMapper(Mapper):
     map_array = map_meta_symbol
 
     def map_slice(self, expr, *args, **kwargs):
-        return sym.RangeIndex(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
+        children = tuple(self.rec(child, *args, **kwargs) if child is not None else child for child in expr.children)
+        if len(children) == 1 and children[0] is None:
+            # this corresponds to ':' (sym.RangeIndex((None, None)))
+            children = (None, None)
+        return sym.RangeIndex(children)
 
     map_range = map_slice
     map_range_index = map_slice
