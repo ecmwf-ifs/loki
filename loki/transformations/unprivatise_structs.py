@@ -23,8 +23,9 @@ class UnprivatiseStructsTransformation(Transformation):
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
 
-    def __init__(self, horizontal, key=None):
+    def __init__(self, horizontal, exclude=[], key=None):
         self.horizontal = horizontal
+        self.exclude = exclude
         if key:
              self._key = key
 
@@ -157,9 +158,6 @@ class UnprivatiseStructsTransformation(Transformation):
         vars = [var for var in FindVariables().visit(routine.body)
                 if isinstance(var, Array) and var.parents and self.horizontal.index in getattr(var, 'dimensions', ())]
 
-        # remove YDCPG_SL1 members, as these are not memory blocked
-        vars = [var for var in vars if not 'ydcpg_sl1' in var]
-
         # build list of type-bound view pointers passed as subroutine arguments
         for call in [call for call in FindNodes(ir.CallStatement).visit(routine.body) if call.name in targets]:
             _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)}
@@ -176,6 +174,11 @@ class UnprivatiseStructsTransformation(Transformation):
         vmap.update({v: self.build_ydvars_global_gfl_ptr(vmap.get(v, v))
                      for v in FindVariables().visit(routine.body) if 'ydvars%gfl_ptr' in v.name.lower()})
         vmap = recursive_expression_map_update(vmap)
+
+        # filter out arrays marked for exclusion
+        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in self.exclude)}
+
+        # finally perform the substitution
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
         # propagate dummy field_api wrapper definitions to children
@@ -190,8 +193,9 @@ class BlockIndexInjectTransformation(Transformation):
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
 
-    def __init__(self, block_dim, key=None):
+    def __init__(self, block_dim, exclude=[], key=None):
         self.block_dim = block_dim
+        self.exclude = exclude
         if key:
              self._key = key
 
@@ -264,5 +268,8 @@ class BlockIndexInjectTransformation(Transformation):
 
             if local_rank == decl_rank - 1:
                 vmap.update(self._update_expr_map(var, decl_rank, block_index))
+
+        # filter out arrays marked for exclusion
+        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in self.exclude)}
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
