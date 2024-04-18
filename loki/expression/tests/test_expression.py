@@ -1271,7 +1271,6 @@ def test_variable_without_scope():
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('expr', [
     ('1.8 - 3.E-03*ztp1'),
     ('1.8 - 0.003*ztp1'),
@@ -1281,22 +1280,31 @@ def test_variable_without_scope():
     ('5 + (-1)'),
     ('5 - 1')
 ])
-def test_standalone_expr_parenthesis(expr):
+@pytest.mark.parametrize('parse', (
+    parse_expr,
+    pytest.param(parse_fparser_expression,
+        marks=pytest.mark.skipif(not HAVE_FP, reason='parse_fparser_expression not available!'))
+))
+def test_standalone_expr_parenthesis(expr, parse):
     scope = Scope()
-    ir = parse_fparser_expression(expr, scope)
+    ir = parse(expr, scope)  # pylint: disable=redefined-outer-name
     assert isinstance(ir, pmbl.Expression)
     assert fgen(ir) == expr
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
-def test_array_to_inline_call_rescope():
+@pytest.mark.parametrize('parse', (
+    parse_expr,
+    pytest.param(parse_fparser_expression,
+        marks=pytest.mark.skipif(not HAVE_FP, reason='parse_fparser_expression not available!'))
+))
+def test_array_to_inline_call_rescope(parse):
     """
     Test a mechanism that can convert arrays to procedure calls, to mop up
     broken frontend behaviour wrongly classifying inline calls as array subscripts
     """
     # Parse the expression, which fparser will interpret as an array
     scope = Scope()
-    expr = parse_fparser_expression('FLUX%OUT_OF_PHYSICAL_BOUNDS(KIDIA, KFDIA)', scope=scope)
+    expr = parse('FLUX%OUT_OF_PHYSICAL_BOUNDS(KIDIA, KFDIA)', scope=scope)
     assert isinstance(expr, sym.Array)
 
     # Detach the expression from the scope and update the type information in the scope
@@ -1861,11 +1869,11 @@ end module external_mod
     assert isinstance(parsed, sym.Array)
     assert to_str(parsed) == 'my_func(i1)'
     parsed = parse_expr(convert_to_case('my_func(i1)', mode=case), scope=module)
-    assert isinstance(parsed, sym.InlineCall) # sym.ProcedureSymbol)
+    assert isinstance(parsed, sym.InlineCall)
     assert to_str(parsed) == 'my_func(i1)'
 
     parsed = parse_expr(convert_to_case('min(i1, i2)', mode=case), scope=module)
-    assert isinstance(parsed, sym.InlineCall) # sym.ProcedureSymbol)
+    assert isinstance(parsed, sym.InlineCall)
     assert to_str(parsed) == 'min(i1,i2)'
 
     parsed = parse_expr(convert_to_case('a', mode=case))
@@ -1878,6 +1886,24 @@ end module external_mod
     parsed = parse_expr(convert_to_case('3.1415', mode=case))
     assert isinstance(parsed, sym.FloatLiteral)
     assert to_str(parsed) == '3.1415'
+
+    parsed = parse_expr(convert_to_case('some_type%val', mode=case))
+    assert isinstance(parsed, sym.DeferredTypeSymbol)
+    assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == 'some_type%val'
+    parsed = parse_expr(convert_to_case('some_type%another_type%val', mode=case))
+    assert isinstance(parsed, sym.DeferredTypeSymbol)
+    assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
+    assert isinstance(parsed.parent.parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == 'some_type%another_type%val'
+    parsed = parse_expr(convert_to_case('some_type%arr(a, b)', mode=case))
+    assert isinstance(parsed, sym.Array)
+    assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == 'some_type%arr(a,b)'
+    parsed = parse_expr(convert_to_case('some_type%some_func()', mode=case))
+    assert isinstance(parsed, sym.InlineCall)
+    assert isinstance(parsed.function.parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == 'some_type%some_func()'
 
     parsed = parse_expr(convert_to_case('"some_string_literal 42 _-*"', mode=case))
     assert isinstance(parsed, sym.StringLiteral)
@@ -1952,16 +1978,19 @@ end module external_mod
     parsed = parse_expr(convert_to_case('2._8', mode=case), scope=routine)
     assert isinstance(parsed, sym.FloatLiteral)
     assert parsed.kind == '8'
-    assert to_str(parsed) == '2.0_8'
+    assert float(parsed.value) == 2.0
+    assert to_str(parsed) == '2._8'
 
     parsed = parse_expr(convert_to_case('2.4e18_my_kind8', mode=case), scope=routine)
     assert isinstance(parsed, sym.FloatLiteral)
     assert parsed.kind == 'my_kind8'
-    assert to_str(parsed) == '2.4e+18_my_kind8'
+    assert float(parsed.value) == 2.4e18
+    assert to_str(parsed) == '2.4e18_my_kind8'
 
     parsed = parse_expr(convert_to_case('4_jpim', mode=case), scope=routine)
     assert isinstance(parsed, sym.IntLiteral)
     assert parsed.kind == 'jpim'
+    assert int(parsed.value) == 4
     assert to_str(parsed) == '4'
 
     parsed = parse_expr(convert_to_case('[1, 2, 3, 4]', mode=case), scope=routine)

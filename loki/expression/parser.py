@@ -120,7 +120,8 @@ class PymbolicMapper(Mapper):
     map_loop_range = map_slice
 
     def map_variable(self, expr, *args, **kwargs):
-        return sym.Variable(name=expr.name)
+        parent = kwargs.pop('parent', None)
+        return sym.Variable(name=expr.name, parent=parent) # , **kwargs)
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         if str(expr).isnumeric():
@@ -131,7 +132,12 @@ class PymbolicMapper(Mapper):
             if expr.function.name.upper() in FORTRAN_INTRINSIC_PROCEDURES:
                 return sym.InlineCall(function=sym.Variable(name=expr.function.name),
                         parameters=tuple(self.rec(param, *args, **kwargs) for param in expr.parameters))
-            return sym.Variable(name=expr.function.name,
+            parent = kwargs.pop('parent', None)
+            dimensions = tuple(self.rec(param, *args, **kwargs) for param in expr.parameters)
+            if not dimensions:
+                return sym.InlineCall(function=sym.Variable(name=expr.function.name, parent=parent),
+                        parameters=dimensions)
+            return sym.Variable(name=expr.function.name, parent=parent,
                     dimensions=tuple(self.rec(param, *args, **kwargs) for param in expr.parameters))
         try:
             return self.map_variable(expr, *args, **kwargs)
@@ -154,6 +160,11 @@ class PymbolicMapper(Mapper):
 
     def map_list(self, expr, *args, **kwargs):
         return sym.LiteralList([self.rec(elem, *args, **kwargs) for elem in expr])
+
+    # hijack 'pymbolic.Remainder' to construct DerivedTypes ...
+    def map_remainder(self, expr, *args, **kwargs):
+        parent = self.rec(expr.numerator)
+        return self.rec(expr.denominator, parent=parent)
 
 
 class LokiEvaluationMapper(EvaluationMapper):
@@ -437,6 +448,15 @@ class ExpressionParser(ParserBase):
         ir = PymbolicMapper()(result)
         return AttachScopes().visit(ir, scope=scope or Scope())
 
+    def parse_float(self, s):
+        """
+        Parse float literals.
+
+        Do not cast to float via 'float()' in order to keep the original
+        notation, e.g., do not convert 1E-3 to 0.003.
+        """
+        return sym.FloatLiteral(value=s.replace("d", "e").replace("D", "e"))
+
     def parse_f_float(self, s):
         """
         Parse "Fortran-style" float literals.
@@ -445,7 +465,7 @@ class ExpressionParser(ParserBase):
         """
         stripped = s.split('_', 1)
         if len(stripped) == 2:
-            return sym.Literal(value=self.parse_float(stripped[0]), kind=sym.Variable(name=stripped[1].lower()))
+            return sym.FloatLiteral(value=self.parse_float(stripped[0]), kind=sym.Variable(name=stripped[1].lower()))
         return self.parse_float(stripped[0])
 
     def parse_f_int(self, s):
