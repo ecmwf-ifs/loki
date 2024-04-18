@@ -46,8 +46,6 @@ from loki.transformations.single_column import (
 )
 from loki.transformations.transpile import FortranCTransformation
 
-from transformations.unprivatise_structs import UnprivatiseStructsTransformation, BlockIndexInjectTransformation
-
 
 class IdemTransformation(Transformation):
     """
@@ -225,8 +223,8 @@ def convert(
     scheduler.process(transformation=sanitise_trafo)
 
     if unprivatise_structs:
-        scheduler.process( UnprivatiseStructsTransformation(horizontal) )
-        scheduler.process( BlockIndexInjectTransformation(block_dim) )
+        assert config.pipelines['unprivatise_structs']
+        scheduler.process( config.pipelines['unprivatise_structs'] )
 
     # Perform source-inlining either from CLI arguments or from config
     inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
