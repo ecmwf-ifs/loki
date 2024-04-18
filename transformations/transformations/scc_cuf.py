@@ -78,8 +78,7 @@ class HoistTemporaryArraysPragmaOffloadTransformation(HoistVariablesTransformati
         var: :any:`Variable`
             The variable to be declared
         """
-        for var in variables:
-            routine.variables += tuple([var.clone(scope=routine)])
+        routine.variables += tuple(var.clone(scope=routine) for var in variables)
 
         vnames = ', '.join(v.name for v in variables)
         pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
