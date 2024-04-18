@@ -11,11 +11,15 @@ import pytest
 from conftest import available_frontends
 from loki import (
     Scheduler, Subroutine, Dimension, FindNodes, Loop, Assignment,
-    CallStatement, Allocation, Deallocation, VariableDeclaration, Import, FindVariables
+    CallStatement, Allocation, Deallocation, VariableDeclaration, Import, FindVariables,
+    Pragma
 )
 from loki.transform import HoistTemporaryArraysAnalysis, ParametriseTransformation
 from loki.expression import symbols as sym
-from transformations import SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation
+from transformations import (
+        SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation,
+        HoistTemporaryArraysPragmaOffloadTransformation
+)
 
 
 @pytest.fixture(scope='module', name='horizontal')
@@ -278,7 +282,11 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
+@pytest.mark.parametrize('hoist_synthesis', (
+    HoistTemporaryArraysDeviceAllocatableTransformation(),
+    HoistTemporaryArraysPragmaOffloadTransformation())
+)
+def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, hoist_synthesis):
     """
     Test SCC-CUF transformation type 1, thus including host side hoisting
     """
@@ -296,7 +304,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
     # Transformation: Analysis
     scheduler.process(transformation=HoistTemporaryArraysAnalysis())
     # Transformation: Synthesis
-    scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation())
+    scheduler.process(transformation=hoist_synthesis)
 
     check_subroutine_driver(routine=scheduler["driver_mod#driver"].ir, blocking=blocking)
     check_subroutine_kernel(routine=scheduler["kernel_mod#kernel"].ir, horizontal=horizontal,
@@ -306,6 +314,30 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking):
     check_subroutine_elemental_device(routine=scheduler["kernel_mod#elemental_device"].ir)
 
     # check driver
+    driver_routine = scheduler["driver_mod#driver"].ir
+    assert 'kernel_local_z' in driver_routine.variable_map
+    assert 'device_local_x' in driver_routine.variable_map
+    if isinstance(hoist_synthesis, HoistTemporaryArraysDeviceAllocatableTransformation):
+        assert driver_routine.variable_map['kernel_local_z'].type.device
+        assert driver_routine.variable_map['device_local_x'].type.device
+        assert driver_routine.variable_map['kernel_local_z'].shape == ('nlon', 'nz', 'nb')
+        assert driver_routine.variable_map['device_local_x'].shape == ('nlon', 'nz', 'nb')
+    elif isinstance(hoist_synthesis, HoistTemporaryArraysPragmaOffloadTransformation):
+        assert driver_routine.variable_map['kernel_local_z'].type.device is None
+        assert driver_routine.variable_map['device_local_x'].type.device is None
+        assert driver_routine.variable_map['kernel_local_z'].shape == ('nlon', 'nz', 'nb')
+        assert driver_routine.variable_map['device_local_x'].shape == ('nlon', 'nz', 'nb')
+        pragmas = FindNodes(Pragma).visit(driver_routine.body)
+        assert pragmas[0].keyword == 'acc'
+        assert 'enter data create' in pragmas[0].content.lower()
+        assert 'kernel_local_z' in pragmas[0].content.lower()
+        assert 'device_local_x' in pragmas[0].content.lower()
+        assert pragmas[1].keyword == 'acc'
+        assert 'exit data delete' in pragmas[1].content.lower()
+        assert 'kernel_local_z' in pragmas[1].content.lower()
+        assert 'device_local_x' in pragmas[1].content.lower()
+    else:
+        raise ValueError
     for call in FindNodes(CallStatement).visit(scheduler["driver_mod#driver"].ir.body):
         argnames = [arg.name.lower() for arg in call.arguments]
         assert 'kernel_local_z' in argnames
