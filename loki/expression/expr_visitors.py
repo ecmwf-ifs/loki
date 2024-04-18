@@ -11,7 +11,9 @@ Visitor classes for traversing and transforming all expression trees in
 """
 from pymbolic.primitives import Expression
 
-from loki.ir import Node, Visitor, Transformer
+from loki.ir.nodes import Node
+from loki.ir.visitor import Visitor
+from loki.ir.transformer import Transformer
 from loki.tools import flatten, as_tuple
 from loki.expression.mappers import (
     SubstituteExpressionsMapper, ExpressionRetriever, AttachScopesMapper
