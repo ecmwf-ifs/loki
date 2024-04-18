@@ -45,7 +45,7 @@ from loki.config import config
 
 
 __all__ = ['HAVE_FP', 'FParser2IR', 'parse_fparser_file', 'parse_fparser_source',
-           'parse_fparser_ast', 'parse_fparser_expression', 'get_fparser_node']
+        'parse_fparser_ast', 'parse_fparser_expression', 'get_fparser_node']
 
 
 @Timer(logger=debug, text=lambda s: f'[Loki::FP] Executed parse_fparser_file in {s:.2f}s')

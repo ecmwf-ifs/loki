@@ -15,9 +15,8 @@ import numpy as np
 
 from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
-    simplify, is_constant, symbolic_op,
+    simplify, is_constant, symbolic_op, parse_expr
 )
-from loki.frontend.fparser import parse_fparser_expression
 from loki.ir import (
     Loop, Conditional, Comment, Pragma, FindNodes, Transformer,
     NestedMaskedTransformer, is_parent_of, is_loki_pragma,
@@ -269,7 +268,7 @@ def pragma_ranges_to_loop_ranges(parameters, scope):
         return None
     ranges = []
     for item in parameters['range'].split(','):
-        bounds = [parse_fparser_expression(bound, scope=scope) for bound in item.split(':')]
+        bounds = [parse_expr(bound, scope=scope) for bound in item.split(':')]
         ranges += [sym.LoopRange(as_tuple(bounds))]
 
     return as_tuple(ranges)
