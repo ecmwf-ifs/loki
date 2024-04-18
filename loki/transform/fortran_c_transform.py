@@ -23,6 +23,7 @@ from loki.transform.transform_inline import (
 )
 from loki.sourcefile import Sourcefile
 from loki.backend import cgen, fgen
+from loki.logging import debug
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, VariableDeclaration,
     TypeDef, Assignment, Transformer, FindNodes
@@ -75,6 +76,9 @@ class DeReferenceTrafo(Transformer):
 
     def visit_CallStatement(self, o, **kwargs):
         new_args = ()
+        if o.routine is BasicType.DEFERRED:
+            debug(f'DeReferenceTrafo: Skipping call to {o.name!s} due to missing procedure enrichment')
+            return o
         call_arg_map = dict((v,k) for k,v in o.arg_map.items())
         for arg in o.arguments:
             if not self.is_dereference(arg) and (isinstance(call_arg_map[arg], Array)\

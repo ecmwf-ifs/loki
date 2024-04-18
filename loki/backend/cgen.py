@@ -172,7 +172,7 @@ class CCodegen(Stringifier):
                 aptr += ['*']
             else:
                 aptr += ['']
-        arguments = [f'{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
+        arguments = [f'{self.visit(a.type, **kwargs)} {p}{a.name}'
                      for a, p in zip(o.arguments, aptr)]
 
         # check whether to return something and define function return type accordingly

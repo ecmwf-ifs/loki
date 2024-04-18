@@ -89,7 +89,8 @@ def convert_to_lower_case(routine):
     variables = FindVariables(unique=False).visit(routine.ir)
     vmap = {
         v: v.clone(name=v.name.lower()) for v in variables
-        if isinstance(v, (sym.Scalar, sym.Array, sym.DeferredTypeSymbol)) and not v.name.islower()
+        if isinstance(v, (sym.Scalar, sym.Array, sym.DeferredTypeSymbol)) and not v.name.islower()\
+                and not v.case_sensitive
     }
 
     # Capture nesting by applying map to itself before applying to the routine
@@ -100,7 +101,7 @@ def convert_to_lower_case(routine):
     # Downcase inline calls to, but only after the above has been propagated,
     # so that we  capture the updates from the variable update in the arguments
     mapper = {
-        c: c.clone(function=c.function.clone(name=c.name.lower()))
+        c: c.clone(function=c.function.clone(name=c.name.lower() if not c.function.case_sensitive else c.name))
         for c in FindInlineCalls().visit(routine.ir) if not c.name.islower()
     }
     mapper.update(

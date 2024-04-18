@@ -116,18 +116,21 @@ class TypedSymbol:
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     parent : :any:`Scalar` or :any:`Array`, optional
         The derived type variable this variable belongs to.
+    case_sensitive : bool, optional
+        Mark the name of this symbol as case-sensitive (default: `False`)
     *args : optional
         Any other positional arguments for other parent classes
     **kwargs : optional
         Any other keyword arguments for other parent classes
     """
 
-    init_arg_names = ('name', 'scope', 'parent', 'type', )
+    init_arg_names = ('name', 'scope', 'parent', 'type', 'case_sensitive', )
 
     def __init__(self, *args, **kwargs):
         self.name = kwargs['name']
         self.parent = kwargs.pop('parent', None)
         self.scope = kwargs.pop('scope', None)
+        self.case_sensitive = kwargs.pop('case_sensitive', config['case-sensitive'])
 
         # Use provided type or try to determine from scope
         self._type = None
@@ -154,7 +157,7 @@ class TypedSymbol:
         symbol objects. We do not recurse here, since we own the
         "name" attribute, which pymbolic will otherwise replicate.
         """
-        return (self.name, None, self._parent, self._type, )
+        return (self.name, None, self._parent, self._type, self.case_sensitive, )
 
     @property
     def scope(self):
@@ -339,6 +342,8 @@ class TypedSymbol:
                 kwargs['type'] = self.type
         if 'parent' not in kwargs and self.parent:
             kwargs['parent'] = self.parent
+        if 'case_sensitive' not in kwargs and self.case_sensitive:
+            kwargs['case_sensitive'] = self.case_sensitive
 
         return Variable(**kwargs)
 
@@ -639,6 +644,13 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         """
         return self.symbol.rescope(scope)
 
+    @property
+    def case_sensitive(self):
+        """
+        Property to indicate that the name of this symbol is case-sensitive.
+        """
+        return self.symbol.case_sensitive
+
     def get_derived_type_member(self, name_str):
         """
         Resolve type-bound variables of arbitrary nested depth.
@@ -698,7 +710,6 @@ class Array(MetaSymbol):
     def __init__(self, name, scope=None, type=None, dimensions=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-
         symbol = VariableSymbol(name=name, scope=scope, type=type, **kwargs)
         if dimensions:
             symbol = ArraySubscript(symbol, dimensions)
