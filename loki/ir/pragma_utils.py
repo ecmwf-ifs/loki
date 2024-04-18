@@ -14,9 +14,8 @@ from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
 from loki.ir.visitor import Visitor
-
+# from loki.expression.parser import parse_expr
 from loki.tools.util import as_tuple, replace_windowed
-from loki.types import BasicType
 from loki.logging import debug, warning
 
 
@@ -51,7 +50,7 @@ def is_loki_pragma(pragma, starts_with=None):
     return True
 
 
-_get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.+?)\))?')
+_get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.*)\))?')
 
 def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """
@@ -94,7 +93,7 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     return parameters
 
 
-def process_dimension_pragmas(ir):
+def process_dimension_pragmas(ir, scope=None):
     """
     Process any ``!$loki dimension`` pragmas to override deferred dimensions
 
@@ -106,7 +105,7 @@ def process_dimension_pragmas(ir):
     ir : :any:`Node`
         Root node of the (section of the) internal representation to process
     """
-    from loki.expression.symbols import Literal, Variable  # pylint: disable=import-outside-toplevel
+    from loki.expression.parser import parse_expr  # pylint: disable=import-outside-toplevel
 
     for decl in FindNodes(VariableDeclaration).visit(ir):
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
@@ -114,13 +113,10 @@ def process_dimension_pragmas(ir):
                 # Found dimension override for variable
                 dims = get_pragma_parameters(decl.pragma)['dimension']
                 dims = [d.strip() for d in dims.split(',')]
-                shape = []
-                for d in dims:
-                    if d.isnumeric():
-                        shape += [Literal(value=int(d), type=BasicType.INTEGER)]
-                    else:
-                        shape += [Variable(name=d, scope=v.scope)]
-                v.scope.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(shape))
+                # parse each dimension
+                shape = tuple(parse_expr(d, scope=scope) for d in dims)
+                # update symbol table
+                v.scope.symbol_attrs[v.name] = v.type.clone(shape=shape)
     return ir
 
 
