@@ -720,6 +720,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
     assert [arg.name for arg in kernel0.variables] == sorted(expected_vars)
     for var in kernel0.arguments:
         assert kernel0.variable_map[var.name.lower()].type.intent == var_intent_map[var.name.lower()]
+        assert var.scope == kernel0
     kernel0_inline_calls = FindInlineCalls().visit(kernel0.body)
     for inline_call in kernel0_inline_calls:
         if ignore_modules is None:
@@ -752,6 +753,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
         assert [arg.name for arg in kernel_map[call.routine.name].arguments] == expected_args
         for var in kernel_map[call.routine.name].variables:
             var_intent = kernel_map[call.routine.name].variable_map[var.name.lower()].type.intent
+            assert var.scope == kernel_map[call.routine.name]
             assert var_intent == var_intent_map[var.name.lower()]
         if call.routine.name in ['kernel1', 'kernel2']:
             expected_args = ['tmp'] + expected_args

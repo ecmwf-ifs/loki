@@ -893,7 +893,7 @@ class GlobalVarHoistTransformation(Transformation):
             new_arguments.append(var.parents[0] if var.parent else var)
         new_arguments = set(new_arguments) # remove duplicates
         new_arguments = [
-            arg.clone(type=arg.type.clone(
+            arg.clone(scope=routine, type=arg.type.clone(
                 intent='inout' if arg in all_defines_vars else 'in',
                 parameter=False, initial=None
             )) for arg in new_arguments
