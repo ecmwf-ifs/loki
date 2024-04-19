@@ -8,7 +8,10 @@
 from pathlib import Path
 import pytest
 
-from loki.build import Obj, Lib, Builder
+from loki.build import (
+    Obj, Lib, Builder,
+    Compiler, GNUCompiler, NvidiaCompiler, get_compiler_from_env, _default_compiler
+)
 
 
 @pytest.fixture(scope='module', name='path')
@@ -112,3 +115,49 @@ def test_build_binary(builder):
     Test basic binary compilation from objects and libs.
     """
     assert builder
+
+
+@pytest.mark.parametrize('env,cls,attrs', [
+    # Overwrite completely custom
+    (
+        {'CC': 'my-weird-compiler', 'FC': 'my-other-weird-compiler', 'F90': 'weird-fortran', 'FCFLAGS': '-my-flag  '},
+        Compiler,
+        {'CC': 'my-weird-compiler', 'FC': 'my-other-weird-compiler', 'F90': 'weird-fortran', 'FCFLAGS': ['-my-flag']},
+    ),
+    # GNUCompiler
+    ({'CC': 'gcc'}, GNUCompiler, {'CC': 'gcc', 'FC': 'gfortran', 'F90': 'gfortran'}),
+    ({'CC': 'gcc-13'}, GNUCompiler, None),
+    ({'CC': '/path/to/my/gcc'}, GNUCompiler, None),
+    ({'CC': '../../relative/path/to/my/gcc-11'}, GNUCompiler, None),
+    ({'CC': 'C:\\windows\\path\\to\\gcc'}, GNUCompiler, None),
+    ({'FC': 'gfortran'}, GNUCompiler, None),
+    ({'FC': 'gfortran-13', 'FCFLAGS': '-O3 -g'}, GNUCompiler, {'FC': 'gfortran-13', 'FCFLAGS': ['-O3', '-g']}),
+    ({'FC': '/path/to/my/gfortran'}, GNUCompiler, None),
+    ({'FC': '../../relative/path/to/my/gfortran'}, GNUCompiler, None),
+    ({'FC': 'C:\\windows\\path\\to\\gfortran'}, GNUCompiler, None),
+    # NvidiaCompiler
+    ({'FC': 'nvfortran'}, NvidiaCompiler, {'CC': 'nvc', 'FC': 'nvfortran', 'F90': 'nvfortran'}),
+    ({'CC': 'nvc'}, NvidiaCompiler, None),
+    ({'CC': '/path/to/my/nvc'}, NvidiaCompiler, None),
+    ({'CC': '../../relative/path/to/my/nvc'}, NvidiaCompiler, None),
+    ({'CC': 'C:\\windows\\path\\to\\nvc'}, NvidiaCompiler, None),
+    ({'FC': 'pgf90'}, NvidiaCompiler, None),
+    ({'FC': 'pgf95'}, NvidiaCompiler, None),
+    ({'FC': 'pgfortran'}, NvidiaCompiler, None),
+    ({'FC': '/path/to/my/nvfortran'}, NvidiaCompiler, None),
+    ({'FC': '../../relative/path/to/my/pgfortran'}, NvidiaCompiler, None),
+    ({'FC': 'C:\\windows\\path\\to\\nvfortran'}, NvidiaCompiler, None),
+])
+def test_get_compiler_from_env(env, cls, attrs):
+    compiler = get_compiler_from_env(env)
+    assert type(compiler) == cls  # pylint: disable=unidiomatic-typecheck
+    for attr, expected_value in (attrs or env).items():
+        # NB: We are comparing the lower-case attribute
+        # because that contains the runtime value
+        assert getattr(compiler, attr.lower()) == expected_value
+
+
+def test_default_compiler():
+    # Check that _default_compiler corresponds to a call with None
+    compiler = get_compiler_from_env()
+    assert type(compiler) == type(_default_compiler)  # pylint: disable=unidiomatic-typecheck

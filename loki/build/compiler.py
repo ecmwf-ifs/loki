@@ -5,16 +5,20 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 from importlib import import_module, reload
+import os
+import re
 import sys
+from pathlib import Path
 
-from loki.logging import info
+from loki.logging import info, debug
 from loki.tools import execute, as_tuple, flatten, delete
 
 
-__all__ = ['clean', 'compile', 'compile_and_load',
-           '_default_compiler', 'Compiler', 'GNUCompiler', 'EscapeGNUCompiler']
+__all__ = [
+    'clean', 'compile', 'compile_and_load', '_default_compiler',
+    'Compiler', 'get_compiler_from_env', 'GNUCompiler', 'NvidiaCompiler'
+]
 
 
 def compile(filename, include_dirs=None, compiler=None, cwd=None):
@@ -121,6 +125,8 @@ class Compiler:
     LD_STATIC = None
     LDFLAGS_STATIC = None
 
+
+
     def __init__(self):
         self.cc = self.CC or 'gcc'
         self.cflags = self.CFLAGS or ['-g', '-fPIC']
@@ -137,7 +143,18 @@ class Compiler:
         """
         Generate arguments for the build line.
 
-        :param mode: One of ``'f90'`` (free form), ``'f'`` (fixed form) or ``'c'``.
+        Parameters:
+        -----------
+        source : str or pathlib.Path
+            Path to the source file to compile
+        target : str or pathlib.Path, optional
+            Path to the output binary to generate
+        include_dirs : list of str or pathlib.Path, optional
+            Path of include directories to specify during compile
+        mod_dir : str or pathlib.Path, optional
+            Path to directory containing Fortran .mod files
+        mode : str, optional
+            One of ``'f90'`` (free form), ``'f'`` (fixed form) or ``'c'``
         """
         assert mode in ['f90', 'f', 'c']
         include_dirs = include_dirs or []
@@ -229,27 +246,122 @@ class Compiler:
         execute(args, cwd=cwd)
 
 
-# TODO: Properly integrate with a config dict (with callbacks)
-_default_compiler = Compiler()
-
-
 class GNUCompiler(Compiler):
+    """
+    GNU compiler configuration for gcc and gfortran
+    """
 
     CC = 'gcc'
     CFLAGS = ['-g', '-fPIC']
     F90 = 'gfortran'
     F90FLAGS = ['-g', '-fPIC']
+    FC = 'gfortran'
+    FCFLAGS = ['-g', '-fPIC']
     LD = 'gfortran'
-    LDFLAGS = []
+    LDFLAGS = ['-static']
+    LD_STATIC = 'ar'
+    LDFLAGS_STATIC = ['src']
+
+    CC_PATTERN = re.compile(r'(^|/|\\)gcc\b')
+    FC_PATTERN = re.compile(r'(^|/|\\)gfortran\b')
 
 
-class EscapeGNUCompiler(GNUCompiler):
+class NvidiaCompiler(Compiler):
+    """
+    NVHPC compiler configuration for nvc and nvfortran
+    """
 
-    F90FLAGS = ['-O3', '-g', '-fPIC',
-                '-ffpe-trap=invalid,zero,overflow', '-fstack-arrays',
-                '-fconvert=big-endian',
-                '-fbacktrace',
-                '-fno-second-underscore',
-                '-ffree-form',
-                '-ffast-math',
-                '-fno-unsafe-math-optimizations']
+    CC = 'nvc'
+    CFLAGS = ['-g', '-fPIC']
+    F90 = 'nvfortran'
+    F90FLAGS = ['-g', '-fPIC']
+    FC = 'nvfortran'
+    FCFLAGS = ['-g', '-fPIC']
+    LD = 'nvfortran'
+    LDFLAGS = ['-static']
+    LD_STATIC = 'ar'
+    LDFLAGS_STATIC = ['src']
+
+    CC_PATTERN = re.compile(r'(^|/|\\)nvc\b')
+    FC_PATTERN = re.compile(r'(^|/|\\)(pgf9[05]|pgfortran|nvfortran)\b')
+
+
+def get_compiler_from_env(env=None):
+    """
+    Utility function to determine what compiler to use
+
+    This takes the following environment variables in the given order
+    into account to determine the most likely compiler family:
+    ``F90``, ``FC``, ``CC``.
+
+    Currently, :any:`GNUCompiler` and :any:`NvidiaCompiler` are available.
+
+    The compiler binary and flags can be further overwritten by setting
+    the corresponding environment variables:
+
+    - ``CC``, ``FC``, ``F90``, ``LD`` for compiler/linker binary name or path
+    - ``CFLAGS``, ``FCFLAGS``, ``LDFLAGS`` for compiler/linker flags to use
+
+    Parameters
+    ----------
+    env : dict, optional
+        Use the specified environment (default: :any:`os.environ`)
+
+    Returns
+    -------
+    :any:`Compiler`
+        A compiler object
+    """
+    if env is None:
+        env = os.environ
+
+    candidates = (GNUCompiler, NvidiaCompiler)
+    compiler = None
+
+    # "guess" the most likely compiler choice
+    var_pattern_map = {
+        'F90': 'FC_PATTERN',
+        'FC': 'FC_PATTERN',
+        'CC': 'CC_PATTERN'
+    }
+    for var, pattern in var_pattern_map.items():
+        if env.get(var):
+            for candidate in candidates:
+                if getattr(candidate, pattern).search(env[var]):
+                    compiler = candidate()
+                    debug(f'Environment variable {var}={env[var]} set, using {candidate}')
+                    break
+            else:
+                continue
+            break
+
+    if compiler is None:
+        compiler = Compiler()
+
+    # overwrite compiler executable and compiler flags with environment values
+    var_compiler_map = {
+        'CC': 'cc',
+        'FC': 'fc',
+        'F90': 'f90',
+        'LD': 'ld',
+    }
+    for var, attr in var_compiler_map.items():
+        if var in env:
+            setattr(compiler, attr, env[var].strip())
+            debug(f'Environment variable {var} set, using custom compiler executable {env[var]}')
+
+    var_flag_map = {
+        'CFLAGS': 'cflags',
+        'FCFLAGS': 'fcflags',
+        'LDFLAGS': 'ldflags',
+    }
+    for var, attr in var_flag_map.items():
+        if var in env:
+            setattr(compiler, attr, env[var].strip().split())
+            debug(f'Environment variable {var} set, overwriting compiler flags as {env[var]}')
+
+    return compiler
+
+
+# TODO: Properly integrate with a config dict (with callbacks)
+_default_compiler = get_compiler_from_env()
