@@ -1891,6 +1891,10 @@ end module external_mod
     assert isinstance(parsed, sym.DeferredTypeSymbol)
     assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
     assert to_str(parsed) == 'some_type%val'
+    parsed = parse_expr(convert_to_case('-some_type%val', mode=case))
+    assert isinstance(parsed, sym.Product)
+    assert isinstance(parsed.children[1].parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == '-some_type%val'
     parsed = parse_expr(convert_to_case('some_type%another_type%val', mode=case))
     assert isinstance(parsed, sym.DeferredTypeSymbol)
     assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
@@ -2097,6 +2101,11 @@ def test_expression_parser_evaluate(case):
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert parsed == 1
 
+    context = {'arr': [[1, 2], [3, 4]]}
+    test_str = '1 + arr(1, 2)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 3
+
     context = {'a': 6}
     test_str = '1 + 1 + a + some_func(a, 10)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
@@ -2105,15 +2114,54 @@ def test_expression_parser_evaluate(case):
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=False, context=context)
     assert str(parsed).lower().replace(' ', '') == '8+some_func(6,10)'
 
-    def some_func(a, b):
-        return a + b
+    def some_func(a, b, c=None):
+        if c is None:
+            return a + b
+        return a + b + c
 
     context = {'a': 6, 'some_func': some_func}
     test_str = '1 + 1 + a + some_func(a, 10)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert parsed == 24
 
+    context = {'a': 6, 'some_func': some_func}
+    test_str = '1 + 1 + a + some_func(a, 10, c=2)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 26
+
     context = {'a': 6, 'b': 7}
     test_str = '(a + b + c + 1)/(c + 1)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert str(parsed).lower().replace(' ', '') == '(13+c+1)/(c+1)'
+
+    class Foo:
+        val3 = 1
+        arr = [[1, 2], [3, 4]]
+        def __init__(self, _val1, _val2):
+            self.val1 = _val1
+            self.val2 = _val2
+        def some_func(self, a, b):
+            return a + b
+        @staticmethod
+        def static_func(a):
+            return 2*a
+
+    context = {'foo': Foo(2, 3)}
+    test_str = 'foo%val1 + foo%val2 + foo%val3'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case))
+    assert str(parsed).lower().replace(' ', '') == 'foo%val1+foo%val2+foo%val3'
+    with pytest.raises(Exception):
+        parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True)
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 6
+    test_str = 'foo%val1 + foo%some_func(1, 2) + foo%static_func_2(3)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert str(parsed).lower().replace(' ', '') == '5+foo%static_func_2(3)'
+    with pytest.raises(Exception):
+        parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True)
+    test_str = 'foo%val1 + foo%some_func(1, 2) + foo%static_func(3) + foo%arr(1, 2)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context, strict=True)
+    assert parsed == 13
+    test_str = 'foo%val1 + foo%some_func(1, b=2) + foo%static_func(a=3) + foo%arr(1, 2)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context, strict=True)
+    assert parsed == 13

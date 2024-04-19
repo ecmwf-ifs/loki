@@ -9,13 +9,14 @@ from sys import intern
 import re
 import math
 import pytools.lex
+import numpy as np
 from pymbolic.parser import Parser as ParserBase #  , FinalizedTuple
 from pymbolic.mapper import Mapper
 import pymbolic.primitives as pmbl
 from pymbolic.mapper.evaluator import EvaluationMapper
 from pymbolic.parser import (
     _openpar, _closepar, _minus, FinalizedTuple, _PREC_UNARY,
-    _PREC_TIMES, _PREC_PLUS, _times, _plus
+    _PREC_TIMES, _PREC_PLUS, _PREC_CALL, _times, _plus
 )
 try:
     from fparser.two.Fortran2003 import Intrinsic_Name
@@ -161,10 +162,15 @@ class PymbolicMapper(Mapper):
     def map_list(self, expr, *args, **kwargs):
         return sym.LiteralList([self.rec(elem, *args, **kwargs) for elem in expr])
 
-    # hijack 'pymbolic.Remainder' to construct DerivedTypes ...
     def map_remainder(self, expr, *args, **kwargs):
-        parent = self.rec(expr.numerator)
-        return self.rec(expr.denominator, parent=parent)
+        # this should never happen as '%' is overwritten to represent derived types
+        raise NotImplementedError
+
+    def map_lookup(self, expr, *args, **kwargs):
+        # construct derived type(s) variables
+        parent = kwargs.pop('parent', None)
+        parent = self.rec(expr.aggregate, parent=parent)
+        return self.rec(expr.name, parent=parent)
 
 
 class LokiEvaluationMapper(EvaluationMapper):
@@ -177,6 +183,16 @@ class LokiEvaluationMapper(EvaluationMapper):
     strict : bool
         Raise exception for unknown symbols/expressions (default: `False`).
     """
+
+    @staticmethod
+    def case_insensitive_getattr(obj, attr):
+        """
+        Case-insensitive version of `getattr`.
+        """
+        for elem in dir(obj):
+            if elem.lower() == attr.lower():
+                return getattr(obj, elem)
+        return getattr(obj, attr)
 
     def __init__(self, strict=False, **kwargs):
         self.strict = strict
@@ -198,6 +214,15 @@ class LokiEvaluationMapper(EvaluationMapper):
             return super().map_variable(expr)
         return expr
 
+    @staticmethod
+    def _evaluate_array(arr, dims):
+        """
+        Evaluate arrays by converting to numpy array and
+        adapting the dimensions corresponding to the different
+        starting index.
+        """
+        return np.array(arr, order='F').item(*[dim-1 for dim in dims])
+
     def map_call(self, expr):
         if expr.function.name.lower() == 'min':
             return min(self.rec(par) for par in expr.parameters)
@@ -216,7 +241,45 @@ class LokiEvaluationMapper(EvaluationMapper):
             return math.sqrt(float([self.rec(par) for par in expr.parameters][0]))
         if expr.function.name.lower() == 'exp':
             return math.exp(float([self.rec(par) for par in expr.parameters][0]))
+        if expr.function.name in self.context and not callable(self.context[expr.function.name]):
+            return self._evaluate_array(self.context[expr.function.name],
+                    [self.rec(par) for par in expr.parameters])
         return super().map_call(expr)
+
+    def map_call_with_kwargs(self, expr):
+        args = [self.rec(par) for par in expr.parameters]
+        kwargs = {
+                k: self.rec(v)
+                for k, v in expr.kw_parameters.items()}
+        kwargs = CaseInsensitiveDict(kwargs)
+        return self.rec(expr.function)(*args, **kwargs)
+
+    def map_lookup(self, expr):
+        try:
+            if isinstance(expr.name, pmbl.Variable):
+                name = expr.name.name
+                return self.case_insensitive_getattr(self.rec(expr.aggregate), name)
+            if isinstance(expr.name, pmbl.Call):
+                name = expr.name.function.name
+                if callable(self.case_insensitive_getattr(self.rec(expr.aggregate), name)):
+                    return self.case_insensitive_getattr(self.rec(expr.aggregate),
+                            name)(*[self.rec(par) for par in expr.name.parameters])
+                return self._evaluate_array(self.case_insensitive_getattr(self.rec(expr.aggregate), name),
+                        [self.rec(par) for par in expr.name.parameters])
+            if isinstance(expr.name, pmbl.CallWithKwargs):
+                name = expr.name.function.name
+                args = [self.rec(par) for par in expr.name.parameters]
+                kwargs = {
+                    k: self.rec(v)
+                    for k, v in expr.name.kw_parameters.items()}
+                kwargs = CaseInsensitiveDict(kwargs)
+                return self.case_insensitive_getattr(self.rec(expr.aggregate), name)(*args, **kwargs)
+
+        except Exception as e:
+            if self.strict:
+                raise e
+            return expr
+        return expr
 
 
 class ExpressionParser(ParserBase):
@@ -288,6 +351,7 @@ class ExpressionParser(ParserBase):
     _f_string = intern("f_string")
     _f_openbracket = intern("openbracket")
     _f_closebracket = intern("closebracket")
+    _f_derived_type = intern("dot")
 
     lex_table = [
             (_f_true, pytools.lex.RE(r"\.true\.", re.IGNORECASE)),
@@ -307,6 +371,7 @@ class ExpressionParser(ParserBase):
                 pytools.lex.RE(r"\'.*\'", re.IGNORECASE))),
             (_f_openbracket, pytools.lex.RE(r"\(/")),
             (_f_closebracket, pytools.lex.RE(r"/\)")),
+            (_f_derived_type, pytools.lex.RE(r"\%")),
             ] + ParserBase.lex_table
     """
     Extend :any:`pymbolic.parser.Parser.lex_table` to accomodate for Fortran specifix syntax/expressions.
@@ -372,7 +437,12 @@ class ExpressionParser(ParserBase):
     def parse_postfix(self, pstate, min_precedence, left_exp):
 
         did_something = False
-        if pstate.is_next(_times) and _PREC_TIMES > min_precedence:
+        if pstate.is_next(self._f_derived_type) and _PREC_CALL > min_precedence:
+            pstate.advance()
+            right_exp = self.parse_expression(pstate, _PREC_PLUS)
+            left_exp = pmbl.Lookup(left_exp, right_exp)
+            did_something = True
+        elif pstate.is_next(_times) and _PREC_TIMES > min_precedence:
             pstate.advance()
             right_exp = self.parse_expression(pstate, _PREC_PLUS)
             # NECESSARY to ensure correct ordering!
