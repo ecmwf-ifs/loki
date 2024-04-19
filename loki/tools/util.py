@@ -812,4 +812,3 @@ def resolve_typebound_var(name, variable_map):
     if (var := variable_map.get(name_parts[0], None)) and len(name_parts) > 1:
         var = var.get_derived_type_member(name_parts[1])
     return var
-
