@@ -23,21 +23,20 @@ class UnprivatiseStructsTransformation(Transformation):
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
 
-    def __init__(self, horizontal, exclude=[], key=None):
+    def __init__(self, horizontal, exclude=(), key=None):
         self.horizontal = horizontal
         self.exclude = exclude
         if key:
-             self._key = key
+            self._key = key
 
     @staticmethod
-    def get_parent_typedef(var, routine):
+    def get_parent_typedef(var, symbol_map):
 
         if not var.parent.type.dtype.typedef == BasicType.DEFERRED:
             return var.parent.type.dtype.typedef
-        elif not routine.symbol_map[var.parent.type.dtype.name].type.dtype.typedef == BasicType.DEFERRED:
-            return routine.symbol_map[var.parent.type.dtype.name].type.dtype.typedef
-        else:
-            raise RuntimeError(f'Container data-type {var.parent.type.dtype.name} not enriched')
+        if not symbol_map[var.parent.type.dtype.name].type.dtype.typedef == BasicType.DEFERRED:
+            return symbol_map[var.parent.type.dtype.name].type.dtype.typedef
+        raise RuntimeError(f'Container data-type {var.parent.type.dtype.name} not enriched')
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -51,27 +50,27 @@ class UnprivatiseStructsTransformation(Transformation):
         if role == 'kernel':
             self.process_kernel(routine, item, successors, targets)
         if role == 'driver':
-           self.process_driver(routine, successors)
+            self.process_driver(routine, successors)
 
     @staticmethod
-    def _get_parkind_suffix(type):
-        return type.rsplit('_')[1][1:3]
+    def _get_parkind_suffix(_type):
+        return _type.rsplit('_')[1][1:3]
 
     def _build_parkind_import(self, field_array_module, wrapper_types):
 
         deferred_type = SymbolAttributes(BasicType.DEFERRED, imported=True)
-        vars = {Variable(name='JP' + self._get_parkind_suffix(type), type=deferred_type, scope=field_array_module)
-                for type in wrapper_types}
+        _vars = {Variable(name='JP' + self._get_parkind_suffix(t), type=deferred_type, scope=field_array_module)
+                for t in wrapper_types}
 
-        return ir.Import(module='PARKIND1', symbols=as_tuple(vars))
+        return ir.Import(module='PARKIND1', symbols=as_tuple(_vars))
 
     def _build_field_array_types(self, field_array_module, wrapper_types):
 
         typedefs = ()
-        for type in wrapper_types:
-            suff = self._get_parkind_suffix(type)
+        for _type in wrapper_types:
+            suff = self._get_parkind_suffix(_type)
             kind = field_array_module.symbol_map['JP' + suff]
-            rank = int(type.rsplit('_')[1][0])
+            rank = int(_type.rsplit('_')[1][0])
 
             view_shape = (RangeIndex(children=(None, None)),) * (rank - 1)
             array_shape = (RangeIndex(children=(None, None)),) * rank
@@ -87,12 +86,12 @@ class UnprivatiseStructsTransformation(Transformation):
             contig_pointer_type = pointer_type.clone(contiguous=True, shape=array_shape)
 
             pointer_var = Variable(name='P', type=pointer_type, dimensions=view_shape)
-            contig_pointer_var = pointer_var.clone(name='P_FIELD', type=contig_pointer_type, dimensions=array_shape)
+            contig_pointer_var = pointer_var.clone(name='P_FIELD', type=contig_pointer_type, dimensions=array_shape) # pylint: disable=no-member
 
             decls = (ir.VariableDeclaration(symbols=(pointer_var,)),)
             decls += (ir.VariableDeclaration(symbols=(contig_pointer_var,)),)
 
-            typedefs += (ir.TypeDef(name=type, body=decls, parent=field_array_module),)
+            typedefs += (ir.TypeDef(name=_type, body=decls, parent=field_array_module),)
 
         return typedefs
 
@@ -130,6 +129,8 @@ class UnprivatiseStructsTransformation(Transformation):
         # propagate dummy field_api wrapper definitions to children
         self.propagate_defs_to_children(self._key, definitions, successors)
 
+        #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
+
     def build_ydvars_global_gfl_ptr(self, var):
         if (parent := var.parent):
             parent = self.build_ydvars_global_gfl_ptr(parent)
@@ -140,6 +141,40 @@ class UnprivatiseStructsTransformation(Transformation):
 
         return var.clone(name=var.name.upper().replace('GFL_PTR', 'GFL_PTR_G'),
                          parent=parent, type=_type)
+
+    def process_body(self, body, symbol_map, definitions, successors, targets):
+
+        # build list of type-bound array access using the horizontal index
+        _vars = [var for var in FindVariables().visit(body)
+                if isinstance(var, Array) and var.parents and self.horizontal.index in getattr(var, 'dimensions', ())]
+
+        # build list of type-bound view pointers passed as subroutine arguments
+        for call in [call for call in FindNodes(ir.CallStatement).visit(body) if call.name in targets]:
+            _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)}
+            _args = {a: d for a, d in _args.items()
+                     if any(v in d.shape for v in self.horizontal.size_expressions) and a.parents}
+            _vars += list(_args)
+
+        # replace per-block view pointers with full field pointers
+        vmap = {var:
+                var.clone(name=var.name_parts[-1] + '_FIELD',
+                type=self.get_parent_typedef(var, symbol_map).variable_map[var.name_parts[-1] + '_FIELD'].type)
+                for var in _vars}
+
+        # replace thread-private GFL_PTR with global
+        vmap.update({v: self.build_ydvars_global_gfl_ptr(vmap.get(v, v))
+                     for v in FindVariables().visit(body) if 'ydvars%gfl_ptr' in v.name.lower()})
+        vmap = recursive_expression_map_update(vmap)
+
+        # filter out arrays marked for exclusion
+        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in self.exclude)}
+
+        # propagate dummy field_api wrapper definitions to children
+        self.propagate_defs_to_children(self._key, definitions, successors)
+
+        # finally we perform the substitution
+        return SubstituteExpressions(vmap).visit(body)
+
 
     def process_kernel(self, routine, item, successors, targets):
 
@@ -154,36 +189,9 @@ class UnprivatiseStructsTransformation(Transformation):
             _bounds = self.horizontal._bounds_aliases
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=_bounds)
 
-        # build list of type-bound array access using the horizontal index
-        vars = [var for var in FindVariables().visit(routine.body)
-                if isinstance(var, Array) and var.parents and self.horizontal.index in getattr(var, 'dimensions', ())]
-
-        # build list of type-bound view pointers passed as subroutine arguments
-        for call in [call for call in FindNodes(ir.CallStatement).visit(routine.body) if call.name in targets]:
-            _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)}
-            _args = {a: d for a, d in _args.items()
-                     if any([v in d.shape for v in self.horizontal.size_expressions]) and a.parents}
-            vars += list(_args)
-
-        # replace per-block view pointers with full field pointers
-        vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
-                               type=self.get_parent_typedef(var, routine).variable_map[var.name_parts[-1] + '_FIELD'].type)
-                for var in vars}
-
-        # replace thread-private GFL_PTR with global
-        vmap.update({v: self.build_ydvars_global_gfl_ptr(vmap.get(v, v))
-                     for v in FindVariables().visit(routine.body) if 'ydvars%gfl_ptr' in v.name.lower()})
-        vmap = recursive_expression_map_update(vmap)
-
-        # filter out arrays marked for exclusion
-        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in self.exclude)}
-
-        # finally perform the substitution
-        routine.body = SubstituteExpressions(vmap).visit(routine.body)
-
-        # propagate dummy field_api wrapper definitions to children
-        definitions = item.trafo_data[self._key]['definitions']
-        self.propagate_defs_to_children(self._key, definitions, successors)
+        # for kernels we process the entire body
+        routine.body = self.process_body(routine.body, routine.symbol_map, item.trafo_data[self._key]['definitions'],
+                                         successors, targets)
 
 
 class BlockIndexInjectTransformation(Transformation):
@@ -193,11 +201,11 @@ class BlockIndexInjectTransformation(Transformation):
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
 
-    def __init__(self, block_dim, exclude=[], key=None):
+    def __init__(self, block_dim, exclude=(), key=None):
         self.block_dim = block_dim
         self.exclude = exclude
         if key:
-             self._key = key
+            self._key = key
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -207,13 +215,14 @@ class BlockIndexInjectTransformation(Transformation):
         if role == 'kernel':
             self.process_kernel(routine, targets)
 
+        #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
+
     @staticmethod
     def _update_expr_map(var, rank, index):
         if getattr(var, 'dimensions', None):
             return {var: var.clone(dimensions=var.dimensions + as_tuple(index))}
-        else:
-            return {var:
-                    var.clone(dimensions=((RangeIndex(children=(None, None)),) * (rank - 1)) + as_tuple(index))}
+        return {var:
+                var.clone(dimensions=((RangeIndex(children=(None, None)),) * (rank - 1)) + as_tuple(index))}
 
     @staticmethod
     def get_call_arg_rank(arg):
@@ -228,7 +237,7 @@ class BlockIndexInjectTransformation(Transformation):
         variable_map = routine.variable_map
         if (block_index := variable_map.get(self.block_dim.index, None)):
             return block_index
-        elif any(i.rsplit('%')[0] in variable_map for i in self.block_dim._index_aliases):
+        if any(i.rsplit('%')[0] in variable_map for i in self.block_dim._index_aliases):
             index_name = [alias for alias in self.block_dim._index_aliases
                           if alias.rsplit('%')[0] in variable_map][0]
 
@@ -236,19 +245,14 @@ class BlockIndexInjectTransformation(Transformation):
 
         return block_index
 
-    def process_kernel(self, routine, targets):
-
-        # we skip routines that do not contain the block index or any known alias
-        if not (block_index := self.get_block_index(routine)):
-            return
-
+    def process_body(self, body, block_index, targets):
         # The logic for callstatement args differs from other variables in the body,
         # so we build a list to filter
-        call_args = [a for call in FindNodes(ir.CallStatement).visit(routine.body) for a in call.arguments]
+        call_args = [a for call in FindNodes(ir.CallStatement).visit(body) for a in call.arguments]
 
         # First get rank mismatched call statement args
         vmap = {}
-        for call in [call for call in FindNodes(ir.CallStatement).visit(routine.body) if call.name in targets]:
+        for call in [call for call in FindNodes(ir.CallStatement).visit(body) if call.name in targets]:
             for dummy, arg in call.arg_map.items():
                 arg_rank = self.get_call_arg_rank(arg)
                 dummy_rank = len(dummy.shape) if getattr(dummy, 'shape', None) else 0
@@ -256,7 +260,7 @@ class BlockIndexInjectTransformation(Transformation):
                     vmap.update(self._update_expr_map(arg, arg_rank, block_index))
 
         # Now get the rest of the variables
-        for var in [var for var in FindVariables().visit(routine.body)
+        for var in [var for var in FindVariables().visit(body)
                     if getattr(var, 'dimensions', None) and not var in call_args]:
 
             local_rank = len(var.dimensions)
@@ -272,4 +276,14 @@ class BlockIndexInjectTransformation(Transformation):
         # filter out arrays marked for exclusion
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in self.exclude)}
 
-        routine.body = SubstituteExpressions(vmap).visit(routine.body)
+        # finally we perform the substitution
+        return SubstituteExpressions(vmap).visit(body)
+
+    def process_kernel(self, routine, targets):
+
+        # we skip routines that do not contain the block index or any known alias
+        if not (block_index := self.get_block_index(routine)):
+            return
+
+        # for kernels we process the entire subroutine body
+        routine.body = self.process_body(routine.body, block_index, targets)
