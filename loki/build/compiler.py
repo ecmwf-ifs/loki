@@ -45,7 +45,7 @@ def clean(filename, pattern=None):
             delete(f)
 
 
-def compile_and_load(filename, cwd=None, use_f90wrap=True, f90wrap_kind_map=None):  # pylint: disable=unused-argument
+def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
     """
     Just-in-time compile Fortran source code and load the respective
     module or class.
@@ -59,12 +59,12 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True, f90wrap_kind_map=None
         The source file to be compiled.
     cwd : str, optional
         Working directory to use for calls to compiler.
-    use_f90wrap : bool, optional
-        Flag to trigger the ``f90wrap`` compiler required
-        if the source code includes module or derived types.
     f90wrap_kind_map : str, optional
         Path to ``f90wrap`` KIND_MAP file, containing a Python dictionary
         in f2py_f2cmap format.
+    compiler : :any:`Compiler`, optional
+        Use the specified compiler to compile the Fortran source code. Defaults
+        to :any:`_default_compiler`
     """
     info(f'Compiling: {filename}')
     filepath = Path(filename)
@@ -75,8 +75,9 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True, f90wrap_kind_map=None
     clean(filename, pattern=pattern)
 
     # First, compile the module and object files
-    build = ['gfortran', '-c', '-fpic', str(filepath.absolute())]
-    execute(build, cwd=cwd)
+    if not compiler:
+        compiler = _default_compiler
+    compiler.compile(filepath.absolute(), cwd=cwd)
 
     # Generate the Python interfaces
     f90wrap = ['f90wrap']
@@ -139,7 +140,7 @@ class Compiler:
         self.ld_static = self.LD_STATIC or 'ar'
         self.ldflags_static = self.LDFLAGS_STATIC or ['src']
 
-    def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='F90'):
+    def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='f90'):
         """
         Generate arguments for the build line.
 
