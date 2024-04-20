@@ -2386,7 +2386,7 @@ def test_transformation_config(config):
     my_config = config.copy()
     my_config['transformations'] = {
         'DependencyTransformation': {
-            'module': 'loki.transform',
+            'module': 'loki.transformations.build_system',
             'options':
             {
                 'suffix': '_rick',
@@ -2408,7 +2408,7 @@ def test_transformation_config(config):
     bad_config = config.copy()
     bad_config['transformations'] = {
         'DependencyTrafo': {  # <= typo
-            'module': 'loki.transform',
+            'module': 'loki.transformations.build_system',
             'options': {}
         }
     }
@@ -2418,7 +2418,7 @@ def test_transformation_config(config):
     worse_config = config.copy()
     worse_config['transformations'] = {
         'DependencyTransform': {
-            'module': 'loki.transformats',  # <= typo
+            'module': 'loki.transformats.build_system',  # <= typo
             'options': {}
         }
     }
@@ -2428,7 +2428,7 @@ def test_transformation_config(config):
     worst_config = config.copy()
     worst_config['transformations'] = {
         'DependencyTransform': {
-            'module': 'loki.transform',
+            'module': 'loki.transformations.build_system',
             'options': {'hello': 'Dave'}
         }
     }
@@ -2893,7 +2893,7 @@ def test_pipeline_config_compose(config):
         },
         'postprocess': {
             'classname': 'ModuleWrapTransformation',
-            'module': 'loki.transform',
+            'module': 'loki.transformations.build_system',
             'options': { 'module_suffix': '_module' }
         }
     }

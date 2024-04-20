@@ -2,12 +2,15 @@ from pathlib import Path
 from shutil import rmtree
 import pytest
 
-from loki import (
-    gettempdir, Sourcefile, CallStatement, Import, Interface,
-    FindNodes, FindInlineCalls, Intrinsic, Scheduler, SchedulerConfig
-)
+from loki import Sourcefile, gettempdir
+from loki.batch import Scheduler, SchedulerConfig
+from loki.expression import FindInlineCalls
 from loki.frontend import available_frontends, OMNI, OFP
-from loki.transform import DependencyTransformation, ModuleWrapTransformation
+from loki.ir import FindNodes, CallStatement, Import, Interface, Intrinsic
+
+from loki.transformations import (
+    DependencyTransformation, ModuleWrapTransformation
+)
 
 
 @pytest.fixture(scope='module', name='here')

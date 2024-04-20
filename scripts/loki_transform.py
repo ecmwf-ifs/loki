@@ -23,13 +23,15 @@ from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, ModuleWrapTransformation,
-    FileWriteTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
+    HoistTemporaryArraysAnalysis, normalize_range_indexing,
     InlineTransformation, SanitiseTransformation, RemoveCodeTransformation
 )
 
 from loki.transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
+)
+from loki.transformations.build_system import (
+    DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
 )
 from loki.transformations.data_offload import (
     DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
