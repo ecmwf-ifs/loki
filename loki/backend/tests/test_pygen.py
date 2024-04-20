@@ -16,7 +16,7 @@ from loki import Subroutine
 from loki.backend import pygen
 from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends, OFP, OMNI
-from loki.transform import FortranPythonTransformation
+from loki.transformations.transpile import FortranPythonTransformation
 
 
 @pytest.fixture(scope='module', name='here')

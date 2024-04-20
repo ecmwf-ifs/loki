@@ -14,7 +14,8 @@ import pytest
 from loki import Subroutine
 from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends
-from loki.transform import FortranPythonTransformation
+
+from loki.transformations.transpile import FortranPythonTransformation
 
 
 pytestmark = [

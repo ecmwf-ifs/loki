@@ -23,7 +23,7 @@ from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
 
 # Get generalized transformations provided by Loki
 from loki.transform import (
-    DependencyTransformation, ModuleWrapTransformation, FortranCTransformation,
+    DependencyTransformation, ModuleWrapTransformation,
     FileWriteTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
     InlineTransformation, SanitiseTransformation, RemoveCodeTransformation
 )
@@ -42,6 +42,7 @@ from loki.transformations.single_column import (
     SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline,
     HoistTemporaryArraysDeviceAllocatableTransformation
 )
+from loki.transformations.transpile import FortranCTransformation
 
 
 class IdemTransformation(Transformation):
