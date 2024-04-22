@@ -242,8 +242,83 @@ class BlockViewToFieldViewTransformation(Transformation):
 
 
 class BlockIndexInjectTransformation(Transformation):
+    """
+    A transformation pass to inject the block-index in arrays promoted by a previous transformation pass. As such,
+    this transformation also relies on the block-index, or a known alias, being *already* present in routines that
+    are to be transformed.
+
+    For array access in a :any:`Subroutine` body, it operates by comparing the local shape of an array with its
+    declared shape. If the local shape is of rank one less than the declared shape, then the block-index is appended
+    to the array's dimensions.
+
+    For :any:`CallStatement` arguments, if the rank of the argument is one less than that of the corresponding
+    dummy-argument, the block-index is appended to the argument's dimensions. It should be noted that this logic relies on
+    the :any:`CallStatement` being free of any sequence-association.
+
+    For example, the following code:
+
+    .. code-block:: fortran
+
+        subroutine kernel1(nblks, ...)
+           ...
+           integer, intent(in) :: nblks
+           integer :: ibl
+           real :: var(jlon,nlev,nblks)
+
+           do ibl=1,nblks
+             do jlon=1,nproma
+               var(jlon,:) = 0.
+             enddo
+
+             call kernel2(var,...)
+           enddo
+           ...
+        end subroutine kernel1
+
+        subroutine kernel2(var, ...)
+           ...
+           real :: var(jlon,nlev)
+        end subroutine kernel2
+
+    is transformed to:
+
+    .. code-block:: fortran
+
+        subroutine kernel1(nblks, ...)
+           ...
+           integer, intent(in) :: nblks
+           integer :: ibl
+           real :: var(jlon,nlev,nblks)
+
+           do ibl=1,nblks
+             do jlon=1,nproma
+               var(jlon,:,ibl) = 0.
+             enddo
+
+             call kernel2(var(:,:,ibl),...)
+           enddo
+           ...
+        end subroutine kernel1
+
+        subroutine kernel2(var, ...)
+           ...
+           real :: var(jlon,nlev)
+        end subroutine kernel2
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the blocking data dimension and iteration space.
+    exclude : tuple
+        List of data structures to be intentionally excluded from this transformation. This list is intended
+        primarily for data structures that are not memory-blocked.
+    key : str, optional
+        Specify a different identifier under which trafo_data is stored
+    """
 
     _key = 'BlockIndexInjectTransformation'
+    """Default identifier for trafo_data entry"""
 
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
@@ -266,6 +341,10 @@ class BlockIndexInjectTransformation(Transformation):
 
     @staticmethod
     def _update_expr_map(var, rank, index):
+        """
+        Return a map with the block-index appended to the variable's dimensions.
+        """
+
         if getattr(var, 'dimensions', None):
             return {var: var.clone(dimensions=var.dimensions + as_tuple(index))}
         return {var:
@@ -273,6 +352,10 @@ class BlockIndexInjectTransformation(Transformation):
 
     @staticmethod
     def get_call_arg_rank(arg):
+        """
+        Utility to retrieve the local rank of a :any:`CallSatement` argument.
+        """
+
         rank = len(arg.shape) if getattr(arg, 'shape', None) else 0
         if getattr(arg, 'dimensions', None):
             # We assume here that the callstatement is free of sequence association
@@ -281,6 +364,10 @@ class BlockIndexInjectTransformation(Transformation):
         return rank
 
     def get_block_index(self, routine):
+        """
+        Utility to retrieve the block-index loop induction variable.
+        """
+
         variable_map = routine.variable_map
         if (block_index := variable_map.get(self.block_dim.index, None)):
             return block_index
