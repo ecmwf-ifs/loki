@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
 from sys import getrecursionlimit
 from inspect import stack
 
@@ -1415,3 +1416,102 @@ end module some_mod
 
     assert typedef.imported_symbols == ()
     assert not typedef.imported_symbol_map
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_symbol_inheritance(frontend):
+    fcode = """
+module some_mod
+implicit none
+type :: base_type
+    integer :: memberA
+    real :: memberB
+    contains
+    procedure :: init => init_base_type
+    procedure :: final => final_base_type
+    procedure :: copy
+end type base_type
+
+type, extends(base_type) :: extended_type
+    integer :: memberC
+    contains
+    procedure :: init => init_extended_type
+    procedure :: final => final_extended_type
+    procedure :: do_something
+end type extended_type
+
+type, extends(extended_type) :: extended_extended_type
+    integer :: memberD
+    contains
+    procedure :: init => init_extended_extended_type
+    procedure :: final => final_extended_extended_type
+    procedure :: do_something => do_something_else
+end type extended_extended_type
+
+contains
+
+subroutine init_base_type(self)
+  class(base_type) :: self
+end subroutine init_base_type
+subroutine final_base_type(self)
+  class(base_type) :: self
+end subroutine final_base_type
+subroutine copy(self)
+  class(base_type) :: self
+end subroutine copy
+
+subroutine init_extended_type(self)
+  class(extended_type) :: self
+end subroutine init_extended_type
+subroutine final_extended_type(self)
+  class(extended_type) :: self
+end subroutine final_extended_type
+subroutine do_something(self)
+  class(extended_type) :: self
+end subroutine do_something
+
+subroutine init_extended_extended_type(self)
+  class(extended_extended_type) :: self
+end subroutine init_extended_extended_type
+subroutine final_extended_extended_type(self)
+  class(extended_extended_type) :: self
+end subroutine final_extended_extended_type
+subroutine do_something_else(self)
+  class(extended_extended_type) :: self
+end subroutine do_something_else
+end module some_mod
+""".strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    base_type = module['base_type']
+    extended_type = module['extended_type']
+    extended_extended_type = module['extended_extended_type']
+
+    assert base_type.variables == ('memberA', 'memberB', 'init', 'final', 'copy')
+    assert base_type.variables[2].type.bind_names[0] == 'init_base_type'
+    assert base_type.variables[3].type.bind_names[0] == 'final_base_type'
+    assert not base_type.variables[4].type.bind_names
+    assert all(s.scope == base_type for d in base_type.declarations for s in d.symbols)
+    assert base_type.imported_symbols == ()
+    assert not base_type.imported_symbol_map
+
+    assert extended_type.variables == ('memberC', 'init', 'final', 'do_something', 'memberA', 'memberB', 'copy')
+    assert extended_type.variables[1].type.bind_names[0] == 'init_extended_type'
+    assert extended_type.variables[2].type.bind_names[0] == 'final_extended_type'
+    assert not extended_type.variables[3].type.bind_names
+    assert not extended_type.variables[6].type.bind_names
+    assert all(s.scope == extended_type for d in extended_type.declarations for s in d.symbols)
+    assert extended_type.imported_symbols == ()
+    assert not extended_type.imported_symbol_map
+
+
+    assert extended_extended_type.variables == ('memberD', 'init', 'final', 'do_something', 'memberC',
+                                                'memberA', 'memberB', 'copy')
+    assert extended_extended_type.variables[1].type.bind_names[0] == 'init_extended_extended_type'
+    assert extended_extended_type.variables[2].type.bind_names[0] == 'final_extended_extended_type'
+    assert extended_extended_type.variables[3].type.bind_names[0] == 'do_something_else'
+    assert not extended_extended_type.variables[7].type.bind_names
+    assert all(s.scope == extended_extended_type for d in extended_extended_type.declarations for s in d.symbols)
+    assert extended_extended_type.imported_symbols == ()
+    assert not extended_extended_type.imported_symbol_map

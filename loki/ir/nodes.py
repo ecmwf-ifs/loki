@@ -1531,10 +1531,19 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
 
     @property
     def declarations(self):
-        return tuple(
-            c for c in as_tuple(self.body)
-            if isinstance(c, (VariableDeclaration, ProcedureDeclaration))
-        )
+        decls = tuple(
+        c for c in as_tuple(self.body)
+        if isinstance(c, (VariableDeclaration, ProcedureDeclaration))
+    )
+
+        # Inherit non-overriden symbols from parent type
+        if self.extends and self.parent:
+            if (_type := self.parent.symbol_attrs[self.extends].dtype.typedef):
+                _symbols = tuple(flatten([decl.symbols for decl in decls]))
+                decls += as_tuple([d.clone(symbols=as_tuple([s.clone(scope=self)
+                                                             for s in d.symbols if not s in _symbols]))
+                                   for d in _type.declarations])
+        return decls
 
     @property
     def comments(self):
