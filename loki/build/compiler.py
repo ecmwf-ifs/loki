@@ -155,11 +155,30 @@ class Compiler:
         cc = {'f90': self.f90, 'f': self.fc, 'c': self.cc}[mode]
         args = [cc, '-c']
         args += {'f90': self.f90flags, 'f': self.fcflags, 'c': self.cflags}[mode]
-        args += flatten([('-I', str(incl)) for incl in include_dirs])
-        args += [] if mod_dir is None else ['-J', str(mod_dir)]
+        args += self._include_dir_args(include_dirs)
+        if mode != 'c':
+            args += self._mod_dir_args(mod_dir)
         args += [] if target is None else ['-o', str(target)]
         args += [str(source)]
         return args
+
+    def _include_dir_args(self, include_dirs):
+        """
+        Return a list of compile command arguments for adding
+        all paths in :data:`include_dirs` as include directories
+        """
+        return [
+            f'-I{incl!s}' for incl in as_tuple(include_dirs)
+        ]
+
+    def _mod_dir_args(self, mod_dir):
+        """
+        Return a list of compile command arguments for setting
+        :data:`mod_dir` as search and output directory for module files
+        """
+        if mod_dir is None:
+            return []
+        return [f'-J{mod_dir!s}']
 
     def compile(self, source, target=None, include_dirs=None, use_c=False, cwd=None):
         """
@@ -282,6 +301,11 @@ class NvidiaCompiler(Compiler):
 
     CC_PATTERN = re.compile(r'(^|/|\\)nvc\b')
     FC_PATTERN = re.compile(r'(^|/|\\)(pgf9[05]|pgfortran|nvfortran)\b')
+
+    def _mod_dir_args(self, mod_dir):
+        if mod_dir is None:
+            return []
+        return ['-module', str(mod_dir)]
 
 
 def get_compiler_from_env(env=None):
