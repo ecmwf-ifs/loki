@@ -80,21 +80,14 @@ def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
     compiler.compile(filepath.absolute(), cwd=cwd)
 
     # Generate the Python interfaces
-    f90wrap = ['f90wrap']
-    f90wrap += ['-m', str(filepath.stem)]
-    if f90wrap_kind_map is not None:
-        f90wrap += ['-k', str(f90wrap_kind_map)]
-    f90wrap += [str(filepath.absolute())]
-    execute(f90wrap, cwd=cwd)
+    compiler.f90wrap(modname=filepath.stem, source=[filepath.absolute()], kind_map=f90wrap_kind_map, cwd=cwd)
 
     # Compile the dynamic library
-    f2py = ['f2py-f90wrap', '-c']
-    f2py += ['-m', f'_{filepath.stem}']
-    f2py += [f'{filepath.stem}.o']
+    f2py_source = [f'{filepath.stem}.o']
     for sourcefile in [f'f90wrap_{filepath.stem}.f90', 'f90wrap_toplevel.f90']:
         if (filepath.parent/sourcefile).exists():
-            f2py += [sourcefile]
-    execute(f2py, cwd=cwd)
+            f2py_source += [sourcefile]
+    compiler.f2py(modname=filepath.stem, source=f2py_source, cwd=cwd)
 
     # Add directory to module search path
     moddir = str(filepath.parent)
@@ -125,8 +118,7 @@ class Compiler:
     LDFLAGS = None
     LD_STATIC = None
     LDFLAGS_STATIC = None
-
-
+    F2PY_FCOMPILER_TYPE = None
 
     def __init__(self):
         self.cc = self.CC or 'gcc'
@@ -139,6 +131,7 @@ class Compiler:
         self.ldflags = self.LDFLAGS or ['-static']
         self.ld_static = self.LD_STATIC or 'ar'
         self.ldflags_static = self.LDFLAGS_STATIC or ['src']
+        self.f2py_fcompiler_type = self.F2PY_FCOMPILER_TYPE or 'gnu95'
 
     def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='f90'):
         """
@@ -218,8 +211,7 @@ class Compiler:
         args = self.f90wrap_args(modname=modname, source=source, kind_map=kind_map)
         execute(args, cwd=cwd)
 
-    @staticmethod
-    def f2py_args(modname, source, libs=None, lib_dirs=None, incl_dirs=None):
+    def f2py_args(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None):
         """
         Generate arguments for the ``f2py-f90wrap`` utility invocation line.
         """
@@ -228,6 +220,9 @@ class Compiler:
         incl_dirs = incl_dirs or []
 
         args = ['f2py-f90wrap', '-c']
+        args += [f'--fcompiler={self.f2py_fcompiler_type}']
+        args += [f'--f77exec={self.fc}']
+        args += [f'--f90exec={self.f90}']
         args += ['-m', f'_{modname}']
         for incl_dir in incl_dirs:
             args += [f'-I{incl_dir}']
@@ -262,6 +257,7 @@ class GNUCompiler(Compiler):
     LDFLAGS = ['-static']
     LD_STATIC = 'ar'
     LDFLAGS_STATIC = ['src']
+    F2PY_FCOMPILER_TYPE = 'gnu95'
 
     CC_PATTERN = re.compile(r'(^|/|\\)gcc\b')
     FC_PATTERN = re.compile(r'(^|/|\\)gfortran\b')
@@ -282,6 +278,7 @@ class NvidiaCompiler(Compiler):
     LDFLAGS = ['-static']
     LD_STATIC = 'ar'
     LDFLAGS_STATIC = ['src']
+    F2PY_FCOMPILER_TYPE = 'nv'
 
     CC_PATTERN = re.compile(r'(^|/|\\)nvc\b')
     FC_PATTERN = re.compile(r'(^|/|\\)(pgf9[05]|pgfortran|nvfortran)\b')
