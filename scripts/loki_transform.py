@@ -120,14 +120,14 @@ def cli(debug):
               help="Recursively derive explicit shape dimension for argument arrays")
 @click.option('--eliminate-dead-code/--no-eliminate-dead-code', default=True,
               help='Perform dead code elimination, where unreachable branches are trimmed from the code.')
-@click.option('--unprivatise-structs', is_flag=True, default=False,
-              help='Unprivatise OpenMP thread-private data structs.')
+@click.option('--blockview-to-fieldview', is_flag=True, default=False,
+              help='Replace per-block view pointers with per-field view pointers.')
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
         global_var_offload, remove_derived_args, inline_members, inline_marked,
         resolve_sequence_association, resolve_sequence_association_inlined_calls,
-        derive_argument_array_shape, eliminate_dead_code, unprivatise_structs
+        derive_argument_array_shape, eliminate_dead_code, blockview_to_fieldview
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -222,9 +222,9 @@ def convert(
         )
     scheduler.process(transformation=sanitise_trafo)
 
-    if unprivatise_structs:
-        assert config.pipelines['unprivatise_structs']
-        scheduler.process( config.pipelines['unprivatise_structs'] )
+    if blockview_to_fieldview:
+        assert config.pipelines['blockview_to_fieldview']
+        scheduler.process( config.pipelines['blockview_to_fieldview'] )
 
     # Perform source-inlining either from CLI arguments or from config
     inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
