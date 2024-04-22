@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from loki.logging import info, debug
-from loki.tools import execute, as_tuple, flatten, delete
+from loki.tools import execute, as_tuple, delete
 
 
 __all__ = [
@@ -54,7 +54,7 @@ def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
     supported via the ``f2py`` and ``f90wrap`` packages.
 
     Parameters
-    -----
+    ----------
     filename : str
         The source file to be compiled.
     cwd : str, optional
