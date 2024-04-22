@@ -14,8 +14,8 @@ from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
 import loki.expression.symbols as sym
 from loki.frontend import available_frontends, OFP
 import loki.ir as ir
-from loki.transform import normalize_range_indexing
 
+from loki.transformations.array_indexing import normalize_range_indexing
 from loki.transformations.transpile import FortranCTransformation
 
 

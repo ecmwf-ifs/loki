@@ -8,36 +8,35 @@
 from pathlib import Path
 from collections import OrderedDict
 
-from loki.batch import Transformation
-from loki.transform.transform_array_indexing import (
-    shift_to_zero_indexing, invert_array_indices,
-    resolve_vector_notation, normalize_array_shape_and_access,
-    flatten_arrays
-)
-from loki.transform.transform_sanitise import resolve_associates
-from loki.transform.transform_utilities import (
-    convert_to_lower_case, replace_intrinsics, sanitise_imports
-)
-from loki.transform.transform_inline import (
-    inline_constant_parameters, inline_elemental_functions
-)
-from loki.sourcefile import Sourcefile
+from loki import Sourcefile, Subroutine, Module
 from loki.backend import cgen, fgen
-from loki.logging import debug
+from loki.batch import Transformation
+from loki.expression import (
+    symbols as sym, Variable, InlineCall, RangeIndex, Scalar, Array,
+    ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
+    ExpressionRetriever, SubstituteExpressionsMapper,
+)
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, VariableDeclaration,
     TypeDef, Assignment, Transformer, FindNodes
 )
-from loki.subroutine import Subroutine
-from loki.module import Module
-from loki.expression import (
-    Variable, InlineCall, RangeIndex, Scalar, Array,
-    ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
-    ExpressionRetriever, SubstituteExpressionsMapper,
-)
-from loki.expression import symbols as sym
+from loki.logging import debug
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
+
+from loki.transformations.array_indexing import (
+    shift_to_zero_indexing, invert_array_indices,
+    resolve_vector_notation, normalize_array_shape_and_access,
+    flatten_arrays
+)
+from loki.transformations.utilities import (
+    convert_to_lower_case, replace_intrinsics, sanitise_imports
+)
+from loki.transformations.sanitise import resolve_associates
+from loki.transformations.inline import (
+    inline_constant_parameters, inline_elemental_functions
+)
+
 
 __all__ = ['FortranCTransformation']
 

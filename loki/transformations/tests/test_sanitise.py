@@ -12,7 +12,8 @@ from loki import (
 )
 from loki.frontend import available_frontends, OMNI
 from loki.ir import Assignment, Associate, CallStatement, Conditional
-from loki.transform import (
+
+from loki.transformations.sanitise import (
     resolve_associates, transform_sequence_association,
     SanitiseTransformation
 )

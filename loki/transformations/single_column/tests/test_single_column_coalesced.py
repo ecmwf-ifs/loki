@@ -18,8 +18,10 @@ from loki.ir import (
     Pragma, PragmaRegion, Section, pragmas_attached, is_loki_pragma,
     pragma_regions_attached
 )
-from loki.transform import SanitiseTransformation, InlineTransformation
-from loki.transformations import DataOffloadTransformation
+
+from loki.transformations import (
+    DataOffloadTransformation, SanitiseTransformation, InlineTransformation
+)
 from loki.transformations.single_column import (
     SCCBaseTransformation, SCCDevectorTransformation,
     SCCDemoteTransformation, SCCRevectorTransformation,

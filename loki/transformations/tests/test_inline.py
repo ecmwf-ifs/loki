@@ -17,12 +17,15 @@ from loki.build import jit_compile, jit_compile_lib, Builder
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import nodes as ir, FindNodes
-from loki.transform import (
+
+from loki.transformations.inline import (
     inline_elemental_functions, inline_constant_parameters,
-    replace_selected_kind, inline_member_procedures,
-    inline_marked_subroutines, InlineTransformation,
-    ResolveAssociatesTransformer
+    inline_member_procedures, inline_marked_subroutines,
+    InlineTransformation,
 )
+from loki.transformations.sanitise import ResolveAssociatesTransformer
+from loki.transformations.utilities import replace_selected_kind
+
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():

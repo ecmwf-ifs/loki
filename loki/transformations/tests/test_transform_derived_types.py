@@ -18,11 +18,11 @@ from loki.expression import Scalar, Array, FindVariables, FindInlineCalls
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import FindNodes, CallStatement
 
-from loki.transform import resolve_associates
-from loki.transformations import (
+from loki.transformations.derived_types import (
     DerivedTypeArgumentsTransformation,
     TypeboundProcedureCallTransformation
 )
+from loki.transformations.sanitise import resolve_associates
 #pylint: disable=too-many-lines
 
 @pytest.fixture(scope='module', name='here')

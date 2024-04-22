@@ -5,11 +5,21 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from loki.transformations.array_indexing import * # noqa
 from loki.transformations.build_system import * # noqa
 from loki.transformations.derived_types import * # noqa
 from loki.transformations.argument_shape import * # noqa
 from loki.transformations.data_offload import * # noqa
 from loki.transformations.drhook import * # noqa
+from loki.transformations.extract import * # noqa
+from loki.transformations.hoist_variables import * # noqa
+from loki.transformations.inline import * # noqa
+from loki.transformations.parametrise import * # noqa
+from loki.transformations.remove_code import * # noqa
+from loki.transformations.sanitise import * # noqa
 from loki.transformations.single_column import * # noqa
 from loki.transformations.transpile import * # noqa
+from loki.transformations.transform_loop import * # noqa
+from loki.transformations.transform_region import * # noqa
 from loki.transformations.pool_allocator import * # noqa
+from loki.transformations.utilities import * # noqa

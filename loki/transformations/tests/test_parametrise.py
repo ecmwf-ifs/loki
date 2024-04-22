@@ -10,7 +10,8 @@ from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
-from loki.transform import ParametriseTransformation
+
+from loki.transformations.parametrise import ParametriseTransformation
 
 
 @pytest.fixture(scope='module', name='here')

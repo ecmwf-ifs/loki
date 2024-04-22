@@ -22,7 +22,8 @@ from loki.ir import (
 from loki.logging import info
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.transform.transform_array_indexing import (
+
+from loki.transformations.array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
 )
 

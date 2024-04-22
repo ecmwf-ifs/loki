@@ -13,26 +13,25 @@ Collection of utility routines to perform code-level force-inlining.
 from collections import defaultdict
 
 from loki.batch import Transformation
-from loki.expression import (
-    FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, LokiIdentityMapper
-)
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
     Transformer, FindNodes, pragmas_attached, is_loki_pragma
 )
-from loki.expression import symbols as sym
+from loki.expression import (
+    symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
+    SubstituteExpressions, LokiIdentityMapper
+)
 from loki.types import BasicType
 from loki.tools import as_tuple
 from loki.logging import warning, error
 from loki.subroutine import Subroutine
 
-from loki.transform.transform_sanitise import transform_sequence_association_append_map
-from loki.transform.transform_remove_code import do_remove_dead_code
-from loki.transform.transform_utilities import (
-    single_variable_declaration,
-    recursive_expression_map_update
+from loki.transformations.remove_code import do_remove_dead_code
+from loki.transformations.sanitise import transform_sequence_association_append_map
+from loki.transformations.utilities import (
+    single_variable_declaration, recursive_expression_map_update
 )
+
 
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',

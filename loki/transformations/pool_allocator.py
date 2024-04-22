@@ -8,23 +8,24 @@
 import re
 from collections import  defaultdict
 
+from loki import (
+    as_tuple, warning, debug, Transformation, DetachScopesMapper,
+    SymbolAttributes, BasicType, DerivedType,
+)
+from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
-    Quotient, IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
-    Product, InlineCall, Comparison, RangeIndex, Cast,
-    ProcedureSymbol, LogicalNot, simplify,
+    FindVariables, FindInlineCalls, Quotient, IntLiteral,
+    LogicLiteral, Variable, Array, Sum, Literal, Product, InlineCall,
+    Comparison, RangeIndex, Cast, ProcedureSymbol, LogicalNot,
+    simplify, SubstituteExpressions, is_dimension_constant
 )
 from loki.ir import (
-    Intrinsic, Assignment, Conditional, CallStatement, Import,
-    Allocation, Deallocation, Loop, Pragma
+    FindNodes, Transformer, Intrinsic, Assignment, Conditional,
+    CallStatement, Import, Allocation, Deallocation, Loop, Pragma,
+    Interface, get_pragma_parameters
 )
-from loki import (
-    as_tuple, warning, debug, Transformation, FindNodes,
-    FindVariables, Transformer, SubstituteExpressions,
-    DetachScopesMapper, SymbolAttributes, BasicType, DerivedType,
-    is_dimension_constant, recursive_expression_map_update,
-    get_pragma_parameters, FindInlineCalls, Interface,
-    dataflow_analysis_attached
-)
+from loki.transformations.utilities import recursive_expression_map_update
+
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
 

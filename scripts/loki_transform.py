@@ -22,14 +22,10 @@ from loki import (
 from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
 
 # Get generalized transformations provided by Loki
-from loki.transform import (
-    HoistTemporaryArraysAnalysis, normalize_range_indexing,
-    InlineTransformation, SanitiseTransformation, RemoveCodeTransformation
-)
-
 from loki.transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
+from loki.transformations.array_indexing import normalize_range_indexing
 from loki.transformations.build_system import (
     DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
 )
@@ -38,7 +34,11 @@ from loki.transformations.data_offload import (
 )
 from loki.transformations.derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.drhook import DrHookTransformation
+from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
+from loki.transformations.inline import InlineTransformation
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from loki.transformations.remove_code import RemoveCodeTransformation
+from loki.transformations.sanitise import SanitiseTransformation
 from loki.transformations.single_column import (
     ExtractSCATransformation, CLAWTransformation,
     SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline,

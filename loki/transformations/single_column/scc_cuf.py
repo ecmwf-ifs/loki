@@ -9,20 +9,26 @@
 Single-Column-Coalesced CUDA Fortran (SCC-CUF) transformation.
 """
 
-from loki.expression import symbols as sym
-from loki.transform import resolve_associates, single_variable_declaration, HoistVariablesTransformation
-from loki import ir
 from loki import (
-    Transformation, FindNodes, FindVariables, Transformer,
-    SubstituteExpressions, SymbolAttributes,
-    CaseInsensitiveDict, as_tuple, flatten, types
+    Transformation, FindVariables, SubstituteExpressions,
+    SymbolAttributes, CaseInsensitiveDict, as_tuple, flatten, types
 )
+from loki.expression import symbols as sym
+from loki.ir import nodes as ir, FindNodes, Transformer
 
+
+from loki.transformations.hoist_variables import HoistVariablesTransformation
+from loki.transformations.sanitise import resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.vector import SCCDevectorTransformation
+from loki.transformations.utilities import single_variable_declaration
 
-__all__ = ['SccCufTransformation', 'HoistTemporaryArraysDeviceAllocatableTransformation',
-        'HoistTemporaryArraysPragmaOffloadTransformation']
+
+__all__ = [
+    'SccCufTransformation',
+    'HoistTemporaryArraysDeviceAllocatableTransformation',
+    'HoistTemporaryArraysPragmaOffloadTransformation'
+]
 
 
 class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransformation):

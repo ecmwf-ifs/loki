@@ -74,7 +74,9 @@ from loki.frontend import (
     available_frontends, OMNI, OFP, FP, REGEX, HAVE_FP, HAVE_OFP, HAVE_OMNI
 )
 from loki.ir import nodes as ir, FindNodes
-from loki.transform import DependencyTransformation, ModuleWrapTransformation
+from loki.transformations import (
+    DependencyTransformation, ModuleWrapTransformation
+)
 
 
 pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
@@ -2885,7 +2887,7 @@ def test_pipeline_config_compose(config):
         },
         'preprocess': {
             'classname': 'RemoveCodeTransformation',
-            'module': 'loki.transform.transform_remove_code',
+            'module': 'loki.transformations',
             'options': {
                 'call_names': 'dr_hook',
                 'remove_imports': False

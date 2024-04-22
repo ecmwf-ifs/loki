@@ -18,7 +18,7 @@ from loki.ir import CallStatement, FindNodes, Transformer, NestedTransformer
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
 
-from loki.transform.transform_utilities import recursive_expression_map_update
+from loki.transformations.utilities import recursive_expression_map_update
 
 
 __all__ = [

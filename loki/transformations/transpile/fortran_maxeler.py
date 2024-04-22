@@ -23,11 +23,11 @@ from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten
 
-from loki.transform.transform_array_indexing import (
+from loki.transformations.array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_range_indexing
 )
-from loki.transform.transform_utilities import replace_intrinsics
+from loki.transformations.utilities import replace_intrinsics
 from loki.types import SymbolAttributes, BasicType, DerivedType
 
 from loki.transformations.transpile import FortranCTransformation

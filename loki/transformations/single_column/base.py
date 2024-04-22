@@ -5,13 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.expression import symbols as sym
-from loki.transform import resolve_associates
 from loki import (
-    ir, Transformation, FindNodes, Transformer,
-    as_tuple, FindExpressions,
-    SymbolAttributes, BasicType, SubstituteExpressions
+    Transformation, FindExpressions, SymbolAttributes, BasicType,
+    SubstituteExpressions, as_tuple,
 )
+from loki.expression import symbols as sym
+from loki.ir import nodes as ir, FindNodes, Transformer
+
+from loki.transformations.sanitise import resolve_associates
 
 
 __all__ = ['SCCBaseTransformation']

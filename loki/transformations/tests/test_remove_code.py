@@ -12,7 +12,8 @@ from loki import Subroutine, Module, Sourcefile, gettempdir
 from loki.batch import Scheduler, SchedulerConfig
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
-from loki.transform import (
+
+from loki.transformations.remove_code import (
     do_remove_dead_code, do_remove_marked_regions, do_remove_calls,
     RemoveCodeTransformation
 )

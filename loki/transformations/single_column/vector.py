@@ -18,12 +18,15 @@ from loki.ir import (
 )
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
-from loki.transform import demote_variables
 
+from loki.transformations.array_indexing import demote_variables
 from loki.transformations.single_column.base import SCCBaseTransformation
 
 
-__all__ = ['SCCDevectorTransformation', 'SCCRevectorTransformation', 'SCCDemoteTransformation']
+__all__ = [
+    'SCCDevectorTransformation', 'SCCRevectorTransformation',
+    'SCCDemoteTransformation'
+]
 
 
 class SCCDevectorTransformation(Transformation):

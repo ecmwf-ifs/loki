@@ -15,11 +15,11 @@ from loki.expression import (
 from loki.ir import nodes as ir, FindNodes, Transformer, pragmas_attached
 from loki.sourcefile import Sourcefile
 
-from loki.transform.transform_array_indexing import (
+from loki.transformations.array_indexing import (
     shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
 )
-from loki.transform.transform_sanitise import resolve_associates
-from loki.transform.transform_utilities import (
+from loki.transformations.sanitise import resolve_associates
+from loki.transformations.utilities import (
     convert_to_lower_case, replace_intrinsics
 )
 

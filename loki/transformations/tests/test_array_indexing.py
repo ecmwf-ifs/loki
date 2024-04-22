@@ -14,12 +14,13 @@ from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
 from loki.expression import symbols as sym, FindVariables
 from loki.frontend import available_frontends
 from loki.ir import FindNodes, CallStatement
-from loki.transform import (
+
+from loki.transformations.array_indexing import (
     promote_variables, demote_variables, normalize_range_indexing,
     invert_array_indices, flatten_arrays,
     normalize_array_shape_and_access, shift_to_zero_indexing,
-    FortranCTransformation
 )
+from loki.transformations.transpile import FortranCTransformation
 
 
 @pytest.fixture(scope='module', name='here')

@@ -13,7 +13,8 @@ from loki import (
 )
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
-from loki.transform import (
+
+from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update,
     convert_to_lower_case, replace_intrinsics, rename_variables
 )

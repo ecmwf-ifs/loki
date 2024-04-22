@@ -10,9 +10,10 @@ import pytest
 from loki.expression import FindInlineCalls
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import CallStatement, Import, FindNodes
-from loki.transform import extract_contained_procedures
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
+
+from loki.transformations.extract import extract_contained_procedures
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

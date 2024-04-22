@@ -15,13 +15,12 @@ from loki.ir import (
     FindNodes, Loop, Assignment, CallStatement, Allocation,
     Deallocation, VariableDeclaration, Import, Pragma
 )
-from loki.transform import (
-    HoistTemporaryArraysAnalysis, ParametriseTransformation
-)
 
-from loki.transformations import (
-        SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation,
-        HoistTemporaryArraysPragmaOffloadTransformation
+from loki.transformations.parametrise import ParametriseTransformation
+from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
+from loki.transformations.single_column import (
+    SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation,
+    HoistTemporaryArraysPragmaOffloadTransformation
 )
 
 

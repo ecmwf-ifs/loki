@@ -7,8 +7,8 @@
 
 from loki.expression import symbols as sym
 from loki.ir import nodes as ir
-from loki.transform import HoistVariablesTransformation
 
+from loki.transformations.hoist_variables import HoistVariablesTransformation
 from loki.transformations.single_column.base import SCCBaseTransformation
 
 

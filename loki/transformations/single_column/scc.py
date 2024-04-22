@@ -8,8 +8,8 @@
 from functools import partial
 
 from loki.batch import Pipeline
-from loki.transform import HoistTemporaryArraysAnalysis
 
+from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 
 from loki.transformations.single_column.base import SCCBaseTransformation

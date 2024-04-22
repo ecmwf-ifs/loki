@@ -18,8 +18,10 @@ from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
     Assignment
 )
-from loki.transform import (
-    loop_interchange, loop_fusion, loop_fission, normalize_range_indexing
+
+from loki.transformations.array_indexing import normalize_range_indexing
+from loki.transformations.transform_loop import (
+    loop_interchange, loop_fusion, loop_fission
 )
 
 

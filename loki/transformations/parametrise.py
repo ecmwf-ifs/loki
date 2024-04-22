@@ -87,7 +87,7 @@ from loki.expression import symbols as sym
 from loki.ir import nodes as ir, Transformer, FindNodes
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 
-from loki.transform.transform_inline import inline_constant_parameters
+from loki.transformations.inline import inline_constant_parameters
 
 
 __all__ = ['ParametriseTransformation']

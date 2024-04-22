@@ -13,6 +13,10 @@ from collections import defaultdict
 import operator as op
 import numpy as np
 
+from loki.analyse import (
+    dataflow_analysis_attached, read_after_write_vars,
+    loop_carried_dependencies
+)
 from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
     simplify, is_constant, symbolic_op, parse_expr
@@ -23,15 +27,14 @@ from loki.ir import (
     get_pragma_parameters, pragmas_attached
 )
 from loki.logging import info, warning
-from loki.transform.transform_array_indexing import (
+from loki.tools import (
+    flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort,
+    optional
+)
+from loki.transformations.array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
 )
-from loki.tools import (
-    flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort, optional
-)
-from loki.analyse import (
-    dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
-)
+
 
 __all__ = ['loop_interchange', 'loop_fusion', 'loop_fission']
 
