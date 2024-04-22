@@ -13,14 +13,48 @@ from loki import (
 
 from transformations.single_column_coalesced import SCCBaseTransformation
 
-__all__ = ['UnprivatiseStructsTransformation', 'BlockIndexInjectTransformation']
+__all__ = ['BlockViewToFieldViewTransformation', 'BlockIndexInjectTransformation']
 
-class UnprivatiseStructsTransformation(Transformation):
+class BlockViewToFieldViewTransformation(Transformation):
+    """
+    A very IFS-specific transformation to replace per-block, i.e. per OpenMP-thread, view pointers with per-field
+    view pointers. It should be noted that this transformation only replaces the view pointers but does not actually
+    insert the block index into the promoted view pointers. Therefore this transformation must always be followed by
+    the :any:`BlockIndexInjectTransformation`.
 
+    For example, the following code:
 
-    _key = 'UnprivatiseStructsTransformation'
+    .. code-block:: fortran
 
-    # This trafo only operates on procedures
+        do jlon=1,nproma
+          mystruct%p(jlon,:) = 0.
+        enddo
+
+    is transformed to:
+
+    .. code-block:: fortran
+
+        do jlon=1,nproma
+          mystruct%p_field(jlon,:) = 0.
+        enddo
+
+    Where the rank of ``my_struct%p_field`` is one greater than that of ``my_struct%p``.
+
+    Parameters
+    ----------
+    horizontal : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the horizontal data dimension and iteration space.
+    exclude : tuple
+        List of data structures to be intentionally excluded from this transformation. This list is intended
+        primarily for data structures that are not memory-blocked.
+    key : str, optional
+        Specify a different identifier under which trafo_data is stored
+    """
+
+    _key = 'BlockViewToFieldViewTransformation'
+    """Default identifier for trafo_data entry"""
+
     item_filter = (ProcedureItem,)
 
     def __init__(self, horizontal, exclude=(), key=None):
@@ -31,6 +65,7 @@ class UnprivatiseStructsTransformation(Transformation):
 
     @staticmethod
     def get_parent_typedef(var, symbol_map):
+        """Utility method to retrieve derived-tyoe definition of parent type."""
 
         if not var.parent.type.dtype.typedef == BasicType.DEFERRED:
             return var.parent.type.dtype.typedef
@@ -65,6 +100,9 @@ class UnprivatiseStructsTransformation(Transformation):
         return ir.Import(module='PARKIND1', symbols=as_tuple(_vars))
 
     def _build_field_array_types(self, field_array_module, wrapper_types):
+        """
+        Build FIELD_RANKSUFF_ARRAY type-definitions.
+        """
 
         typedefs = ()
         for _type in wrapper_types:
@@ -96,6 +134,9 @@ class UnprivatiseStructsTransformation(Transformation):
         return typedefs
 
     def _create_dummy_field_api_defs(self, field_array_mod_imports):
+        """
+        Create dummy definitions for FIELD_API wrapper-types to enrich typedefs.
+        """
 
         wrapper_types = {sym.name for imp in field_array_mod_imports for sym in imp.symbols}
 
@@ -114,6 +155,10 @@ class UnprivatiseStructsTransformation(Transformation):
 
     @staticmethod
     def propagate_defs_to_children(key, definitions, successors):
+        """
+        Enrich all successors with the dummy FIELD_API definitions.
+        """
+
         for child in successors:
             child.ir.enrich(definitions)
             child.trafo_data.update({key: {'definitions': definitions}})
@@ -132,6 +177,8 @@ class UnprivatiseStructsTransformation(Transformation):
         #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
 
     def build_ydvars_global_gfl_ptr(self, var):
+        """Replace accesses to thread-local ``YDVARS%GFL_PTR`` with global ``YDVARS%GFL_PTR_G``."""
+
         if (parent := var.parent):
             parent = self.build_ydvars_global_gfl_ptr(parent)
 
