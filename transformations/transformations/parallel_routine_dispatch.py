@@ -34,7 +34,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
             return
 
         dr_hook_calls = self.create_dr_hook_calls(
-            routine, pragma_attrs['name'],
+            routine, routine.name+":"+pragma_attrs['name'],
             sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
         )
 
@@ -42,12 +42,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         region.append(dr_hook_calls[1])
 
     @staticmethod
-    def create_dr_hook_calls(scope, cdname, pkey):
+    def create_dr_hook_calls(scope, cdname, handle):
         dr_hook_calls = []
         for kswitch in (0, 1):
             call_stmt = ir.CallStatement(
                 name=sym.Variable(name='DR_HOOK', scope=scope),
-                arguments=(sym.StringLiteral(cdname), sym.IntLiteral(kswitch), pkey)
+                arguments=(sym.StringLiteral(cdname), sym.IntLiteral(kswitch), handle)
             )
             dr_hook_calls += [
                 ir.Conditional(
