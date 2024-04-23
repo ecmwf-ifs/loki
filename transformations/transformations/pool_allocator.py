@@ -23,7 +23,7 @@ from loki import (
     DetachScopesMapper, SymbolAttributes, BasicType, DerivedType,
     is_dimension_constant, recursive_expression_map_update,
     get_pragma_parameters, FindInlineCalls, Interface,
-    dataflow_analysis_attached, resolve_typebound_var
+    dataflow_analysis_attached
 )
 
 __all__ = ['TemporariesPoolAllocatorTransformation']
@@ -435,7 +435,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_storage]
 
-            block_size = resolve_typebound_var(self.block_dim.size, routine.symbol_map)
+            block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
             stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
                 stack_size_var, block_size)),))
             stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member

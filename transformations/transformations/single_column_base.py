@@ -10,8 +10,7 @@ from loki.transform import resolve_associates
 from loki import (
     ir, Transformation, FindNodes, Transformer,
     as_tuple, FindExpressions,
-    SymbolAttributes, BasicType, SubstituteExpressions,
-    resolve_typebound_var
+    SymbolAttributes, BasicType, SubstituteExpressions
 )
 
 
@@ -178,8 +177,8 @@ class SCCBaseTransformation(Transformation):
         bounds_str = f'{bounds[0]}:{bounds[1]}'
 
         variable_map = routine.variable_map
-        bounds_v = (resolve_typebound_var(bounds[0], variable_map),
-                    resolve_typebound_var(bounds[1], variable_map))
+        bounds_v = (routine.resolve_typebound_var(bounds[0], variable_map),
+                    routine.resolve_typebound_var(bounds[1], variable_map))
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
