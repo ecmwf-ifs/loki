@@ -8,7 +8,6 @@
 from pathlib import Path
 from collections import OrderedDict
 
-from loki import Sourcefile, Subroutine, Module
 from loki.backend import cgen, fgen
 from loki.batch import Transformation
 from loki.expression import (
@@ -17,10 +16,13 @@ from loki.expression import (
     ExpressionRetriever, SubstituteExpressionsMapper,
 )
 from loki.ir import (
-    Section, Import, Intrinsic, Interface, CallStatement, VariableDeclaration,
-    TypeDef, Assignment, Transformer, FindNodes
+    Section, Import, Intrinsic, Interface, CallStatement,
+    VariableDeclaration, TypeDef, Assignment, Transformer, FindNodes
 )
 from loki.logging import debug
+from loki.module import Module
+from loki.sourcefile import Sourcefile
+from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType, SymbolAttributes
 

@@ -9,13 +9,14 @@
 Single-Column-Coalesced CUDA Fortran (SCC-CUF) transformation.
 """
 
-from loki import (
-    Transformation, FindVariables, SubstituteExpressions,
-    SymbolAttributes, CaseInsensitiveDict, as_tuple, flatten, types
+from loki.batch import Transformation
+from loki.expression import (
+    symbols as sym, FindVariables, SubstituteExpressions
 )
-from loki.expression import symbols as sym
 from loki.ir import nodes as ir, FindNodes, Transformer
-
+from loki.tools import CaseInsensitiveDict, as_tuple, flatten
+from loki.types import BasicType, DerivedType
+from loki.scope import SymbolAttributes
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
 from loki.transformations.sanitise import resolve_associates
@@ -148,7 +149,7 @@ def increase_heap_size(routine):
     routine: :any:`Subroutine`
         The subroutine (e.g. the driver) to increase the heap size
     """
-    vtype = SymbolAttributes(types.BasicType.INTEGER, kind=sym.Variable(name="cuda_count_kind"))
+    vtype = SymbolAttributes(BasicType.INTEGER, kind=sym.Variable(name="cuda_count_kind"))
     routine.spec.append(ir.VariableDeclaration((sym.Variable(name="cudaHeapSize", type=vtype),)))
 
     assignment_lhs = routine.variable_map["istat"]
@@ -417,7 +418,7 @@ def driver_device_variables(routine, targets=None):
     """
 
     # istat: status of CUDA runtime function (e.g. for cudaDeviceSynchronize(), cudaMalloc(), cudaFree(), ...)
-    i_type = SymbolAttributes(types.BasicType.INTEGER)
+    i_type = SymbolAttributes(BasicType.INTEGER)
     routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="istat", type=i_type),)))
 
     relevant_arrays = []
@@ -521,7 +522,7 @@ def driver_launch_configuration(routine, block_dim, targets=None):
         Tuple of subroutine call names that are processed in this traversal
     """
 
-    d_type = SymbolAttributes(types.DerivedType("DIM3"))
+    d_type = SymbolAttributes(DerivedType("DIM3"))
     routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="GRIDDIM", type=d_type),
                                                         sym.Variable(name="BLOCKDIM", type=d_type))))
 

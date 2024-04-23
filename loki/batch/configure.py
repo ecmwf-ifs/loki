@@ -346,7 +346,7 @@ class PipelineConfig:
         Creates a custom :any:`Pipeline` object from instantiated
         :any:`Transformation` or :any:`Pipeline` objects in the given map.
         """
-        from loki.transform import Pipeline  # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.batch.pipeline import Pipeline  # pylint: disable=import-outside-toplevel,cyclic-import
 
         # Create an empty pipeline and add from the map
         pipeline = Pipeline(classes=())

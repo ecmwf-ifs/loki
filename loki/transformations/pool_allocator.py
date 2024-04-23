@@ -8,22 +8,24 @@
 import re
 from collections import  defaultdict
 
-from loki import (
-    as_tuple, warning, debug, Transformation, DetachScopesMapper,
-    SymbolAttributes, BasicType, DerivedType,
-)
+from loki.batch import Transformation
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
     FindVariables, FindInlineCalls, Quotient, IntLiteral,
     LogicLiteral, Variable, Array, Sum, Literal, Product, InlineCall,
     Comparison, RangeIndex, Cast, ProcedureSymbol, LogicalNot,
-    simplify, SubstituteExpressions, is_dimension_constant
+    simplify, SubstituteExpressions, is_dimension_constant,
+    DetachScopesMapper
 )
 from loki.ir import (
     FindNodes, Transformer, Intrinsic, Assignment, Conditional,
     CallStatement, Import, Allocation, Deallocation, Loop, Pragma,
     Interface, get_pragma_parameters
 )
+from loki.logging import warning, debug
+from loki.tools import as_tuple
+from loki.types import SymbolAttributes, BasicType, DerivedType
+
 from loki.transformations.utilities import recursive_expression_map_update
 
 

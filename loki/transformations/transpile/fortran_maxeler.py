@@ -30,7 +30,7 @@ from loki.transformations.array_indexing import (
 from loki.transformations.utilities import replace_intrinsics
 from loki.types import SymbolAttributes, BasicType, DerivedType
 
-from loki.transformations.transpile import FortranCTransformation
+from loki.transformations.transpile.fortran_c import FortranCTransformation
 
 
 __all__ = ['FortranMaxTransformation']

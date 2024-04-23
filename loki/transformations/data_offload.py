@@ -7,13 +7,19 @@
 
 from collections import defaultdict
 from itertools import chain
-from loki import (
-    pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
-    CallStatement, Pragma, Scalar, Array, as_tuple, Transformer, warning, BasicType,
-    ProcedureItem, ModuleItem, dataflow_analysis_attached, Import,
-    Comment, flatten, DerivedType, get_pragma_parameters, CaseInsensitiveDict,
-    FindInlineCalls, SubstituteExpressions
+
+from loki.analyse import dataflow_analysis_attached
+from loki.batch import Transformation, ProcedureItem, ModuleItem
+from loki.expression import (
+    Scalar, Array, FindInlineCalls, SubstituteExpressions
 )
+from loki.ir import (
+    FindNodes, PragmaRegion, CallStatement, Pragma, Import, Comment,
+    Transformer, pragma_regions_attached, get_pragma_parameters
+)
+from loki.logging import warning
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.types import BasicType, DerivedType
 
 
 __all__ = [

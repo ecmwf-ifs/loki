@@ -5,12 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki import (
-    Transformation, FindExpressions, SymbolAttributes, BasicType,
-    SubstituteExpressions, as_tuple,
+from loki.batch import Transformation
+from loki.expression import (
+    symbols as sym, FindExpressions, SubstituteExpressions
 )
-from loki.expression import symbols as sym
 from loki.ir import nodes as ir, FindNodes, Transformer
+from loki.tools import as_tuple
+from loki.types import SymbolAttributes, BasicType
+
 
 from loki.transformations.sanitise import resolve_associates
 

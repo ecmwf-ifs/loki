@@ -21,11 +21,11 @@ declarations and call signatures.
 """
 
 
-from loki import (
-    Transformation, FindNodes, CallStatement, Array, FindVariables,
-    SubstituteExpressions, BasicType, as_tuple, Transformer,
-    CaseInsensitiveDict
-)
+from loki.batch import Transformation
+from loki.expression import Array, FindVariables, SubstituteExpressions
+from loki.ir import FindNodes, CallStatement, Transformer
+from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.types import BasicType
 
 
 __all__ = ['ArgumentArrayShapeAnalysis', 'ExplicitArgumentArrayShapeTransformation']

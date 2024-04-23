@@ -16,16 +16,19 @@ derived-type arguments in complex calling structures.
 
 from collections import defaultdict
 
-from loki import (
-    Transformation, SubstituteExpressions, Module,
-    ProcedureDeclaration, BasicType, DerivedType, as_tuple, flatten,
-    warning, debug, CaseInsensitiveDict, ProcedureType
-)
-from loki.ir import FindNodes, Import, CallStatement, Transformer
+from loki.batch import Transformation
 from loki.expression import (
     FindInlineCalls, FindVariables, InlineCall, Variable, RangeIndex,
-    ExpressionRetriever, SubstituteExpressionsMapper
+    ExpressionRetriever, SubstituteExpressionsMapper, SubstituteExpressions
 )
+from loki.ir import (
+    FindNodes, Import, CallStatement, ProcedureDeclaration, Transformer
+)
+from loki.logging import warning, debug
+from loki.module import Module
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.types import BasicType, DerivedType, ProcedureType
+
 from loki.transformations.utilities import recursive_expression_map_update
 
 
