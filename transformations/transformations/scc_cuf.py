@@ -188,7 +188,8 @@ def remove_pragmas(routine):
     routine: :any:`Subroutine`
         The subroutine in which to remove all pragmas
     """
-    pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body)}
+    # pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body)}
+    pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body) if p.keyword.lower()!="loki"}
     routine.body = Transformer(pragma_map).visit(routine.body)
 
 
@@ -990,8 +991,10 @@ class SccCufTransformationNew(Transformation):
                 var_x = sym.Variable(name="X", parent=var_thread_idx)
             else:
                 ctype = SymbolAttributes(DerivedType(name="threadIdx"))
-                var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=True)
-                var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True)
+                var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=True) # , type=ctype)
+                # TODO: "type=ctype" needs a commit
+                var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True, type=ctype)
+                print(f"here!!! var_x: {var_x} ({type(var_x)})")
             horizontal_assignment = ir.Assignment(lhs=routine.variable_map[horizontal.index], rhs=var_x)
 
             if self.mode == 'cuf':
@@ -999,8 +1002,9 @@ class SccCufTransformationNew(Transformation):
                 var_x = sym.Variable(name="Z", parent=var_thread_idx)
             else:
                 ctype = SymbolAttributes(DerivedType(name="blockIdx"))
-                var_thread_idx = sym.Variable(name="blockIdx", case_sensitive=True)
-                var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True)
+                var_thread_idx = sym.Variable(name="blockIdx", case_sensitive=True) # , type=ctype)
+                # TODO: "type=ctype" needs a commit
+                var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True, type=ctype)
             block_dim_assignment = ir.Assignment(lhs=routine.variable_map[block_dim.index], rhs=var_x)
 
             condition = sym.LogicalAnd((sym.Comparison(routine.variable_map[block_dim.index], '<=',
@@ -1043,7 +1047,8 @@ class SccCufTransformationNew(Transformation):
         for var in routine.variables:
             if var in routine.arguments:
                 # if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
-                if isinstance(var, sym.Scalar) and var not in derived_type_variables:
+                # TODO: "and var.type.intent.lower() == 'in'" needs a commit
+                if isinstance(var, sym.Scalar) and var not in derived_type_variables and var.type.intent.lower() == 'in':
                     var_map[var] = var.clone(type=var.type.clone(value=True))
             else:
                 if isinstance(var, sym.Array):

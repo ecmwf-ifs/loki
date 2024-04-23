@@ -283,7 +283,7 @@ def convert(
         scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
-    if mode in ['cuda-hoist']:
+    if mode not in ['cuda-hoist']:
         use_claw_offload = True
         if data_offload:
             offload_transform = DataOffloadTransformation(

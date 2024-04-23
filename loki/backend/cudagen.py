@@ -4,9 +4,16 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.expression import Array
-from loki.types import DerivedType
+# from loki.expression import Array
+from loki.types import DerivedType, BasicType, SymbolAttributes
 from loki.backend.cppgen import CppCodegen, CppCodeMapper, IntrinsicTypeCpp
+
+from loki.tools import as_tuple
+from loki.ir import Import, Stringifier, FindNodes
+from loki.expression import (
+        LokiStringifyMapper, Array, symbolic_op, Literal,
+        symbols as sym
+)
 
 __all__ = ['cudagen', 'CudaCodegen', 'CudaCodeMapper']
 
@@ -38,6 +45,70 @@ class CudaCodegen(CppCodegen):
                          line_cont=line_cont, symgen=symgen)
 
 
+    ###
+    def _subroutine_header(self, o, **kwargs):
+        # Some boilerplate imports...
+        header = [self.format_line('#include <', name, '>') for name in self.standard_imports]
+        # ...and imports from the spec
+        if o.prefix and "global" in o.prefix[0].lower():
+            pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
+            arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
+                    for a, p, k in zip(o.arguments, pass_by, var_keywords)]
+            header += [self.format_line('__global__ ', 'void ', '__launch_bounds__(128, 1) ', o.name, '(', self.join_items(arguments), ');')]
+            header += [self.format_line('#include "', o.name, '_launch.h', '"')]
+        spec_imports = FindNodes(Import).visit(o.spec)
+        header += [self.visit(spec_imports, **kwargs)]
+        return header
+
+    def _subroutine_declaration(self, o, **kwargs):
+        pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
+        arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
+                     for a, p, k in zip(o.arguments, pass_by, var_keywords)]
+        opt_header = kwargs.get('header', False)
+        end = ' {' if not opt_header else ';'
+        # check whether to return something and define function return type accordingly
+        ##
+        prefix = ''
+        extern = ''
+        if o.prefix and "global" in o.prefix[0].lower():
+            prefix = '__global__ '
+        if o.prefix and "extern" in o.prefix[0].lower():
+            extern = 'extern "C" {'
+        ##
+        if o.is_function:
+            return_type = c_intrinsic_type(o.return_type)
+        else:
+            return_type = 'void'
+        declaration = [self.format_line(extern), self.format_line(prefix, f'{return_type} ', o.name, '(', self.join_items(arguments), ')', end)]
+        return declaration
+
+    def _subroutine_body(self, o, **kwargs):
+        self.depth += 1
+
+        # body = ['{']
+        # ...and generate the spec without imports and argument declarations
+        body = [self.visit(o.spec, skip_imports=True, skip_argument_declarations=True, **kwargs)]
+
+        # Fill the body
+        body += [self.visit(o.body, **kwargs)]
+
+        # if something to be returned, add 'return <var>' statement
+        if o.result_name is not None:
+            body += [self.format_line(f'return {o.result_name.lower()};')]
+
+        # Close everything off
+        self.depth -= 1
+        # footer = [self.format_line('}')]
+        return body
+
+    def _subroutine_footer(self, o, **kwargs):
+        postfix = ''
+        if o.prefix and "extern" in o.prefix[0].lower():
+            postfix = '}'
+        footer = [self.format_line('}'), self.format_line(postfix)]
+        return footer
+    ####
+
     def _subroutine_arguments(self, o, **kwargs):
         var_keywords = []
         pass_by = []
@@ -55,6 +126,17 @@ class CudaCodegen(CppCodegen):
             else:
                 pass_by += ['']
         return pass_by, var_keywords
+
+    # def visit_Subroutine(self, o, **kwargs):
+    #     """
+    #     Format as:
+    #       ...imports...
+    #       int <name>(<args>) {
+    #         ...spec without imports and argument declarations...
+    #         ...body...
+    #       }
+    #     """
+    #     return super().visit_Subroutine(o, **kwargs)
 
     def visit_CallStatement(self, o, **kwargs):
         args = self.visit_all(o.arguments, **kwargs)

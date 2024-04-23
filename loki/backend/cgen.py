@@ -77,12 +77,22 @@ class CCodeMapper(LokiStringifyMapper):
             self.format('(%s) %s', self.c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
+        if 'threadid' in str(expr).lower():
+            try:
+                print(f"map_variable_symbol: expr {expr} | expr.parent {expr.parent} | expr.basename {expr.basename}")
+            except Exception as e:
+                print(f"exception {e}")
+        if expr.parent in ["threadIdx", "blockIdx"]:
+            print(f"map_variable_symbol: expr {expr} | expr.parent {expr.parent} | expr.basename {expr.basename}")
         if expr.parent is not None:
-            parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
+            # parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
+            parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs)
             return self.format('%s.%s', parent, expr.basename)
         return self.format('%s', expr.name)
 
     def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
+        if 'threadid' in str(expr).lower():
+            print(f"map_meta_symbol: expr {expr} | expr.parent {expr.parent}")
         return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
 
     map_scalar = map_meta_symbol
@@ -90,15 +100,19 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
         name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
-        if expr.aggregate.type.pointer and name_str.startswith('*'):
-            # Strip the pointer '*' because subscript dereference
-            name_str = name_str[1:]
-        index_str = ''
-        for index in expr.index_tuple:
-            d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
-            if d:
-                index_str += self.format('[%s]', d)
-        return self.format('%s%s', name_str, index_str)
+        # TODO: why is this necessary?
+        if expr.aggregate.type is not None:
+            if expr.aggregate.type.pointer and name_str.startswith('*'):
+                # Strip the pointer '*' because subscript dereference
+                name_str = name_str[1:]
+            index_str = ''
+            for index in expr.index_tuple:
+                d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+                if d:
+                    index_str += self.format('[%s]', d)
+            return self.format('%s%s', name_str, index_str)
+        else:
+            return self.format('%s', name_str)
 
     map_string_subscript = map_array_subscript
 
