@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from loki.frontend import available_frontends, OMNI
-from loki import Sourcefile
+from loki import Sourcefile, FindNodes, CallStatement
 
 from transformations.parallel_routine_dispatch import ParallelRoutineDispatchTransformation
 
@@ -22,10 +22,19 @@ def fixture_here():
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
-def test_parallel_routine_dispatch_parallel_regions(here, frontend):
+def test_parallel_routine_dispatch_dr_hook(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 3
+
     transformation = ParallelRoutineDispatchTransformation()
     transformation.apply(source['dispatch_routine'])
 
-    assert transformation.dummy_return_value == ['dispatch_routine']
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 5
+    assert [str(call.name).lower() for call in calls] == [
+        'dr_hook', 'dr_hook', 'cpphinp', 'dr_hook', 'dr_hook'
+    ]
