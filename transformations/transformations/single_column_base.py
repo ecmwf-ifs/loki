@@ -81,7 +81,7 @@ class SCCBaseTransformation(Transformation):
         return False
 
     @classmethod
-    def check_horizontal_var(cls, routine, horizontal):
+    def get_horizontal_loop_bounds(cls, routine, horizontal):
         """
         Check for horizontal loop bounds in a :any:`Subroutine`.
 
@@ -94,22 +94,15 @@ class SCCBaseTransformation(Transformation):
             to define the horizontal data dimension and iteration space.
         """
 
+        bounds = ()
         variables = routine.variables
-        bounds = as_tuple(horizontal.bounds[0])
-        bounds += as_tuple(horizontal.bounds[1])
-        try:
-            if bounds[0] not in variables:
-                raise RuntimeError(f'No horizontal start variable found in {routine.name}')
-            if bounds[1] not in variables:
-                raise RuntimeError(f'No horizontal end variable found in {routine.name}')
-        except RuntimeError as exc:
-            if horizontal._bounds_aliases:
-                bounds = as_tuple(horizontal._bounds_aliases[0])
-                bounds += as_tuple(horizontal._bounds_aliases[1])
-            if bounds[0].split('%', maxsplit=1)[0] not in variables:
-                raise RuntimeError(f'No horizontal start variable found in {routine.name}') from exc
-            if bounds[1].split('%', maxsplit=1)[0] not in variables:
-                raise RuntimeError(f'No horizontal end variable found in {routine.name}') from exc
+        for name, _bounds in zip(['start', 'end'], horizontal.bounds_expressions):
+            for bound in _bounds:
+                if bound.split('%', maxsplit=1)[0] in variables:
+                    bounds += (bound,)
+                    break
+            else:
+                raise RuntimeError(f'No horizontol {name} variable matching {_bounds[0]} found in {routine.name}')
 
         return bounds
 
@@ -293,7 +286,7 @@ class SCCBaseTransformation(Transformation):
             return
 
         # check for horizontal loop bounds in subroutine symbol table
-        bounds = self.check_horizontal_var(routine, self.horizontal)
+        bounds = self.get_horizontal_loop_bounds(routine, self.horizontal)
 
         # Find the iteration index variable for the specified horizontal
         v_index = self.get_integer_variable(routine, name=self.horizontal.index)

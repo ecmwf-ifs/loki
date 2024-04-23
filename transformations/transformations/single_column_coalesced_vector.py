@@ -267,7 +267,7 @@ class SCCRevectorTransformation(Transformation):
         """
 
         variable_map = routine.variable_map
-        bounds = SCCBaseTransformation.check_horizontal_var(routine, horizontal)
+        bounds = SCCBaseTransformation.get_horizontal_loop_bounds(routine, horizontal)
 
         v_start = resolve_typebound_var(bounds[0], variable_map)
         v_end = resolve_typebound_var(bounds[1], variable_map)

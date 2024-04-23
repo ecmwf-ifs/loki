@@ -106,3 +106,15 @@ class Dimension:
         if self._bounds:
             exprs += (f'{self._bounds[1]} - {self._bounds[0]} + 1', )
         return exprs
+
+    @property
+    def bounds_expressions(self):
+        """
+        A list of all expression strings representing the bounds of a data space.
+        """
+
+        exprs = [(b,) for b in self.bounds]
+        if self._bounds_aliases:
+            exprs = [expr + (b,) for expr, b in zip(exprs, self._bounds_aliases)]
+
+        return as_tuple(exprs)

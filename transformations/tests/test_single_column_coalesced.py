@@ -1877,11 +1877,11 @@ def test_scc_base_horizontal_bounds_checks(frontend, horizontal, horizontal_boun
     transform = SCCBaseTransformation(horizontal=horizontal_bounds_aliases)
     transform.apply(alias, role='kernel')
 
-    bounds = SCCBaseTransformation.check_horizontal_var(routine, horizontal_bounds_aliases)
+    bounds = SCCBaseTransformation.get_horizontal_loop_bounds(routine, horizontal_bounds_aliases)
     assert bounds[0] == 'start'
     assert bounds[1] == 'end'
 
-    bounds = SCCBaseTransformation.check_horizontal_var(alias, horizontal_bounds_aliases)
+    bounds = SCCBaseTransformation.get_horizontal_loop_bounds(alias, horizontal_bounds_aliases)
     assert bounds[0] == 'bnds%start'
     assert bounds[1] == 'bnds%end'
 
