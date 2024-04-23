@@ -304,6 +304,11 @@ class SCCDemoteTransformation(Transformation):
     A set of utilities to determine which local arrays can be safely demoted in a
     :any:`Subroutine` as part of a transformation pass.
 
+    Unless the option `demote_local_arrays` is set to `False`, this transformation will demote
+    local arrays that do not buffer values between vector loops. Specific arrays in individual
+    routines can also be marked for preservation by assigning them to the `preserve_arrays` list
+    in the :any:`SchedulerConfig`.
+
     Parameters
     ----------
     horizontal : :any:`Dimension`
