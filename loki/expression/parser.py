@@ -122,7 +122,7 @@ class PymbolicMapper(Mapper):
 
     def map_variable(self, expr, *args, **kwargs):
         parent = kwargs.pop('parent', None)
-        return sym.Variable(name=expr.name, parent=parent) # , **kwargs)
+        return sym.Variable(name=expr.name, parent=parent)
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         if str(expr).isnumeric():
@@ -255,30 +255,39 @@ class LokiEvaluationMapper(EvaluationMapper):
         return self.rec(expr.function)(*args, **kwargs)
 
     def map_lookup(self, expr):
-        try:
-            if isinstance(expr.name, pmbl.Variable):
-                name = expr.name.name
-                return self.case_insensitive_getattr(self.rec(expr.aggregate), name)
-            if isinstance(expr.name, pmbl.Call):
-                name = expr.name.function.name
-                if callable(self.case_insensitive_getattr(self.rec(expr.aggregate), name)):
-                    return self.case_insensitive_getattr(self.rec(expr.aggregate),
-                            name)(*[self.rec(par) for par in expr.name.parameters])
-                return self._evaluate_array(self.case_insensitive_getattr(self.rec(expr.aggregate), name),
-                        [self.rec(par) for par in expr.name.parameters])
-            if isinstance(expr.name, pmbl.CallWithKwargs):
-                name = expr.name.function.name
-                args = [self.rec(par) for par in expr.name.parameters]
-                kwargs = {
-                    k: self.rec(v)
-                    for k, v in expr.name.kw_parameters.items()}
-                kwargs = CaseInsensitiveDict(kwargs)
-                return self.case_insensitive_getattr(self.rec(expr.aggregate), name)(*args, **kwargs)
 
+        def rec_lookup(expr, obj, name):
+            return expr.name, self.case_insensitive_getattr(obj, name)
+
+        try:
+            current_expr = expr
+            obj = self.rec(expr.aggregate)
+            while isinstance(current_expr.name, pmbl.Lookup):
+                current_expr, obj = rec_lookup(current_expr, obj, current_expr.name.aggregate.name)
+            if isinstance(current_expr.name, pmbl.Variable):
+                _, obj = rec_lookup(current_expr, obj, current_expr.name.name)
+                return obj
+            if isinstance(current_expr.name, pmbl.Call):
+                name = current_expr.name.function.name
+                _, obj = rec_lookup(current_expr, obj, name)
+                if callable(obj):
+                    return obj(*[self.rec(par) for par in current_expr.name.parameters])
+                return self._evaluate_array(obj, [self.rec(par) for par in current_expr.name.parameters])
+            if isinstance(current_expr.name, pmbl.CallWithKwargs):
+                name = current_expr.name.function.name
+                _, obj = rec_lookup(current_expr, obj, name)
+                args = [self.rec(par) for par in current_expr.name.parameters]
+                kwargs = CaseInsensitiveDict(
+                    (k, self.rec(v))
+                    for k, v in current_expr.name.kw_parameters.items()
+                )
+                return obj(*args, **kwargs)
         except Exception as e:
             if self.strict:
                 raise e
             return expr
+        if self.strict:
+            raise NotImplementedError
         return expr
 
 

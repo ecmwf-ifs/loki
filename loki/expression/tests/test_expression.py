@@ -13,6 +13,7 @@ import pytest
 import numpy as np
 
 import pymbolic.primitives as pmbl
+import pymbolic.mapper as pmbl_mapper
 
 from loki import (
     Sourcefile, Subroutine, Module, Scope, BasicType,
@@ -2109,7 +2110,7 @@ def test_expression_parser_evaluate(case):
     context = {'a': 6}
     test_str = '1 + 1 + a + some_func(a, 10)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
-    with pytest.raises(Exception):
+    with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
         parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True, context=context)
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=False, context=context)
     assert str(parsed).lower().replace(' ', '') == '8+some_func(6,10)'
@@ -2134,7 +2135,23 @@ def test_expression_parser_evaluate(case):
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert str(parsed).lower().replace(' ', '') == '(13+c+1)/(c+1)'
 
+    class BarBarBar:
+        val_barbarbar = 5
+
+    class BarBar:
+        barbarbar = BarBarBar()
+        val_barbar = -3
+        def barbar_func(self, a):
+            return a - 1
+
+    class Bar:
+        barbar = BarBar()
+        val_bar = 5
+        def bar_func(self, a):
+            return a**2
+
     class Foo:
+        bar = Bar() # pylint: disable=disallowed-name
         val3 = 1
         arr = [[1, 2], [3, 4]]
         def __init__(self, _val1, _val2):
@@ -2150,14 +2167,14 @@ def test_expression_parser_evaluate(case):
     test_str = 'foo%val1 + foo%val2 + foo%val3'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case))
     assert str(parsed).lower().replace(' ', '') == 'foo%val1+foo%val2+foo%val3'
-    with pytest.raises(Exception):
+    with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
         parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True)
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert parsed == 6
     test_str = 'foo%val1 + foo%some_func(1, 2) + foo%static_func_2(3)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert str(parsed).lower().replace(' ', '') == '5+foo%static_func_2(3)'
-    with pytest.raises(Exception):
+    with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
         parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True)
     test_str = 'foo%val1 + foo%some_func(1, 2) + foo%static_func(3) + foo%arr(1, 2)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context, strict=True)
@@ -2165,3 +2182,18 @@ def test_expression_parser_evaluate(case):
     test_str = 'foo%val1 + foo%some_func(1, b=2) + foo%static_func(a=3) + foo%arr(1, 2)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context, strict=True)
     assert parsed == 13
+    test_str = 'foo%bar%val_bar + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 6
+    test_str = 'foo%bar%bar_func(2) + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 5
+    test_str = 'foo%bar%barbar%val_barbar + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == -2
+    test_str = 'foo%bar%barbar%barbar_func(0) + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 0
+    test_str = 'foo%bar%barbar%barbarbar%val_barbarbar + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 6
