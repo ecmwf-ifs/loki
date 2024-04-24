@@ -435,11 +435,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_storage]
 
-            name_parts = self.block_dim.size.split('%', maxsplit=1)
-            block_size = routine.symbol_map[name_parts[0]]
-            if len(name_parts) > 1:
-                block_size = block_size.get_derived_type_member(name_parts[1])
-
+            block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
             stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
                 stack_size_var, block_size)),))
             stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member

@@ -10,7 +10,7 @@ from loki.transform import resolve_associates
 from loki import (
     ir, Transformation, FindNodes, Transformer,
     as_tuple, FindExpressions,
-    SymbolAttributes, BasicType, SubstituteExpressions,
+    SymbolAttributes, BasicType, SubstituteExpressions
 )
 
 
@@ -80,7 +80,7 @@ class SCCBaseTransformation(Transformation):
         return False
 
     @classmethod
-    def check_horizontal_var(cls, routine, horizontal):
+    def get_horizontal_loop_bounds(cls, routine, horizontal):
         """
         Check for horizontal loop bounds in a :any:`Subroutine`.
 
@@ -93,10 +93,17 @@ class SCCBaseTransformation(Transformation):
             to define the horizontal data dimension and iteration space.
         """
 
-        if horizontal.bounds[0] not in routine.variable_map:
-            raise RuntimeError(f'No horizontal start variable found in {routine.name}')
-        if horizontal.bounds[1] not in routine.variable_map:
-            raise RuntimeError(f'No horizontal end variable found in {routine.name}')
+        bounds = ()
+        variables = routine.variables
+        for name, _bounds in zip(['start', 'end'], horizontal.bounds_expressions):
+            for bound in _bounds:
+                if bound.split('%', maxsplit=1)[0] in variables:
+                    bounds += (bound,)
+                    break
+            else:
+                raise RuntimeError(f'No horizontol {name} variable matching {_bounds[0]} found in {routine.name}')
+
+        return bounds
 
     @classmethod
     def get_integer_variable(cls, routine, name):
@@ -166,9 +173,12 @@ class SCCBaseTransformation(Transformation):
         bounds : tuple of :any:`Scalar`
             Tuple defining the iteration space of the inserted loops.
         """
+
         bounds_str = f'{bounds[0]}:{bounds[1]}'
 
-        bounds_v = (sym.Variable(name=bounds[0]), sym.Variable(name=bounds[1]))
+        variable_map = routine.variable_map
+        bounds_v = (routine.resolve_typebound_var(bounds[0], variable_map),
+                    routine.resolve_typebound_var(bounds[1], variable_map))
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
@@ -275,7 +285,7 @@ class SCCBaseTransformation(Transformation):
             return
 
         # check for horizontal loop bounds in subroutine symbol table
-        self.check_horizontal_var(routine, self.horizontal)
+        bounds = self.get_horizontal_loop_bounds(routine, self.horizontal)
 
         # Find the iteration index variable for the specified horizontal
         v_index = self.get_integer_variable(routine, name=self.horizontal.index)
@@ -288,7 +298,7 @@ class SCCBaseTransformation(Transformation):
         self.resolve_masked_stmts(routine, loop_variable=v_index)
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
     def process_driver(self, routine):
         """

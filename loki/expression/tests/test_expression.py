@@ -1647,6 +1647,8 @@ end module typebound_resolution_type_info_mod
     for var_name in var_tt_to_try:
         assert f'var_tt%{var_name}' not in sub.symbol_attrs
 
+    assert 'var_c%c_b%b_a%a' == sub.resolve_typebound_var('var_c%c_b%b_a%a')
+
     # Create each derived type member and verify its type
     for var_name, dtype in var_c_to_try.items():
         var = var_c.get_derived_type_member(var_name)

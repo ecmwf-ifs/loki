@@ -31,14 +31,26 @@ class Dimension:
         String representations of alternative size variables that are
         used to define arrays shapes of this dimension (eg. alternative
         names used in "driver" subroutines).
+    bounds_aliases : list or tuple of strings
+        String representations of alternative bounds variables that are
+        used to define loop ranges.
     """
 
-    def __init__(self, name=None, index=None, bounds=None, size=None, aliases=None):
+    def __init__(self, name=None, index=None, bounds=None, size=None, aliases=None,
+                 bounds_aliases=None):
         self.name = name
         self._index = index
         self._bounds = as_tuple(bounds)
         self._size = size
         self._aliases = as_tuple(aliases)
+
+        if bounds_aliases:
+            if len(bounds_aliases) != 2:
+                raise RuntimeError(f'Start and end both needed for horizontal bounds aliases in {self.name}')
+            if bounds_aliases[0].split('%')[0] != bounds_aliases[1].split('%')[0]:
+                raise RuntimeError(f'Inconsistent root name for horizontal bounds aliases in {self.name}')
+
+        self._bounds_aliases = as_tuple(bounds_aliases)
 
     def __repr__(self):
         """ Pretty-print dimension details """
@@ -94,3 +106,15 @@ class Dimension:
         if self._bounds:
             exprs += (f'{self._bounds[1]} - {self._bounds[0]} + 1', )
         return exprs
+
+    @property
+    def bounds_expressions(self):
+        """
+        A list of all expression strings representing the bounds of a data space.
+        """
+
+        exprs = [(b,) for b in self.bounds]
+        if self._bounds_aliases:
+            exprs = [expr + (b,) for expr, b in zip(exprs, self._bounds_aliases)]
+
+        return as_tuple(exprs)
