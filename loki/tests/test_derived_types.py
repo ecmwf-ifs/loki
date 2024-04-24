@@ -1492,7 +1492,7 @@ end module some_mod
     assert base_type.variables[2].type.bind_names[0] == 'init_base_type'
     assert base_type.variables[3].type.bind_names[0] == 'final_base_type'
     assert not base_type.variables[4].type.bind_names
-    assert all(s.scope == base_type for d in base_type.declarations for s in d.symbols)
+    assert all(s.scope is base_type for d in base_type.declarations for s in d.symbols)
     assert base_type.imported_symbols == ()
     assert not base_type.imported_symbol_map
 
@@ -1501,9 +1501,11 @@ end module some_mod
     assert extended_type.variables[2].type.bind_names[0] == 'final_extended_type'
     assert not extended_type.variables[3].type.bind_names
     assert not extended_type.variables[6].type.bind_names
-    assert all(s.scope == extended_type for d in extended_type.declarations for s in d.symbols)
+    assert all(s.scope is extended_type for d in extended_type.declarations for s in d.symbols)
     assert extended_type.imported_symbols == ()
     assert not extended_type.imported_symbol_map
+    #check for non-empty declarations
+    assert all(decl.symbols for decl in extended_type.declarations)
 
 
     assert extended_extended_type.variables == ('memberD', 'init', 'final', 'do_something', 'memberC',
@@ -1512,6 +1514,8 @@ end module some_mod
     assert extended_extended_type.variables[2].type.bind_names[0] == 'final_extended_extended_type'
     assert extended_extended_type.variables[3].type.bind_names[0] == 'do_something_else'
     assert not extended_extended_type.variables[7].type.bind_names
-    assert all(s.scope == extended_extended_type for d in extended_extended_type.declarations for s in d.symbols)
+    assert all(s.scope is extended_extended_type for d in extended_extended_type.declarations for s in d.symbols)
     assert extended_extended_type.imported_symbols == ()
     assert not extended_extended_type.imported_symbol_map
+    #check for non-empty declarations
+    assert all(decl.symbols for decl in extended_extended_type.declarations)
