@@ -122,3 +122,15 @@ class Dimension:
             exprs = [expr + (b,) for expr, b in zip(exprs, self._bounds_aliases)]
 
         return as_tuple(exprs)
+
+    @property
+    def index_expressions(self):
+        """
+        A list of all expression strings representing the index expression of an iteration space (loop).
+        """
+
+        exprs = [self.index,]
+        if self._index_aliases:
+            exprs += [alias for alias in self._index_aliases]
+
+        return as_tuple(exprs)

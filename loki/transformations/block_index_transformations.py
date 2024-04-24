@@ -379,13 +379,10 @@ class BlockIndexInjectTransformation(Transformation):
         variable_map = routine.variable_map
         if (block_index := variable_map.get(self.block_dim.index, None)):
             return block_index
-        if any(i.rsplit('%')[0] in variable_map for i in self.block_dim._index_aliases):
-            index_name = [alias for alias in self.block_dim._index_aliases
-                          if alias.rsplit('%')[0] in variable_map][0]
-
-            block_index = routine.resolve_typebound_var(index_name, variable_map)
-
-        return block_index
+        if (block_index := [i for i in self.block_dim.index_expressions
+                            if i.split('%', maxsplit=1)[0] in variable_map]):
+            return routine.resolve_typebound_var(block_index[0], variable_map)
+        return None
 
     def process_body(self, body, block_index, targets, exclude_arrays):
         # The logic for callstatement args differs from other variables in the body,
