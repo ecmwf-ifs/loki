@@ -92,6 +92,9 @@ class CudaCodegen(CppCodegen):
         # Fill the body
         body += [self.visit(o.body, **kwargs)]
 
+        if o.prefix and "extern" in o.prefix[0].lower():
+            body += [self.format_line('cudaDeviceSynchronize();')]
+
         # if something to be returned, add 'return <var>' statement
         if o.result_name is not None:
             body += [self.format_line(f'return {o.result_name.lower()};')]

@@ -258,6 +258,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         """
         Utility routine that yields the variable type for an expanded kernel variable
         """
+        print(f"setting intent=inout for var {var}")
         return var.type.clone(
             intent=arg.type.intent, initial=None, allocatable=None,
             target=arg.type.target if not var.type.pointer else None
