@@ -17,6 +17,8 @@ import click
 
 from loki import config as loki_config, Sourcefile, Scheduler
 
+from loki.transformations.build_system import ModuleWrapTransformation
+
 
 @click.group()
 def cli():
@@ -78,5 +80,8 @@ def inline(source, build, log_level):
 
 """
 
-    # And write the generated subroutine to file
-    Sourcefile(path=build/'ec_phys_fc.F90', ir=(ec_phys_fc,)).write()
+    # Create source file, wrap as a module and write to file
+    srcfile = Sourcefile(path=build/'ec_phys_fc_mod.F90', ir=(ec_phys_fc,))
+    ModuleWrapTransformation(module_suffix='_MOD').apply(srcfile, role='kernel')
+
+    srcfile.write()
