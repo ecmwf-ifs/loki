@@ -50,17 +50,62 @@ def is_loki_pragma(pragma, starts_with=None):
     return True
 
 
-_get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.+?)\))?')
-"""
-Regular expression pattern to match pragma parameters.
+class PragmaParameters:
 
-E.g., match ``!$loki something key1(val1) key2(val2)``.
-Problematic for e.g., ``!$loki something key1((val1 + 1)/2)``,
-use instead: `_get_pragma_dim_parameter_re`.
-"""
+    _pattern_opening_parenthesis = re.compile(r'\(')
+    _pattern_closing_parenthesis = re.compile(r'\)')
+    _pattern_quoted_string = re.compile(r'(?:\'.*?\')|(?:".*?")')
 
-def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True,
-        pattern=_get_pragma_parameters_re):
+    @classmethod
+    def find(cls, string):
+        string = cls._pattern_quoted_string.sub('', string)
+        p_open = [match.start() for match in cls._pattern_opening_parenthesis.finditer(string)]
+        p_close = [match.start() for match in cls._pattern_closing_parenthesis.finditer(string)]
+        assert len(p_open) == len(p_close)
+
+        def _match_spans(open_, close_):
+            # We match pairs of parentheses starting at the end by pushing and popping from a stack.
+            # Whenever the stack runs out, we have fully resolved a set of (nested) parenthesis and
+            # record the corresponding span
+            if not close_:
+                return []
+            spans = []
+            stack = [close_.pop()]
+            while open_:
+                if not close_ or open_[-1] > close_[-1]:
+                    assert stack
+                    start = open_.pop()
+                    end = stack.pop()
+                    if not stack:
+                        spans.append((start, end))
+                else:
+                    stack.append(close_.pop())
+            assert not (stack or open_ or close_)
+            return spans
+
+        p_spans = _match_spans(p_open, p_close)
+        spans = []
+        while p_spans:
+            spans.append(p_spans.pop())
+        if p_spans:
+            spans += p_spans[::-1]
+        parameters = defaultdict(list)
+        if not spans and string.strip():
+            for key in string.strip().split(' '): # keys[:-1]:
+                if key != '':
+                    parameters[key].append(None)
+        for i, span in enumerate(spans):
+            keys = string[spans[i-1][1]+1 if i>=1 else 0:span[0]].strip().split(' ')
+            if len(keys) > 1:
+                for key in keys[:-1]:
+                    if key != '':
+                        parameters[key].append(None)
+            parameters[keys[-1]].append(string[span[0]+1:span[1]])
+        parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
+        return parameters
+
+
+def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """
     Parse the pragma content for parameters in the form ``<command>[(<arg>)]`` and
     return them as a map ``{<command>: <arg> or None}``.
@@ -78,8 +123,6 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True,
         the keyword the pragma content should start with.
     only_loki_pragmas : bool, optional
         restrict parameter extraction to ``loki`` pragmas only.
-    pattern : :any:`regex.Pattern`, optional
-        Regex pattern (default: `_get_pragma_dim_parameter_re`).
 
     Returns
     -------
@@ -87,9 +130,11 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True,
         Mapping of parameters ``{<command>: <arg> or <None>}`` with the values being a list
         when multiple entries have the same key
     """
+    pragma_parameters = PragmaParameters()
     pragma = as_tuple(pragma)
     parameters = defaultdict(list)
     for p in pragma:
+        parameter = None
         if only_loki_pragmas and p.keyword.lower() != 'loki':
             continue
         content = p.content or ''
@@ -97,20 +142,12 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True,
             if not content.lower().startswith(starts_with.lower()):
                 continue
             content = content[len(starts_with):]
-        for match in re.finditer(pattern, content):
-            parameters[match.group('command')].append(match.group('arg'))
+        parameter = pragma_parameters.find(content)
+        for key in parameter:
+            parameters[key].append(parameter[key])
     parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
     return parameters
 
-
-_get_pragma_dim_parameter_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.*)\))?')
-"""
-Regular expression pattern to match pragma dimension parameter.
-
-E.g., match ``!$loki something key1((val1 + 1)/2)``.
-Problematic for e.g., ``!$loki something key1(val1) key2(val2)``,
-use instead: `_get_pragma_parameters_re`.
-"""
 
 def process_dimension_pragmas(ir, scope=None):
     """
@@ -130,8 +167,7 @@ def process_dimension_pragmas(ir, scope=None):
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
             for v in decl.symbols:
                 # Found dimension override for variable
-                dims = get_pragma_parameters(decl.pragma,
-                        pattern=_get_pragma_dim_parameter_re)['dimension']
+                dims = get_pragma_parameters(decl.pragma)['dimension']
                 dims = [d.strip() for d in dims.split(',')]
                 # parse each dimension
                 shape = tuple(parse_expr(d, scope=scope) for d in dims)
