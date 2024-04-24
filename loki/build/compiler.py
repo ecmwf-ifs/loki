@@ -5,16 +5,20 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 from importlib import import_module, reload
+import os
+import re
 import sys
+from pathlib import Path
 
-from loki.logging import info
-from loki.tools import execute, as_tuple, flatten, delete
+from loki.logging import info, debug
+from loki.tools import execute, as_tuple, delete
 
 
-__all__ = ['clean', 'compile', 'compile_and_load',
-           '_default_compiler', 'Compiler', 'GNUCompiler', 'EscapeGNUCompiler']
+__all__ = [
+    'clean', 'compile', 'compile_and_load', '_default_compiler',
+    'Compiler', 'get_compiler_from_env', 'GNUCompiler', 'NvidiaCompiler'
+]
 
 
 def compile(filename, include_dirs=None, compiler=None, cwd=None):
@@ -41,7 +45,7 @@ def clean(filename, pattern=None):
             delete(f)
 
 
-def compile_and_load(filename, cwd=None, use_f90wrap=True, f90wrap_kind_map=None):  # pylint: disable=unused-argument
+def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
     """
     Just-in-time compile Fortran source code and load the respective
     module or class.
@@ -50,17 +54,17 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True, f90wrap_kind_map=None
     supported via the ``f2py`` and ``f90wrap`` packages.
 
     Parameters
-    -----
+    ----------
     filename : str
         The source file to be compiled.
     cwd : str, optional
         Working directory to use for calls to compiler.
-    use_f90wrap : bool, optional
-        Flag to trigger the ``f90wrap`` compiler required
-        if the source code includes module or derived types.
     f90wrap_kind_map : str, optional
         Path to ``f90wrap`` KIND_MAP file, containing a Python dictionary
         in f2py_f2cmap format.
+    compiler : :any:`Compiler`, optional
+        Use the specified compiler to compile the Fortran source code. Defaults
+        to :any:`_default_compiler`
     """
     info(f'Compiling: {filename}')
     filepath = Path(filename)
@@ -71,25 +75,19 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True, f90wrap_kind_map=None
     clean(filename, pattern=pattern)
 
     # First, compile the module and object files
-    build = ['gfortran', '-c', '-fpic', str(filepath.absolute())]
-    execute(build, cwd=cwd)
+    if not compiler:
+        compiler = _default_compiler
+    compiler.compile(filepath.absolute(), cwd=cwd)
 
     # Generate the Python interfaces
-    f90wrap = ['f90wrap']
-    f90wrap += ['-m', str(filepath.stem)]
-    if f90wrap_kind_map is not None:
-        f90wrap += ['-k', str(f90wrap_kind_map)]
-    f90wrap += [str(filepath.absolute())]
-    execute(f90wrap, cwd=cwd)
+    compiler.f90wrap(modname=filepath.stem, source=[filepath.absolute()], kind_map=f90wrap_kind_map, cwd=cwd)
 
     # Compile the dynamic library
-    f2py = ['f2py-f90wrap', '-c']
-    f2py += ['-m', f'_{filepath.stem}']
-    f2py += [f'{filepath.stem}.o']
+    f2py_source = [f'{filepath.stem}.o']
     for sourcefile in [f'f90wrap_{filepath.stem}.f90', 'f90wrap_toplevel.f90']:
         if (filepath.parent/sourcefile).exists():
-            f2py += [sourcefile]
-    execute(f2py, cwd=cwd)
+            f2py_source += [sourcefile]
+    compiler.f2py(modname=filepath.stem, source=f2py_source, cwd=cwd)
 
     # Add directory to module search path
     moddir = str(filepath.parent)
@@ -120,6 +118,7 @@ class Compiler:
     LDFLAGS = None
     LD_STATIC = None
     LDFLAGS_STATIC = None
+    F2PY_FCOMPILER_TYPE = None
 
     def __init__(self):
         self.cc = self.CC or 'gcc'
@@ -132,23 +131,54 @@ class Compiler:
         self.ldflags = self.LDFLAGS or ['-static']
         self.ld_static = self.LD_STATIC or 'ar'
         self.ldflags_static = self.LDFLAGS_STATIC or ['src']
+        self.f2py_fcompiler_type = self.F2PY_FCOMPILER_TYPE or 'gnu95'
 
-    def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='F90'):
+    def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='f90'):
         """
         Generate arguments for the build line.
 
-        :param mode: One of ``'f90'`` (free form), ``'f'`` (fixed form) or ``'c'``.
+        Parameters:
+        -----------
+        source : str or pathlib.Path
+            Path to the source file to compile
+        target : str or pathlib.Path, optional
+            Path to the output binary to generate
+        include_dirs : list of str or pathlib.Path, optional
+            Path of include directories to specify during compile
+        mod_dir : str or pathlib.Path, optional
+            Path to directory containing Fortran .mod files
+        mode : str, optional
+            One of ``'f90'`` (free form), ``'f'`` (fixed form) or ``'c'``
         """
         assert mode in ['f90', 'f', 'c']
         include_dirs = include_dirs or []
         cc = {'f90': self.f90, 'f': self.fc, 'c': self.cc}[mode]
         args = [cc, '-c']
         args += {'f90': self.f90flags, 'f': self.fcflags, 'c': self.cflags}[mode]
-        args += flatten([('-I', str(incl)) for incl in include_dirs])
-        args += [] if mod_dir is None else ['-J', str(mod_dir)]
+        args += self._include_dir_args(include_dirs)
+        if mode != 'c':
+            args += self._mod_dir_args(mod_dir)
         args += [] if target is None else ['-o', str(target)]
         args += [str(source)]
         return args
+
+    def _include_dir_args(self, include_dirs):
+        """
+        Return a list of compile command arguments for adding
+        all paths in :data:`include_dirs` as include directories
+        """
+        return [
+            f'-I{incl!s}' for incl in as_tuple(include_dirs)
+        ]
+
+    def _mod_dir_args(self, mod_dir):
+        """
+        Return a list of compile command arguments for setting
+        :data:`mod_dir` as search and output directory for module files
+        """
+        if mod_dir is None:
+            return []
+        return [f'-J{mod_dir!s}']
 
     def compile(self, source, target=None, include_dirs=None, use_c=False, cwd=None):
         """
@@ -200,8 +230,7 @@ class Compiler:
         args = self.f90wrap_args(modname=modname, source=source, kind_map=kind_map)
         execute(args, cwd=cwd)
 
-    @staticmethod
-    def f2py_args(modname, source, libs=None, lib_dirs=None, incl_dirs=None):
+    def f2py_args(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None):
         """
         Generate arguments for the ``f2py-f90wrap`` utility invocation line.
         """
@@ -210,6 +239,9 @@ class Compiler:
         incl_dirs = incl_dirs or []
 
         args = ['f2py-f90wrap', '-c']
+        args += [f'--fcompiler={self.f2py_fcompiler_type}']
+        args += [f'--f77exec={self.fc}']
+        args += [f'--f90exec={self.f90}']
         args += ['-m', f'_{modname}']
         for incl_dir in incl_dirs:
             args += [f'-I{incl_dir}']
@@ -229,27 +261,129 @@ class Compiler:
         execute(args, cwd=cwd)
 
 
-# TODO: Properly integrate with a config dict (with callbacks)
-_default_compiler = Compiler()
-
-
 class GNUCompiler(Compiler):
+    """
+    GNU compiler configuration for gcc and gfortran
+    """
 
     CC = 'gcc'
     CFLAGS = ['-g', '-fPIC']
     F90 = 'gfortran'
     F90FLAGS = ['-g', '-fPIC']
+    FC = 'gfortran'
+    FCFLAGS = ['-g', '-fPIC']
     LD = 'gfortran'
-    LDFLAGS = []
+    LDFLAGS = ['-static']
+    LD_STATIC = 'ar'
+    LDFLAGS_STATIC = ['src']
+    F2PY_FCOMPILER_TYPE = 'gnu95'
+
+    CC_PATTERN = re.compile(r'(^|/|\\)gcc\b')
+    FC_PATTERN = re.compile(r'(^|/|\\)gfortran\b')
 
 
-class EscapeGNUCompiler(GNUCompiler):
+class NvidiaCompiler(Compiler):
+    """
+    NVHPC compiler configuration for nvc and nvfortran
+    """
 
-    F90FLAGS = ['-O3', '-g', '-fPIC',
-                '-ffpe-trap=invalid,zero,overflow', '-fstack-arrays',
-                '-fconvert=big-endian',
-                '-fbacktrace',
-                '-fno-second-underscore',
-                '-ffree-form',
-                '-ffast-math',
-                '-fno-unsafe-math-optimizations']
+    CC = 'nvc'
+    CFLAGS = ['-g', '-fPIC']
+    F90 = 'nvfortran'
+    F90FLAGS = ['-g', '-fPIC']
+    FC = 'nvfortran'
+    FCFLAGS = ['-g', '-fPIC']
+    LD = 'nvfortran'
+    LDFLAGS = ['-static']
+    LD_STATIC = 'ar'
+    LDFLAGS_STATIC = ['src']
+    F2PY_FCOMPILER_TYPE = 'nv'
+
+    CC_PATTERN = re.compile(r'(^|/|\\)nvc\b')
+    FC_PATTERN = re.compile(r'(^|/|\\)(pgf9[05]|pgfortran|nvfortran)\b')
+
+    def _mod_dir_args(self, mod_dir):
+        if mod_dir is None:
+            return []
+        return ['-module', str(mod_dir)]
+
+
+def get_compiler_from_env(env=None):
+    """
+    Utility function to determine what compiler to use
+
+    This takes the following environment variables in the given order
+    into account to determine the most likely compiler family:
+    ``F90``, ``FC``, ``CC``.
+
+    Currently, :any:`GNUCompiler` and :any:`NvidiaCompiler` are available.
+
+    The compiler binary and flags can be further overwritten by setting
+    the corresponding environment variables:
+
+    - ``CC``, ``FC``, ``F90``, ``LD`` for compiler/linker binary name or path
+    - ``CFLAGS``, ``FCFLAGS``, ``LDFLAGS`` for compiler/linker flags to use
+
+    Parameters
+    ----------
+    env : dict, optional
+        Use the specified environment (default: :any:`os.environ`)
+
+    Returns
+    -------
+    :any:`Compiler`
+        A compiler object
+    """
+    if env is None:
+        env = os.environ
+
+    candidates = (GNUCompiler, NvidiaCompiler)
+    compiler = None
+
+    # "guess" the most likely compiler choice
+    var_pattern_map = {
+        'F90': 'FC_PATTERN',
+        'FC': 'FC_PATTERN',
+        'CC': 'CC_PATTERN'
+    }
+    for var, pattern in var_pattern_map.items():
+        if env.get(var):
+            for candidate in candidates:
+                if getattr(candidate, pattern).search(env[var]):
+                    compiler = candidate()
+                    debug(f'Environment variable {var}={env[var]} set, using {candidate}')
+                    break
+            else:
+                continue
+            break
+
+    if compiler is None:
+        compiler = Compiler()
+
+    # overwrite compiler executable and compiler flags with environment values
+    var_compiler_map = {
+        'CC': 'cc',
+        'FC': 'fc',
+        'F90': 'f90',
+        'LD': 'ld',
+    }
+    for var, attr in var_compiler_map.items():
+        if var in env:
+            setattr(compiler, attr, env[var].strip())
+            debug(f'Environment variable {var} set, using custom compiler executable {env[var]}')
+
+    var_flag_map = {
+        'CFLAGS': 'cflags',
+        'FCFLAGS': 'fcflags',
+        'LDFLAGS': 'ldflags',
+    }
+    for var, attr in var_flag_map.items():
+        if var in env:
+            setattr(compiler, attr, env[var].strip().split())
+            debug(f'Environment variable {var} set, overwriting compiler flags as {env[var]}')
+
+    return compiler
+
+
+# TODO: Properly integrate with a config dict (with callbacks)
+_default_compiler = get_compiler_from_env()

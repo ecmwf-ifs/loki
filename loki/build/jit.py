@@ -54,7 +54,7 @@ def jit_compile(source, filepath=None, objname=None):
             filepath = Path(filepath)
         Sourcefile(filepath).write(source=source)
 
-    pymod = compile_and_load(filepath, cwd=str(filepath.parent), use_f90wrap=True, f90wrap_kind_map=_f90wrap_kind_map)
+    pymod = compile_and_load(filepath, cwd=str(filepath.parent), f90wrap_kind_map=_f90wrap_kind_map)
 
     if objname:
         return getattr(pymod, objname)
