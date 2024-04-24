@@ -68,10 +68,11 @@ class BlockViewToFieldViewTransformation(Transformation):
     def get_parent_typedef(var, symbol_map):
         """Utility method to retrieve derived-tyoe definition of parent type."""
 
-        if not var.parent.type.dtype.typedef == BasicType.DEFERRED:
+        if not var.parent.type.dtype.typedef is BasicType.DEFERRED:
             return var.parent.type.dtype.typedef
-        if not symbol_map[var.parent.type.dtype.name].type.dtype.typedef == BasicType.DEFERRED:
-            return symbol_map[var.parent.type.dtype.name].type.dtype.typedef
+        if  (_parent_type := symbol_map.get(var.parent.type.dtype.name, None)):
+            if not _parent_type.type.dtype.typedef is BasicType.DEFERRED:
+                return _parent_type.type.dtype.typedef
         raise RuntimeError(f'Container data-type {var.parent.type.dtype.name} not enriched')
 
     def transform_subroutine(self, routine, **kwargs):
@@ -201,9 +202,8 @@ class BlockViewToFieldViewTransformation(Transformation):
         # build list of type-bound view pointers passed as subroutine arguments
         for call in [call for call in FindNodes(ir.CallStatement).visit(body) if call.name in targets]:
             _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)}
-            _args = {a: d for a, d in _args.items()
-                     if any(v in d.shape for v in self.horizontal.size_expressions) and a.parents}
-            _vars += list(_args)
+            _vars += [a for a, d in _args.items()
+                     if any(v in d.shape for v in self.horizontal.size_expressions) and a.parents]
 
         # replace per-block view pointers with full field pointers
         vmap = {var:
