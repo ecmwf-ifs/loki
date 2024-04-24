@@ -22,6 +22,7 @@ from loki.ir import FindNodes, CallStatement, Transformer
 from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import transform_sequence_association_append_map
 from loki.transformations.remove_code import do_remove_marked_regions
+from loki.transformations.build_system import ModuleWrapTransformation
 
 
 @click.group()
@@ -80,5 +81,8 @@ def inline(source, build, remove_regions, log_level):
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
             do_remove_marked_regions(ec_phys_fc)
 
-    # And write the generated subroutine to file
-    Sourcefile(path=build/'ec_phys_fc.F90', ir=(ec_phys_fc,)).write()
+    # Create source file, wrap as a module and write to file
+    srcfile = Sourcefile(path=build/'ec_phys_fc_mod.F90', ir=(ec_phys_fc,))
+    ModuleWrapTransformation(module_suffix='_MOD').apply(srcfile, role='kernel')
+
+    srcfile.write()
