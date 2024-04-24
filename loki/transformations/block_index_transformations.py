@@ -38,16 +38,15 @@ class BlockViewToFieldViewTransformation(Transformation):
           mystruct%p_field(jlon,:) = 0.
         enddo
 
-    Where the rank of ``my_struct%p_field`` is one greater than that of ``my_struct%p``.
+    Where the rank of ``my_struct%p_field`` is one greater than that of ``my_struct%p``. Specific arrays in individual
+    routines can also be marked for exclusion from this transformation by assigning them to the `exclude_arrays` list
+    in the :any:`SchedulerConfig`.
 
     Parameters
     ----------
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
-    exclude : tuple
-        List of data structures to be intentionally excluded from this transformation. This list is intended
-        primarily for data structures that are not memory-blocked.
     key : str, optional
         Specify a different identifier under which trafo_data is stored
     """
@@ -57,9 +56,8 @@ class BlockViewToFieldViewTransformation(Transformation):
 
     item_filter = (ProcedureItem,)
 
-    def __init__(self, horizontal, exclude=(), key=None):
+    def __init__(self, horizontal, key=None):
         self.horizontal = horizontal
-        self.exclude = exclude
         if key:
             self._key = key
 
@@ -82,8 +80,10 @@ class BlockViewToFieldViewTransformation(Transformation):
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
 
+        exclude_arrays = item.config.get('exclude_arrays', [])
+
         if role == 'kernel':
-            self.process_kernel(routine, item, successors, targets)
+            self.process_kernel(routine, item, successors, targets, exclude_arrays)
         if role == 'driver':
             self.process_driver(routine, successors)
 
@@ -189,7 +189,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         return var.clone(name=var.name.upper().replace('GFL_PTR', 'GFL_PTR_G'),
                          parent=parent, type=_type)
 
-    def process_body(self, body, symbol_map, definitions, successors, targets):
+    def process_body(self, body, symbol_map, definitions, successors, targets, exclude_arrays):
 
         # build list of type-bound array access using the horizontal index
         _vars = [var for var in FindVariables().visit(body)
@@ -214,7 +214,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         vmap = recursive_expression_map_update(vmap)
 
         # filter out arrays marked for exclusion
-        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in self.exclude)}
+        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
         # propagate dummy field_api wrapper definitions to children
         self.propagate_defs_to_children(self._key, definitions, successors)
@@ -223,22 +223,19 @@ class BlockViewToFieldViewTransformation(Transformation):
         return SubstituteExpressions(vmap).visit(body)
 
 
-    def process_kernel(self, routine, item, successors, targets):
+    def process_kernel(self, routine, item, successors, targets, exclude_arrays):
 
         # Sanitize the subroutine
         resolve_associates(routine)
         v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
 
-        if self.horizontal.bounds[0] in routine.variables and self.horizontal.bounds[1] in routine.variables:
-            _bounds = self.horizontal.bounds
-        else:
-            _bounds = self.horizontal._bounds_aliases
-        SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=_bounds)
+        bounds = SCCBaseTransformation.get_horizontal_loop_bounds(routine, self.horizontal)
+        SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
         # for kernels we process the entire body
         routine.body = self.process_body(routine.body, routine.symbol_map, item.trafo_data[self._key]['definitions'],
-                                         successors, targets)
+                                         successors, targets, exclude_arrays)
 
 
 class BlockIndexInjectTransformation(Transformation):
@@ -305,14 +302,14 @@ class BlockIndexInjectTransformation(Transformation):
            real :: var(jlon,nlev)
         end subroutine kernel2
 
+    Specific arrays in individual routines can also be marked for exclusion from this transformation by assigning
+    them to the `exclude_arrays` list in the :any:`SchedulerConfig`.
+
     Parameters
     ----------
     block_dim : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the blocking data dimension and iteration space.
-    exclude : tuple
-        List of data structures to be intentionally excluded from this transformation. This list is intended
-        primarily for data structures that are not memory-blocked.
     key : str, optional
         Specify a different identifier under which trafo_data is stored
     """
@@ -323,9 +320,8 @@ class BlockIndexInjectTransformation(Transformation):
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
 
-    def __init__(self, block_dim, exclude=(), key=None):
+    def __init__(self, block_dim, key=None):
         self.block_dim = block_dim
-        self.exclude = exclude
         if key:
             self._key = key
 
@@ -334,8 +330,12 @@ class BlockIndexInjectTransformation(Transformation):
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
 
+        exclude_arrays = []
+        if (item := kwargs.get('item', None)):
+            exclude_arrays = item.config.get('exclude_arrays', [])
+
         if role == 'kernel':
-            self.process_kernel(routine, targets)
+            self.process_kernel(routine, targets, exclude_arrays)
 
         #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
 
@@ -379,7 +379,7 @@ class BlockIndexInjectTransformation(Transformation):
 
         return block_index
 
-    def process_body(self, body, block_index, targets):
+    def process_body(self, body, block_index, targets, exclude_arrays):
         # The logic for callstatement args differs from other variables in the body,
         # so we build a list to filter
         call_args = [a for call in FindNodes(ir.CallStatement).visit(body) for a in call.arguments]
@@ -408,16 +408,16 @@ class BlockIndexInjectTransformation(Transformation):
                 vmap.update(self._update_expr_map(var, decl_rank, block_index))
 
         # filter out arrays marked for exclusion
-        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in self.exclude)}
+        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
         # finally we perform the substitution
         return SubstituteExpressions(vmap).visit(body)
 
-    def process_kernel(self, routine, targets):
+    def process_kernel(self, routine, targets, exclude_arrays):
 
         # we skip routines that do not contain the block index or any known alias
         if not (block_index := self.get_block_index(routine)):
             return
 
         # for kernels we process the entire subroutine body
-        routine.body = self.process_body(routine.body, block_index, targets)
+        routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays)
