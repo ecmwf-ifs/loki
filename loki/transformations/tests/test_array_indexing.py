@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
+from shutil import rmtree
 import pytest
 import numpy as np
 
@@ -14,6 +15,7 @@ from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
 from loki.expression import symbols as sym, FindVariables
 from loki.frontend import available_frontends
 from loki.ir import FindNodes, CallStatement
+from loki.tools import gettempdir
 
 from loki.transformations.array_indexing import (
     promote_variables, demote_variables, normalize_range_indexing,
@@ -23,14 +25,23 @@ from loki.transformations.array_indexing import (
 from loki.transformations.transpile import FortranCTransformation
 
 
-@pytest.fixture(scope='module', name='here')
+@pytest.fixture(scope='function', name='here')
 def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.fixture(scope='module', name='builder')
-def fixture_builder(here):
-    return Builder(source_dirs=here, build_dir=here/'build')
+@pytest.fixture(scope='function', name='tempdir')
+def fixture_tempdir(request):
+    basedir = gettempdir()/request.function.__name__
+    basedir.mkdir(exist_ok=True)
+    yield basedir
+    if basedir.exists():
+        rmtree(basedir)
+
+
+@pytest.fixture(scope='function', name='builder')
+def fixture_builder(here, tempdir):
+    return Builder(source_dirs=tempdir, build_dir=tempdir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -637,7 +648,7 @@ def test_shift_to_zero_indexing(frontend, ignore):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('explicit_dimensions', [True, False])
-def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensions):
+def test_transform_flatten_arrays_call(tempdir, frontend, builder, explicit_dimensions):
     """
     Test flattening or arrays, meaning converting multi-dimensional
     arrays to one-dimensional arrays including corresponding
@@ -699,7 +710,7 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
 
     # compile and test reference
     refname = f'ref_{driver.name}_{frontend}'
-    reference = jit_compile_lib([kernel_module, driver], path=here, name=refname, builder=builder)
+    reference = jit_compile_lib([kernel_module, driver], path=tempdir, name=refname, builder=builder)
     ref_function = reference.driver_routine
 
     nlon = 10
@@ -721,7 +732,7 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
 
     # compile and test the flattened variant
     flattenedname = f'flattened_{driver.name}_{frontend}'
-    flattened = jit_compile_lib([kernel_module, driver], path=here, name=flattenedname, builder=builder)
+    flattened = jit_compile_lib([kernel_module, driver], path=tempdir, name=flattenedname, builder=builder)
     flattened_function = flattened.driver_routine
 
     a_flattened, b_flattened = init_arguments(nlon, nlev, flattened=True)
@@ -732,5 +743,5 @@ def test_transform_flatten_arrays_call(here, frontend, builder, explicit_dimensi
     assert (b_flattened == b_ref.flatten(order='F')).all()
 
     builder.clean()
-    (here/f'{driver.name}.f90').unlink()
-    (here/f'{kernel_module.name}.f90').unlink()
+    (tempdir/f'{driver.name}.f90').unlink()
+    (tempdir/f'{kernel_module.name}.f90').unlink()
