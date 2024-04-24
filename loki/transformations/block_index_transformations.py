@@ -8,7 +8,7 @@
 from loki import (
     Transformation, ProcedureItem, ir, Module, as_tuple, SymbolAttributes, BasicType, Variable,
     RangeIndex, Array, FindVariables, resolve_associates, SubstituteExpressions, FindNodes,
-    resolve_typebound_var, recursive_expression_map_update
+    recursive_expression_map_update
 )
 
 from transformations.single_column_coalesced import SCCBaseTransformation
@@ -47,6 +47,8 @@ class BlockViewToFieldViewTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
+    global_gfl_ptr: bool
+        Toggle whether thread-local gfl_ptr should be replaced with global.
     key : str, optional
         Specify a different identifier under which trafo_data is stored
     """
@@ -56,8 +58,9 @@ class BlockViewToFieldViewTransformation(Transformation):
 
     item_filter = (ProcedureItem,)
 
-    def __init__(self, horizontal, key=None):
+    def __init__(self, horizontal, global_gfl_ptr=False, key=None):
         self.horizontal = horizontal
+        self.global_gfl_ptr = global_gfl_ptr
         if key:
             self._key = key
 
@@ -209,9 +212,10 @@ class BlockViewToFieldViewTransformation(Transformation):
                 for var in _vars}
 
         # replace thread-private GFL_PTR with global
-        vmap.update({v: self.build_ydvars_global_gfl_ptr(vmap.get(v, v))
-                     for v in FindVariables().visit(body) if 'ydvars%gfl_ptr' in v.name.lower()})
-        vmap = recursive_expression_map_update(vmap)
+        if self.global_gfl_ptr:
+            vmap.update({v: self.build_ydvars_global_gfl_ptr(vmap.get(v, v))
+                         for v in FindVariables().visit(body) if 'ydvars%gfl_ptr' in v.name.lower()})
+            vmap = recursive_expression_map_update(vmap)
 
         # filter out arrays marked for exclusion
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
@@ -249,8 +253,8 @@ class BlockIndexInjectTransformation(Transformation):
     to the array's dimensions.
 
     For :any:`CallStatement` arguments, if the rank of the argument is one less than that of the corresponding
-    dummy-argument, the block-index is appended to the argument's dimensions. It should be noted that this logic relies on
-    the :any:`CallStatement` being free of any sequence-association.
+    dummy-argument, the block-index is appended to the argument's dimensions. It should be noted that this logic relies
+    on the :any:`CallStatement` being free of any sequence-association.
 
     For example, the following code:
 
@@ -375,7 +379,7 @@ class BlockIndexInjectTransformation(Transformation):
             index_name = [alias for alias in self.block_dim._index_aliases
                           if alias.rsplit('%')[0] in variable_map][0]
 
-            block_index = resolve_typebound_var(index_name, variable_map)
+            block_index = routine.resolve_typebound_var(index_name, variable_map)
 
         return block_index
 
