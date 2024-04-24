@@ -234,6 +234,10 @@ class BlockViewToFieldViewTransformation(Transformation):
         v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
 
+        # Bail if routine is marked as sequential or routine has already been processed
+        if SCCBaseTransformation.check_routine_pragmas(routine, directive=None):
+            return
+
         bounds = SCCBaseTransformation.get_horizontal_loop_bounds(routine, self.horizontal)
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
