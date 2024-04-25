@@ -100,4 +100,76 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
     assert len(conditional) == 5
     for cond in conditional:
         assert fgen(cond) in field_delete
-    breakpoint()
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_derived_dcl(here, frontend):
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    transformation = ParallelRoutineDispatchTransformation()
+    transformation.apply(source['dispatch_routine'])
+
+    dcls = [fgen(dcl) for dcl in routine.spec.body[-13:-1]]
+    
+    test_dcls=["REAL(KIND=JPRB), POINTER :: Z_YDVARS_U_T0(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_Q_DM(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_GEOMETRY_GELAM_T0(:, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_T0(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_Q_DL(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_V_T0(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_GEOMETRY_GEMU_T0(:, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_Q_T0(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDCPG_PHY0_XYB_RDELP(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_DM(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDCPG_DYN0_CTY_EVEL(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDMF_PHYS_SURF_GSD_VF_PZ0F(:, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_DL(:, :, :)"]
+    for dcl in dcls:
+        assert dcl in test_dcls
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_derived_var(here, frontend):
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    transformation = ParallelRoutineDispatchTransformation()
+    transformation.apply(source['dispatch_routine'])
+
+    
+##    test_dcls=["REAL(KIND=JPRB), POINTER :: Z_YDVARS_U_T0(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_Q_DM(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_GEOMETRY_GELAM_T0(:, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_T0(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_Q_DL(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_V_T0(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_GEOMETRY_GEMU_T0(:, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_Q_T0(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDCPG_PHY0_XYB_RDELP(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_DM(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDCPG_DYN0_CTY_EVEL(:, :, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDMF_PHYS_SURF_GSD_VF_PZ0F(:, :)",
+##"REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_DL(:, :, :)"]
+    test_map = {
+        "YDVARS%GEOMETRY%GEMU%T0" : ["YDVARS%GEOMETRY%GEMU%FT0", "Z_YDVARS_GEOMETRY_GEMU_T0"],
+        "YDVARS%GEOMETRY%GELAM%T0" : ["YDVARS%GEOMETRY%GELAM%FT0", "Z_YDVARS_GEOMETRY_GELAM_T0"],
+        "YDVARS%U%T0" : ["YDVARS%U%FT0", "Z_YDVARS_U_T0"],
+        "YDVARS%V%T0" : ["YDVARS%V%FT0", "Z_YDVARS_V_T0"],
+        "YDVARS%Q%T0" : ["YDVARS%Q%FT0", "Z_YDVARS_Q_T0"],
+        "YDVARS%Q%DM" : ["YDVARS%Q%FDM", "Z_YDVARS_Q_DM"],
+        "YDVARS%Q%DL" : ["YDVARS%Q%FDL", "Z_YDVARS_Q_DL"],
+        "YDVARS%CVGQ%T0" : ["YDVARS%CVGQ%FT0", "Z_YDVARS_CVGQ_T0"],
+        "YDVARS%CVGQ%DM" : ["YDVARS%CVGQ%FDM", "Z_YDVARS_CVGQ_DM"],
+        "YDVARS%CVGQ%DL" : ["YDVARS%CVGQ%FDL", "Z_YDVARS_CVGQ_DL"],
+        "YDCPG_PHY0%XYB%RDELP" : ["YDCPG_PHY0%XYB%F_RDELP", "Z_YDCPG_PHY0_XYB_RDELP"],
+        "YDCPG_DYN0%CTY%EVEL" : ["YDCPG_DYN0%CTY%F_EVEL", "Z_YDCPG_DYN0_CTY_EVEL"], 
+        "YDMF_PHYS_SURF%GSD_VF%PZ0F" : ["YDMF_PHYS_SURF%GSD_VF%F_Z0F", "Z_YDMF_PHYS_SURF_GSD_VF_PZ0F"]
+    }
+    for var_name in transformation.routine_map_derived:
+        value = transformation.routine_map_derived[var_name]
+        field_ptr = value[0]
+        ptr = value[1]
+
+        assert test_map[var_name][0] == field_ptr.name
+        assert test_map[var_name][1] == ptr.name

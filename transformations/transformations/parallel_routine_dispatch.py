@@ -13,8 +13,11 @@ from loki.ir import (
 from loki.transform import Transformation
 from loki import (
     FindVariables, DerivedType, SymbolAttributes,
-    Array, single_variable_declaration, Transformer
+    Array, single_variable_declaration, Transformer,
+    BasicType
 )
+import pickle
+import os
 
 __all__ = ['ParallelRoutineDispatchTransformation']
 
@@ -26,11 +29,19 @@ class ParallelRoutineDispatchTransformation(Transformation):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
+        #TODO : do smthg for opening field_index.pkl
+        with open(os.getcwd()+"/transformations/transformations/field_index.pkl", 'rb') as fp:
+            self.map_index = pickle.load(fp)
         # CALL FIELD_NEW (YL_ZA, UBOUNDS=[KLON, KFLEVG, KGPBLKS], LBOUNDS=[1, 0, 1], PERSISTENT=.TRUE.)
         self.new_calls = []
         # IF (ASSOCIATED (YL_ZA)) CALL FIELD_DELETE (YL_ZA)
         self.delete_calls = []
-        self.routine_map_temp = {} 
+        # map[name] = [field_ptr, ptr]
+        # where : 
+        # field_ptr : pointer on field api object
+        # ptr : pointer to the data
+        self.routine_map_temp = {}  
+        self.routine_map_derived = {} 
 
     def transform_subroutine(self, routine, **kwargs):
         with pragma_regions_attached(routine):
@@ -40,6 +51,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         single_variable_declaration(routine)
         self.add_temp(routine)
         self.add_field(routine)
+        self.add_derived(routine)
         #call add_arrays etc...
 
     def process_parallel_region(self, routine, region):
@@ -61,11 +73,15 @@ class ParallelRoutineDispatchTransformation(Transformation):
         region.append(dr_hook_calls[1])
 
         region_map_temp= self.decl_local_array(routine, region)
+        region_map_derived= self.decl_derived_types(routine, region)
         
         for var_name in region_map_temp:
             if var_name not in self.routine_map_temp:
                 self.routine_map_temp[var_name]=region_map_temp[var_name]
 
+        for var_name in region_map_derived:
+            if var_name not in self.routine_map_derived:
+                self.routine_map_derived[var_name]=region_map_derived[var_name]
 
 
     @staticmethod
@@ -179,3 +195,50 @@ class ParallelRoutineDispatchTransformation(Transformation):
             handle=sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
         )
         routine.body.insert(-2,(dr_hook_calls[0], ir.Comment(text=''), *self.delete_calls, dr_hook_calls[1]))
+
+    def decl_derived_types(self, routine, region):
+        region_map_derived = {}
+        derived = [var for var in FindVariables().visit(region) if var.name_parts[0] in routine.arguments]
+        for var in derived :
+            
+            key = f"{routine.variable_map[var.name_parts[0]].type.dtype.name}%{'%'.join(var.name_parts[1:])}"
+            if key in self.map_index:
+                value = self.map_index[key]
+                # Creating the pointer on the data : YL_A
+                data_name = f"Z_{var.name.replace('%', '_')}"
+                if "REAL" and "JPRB" in value[0]:
+                    data_type = SymbolAttributes(
+                        dtype=BasicType.REAL, kind=routine.symbol_map['JPRB'],
+                        pointer=True
+                    )
+                    data_dim = value[2] + 1
+                    data_shape = (sym.RangeIndex((None, None)),) * data_dim
+                    ptr_var = sym.Variable(name=data_name, type=data_type, dimensions=data_shape, scope=routine)
+
+                else:
+                    raise NotImplementedError("This type isn't implemented yet")
+
+                # Creating the pointer on the field api object : YL%FA, YL%F_A...
+                if routine.variable_map[var.name_parts[0]].type.dtype.name=="MF_PHYS_SURF_TYPE":
+                    # YL%PA becomes YL%F_A
+                    field_name = f"{'%'.join(var.name_parts[:-1])}%F_{var.name_parts[-1][1:]}"
+                elif routine.variable_map[var.name_parts[0]].type.dtype.name=="FIELD_VARIABLES":
+                    # YL%A becomes YL%FA
+                    field_name = f"{'%'.join(var.name_parts[:-1])}%F{var.name_parts[-1]}"
+                    if var.name_parts[-1]=="P": #YL%FP = YL%FT0
+                        field_name = f"{field_name[-1]}T0"
+                else:
+                    # YL%A becomes YL%F_A
+                    field_name = f"{'%'.join(var.name_parts[:-1])}%F_{var.name_parts[-1]}"
+                field_ptr_var = var.clone(name=field_name)
+                region_map_derived[var.name] = [field_ptr_var, ptr_var]
+        return(region_map_derived)
+
+    def add_derived(self, routine):
+        ptr_var=()
+        for value in self.routine_map_derived.values():
+            dcl = ir.VariableDeclaration(
+                symbols=(value[1],)
+            )
+            ptr_var += (dcl,)
+        routine.spec.append(ptr_var)
