@@ -45,6 +45,7 @@ from loki.transformations.single_column import (
     HoistTemporaryArraysDeviceAllocatableTransformation
 )
 from loki.transformations.transpile import FortranCTransformation
+from loki.transformations.derived_type_deepcopy import DerivedTypeDeepcopyTransformation
 
 
 class IdemTransformation(Transformation):
