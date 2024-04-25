@@ -12,14 +12,17 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import Variable, LogicLiteral, IntrinsicLiteral, LogicalNot, LoopRange, SubstituteExpressions
 from loki.types import BasicType, SymbolAttributes, ProcedureType, DerivedType
+from loki.batch import TypeDefItem
 
 __all__ = ['DerivedTypeDeepcopyTransformation']
 
 class DerivedTypeDeepcopyTransformation(Transformation):
 
+    item_filter = (TypeDefItem)
 
-    def __init__(self, **kwargs):
+    def __init__(self, builddir):
         self.directive = 'openacc'
+        self.builddir = builddir
 
     @staticmethod
     def create_generic_interface(proc_name, type_name, proc):
@@ -258,3 +261,9 @@ class DerivedTypeDeepcopyTransformation(Transformation):
         contains += (ir.Comment(''), wipe_method)
 
         return Module(name=name, spec=spec, contains=contains)
+
+    def transform_typedef(self, typedef, **kwargs):
+
+        successors = kwargs.get('successors', ())
+        print(f'got here {typedef}')
+        print(successors)

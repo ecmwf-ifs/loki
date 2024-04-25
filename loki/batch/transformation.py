@@ -14,6 +14,7 @@ from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.batch.item import ProcedureItem, ModuleItem
+from loki.ir import TypeDef
 
 
 __all__ = ['Transformation']
@@ -186,6 +187,9 @@ class Transformation:
 
         if isinstance(source, Module):
             self.apply_module(source, **kwargs)
+
+        if isinstance(source, TypeDef):
+            self.transform_typedef(source, **kwargs)
 
         self.post_apply(source, rescope_symbols=post_apply_rescope_symbols)
 
