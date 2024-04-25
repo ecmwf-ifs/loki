@@ -5,14 +5,17 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import re
 from loki.transform import Transformation
 from loki.tools import as_tuple
 from loki import ir
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import Variable, LogicLiteral, IntrinsicLiteral, LogicalNot, LoopRange, SubstituteExpressions
+from loki.expression import IntLiteral, RangeIndex, ProcedureSymbol, InlineCall
 from loki.types import BasicType, SymbolAttributes, ProcedureType, DerivedType
 from loki.batch import TypeDefItem
+from loki.sourcefile import Sourcefile
 
 __all__ = ['DerivedTypeDeepcopyTransformation']
 
@@ -42,14 +45,15 @@ class DerivedTypeDeepcopyTransformation(Transformation):
                            if isinstance(v.type.dtype, DerivedType))
         return as_tuple([ir.Import(module=util_import) for util_import in util_imports])
 
-    def create_skeleton_subroutine(self, method_name, parent):
+    def create_skeleton_subroutine(self, method_name, _type):
 
-        routine_name = method_name + '_' + str(parent.type.dtype).upper()
+        routine_name = method_name + '_' + str(_type.dtype).upper()
         routine = Subroutine(name=routine_name, spec=as_tuple(ir.Intrinsic(text='IMPLICIT NONE')),
                              body=as_tuple(ir.Comment('')))
 
         # define arguments
-        routine.arguments = as_tuple(parent)
+        yd = Variable(name='YD', type=_type, scope=routine)
+        routine.arguments = as_tuple(yd)
         if method_name == 'COPY' or method_name == 'WIPE':
             if method_name == 'COPY':
                 opt_var = 'LDCREATED'
@@ -72,7 +76,7 @@ class DerivedTypeDeepcopyTransformation(Transformation):
             routine.body.append(as_tuple(ir.Comment('')))
 
         # populate necessary util module imports
-        util_imports = self.populate_imports(parent)
+        util_imports = self.populate_imports(yd)
         routine.spec.prepend(util_imports)
 
         return routine
@@ -130,11 +134,41 @@ class DerivedTypeDeepcopyTransformation(Transformation):
         condition = IntrinsicLiteral(value=f'{check}({parent.name}%{var.name})')
         return as_tuple(ir.Conditional(condition=condition, body=body))
 
-    def create_copy_method(self, parent_type):
+    @staticmethod
+    def create_field_api_call(field_object, dest, access, ptr):
+        return ir.CallStatement(name=Variable(name='GET_' + dest.upper() + '_DATA_' + access, parent=field_object),
+                                arguments=as_tuple(ptr))
+
+    @staticmethod
+    def create_aliased_ptr_assignment(ptr, alias, yd):
+        dims = [InlineCall(function=ProcedureSymbol('LBOUND', scope=yd.scope), parameters=(ptr, IntLiteral(r+1)))
+                for r in range(len(ptr.shape))]
+        lhs = ptr.parent.type.dtype.typedef.variable_map[alias].clone(parent=yd,
+            dimensions=as_tuple([RangeIndex(children=(d, None)) for d in dims]))
+        return ir.Assignment(lhs=lhs, rhs=ptr, ptr=True)
+
+    def create_field_api_copy(self, var, aliased_ptrs, yd):
+        field_ptr_name = var.name[1:] + '_FIELD'
+        field_object = var.clone(parent=yd)
+        field_ptr_var = var.scope.variable_map[field_ptr_name].clone(parent=yd, dimensions=None)
+        body = as_tuple(self.create_field_api_call(field_object, 'DEVICE', 'RDWR',
+                                                   field_ptr_var))
+        if self.directive == 'openacc':
+            body += as_tuple(ir.Pragma(keyword='acc', content=f'enter data attach({field_ptr_var})'))
+        if field_ptr_name.lower() in aliased_ptrs:
+            body += as_tuple(self.create_aliased_ptr_assignment(field_ptr_var,
+                                                                aliased_ptrs[field_ptr_name.lower()], yd))
+            if self.directive == 'openacc':
+                body += as_tuple(ir.Pragma(keyword='acc',
+                                           content=f'enter data attach({body[-1].lhs.name})'))
+
+        return body
+
+    def create_copy_method(self, parent_type, offload_vars, aliased_ptrs):
 
         _derived_type = SymbolAttributes(dtype=parent_type.dtype, intent='INOUT')
-        yd = Variable(name='YD', type=_derived_type)
-        routine = self.create_skeleton_subroutine('COPY', yd)
+        routine = self.create_skeleton_subroutine('COPY', _derived_type)
+        yd = routine.variable_map['yd']
 
         # create YD
         llcreated = Variable(name='LLCREATED', type=SymbolAttributes(dtype=BasicType.LOGICAL))
@@ -144,18 +178,21 @@ class DerivedTypeDeepcopyTransformation(Transformation):
         routine.body.append(as_tuple(ir.Conditional(condition=condition, body=body)))
         routine.body.append(as_tuple(ir.Comment('')))
 
-        for var in parent_type.variables:
+        for var in offload_vars:
+
+            if var.type.allocatable:
+                check = 'ALLOCATED'
+            else:
+                check = 'ASSOCIATED'
 
             instr = ()
-            if isinstance(var.type.dtype, DerivedType):
+            if (result := re.match(r'FIELD_[1-5][a-z]{2}', var.type.dtype.name, re.IGNORECASE)):
+                instr += self.create_field_api_copy(var, aliased_ptrs, yd)
+                instr = self.create_memory_status_test(check, var, yd, body=instr)
+            elif isinstance(var.type.dtype, DerivedType):
                 instr += self.create_util_call('COPY', var, yd, routine)
 
-            if var.type.allocatable or var.type.pointer:
-                if var.type.allocatable:
-                    check = 'ALLOCATED'
-                else:
-                    check = 'ASSOCIATED'
-
+            if var.type.allocatable or var.type.pointer and not result:
                 if self.directive == 'openacc':
                     pragma = ir.Pragma(keyword='acc', content=f'enter data copyin({yd.name}%{var.name})')
                 instr = (pragma, *instr)
@@ -168,7 +205,7 @@ class DerivedTypeDeepcopyTransformation(Transformation):
 
         return routine
 
-    def create_host_method(self, parent_type):
+    def create_host_method(self, parent_type, skip_offload):
 
         _derived_type = SymbolAttributes(dtype=parent_type.dtype, intent='INOUT')
         yd = Variable(name='YD', type=_derived_type)
@@ -198,7 +235,7 @@ class DerivedTypeDeepcopyTransformation(Transformation):
 
         return routine
 
-    def create_wipe_method(self, parent_type):
+    def create_wipe_method(self, parent_type, skip_offload):
 
         _derived_type = SymbolAttributes(dtype=parent_type.dtype, intent='INOUT')
         yd = Variable(name='YD', type=_derived_type)
@@ -236,7 +273,7 @@ class DerivedTypeDeepcopyTransformation(Transformation):
 
         return routine
 
-    def create_module(self, parent_module_name, parent_type):
+    def create_module(self, parent_module_name, parent_type, offload_vars, aliased_ptrs):
 
         # assemble module name
         name = 'UTIL' + '_' + parent_type.name.upper() + '_MOD'
@@ -245,25 +282,32 @@ class DerivedTypeDeepcopyTransformation(Transformation):
         spec = as_tuple(ir.Import(module=parent_module_name, symbols=as_tuple(Variable(name=parent_type.name))))
 
         # create offload methods
-        copy_method = self.create_copy_method(parent_type)
-        host_method = self.create_host_method(parent_type)
-        wipe_method = self.create_wipe_method(parent_type)
+        copy_method = self.create_copy_method(parent_type, offload_vars, aliased_ptrs)
+#        host_method = self.create_host_method(parent_type, skip_offload)
+#        wipe_method = self.create_wipe_method(parent_type, skip_offload)
 
         # define overloaded interfaces for contained methods
         spec += as_tuple(ir.Comment(''))
         spec += self.create_generic_interface('COPY', parent_type.name, copy_method)
-        spec += self.create_generic_interface('HOST', parent_type.name, host_method)
-        spec += self.create_generic_interface('WIPE', parent_type.name, wipe_method)
+#        spec += self.create_generic_interface('HOST', parent_type.name, host_method)
+#        spec += self.create_generic_interface('WIPE', parent_type.name, wipe_method)
         spec += as_tuple(ir.Comment(''))
 
         contains = (ir.Comment(''), copy_method)
-        contains += (ir.Comment(''), host_method)
-        contains += (ir.Comment(''), wipe_method)
+#        contains += (ir.Comment(''), host_method)
+#        contains += (ir.Comment(''), wipe_method)
 
         return Module(name=name, spec=spec, contains=contains)
 
     def transform_typedef(self, typedef, **kwargs):
 
-        successors = kwargs.get('successors', ())
-        print(f'got here {typedef}')
-        print(successors)
+        item = kwargs['item']
+        skip_offload = item.config.get('skip_offload', [])
+        aliased_ptrs = item.config.get('aliased_ptrs', {})
+
+        offload_vars = [v for v in typedef.variables if not v.name.lower() in skip_offload]
+
+        module = self.create_module(typedef.parent.name, typedef, offload_vars, aliased_ptrs)
+        fnm = self.builddir + '/' + module.name
+        source = Sourcefile(path=fnm.lower() + '.F90', ir=as_tuple(module))
+        source.write()
