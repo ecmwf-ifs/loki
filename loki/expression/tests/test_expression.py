@@ -13,6 +13,7 @@ import pytest
 import numpy as np
 
 import pymbolic.primitives as pmbl
+import pymbolic.mapper as pmbl_mapper
 
 from loki import (
     Sourcefile, Subroutine, Module, Scope, BasicType,
@@ -1009,18 +1010,18 @@ def test_string_compare():
     ('ansatz(a + 1)', 'a', True),
     ('ansatz(b + 1)', 'a', False),  # Ensure no false positives
 ])
-@pytest.mark.parametrize('parse', (parse_expr, parse_fparser_expression))
+@pytest.mark.parametrize('parse', (
+    parse_expr,
+    pytest.param(parse_fparser_expression,
+        marks=pytest.mark.skipif(not HAVE_FP, reason='parse_fparser_expression not available!'))
+))
 def test_subexpression_match(parse, expr, string, ref):
     """
     Test that we can identify individual symbols or sub-expressions in
     expressions via canonical string matching.
     """
     scope = Scope()
-    if parse is parse_fparser_expression and not HAVE_FP:
-        with pytest.raises(RuntimeError):
-            expr = parse(expr, scope)
-    else:
-        expr = parse(expr, scope)
+    expr = parse(expr, scope)
     assert (string in expr) == ref
 
 
@@ -1033,17 +1034,17 @@ def test_subexpression_match(parse, expr, string, ref):
     ('5 + (4 + 3) - (2*1)', '5 + (4 + 3) - (2*1)'),
     ('a*(b*(c+(d+e)))', 'a*(b*(c + (d + e)))'),
 ])
-@pytest.mark.parametrize('parse', (parse_expr, parse_fparser_expression))
+@pytest.mark.parametrize('parse', (
+    parse_expr,
+    pytest.param(parse_fparser_expression,
+        marks=pytest.mark.skipif(not HAVE_FP, reason='parse_fparser_expression not available!'))
+))
 def test_parse_expression(parse, source, ref):
     """
     Test the utility function that parses simple expressions.
     """
     scope = Scope()
-    if parse is parse_fparser_expression and not HAVE_FP:
-        with pytest.raises(RuntimeError):
-            ir = parse(source, scope)
-    else:
-        ir = parse(source, scope)
+    ir = parse(source, scope)  # pylint: disable=redefined-outer-name
     assert isinstance(ir, pmbl.Expression)
     assert str(ir) == ref
 
@@ -1271,7 +1272,6 @@ def test_variable_without_scope():
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('expr', [
     ('1.8 - 3.E-03*ztp1'),
     ('1.8 - 0.003*ztp1'),
@@ -1281,22 +1281,31 @@ def test_variable_without_scope():
     ('5 + (-1)'),
     ('5 - 1')
 ])
-def test_standalone_expr_parenthesis(expr):
+@pytest.mark.parametrize('parse', (
+    parse_expr,
+    pytest.param(parse_fparser_expression,
+        marks=pytest.mark.skipif(not HAVE_FP, reason='parse_fparser_expression not available!'))
+))
+def test_standalone_expr_parenthesis(expr, parse):
     scope = Scope()
-    ir = parse_fparser_expression(expr, scope)
+    ir = parse(expr, scope)  # pylint: disable=redefined-outer-name
     assert isinstance(ir, pmbl.Expression)
     assert fgen(ir) == expr
 
 
-@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
-def test_array_to_inline_call_rescope():
+@pytest.mark.parametrize('parse', (
+    parse_expr,
+    pytest.param(parse_fparser_expression,
+        marks=pytest.mark.skipif(not HAVE_FP, reason='parse_fparser_expression not available!'))
+))
+def test_array_to_inline_call_rescope(parse):
     """
     Test a mechanism that can convert arrays to procedure calls, to mop up
     broken frontend behaviour wrongly classifying inline calls as array subscripts
     """
     # Parse the expression, which fparser will interpret as an array
     scope = Scope()
-    expr = parse_fparser_expression('FLUX%OUT_OF_PHYSICAL_BOUNDS(KIDIA, KFDIA)', scope=scope)
+    expr = parse('FLUX%OUT_OF_PHYSICAL_BOUNDS(KIDIA, KFDIA)', scope=scope)
     assert isinstance(expr, sym.Array)
 
     # Detach the expression from the scope and update the type information in the scope
@@ -1749,6 +1758,10 @@ end module external_mod
     assert all(_parsed.scope == routine for _parsed in [parsed.base, parsed.exponent])
     assert to_str(parsed) == 'a**b'
 
+    parsed = parse_expr(convert_to_case(':', mode=case))
+    assert isinstance(parsed, sym.RangeIndex)
+    assert to_str(parsed) == ':'
+
     parsed = parse_expr(convert_to_case('a:b', mode=case), scope=routine)
     assert isinstance(parsed, sym.RangeIndex)
     assert all(isinstance(_parsed,  sym.Scalar) for _parsed in [parsed.lower, parsed.upper])
@@ -1859,11 +1872,11 @@ end module external_mod
     assert isinstance(parsed, sym.Array)
     assert to_str(parsed) == 'my_func(i1)'
     parsed = parse_expr(convert_to_case('my_func(i1)', mode=case), scope=module)
-    assert isinstance(parsed, sym.InlineCall) # sym.ProcedureSymbol)
+    assert isinstance(parsed, sym.InlineCall)
     assert to_str(parsed) == 'my_func(i1)'
 
     parsed = parse_expr(convert_to_case('min(i1, i2)', mode=case), scope=module)
-    assert isinstance(parsed, sym.InlineCall) # sym.ProcedureSymbol)
+    assert isinstance(parsed, sym.InlineCall)
     assert to_str(parsed) == 'min(i1,i2)'
 
     parsed = parse_expr(convert_to_case('a', mode=case))
@@ -1876,6 +1889,28 @@ end module external_mod
     parsed = parse_expr(convert_to_case('3.1415', mode=case))
     assert isinstance(parsed, sym.FloatLiteral)
     assert to_str(parsed) == '3.1415'
+
+    parsed = parse_expr(convert_to_case('some_type%val', mode=case))
+    assert isinstance(parsed, sym.DeferredTypeSymbol)
+    assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == 'some_type%val'
+    parsed = parse_expr(convert_to_case('-some_type%val', mode=case))
+    assert isinstance(parsed, sym.Product)
+    assert isinstance(parsed.children[1].parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == '-some_type%val'
+    parsed = parse_expr(convert_to_case('some_type%another_type%val', mode=case))
+    assert isinstance(parsed, sym.DeferredTypeSymbol)
+    assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
+    assert isinstance(parsed.parent.parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == 'some_type%another_type%val'
+    parsed = parse_expr(convert_to_case('some_type%arr(a, b)', mode=case))
+    assert isinstance(parsed, sym.Array)
+    assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == 'some_type%arr(a,b)'
+    parsed = parse_expr(convert_to_case('some_type%some_func()', mode=case))
+    assert isinstance(parsed, sym.InlineCall)
+    assert isinstance(parsed.function.parent, sym.DeferredTypeSymbol)
+    assert to_str(parsed) == 'some_type%some_func()'
 
     parsed = parse_expr(convert_to_case('"some_string_literal 42 _-*"', mode=case))
     assert isinstance(parsed, sym.StringLiteral)
@@ -1950,16 +1985,19 @@ end module external_mod
     parsed = parse_expr(convert_to_case('2._8', mode=case), scope=routine)
     assert isinstance(parsed, sym.FloatLiteral)
     assert parsed.kind == '8'
-    assert to_str(parsed) == '2.0_8'
+    assert float(parsed.value) == 2.0
+    assert to_str(parsed) == '2._8'
 
     parsed = parse_expr(convert_to_case('2.4e18_my_kind8', mode=case), scope=routine)
     assert isinstance(parsed, sym.FloatLiteral)
     assert parsed.kind == 'my_kind8'
-    assert to_str(parsed) == '2.4e+18_my_kind8'
+    assert float(parsed.value) == 2.4e18
+    assert to_str(parsed) == '2.4e18_my_kind8'
 
     parsed = parse_expr(convert_to_case('4_jpim', mode=case), scope=routine)
     assert isinstance(parsed, sym.IntLiteral)
     assert parsed.kind == 'jpim'
+    assert int(parsed.value) == 4
     assert to_str(parsed) == '4'
 
     parsed = parse_expr(convert_to_case('[1, 2, 3, 4]', mode=case), scope=routine)
@@ -2066,23 +2104,98 @@ def test_expression_parser_evaluate(case):
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert parsed == 1
 
+    context = {'arr': [[1, 2], [3, 4]]}
+    test_str = '1 + arr(1, 2)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 3
+
     context = {'a': 6}
     test_str = '1 + 1 + a + some_func(a, 10)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
-    with pytest.raises(Exception):
+    with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
         parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True, context=context)
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=False, context=context)
     assert str(parsed).lower().replace(' ', '') == '8+some_func(6,10)'
 
-    def some_func(a, b):
-        return a + b
+    def some_func(a, b, c=None):
+        if c is None:
+            return a + b
+        return a + b + c
 
     context = {'a': 6, 'some_func': some_func}
     test_str = '1 + 1 + a + some_func(a, 10)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert parsed == 24
 
+    context = {'a': 6, 'some_func': some_func}
+    test_str = '1 + 1 + a + some_func(a, 10, c=2)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 26
+
     context = {'a': 6, 'b': 7}
     test_str = '(a + b + c + 1)/(c + 1)'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
     assert str(parsed).lower().replace(' ', '') == '(13+c+1)/(c+1)'
+
+    class BarBarBar:
+        val_barbarbar = 5
+
+    class BarBar:
+        barbarbar = BarBarBar()
+        val_barbar = -3
+        def barbar_func(self, a):
+            return a - 1
+
+    class Bar:
+        barbar = BarBar()
+        val_bar = 5
+        def bar_func(self, a):
+            return a**2
+
+    class Foo:
+        bar = Bar() # pylint: disable=disallowed-name
+        val3 = 1
+        arr = [[1, 2], [3, 4]]
+        def __init__(self, _val1, _val2):
+            self.val1 = _val1
+            self.val2 = _val2
+        def some_func(self, a, b):
+            return a + b
+        @staticmethod
+        def static_func(a):
+            return 2*a
+
+    context = {'foo': Foo(2, 3)}
+    test_str = 'foo%val1 + foo%val2 + foo%val3'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case))
+    assert str(parsed).lower().replace(' ', '') == 'foo%val1+foo%val2+foo%val3'
+    with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
+        parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True)
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 6
+    test_str = 'foo%val1 + foo%some_func(1, 2) + foo%static_func_2(3)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert str(parsed).lower().replace(' ', '') == '5+foo%static_func_2(3)'
+    with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
+        parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True)
+    test_str = 'foo%val1 + foo%some_func(1, 2) + foo%static_func(3) + foo%arr(1, 2)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context, strict=True)
+    assert parsed == 13
+    test_str = 'foo%val1 + foo%some_func(1, b=2) + foo%static_func(a=3) + foo%arr(1, 2)'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context, strict=True)
+    assert parsed == 13
+    test_str = 'foo%bar%val_bar + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 6
+    test_str = 'foo%bar%bar_func(2) + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 5
+    test_str = 'foo%bar%barbar%val_barbar + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == -2
+    test_str = 'foo%bar%barbar%barbar_func(0) + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 0
+    test_str = 'foo%bar%barbar%barbarbar%val_barbarbar + 1'
+    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    assert parsed == 6

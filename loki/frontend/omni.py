@@ -433,7 +433,7 @@ class OMNI2IR(GenericVisitor):
 
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, ir.VariableDeclaration):
-            routine.spec = process_dimension_pragmas(routine.spec)
+            routine.spec = process_dimension_pragmas(routine.spec, scope=routine)
 
         return routine
 

@@ -644,7 +644,7 @@ end subroutine routine_variables_dimensions
     assert fexprgen(routine.variable_map['v3'].shape) == '(x, y, :)'
     assert fexprgen(routine.variable_map['v4'].shape) == '(x, y)'
     assert fexprgen(routine.variable_map['v5'].shape) == '(y, :)'
-    assert fexprgen(routine.variable_map['v6'].shape) == '(x+y,)'
+    assert fexprgen(routine.variable_map['v6'].shape) == '(x + y,)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

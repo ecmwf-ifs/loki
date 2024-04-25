@@ -14,9 +14,7 @@ from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
 from loki.ir.visitor import Visitor
-
 from loki.tools.util import as_tuple, replace_windowed
-from loki.types import BasicType
 from loki.logging import debug, warning
 
 
@@ -51,7 +49,73 @@ def is_loki_pragma(pragma, starts_with=None):
     return True
 
 
-_get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.+?)\))?')
+class PragmaParameters:
+    """
+    Utility class to parse strings for parameters in the form ``<command>[(<arg>)]`` and
+    return them as a map ``{<command>: <arg> or None}``.
+    """
+
+    _pattern_opening_parenthesis = re.compile(r'\(')
+    _pattern_closing_parenthesis = re.compile(r'\)')
+    _pattern_quoted_string = re.compile(r'(?:\'.*?\')|(?:".*?")')
+
+    @classmethod
+    def find(cls, string):
+        """
+        Find parameters in the form ``<command>[(<arg>)]`` and
+        return them as a map ``{<command>: <arg> or None}``.
+
+        .. note::
+            This allows nested parenthesis by matching pairs of
+            parantheses starting at the end by pushing and popping
+            from a stack.
+        """
+        string = cls._pattern_quoted_string.sub('', string)
+        p_open = [match.start() for match in cls._pattern_opening_parenthesis.finditer(string)]
+        p_close = [match.start() for match in cls._pattern_closing_parenthesis.finditer(string)]
+        assert len(p_open) == len(p_close)
+
+        def _match_spans(open_, close_):
+            # We match pairs of parentheses starting at the end by pushing and popping from a stack.
+            # Whenever the stack runs out, we have fully resolved a set of (nested) parenthesis and
+            # record the corresponding span
+            if not close_:
+                return []
+            spans = []
+            stack = [close_.pop()]
+            while open_:
+                if not close_ or open_[-1] > close_[-1]:
+                    assert stack
+                    start = open_.pop()
+                    end = stack.pop()
+                    if not stack:
+                        spans.append((start, end))
+                else:
+                    stack.append(close_.pop())
+            assert not (stack or open_ or close_)
+            return spans
+
+        p_spans = _match_spans(p_open, p_close)
+        spans = []
+        while p_spans:
+            spans.append(p_spans.pop())
+        if p_spans:
+            spans += p_spans[::-1]
+        parameters = defaultdict(list)
+        if not spans and string.strip():
+            for key in string.strip().split(' '):
+                if key != '':
+                    parameters[key].append(None)
+        for i, span in enumerate(spans):
+            keys = string[spans[i-1][1]+1 if i>=1 else 0:span[0]].strip().split(' ')
+            if len(keys) > 1:
+                for key in keys[:-1]:
+                    if key != '':
+                        parameters[key].append(None)
+            parameters[keys[-1]].append(string[span[0]+1:span[1]])
+        parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
+        return parameters
+
 
 def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """
@@ -78,6 +142,7 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
         Mapping of parameters ``{<command>: <arg> or <None>}`` with the values being a list
         when multiple entries have the same key
     """
+    pragma_parameters = PragmaParameters()
     pragma = as_tuple(pragma)
     parameters = defaultdict(list)
     for p in pragma:
@@ -88,13 +153,14 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
             if not content.lower().startswith(starts_with.lower()):
                 continue
             content = content[len(starts_with):]
-        for match in re.finditer(_get_pragma_parameters_re, content):
-            parameters[match.group('command')].append(match.group('arg'))
+        parameter = pragma_parameters.find(content)
+        for key in parameter:
+            parameters[key].append(parameter[key])
     parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
     return parameters
 
 
-def process_dimension_pragmas(ir):
+def process_dimension_pragmas(ir, scope=None):
     """
     Process any ``!$loki dimension`` pragmas to override deferred dimensions
 
@@ -106,7 +172,7 @@ def process_dimension_pragmas(ir):
     ir : :any:`Node`
         Root node of the (section of the) internal representation to process
     """
-    from loki.expression.symbols import Literal, Variable  # pylint: disable=import-outside-toplevel
+    from loki.expression.parser import parse_expr  # pylint: disable=import-outside-toplevel
 
     for decl in FindNodes(VariableDeclaration).visit(ir):
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
@@ -114,13 +180,10 @@ def process_dimension_pragmas(ir):
                 # Found dimension override for variable
                 dims = get_pragma_parameters(decl.pragma)['dimension']
                 dims = [d.strip() for d in dims.split(',')]
-                shape = []
-                for d in dims:
-                    if d.isnumeric():
-                        shape += [Literal(value=int(d), type=BasicType.INTEGER)]
-                    else:
-                        shape += [Variable(name=d, scope=v.scope)]
-                v.scope.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(shape))
+                # parse each dimension
+                shape = tuple(parse_expr(d, scope=scope) for d in dims)
+                # update symbol table
+                v.scope.symbol_attrs[v.name] = v.type.clone(shape=shape)
     return ir
 
 

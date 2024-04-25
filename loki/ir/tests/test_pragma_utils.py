@@ -50,7 +50,9 @@ def test_is_loki_pragma(keyword, content, starts_with, ref):
     ('dataflow group(1) group(2)', 'dataflow', {'group': ['1', '2']}),
     ('foo bar(^£!$%*[]:@+-_=~#/?.,<>;) baz foobar(abc_123")', 'foo',
      {'bar':'^£!$%*[]:@+-_=~#/?.,<>;', 'baz': None, 'foobar': 'abc_123"'}),
-    ('target map(a) map(to: b) map(from: c)', None, {'target': None, 'map': ['a', 'to: b', 'from: c']})
+    ('target map(a) map(to: b) map(from: c)', None, {'target': None, 'map': ['a', 'to: b', 'from: c']}),
+    ('arg1(val1) arg2(val2/val3) arg3((val1 + val2)/(val3))', None, {'arg1': 'val1',
+        'arg2': 'val2/val3', 'arg3': '(val1 + val2)/(val3)'})
 ])
 def test_get_pragma_parameters(content, starts_with, ref):
     """
