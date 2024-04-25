@@ -14,7 +14,6 @@ from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
 from loki.ir.visitor import Visitor
-# from loki.expression.parser import parse_expr
 from loki.tools.util import as_tuple, replace_windowed
 from loki.logging import debug, warning
 
@@ -51,6 +50,10 @@ def is_loki_pragma(pragma, starts_with=None):
 
 
 class PragmaParameters:
+    """
+    Utility class to parse strings for parameters in the form ``<command>[(<arg>)]`` and
+    return them as a map ``{<command>: <arg> or None}``.
+    """
 
     _pattern_opening_parenthesis = re.compile(r'\(')
     _pattern_closing_parenthesis = re.compile(r'\)')
@@ -58,6 +61,15 @@ class PragmaParameters:
 
     @classmethod
     def find(cls, string):
+        """
+        Find parameters in the form ``<command>[(<arg>)]`` and
+        return them as a map ``{<command>: <arg> or None}``.
+
+        .. note::
+            This allows nested parenthesis by matching pairs of
+            parantheses starting at the end by pushing and popping
+            from a stack.
+        """
         string = cls._pattern_quoted_string.sub('', string)
         p_open = [match.start() for match in cls._pattern_opening_parenthesis.finditer(string)]
         p_close = [match.start() for match in cls._pattern_closing_parenthesis.finditer(string)]
@@ -91,7 +103,7 @@ class PragmaParameters:
             spans += p_spans[::-1]
         parameters = defaultdict(list)
         if not spans and string.strip():
-            for key in string.strip().split(' '): # keys[:-1]:
+            for key in string.strip().split(' '):
                 if key != '':
                     parameters[key].append(None)
         for i, span in enumerate(spans):
@@ -134,7 +146,6 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     pragma = as_tuple(pragma)
     parameters = defaultdict(list)
     for p in pragma:
-        parameter = None
         if only_loki_pragmas and p.keyword.lower() != 'loki':
             continue
         content = p.content or ''
