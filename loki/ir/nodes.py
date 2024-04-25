@@ -1530,11 +1530,29 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
         return self.body
 
     @property
+    def parent_type(self):
+        if not self.extends:
+            return None
+        if not self.parent:
+            return BasicType.DEFERRED
+        return self.parent.symbol_attrs[self.extends].dtype.typedef
+
+    @property
     def declarations(self):
-        return tuple(
+        decls = tuple(
             c for c in as_tuple(self.body)
             if isinstance(c, (VariableDeclaration, ProcedureDeclaration))
         )
+
+        # Inherit non-overriden symbols from parent type
+        if (parent_type := self.parent_type) and parent_type is not BasicType.DEFERRED:
+            local_symbols = [s for decl in decls for s in decl.symbols]
+            for decl in parent_type.declarations:
+                decl_symbols = tuple(s.clone(scope=self) for s in decl.symbols if s not in local_symbols)
+                if decl_symbols:
+                    decls += (decl.clone(symbols=decl_symbols),)
+
+        return decls
 
     @property
     def comments(self):
