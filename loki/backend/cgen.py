@@ -249,6 +249,7 @@ class CCodegen(Stringifier):
         """
         opt_header = kwargs.get('header', False)
         opt_guards = kwargs.get('guards', False)
+        opt_guard_name = kwargs.get('guard_name', None)
 
         header = self._subroutine_header(o, **kwargs)
         declaration = self._subroutine_declaration(o, **kwargs)
@@ -256,7 +257,7 @@ class CCodegen(Stringifier):
         footer = self._subroutine_footer(o, **kwargs) if not opt_header else []
 
         if opt_guards:
-            guard_name = f'{o.name.upper()}_H'
+            guard_name = f'{o.name.upper()}_H' if opt_guard_name is None else opt_guard_name
             header = [self.format_line(f'#ifndef {guard_name}'), self.format_line(f'#define {guard_name}\n\n')] + header
             footer += ['\n#endif']
 
@@ -340,7 +341,6 @@ class CCodegen(Stringifier):
             ...body...
           }
         """
-        print(f"visit_Loop: {o} | {o.bounds.step}")
         control = 'for ({var} = {start}; {var} {crit} {end}; {var} += {incr})'.format(
             var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
             end=self.visit(o.bounds.stop, **kwargs),

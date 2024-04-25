@@ -260,8 +260,6 @@ def convert(
     # Perform general source sanitisation steps to level the playing field
     sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
     if not sanitise_trafo:
-        if mode in ['cuda-hoist']:
-            print(f"\nexecuting resolve_sequence_association!!!\n")
         sanitise_trafo = SanitiseTransformation(
             resolve_sequence_association=resolve_sequence_association,
         )

@@ -220,19 +220,23 @@ class FortranCTransformation(Transformation):
                     c_kernel_launch = c_kernel.clone(name=f"{c_kernel.name}_launch", prefix="extern_c")
                     self.generate_c_kernel_launch(c_kernel_launch, c_kernel)
                     self.c_path = (path/c_kernel_launch.name.lower()).with_suffix('.h')
-                    Sourcefile.to_file(source=self.codegen(c_kernel_launch), path=self.c_path)
+                    Sourcefile.to_file(source=self.codegen(c_kernel_launch, extern=True), path=self.c_path)
             else:
                 # TODO: nested device routines ..., should work correctly?
                 c_kernel_header = c_kernel.clone(name=f"{c_kernel.name}", prefix="header_only device")
                 # c_kernel_header = c_kernel.clone(name=f"{routine.name.lower()}", prefix="header_only device")
-                self.generate_c_kernel_header(c_kernel_header)
-                self.c_path =(path/c_kernel_header.name.lower()).with_suffix('.h')
-                Sourcefile.to_file(source=self.codegen(c_kernel_header), path=self.c_path)
+                # TODO: this shouldn't be necessary anymore usinge self.codegen(..., header=True)
+                # self.generate_c_kernel_header(c_kernel_header)
+                # self.c_path =(path/c_kernel_header.name.lower()).with_suffix('.h')
+                # Sourcefile.to_file(source=self.codegen(c_kernel_header), path=self.c_path)
 
             if depth > 1:
                 c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
             Sourcefile.to_file(source=self.codegen(c_kernel), path=self.c_path)
+
+            self.c_path = (path/c_kernel.name.lower()).with_suffix('.h')
+            Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=self.c_path)
             #### end new ####
 
     def c_struct_typedef(self, derived):
