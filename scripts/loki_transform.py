@@ -67,6 +67,38 @@ def cli(debug):
 
 
 @cli.command()
+@click.option('--config', default=None, type=click.Path(),
+              help='Path to custom scheduler configuration file')
+@click.option('--build', '-b', '--out-path', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+@click.option('--source', '-s', '--path', type=click.Path(), multiple=True,
+              help='Path to search during source exploration.')
+@click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
+@click.option('--define', '-D', multiple=True,
+              help='Additional symbol definitions for the C-preprocessor')
+def generate_deepcopy(config, build, source, cpp, define):
+    """Offline utility to generated derived-type deepcopy methods."""
+
+    info(f'[Loki] Batch-processing source files using config: {config} ')
+
+    config = SchedulerConfig.from_file(config)
+
+    build_args = {
+        'preprocess': cpp,
+        'defines': define,
+    }
+
+    # Create a scheduler to bulk-apply source transformations
+    paths = [Path(p).resolve() for p in as_tuple(source)]
+    scheduler = Scheduler(
+        paths=paths, config=config, **build_args
+    )
+
+    scheduler.process(transformation=DerivedTypeDeepcopyTransformation(build))
+
+
+@cli.command()
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
                   ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
@@ -228,7 +260,7 @@ def convert(
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
             remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
-            resolve_sequence_association=resolve_sequence_association_inlined_calls 
+            resolve_sequence_association=resolve_sequence_association_inlined_calls
         )
     scheduler.process(transformation=inline_trafo)
 
