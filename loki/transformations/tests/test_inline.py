@@ -927,6 +927,55 @@ end subroutine dave
     # Q. E. D.
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_marked_subroutines_declarations(frontend):
+    """Test symbol propagation to hoisted declaration when inlining."""
+    fcode = """
+module inline_declarations
+  implicit none
+
+  type bounds
+    integer :: start, end
+  end type bounds
+
+  contains
+
+  subroutine outer(a, bnds)
+    real(kind=8), intent(inout) :: a(bnds%end)
+    type(bounds), intent(in) :: bnds
+    real(kind=8) :: b(bnds%end)
+
+    b(bnds%start:bnds%end) = a(bnds%start:bnds%end) + 42.0
+
+    !$loki inline
+    call inner(a, dims=bnds)
+  end subroutine outer
+
+  subroutine inner(c, dims)
+    real(kind=8), intent(inout) :: c(dims%end)
+    type(bounds), intent(in) :: dims
+    real(kind=8) :: d(dims%end)
+
+    d(dims%start:dims%end) = c(dims%start:dims%end) - 66.6
+    c(dims%start) = sum(d)
+  end subroutine inner
+end module inline_declarations
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    outer = module['outer']
+    inner = module['inner']
+
+    inline_marked_subroutines(routine=outer, remove_imports=True)
+
+    # Check that all declarations are using the ``bnds`` symbol
+    assert outer.symbols[0] == 'a(1:bnds%end)' if frontend == OMNI else 'a(bnds%end)'
+    assert outer.symbols[2] == 'b(1:bnds%end)' if frontend == OMNI else 'b(bnds%end)'
+    assert outer.symbols[3] == 'd(1:bnds%end)' if frontend == OMNI else 'd(bnds%end)'
+    assert all(
+        a.shape == ('bnds%end',) for a in outer.symbols if isinstance(a, sym.Array)
+    )
+
+
 @pytest.mark.parametrize('frontend', available_frontends(
     (OFP, 'Prefix/elemental support not implemented'))
 )
@@ -1013,6 +1062,7 @@ end subroutine test_inline_pragma
     assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
     assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
     assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_transformation_local_seq_assoc(frontend):

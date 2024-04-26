@@ -10,7 +10,7 @@ Collection of utility routines to perform code-level force-inlining.
 
 
 """
-from collections import defaultdict
+from collections import defaultdict, ChainMap
 
 from loki.batch import Transformation
 from loki.ir import (
@@ -486,6 +486,11 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
     # Rescope the declaration symbols
     decls = tuple(d.clone(symbols=tuple(s.clone(scope=routine) for s in d.symbols)) for d in decls)
+
+    # Find and apply symbol remappings for array size expressions
+    symbol_map = dict(ChainMap(*[call.arg_map for call in calls]))
+    decls = SubstituteExpressions(symbol_map).visit(decls)
+
     routine.spec.append(decls)
 
     # Resolve the call by mapping arguments into the called procedure's body
