@@ -39,13 +39,13 @@ class DerivedTypeDeepcopyTransformation(Transformation):
         return as_tuple(intf)
 
     @staticmethod
-    def populate_imports(parent):
+    def populate_imports(parent, successor_types):
 
         util_imports = set('UTIL_' + v.type.dtype.name + '_MOD' for v in parent.variables
-                           if isinstance(v.type.dtype, DerivedType))
+                           if isinstance(v.type.dtype, DerivedType) and v.type.dtype in successor_types)
         return as_tuple([ir.Import(module=util_import) for util_import in util_imports])
 
-    def create_skeleton_subroutine(self, method_name, _type):
+    def create_skeleton_subroutine(self, method_name, _type, successor_types):
 
         routine_name = method_name + '_' + str(_type.dtype).upper()
         routine = Subroutine(name=routine_name, spec=as_tuple(ir.Intrinsic(text='IMPLICIT NONE')),
@@ -62,12 +62,12 @@ class DerivedTypeDeepcopyTransformation(Transformation):
                 opt_var = 'LDDELETED'
                 local_var = 'LLDELETED'
             ldmethod = Variable(name=opt_var, type=SymbolAttributes(dtype=BasicType.LOGICAL,
-                                                                     optional=True, intent='IN'))
+                                                                     optional=True, intent='IN'), scope=routine)
 
             routine.arguments += as_tuple(ldmethod)
 
             # define local vars
-            llmethod = Variable(name=local_var, type=SymbolAttributes(dtype=BasicType.LOGICAL))
+            llmethod = Variable(name=local_var, type=SymbolAttributes(dtype=BasicType.LOGICAL), scope=routine)
             routine.variables += as_tuple(llmethod)
 
             # add LDCREATED/LDDELETED check
@@ -76,7 +76,7 @@ class DerivedTypeDeepcopyTransformation(Transformation):
             routine.body.append(as_tuple(ir.Comment('')))
 
         # populate necessary util module imports
-        util_imports = self.populate_imports(yd)
+        util_imports = self.populate_imports(yd, successor_types)
         routine.spec.prepend(util_imports)
 
         return routine
@@ -164,10 +164,34 @@ class DerivedTypeDeepcopyTransformation(Transformation):
 
         return body
 
-    def create_copy_method(self, parent_type, offload_vars, aliased_ptrs):
+    def create_field_api_host(self, var, aliased_ptrs, yd):
+        field_ptr_name = var.name[1:] + '_FIELD'
+        field_object = var.clone(parent=yd)
+        field_ptr_var = var.scope.variable_map[field_ptr_name].clone(parent=yd, dimensions=None)
+        body = as_tuple(self.create_field_api_call(field_object, 'HOST', 'RDWR',
+                                                   field_ptr_var))
+        if field_ptr_name.lower() in aliased_ptrs:
+            body += as_tuple(self.create_aliased_ptr_assignment(field_ptr_var,
+                                                                aliased_ptrs[field_ptr_name.lower()], yd))
+        return body
+
+    def create_field_api_wipe(self, var, aliased_ptrs, yd):
+        field_ptr_name = var.name[1:] + '_FIELD'
+        field_ptr_var = var.scope.variable_map[field_ptr_name].clone(parent=yd, dimensions=None)
+        body = ()
+        if field_ptr_name.lower() in aliased_ptrs:
+            if self.directive == 'openacc':
+                arg = var.scope.variable_map[aliased_ptrs[field_ptr_name.lower()]].clone(parent=yd, dimensions=None)
+                body += as_tuple(ir.Pragma(keyword='acc',
+                                           content=f'exit data detach({arg})'))
+        if self.directive == 'openacc':
+            body += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr_var})'))
+        return body
+
+    def create_copy_method(self, parent_type, offload_vars, aliased_ptrs, successor_types):
 
         _derived_type = SymbolAttributes(dtype=parent_type.dtype, intent='INOUT')
-        routine = self.create_skeleton_subroutine('COPY', _derived_type)
+        routine = self.create_skeleton_subroutine('COPY', _derived_type, successor_types)
         yd = routine.variable_map['yd']
 
         # create YD
@@ -205,27 +229,30 @@ class DerivedTypeDeepcopyTransformation(Transformation):
 
         return routine
 
-    def create_host_method(self, parent_type, skip_offload):
+    def create_host_method(self, parent_type, offload_vars, aliased_ptrs, successor_types):
 
         _derived_type = SymbolAttributes(dtype=parent_type.dtype, intent='INOUT')
-        yd = Variable(name='YD', type=_derived_type)
-        routine = self.create_skeleton_subroutine('HOST', yd)
+        routine = self.create_skeleton_subroutine('HOST', _derived_type, successor_types)
+        yd = routine.variable_map['yd']
 
-        for var in parent_type.variables:
+        for var in offload_vars:
+
+            if var.type.allocatable:
+                check = 'ALLOCATED'
+            else:
+                check = 'ASSOCIATED'
 
             instr = ()
-            if isinstance(var.type.dtype, DerivedType):
+            if (result := re.match(r'FIELD_[1-5][a-z]{2}', var.type.dtype.name, re.IGNORECASE)):
+                instr += self.create_field_api_host(var, aliased_ptrs, yd)
+                instr = self.create_memory_status_test(check, var, yd, body=instr)
+            elif isinstance(var.type.dtype, DerivedType):
                 instr = self.create_util_call('HOST', var, yd, routine)
             elif isinstance(var.type.dtype, BasicType):
                 if self.directive == 'openacc':
                     instr = as_tuple(ir.Pragma(keyword='acc', content=f'exit data copyout({yd.name}%{var.name})'))
 
-            if var.type.allocatable or var.type.pointer:
-                if var.type.allocatable:
-                    check = 'ALLOCATED'
-                else:
-                    check = 'ASSOCIATED'
-
+            if var.type.allocatable or var.type.pointer and not result:
                 instr = self.create_memory_status_test(check, var, yd, body=instr)
 
             if instr:
@@ -235,28 +262,30 @@ class DerivedTypeDeepcopyTransformation(Transformation):
 
         return routine
 
-    def create_wipe_method(self, parent_type, skip_offload):
+    def create_wipe_method(self, parent_type, offload_vars, aliased_ptrs, successor_types):
 
         _derived_type = SymbolAttributes(dtype=parent_type.dtype, intent='INOUT')
-        yd = Variable(name='YD', type=_derived_type)
-        routine = self.create_skeleton_subroutine('WIPE', yd)
+        routine = self.create_skeleton_subroutine('WIPE', _derived_type, successor_types)
+        yd = routine.variable_map['yd']
 
-        for var in parent_type.variables:
+        for var in offload_vars:
+
+            if var.type.allocatable:
+                check = 'ALLOCATED'
+            else:
+                check = 'ASSOCIATED'
 
             instr = ()
-            if isinstance(var.type.dtype, DerivedType):
+            if (result := re.match(r'FIELD_[1-5][a-z]{2}', var.type.dtype.name, re.IGNORECASE)):
+                instr += self.create_field_api_wipe(var, aliased_ptrs, yd)
+                instr = self.create_memory_status_test(check, var, yd, body=instr)
+            elif isinstance(var.type.dtype, DerivedType):
                 instr += self.create_util_call('WIPE', var, yd, routine)
 
-            if var.type.allocatable or var.type.pointer:
-                if var.type.allocatable:
-                    check = 'ALLOCATED'
-                else:
-                    check = 'ASSOCIATED'
-
+            if var.type.allocatable or var.type.pointer and not result:
                 if self.directive == 'openacc':
-                    pre_pragma = ir.Pragma(keyword='acc', content=f'exit data detach({yd.name}%{var.name})')
-                    post_pragma = ir.Pragma(keyword='acc', content=f'exit data delete({yd.name}%{var.name})')
-                instr = (pre_pragma, *instr, post_pragma)
+                    pragma = ir.Pragma(keyword='acc', content=f'exit data delete({yd.name}%{var.name})')
+                instr = (*instr, pragma)
                 instr = self.create_memory_status_test(check, var, yd, body=instr)
 
             if instr:
@@ -273,7 +302,7 @@ class DerivedTypeDeepcopyTransformation(Transformation):
 
         return routine
 
-    def create_module(self, parent_module_name, parent_type, offload_vars, aliased_ptrs):
+    def create_module(self, parent_module_name, parent_type, offload_vars, aliased_ptrs, successor_types):
 
         # assemble module name
         name = 'UTIL' + '_' + parent_type.name.upper() + '_MOD'
@@ -282,32 +311,34 @@ class DerivedTypeDeepcopyTransformation(Transformation):
         spec = as_tuple(ir.Import(module=parent_module_name, symbols=as_tuple(Variable(name=parent_type.name))))
 
         # create offload methods
-        copy_method = self.create_copy_method(parent_type, offload_vars, aliased_ptrs)
-#        host_method = self.create_host_method(parent_type, skip_offload)
-#        wipe_method = self.create_wipe_method(parent_type, skip_offload)
+        copy_method = self.create_copy_method(parent_type, offload_vars, aliased_ptrs, successor_types)
+        host_method = self.create_host_method(parent_type, offload_vars, aliased_ptrs, successor_types)
+        wipe_method = self.create_wipe_method(parent_type, offload_vars, aliased_ptrs, successor_types)
 
         # define overloaded interfaces for contained methods
         spec += as_tuple(ir.Comment(''))
         spec += self.create_generic_interface('COPY', parent_type.name, copy_method)
-#        spec += self.create_generic_interface('HOST', parent_type.name, host_method)
-#        spec += self.create_generic_interface('WIPE', parent_type.name, wipe_method)
+        spec += self.create_generic_interface('HOST', parent_type.name, host_method)
+        spec += self.create_generic_interface('WIPE', parent_type.name, wipe_method)
         spec += as_tuple(ir.Comment(''))
 
         contains = (ir.Comment(''), copy_method)
-#        contains += (ir.Comment(''), host_method)
-#        contains += (ir.Comment(''), wipe_method)
+        contains += (ir.Comment(''), host_method)
+        contains += (ir.Comment(''), wipe_method)
 
         return Module(name=name, spec=spec, contains=contains)
 
     def transform_typedef(self, typedef, **kwargs):
 
         item = kwargs['item']
+        successors = kwargs.get('successors', [])
         skip_offload = item.config.get('skip_offload', [])
         aliased_ptrs = item.config.get('aliased_ptrs', {})
 
+        successor_types = [item.ir.dtype for item in successors]
         offload_vars = [v for v in typedef.variables if not v.name.lower() in skip_offload]
 
-        module = self.create_module(typedef.parent.name, typedef, offload_vars, aliased_ptrs)
+        module = self.create_module(typedef.parent.name, typedef, offload_vars, aliased_ptrs, successor_types)
         fnm = self.builddir + '/' + module.name
         source = Sourcefile(path=fnm.lower() + '.F90', ir=as_tuple(module))
         source.write()
