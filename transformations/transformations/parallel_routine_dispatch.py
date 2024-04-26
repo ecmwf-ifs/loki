@@ -18,6 +18,7 @@ from loki import (
 )
 import pickle
 import os
+from itertools import chain
 
 __all__ = ['ParallelRoutineDispatchTransformation']
 
@@ -25,6 +26,7 @@ __all__ = ['ParallelRoutineDispatchTransformation']
 class ParallelRoutineDispatchTransformation(Transformation):
 
     def __init__(self):
+        self.is_intent = False #set to True if the intent are read for interface block
         self.horizontal = [
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
@@ -63,9 +65,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
         }
         if 'parallel' not in pragma_attrs:
             return
-
+        pragma_attrs['target'] = pragma_attrs['target'].split('/')
+        region_name = pragma_attrs['name']
         dr_hook_calls = self.create_dr_hook_calls(
-            routine, routine.name+":"+pragma_attrs['name'],
+            routine, f"{routine.name}:{region_name}",
             sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
         )
 
@@ -74,7 +77,24 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         region_map_temp= self.decl_local_array(routine, region)
         region_map_derived= self.decl_derived_types(routine, region)
+
+        self.get_data = {}
+###        self.synchost = {} #synchost same for all the targets
+###        self.nullify  = {} #synchost same for all the targets
+
+        self.synchost = self.create_synchost(routine, region_name, region_map_derived, region_map_temp)
+        self.nullify = self.create_nullify(routine, region_name, region_map_derived, region_map_temp)
+
+
+        for target in pragma_attrs['target']:
         
+# Q : I would like get_data, synchost and nullify not be members of the Transformation object, however, I need them to run the test... 
+# A : maybe have them as members of the routine while
+# Is there an object to handle data that is needed for tests ? 
+#        get_data = self.create_pt_sync(routine, region_name, True, region_map_derived, region_map_temp)
+#        synchost = self.create_synchost(routine, region_name, True, region_map_derived, region_map_temp)
+#        nullify = self.create_nullify(routine, region_name, True, region_map_derived, region_map_temp)
+            self.process_target(routine, target, region_name, region_map_temp, region_map_derived)
         for var_name in region_map_temp:
             if var_name not in self.routine_map_temp:
                 self.routine_map_temp[var_name]=region_map_temp[var_name]
@@ -82,6 +102,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         for var_name in region_map_derived:
             if var_name not in self.routine_map_derived:
                 self.routine_map_derived[var_name]=region_map_derived[var_name]
+
+    def process_target(self, routine, target, region_name, region_map_temp, region_map_derived):
+
+        self.get_data[target] = self.create_pt_sync(routine, target, region_name, True, region_map_derived, region_map_temp)
+###        self.synchost[target] = self.create_synchost(routine, target, region_name, region_map_derived, region_map_temp)
+###        self.nullify[target] = self.create_nullify(routine, target, region_name, region_map_derived, region_map_temp)
 
 
     @staticmethod
@@ -100,8 +126,6 @@ class ParallelRoutineDispatchTransformation(Transformation):
             ]
         return dr_hook_calls
 
-#    @staticmethod
-#    def get_local_array(routine):
 
     def create_field_new_delete(self, routine, var, field_ptr_var):
         # Create the FIELD_NEW call
@@ -202,6 +226,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         for var in derived :
             
             key = f"{routine.variable_map[var.name_parts[0]].type.dtype.name}%{'%'.join(var.name_parts[1:])}"
+            #TODO : maybe have a global derive typed table, to avoid to many lookup in the map_index???
             if key in self.map_index:
                 value = self.map_index[key]
                 # Creating the pointer on the data : YL_A
@@ -235,10 +260,58 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return(region_map_derived)
 
     def add_derived(self, routine):
-        ptr_var=()
-        for value in self.routine_map_derived.values():
-            dcl = ir.VariableDeclaration(
-                symbols=(value[1],)
-            )
-            ptr_var += (dcl,)
-        routine.spec.append(ptr_var)
+        routine.variables += tuple(v[1] for v in self.routine_map_derived.values())
+        
+    def create_pt_sync(self, routine, target, region_name, is_get_data, region_map_derived, region_map_temp):
+        if is_get_data: #GET_***_DATA
+            hook_name = "GET_DATA"
+            if target == "OpenMP" or target == "OpenMPSingleColumn" : 
+                sync_name = "GET_HOST_DATA"
+            elif target == "OpenACCSingleColumn":
+                sync_name = "GET_DEVICE_DATA"
+            else : 
+                raise Exception(f"{target} : this target isn't known!")
+        else: #SYNCHOST
+            hook_name = "SYNCHOST"
+            sync_name = "GET_HOST_DATA"
+
+        dr_hook_calls = self.create_dr_hook_calls(
+            routine, cdname=f"{routine.name}:{region_name}:{hook_name}",
+            handle=sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
+        )
+       
+        sync_data = [dr_hook_calls[0]]
+
+        for var in chain(region_map_temp.values(), region_map_derived.values()):
+            if is_get_data:
+                if not self.is_intent : 
+                    intent = "RDWR"
+                else:
+                    raise NotImplementedError("Reading the intent from interface isn't implemented yes")
+            else:
+                    intent = "RDWR"  # for SYNCHOST, always RDWR
+
+            call = sym.InlineCall(sym.Variable(name=f"{sync_name}_{intent}"), parameters=(var[0],))
+            sync_data += [ir.Assignment(lhs=var[1].clone(dimensions=None), rhs=call, ptr=True)]
+            #sync_data += [ir.Assignment(lhs=(var[1],), rhs=(call,), ptr=True)]
+
+        sync_data.append(dr_hook_calls[1])
+    
+        return(sync_data)
+
+    def create_synchost(self, routine, region_name, region_map_derived, region_map_temp):
+        synchost = self.create_pt_sync(routine, None, region_name, False, region_map_derived, region_map_temp)
+        condition = sym.InlineCall(sym.Variable(name='LSYNCHOST'), parameters=(sym.StringLiteral(value=f"{routine.name}:{region_name}"),))
+        return [ir.Conditional(condition=condition, body=tuple(synchost))]
+
+    def create_nullify(self, routine, region_name, region_map_derived, region_map_temp):
+        dr_hook_calls = self.create_dr_hook_calls(
+            routine, cdname=f"{routine.name}:{region_name}:NULLIFY",
+            handle=sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
+        )
+        nullify= [dr_hook_calls[0]]
+        for var in chain(region_map_temp.values(), region_map_derived.values()):
+            nullify += [ir.Assignment(lhs=var[1].clone(dimensions=None), rhs=sym.InlineCall(sym.Variable(name='NULL')),ptr=True)]
+        nullify.append(dr_hook_calls[1])
+        return nullify
+
