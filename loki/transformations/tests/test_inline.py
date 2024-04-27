@@ -1175,6 +1175,7 @@ end module somemod
     assert 'inner' not in callnames
     assert 'minusone_second' in callnames
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_transformation_local_seq_assoc_crash_marked_no_seq_assoc(frontend):
     # Test case that a crash occurs if marked routine with sequence association is
@@ -1249,3 +1250,81 @@ end module somemod
     outer = module["outer"]
     with pytest.raises(ValueError):
         trafo.apply(outer)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_transformation_adjust_imports(frontend):
+    fcode_module = """
+module bnds_module
+  integer :: m
+  integer :: n
+end module bnds_module
+    """
+
+    fcode_another = """
+module another_module
+  integer :: x
+end module another_module
+    """
+
+    fcode_outer = """
+subroutine test_inline_outer(a, b)
+  use bnds_module, only: n
+  use test_inline_mod, only: test_inline_inner
+  implicit none
+
+  real(kind=8), intent(inout) :: a(n), b(n)
+
+  !$loki inline
+  call test_inline_inner(a, b)
+end subroutine test_inline_outer
+    """
+
+    fcode_inner = """
+module test_inline_mod
+  implicit none
+  contains
+
+subroutine test_inline_inner(a, b)
+  use bnds_module, only: n, m
+  use another_module, only: x
+
+  real(kind=8), intent(inout) :: a(n), b(n)
+  real(kind=8) :: tmp(m)
+  integer :: i
+
+  tmp(1:m) = x
+  do i=1, n
+    a(i) = b(i) + sum(tmp)
+  end do
+end subroutine test_inline_inner
+end module test_inline_mod
+    """
+    _ = Module.from_source(fcode_another, frontend=frontend)
+    _ = Module.from_source(fcode_module, frontend=frontend)
+    inner = Module.from_source(fcode_inner, frontend=frontend)
+    outer = Subroutine.from_source(
+        fcode_outer, definitions=inner, frontend=frontend
+    )
+
+    trafo = InlineTransformation(
+        inline_elementals=False, inline_marked=True, remove_imports=True
+    )
+    trafo.apply(outer)
+
+    # Check that the inlining has happened
+    assign = FindNodes(ir.Assignment).visit(outer.body)
+    assert len(assign) == 2
+    assert assign[0].lhs == 'tmp(1:m)'
+    assert assign[0].rhs == 'x'
+    assert assign[1].lhs == 'a(i)'
+    assert assign[1].rhs == 'b(i) + sum(tmp)'
+
+    # Now check that the right modules have been moved,
+    # and the import of the call has been removed
+    imports = FindNodes(ir.Import).visit(outer.spec)
+    assert len(imports) == 2
+    assert imports[0].module == 'another_module'
+    assert imports[0].symbols == ('x',)
+    assert imports[1].module == 'bnds_module'
+    assert 'm' in imports[1].symbols and 'n' in imports[1].symbols
