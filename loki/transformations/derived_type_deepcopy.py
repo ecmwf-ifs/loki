@@ -22,6 +22,7 @@ __all__ = ['DerivedTypeDeepcopyTransformation']
 class DerivedTypeDeepcopyTransformation(Transformation):
 
     item_filter = (TypeDefItem)
+    process_ignored_items = True
 
     def __init__(self, builddir):
         self.directive = 'openacc'
@@ -329,6 +330,9 @@ class DerivedTypeDeepcopyTransformation(Transformation):
         return Module(name=name, spec=spec, contains=contains)
 
     def transform_typedef(self, typedef, **kwargs):
+
+        if 'cpg_sl1' in typedef.name.lower():
+            return
 
         item = kwargs['item']
         successors = kwargs.get('successors', [])
