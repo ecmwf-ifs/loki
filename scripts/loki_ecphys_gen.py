@@ -17,7 +17,11 @@ from pathlib import Path
 from codetiming import Timer
 
 from loki import config as loki_config, Sourcefile, info
-from loki.ir import FindNodes, CallStatement, Transformer
+from loki.expression import symbols as sym, parse_expr
+from loki.ir import (
+    FindNodes, SubstituteStringExpressions, Transformer, CallStatement
+)
+from loki.tools import as_tuple, flatten
 
 from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import transform_sequence_association_append_map
@@ -59,6 +63,17 @@ def inline(source, build, remove_regions, log_level):
 
     # Clone original and change subroutine name
     ec_phys_fc = ec_phys_drv.clone(name='EC_PHYS_FC')
+
+    # Substitute symbols that do not exist in the caller context after inlining
+    ec_phys.spec = SubstituteStringExpressions({
+        'DIMS%KLON': 'YDGEOMETRY%YRDIM%NPROMA',
+        'DIMS%KLEV': 'YDGEOMETRY%YRDIMV%NFLEVG',
+        'DIMS%KLEVS': 'YDSURF%YSP_SBD%NLEVS',
+    }, scope=ec_phys).visit(ec_phys.spec)
+    callpar.spec = SubstituteStringExpressions({
+        'KDIM%KLON': 'YDGEOMETRY%YRDIM%NPROMA',
+        'KDIM%KLEV': 'YDGEOMETRY%YRDIMV%NFLEVG',
+    }, scope=callpar).visit(callpar.spec)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Inlined EC_PHYS in {s:.2f}s'):
         # First, get the outermost call
