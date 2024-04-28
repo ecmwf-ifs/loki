@@ -22,7 +22,9 @@ from loki.batch import Scheduler, Pipeline
 from loki.transformations.build_system import ModuleWrapTransformation
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
-from loki.transformations.sanitise import SequenceAssociationTransformation
+from loki.transformations.sanitise import (
+    SequenceAssociationTransformation, SubstituteExpressionTransformation
+)
 
 
 @click.group()
@@ -67,9 +69,21 @@ def inline(source, build, log_level):
 
     ec_phys_fc = scheduler['#ec_phys_drv'].ir
 
+    # Substitute symbols that do not exist in the caller context after inlining
+    subs_expressions = {
+        'DIMS%KLON': 'YDGEOMETRY%YRDIM%NPROMA',
+        'DIMS%KLEV': 'YDGEOMETRY%YRDIMV%NFLEVG',
+        'DIMS%KLEVS': 'YDSURF%YSP_SBD%NLEVS',
+        'KDIM%KLON': 'YDGEOMETRY%YRDIM%NPROMA',
+        'KDIM%KLEV': 'YDGEOMETRY%YRDIMV%NFLEVG',
+    }
+
     # Create sanitisation and inlining pipeline for control flow routines
     pipeline = Pipeline()
     pipeline += SequenceAssociationTransformation()
+    pipeline += SubstituteExpressionTransformation(
+        expression_map=subs_expressions, substitute_spec=True, substitute_body=False
+    )
     pipeline += DrHookTransformation(kernel_only=True, remove=True)
     pipeline += InlineTransformation(
         inline_elementals=False, inline_marked=True, remove_dead_code=False,
