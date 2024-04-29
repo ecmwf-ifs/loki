@@ -131,6 +131,6 @@ class Dimension:
 
         exprs = [self.index,]
         if self._index_aliases:
-            exprs += [alias for alias in self._index_aliases]
+            exprs += list(self._index_aliases)
 
         return as_tuple(exprs)
