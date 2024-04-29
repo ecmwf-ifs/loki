@@ -44,6 +44,9 @@ function( find_python_venv VENV_PATH )
     # Unset Python3_EXECUTABLE because it is also an input variable
     #  (see documentation, Artifacts Specification section)
     unset( Python3_EXECUTABLE )
+    # To allow cmake to discover the newly created venv if Python3_ROOT_DIR
+    # was passed as an argument at build-time
+    set( Python3_ROOT_DIR "${VENV_PATH}" )
 
     # Launch a new search
     find_package( Python3 COMPONENTS Interpreter Development REQUIRED )
