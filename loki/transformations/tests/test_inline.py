@@ -703,8 +703,8 @@ end subroutine acraneb_transt
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('remove_imports', [True, False])
-def test_inline_marked_subroutines(frontend, remove_imports):
+@pytest.mark.parametrize('adjust_imports', [True, False])
+def test_inline_marked_subroutines(frontend, adjust_imports):
     """ Test subroutine inlining via marker pragmas. """
 
     fcode_driver = """
@@ -762,7 +762,7 @@ end module util_mod
     assert calls[2].routine == module['add_one']
 
     inline_marked_subroutines(
-        routine=driver, allowed_aliases=('I',), remove_imports=remove_imports
+        routine=driver, allowed_aliases=('I',), adjust_imports=adjust_imports
     )
 
     # Check inlined loops and assignments
@@ -780,15 +780,15 @@ end module util_mod
 
     imports = FindNodes(ir.Import).visit(driver.spec)
     assert len(imports) == 1
-    if remove_imports:
+    if adjust_imports:
         assert imports[0].symbols == ('add_one',)
     else:
         assert imports[0].symbols == ('add_one', 'add_a_to_b')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('remove_imports', [True, False])
-def test_inline_marked_routine_with_optionals(frontend, remove_imports):
+@pytest.mark.parametrize('adjust_imports', [True, False])
+def test_inline_marked_routine_with_optionals(frontend, adjust_imports):
     """ Test subroutine inlining via marker pragmas with omitted optionals. """
 
     fcode_driver = """
@@ -837,7 +837,7 @@ end module util_mod
     assert calls[0].routine == module['add_one']
     assert calls[1].routine == module['add_one']
 
-    inline_marked_subroutines(routine=driver, remove_imports=remove_imports)
+    inline_marked_subroutines(routine=driver, adjust_imports=adjust_imports)
 
     # Check inlined loops and assignments
     assert len(FindNodes(ir.Loop).visit(driver.body)) == 2
@@ -858,7 +858,7 @@ end module util_mod
     assert checks[1].condition == 'False'
 
     imports = FindNodes(ir.Import).visit(driver.spec)
-    assert len(imports) == 0 if remove_imports else 1
+    assert len(imports) == 0 if adjust_imports else 1
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -910,7 +910,7 @@ end subroutine dave
 
     assert FindNodes(ir.CallStatement).visit(outer.body)[0].routine == inner
 
-    inline_marked_subroutines(routine=outer, remove_imports=True)
+    inline_marked_subroutines(routine=outer, adjust_imports=True)
 
     # Ensure that all associates are perfectly nested afterwards
     assocs = FindNodes(ir.Associate).visit(outer.body)
@@ -965,7 +965,7 @@ end module inline_declarations
     outer = module['outer']
     inner = module['inner']
 
-    inline_marked_subroutines(routine=outer, remove_imports=True)
+    inline_marked_subroutines(routine=outer, adjust_imports=True)
 
     # Check that all declarations are using the ``bnds`` symbol
     assert outer.symbols[0] == 'a(1:bnds%end)' if frontend == OMNI else 'a(bnds%end)'
@@ -1308,7 +1308,7 @@ end module test_inline_mod
     )
 
     trafo = InlineTransformation(
-        inline_elementals=False, inline_marked=True, remove_imports=True
+        inline_elementals=False, inline_marked=True, adjust_imports=True
     )
     trafo.apply(outer)
 

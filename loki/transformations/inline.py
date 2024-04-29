@@ -66,8 +66,9 @@ class InlineTransformation(Transformation):
     allowed_aliases : tuple or list of str or :any:`Expression`, optional
         List of variables that will not be renamed in the parent scope during
         internal and pragma-driven inlining.
-    remove_imports : bool
-        Strip unused import symbols after pragma-inlining (optional, default: True)
+    adjust_imports : bool
+        Adjust imports by removing the symbol of the inlined routine or adding
+        imports needed by the imported routine (optional, default: True)
     external_only : bool, optional
         Do not replace variables declared in the local scope when
         inlining constants (default: True)
@@ -82,7 +83,7 @@ class InlineTransformation(Transformation):
             self, inline_constants=False, inline_elementals=True,
             inline_internals=False, inline_marked=True,
             remove_dead_code=True, allowed_aliases=None,
-            remove_imports=True, external_only=True,
+            adjust_imports=True, external_only=True,
             resolve_sequence_association=False
     ):
         self.inline_constants = inline_constants
@@ -91,7 +92,7 @@ class InlineTransformation(Transformation):
         self.inline_marked = inline_marked
         self.remove_dead_code = remove_dead_code
         self.allowed_aliases = allowed_aliases
-        self.remove_imports = remove_imports
+        self.adjust_imports = adjust_imports
         self.external_only = external_only
         self.resolve_sequence_association = resolve_sequence_association
 
@@ -123,7 +124,7 @@ class InlineTransformation(Transformation):
         if self.inline_marked:
             inline_marked_subroutines(
                 routine, allowed_aliases=self.allowed_aliases,
-                remove_imports=self.remove_imports
+                adjust_imports=self.adjust_imports
             )
 
         # After inlining, attempt to trim unreachable code paths
@@ -541,7 +542,7 @@ def inline_internal_procedures(routine, allowed_aliases=None):
 inline_member_procedures = inline_internal_procedures
 
 
-def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True):
+def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True):
     """
     Inline :any:`Subroutine` objects guided by pragma annotations.
 
@@ -560,8 +561,9 @@ def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True
     allowed_aliases : tuple or list of str or :any:`Expression`, optional
         List of variables that will not be renamed in the parent scope, even
         if they alias with a local declaration.
-    remove_imports : bool
-        Strip unused import symbols after inlining (optional, default: True)
+    adjust_imports : bool
+        Adjust imports by removing the symbol of the inlined routine or adding
+        imports needed by the imported routine (optional, default: True)
     """
 
     with pragmas_attached(routine, node_type=CallStatement):
@@ -586,7 +588,7 @@ def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True
                 )
 
     # Remove imported symbols that have become obsolete
-    if remove_imports:
+    if adjust_imports:
         callees = tuple(callee.procedure_symbol for callee in call_sets.keys())
         not_inlined = tuple(callee.procedure_symbol for callee in no_call_sets.keys())
 
