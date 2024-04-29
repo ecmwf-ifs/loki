@@ -14,7 +14,7 @@ from loki.transform import Transformation
 from loki import (
     FindVariables, DerivedType, SymbolAttributes,
     Array, single_variable_declaration, Transformer,
-    BasicType
+    BasicType, as_tuple
 )
 import pickle
 import os
@@ -31,6 +31,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
+        self.map_compute = {
+            "OpenMP" : self.create_compute_openmp, 
+            "OpenMPSingleColumn" : self.create_compute_openmpscc,
+            "OpenACCSingleColumn" : self.create_compute_openaccscc
+                       }
+
         #TODO : do smthg for opening field_index.pkl
         with open(os.getcwd()+"/transformations/transformations/field_index.pkl", 'rb') as fp:
             self.map_index = pickle.load(fp)
@@ -46,6 +52,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.routine_map_derived = {} 
 
     def transform_subroutine(self, routine, **kwargs):
+        self.get_cpg(routine)
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
                 if is_loki_pragma(region.pragma):
@@ -55,6 +62,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.add_field(routine)
         self.add_derived(routine)
         #call add_arrays etc...
+
 
     def process_parallel_region(self, routine, region):
         pragma_content = region.pragma.content.split(maxsplit=1)
@@ -79,22 +87,21 @@ class ParallelRoutineDispatchTransformation(Transformation):
         region_map_derived= self.decl_derived_types(routine, region)
 
         self.get_data = {}
+        self.compute = {}
 ###        self.synchost = {} #synchost same for all the targets
 ###        self.nullify  = {} #synchost same for all the targets
 
         self.synchost = self.create_synchost(routine, region_name, region_map_derived, region_map_temp)
         self.nullify = self.create_nullify(routine, region_name, region_map_derived, region_map_temp)
 
-
         for target in pragma_attrs['target']:
-        
 # Q : I would like get_data, synchost and nullify not be members of the Transformation object, however, I need them to run the test... 
 # A : maybe have them as members of the routine while
 # Is there an object to handle data that is needed for tests ? 
 #        get_data = self.create_pt_sync(routine, region_name, True, region_map_derived, region_map_temp)
 #        synchost = self.create_synchost(routine, region_name, True, region_map_derived, region_map_temp)
 #        nullify = self.create_nullify(routine, region_name, True, region_map_derived, region_map_temp)
-            self.process_target(routine, target, region_name, region_map_temp, region_map_derived)
+            self.process_target(routine, region, region_name, region_map_temp, region_map_derived, target)
         for var_name in region_map_temp:
             if var_name not in self.routine_map_temp:
                 self.routine_map_temp[var_name]=region_map_temp[var_name]
@@ -103,12 +110,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if var_name not in self.routine_map_derived:
                 self.routine_map_derived[var_name]=region_map_derived[var_name]
 
-    def process_target(self, routine, target, region_name, region_map_temp, region_map_derived):
-
+    def process_target(self, routine, region, region_name, region_map_temp, region_map_derived, target):
         self.get_data[target] = self.create_pt_sync(routine, target, region_name, True, region_map_derived, region_map_temp)
-###        self.synchost[target] = self.create_synchost(routine, target, region_name, region_map_derived, region_map_temp)
-###        self.nullify[target] = self.create_nullify(routine, target, region_name, region_map_derived, region_map_temp)
-
+        self.compute[target] = self.map_compute[target](routine, region, region_name, region_map_temp, region_map_derived)
 
     @staticmethod
     def create_dr_hook_calls(scope, cdname, handle):
@@ -232,12 +236,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 # Creating the pointer on the data : YL_A
                 data_name = f"Z_{var.name.replace('%', '_')}"
                 if "REAL" and "JPRB" in value[0]:
-                    data_type = SymbolAttributes(
-                        dtype=BasicType.REAL, kind=routine.symbol_map['JPRB'],
-                        pointer=True
-                    )
                     data_dim = value[2] + 1
                     data_shape = (sym.RangeIndex((None, None)),) * data_dim
+                    data_type = SymbolAttributes(
+                        dtype=BasicType.REAL, kind=routine.symbol_map['JPRB'],
+                        pointer=True, shape=data_shape
+                    )
                     ptr_var = sym.Variable(name=data_name, type=data_type, dimensions=data_shape, scope=routine)
 
                 else:
@@ -293,7 +297,6 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
             call = sym.InlineCall(sym.Variable(name=f"{sync_name}_{intent}"), parameters=(var[0],))
             sync_data += [ir.Assignment(lhs=var[1].clone(dimensions=None), rhs=call, ptr=True)]
-            #sync_data += [ir.Assignment(lhs=(var[1],), rhs=(call,), ptr=True)]
 
         sync_data.append(dr_hook_calls[1])
     
@@ -315,3 +318,96 @@ class ParallelRoutineDispatchTransformation(Transformation):
         nullify.append(dr_hook_calls[1])
         return nullify
 
+    def get_cpg(self,routine):
+        #Assuming CPG_OPTS_TYPE and CPG_BNDS_TYPE are the same in all the routine.
+        found_opts = False
+        found_bnds = False
+        for var in FindVariables().visit(routine.spec):
+            if var.type.dtype.name=="CPG_OPTS_TYPE":
+                self.cpg_opts = var 
+                found_opts = True
+            if var.type.dtype.name=="CPG_BNDS_TYPE":
+                self.cpg_bnds = var
+                found_bnds = True
+            if (found_opts and found_bnds) :
+                if "YD" in self.cpg_bnds.name:
+                    lcpg_bnds_name = self.cpg_bnds.name.replace("YD", "YL")
+                    self.lcpg_bnds = sym.Variable(name=lcpg_bnds_name, scope=routine)
+                    dcl = ir.VariableDeclaration(symbols=as_tuple(self.lcpg_bnds))
+                    routine.spec.append(dcl)
+                    data_type = SymbolAttributes(
+                        dtype=BasicType.INTEGER, kind=routine.symbol_map['JPIM']
+                    )
+                    self.jblk = sym.Variable(name="JBLK", type=data_type, scope=routine)
+                    routine.spec.append(self.jblk)
+                    return
+                else:
+                    raise Exception(f"cpg_bnds unexpected name : {self.cpg_bnds.name}")
+
+    def update_args(self, arg, region_map):
+        new_arg = region_map[arg.name][1]
+        dim = len(new_arg.dimensions)
+        #dim = len(new_arg.shape)
+        new_dimensions = (sym.RangeIndex((None, None)),) * (dim-1)
+        new_dimensions += (self.jblk,)
+        return new_arg.clone(dimensions=new_dimensions)
+
+    def create_compute_openmp(self, routine, region, region_name, region_map_temp, region_map_derived):
+    #ylcpg_bnds : new var to add to spec, type(ylcpg)=type(cpg_bnds)=CPG_BNDS_TYPE
+
+    #hook_compute 0
+    #call ylcpg_bnds%init(ydcpg_opts)
+    #!$omp parallel do private (jblk) firstprivate (ylcpg_bnds)
+    #do jblk = 1, ydcpg_opts%kgpblks
+    #   call ylcpg_bnds%update(jblk)
+    #   call callee(ydgeometry, ydmodel, ylcpg_bnds%kidia, ... (...BLK))
+    #enddo
+    #hook_compute 1
+
+        init = ir.CallStatement(
+            name=routine.resolve_typebound_var(f"{self.lcpg_bnds.name}%INIT"),
+            arguments=(self.cpg_opts,))
+        #TODO : generate lst_private !!!!
+        lst_private = "JBLK"
+        pragma = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE {lst_private} FIRSTPRIVATE ({self.lcpg_bnds})")
+        update = ir.CallStatement(  
+            name=routine.resolve_typebound_var(f"{self.lcpg_bnds.name}%UPDATE"), 
+            arguments=(self.jblk,)
+        )
+        #TODO : musn't be call but the body of the region here?? 
+
+        new_calls = []
+        for call in FindNodes(ir.CallStatement).visit(region):
+            if call.name!="DR_HOOK":
+               # for var in chain(region_map_temp.values(), region_map_derived.values()):
+                new_arguments = []
+                for arg in call.arguments:
+                    if arg.name in region_map_temp:
+                        new_arguments +=[self.update_args(arg, region_map_temp)]
+                    elif arg.name in region_map_derived:
+                        new_arguments +=[self.update_args(arg, region_map_derived)]
+                    elif arg.name_parts[0]==self.cpg_bnds.name:
+                        new_arguments += [routine.resolve_typebound_var(f"{self.lcpg_bnds}%{arg.name_parts[1]}")]
+                    else:
+                        new_arguments +=[arg]
+                new_calls += [call.clone(arguments=as_tuple(new_arguments))]
+        
+        new_calls = tuple(new_calls)
+        
+        loop_body = (update,) + new_calls
+        loop = ir.Loop(variable=self.jblk, bounds=sym.LoopRange((1,routine.resolve_typebound_var(f"{self.cpg_opts}%KGPBLKS"))), body=loop_body)
+        dr_hook_calls = self.create_dr_hook_calls(
+            routine, f"{routine.name}:{region_name}:COMPUTE",
+            sym.Variable(name='ZHOOK_HANDLE_COMPUTE', scope=routine)
+        )
+        new_region = (dr_hook_calls[0], init, pragma, loop, dr_hook_calls[1])
+        return(new_region)
+   # TODO : YLCPG_BNDS%INIT
+   # TODO : OMP PARALLEL
+  #  sym.DeferredTypeSymbol
+ #call : call.clone(name=..., args= tuple of the region var + dimensions!!!)
+
+    def create_compute_openmpscc(self, routine, region, region_name, region_map_temp, region_map_derived):
+        pass
+    def create_compute_openaccscc(self, routine, region, region_name, region_map_temp, region_map_derived):
+        pass

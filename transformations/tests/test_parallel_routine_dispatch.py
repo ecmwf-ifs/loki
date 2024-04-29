@@ -364,3 +364,57 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:NULLIFY', 1, ZHOOK_HANDLE_FIEL
 
     for node in nullify:
         assert fgen(node) in test_nullify
+
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_compute_openmp(here, frontend):
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    transformation = ParallelRoutineDispatchTransformation()
+    transformation.apply(source['dispatch_routine'])
+
+    map_compute = transformation.compute
+    compute_openmp = map_compute['OpenMP']
+ 
+    test_compute= """
+IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 0, ZHOOK_HANDLE_COMPUTE)
+
+CALL YLCPG_BNDS%INIT(YDCPG_OPTS)
+!$OMP PARALLEL DO PRIVATE JBLK FIRSTPRIVATE( YLCPG_BNDS )
+
+DO JBLK=1,YDCPG_OPTS%KGPBLKS
+    CALL YLCPG_BNDS%UPDATE(JBLK)
+
+    CALL CPPHINP (YDGEOMETRY, YDMODEL, YLCPG_BNDS%KIDIA, YLCPG_BNDS%KFDIA, Z_YDVARS_GEOMETRY_GEMU_T0&
+  &(:, JBLK), Z_YDVARS_GEOMETRY_GELAM_T0(:, JBLK), Z_YDVARS_U_T0(:,:, JBLK), Z_YDVARS_V_T0(:&
+  &,:, JBLK), Z_YDVARS_Q_T0(:,:, JBLK), Z_YDVARS_Q_DL(:,:, JBLK), Z_YDVARS_Q_DM(:,:, JBLK), Z_YDVARS_CVGQ_DL     &
+  &(:,:, JBLK), Z_YDVARS_CVGQ_DM(:,:, JBLK), Z_YDCPG_PHY0_XYB_RDELP(:,:, JBLK), Z_YDCPG_DYN0_CTY_EVEL&
+  &(:,:, JBLK), Z_YDVARS_CVGQ_T0(:,:, JBLK), ZRDG_MU0(:, JBLK), ZRDG_MU0LU(:, JBLK), ZRDG_MU0M&
+  &(:, JBLK), ZRDG_MU0N(:, JBLK), ZRDG_CVGQ(:,:, JBLK), Z_YDMF_PHYS_SURF_GSD_VF_PZ0F(:, JBLK))
+ENDDO
+
+IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMPUTE)
+"""
+
+    test_call_var = ["YDGEOMETRY", "YDMODEL", "YLCPG_BNDS%KIDIA", "YLCPG_BNDS%KFDIA", 
+        "Z_YDVARS_GEOMETRY_GEMU_T0(:, JBLK)", "Z_YDVARS_GEOMETRY_GELAM_T0(:, JBLK)", "Z_YDVARS_U_T0(:, :, JBLK)", 
+        "Z_YDVARS_V_T0(:, :, JBLK)", "Z_YDVARS_Q_T0(:, :, JBLK)", "Z_YDVARS_Q_DL(:, :, JBLK)", 
+        "Z_YDVARS_Q_DM(:, :, JBLK)", "Z_YDVARS_CVGQ_DL(:, :, JBLK)", "Z_YDVARS_CVGQ_DM(:, :, JBLK)", 
+        "Z_YDCPG_PHY0_XYB_RDELP(:, :, JBLK)", "Z_YDCPG_DYN0_CTY_EVEL(:, :, JBLK)", 
+        "Z_YDVARS_CVGQ_T0(:, :, JBLK)", "ZRDG_MU0(:, JBLK)", "ZRDG_MU0LU(:, JBLK)", 
+        "ZRDG_MU0M(:, JBLK)", "ZRDG_MU0N(:, JBLK)", "ZRDG_CVGQ(:, :, JBLK)", 
+        "Z_YDMF_PHYS_SURF_GSD_VF_PZ0F(:, JBLK)"
+    ]
+
+    for node in compute_openmp[:3]:
+        assert fgen(node) in test_compute
+    loop = compute_openmp[3]
+    assert fgen(loop.bounds) ==  '1,YDCPG_OPTS%KGPBLKS'
+    assert fgen(loop.variable) ==  'JBLK'
+    assert fgen(loop.body[0]) == 'CALL YLCPG_BNDS%UPDATE(JBLK)'    
+    call = loop.body[1]
+    assert fgen(call.name) == 'CPPHINP'
+    for arg in call.arguments:
+        assert fgen(arg) in test_call_var
