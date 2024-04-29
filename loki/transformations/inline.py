@@ -602,4 +602,27 @@ def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True
                 )
                 # Remove import if no further symbols used, otherwise clone with new symbols
                 import_map[impt] = impt.clone(symbols=new_symbols) if new_symbols else None
+
+        # Now move any callee imports we might need over to the caller
+        new_imports = set()
+        imported_module_map = {im.module: im for im in routine.imports}
+        for callee in call_sets.keys():
+            for impt in callee.imports:
+
+                # Add any callee module we do not yet know
+                if impt.module not in imported_module_map:
+                    new_imports.add(impt)
+
+                # If we're importing the same module, check for missing symbols
+                if m := imported_module_map.get(impt.module):
+                    if not all(s in m.symbols for s in impt.symbols):
+                        import_map[m] = m.clone(symbols=tuple(set(m.symbols + impt.symbols)))
+
+        # Finally, apply the import remapping
         routine.spec = Transformer(import_map).visit(routine.spec)
+
+        # Add Fortran imports to the top, and C-style interface headers at the bottom
+        c_imports = tuple(im for im in new_imports if im.c_import)
+        f_imports = tuple(im for im in new_imports if not im.c_import)
+        routine.spec.prepend(f_imports)
+        routine.spec.append(c_imports)
