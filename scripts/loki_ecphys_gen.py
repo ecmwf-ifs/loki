@@ -24,7 +24,7 @@ from loki.expression import (
 )
 from loki.tools import as_tuple, flatten
 
-from loki.transformations.inline import inline_subroutine_calls
+from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import transform_sequence_association_append_map
 from loki.transformations.remove_code import do_remove_marked_regions
 from loki.transformations.build_system import ModuleWrapTransformation
@@ -101,18 +101,11 @@ def inline(source, build, remove_regions):
         transform_sequence_association_append_map(call_map, ecphys_calls[0])
         ec_phys_fc.body = Transformer(call_map).visit(ec_phys_fc.body)
 
-        # Refresh the call list...
-        ecphys_calls = [
-            c for c in FindNodes(CallStatement).visit(ec_phys_fc.body) if c.name == 'EC_PHYS'
-        ]
-        inline_subroutine_calls(ec_phys_fc, calls=ecphys_calls, callee=ec_phys)
+        inline_marked_subroutines(ec_phys_fc)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Inlined CALLPAR in {s:.2f}s'):
         # Now just inline CALLPAR
-        callpar_calls = [
-            c for c in FindNodes(CallStatement).visit(ec_phys_fc.body) if c.name == 'CALLPAR'
-        ]
-        inline_subroutine_calls(ec_phys_fc, calls=callpar_calls, callee=callpar)
+        inline_marked_subroutines(ec_phys_fc, allowed_aliases=('JL', 'JK', 'J2D'))
 
     if remove_regions:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
