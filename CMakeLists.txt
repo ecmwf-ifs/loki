@@ -148,6 +148,12 @@ if( NOT HAVE_NO_INSTALL )
 
     endif()
 
+    # Determine whether this is a Git worktree or if we have to provide
+    # the version number to setuptools_scm
+    if( NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.git )
+        set( ENV{SETUPTOOLS_SCM_PRETEND_VERSION} ${loki_VERSION} )
+    endif()
+
     # Install Loki python package with dependencies
     if( NOT ${CMAKE_VERBOSE_MAKEFILE} )
         # Less verbose output

@@ -284,6 +284,12 @@ else
   pip_opts=[${pip_opts:1}]
 fi
 
+# Supply pretend version if not a git worktree
+if [ ! -e .git ]; then
+  export "SETUPTOOLS_SCM_PRETEND_VERSION=$(cat VERSION)"
+fi
+
+
 pip install $PIPPROXYOPTIONS --upgrade pip
 pip install $PIPPROXYOPTIONS -e .$pip_opts  # Installs Loki dev copy in editable mode
 pip install $PIPPROXYOPTIONS -e ./transformations
