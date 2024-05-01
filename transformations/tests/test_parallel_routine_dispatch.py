@@ -418,3 +418,214 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
     assert fgen(call.name) == 'CPPHINP'
     for arg in call.arguments:
         assert fgen(arg) in test_call_var
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_compute_openmpscc(here, frontend):
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    transformation = ParallelRoutineDispatchTransformation()
+    transformation.apply(source['dispatch_routine'])
+
+    map_compute = transformation.compute
+    compute_openmpscc = map_compute['OpenMPSingleColumn']
+
+    test_compute= """
+IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 0, ZHOOK_HANDLE_COMPUTE)
+
+!$OMP PARALLEL DO PRIVATE( JBLK, JLON, YLCPG_BNDS, YLSTACK )
+
+DO JBLK = 1, YDCPG_OPTS%KGPBLKS
+
+    DO JLON = 1,MIN(YDCPG_OPTS%KLON, YDCPG_OPTS%KGPCOMP - (JBLK - 1)*YDCPG_OPTS%KLON)
+      YLCPG_BNDS%KIDIA = JLON
+      YLCPG_BNDS%KFDIA = JLON
+      YLSTACK%L = stack_l(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%U = stack_u(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+
+      CALL CPPHINP_OPENACC (YDGEOMETRY, YDMODEL, YLCPG_BNDS%KIDIA, YLCPG_BNDS%KFDIA, Z_YDVARS_GEOMETRY_GEMU_T0&
+    &(:, JBLK), Z_YDVARS_GEOMETRY_GELAM_T0(:, JBLK), Z_YDVARS_U_T0(:,:, JBLK), Z_YDVARS_V_T0(:,:, JBLK&
+    &), Z_YDVARS_Q_T0(:,:, JBLK), Z_YDVARS_Q_DL(:,:, JBLK), Z_YDVARS_Q_DM(:,:, JBLK), Z_YDVARS_CVGQ_DL&
+    &(:,:, JBLK), Z_YDVARS_CVGQ_DM(:,:, JBLK), Z_YDCPG_PHY0_XYB_RDELP(:,:, JBLK), Z_YDCPG_DYN0_CTY_EVEL&
+    &(:,:, JBLK), Z_YDVARS_CVGQ_T0(:,:, JBLK), ZRDG_MU0(:, JBLK), ZRDG_MU0LU(:, JBLK), ZRDG_MU0M(:&
+    &, JBLK), ZRDG_MU0N(:, JBLK), ZRDG_CVGQ(:,:, JBLK), Z_YDMF_PHYS_SURF_GSD_VF_PZ0F(:, JBLK), YDSTACK=YLSTACK)
+    ENDDO
+
+ENDDO
+
+IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMPUTE)
+"""
+
+    test_call_var = ["YDGEOMETRY", "YDMODEL", "YLCPG_BNDS%KIDIA", "YLCPG_BNDS%KFDIA", 
+        "Z_YDVARS_GEOMETRY_GEMU_T0(:, JBLK)", "Z_YDVARS_GEOMETRY_GELAM_T0(:, JBLK)", "Z_YDVARS_U_T0(:, :, JBLK)", 
+        "Z_YDVARS_V_T0(:, :, JBLK)", "Z_YDVARS_Q_T0(:, :, JBLK)", "Z_YDVARS_Q_DL(:, :, JBLK)", 
+        "Z_YDVARS_Q_DM(:, :, JBLK)", "Z_YDVARS_CVGQ_DL(:, :, JBLK)", "Z_YDVARS_CVGQ_DM(:, :, JBLK)", 
+        "Z_YDCPG_PHY0_XYB_RDELP(:, :, JBLK)", "Z_YDCPG_DYN0_CTY_EVEL(:, :, JBLK)", 
+        "Z_YDVARS_CVGQ_T0(:, :, JBLK)", "ZRDG_MU0(:, JBLK)", "ZRDG_MU0LU(:, JBLK)", 
+        "ZRDG_MU0M(:, JBLK)", "ZRDG_MU0N(:, JBLK)", "ZRDG_CVGQ(:, :, JBLK)", 
+        "Z_YDMF_PHYS_SURF_GSD_VF_PZ0F(:, JBLK)", "YDSTACK=YLSTACK"
+    ]
+
+    assert fgen(compute_openmpscc[0]) in test_compute
+    assert fgen(compute_openmpscc[1]) in test_compute
+    assert fgen(compute_openmpscc[3]) in test_compute
+    loop_jblk = compute_openmpscc[2]
+    assert fgen(loop_jblk.bounds) ==  '1,YDCPG_OPTS%KGPBLKS'
+    assert fgen(loop_jblk.variable) ==  'JBLK'
+    loop_jblk_body = loop_jblk.body
+    loop_jlon = loop_jblk_body[1]
+    assert fgen(loop_jlon.bounds) ==  '1,MIN(YDCPG_OPTS%KLON, YDCPG_OPTS%KGPCOMP - (JBLK - 1)*YDCPG_OPTS%KLON)'
+    assert fgen(loop_jlon.variable) ==  'JLON'
+    loop_jlon_body = loop_jlon.body
+    for node in loop_jlon_body[:4]:
+        assert fgen(node) in test_compute
+    call = loop_jlon_body[4]
+    assert call.name == 'CPPHINP_OPENACC'
+    for arg in call.arguments:
+        assert fgen(arg) in test_call_var
+
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_compute_openaccscc(here, frontend):
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    transformation = ParallelRoutineDispatchTransformation()
+    transformation.apply(source['dispatch_routine'])
+
+    map_compute = transformation.compute
+    compute_openaccscc = map_compute['OpenACCSingleColumn']
+
+    test_compute = """
+IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 0, ZHOOK_HANDLE_COMPUTE)
+
+
+  !$ACC PARALLEL LOOP GANG &
+  !$ACC&PRESENT (YDCPG_OPTS, YDGEOMETRY, YDMODEL, YSTACK, ZRDG_CVGQ, ZRDG_MU0, ZRDG_MU0LU, &
+  !$ACC&         ZRDG_MU0M, ZRDG_MU0N, Z_YDCPG_DYN0_CTY_EVEL, Z_YDCPG_PHY0_XYB_RDELP, &
+  !$ACC&         Z_YDVARS_CVGQ_DL, Z_YDVARS_CVGQ_DM, Z_YDVARS_CVGQ_T0, Z_YDVARS_GEOMETRY_GELAM_T0, &
+  !$ACC&         Z_YDVARS_GEOMETRY_GEMU_T0, Z_YDVARS_Q_DL, Z_YDVARS_Q_DM, &
+  !$ACC&         Z_YDVARS_Q_T0, Z_YDVARS_U_T0, Z_YDVARS_V_T0) &
+  !$ACC&PRIVATE (JBLK) &
+  !$ACC&VECTOR_LENGTH (YDCPG_OPTS%KLON) 
+
+  DO JBLK = 1, YDCPG_OPTS%KGPBLKS
+
+
+
+  !$ACC LOOP VECTOR &
+  !$ACC&PRIVATE (JLON, YLCPG_BNDS, YLSTACK) 
+
+
+
+    DO JLON = 1,MIN(YDCPG_OPTS%KLON, YDCPG_OPTS%KGPCOMP - (JBLK - 1)*YDCPG_OPTS%KLON)
+      YLCPG_BNDS%KIDIA = JLON
+      YLCPG_BNDS%KFDIA = JLON
+      YLSTACK%L = stack_l(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%U = stack_u(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+
+      CALL CPPHINP_OPENACC (YDGEOMETRY, YDMODEL, YLCPG_BNDS%KIDIA, YLCPG_BNDS%KFDIA, Z_YDVARS_GEOMETRY_GEMU_T0&
+    &(:, JBLK), Z_YDVARS_GEOMETRY_GELAM_T0(:, JBLK), Z_YDVARS_U_T0(:,:, JBLK), Z_YDVARS_V_T0(:,:, JBLK&
+    &), Z_YDVARS_Q_T0(:,:, JBLK), Z_YDVARS_Q_DL(:,:, JBLK), Z_YDVARS_Q_DM(:,:, JBLK), Z_YDVARS_CVGQ_DL&
+    &(:,:, JBLK), Z_YDVARS_CVGQ_DM(:,:, JBLK), Z_YDCPG_PHY0_XYB_RDELP(:,:, JBLK), Z_YDCPG_DYN0_CTY_EVEL&
+    &(:,:, JBLK), Z_YDVARS_CVGQ_T0(:,:, JBLK), ZRDG_MU0(:, JBLK), ZRDG_MU0LU(:, JBLK), ZRDG_MU0M(:&
+    &, JBLK), ZRDG_MU0N(:, JBLK), ZRDG_CVGQ(:,:, JBLK),YDSTACK=YLSTACK)
+    ENDDO
+
+ENDDO
+
+IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMPUTE)
+"""
+
+    test_call_var = ["YDGEOMETRY", "YDMODEL", "YLCPG_BNDS%KIDIA", "YLCPG_BNDS%KFDIA", 
+        "Z_YDVARS_GEOMETRY_GEMU_T0(:, JBLK)", "Z_YDVARS_GEOMETRY_GELAM_T0(:, JBLK)", "Z_YDVARS_U_T0(:, :, JBLK)", 
+        "Z_YDVARS_V_T0(:, :, JBLK)", "Z_YDVARS_Q_T0(:, :, JBLK)", "Z_YDVARS_Q_DL(:, :, JBLK)", 
+        "Z_YDVARS_Q_DM(:, :, JBLK)", "Z_YDVARS_CVGQ_DL(:, :, JBLK)", "Z_YDVARS_CVGQ_DM(:, :, JBLK)", 
+        "Z_YDCPG_PHY0_XYB_RDELP(:, :, JBLK)", "Z_YDCPG_DYN0_CTY_EVEL(:, :, JBLK)", 
+        "Z_YDVARS_CVGQ_T0(:, :, JBLK)", "ZRDG_MU0(:, JBLK)", "ZRDG_MU0LU(:, JBLK)", 
+        "ZRDG_MU0M(:, JBLK)", "ZRDG_MU0N(:, JBLK)", "ZRDG_CVGQ(:, :, JBLK)", 
+        "Z_YDMF_PHYS_SURF_GSD_VF_PZ0F(:, JBLK)", "YDSTACK=YLSTACK"
+    ]
+
+    assert fgen(compute_openaccscc[0]) in test_compute
+    assert fgen(compute_openaccscc[3]) in test_compute
+    #TODO test on first ACC pragma
+    loop_jblk = compute_openaccscc[2]
+    assert fgen(loop_jblk.bounds) ==  '1,YDCPG_OPTS%KGPBLKS'
+    assert fgen(loop_jblk.variable) ==  'JBLK'
+    loop_jblk_body = loop_jblk.body
+    assert fgen(loop_jblk_body[0]) == "!$ACC LOOP VECTOR PRIVATE( JLON, YLCPG_BNDS, YLSTACK )"
+    loop_jlon = loop_jblk_body[1]
+    assert fgen(loop_jlon.bounds) ==  '1,MIN(YDCPG_OPTS%KLON, YDCPG_OPTS%KGPCOMP - (JBLK - 1)*YDCPG_OPTS%KLON)'
+    assert fgen(loop_jlon.variable) ==  'JLON'
+    loop_jlon_body = loop_jlon.body
+    for node in loop_jlon_body[:4]:
+        assert fgen(node) in test_compute
+    call = loop_jlon_body[4]
+    assert call.name == 'CPPHINP_OPENACC'
+    for arg in call.arguments:
+        assert fgen(arg) in test_call_var
+
+
+    #TODO : test_imports
+    #TODO : test_variables
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_variables(here, frontend):
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    transformation = ParallelRoutineDispatchTransformation()
+    transformation.apply(source['dispatch_routine'])
+
+    variables = transformation.dcls
+
+    test_variables = '''TYPE(CPG_BNDS_TYPE), INTENT(IN) :: YLCPG_BNDS
+TYPE(STACK) :: YLSTACK
+INTEGER(KIND=JPIM) :: JBLK
+REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_FIELD_API
+REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_PARALLEL
+REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_COMPUTE'''
+
+    assert fgen(variables) == test_variables
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_imports(here, frontend):
+    #TODO : add imports to _parallel routines
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    transformation = ParallelRoutineDispatchTransformation()
+    transformation.apply(source['dispatch_routine'])
+
+    imports = transformation.imports
+
+    test_imports = """
+USE ACPY_MOD
+USE STACK_MOD
+USE YOMPARALLELMETHOD
+USE FIELD_ACCESS_MODULE
+USE FIELD_FACTORY_MODULE
+USE FIELD_MODULE
+#include "stack.h"
+"""
+    for imp in imports:
+        assert fgen(imp) in test_imports
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_new_callee_imports(here, frontend):
+    #TODO : add imports to _parallel routines
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    routine = source['dispatch_routine']
+
+    transformation = ParallelRoutineDispatchTransformation()
+    transformation.apply(source['dispatch_routine'])
+
+    imports = transformation.callee_imports
+
+    assert fgen(imports) == '#include "cpphinp_openacc.intfb.h"'
