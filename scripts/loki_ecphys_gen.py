@@ -22,6 +22,9 @@ from loki import (
 from loki.expression import (
     symbols as sym, parse_expr, SubstituteExpressions
 )
+from loki.ir import (
+    nodes as ir, FindNodes, pragma_regions_attached
+)
 from loki.tools import as_tuple, flatten
 
 from loki.transformations.inline import inline_marked_subroutines
@@ -45,6 +48,38 @@ def substitute_spec_symbols(mapping, routine):
     routine.spec = SubstituteExpressions(symbol_map).visit(routine.spec)
 
     return routine
+
+
+def remove_openmp_regions(routine):
+    """
+    Remove any OpenMP annotations and replace with `!$loki parallel` pragmas
+    """
+    with pragma_regions_attached(routine):
+        for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+            if region.pragma.keyword.lower() == 'omp':
+
+                if 'PARALLEL' in region.pragma.content:
+                    region._update(
+                        pragma=ir.Pragma(keyword='loki', content='parallel'),
+                        pragma_post=ir.Pragma(keyword='loki', content='end parallel')
+                    )
+
+    # Now remove all other pragmas
+    pragma_map = {
+        pragma: None for pragma in FindNodes(ir.Pragma).visit(routine.body)
+        if pragma.keyword.lower() == 'omp'
+    }
+    routine.body = Transformer(pragma_map).visit(routine.body)
+
+    # Note: This is slightly hacky, as some of the "OMP PARALLEL DO" regions
+    # are not detected correctly! So instead we hook on the "OMP DO SCHEDULE"
+    # and remove all other OMP pragmas.
+
+    pragma_map = {
+        pragma: None for pragma in FindNodes(ir.Pragma).visit(routine.body)
+        if pragma.keyword == 'OMP'
+    }
+    routine.body = Transformer(pragma_map).visit(routine.body)
 
 
 @click.group()
@@ -110,6 +145,9 @@ def inline(source, build, remove_regions):
     if remove_regions:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
             do_remove_marked_regions(ec_phys_fc)
+
+    # Now remove OpenMP regions, as their symbols are not remapped
+    remove_openmp_regions(ec_phys_fc)
 
     # Replace the docstring to mark routine as auto-generated
     ec_phys_fc.docstring = """
