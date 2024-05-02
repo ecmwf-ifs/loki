@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from loki.frontend import available_frontends, OMNI
-from loki import Sourcefile, FindNodes, CallStatement, fgen, Conditional
+from loki import Sourcefile, FindNodes, CallStatement, fgen, Conditional, ProcedureItem
 
 from transformations.parallel_routine_dispatch import ParallelRoutineDispatchTransformation
 
@@ -25,13 +25,14 @@ def fixture_here():
 def test_parallel_routine_dispatch_dr_hook(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     calls = FindNodes(CallStatement).visit(routine.body)
     assert len(calls) == 3
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name=='DR_HOOK']
     assert len(calls) == 8
@@ -40,10 +41,11 @@ def test_parallel_routine_dispatch_dr_hook(here, frontend):
 def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
     var_lst=["YL_ZRDG_CVGQ", "ZRDG_CVGQ", "YL_ZRDG_MU0LU", "ZRDG_MU0LU", "YL_ZRDG_MU0M", "ZRDG_MU0M", "YL_ZRDG_MU0N", "ZRDG_MU0N", "YL_ZRDG_MU0", "ZRDG_MU0"]
     dcls = [dcl for dcl in routine.declarations if dcl.symbols[0].name in var_lst]
     str_dcls = ""
@@ -65,10 +67,11 @@ REAL(KIND=JPRB), POINTER :: ZRDG_MU0(:, :) => NULL()
 def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
     var_lst = ["YL_ZRDG_CVGQ", "ZRDG_CVGQ", "YL_ZRDG_MU0LU", "ZRDG_MU0LU", "YL_ZRDG_MU0M", "ZRDG_MU0M", "YL_ZRDG_MU0N", "ZRDG_MU0N", "YL_ZRDG_MU0", "ZRDG_MU0"]
     field_create = ["CALL FIELD_NEW(YL_ZRDG_CVGQ, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KFLEVG, YDCPG_OPTS%KGPBLKS /), LBOUNDS=(/ 0, 1 /),  &\n& PERSISTENT=.true.)",
@@ -105,10 +108,11 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
 def test_parallel_routine_dispatch_derived_dcl(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
     dcls = [fgen(dcl) for dcl in routine.spec.body[-13:-1]]
     
@@ -132,10 +136,11 @@ def test_parallel_routine_dispatch_derived_dcl(here, frontend):
 def test_parallel_routine_dispatch_derived_var(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
     
     test_map = {
@@ -153,8 +158,9 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
         "YDCPG_DYN0%CTY%EVEL" : ["YDCPG_DYN0%CTY%F_EVEL", "Z_YDCPG_DYN0_CTY_EVEL"], 
         "YDMF_PHYS_SURF%GSD_VF%PZ0F" : ["YDMF_PHYS_SURF%GSD_VF%F_Z0F", "Z_YDMF_PHYS_SURF_GSD_VF_PZ0F"]
     }
-    for var_name in transformation.routine_map_derived:
-        value = transformation.routine_map_derived[var_name]
+    routine_map_derived = item.trafo_data['create_parallel']['map_routine']['routine_map_derived']
+    for var_name in routine_map_derived:
+        value = routine_map_derived[var_name]
         field_ptr = value[0]
         ptr = value[1]
 
@@ -165,12 +171,13 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
 def test_parallel_routine_dispatch_get_data(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    get_data = transformation.get_data
+    get_data = item.trafo_data['create_parallel']['map_region']['get_data']
     
     test_get_data = {}
 #    test_get_data["OpenMP"] = """
@@ -276,7 +283,7 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIE
 ###    routine = source['dispatch_routine']
 ###
 ###    transformation = ParallelRoutineDispatchTransformation()
-###    transformation.apply(source['dispatch_routine'])
+###    transformation.apply(source['dispatch_routine'], item=item)
 ###
 ###    get_data = transformation.get_data
 ###    
@@ -294,12 +301,13 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIE
 def test_parallel_routine_dispatch_synchost(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    synchost = transformation.synchost[0]
+    synchost = item.trafo_data['create_parallel']['map_region']['synchost']
     
     test_synchost = """IF (LSYNCHOST('DISPATCH_ROUTINE:CPPHINP')) THEN
  IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:SYNCHOST', 0, ZHOOK_HANDLE_FIELD_API)
@@ -332,12 +340,13 @@ def test_parallel_routine_dispatch_synchost(here, frontend):
 def test_parallel_routine_dispatch_nullify(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    nullify = transformation.nullify
+    nullify = item.trafo_data['create_parallel']['map_region']['nullify']
  
     test_nullify = """
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:NULLIFY', 0, ZHOOK_HANDLE_FIELD_API)
@@ -370,12 +379,13 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:NULLIFY', 1, ZHOOK_HANDLE_FIEL
 def test_parallel_routine_dispatch_compute_openmp(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    map_compute = transformation.compute
+    map_compute = item.trafo_data['create_parallel']['map_region']['compute']
     compute_openmp = map_compute['OpenMP']
  
     test_compute= """
@@ -423,12 +433,13 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
 def test_parallel_routine_dispatch_compute_openmpscc(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    map_compute = transformation.compute
+    map_compute = item.trafo_data['create_parallel']['map_region']['compute']
     compute_openmpscc = map_compute['OpenMPSingleColumn']
 
     test_compute= """
@@ -490,12 +501,13 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
 def test_parallel_routine_dispatch_compute_openaccscc(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    map_compute = transformation.compute
+    map_compute = item.trafo_data['create_parallel']['map_region']['compute']
     compute_openaccscc = map_compute['OpenACCSingleColumn']
 
     test_compute = """
@@ -576,12 +588,13 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
 def test_parallel_routine_dispatch_variables(here, frontend):
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    variables = transformation.dcls
+    variables = item.trafo_data['create_parallel']['map_routine']['dcls']
 
     test_variables = '''TYPE(CPG_BNDS_TYPE), INTENT(IN) :: YLCPG_BNDS
 TYPE(STACK) :: YLSTACK
@@ -597,12 +610,13 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     #TODO : add imports to _parallel routines
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    imports = transformation.imports
+    imports = item.trafo_data['create_parallel']['map_routine']['imports']
 
     test_imports = """
 USE ACPY_MOD
@@ -621,11 +635,12 @@ def test_parallel_routine_dispatch_new_callee_imports(here, frontend):
     #TODO : add imports to _parallel routines
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
     transformation = ParallelRoutineDispatchTransformation()
-    transformation.apply(source['dispatch_routine'])
+    transformation.apply(source['dispatch_routine'], item=item)
 
-    imports = transformation.callee_imports
+    imports = item.trafo_data['create_parallel']['map_routine']['callee_imports']
 
     assert fgen(imports) == '#include "cpphinp_openacc.intfb.h"'
