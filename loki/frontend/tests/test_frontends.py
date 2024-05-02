@@ -2031,3 +2031,46 @@ end subroutine routine_variables_dimensions
     assert isinstance(routine.variable_map['v6'].shape[0], sym.Quotient)
     assert isinstance(routine.variable_map['v6'].shape[1], sym.Power)
     assert isinstance(routine.variable_map['v6'].shape[2], sym.Quotient)
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_import_of_private_symbols(here, frontend):
+    """
+    Verify that only public symbols are imported from other modules.
+    """
+    code_mod_private = """
+module mod_private
+    private
+    integer :: var
+end module mod_private
+    """
+    code_mod_public = """
+module mod_public
+    public
+    integer:: var
+end module mod_public
+    """
+    code_mod_main = """
+module mod_main
+    use mod_public
+    use mod_private
+contains
+
+    subroutine test_routine()
+        integer :: result
+        result = var
+    end subroutine test_routine
+
+end module mod_main
+    """
+
+    mod_private = Module.from_source(code_mod_private, frontend=frontend)
+    mod_public = Module.from_source(code_mod_public, frontend=frontend)
+    mod_main = Module.from_source(code_mod_main, frontend=frontend, definitions=[mod_private, mod_public])
+    var = mod_main.subroutines[0].body.body[0].rhs
+    # Check if this is really our symbol
+    assert var.name == "var"
+    assert var.scope == mod_main
+    # Check if the symbol is imported
+    assert var.type.imported is True
+    # Check if the symbol comes from the mod_public module
+    assert var.type.module == mod_public
