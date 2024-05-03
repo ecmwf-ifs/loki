@@ -94,4 +94,4 @@ jobs:
           eval `ssh-agent -s`
           [ -n '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}' ] && ssh-add - <<< '${{ secrets.ECWAM_REPOSITORY_SSH_KEY }}'
           source loki-activate
-          pytest transformations/tests -k 'cloudsc or ecwam'
+          pytest --pyargs loki.transformations -k 'cloudsc or ecwam'

@@ -25,8 +25,10 @@ from loki.config import config
 
 
 __all__ = [
-    'LokiTempdir', 'gettempdir', 'filehash', 'delete', 'find_paths', 'find_files',
-    'disk_cached', 'load_module'
+    'LokiTempdir', 'gettempdir', 'filehash', 'delete', 'find_paths',
+    'find_files', 'disk_cached', 'load_module',
+    'write_env_launch_script', 'local_loki_setup',
+    'local_loki_cleanup'
 ]
 
 
@@ -242,3 +244,116 @@ def load_module(module, path=None):
         # If module caching interferes, try again with clean caches
         invalidate_caches()
         return import_module(module)
+
+
+def write_env_launch_script(here, binary, args):
+    """
+    Utility method that is used for regression tests that require
+    activating an environment file before running :data:`binary`.
+
+    This writes a simple script of the form
+
+    .. code-block::
+       source env.sh
+       bin/<binary> <args>
+       exit $?
+
+    Parameters
+    ----------
+    here : pathlib.Path or str
+        The directory in which the script is created
+    binary : str
+        The name of the binary
+    args : list of str
+        List of arguments to pass to the binary
+
+    Returns
+    -------
+    pathlib.Path
+        The path to the created script file
+    """
+
+    script = Path(here/f'build/run_{binary}.sh')
+    script.write_text(f"""
+#!/bin/bash
+
+source env.sh >&2
+bin/{binary} {' '.join(args)}
+exit $?
+    """.strip())
+    script.chmod(0o750)
+
+    return script
+
+
+def local_loki_setup(here):
+    """
+    Utility method that is used to determine paths for injecting the
+    currently running source code of Loki into an
+    `ecbundle <https://github.com/ecmwf/ecbundle>`_-based worktree This
+    is used for regression tests to facilitate the use of a local Loki
+    source copy in the build. In particular, any existing Loki source
+    copy in the bundle worktree is moved to a backup location.
+
+    .. warning:: If a backup copy exists already at the backup
+       location, this is removed before moving the existing Loki copy
+       to the backup location.
+
+    Note that injecting the currently running Loki installation only
+    works if it has been installed in editable mode.  However, this
+    utility also does not take care of the actual injection of the
+    currently running installation, therefore making this also useful
+    if the purpose is to trigger a Loki download via the bundle create
+    mechanism.
+
+    The companion utility :any:`local_loki_cleanup` can be used to
+    revert these changes.
+
+    Parameters
+    ----------
+    here : pathlib.Path
+        The root path of the bundle worktree.
+
+    Returns
+    -------
+    tuple of (str, pathlib.Path, pathlib.Path)
+        The absolute path to the base directory of the currently
+        running Loki installation, the ``target`` path where Loki
+        needs to be injected in the bundle directory, and the
+        ``backup`` path where an existing Loki copy in the bundle has
+        been moved to.
+    """
+
+    lokidir = Path(__file__).parent.parent.parent
+    target = here/'source/loki'
+    backup = here/'source/loki.bak'
+
+    # Do not overwrite any existing Loki copy
+    if target.exists():
+        if backup.exists():
+            shutil.rmtree(backup)
+        shutil.move(target, backup)
+
+    return str(lokidir.resolve()), target, backup
+
+
+def local_loki_cleanup(target, backup):
+    """
+    Companion utility to :any:`local_loki_setup` to revert the
+    changes.
+
+    This removes a symlink at :data:`target`, if it exists, and moves
+    the :data:`backup` path in its original location.
+
+    Parameters
+    ---------
+    target : pathlib.Path
+        The target injection path as returned by :any:`local_loki_setup`
+    backup : pathlib.Path
+        The backup path as created by :any:`local_loki_setup`
+    """
+
+    if target.is_symlink():
+        target.unlink()
+    if not target.exists() and backup.exists():
+        shutil.move(backup, target)

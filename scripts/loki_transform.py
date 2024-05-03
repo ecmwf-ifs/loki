@@ -16,34 +16,35 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple, set_excepthook, auto_post_mortem_debugger, info
+    Sourcefile, Frontend, as_tuple, set_excepthook,
+    auto_post_mortem_debugger, info
 )
+from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
 
 # Get generalized transformations provided by Loki
-from loki.transform import (
-    DependencyTransformation, ModuleWrapTransformation, FortranCTransformation,
-    FileWriteTransformation, HoistTemporaryArraysAnalysis, normalize_range_indexing,
-    InlineTransformation, SanitiseTransformation, RemoveCodeTransformation, Pipeline
-)
-
-# pylint: disable=wrong-import-order
-from transformations.argument_shape import (
+from loki.transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
-from transformations.data_offload import (
+from loki.transformations.array_indexing import normalize_range_indexing
+from loki.transformations.build_system import (
+    DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
+)
+from loki.transformations.data_offload import (
     DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
 )
-from transformations.derived_types import DerivedTypeArgumentsTransformation
-from transformations.drhook import DrHookTransformation
-from transformations.pool_allocator import TemporariesPoolAllocatorTransformation
-from transformations.single_column_claw import ExtractSCATransformation, CLAWTransformation
-from transformations.single_column_coalesced import (
-    SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline
-)
-from transformations.scc_cuf import (
+from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
+from loki.transformations.drhook import DrHookTransformation
+from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
+from loki.transformations.inline import InlineTransformation
+from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from loki.transformations.remove_code import RemoveCodeTransformation
+from loki.transformations.sanitise import SanitiseTransformation
+from loki.transformations.single_column import (
+    ExtractSCATransformation, CLAWTransformation,
+    SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline,
     HoistTemporaryArraysDeviceAllocatableTransformation
 )
+from loki.transformations.transpile import FortranCTransformation
 
 
 class IdemTransformation(Transformation):

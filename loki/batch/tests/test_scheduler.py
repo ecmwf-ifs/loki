@@ -58,14 +58,14 @@ from subprocess import CalledProcessError
 import pytest
 
 from loki import (
-    Sourcefile, Subroutine, Dimension, Pipeline, fexprgen, BasicType,
+    Sourcefile, Subroutine, Dimension, fexprgen, BasicType,
     gettempdir, ProcedureType, DerivedType, flatten, as_tuple,
     CaseInsensitiveDict, graphviz_present
 )
 from loki.batch import (
     Scheduler, SchedulerConfig, Item, ProcedureItem,
     ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
-    ExternalItem
+    ExternalItem, Transformation, Pipeline
 )
 from loki.expression import (
     Scalar, Array, Literal, ProcedureSymbol, FindInlineCalls
@@ -74,8 +74,8 @@ from loki.frontend import (
     available_frontends, OMNI, OFP, FP, REGEX, HAVE_FP, HAVE_OFP, HAVE_OMNI
 )
 from loki.ir import nodes as ir, FindNodes
-from loki.transform import (
-    Transformation, DependencyTransformation, ModuleWrapTransformation
+from loki.transformations import (
+    DependencyTransformation, ModuleWrapTransformation
 )
 
 
@@ -2388,7 +2388,7 @@ def test_transformation_config(config):
     my_config = config.copy()
     my_config['transformations'] = {
         'DependencyTransformation': {
-            'module': 'loki.transform',
+            'module': 'loki.transformations.build_system',
             'options':
             {
                 'suffix': '_rick',
@@ -2410,7 +2410,7 @@ def test_transformation_config(config):
     bad_config = config.copy()
     bad_config['transformations'] = {
         'DependencyTrafo': {  # <= typo
-            'module': 'loki.transform',
+            'module': 'loki.transformations.build_system',
             'options': {}
         }
     }
@@ -2420,7 +2420,7 @@ def test_transformation_config(config):
     worse_config = config.copy()
     worse_config['transformations'] = {
         'DependencyTransform': {
-            'module': 'loki.transformats',  # <= typo
+            'module': 'loki.transformats.build_system',  # <= typo
             'options': {}
         }
     }
@@ -2430,7 +2430,7 @@ def test_transformation_config(config):
     worst_config = config.copy()
     worst_config['transformations'] = {
         'DependencyTransform': {
-            'module': 'loki.transform',
+            'module': 'loki.transformations.build_system',
             'options': {'hello': 'Dave'}
         }
     }
@@ -2876,7 +2876,7 @@ def test_pipeline_config_compose(config):
     my_config['transformations'] = {
         'VectorWithTrim': {
             'classname': 'SCCVectorPipeline',
-            'module': 'transformations.single_column_coalesced',
+            'module': 'loki.transformations.single_column',
             'options':
             {
                 'horizontal': '%dimensions.horizontal%',
@@ -2887,7 +2887,7 @@ def test_pipeline_config_compose(config):
         },
         'preprocess': {
             'classname': 'RemoveCodeTransformation',
-            'module': 'loki.transform.transform_remove_code',
+            'module': 'loki.transformations',
             'options': {
                 'call_names': 'dr_hook',
                 'remove_imports': False
@@ -2895,7 +2895,7 @@ def test_pipeline_config_compose(config):
         },
         'postprocess': {
             'classname': 'ModuleWrapTransformation',
-            'module': 'loki.transform',
+            'module': 'loki.transformations.build_system',
             'options': { 'module_suffix': '_module' }
         }
     }

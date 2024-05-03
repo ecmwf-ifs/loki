@@ -68,19 +68,6 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Run transformations tests
-        run: |
-          source loki-activate
-          pytest --cov=transformations/transformations --cov-report=xml transformations/tests
-
-      - name: Upload transformations coverage report to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          flags: transformations
-          files: ./coverage.xml
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
       - name: Run lint_rules tests
         run: |
           source loki-activate

@@ -17,7 +17,7 @@ import shutil
 from codetiming import Timer
 
 from loki.build import workqueue
-from loki.batch import Scheduler, SchedulerConfig, Item
+from loki.batch import Scheduler, SchedulerConfig, Item, Transformation
 from loki.config import config as loki_config
 from loki.lint.reporter import (
     FileReport, RuleReport, Reporter, LazyTextfile,
@@ -27,7 +27,6 @@ from loki.lint.utils import Fixer
 from loki.logging import logger
 from loki.sourcefile import Sourcefile
 from loki.tools import filehash, find_paths, CaseInsensitiveDict
-from loki.transform import Transformation
 
 
 __all__ = ['Linter', 'LinterTransformation', 'lint_files']

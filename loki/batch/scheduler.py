@@ -10,12 +10,15 @@ from pathlib import Path
 from codetiming import Timer
 
 from loki.batch.configure import SchedulerConfig
-from loki.batch.sfilter import SFilter
-from loki.batch.sgraph import SGraph
 from loki.batch.item import (
     FileItem, ModuleItem, ProcedureItem, ProcedureBindingItem,
     InterfaceItem, TypeDefItem, ExternalItem, ItemFactory
 )
+from loki.batch.pipeline import Pipeline
+from loki.batch.sfilter import SFilter
+from loki.batch.sgraph import SGraph
+from loki.batch.transformation import Transformation
+
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug, error
@@ -391,8 +394,6 @@ class Scheduler:
         transformation : :any:`Transformation` or :any:`Pipeline`
             The transformation or transformation pipeline to apply
         """
-        from loki.transform import Transformation, Pipeline  # pylint: disable=import-outside-toplevel
-
         if isinstance(transformation, Transformation):
             self.process_transformation(transformation=transformation)
 
