@@ -487,12 +487,12 @@ def get_matching_region_pragmas(pragmas):
     matches = []
     stack = []
     for i, p in enumerate(pragmas):
-        if 'end' not in p.content.lower():
+        if 'end' not in p.content.lower().split(' '):
             # If we encounter one that does have a match, stack it
             if any(_matches_starting_pragma(p, p2) for p2 in pragmas[i:]):
                 stack.append(p)
 
-        elif 'end' in p.content.lower() and stack:
+        elif 'end' in p.content.lower().split(' ') and stack:
             # If we and end that matches our last stacked, keep it!
             if _matches_starting_pragma(stack[-1], p):
                 p1 = stack.pop()
