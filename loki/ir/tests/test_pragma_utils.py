@@ -513,7 +513,7 @@ subroutine test_tools_pragmas_attached_region (in, out, n)
 
   out(0) = -2.0
 
-  !$loki data nofoo
+  !$loki data nofoo endfoo
   do i=1,n
     !$loki do_nothing
     out(i) = 0.0
