@@ -2069,8 +2069,8 @@ end module mod_main
     var = mod_main.subroutines[0].body.body[0].rhs
     # Check if this is really our symbol
     assert var.name == "var"
-    assert var.scope == mod_main
+    assert var.scope is mod_main
     # Check if the symbol is imported
     assert var.type.imported is True
     # Check if the symbol comes from the mod_public module
-    assert var.type.module == mod_public
+    assert var.type.module is mod_public
