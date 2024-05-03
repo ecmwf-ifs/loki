@@ -19,13 +19,16 @@ from codetiming import Timer
 from loki import (
     Sourcefile, FindNodes, CallStatement, Transformer, info
 )
+from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
     symbols as sym, parse_expr, SubstituteExpressions
 )
 from loki.ir import (
-    nodes as ir, FindNodes, pragma_regions_attached
+    nodes as ir, FindNodes, pragmas_attached, pragma_regions_attached,
+    is_loki_pragma
 )
 from loki.tools import as_tuple, flatten
+from loki.types import BasicType
 
 from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import transform_sequence_association_append_map
@@ -80,6 +83,90 @@ def remove_openmp_regions(routine):
         if pragma.keyword == 'OMP'
     }
     routine.body = Transformer(pragma_map).visit(routine.body)
+
+
+def add_openmp_pragmas(routine, global_variables={}, field_group_types={}):
+    """
+    Add the OpenMP directives for a parallel driver region with an
+    outer block loop.
+    """
+    block_dim_size = 'YDGEOMETRY%YRDIM%NGPBLKS'
+
+    # First get local variables and separate scalars and arrays
+    routine_arguments = routine.arguments
+    local_variables = tuple(
+        v for v in routine.variables if v not in routine_arguments
+    )
+    local_scalars = tuple(
+        v.name for v in local_variables if isinstance(v, sym.Scalar)
+    )
+    # Filter arrays by block-dim size, as these are global
+    local_arrays = tuple(
+        v.name for v in local_variables
+        if isinstance(v, sym.Array) and not v.dimensions[-1] == block_dim_size
+    )
+
+    with pragma_regions_attached(routine):
+        with dataflow_analysis_attached(routine):
+            for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+                if not is_loki_pragma(region.pragma, starts_with='parallel'):
+                    return
+
+                # Accumulate the set of locally used symbols and chase parents
+                symbols = tuple(region.uses_symbols | region.defines_symbols)
+                symbols = tuple(dict.fromkeys(flatten(
+                    s.parents if s.parent else s for s in symbols
+                )))
+
+                # Start with loop variables and add local scalars and arrays
+                local_vars = tuple(dict.fromkeys(flatten(
+                    loop.variable for loop in FindNodes(ir.Loop).visit(region.body)
+                )))
+
+                local_vars += tuple(v for v in symbols if v.name in local_scalars)
+                local_vars += tuple(v for v in symbols if v.name in local_arrays)
+
+                # Also add used symbols that might be field groups
+                local_vars += tuple(dict.fromkeys(
+                    v for v in symbols
+                    if isinstance(v, sym.Scalar) and str(v.type.dtype) in field_group_types
+                ))
+
+                # Filter out known global variables
+                local_vars = tuple(v for v in local_vars if v not in global_variables)
+
+                # Make field group types firstprivate
+                firstprivates = tuple(dict.fromkeys(
+                    v.name for v in local_vars if v.type.dtype.name in field_group_types
+                ))
+                # Also make values that have an initial value firstprivate
+                firstprivates += tuple(v.name for v in local_vars if v.type.initial)
+
+                # Mark all other variables as private
+                privates = tuple(dict.fromkeys(
+                    v.name for v in local_vars if v.name not in firstprivates
+                ))
+
+                s_fp_vars = ", ".join(str(v) for v in firstprivates)
+                s_firstprivate = f'FIRSTPRIVATE({s_fp_vars})' if firstprivates else ''
+                s_private = f'PRIVATE({", ".join(str(v) for v in privates)})' if privates else ''
+                pragma_parallel = ir.Pragma(
+                    keyword='OMP', content=f'PARALLEL {s_private} {s_firstprivate}'
+                )
+                region._update(
+                    pragma=pragma_parallel,
+                    pragma_post=ir.Pragma(keyword='OMP', content='END PARALLEL')
+                )
+
+                # And finally mark all block-dimension loops as parallel
+                with pragmas_attached(routine, node_type=ir.Loop):
+                    for loop in FindNodes(ir.Loop).visit(region.body):
+                        # Add OpenMP DO directives onto block loops
+                        if loop.variable == 'JKGLO':
+                            loop._update(
+                                pragma=ir.Pragma(keyword='OMP', content='DO SCHEDULE(DYNAMIC,1)'),
+                                pragma_post=ir.Pragma(keyword='OMP', content='END DO'),
+                            )
 
 
 @click.group()
@@ -152,6 +239,35 @@ def inline(source, build, remove_regions, remove_openmp):
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove OpenMP regions in {s:.2f}s'):
             # Now remove OpenMP regions, as their symbols are not remapped
             remove_openmp_regions(ec_phys_fc)
+
+    field_group_types = [
+        'FIELD_VARIABLES', 'DIMENSION_TYPE', 'STATE_TYPE',
+        'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
+        'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
+        'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
+        'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
+        # 'SURF_AND_MORE_TYPE', 'MODEL_STATE_TYPE',
+    ]
+
+    global_variables = [
+        'PGFL', 'PGFLT1', 'YDGSGEOM', 'YDMODEL',
+        'YDDIM', 'YDSTOPH', 'YDGEOMETRY',
+        'YDSURF', 'YDGMV', 'SAVTEND',
+        'YGFL', 'PGMV', 'PGMVT1', 'ZGFL_DYN',
+        'ZCONVCTY', 'YDDIMV', 'YDPHY2',
+        'PHYS_MWAVE', 'ZSPPTGFIX', 'ZSURF_SERIAL'
+    ]
+
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-wrote OpenMP regions in {s:.2f}s'):
+        # Now remove OpenMP regions, as their symbols are not remapped
+        remove_openmp_regions(ec_phys_fc)
+
+        # Add OpenMP pragmas around marked loops
+        add_openmp_pragmas(
+            routine=ec_phys_fc,
+            field_group_types=field_group_types,
+            global_variables=global_variables
+        )
 
     # Replace the docstring to mark routine as auto-generated
     ec_phys_fc.docstring = """
