@@ -32,7 +32,7 @@ from loki.transformations.build_system import (
 from loki.transformations.data_offload import (
     DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation
 )
-from loki.transformations.derived_types import DerivedTypeArgumentsTransformation
+from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.inline import InlineTransformation

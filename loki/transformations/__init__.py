@@ -7,7 +7,6 @@
 
 from loki.transformations.array_indexing import * # noqa
 from loki.transformations.build_system import * # noqa
-from loki.transformations.derived_types import * # noqa
 from loki.transformations.argument_shape import * # noqa
 from loki.transformations.data_offload import * # noqa
 from loki.transformations.drhook import * # noqa
@@ -19,6 +18,7 @@ from loki.transformations.remove_code import * # noqa
 from loki.transformations.sanitise import * # noqa
 from loki.transformations.single_column import * # noqa
 from loki.transformations.transpile import * # noqa
+from loki.transformations.transform_derived_types import * # noqa
 from loki.transformations.transform_loop import * # noqa
 from loki.transformations.transform_region import * # noqa
 from loki.transformations.pool_allocator import * # noqa

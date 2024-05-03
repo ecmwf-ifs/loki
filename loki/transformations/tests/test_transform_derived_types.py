@@ -18,7 +18,7 @@ from loki.expression import Scalar, Array, FindVariables, FindInlineCalls
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import FindNodes, CallStatement
 
-from loki.transformations.derived_types import (
+from loki.transformations.transform_derived_types import (
     DerivedTypeArgumentsTransformation,
     TypeboundProcedureCallTransformation
 )
