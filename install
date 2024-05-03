@@ -513,5 +513,5 @@ echo "Activate the Loki environment with"
 echo
 echo "    source loki-activate"
 echo
-echo "You can test the Loki installation by running 'py.test lint_rules .'"
+echo "You can test the Loki installation by running 'py.test lint_rules loki'"
 echo

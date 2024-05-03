@@ -25,7 +25,7 @@ from loki.transformations.array_indexing import (
 from loki.transformations.transpile import FortranCTransformation
 
 
-@pytest.fixture(scope='function', name='here')
+@pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
 
@@ -40,7 +40,7 @@ def fixture_tempdir(request):
 
 
 @pytest.fixture(scope='function', name='builder')
-def fixture_builder(here, tempdir):
+def fixture_builder(tempdir):
     return Builder(source_dirs=tempdir, build_dir=tempdir)
 
 
@@ -743,5 +743,3 @@ def test_transform_flatten_arrays_call(tempdir, frontend, builder, explicit_dime
     assert (b_flattened == b_ref.flatten(order='F')).all()
 
     builder.clean()
-    (tempdir/f'{driver.name}.f90').unlink()
-    (tempdir/f'{kernel_module.name}.f90').unlink()

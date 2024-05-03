@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.batch import Transformation
+from loki.batch import Transformation, SchedulerConfig
 from loki.expression import Variable
 from loki.ir import Import, Section, Interface, FindNodes, Transformer
 from loki.module import Module
@@ -108,7 +108,6 @@ class ModuleWrapTransformation(Transformation):
         """
         Update imports of wrapped subroutines.
         """
-        from loki.batch import SchedulerConfig  # pylint: disable=import-outside-toplevel,cyclic-import
 
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets')))
         if self.replace_ignore_items and (item := kwargs.get('item')):
