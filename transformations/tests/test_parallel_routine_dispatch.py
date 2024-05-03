@@ -35,7 +35,7 @@ def test_parallel_routine_dispatch_dr_hook(here, frontend):
     transformation.apply(source['dispatch_routine'], item=item)
 
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name=='DR_HOOK']
-    assert len(calls) == 8
+    assert len(calls) == 32
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
 def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
@@ -485,7 +485,7 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
     assert fgen(loop_jblk.bounds) ==  '1,YDCPG_OPTS%KGPBLKS'
     assert fgen(loop_jblk.variable) ==  'JBLK'
     loop_jblk_body = loop_jblk.body
-    loop_jlon = loop_jblk_body[1]
+    loop_jlon = loop_jblk_body[0]
     assert fgen(loop_jlon.bounds) ==  '1,MIN(YDCPG_OPTS%KLON, YDCPG_OPTS%KGPCOMP - (JBLK - 1)*YDCPG_OPTS%KLON)'
     assert fgen(loop_jlon.variable) ==  'JLON'
     loop_jlon_body = loop_jlon.body

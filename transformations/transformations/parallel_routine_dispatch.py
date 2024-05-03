@@ -86,6 +86,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
     def process_parallel_region(self, routine, region, map_routine, map_region):
         map_region['get_data'] = {}
         map_region['compute'] = {}
+        map_region['region'] = {}
+        map_region['lparallel'] = {}
 
         pragma_content = region.pragma.content.split(maxsplit=1)
         pragma_content = [entry.split('=', maxsplit=1) for entry in pragma_content[1].split(',')]
@@ -102,8 +104,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
             sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
         )
 
-        region.prepend(dr_hook_calls[0])
-        region.append(dr_hook_calls[1])
+#        region.prepend(dr_hook_calls[0])
+#        region.append(dr_hook_calls[1])
 
         region_map_temp = self.decl_local_array(routine, region, map_region) #map_region to store field_new and field_delete
         region_map_derived = self.decl_derived_types(routine, region)
@@ -113,8 +115,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.create_synchost(routine, region_name, map_region)
         self.create_nullify(routine, region_name, map_region)
 
-        for target in pragma_attrs['target']:
+        targets = pragma_attrs['target']
+        for target in targets:
             self.process_target(routine, region, region_name, map_routine, map_region, target)
+
+        self.create_new_region(routine, region, region_name, map_routine, map_region, targets)
+
 
         routine_map_temp = map_routine['routine_map_temp']
         routine_map_derived = map_routine['routine_map_derived']
@@ -137,11 +143,62 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         #map_routine['routine_map_temp'] = routine_map_temp
         #map_routine['routine_map_derived'] = routine_map_derived
+    def create_new_region(self, routine, region, region_name, map_routine, map_region, targets):
+        #IF (LPARALLELMETHOD ('OPENMP','APL_ARPEGE_PARALLEL:CPPHINP')) THEN
+        if len(targets) == 1:
+            cond = ir.Conditional(
+                condition=map_region['lparallel'][targets[0]],
+                body=map_region['region'][targets[0]]   
+                            )
+        elif len(targets) == 2:
+            cond1 = ir.Conditional(
+                condition=map_region['lparallel'][targets[1]],
+                body=map_region['region'][targets[1]]     
+                            )
+            cond = ir.Conditional(
+                condition=map_region['lparallel'][targets[0]],
+                body=map_region['region'][targets[0]],
+                else_body=(cond1,),
+                has_elseif=True
+                        )
 
+        elif len(targets) == 3:
+            cond1 = ir.Conditional(
+                condition=map_region['lparallel'][targets[2]],
+                body=map_region['region'][targets[2]]     
+                            )
+            cond2= ir.Conditional(
+                condition=map_region['lparallel'][targets[1]],
+                body=map_region['region'][targets[1]],
+                else_body=(cond1,),
+                has_elseif=True
+                        )
+            cond = ir.Conditional(
+                condition=map_region['lparallel'][targets[2]],
+                body=map_region['region'][targets[2]],
+                else_body=(cond2,),
+                has_elseif=True
+                        )
+        else:
+            raise Exception("They should be 1, 2 or 3 targets.")
+        dr_hook_calls = self.create_dr_hook_calls(
+            routine, f"{routine.name}:{region_name}",
+            sym.Variable(name='ZHOOK_HANDLE_PARALLEL', scope=routine)
+        )
+
+        new_region = (dr_hook_calls[0], cond, dr_hook_calls[1])
+        region._update(pragma=None, pragma_post=None, body=new_region)
+        
+#        map_routine['map_transformation'][region] = tuple(new_region)
+    
     def process_target(self, routine, region, region_name, map_routine, map_region, target):
         map_region['get_data'][target] = self.create_pt_sync(routine, target, region_name, True, map_region)
         map_region['compute'][target] = self.map_call_compute[target](routine, region, region_name, map_routine, map_region)
-
+        map_region['region'][target] = map_region['get_data'][target] + list(map_region['compute'][target]) + [map_region['synchost']] + map_region['nullify']
+        condition_parameters = (sym.StringLiteral(value=f"{target.upper()}"), sym.StringLiteral(value=f"{routine.name}:{region_name}"))
+        condition = sym.InlineCall(sym.Variable(name='LPARALLELMETHOD'), parameters=condition_parameters)
+        map_region['lparallel'][target] = condition
+    
     @staticmethod
     def create_dr_hook_calls(scope, cdname, handle):
         dr_hook_calls = []
@@ -157,8 +214,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 )
             ]
         return dr_hook_calls
-
-
+    
+    
     def create_field_new_delete(self, routine, var, field_ptr_var, map_region):
         field_new = map_region['field_new']
         field_delete = map_region['field_delete'] 
@@ -179,8 +236,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
             ]
             kwarguments = (
                 ('UBOUNDS', sym.LiteralList(ubounds)),
-                ('LBOUNDS', sym.LiteralList(lbounds)),
-                ('PERSISTENT', sym.LogicLiteral(True))
+            ('LBOUNDS', sym.LiteralList(lbounds)),
+            ('PERSISTENT', sym.LogicLiteral(True))
             )
         else:
             kwarguments = (
