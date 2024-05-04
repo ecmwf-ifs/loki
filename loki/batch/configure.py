@@ -38,7 +38,7 @@ class SchedulerConfig:
     routines : dict of dicts or list of dicts
         Dicts with routine-specific options.
     dimensions : dict of dicts or list of dicts
-        Dicts with options to define :any`Dimension` objects.
+        Dicts with options to define :any:`Dimension` objects.
     disable : list of str
         Subroutine names that are entirely disabled and will not be
         added to either the callgraph that we traverse, nor the
@@ -46,7 +46,7 @@ class SchedulerConfig:
         pop up in many routines but can be ignored in terms of program
         control flow, like ``flush`` or ``abort``.
     enable_imports : bool
-￼        Disable the inclusion of module imports as scheduler dependencies.
+￼       Disable the inclusion of module imports as scheduler dependencies.
     transformation_configs : dict
         Dicts with transformation-specific options
     frontend_args : dict

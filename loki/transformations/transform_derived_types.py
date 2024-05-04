@@ -41,6 +41,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
     (relevant) derived type arguments by its member variables
 
     .. note::
+
        This transformation requires a Scheduler traversal that
        processes callees before callers.
 
@@ -377,6 +378,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         of this routine on the right:
 
         .. code-block::
+
             var name            | return value (parent_name, expansion, new use)   | remarks
            ---------------------+--------------------------------------------------+------------------------------------
             SOME_VAR            | ('some_var', None, None)                         | No expansion

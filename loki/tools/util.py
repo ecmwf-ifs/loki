@@ -706,11 +706,11 @@ def stdchannel_redirected(stdchannel, dest_filename):
 
     e.g.:
 
-    ```
-    with stdchannel_redirected(sys.stderr, os.devnull):
-        if compiler.has_function('clock_gettime', libraries=['rt']):
-            libraries.append('rt')
-    ```
+    .. code-block:: python
+
+        with stdchannel_redirected(sys.stderr, os.devnull):
+            if compiler.has_function('clock_gettime', libraries=['rt']):
+                libraries.append('rt')
 
     Source: https://stackoverflow.com/a/17753573
 
@@ -719,11 +719,11 @@ def stdchannel_redirected(stdchannel, dest_filename):
     Additionally, capturing of sys.stdout/sys.stderr needs to be disabled explicitly,
     i.e., use the fixture `capsys` and wrap the above:
 
-    ```
-    with capsys.disabled():
-        with stdchannel_redirected(sys.stdout, 'stdout.log'):
-            function()
-    ```
+    .. code-block:: python
+
+        with capsys.disabled():
+            with stdchannel_redirected(sys.stdout, 'stdout.log'):
+                function()
     """
 
     def try_dup(fd):

@@ -72,11 +72,12 @@ def yield_one_d_systems(matrix, right_hand_side):
 
     Example
     -------
-    ```python
-    for A, b in yield_one_d_systems(matrix, right_hand_side):
-        # Solve the one-dimensional problem A * x = b
-        solution = solve_one_d_system(A, b)
-    ```
+
+    .. code-block:: python
+
+        for A, b in yield_one_d_systems(matrix, right_hand_side):
+            # Solve the one-dimensional problem A * x = b
+            solution = solve_one_d_system(A, b)
     """
     # yield systems with empty left hand side (A) and non empty right hand side
     mask = np.all(matrix == 0, axis=1)

@@ -36,7 +36,7 @@ class SFilter:
     reverse : bool, optional
         Iterate over the dependency graph in reverse direction
     exclude_ignored : bool, optional
-        Exclude :any:`Item`s that have the ``is_ignored`` property
+        Exclude :any:`Item` objects that have the ``is_ignored`` property
     include_external : bool, optional
         Do not skip :any:`ExternalItem` in the iterator
     """

@@ -63,14 +63,14 @@ class Node:
     metadata.
 
     Attributes
-    -----------
+    ----------
     traversable : list of str
         The traversable fields of the Node; that is, fields walked over by
         a :any:`Visitor`. All arguments in :py:meth:`__init__` whose
         name appear in this list are treated as traversable fields.
 
     Parameters
-    -----------
+    ----------
     source : :any:`Source`, optional
         the information about the original source for the Node.
     label : str, optional

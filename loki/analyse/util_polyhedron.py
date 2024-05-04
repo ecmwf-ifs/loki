@@ -142,9 +142,11 @@ class Polyhedron:
         Return all lower bounds imposed on a variable.
 
         The lower bounds for the variable `j` are given by the index set:
-        ```
+
+        ``
         L = {i | A_ij < 0, i in {0, ..., d-1}}
-        ```
+        ``
+
         Parameters
         ----------
         index_or_variable : int or str or sym.Array or sym.Scalar
@@ -204,9 +206,10 @@ class Polyhedron:
         Return all upper bounds imposed on a variable.
 
         The upper bounds for the variable `j` are given by the index set:
-        ```
+        ``
         U = {i | A_ij > 0, i in {0, ..., d-1}}
-        ```
+        ``
+
         Parameters
         ----------
         index_or_variable : int or str or sym.Array or sym.Scalar

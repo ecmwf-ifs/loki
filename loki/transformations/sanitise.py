@@ -138,24 +138,31 @@ def transform_sequence_association(routine):
     Housekeeping routine to replace scalar syntax when passing arrays as arguments
     For example, a call like
 
-    real :: a(m,n)
+    .. code-block::
 
-    call myroutine(a(i,j))
+        real :: a(m,n)
+
+        call myroutine(a(i,j))
 
     where myroutine looks like
 
-    subroutine myroutine(a)
-        real :: a(5)
-    end subroutine myroutine
+    .. code-block::
+
+        subroutine myroutine(a)
+            real :: a(5)
+        end subroutine myroutine
 
     should be changed to
 
-    call myroutine(a(i:m,j)
+    .. code-block::
+
+        call myroutine(a(i:m,j)
 
     Parameters
     ----------
     routine : :any:`Subroutine`
         The subroutine where calls will be changed
+
     """
 
     #List calls in routine, but make sure we have the called routine definition

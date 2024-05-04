@@ -254,6 +254,7 @@ def write_env_launch_script(here, binary, args):
     This writes a simple script of the form
 
     .. code-block::
+
        source env.sh
        bin/<binary> <args>
        exit $?
