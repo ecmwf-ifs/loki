@@ -105,11 +105,11 @@ side-effects.
 Typically, transformations should be implemented by users to encode the
 transformation pipeline for their individual use-case. However, Loki comes
 with a growing number of built-in transformations that are implemented in
-the :mod:`loki.transform` namespace:
+the :mod:`loki.transformations` namespace:
 
 .. autosummary::
 
-   loki.transform
+   loki.transformations
 
 This includes also a number of tools for common transformation tasks that
 are provided as functions that can be readily used when implementing new
@@ -281,17 +281,17 @@ Other traversal modes may be added in the future.
 
 .. autosummary::
 
-   loki.bulk.scheduler.Scheduler
-   loki.bulk.scheduler.SGraph
-   loki.bulk.scheduler.SFilter
-   loki.bulk.configure.SchedulerConfig
-   loki.bulk.configure.TransformationConfig
-   loki.bulk.configure.ItemConfig
-   loki.bulk.item.Item
-   loki.bulk.item.FileItem
-   loki.bulk.item.ModuleItem
-   loki.bulk.item.ProcedureItem
-   loki.bulk.item.TypeDefItem
-   loki.bulk.item.ProcedureBindingItem
-   loki.bulk.item.InterfaceItem
-   loki.bulk.item.ItemFactory
+   loki.batch.scheduler.Scheduler
+   loki.batch.scheduler.SGraph
+   loki.batch.scheduler.SFilter
+   loki.batch.configure.SchedulerConfig
+   loki.batch.configure.TransformationConfig
+   loki.batch.configure.ItemConfig
+   loki.batch.item.Item
+   loki.batch.item.FileItem
+   loki.batch.item.ModuleItem
+   loki.batch.item.ProcedureItem
+   loki.batch.item.TypeDefItem
+   loki.batch.item.ProcedureBindingItem
+   loki.batch.item.InterfaceItem
+   loki.batch.item.ItemFactory

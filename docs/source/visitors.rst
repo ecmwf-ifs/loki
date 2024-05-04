@@ -46,10 +46,10 @@ for that job with some bespoke variants for specific use cases.
 
 .. autosummary::
 
-   loki.visitors.FindNodes
-   loki.visitors.FindScopes
-   loki.visitors.SequenceFinder
-   loki.visitors.PatternFinder
+   loki.ir.find.FindNodes
+   loki.ir.find.FindScopes
+   loki.ir.find.SequenceFinder
+   loki.ir.find.PatternFinder
 
 A common pattern for using :any:`FindNodes` is the following:
 
@@ -71,10 +71,10 @@ nodes according to a mapper.
 
 .. autosummary::
 
-   loki.visitors.Transformer
-   loki.visitors.NestedTransformer
-   loki.visitors.MaskedTransformer
-   loki.visitors.NestedMaskedTransformer
+   loki.ir.transformer.Transformer
+   loki.ir.transformer.NestedTransformer
+   loki.ir.transformer.MaskedTransformer
+   loki.ir.transformer.NestedMaskedTransformer
 
 :any:`Transformer` is commonly used in conjunction with :any:`FindNodes`, with
 the latter being used to build the mapper for the first. The following example
@@ -107,8 +107,8 @@ pretty-printer for the IR that is useful for debugging.
 
 .. autosummary::
 
-   loki.visitors.pprint.Stringifier
-   loki.visitors.pprint
+   loki.ir.pprint.Stringifier
+   loki.ir.pprint
 
 Implementing new visitors
 -------------------------

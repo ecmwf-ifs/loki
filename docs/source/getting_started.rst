@@ -53,11 +53,12 @@ provided for this are:
 Example transformations and current features
 ============================================
 
-Loki is primarily an API and toolbox, requiring developers to create their
-own head scripts to create and invoke source-to-source translation toolchains.
-A small set of transformations considered generic enough are provided by the
-package itself in :mod:`loki.transform`. The majority of more complex transformations
-are collected in a separate Python package that lives under ``transformations``.
+Loki is primarily an API and toolbox, allowing developers to create their
+own head scripts and to create and invoke source-to-source translation toolchains.
+In addition, a set of supported transformations is provided by the
+package itself in :mod:`loki.transformations`. These range from utilities
+that can be used with generic Fortran codes to highly bespoke transformations
+for generating GPU code based on highly model-specific assumptions.
 
 The ``loki_transform.py`` script is provided by the Loki install. The primary
 transformation passes provided by these example transformations are:

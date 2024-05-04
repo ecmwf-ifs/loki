@@ -19,8 +19,8 @@ representation to a string representation in the syntax of the target language.
 
 .. autosummary::
 
-   loki.visitors.pprint.Stringifier
-   loki.visitors.pprint.pprint
+   loki.ir.pprint.Stringifier
+   loki.ir.pprint.pprint
 
 Typically, this includes also a custom mapper for expression trees as a
 subclass of :any:`LokiStringifyMapper`. For convenience, each of these
@@ -50,5 +50,5 @@ Currently, Loki has backends to generate Fortran, C, Python, and Maxeler MaxJ
    compatible with the target language. Adapting the IR to the desired output
    format needs to be done before calling the relevant code generation routine.
    For language transpilation (e.g., Fortran to C), corresponding
-   :doc:`transformations <transformations>` must be applied
+   :doc:`transformations <transform>` must be applied
    (e.g., :any:`FortranCTransformation`).
