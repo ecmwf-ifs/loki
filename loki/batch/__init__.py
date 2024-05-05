@@ -4,6 +4,15 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
+"""
+Batch processing abstraction for processing large source trees with Loki.
+
+This sub-package provides the :any:`Scheduler` class that allows Loki
+transformations to be applied over large source trees. For this it
+provides the basic :any:`Transformation` and :and:`Pipeline` classes
+that provide the core interfaces for batch processing, as well as the
+configuration utilities for large call tree traversals.
+"""
 
 from loki.batch.configure import * # noqa
 from loki.batch.item import * # noqa

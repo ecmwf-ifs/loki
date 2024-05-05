@@ -5,6 +5,10 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+"""
+The Loki internal representation (IR) and associated APIs for tree traversal.
+"""
+
 from loki.ir.find import *  # noqa
 from loki.ir.ir_graph import *  # noqa
 from loki.ir.nodes import *  # noqa

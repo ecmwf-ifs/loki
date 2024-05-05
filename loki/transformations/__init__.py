@@ -4,6 +4,13 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
+"""
+Sub-package with supported source code transformation passes.
+
+This sub-package includes general source code trnasformations and
+bespoke :any:`Transformation` and :any:`Pipeline` classes for
+IFS-specific source-to-source recipes that target GPUs.
+"""
 
 from loki.transformations.array_indexing import * # noqa
 from loki.transformations.build_system import * # noqa

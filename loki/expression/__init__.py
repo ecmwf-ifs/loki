@@ -4,6 +4,10 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
+"""
+Expression layer of the two-level Loki IR based on `Pymbolic
+<https://github.com/inducer/pymbolic`.
+"""
 
 from loki.expression.expr_visitors import *  # noqa
 from loki.expression.symbols import *  # noqa

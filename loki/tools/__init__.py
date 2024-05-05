@@ -4,6 +4,9 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
+"""
+Collection of tools and utility methods used throughout Loki.
+"""
 
 from loki.tools.util import *  # noqa
 from loki.tools.files import *  # noqa

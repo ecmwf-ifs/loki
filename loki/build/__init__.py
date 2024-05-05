@@ -4,6 +4,13 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
+"""
+Just-in-Time compilation utilities used in the Loki test base.
+
+These allow compilation and wrapping of generated Fortran source code
+using `f90wrap <https://github.com/jameskermode/f90wrap>` for
+execution from Python tests.
+"""
 
 from loki.logging import * # noqa
 

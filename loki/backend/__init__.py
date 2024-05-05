@@ -4,6 +4,9 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
+"""
+Backend classes that convert Loki IR into output code in various languages.
+"""
 
 from loki.backend.fgen import * # noqa
 from loki.backend.cgen import * # noqa
