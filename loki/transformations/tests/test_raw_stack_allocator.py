@@ -9,20 +9,18 @@ from shutil import rmtree
 
 import pytest
 
-from loki.tools import gettempdir
-from loki.dimension import Dimension
+from loki.backend import fgen
 from loki.batch import Scheduler, SchedulerConfig, ProcedureItem
-from loki.frontend.util import OMNI
-from loki.backend.fgen import fgen
-from loki.types import BasicType
+from loki.dimension import Dimension
+from loki.expression import DeferredTypeSymbol, InlineCall, IntLiteral
+from loki.frontend import available_frontends, OMNI
 from loki.ir import FindNodes, CallStatement, Assignment, Pragma
 from loki.sourcefile import Sourcefile
-from loki.expression.symbols import DeferredTypeSymbol, InlineCall, IntLiteral
-from loki.transform.transform_array_indexing import normalize_range_indexing
+from loki.tools import gettempdir
+from loki.types import BasicType
 
-from conftest import available_frontends
-
-from transformations.raw_stack_allocator import TemporariesRawStackTransformation
+from loki.transformations.array_indexing import normalize_range_indexing
+from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
 
 
 @pytest.fixture(scope='module', name='block_dim')

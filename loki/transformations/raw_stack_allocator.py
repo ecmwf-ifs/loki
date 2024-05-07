@@ -7,21 +7,23 @@
 
 import re
 
-from loki.batch import Transformation
-from loki.expression import Array, Scalar
-from loki.types import BasicType
 from loki.analyse import dataflow_analysis_attached
-from loki.types import SymbolAttributes
-from loki.ir import Assignment, CallStatement, Pragma
-from loki.tools import as_tuple
-from loki.ir import FindNodes, Transformer
-from loki.batch import ProcedureItem
+from loki.backend.fgen import fgen
+from loki.batch.item import ProcedureItem
+from loki.batch.transformation import Transformation
+from loki.expression.symbols import (
+    Array, Scalar, Variable, Literal, Product, Sum, InlineCall,
+    IntLiteral, RangeIndex, DeferredTypeSymbol
+)
 from loki.expression.symbolic import is_dimension_constant, simplify
 from loki.expression.mappers import DetachScopesMapper
 from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
-from loki.backend.fgen import fgen
-from loki.expression.symbols import (
-    Variable, Literal, Product, Sum, InlineCall, IntLiteral, RangeIndex, DeferredTypeSymbol)
+from loki.ir.nodes import Assignment, CallStatement, Pragma
+from loki.ir.find import FindNodes
+from loki.ir.transformer import Transformer
+from loki.tools import as_tuple
+from loki.types import BasicType, SymbolAttributes
+
 
 __all__ = ['TemporariesRawStackTransformation']
 
@@ -74,6 +76,12 @@ class TemporariesRawStackTransformation(Transformation):
     # Traverse call tree in reverse when using Scheduler
     reverse_traversal = True
 
+    type_name_dict = {
+        BasicType.REAL: {'kernel': 'P', 'driver': 'Z'},
+        BasicType.LOGICAL: {'kernel': 'LD', 'driver': 'LL'},
+        BasicType.INTEGER: {'kernel': 'K', 'driver': 'I'}
+    }
+
     def __init__(self, block_dim, horizontal,
                  stack_name='STACK',
                  local_int_var_name_pattern='JD_{name}',
@@ -88,13 +96,11 @@ class TemporariesRawStackTransformation(Transformation):
         if key:
             self._key = key
 
-
-    int_type = SymbolAttributes(dtype=BasicType.INTEGER, kind=DeferredTypeSymbol('JPIM'))
-
-    type_name_dict = {BasicType.REAL: {'kernel': 'P', 'driver': 'Z'},
-                      BasicType.LOGICAL: {'kernel': 'LD', 'driver': 'LL'},
-                      BasicType.INTEGER: {'kernel': 'K', 'driver': 'I'}}
-
+    @property
+    def int_type(self):
+        return SymbolAttributes(
+            dtype=BasicType.INTEGER, kind=DeferredTypeSymbol('JPIM')
+        )
 
     def transform_subroutine(self, routine, **kwargs):
 
