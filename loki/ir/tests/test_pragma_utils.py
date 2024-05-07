@@ -69,6 +69,40 @@ def test_get_pragma_parameters(content, starts_with, ref):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_get_pragma_parameters_multiline(frontend):
+    """
+    Test correct extraction of Loki pragma parameters from pragmas
+    with line-contunation.
+    """
+    fcode = """
+subroutine test_pragmas_map(a)
+    implicit none
+    real, intent(in) :: a(:,:)
+    integer :: i, j, k
+
+!$OMP PARALLEL &
+!$OMP &  PRIVATE(i, j) &
+!$OMP &  FIRSTPRIVATE( &
+!$OMP &        n, a, b &
+!$OMP &  )
+
+end subroutine test_pragmas_map
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    pragmas = FindNodes(Pragma).visit(routine.body)
+
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'OMP'
+    params = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)
+    assert len(params) == 3
+    assert params['PARALLEL'] == None
+    assert params['PRIVATE'].strip() == 'i, j'
+    assert params['FIRSTPRIVATE'].strip() == 'n, a, b'
+
+    assert fgen(pragmas[0]) == '!$OMP PARALLEL PRIVATE( i, j ) FIRSTPRIVATE( n, a, b )'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragma_inlining(frontend):
     """
     A short test that verifies pragmas that are the first statement
