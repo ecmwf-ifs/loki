@@ -1416,6 +1416,9 @@ class OFP2IR(GenericVisitor):
             if module is not None:
                 # Import symbol attributes from module, if available
                 for k, v in module.symbol_attrs.items():
+                    # Don't import private module symbols
+                    if v.private or (module.default_access_spec == "private" and not v.public):
+                        continue
                     if k in rename_list:
                         local_name = rename_list[k].name
                         scope.symbol_attrs[local_name] = v.clone(
