@@ -57,6 +57,10 @@ from loki.transform.transform_inline import (
 from transformations.single_column_coalesced_extended import (
         SCCLowerLoopTransformation
 )
+from transformations.block_index_transformations import (
+        BlockIndexInjectTransformation,
+        BlockIndexLowerTransformation, BlockLoopLowerTransformation
+)
 
 class IdemTransformation(Transformation):
     """
@@ -312,11 +316,15 @@ def convert(
         scheduler.process( SCCRevectorTransformation(horizontal=horizontal))
 
     if mode in ['cuda-hoist']:
-        scc_extended = SCCLowerLoopTransformation(
-                dimension=block_dim, dim_name='ibl', keep_driver_loop=True,
-                ignore_dim_name=True
-        )
-        scheduler.process(transformation=scc_extended)
+        # scc_extended = SCCLowerLoopTransformation(
+        #         dimension=block_dim, dim_name='ibl', keep_driver_loop=True,
+        #         ignore_dim_name=True
+        # )
+        # scheduler.process(transformation=scc_extended)
+        scheduler.process(transformation=BlockIndexLowerTransformation(block_dim))
+        scheduler.process(transformation=BlockIndexInjectTransformation(block_dim))
+        scheduler.process(transformation=BlockLoopLowerTransformation(block_dim))
+
         # SccCufTransformationNew !
         scheduler.process( transformation=scheduler.config.transformations[mode] )
 

@@ -15,7 +15,8 @@ from loki import ir
 from loki import (
     Transformation, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, SymbolAttributes,
-    CaseInsensitiveDict, as_tuple, flatten, types, DerivedType, BasicType
+    CaseInsensitiveDict, as_tuple, flatten, types, DerivedType, BasicType,
+    get_pragma_parameters, pragmas_attached
 )
 
 from transformations.single_column_base import SCCBaseTransformation
@@ -1324,21 +1325,29 @@ class SccCufTransformationNew(Transformation):
             if loop.variable == block_dim.index or loop.variable in block_dim._aliases:
                 mapper[loop] = loop.body
                 kernel_within = False
-                for call in FindNodes(ir.CallStatement).visit(routine.body):
-                    if call.name not in as_tuple(targets):
-                        continue
+                with pragmas_attached(routine, node_type=ir.CallStatement):
+                    for call in FindNodes(ir.CallStatement).visit(routine.body):
+                        if call.name not in as_tuple(targets):
+                            continue
 
-                    kernel_within = True
+                        kernel_within = True
+                   
+                        # TODO: use this instead of current approach
+                        if call.pragma:
+                            parameters = get_pragma_parameters(call.pragma, starts_with='removed_loop')
+                        else:
+                            parameters = ()
+                        print(f"kernel within! {call.name} | pragmas: {call.pragma} | parameters: {parameters}")
 
-                    assignment_lhs = routine.variable_map["istat"]
-                    assignment_rhs = sym.InlineCall(
-                        function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
-                        parameters=())
+                        assignment_lhs = routine.variable_map["istat"]
+                        assignment_rhs = sym.InlineCall(
+                            function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
+                            parameters=())
 
-                    if self.mode == 'cuf':
-                        mapper[call] = (call.clone(chevron=(routine.variable_map["GRIDDIM"],
-                                                            routine.variable_map["BLOCKDIM"]),), # arguments=call.arguments + (routine.variable_map[block_dim.size],)),
-                                       ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
+                        if self.mode == 'cuf':
+                            mapper[call] = (call.clone(chevron=(routine.variable_map["GRIDDIM"],
+                                                                routine.variable_map["BLOCKDIM"]),), # arguments=call.arguments + (routine.variable_map[block_dim.size],)),
+                                           ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
 
                 if kernel_within:
                     upper = routine.variable_map[loop.bounds.children[1].name]

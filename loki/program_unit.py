@@ -798,3 +798,23 @@ class ProgramUnit(Scope):
         """
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)
+
+    def resolve_typebound_var(self, name, variable_map=None):
+        """
+        A small convenience utility to resolve type-bound variables.
+
+        Parameters
+        ----------
+        name : str
+            The full name of the variable to be resolved, e.g., a%b%c%d.
+        variable_map : dict
+            A map of the variables defined in the current scope.
+        """
+
+        if not (_variable_map := variable_map):
+            _variable_map = self.variable_map
+
+        name_parts = name.split('%', maxsplit=1)
+        if (var := _variable_map.get(name_parts[0], None)) and len(name_parts) > 1:
+            var = var.get_derived_type_member(name_parts[1])
+        return var

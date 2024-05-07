@@ -163,6 +163,32 @@ class SCCBaseTransformation(Transformation):
             raise RuntimeError(f'No horizontal end variable found in {routine.name}')
 
     @classmethod
+    def get_horizontal_loop_bounds(cls, routine, horizontal):
+        """
+        Check for horizontal loop bounds in a :any:`Subroutine`.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to perform checks on.
+        horizontal : :any:`Dimension`
+            :any:`Dimension` object describing the variable conventions used in code
+            to define the horizontal data dimension and iteration space.
+        """
+
+        bounds = ()
+        variables = routine.variables
+        for name, _bounds in zip(['start', 'end'], horizontal.bounds_expressions):
+            for bound in _bounds:
+                if bound.split('%', maxsplit=1)[0] in variables:
+                    bounds += (bound,)
+                    break
+            else:
+                raise RuntimeError(f'No horizontol {name} variable matching {_bounds[0]} found in {routine.name}')
+
+        return bounds
+
+    @classmethod
     def get_integer_variable(cls, routine, name):
         """
         Find a local variable in the routine, or create an integer-typed one.

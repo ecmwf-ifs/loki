@@ -221,6 +221,10 @@ class SCCLowerLoopTransformation(Transformation):
             # driver loop mapping
             if remove_loop:
                 loop_node = loop if self.keep_driver_loop else loop.body
+                # if self.keep_driver_loop:
+                #     loop_node = [ir.Pragma(keyword="loki", content=f"loop_var({loop.variable})"), loop.body]
+                # else:
+                #     loop_node = loop.body
                 loop_map[loop] = (comment, ir.Pragma(keyword="loki", content=f"start: removed loop"), #  l-{loop.bounds.lower}-l u-{loop.bounds.upper}-u s-{loop.bounds.step}-s"),
                         comment, loop_node, comment, ir.Pragma(keyword="loki", content="end: removed loop"), comment)
             # calls
@@ -233,6 +237,15 @@ class SCCLowerLoopTransformation(Transformation):
 
                 if SCCBaseTransformation.is_elemental(call.routine):
                     continue
+
+                ##
+                # call.pragmas += (ir.Pragma(keyword="loki", content=f"loop_var({loop.variable})"),)
+                # TODO: new approach to do things ... corresponding 
+                call_pragmas = (ir.Pragma(keyword="loki", content=f"removed_loop var({loop.variable}) \
+                        lower({loop.bounds.lower}) upper({loop.bounds.upper}) \
+                        step({loop.bounds.step if loop.bounds.step else 1})"),)
+                call._update(pragma=(call.pragma if call.pragma else ()) + call_pragmas)
+                ##
 
                 if insert_index_instead_of_loop:
                     additional_kwarguments = self._insert_index_in_kernel(routine, call, loop) 

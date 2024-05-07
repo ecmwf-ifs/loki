@@ -21,6 +21,7 @@ from transformations.single_column_coalesced_extended import * # noqa
 # from transformations.utility_routines import * # noqa
 from transformations.scc_cuf import * # noqa
 from transformations.pool_allocator import * # noqa
+from transformations.block_index_transformations import * # noqa
 
 try:
     __version__ = version("transformations")
