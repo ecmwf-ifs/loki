@@ -11,6 +11,7 @@ from loki.batch import Pipeline
 
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
 
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
@@ -20,7 +21,9 @@ from loki.transformations.single_column.vector import (
 )
 
 
-__all__ = ['SCCVectorPipeline', 'SCCHoistPipeline', 'SCCStackPipeline']
+__all__ = [
+    'SCCVectorPipeline', 'SCCHoistPipeline', 'SCCStackPipeline', 'SCCRawStackPipeline'
+]
 
 
 """
@@ -169,5 +172,52 @@ SCCStackPipeline = partial(
         SCCRevectorTransformation,
         SCCAnnotateTransformation,
         TemporariesPoolAllocatorTransformation
+    )
+)
+
+"""
+SCC-style transformation that additionally pre-allocates a "stack"
+pool allocator and replaces local temporaries with indexed sub-arrays
+of this preallocated array.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`TemporariesRawStackTransformation` to back the remaining
+locally allocated arrays from a "stack" pool allocator that is
+pre-allocated in the driver routine and passed down via arguments.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
+driver_horizontal : str, optional
+    Override string if a separate variable name should be used for the
+    horizontal when allocating the stack in the driver.
+"""
+SCCRawStackPipeline = partial(
+    Pipeline, classes=(
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorTransformation,
+        SCCAnnotateTransformation,
+        TemporariesRawStackTransformation
     )
 )
