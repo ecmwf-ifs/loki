@@ -324,7 +324,8 @@ def convert(
         ))
 
         transformation = TemporariesRawStackTransformation(
-            block_dim=block_dim, horizontal=horizontal, directive=directive
+            block_dim=block_dim, horizontal=horizontal,
+            directive=directive, driver_horizontal='NPROMA'
         )
         scheduler.process(transformation=transformation)
 
