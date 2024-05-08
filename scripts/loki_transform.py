@@ -280,39 +280,46 @@ def convert(
         scheduler.process( pipeline )
 
     if mode == 'scc':
-        pipeline = SCCVectorPipeline(
-            horizontal=horizontal,
-            block_dim=block_dim, directive=directive,
-            trim_vector_sections=trim_vector_sections
-        )
+        pipeline = scheduler.config.transformations.get('scc', None)
+        if not pipeline:
+            pipeline = SCCVectorPipeline(
+                horizontal=horizontal,
+                block_dim=block_dim, directive=directive,
+                trim_vector_sections=trim_vector_sections
+            )
         scheduler.process( pipeline )
 
     if mode == 'scc-hoist':
-        pipeline = SCCHoistPipeline(
-            horizontal=horizontal,
-            block_dim=block_dim, directive=directive,
-            dim_vars=(vertical.size,) if vertical else None,
-            trim_vector_sections=trim_vector_sections
-        )
+        pipeline = scheduler.config.transformations.get('scc-hoist', None)
+        if not pipeline:
+            pipeline = SCCHoistPipeline(
+                horizontal=horizontal,
+                block_dim=block_dim, directive=directive,
+                dim_vars=(vertical.size,) if vertical else None,
+                trim_vector_sections=trim_vector_sections
+            )
         scheduler.process( pipeline )
 
     if mode == 'scc-stack':
-        pipeline = SCCStackPipeline(
-            horizontal=horizontal,
-            block_dim=block_dim, directive=directive,
-            check_bounds=False,
-            trim_vector_sections=trim_vector_sections
-        )
+        pipeline = scheduler.config.transformations.get('scc-stack', None)
+        if not pipeline:
+            pipeline = SCCStackPipeline(
+                horizontal=horizontal,
+                block_dim=block_dim, directive=directive,
+                check_bounds=False,
+                trim_vector_sections=trim_vector_sections
+            )
         scheduler.process( pipeline )
 
     if mode == 'scc-raw-stack':
-        pipeline = SCCStackPipeline(
-            horizontal=horizontal,
-            block_dim=block_dim, directive=directive,
-            check_bounds=False,
-            trim_vector_sections=trim_vector_sections,
-            driver_horizontal='NPROMA'
-        )
+        pipeline = scheduler.config.transformations.get('scc-raw-stack', None)
+        if not pipeline:
+            pipeline = SCCStackPipeline(
+                horizontal=horizontal,
+                block_dim=block_dim, directive=directive,
+                check_bounds=False,
+                trim_vector_sections=trim_vector_sections,
+            )
         scheduler.process( pipeline )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
