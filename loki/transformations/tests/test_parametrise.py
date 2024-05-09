@@ -2,6 +2,7 @@
 A selection of tests for the parametrisation functionality.
 """
 from pathlib import Path
+from shutil import rmtree
 import pytest
 import numpy as np
 
@@ -10,6 +11,7 @@ from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
+from loki.tools import gettempdir
 
 from loki.transformations.parametrise import ParametriseTransformation
 
@@ -22,6 +24,15 @@ def fixture_here():
 @pytest.fixture(scope='module', name='testdir')
 def fixture_testdir(here):
     return here.parent.parent/'tests'
+
+
+@pytest.fixture(scope='function', name='tempdir')
+def fixture_tempdir(request):
+    basedir = gettempdir()/request.function.__name__
+    basedir.mkdir(exist_ok=True)
+    yield basedir
+    if basedir.exists():
+        rmtree(basedir)
 
 
 @pytest.fixture(name='config')
@@ -49,22 +60,25 @@ def fixture_config():
     }
 
 
-def compile_and_test(scheduler, here, a=5, b=1, test_name=""):
+def compile_and_test(scheduler, tempdir, a=5, b=1, test_name=""):
     """
     Compile the source code and call the driver function in order to test the results for correctness.
     """
     for item in scheduler.items:
         if "driver" in item.name:
             suffix = '.F90'
-            if test_name != "":
-                item.source.path = Path(f"{item.source.path.stem}_{test_name}")
-            module = jit_compile(item.source, filepath=item.source.path.with_suffix(suffix).name, objname=None)
+            if test_name:
+                filepath = tempdir/f"{item.source.path.stem}_{test_name}"
+            else:
+                filepath = tempdir/item.source.path.stem
+            filepath = filepath.with_suffix(suffix)
+            module = jit_compile(item.source, filepath=filepath, objname=item.source.path.stem)
             c = np.zeros((a, b), dtype=np.int32, order='F')
             d = np.zeros((b,), dtype=np.int32, order='F')
-            module.Parametrise.driver(a, b, c, d)
+            module.driver(a, b, c, d)
             assert (c == 11).all()
             assert (d == 42).all()
-            clean_test(filepath=here.parent / item.source.path.with_suffix(suffix).name)
+            clean_test(filepath=filepath)
 
 
 def check_arguments_and_parameter(scheduler, subroutine_arguments, call_arguments, parameter_variables):
@@ -114,7 +128,7 @@ def check_arguments_and_parameter(scheduler, subroutine_arguments, call_argument
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_source(here, testdir, frontend, config):
+def test_parametrise_source(tempdir, testdir, frontend, config):
     """
     Test the actual source code without any transformations applied.
     """
@@ -156,11 +170,11 @@ def test_parametrise_source(here, testdir, frontend, config):
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    compile_and_test(scheduler=scheduler, here=here, a=a, b=b, test_name="original_source")
+    compile_and_test(scheduler=scheduler, tempdir=tempdir, a=a, b=b, test_name="original_source")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_simple(here, testdir, frontend, config):
+def test_parametrise_simple(tempdir, testdir, frontend, config):
     """
     Basic testing of parametrisation functionality.
     """
@@ -204,11 +218,11 @@ def test_parametrise_simple(here, testdir, frontend, config):
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    compile_and_test(scheduler=scheduler, here=here, a=a, b=b, test_name="parametrised")
+    compile_and_test(scheduler=scheduler, tempdir=tempdir, a=a, b=b, test_name="parametrised")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_simple_replace_by_value(here, testdir, frontend, config):
+def test_parametrise_simple_replace_by_value(tempdir, testdir, frontend, config):
     """
     Basic testing of parametrisation functionality including replacing of the variables with the actual values.
     """
@@ -303,11 +317,11 @@ def test_parametrise_simple_replace_by_value(here, testdir, frontend, config):
         assert f'z({b})' in routine_spec_str
         assert f'd2_tmp({b})' in routine_spec_str
 
-    compile_and_test(scheduler=scheduler, here=here, a=a, b=b, test_name="replaced")
+    compile_and_test(scheduler=scheduler, tempdir=tempdir, a=a, b=b, test_name="replaced")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_modified_callback(here, testdir, frontend, config):
+def test_parametrise_modified_callback(tempdir, testdir, frontend, config):
     """
     Testing of the parametrisation functionality with modified callbacks for failed sanity checks.
     """
@@ -364,11 +378,11 @@ def test_parametrise_modified_callback(here, testdir, frontend, config):
         check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                       call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-        compile_and_test(scheduler=scheduler, here=here, a=a, b=b, test_name=f"callback_{i+1}")
+        compile_and_test(scheduler=scheduler, tempdir=tempdir, a=a, b=b, test_name=f"callback_{i+1}")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_modified_callback_wrong_input(here, testdir, frontend, config):
+def test_parametrise_modified_callback_wrong_input(tempdir, testdir, frontend, config):
     """
     Testing of the parametrisation functionality with modified callback for failed sanity checks including test of
     a failed sanity check.
@@ -420,22 +434,12 @@ def test_parametrise_modified_callback_wrong_input(here, testdir, frontend, conf
     test_name = "parametrised_callback_wrong_input"
     a = a + 1
     b = b + 1
-    for item in scheduler.items:
-        if "driver" in item.name:
-            suffix = '.F90'
-            if test_name != "":
-                item.source.path = Path(f"{item.source.path.stem}_{test_name}")
-            module = jit_compile(item.source, filepath=item.source.path.with_suffix(suffix).name, objname=None)
-            c = np.zeros((a, b), dtype=np.int32, order='F')
-            d = np.zeros((b,), dtype=np.int32, order='F')
-            module.Parametrise.driver(a, b, c, d)
-            assert not (c == 11).all()
-            assert not (d == 42).all()
-            clean_test(filepath=here.parent / item.source.path.with_suffix(suffix).name)
+
+    compile_and_test(scheduler=scheduler, tempdir=tempdir, a=5, b=1, test_name=test_name)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parametrise_non_driver_entry_points(here, testdir, frontend, config):
+def test_parametrise_non_driver_entry_points(tempdir, testdir, frontend, config):
     """
     Testing of parametrisation functionality with defined entry points/functions, thus not being the default (driver).
     """
@@ -479,4 +483,4 @@ def test_parametrise_non_driver_entry_points(here, testdir, frontend, config):
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    compile_and_test(scheduler=scheduler, here=here, a=a, b=b, test_name="parametrised_entry_points")
+    compile_and_test(scheduler=scheduler, tempdir=tempdir, a=a, b=b, test_name="parametrised_entry_points")
