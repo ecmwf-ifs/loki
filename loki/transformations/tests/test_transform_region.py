@@ -372,7 +372,7 @@ def test_transform_region_to_call(here, frontend):
     A very simple region-to-call test case
     """
     fcode = """
-subroutine transform_region_to_call(a, b, c)
+subroutine reg_to_call(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 5
@@ -383,7 +383,7 @@ subroutine transform_region_to_call(a, b, c)
 !$loki end region-to-call
 
   c = a + b
-end subroutine transform_region_to_call
+end subroutine reg_to_call
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = here/(f'{routine.name}_{frontend}.f90')
@@ -424,7 +424,7 @@ def test_transform_region_to_call_multiple(here, frontend):
     Test hoisting with multiple groups and multiple regions per group
     """
     fcode = """
-subroutine transform_region_to_call_multiple(a, b, c)
+subroutine reg_to_call_mult(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 1
@@ -442,7 +442,7 @@ subroutine transform_region_to_call_multiple(a, b, c)
 !$loki region-to-call in(a,b) out(c)
   c = a + b
 !$loki end region-to-call
-end subroutine transform_region_to_call_multiple
+end subroutine reg_to_call_mult
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = here/(f'{routine.name}_{frontend}.f90')
@@ -486,7 +486,7 @@ def test_transform_region_to_call_arguments(here, frontend):
     and automatic derivation of arguments
     """
     fcode = """
-subroutine transform_region_to_call_arguments(a, b, c)
+subroutine reg_to_call_args(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 1
@@ -505,7 +505,7 @@ subroutine transform_region_to_call_arguments(a, b, c)
 !$loki region-to-call name(func_c) inout(b)
   c = a + b
 !$loki end region-to-call
-end subroutine transform_region_to_call_arguments
+end subroutine reg_to_call_args
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = here/(f'{routine.name}_{frontend}.f90')
@@ -559,7 +559,7 @@ def test_transform_region_to_call_arrays(here, frontend):
     Test hoisting with array variables
     """
     fcode = """
-subroutine transform_region_to_call_arrays(a, b, n)
+subroutine reg_to_call_arrays(a, b, n)
   integer, intent(out) :: a(n), b(n)
   integer, intent(in) :: n
   integer :: j
@@ -582,7 +582,7 @@ subroutine transform_region_to_call_arrays(a, b, n)
   end do
   b(n) = 1
 !$loki end region-to-call
-end subroutine transform_region_to_call_arrays
+end subroutine reg_to_call_arrays
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_range_indexing(routine)
@@ -646,10 +646,10 @@ end module region_to_call_mod
     """.strip()
 
     fcode = """
-module transform_region_to_call_imports_mod
+module region_to_call_imports_mod
   implicit none
 contains
-  subroutine transform_region_to_call_imports(a, b)
+  subroutine region_to_call_imports(a, b)
     use region_to_call_mod, only: param, arr1, arr2
     integer, intent(out) :: a(10), b(10)
     integer :: j
@@ -673,8 +673,8 @@ contains
       b(j) = arr2(j) - a(j)
     end do
 !$loki end region-to-call
-  end subroutine transform_region_to_call_imports
-end module transform_region_to_call_imports_mod
+  end subroutine region_to_call_imports
+end module region_to_call_imports_mod
 """
     ext_module = Module.from_source(fcode_module, frontend=frontend)
     module = Module.from_source(fcode, frontend=frontend, definitions=ext_module)

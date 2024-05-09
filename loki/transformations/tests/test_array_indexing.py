@@ -344,18 +344,18 @@ end subroutine transform_demote_dimension_arguments
 @pytest.mark.parametrize('start_index', (0, 1, 5))
 def test_transform_normalize_array_shape_and_access(here, frontend, start_index):
     """
-    Test normalization of array shape and access, thus changing arrays with start 
+    Test normalization of array shape and access, thus changing arrays with start
     index different than "1" to have start index "1".
 
-    E.g., ``x1(5:len)`` -> ```x1(1:len-4)`` 
+    E.g., ``x1(5:len)`` -> ```x1(1:len-4)``
     """
     fcode = f"""
-    module transform_normalize_array_shape_and_access_mod
+    module norm_arr_shape_access_mod
     implicit none
-    
+
     contains
 
-    subroutine transform_normalize_array_shape_and_access(x1, x2, x3, x4, assumed_x1, l1, l2, l3, l4)
+    subroutine norm_arr_shape_access(x1, x2, x3, x4, assumed_x1, l1, l2, l3, l4)
         ! use nested_routine_mod, only : nested_routine
         implicit none
         integer :: i1, i2, i3, i4, c1, c2, c3, c4
@@ -394,7 +394,7 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
             end do
             c1 = c1 + 1
         end do
-    end subroutine transform_normalize_array_shape_and_access
+    end subroutine norm_arr_shape_access
 
     subroutine nested_routine(nested_x1, l1, c1)
         implicit none
@@ -406,7 +406,7 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
         end do
     end subroutine nested_routine
 
-    end module transform_normalize_array_shape_and_access_mod
+    end module norm_arr_shape_access_mod
     """
 
     def init_arguments(l1, l2, l3, l4):
@@ -429,10 +429,10 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
     module = Module.from_source(fcode, frontend=frontend)
     for routine in module.routines:
         normalize_range_indexing(routine) # Fix OMNI nonsense
-    filepath = here/(f'transform_normalize_array_shape_and_access_{frontend}.f90')
+    filepath = here/(f'norm_arr_shape_access_{frontend}.f90')
     # compile and test "original" module/function
-    mod = jit_compile(module, filepath=filepath, objname='transform_normalize_array_shape_and_access_mod')
-    function = getattr(mod, 'transform_normalize_array_shape_and_access')
+    mod = jit_compile(module, filepath=filepath, objname='norm_arr_shape_access_mod')
+    function = getattr(mod, 'norm_arr_shape_access')
     orig_x1, orig_x2, orig_x3, orig_x4, orig_assumed_x1 = init_arguments(l1, l2, l3, l4)
     function(orig_x1, orig_x2, orig_x3, orig_x4, orig_assumed_x1, l1, l2, l3, l4)
     clean_test(filepath)
@@ -441,14 +441,14 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
     for routine in module.routines:
         normalize_array_shape_and_access(routine)
 
-    filepath = here/(f'transform_normalize_array_shape_and_access_normalized_{frontend}.f90')
+    filepath = here/(f'norm_arr_shape_access_normalized_{frontend}.f90')
     # compile and test "normalized" module/function
-    mod = jit_compile(module, filepath=filepath, objname='transform_normalize_array_shape_and_access_mod')
-    function = getattr(mod, 'transform_normalize_array_shape_and_access')
+    mod = jit_compile(module, filepath=filepath, objname='norm_arr_shape_access_mod')
+    function = getattr(mod, 'norm_arr_shape_access')
     x1, x2, x3, x4, assumed_x1 = init_arguments(l1, l2, l3, l4)
     function(x1, x2, x3, x4, assumed_x1, l1, l2, l3, l4)
     clean_test(filepath)
-    # validate the routine "transform_normalize_array_shape_and_access"
+    # validate the routine "norm_arr_shape_access"
     validate_routine(module.subroutines[0])
     # validate the nested routine to see whether the assumed size array got correctly handled
     assert module.subroutines[1].variable_map['nested_x1'] == 'nested_x1(:)'
@@ -470,7 +470,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     index arithmetic.
     """
     fcode = f"""
-    subroutine transform_flatten_arrays(x1, x2, x3, x4, l1, l2, l3, l4)
+    subroutine transf_flatten_arr(x1, x2, x3, x4, l1, l2, l3, l4)
         implicit none
         integer :: i1, i2, i3, i4, c1, c2, c3, c4
         integer, intent(in) :: l1, l2, l3, l4
@@ -503,7 +503,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
             c1 = c1 + 1
         end do
 
-    end subroutine transform_flatten_arrays
+    end subroutine transf_flatten_arr
     """
     def init_arguments(l1, l2, l3, l4, flattened=False):
         x1 = np.zeros(shape=(l1,), order='F', dtype=np.int32)
@@ -573,7 +573,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     f2c.apply(source=f2c_routine, path=here)
     libname = f'fc_{f2c_routine.name}_{start_index}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
-    fc_function = c_kernel.transform_flatten_arrays_fc_mod.transform_flatten_arrays_fc
+    fc_function = c_kernel.transf_flatten_arr_fc_mod.transf_flatten_arr_fc
     f2c_x1, f2c_x2, f2c_x3, f2c_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
     fc_function(f2c_x1, f2c_x2, f2c_x3, f2c_x4, l1, l2, l3, l4)
     validate_routine(c_routine)
@@ -593,8 +593,8 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
 @pytest.mark.parametrize('ignore', ((), ('i2',), ('i4', 'i1')))
 def test_shift_to_zero_indexing(frontend, ignore):
     """
-    Test shifting array dimensions to zero (or rather shift dimension `dim` 
-    to `dim - 1`). This does not produce valid Fortran, but is part of the 
+    Test shifting array dimensions to zero (or rather shift dimension `dim`
+    to `dim - 1`). This does not produce valid Fortran, but is part of the
     F2C transpilation logic.
     """
     fcode = """
