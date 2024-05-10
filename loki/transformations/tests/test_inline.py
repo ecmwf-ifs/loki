@@ -703,8 +703,8 @@ end subroutine acraneb_transt
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('remove_imports', [True, False])
-def test_inline_marked_subroutines(frontend, remove_imports):
+@pytest.mark.parametrize('adjust_imports', [True, False])
+def test_inline_marked_subroutines(frontend, adjust_imports):
     """ Test subroutine inlining via marker pragmas. """
 
     fcode_driver = """
@@ -762,7 +762,7 @@ end module util_mod
     assert calls[2].routine == module['add_one']
 
     inline_marked_subroutines(
-        routine=driver, allowed_aliases=('I',), remove_imports=remove_imports
+        routine=driver, allowed_aliases=('I',), adjust_imports=adjust_imports
     )
 
     # Check inlined loops and assignments
@@ -780,15 +780,15 @@ end module util_mod
 
     imports = FindNodes(ir.Import).visit(driver.spec)
     assert len(imports) == 1
-    if remove_imports:
+    if adjust_imports:
         assert imports[0].symbols == ('add_one',)
     else:
         assert imports[0].symbols == ('add_one', 'add_a_to_b')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('remove_imports', [True, False])
-def test_inline_marked_routine_with_optionals(frontend, remove_imports):
+@pytest.mark.parametrize('adjust_imports', [True, False])
+def test_inline_marked_routine_with_optionals(frontend, adjust_imports):
     """ Test subroutine inlining via marker pragmas with omitted optionals. """
 
     fcode_driver = """
@@ -837,7 +837,7 @@ end module util_mod
     assert calls[0].routine == module['add_one']
     assert calls[1].routine == module['add_one']
 
-    inline_marked_subroutines(routine=driver, remove_imports=remove_imports)
+    inline_marked_subroutines(routine=driver, adjust_imports=adjust_imports)
 
     # Check inlined loops and assignments
     assert len(FindNodes(ir.Loop).visit(driver.body)) == 2
@@ -858,7 +858,7 @@ end module util_mod
     assert checks[1].condition == 'False'
 
     imports = FindNodes(ir.Import).visit(driver.spec)
-    assert len(imports) == 0 if remove_imports else 1
+    assert len(imports) == 0 if adjust_imports else 1
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -910,7 +910,7 @@ end subroutine dave
 
     assert FindNodes(ir.CallStatement).visit(outer.body)[0].routine == inner
 
-    inline_marked_subroutines(routine=outer, remove_imports=True)
+    inline_marked_subroutines(routine=outer, adjust_imports=True)
 
     # Ensure that all associates are perfectly nested afterwards
     assocs = FindNodes(ir.Associate).visit(outer.body)
@@ -925,6 +925,55 @@ end subroutine dave
     assert call.name == 'rick_is'
     assert call.arguments == ('never%going_to%give_you%up',)
     # Q. E. D.
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_marked_subroutines_declarations(frontend):
+    """Test symbol propagation to hoisted declaration when inlining."""
+    fcode = """
+module inline_declarations
+  implicit none
+
+  type bounds
+    integer :: start, end
+  end type bounds
+
+  contains
+
+  subroutine outer(a, bnds)
+    real(kind=8), intent(inout) :: a(bnds%end)
+    type(bounds), intent(in) :: bnds
+    real(kind=8) :: b(bnds%end)
+
+    b(bnds%start:bnds%end) = a(bnds%start:bnds%end) + 42.0
+
+    !$loki inline
+    call inner(a, dims=bnds)
+  end subroutine outer
+
+  subroutine inner(c, dims)
+    real(kind=8), intent(inout) :: c(dims%end)
+    type(bounds), intent(in) :: dims
+    real(kind=8) :: d(dims%end)
+
+    d(dims%start:dims%end) = c(dims%start:dims%end) - 66.6
+    c(dims%start) = sum(d)
+  end subroutine inner
+end module inline_declarations
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    outer = module['outer']
+    inner = module['inner']
+
+    inline_marked_subroutines(routine=outer, adjust_imports=True)
+
+    # Check that all declarations are using the ``bnds`` symbol
+    assert outer.symbols[0] == 'a(1:bnds%end)' if frontend == OMNI else 'a(bnds%end)'
+    assert outer.symbols[2] == 'b(1:bnds%end)' if frontend == OMNI else 'b(bnds%end)'
+    assert outer.symbols[3] == 'd(1:bnds%end)' if frontend == OMNI else 'd(bnds%end)'
+    assert all(
+        a.shape == ('bnds%end',) for a in outer.symbols if isinstance(a, sym.Array)
+    )
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -1013,6 +1062,7 @@ end subroutine test_inline_pragma
     assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
     assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
     assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_transformation_local_seq_assoc(frontend):
@@ -1125,6 +1175,7 @@ end module somemod
     assert 'inner' not in callnames
     assert 'minusone_second' in callnames
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_transformation_local_seq_assoc_crash_marked_no_seq_assoc(frontend):
     # Test case that a crash occurs if marked routine with sequence association is
@@ -1199,3 +1250,81 @@ end module somemod
     outer = module["outer"]
     with pytest.raises(ValueError):
         trafo.apply(outer)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_transformation_adjust_imports(frontend):
+    fcode_module = """
+module bnds_module
+  integer :: m
+  integer :: n
+end module bnds_module
+    """
+
+    fcode_another = """
+module another_module
+  integer :: x
+end module another_module
+    """
+
+    fcode_outer = """
+subroutine test_inline_outer(a, b)
+  use bnds_module, only: n
+  use test_inline_mod, only: test_inline_inner
+  implicit none
+
+  real(kind=8), intent(inout) :: a(n), b(n)
+
+  !$loki inline
+  call test_inline_inner(a, b)
+end subroutine test_inline_outer
+    """
+
+    fcode_inner = """
+module test_inline_mod
+  implicit none
+  contains
+
+subroutine test_inline_inner(a, b)
+  use BNDS_module, only: n, m
+  use another_module, only: x
+
+  real(kind=8), intent(inout) :: a(n), b(n)
+  real(kind=8) :: tmp(m)
+  integer :: i
+
+  tmp(1:m) = x
+  do i=1, n
+    a(i) = b(i) + sum(tmp)
+  end do
+end subroutine test_inline_inner
+end module test_inline_mod
+    """
+    _ = Module.from_source(fcode_another, frontend=frontend)
+    _ = Module.from_source(fcode_module, frontend=frontend)
+    inner = Module.from_source(fcode_inner, frontend=frontend)
+    outer = Subroutine.from_source(
+        fcode_outer, definitions=inner, frontend=frontend
+    )
+
+    trafo = InlineTransformation(
+        inline_elementals=False, inline_marked=True, adjust_imports=True
+    )
+    trafo.apply(outer)
+
+    # Check that the inlining has happened
+    assign = FindNodes(ir.Assignment).visit(outer.body)
+    assert len(assign) == 2
+    assert assign[0].lhs == 'tmp(1:m)'
+    assert assign[0].rhs == 'x'
+    assert assign[1].lhs == 'a(i)'
+    assert assign[1].rhs == 'b(i) + sum(tmp)'
+
+    # Now check that the right modules have been moved,
+    # and the import of the call has been removed
+    imports = FindNodes(ir.Import).visit(outer.spec)
+    assert len(imports) == 2
+    assert imports[0].module == 'another_module'
+    assert imports[0].symbols == ('x',)
+    assert imports[1].module == 'bnds_module'
+    assert 'm' in imports[1].symbols and 'n' in imports[1].symbols

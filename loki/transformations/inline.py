@@ -10,7 +10,7 @@ Collection of utility routines to perform code-level force-inlining.
 
 
 """
-from collections import defaultdict
+from collections import defaultdict, ChainMap
 
 from loki.batch import Transformation
 from loki.ir import (
@@ -22,7 +22,7 @@ from loki.expression import (
     SubstituteExpressions, LokiIdentityMapper
 )
 from loki.types import BasicType
-from loki.tools import as_tuple
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import warning, error
 from loki.subroutine import Subroutine
 
@@ -66,8 +66,9 @@ class InlineTransformation(Transformation):
     allowed_aliases : tuple or list of str or :any:`Expression`, optional
         List of variables that will not be renamed in the parent scope during
         internal and pragma-driven inlining.
-    remove_imports : bool
-        Strip unused import symbols after pragma-inlining (optional, default: True)
+    adjust_imports : bool
+        Adjust imports by removing the symbol of the inlined routine or adding
+        imports needed by the imported routine (optional, default: True)
     external_only : bool, optional
         Do not replace variables declared in the local scope when
         inlining constants (default: True)
@@ -82,7 +83,7 @@ class InlineTransformation(Transformation):
             self, inline_constants=False, inline_elementals=True,
             inline_internals=False, inline_marked=True,
             remove_dead_code=True, allowed_aliases=None,
-            remove_imports=True, external_only=True,
+            adjust_imports=True, external_only=True,
             resolve_sequence_association=False
     ):
         self.inline_constants = inline_constants
@@ -91,7 +92,7 @@ class InlineTransformation(Transformation):
         self.inline_marked = inline_marked
         self.remove_dead_code = remove_dead_code
         self.allowed_aliases = allowed_aliases
-        self.remove_imports = remove_imports
+        self.adjust_imports = adjust_imports
         self.external_only = external_only
         self.resolve_sequence_association = resolve_sequence_association
 
@@ -123,7 +124,7 @@ class InlineTransformation(Transformation):
         if self.inline_marked:
             inline_marked_subroutines(
                 routine, allowed_aliases=self.allowed_aliases,
-                remove_imports=self.remove_imports
+                adjust_imports=self.adjust_imports
             )
 
         # After inlining, attempt to trim unreachable code paths
@@ -486,6 +487,11 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
     # Rescope the declaration symbols
     decls = tuple(d.clone(symbols=tuple(s.clone(scope=routine) for s in d.symbols)) for d in decls)
+
+    # Find and apply symbol remappings for array size expressions
+    symbol_map = dict(ChainMap(*[call.arg_map for call in calls]))
+    decls = SubstituteExpressions(symbol_map).visit(decls)
+
     routine.spec.append(decls)
 
     # Resolve the call by mapping arguments into the called procedure's body
@@ -536,7 +542,7 @@ def inline_internal_procedures(routine, allowed_aliases=None):
 inline_member_procedures = inline_internal_procedures
 
 
-def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True):
+def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True):
     """
     Inline :any:`Subroutine` objects guided by pragma annotations.
 
@@ -555,8 +561,9 @@ def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True
     allowed_aliases : tuple or list of str or :any:`Expression`, optional
         List of variables that will not be renamed in the parent scope, even
         if they alias with a local declaration.
-    remove_imports : bool
-        Strip unused import symbols after inlining (optional, default: True)
+    adjust_imports : bool
+        Adjust imports by removing the symbol of the inlined routine or adding
+        imports needed by the imported routine (optional, default: True)
     """
 
     with pragmas_attached(routine, node_type=CallStatement):
@@ -581,7 +588,7 @@ def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True
                 )
 
     # Remove imported symbols that have become obsolete
-    if remove_imports:
+    if adjust_imports:
         callees = tuple(callee.procedure_symbol for callee in call_sets.keys())
         not_inlined = tuple(callee.procedure_symbol for callee in no_call_sets.keys())
 
@@ -597,4 +604,28 @@ def inline_marked_subroutines(routine, allowed_aliases=None, remove_imports=True
                 )
                 # Remove import if no further symbols used, otherwise clone with new symbols
                 import_map[impt] = impt.clone(symbols=new_symbols) if new_symbols else None
+
+        # Now move any callee imports we might need over to the caller
+        new_imports = set()
+        imported_module_map = CaseInsensitiveDict((im.module, im) for im in routine.imports)
+        for callee in call_sets.keys():
+            for impt in callee.imports:
+
+                # Add any callee module we do not yet know
+                if impt.module not in imported_module_map:
+                    new_imports.add(impt)
+
+                # If we're importing the same module, check for missing symbols
+                if m := imported_module_map.get(impt.module):
+                    if not all(s in m.symbols for s in impt.symbols):
+                        new_symbols = tuple(s.rescope(routine) for s in impt.symbols)
+                        import_map[m] = m.clone(symbols=tuple(set(m.symbols + new_symbols)))
+
+        # Finally, apply the import remapping
         routine.spec = Transformer(import_map).visit(routine.spec)
+
+        # Add Fortran imports to the top, and C-style interface headers at the bottom
+        c_imports = tuple(im for im in new_imports if im.c_import)
+        f_imports = tuple(im for im in new_imports if not im.c_import)
+        routine.spec.prepend(f_imports)
+        routine.spec.append(c_imports)
