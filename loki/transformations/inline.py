@@ -618,7 +618,8 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
                 # If we're importing the same module, check for missing symbols
                 if m := imported_module_map.get(impt.module):
                     if not all(s in m.symbols for s in impt.symbols):
-                        import_map[m] = m.clone(symbols=tuple(set(m.symbols + impt.symbols)))
+                        new_symbols = tuple(s.rescope(routine) for s in impt.symbols)
+                        import_map[m] = m.clone(symbols=tuple(set(m.symbols + new_symbols)))
 
         # Finally, apply the import remapping
         routine.spec = Transformer(import_map).visit(routine.spec)
