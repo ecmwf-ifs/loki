@@ -149,6 +149,8 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
         if only_loki_pragmas and p.keyword.lower() != 'loki':
             continue
         content = p.content or ''
+        # Remove any line-continuation markers
+        content = content.replace('&', '')
         if starts_with is not None:
             if not content.lower().startswith(starts_with.lower()):
                 continue

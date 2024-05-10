@@ -207,7 +207,7 @@ def convert(
     remove_code_trafo = scheduler.config.transformations.get('RemoveCodeTransformation', None)
     if not remove_code_trafo:
         remove_code_trafo = RemoveCodeTransformation(
-            remove_marked_regions=True, remove_dead_code=False,
+            remove_marked_regions=True, remove_dead_code=False, kernel_only=True,
             call_names=('ABOR1', 'DR_HOOK'), intrinsic_names=('WRITE(NULOUT',)
         )
     scheduler.process(transformation=remove_code_trafo)
