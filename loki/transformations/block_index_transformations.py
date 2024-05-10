@@ -5,13 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki import (
-    Transformation, ProcedureItem, ir, Module, as_tuple, SymbolAttributes, BasicType, Variable,
-    RangeIndex, Array, FindVariables, resolve_associates, SubstituteExpressions, FindNodes,
-    recursive_expression_map_update
-)
-
-from transformations.single_column_coalesced import SCCBaseTransformation
+from loki.batch import Transformation, ProcedureItem
+from loki.ir import nodes as ir, FindNodes
+from loki.module import Module
+from loki.tools import as_tuple
+from loki.types import SymbolAttributes, BasicType
+from loki.expression import Variable, Array, RangeIndex, FindVariables, SubstituteExpressions
+from loki.transformations import resolve_associates, recursive_expression_map_update
+from loki.transformations.single_column import SCCBaseTransformation
 
 __all__ = ['BlockViewToFieldViewTransformation', 'BlockIndexInjectTransformation']
 
@@ -133,7 +134,7 @@ class BlockViewToFieldViewTransformation(Transformation):
             decls = (ir.VariableDeclaration(symbols=(pointer_var,)),)
             decls += (ir.VariableDeclaration(symbols=(contig_pointer_var,)),)
 
-            typedefs += (ir.TypeDef(name=_type, body=decls, parent=field_array_module),)
+            typedefs += (ir.TypeDef(name=_type, body=decls, parent=field_array_module),) # pylint: disable=unexpected-keyword-arg
 
         return typedefs
 

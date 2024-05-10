@@ -10,10 +10,9 @@ import pytest
 
 from loki import (
     Dimension, gettempdir, Scheduler, OMNI, FindNodes, Assignment, FindVariables, CallStatement, Subroutine,
-    Item
+    Item, available_frontends
 )
-from conftest import available_frontends
-from transformations import BlockViewToFieldViewTransformation, BlockIndexInjectTransformation
+from loki.transformations import BlockViewToFieldViewTransformation, BlockIndexInjectTransformation
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
