@@ -16,6 +16,7 @@ try:
 except ImportError:
     HAVE_YAML = False
 
+from loki.ir import Intrinsic
 from loki.lint.linter import lint_files
 from loki.lint.reporter import (
     ProblemReport, RuleReport, FileReport,

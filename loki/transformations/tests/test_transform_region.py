@@ -13,7 +13,7 @@ from loki import (
     Module, Subroutine, Section, as_tuple, FindNodes, Loop,
     Assignment, CallStatement, Intrinsic
 )
-from loki.build import jit_compile, jit_compile_lib, Builder
+from loki.build import jit_compile, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 
@@ -25,7 +25,8 @@ from loki.transformations.transform_region import (
 
 @pytest.fixture(scope='function', name='builder')
 def fixture_builder(tmp_path):
-    return Builder(source_dirs=tmp_path, build_dir=tmp_path/'build')
+    yield Builder(source_dirs=tmp_path, build_dir=tmp_path/'build')
+    Obj.clear_cache()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

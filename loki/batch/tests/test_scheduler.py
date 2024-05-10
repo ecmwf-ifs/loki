@@ -2035,7 +2035,6 @@ end subroutine caller
             successors = kwargs.get('successors')
             assert set(successors) == set(self.expected_successors[item.name])
 
-    tmp_path = tmp_path/'test_scheduler_successors'
     (tmp_path/'some_mod.F90').write_text(fcode_mod)
     (tmp_path/'caller.F90').write_text(fcode)
 
@@ -2564,7 +2563,7 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
     (None, ['SOME_DEFINITION'], True, [], {}),
     # Global preprocessing with local definition for one file, re-adding a dependency on 3
     (
-        {'test_scheduler_frontend_args/file3_4.F90': {'defines': ['SOME_DEFINITION','LOCAL_DEFINITION']}},
+        {'file3_4.F90': {'defines': ['SOME_DEFINITION','LOCAL_DEFINITION']}},
         ['SOME_DEFINITION'],
         True,
         [],
@@ -2575,7 +2574,7 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
     ),
     # Global preprocessing with preprocessing switched off for 2
     (
-        {'test_scheduler_frontend_args/file2.F90': {'preprocess': False}},
+        {'file2.F90': {'preprocess': False}},
         ['SOME_DEFINITION'],
         True,
         ['#test_scheduler_frontend_args2'],
@@ -2586,7 +2585,7 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
     ),
     # No preprocessing except for 2
     (
-        {'test_scheduler_frontend_args/file2.F90': {'preprocess': True, 'defines': ['SOME_DEFINITION']}},
+        {'file2.F90': {'preprocess': True, 'defines': ['SOME_DEFINITION']}},
         None,
         False,
         ['#test_scheduler_frontend_args1', '#test_scheduler_frontend_args4'],

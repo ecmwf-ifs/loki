@@ -21,7 +21,7 @@ from loki import (
     StringSubscript, Conditional, CallStatement, ProcedureSymbol,
     FindVariables
 )
-from loki.build import jit_compile, jit_compile_lib, clean_test
+from loki.build import jit_compile, jit_compile_lib, clean_test, Obj
 from loki.frontend import available_frontends, OMNI, OFP
 
 
@@ -32,7 +32,8 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='builder')
 def fixture_builder(here):
-    return Builder(source_dirs=here, build_dir=here/'build')
+    yield Builder(source_dirs=here, build_dir=here/'build')
+    Obj.clear_cache()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

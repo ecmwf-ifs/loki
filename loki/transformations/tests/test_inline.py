@@ -13,7 +13,7 @@ from loki import (
     Module, Subroutine, FindVariables, BasicType, DerivedType,
     FindInlineCalls
 )
-from loki.build import jit_compile, jit_compile_lib, Builder
+from loki.build import jit_compile, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import nodes as ir, FindNodes
@@ -34,7 +34,8 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='builder')
 def fixture_builder(here):
-    return Builder(source_dirs=here, build_dir=here/'build')
+    yield Builder(source_dirs=here, build_dir=here/'build')
+    Obj.clear_cache()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

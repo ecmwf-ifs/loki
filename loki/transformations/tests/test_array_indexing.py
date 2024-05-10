@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine, fgen
-from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
+from loki.build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
 from loki.expression import symbols as sym, FindVariables
 from loki.frontend import available_frontends
 from loki.ir import FindNodes, CallStatement
@@ -30,7 +30,8 @@ def fixture_here():
 
 @pytest.fixture(scope='function', name='builder')
 def fixture_builder(tmp_path):
-    return Builder(source_dirs=tmp_path, build_dir=tmp_path)
+    yield Builder(source_dirs=tmp_path, build_dir=tmp_path)
+    Obj.clear_cache()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

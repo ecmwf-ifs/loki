@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine, Module, cgen
-from loki.build import jit_compile, jit_compile_lib, clean_test, Builder
+from loki.build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
 import loki.expression.symbols as sym
 from loki.frontend import available_frontends, OFP
 import loki.ir as ir
@@ -21,7 +21,8 @@ from loki.transformations.transpile import FortranCTransformation
 
 @pytest.fixture(scope='function', name='builder')
 def fixture_builder(tmp_path):
-    return Builder(source_dirs=tmp_path, build_dir=tmp_path)
+    yield Builder(source_dirs=tmp_path, build_dir=tmp_path)
+    Obj.clear_cache()
 
 
 @pytest.mark.parametrize('case_sensitive', (False, True))
