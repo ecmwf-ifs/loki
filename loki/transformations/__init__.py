@@ -7,7 +7,7 @@
 """
 Sub-package with supported source code transformation passes.
 
-This sub-package includes general source code trnasformations and
+This sub-package includes general source code transformations and
 bespoke :any:`Transformation` and :any:`Pipeline` classes for
 IFS-specific source-to-source recipes that target GPUs.
 """

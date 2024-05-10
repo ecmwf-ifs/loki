@@ -8,8 +8,8 @@
 Frontend parsers that create Loki IR from input Fortran code.
 
 This includes code sanitisation utilities and several frontend parser
-interfaces, including the REGEX-frontend that used for fast source
-code exploration in large call trees.
+interfaces, including the REGEX-frontend that is used for fast source
+code exploration in large call and dependency trees.
 """
 
 from loki.frontend.preprocessing import *  # noqa

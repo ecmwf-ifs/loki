@@ -9,7 +9,7 @@ Batch processing abstraction for processing large source trees with Loki.
 
 This sub-package provides the :any:`Scheduler` class that allows Loki
 transformations to be applied over large source trees. For this it
-provides the basic :any:`Transformation` and :and:`Pipeline` classes
+provides the basic :any:`Transformation` and :any:`Pipeline` classes
 that provide the core interfaces for batch processing, as well as the
 configuration utilities for large call tree traversals.
 """

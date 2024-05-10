@@ -8,7 +8,7 @@
 Just-in-Time compilation utilities used in the Loki test base.
 
 These allow compilation and wrapping of generated Fortran source code
-using `f90wrap <https://github.com/jameskermode/f90wrap>` for
+using `f90wrap <https://github.com/jameskermode/f90wrap>`_ for
 execution from Python tests.
 """
 
