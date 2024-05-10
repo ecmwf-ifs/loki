@@ -1,4 +1,4 @@
-module sourcefile_cpp_stmt_func_mod
+module cpp_stmt_func_mod
 
     IMPLICIT NONE
 
@@ -8,15 +8,15 @@ module sourcefile_cpp_stmt_func_mod
 
 contains
 
-subroutine sourcefile_cpp_stmt_func(KIDIA, KFDIA, KLON, KLEV, ZFOEEW)
+subroutine cpp_stmt_func(KIDIA, KFDIA, KLON, KLEV, ZFOEEW)
     INTEGER(KIND=JPIM),INTENT(IN)    :: KLON, KLEV
-    INTEGER(KIND=JPIM),INTENT(IN)    :: KIDIA 
-    INTEGER(KIND=JPIM),INTENT(IN)    :: KFDIA 
+    INTEGER(KIND=JPIM),INTENT(IN)    :: KIDIA
+    INTEGER(KIND=JPIM),INTENT(IN)    :: KFDIA
     REAL(KIND=JPRB)   ,INTENT(OUT)   :: ZFOEEW(KLON,KLEV)
 
     INTEGER(KIND=JPIM) :: JK, JL
 
-    REAL(KIND=JPRB) :: ZTP1(KLON,KLEV)   
+    REAL(KIND=JPRB) :: ZTP1(KLON,KLEV)
     REAL(KIND=JPRB) :: PAP(KLON,KLEV)
     REAL(KIND=JPRB) :: ZALFA
 
@@ -45,6 +45,6 @@ subroutine sourcefile_cpp_stmt_func(KIDIA, KFDIA, KLON, KLEV, ZFOEEW)
                 &  (1.0_JPRB-ZALFA)*FOEEICE(ZTP1(JL,JK)))/PAP(JL,JK),0.5_JPRB)
         END DO
     END DO
-end subroutine sourcefile_cpp_stmt_func
+end subroutine cpp_stmt_func
 
-end module sourcefile_cpp_stmt_func_mod
+end module cpp_stmt_func_mod

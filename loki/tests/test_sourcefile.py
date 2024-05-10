@@ -203,12 +203,12 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
     filepath = sourcepath/'sourcefile_cpp_stmt_func.F90'
 
     source = Sourcefile.from_file(filepath, includes=sourcepath, preprocess=True, frontend=frontend)
-    module = source['sourcefile_cpp_stmt_func_mod']
+    module = source['cpp_stmt_func_mod']
     module.name += f'_{frontend!s}'
 
     # OMNI inlines statement functions, so we can't check the representation
     if frontend != OMNI:
-        routine = source['sourcefile_cpp_stmt_func']
+        routine = source['cpp_stmt_func']
         stmt_func_decls = FindNodes(StatementFunction).visit(routine.spec)
         assert len(stmt_func_decls) == 4
 
@@ -227,7 +227,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
     klon, klev = 10, 5
     kidia, kfdia = 1, klon
     zfoeew = np.zeros((klon, klev), order='F')
-    mod.sourcefile_cpp_stmt_func(kidia, kfdia, klon, klev, zfoeew)
+    mod.cpp_stmt_func(kidia, kfdia, klon, klev, zfoeew)
     assert (zfoeew == 0.25).all()
 
     clean_test(filepath)
