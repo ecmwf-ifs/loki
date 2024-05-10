@@ -14,19 +14,20 @@ from loki.build import (
 )
 
 
-@pytest.fixture(scope='module', name='path')
-def fixture_path():
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.fixture(scope='module', name='builder')
-def fixture_builder(path):
-    return Builder(source_dirs=path, build_dir=path/'build')
+@pytest.fixture(scope='function', name='builder')
+def fixture_builder(here, tmp_path):
+    yield Builder(source_dirs=here, build_dir=tmp_path)
+    Obj.clear_cache()
 
 
 @pytest.fixture(scope='module', name='testdir')
-def fixture_testdir(path):
-    return path.parent.parent/'tests'
+def fixture_testdir(here):
+    return here.parent.parent/'tests'
 
 
 def test_build_clean(builder):
@@ -45,21 +46,21 @@ def test_build_clean(builder):
         assert 'xxx' not in str(f)
 
 
-def test_build_object(testdir, builder):
+def test_build_object(here, testdir, builder):
     """
     Test basic object compilation and wrapping via f90wrap.
     """
     builder.clean()
 
-    obj = Obj(source_path='base.f90')
+    obj = Obj(source_path=here/'base.f90')
     obj.build(builder=builder)
-    assert (builder.build_dir/'base.o').exists
+    assert (builder.build_dir/'base.o').exists()
 
     base = obj.wrap(builder=builder, kind_map=testdir/'kind_map')
     assert base.Base.a_times_b_plus_c(a=2, b=3, c=1) == 7
 
 
-def test_build_lib(testdir, builder):
+def test_build_lib(here, testdir, builder):
     """
     Test basic library compilation and wrapping via f90wrap
     from a specific list of source objects.
@@ -67,19 +68,19 @@ def test_build_lib(testdir, builder):
     builder.clean()
 
     # Create library with explicit dependencies
-    base = Obj(source_path='base.f90')
-    extension = Obj(source_path='extension.f90')
+    base = Obj(source_path=here/'base.f90')
+    extension = Obj(source_path=here/'extension.f90')
     # Note: Need to compile statically to avoid LD_LIBRARY_PATH lookup
     lib = Lib(name='library', objs=[base, extension], shared=False)
     lib.build(builder=builder)
-    assert (builder.build_dir/'liblibrary.a').exists
+    assert (builder.build_dir/'liblibrary.a').exists()
 
-    test = lib.wrap(modname='test', sources=['extension.f90'], builder=builder,
+    test = lib.wrap(modname='test', sources=[here/'extension.f90'], builder=builder,
                     kind_map=testdir/'kind_map')
     assert test.extended_fma(2., 3., 1.) == 7.
 
 
-def test_build_lib_with_c(testdir, builder):
+def test_build_lib_with_c(here, testdir, builder):
     """
     Test basic library compilation and wrapping via f90wrap
     from a specific list of source objects.
@@ -88,13 +89,13 @@ def test_build_lib_with_c(testdir, builder):
 
     # Create library with explicit dependencies
     # objects = ['wrapper.f90', 'c_util.c']
-    wrapper = Obj(source_path='wrapper.f90')
-    c_util = Obj(source_path='c_util.c')
+    wrapper = Obj(source_path=here/'wrapper.f90')
+    c_util = Obj(source_path=here/'c_util.c')
     lib = Lib(name='library', objs=[wrapper, c_util], shared=False)
     lib.build(builder=builder)
-    assert (builder.build_dir/'liblibrary.so').exists
+    assert (builder.build_dir/'liblibrary.a').exists()
 
-    wrap = lib.wrap(modname='wrap', sources=['wrapper.f90'], builder=builder,
+    wrap = lib.wrap(modname='wrap', sources=[here/'wrapper.f90'], builder=builder,
                     kind_map=testdir/'kind_map')
     assert wrap.wrapper.mult_add_external(2., 3., 1.) == 7.
 
