@@ -12,7 +12,7 @@ from loki import (
     Dimension, gettempdir, Scheduler, OMNI, FindNodes, Assignment, FindVariables, CallStatement, Subroutine,
     Item, available_frontends
 )
-from loki.transformations import BlockViewToFieldViewTransformation, BlockIndexInjectTransformation
+from loki.transformations import BlockViewToFieldViewTransformation, InjectBlockIndexTransformation
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
@@ -227,7 +227,7 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
         paths=(blockview_to_fieldview_code[0],), config=config, seed_routines='driver', frontend=frontend
     )
     scheduler.process(BlockViewToFieldViewTransformation(horizontal, global_gfl_ptr=True))
-    scheduler.process(BlockIndexInjectTransformation(blocking))
+    scheduler.process(InjectBlockIndexTransformation(blocking))
 
     kernel = scheduler['#kernel'].ir
     aliased_bounds = not blockview_to_fieldview_code[1]
@@ -342,7 +342,7 @@ end subroutine kernel
 """
 
     kernel = Subroutine.from_source(fcode, frontend=frontend)
-    BlockIndexInjectTransformation(blocking).apply(kernel, role='kernel', targets=('compute',))
+    InjectBlockIndexTransformation(blocking).apply(kernel, role='kernel', targets=('compute',))
 
     assigns = FindNodes(Assignment).visit(kernel.body)
     assert assigns[0].lhs == 'var(:,:,:,ibl)'

@@ -14,14 +14,14 @@ from loki.expression import Variable, Array, RangeIndex, FindVariables, Substitu
 from loki.transformations import resolve_associates, recursive_expression_map_update
 from loki.transformations.single_column import SCCBaseTransformation
 
-__all__ = ['BlockViewToFieldViewTransformation', 'BlockIndexInjectTransformation']
+__all__ = ['BlockViewToFieldViewTransformation', 'InjectBlockIndexTransformation']
 
 class BlockViewToFieldViewTransformation(Transformation):
     """
     A very IFS-specific transformation to replace per-block, i.e. per OpenMP-thread, view pointers with per-field
     view pointers. It should be noted that this transformation only replaces the view pointers but does not actually
     insert the block index into the promoted view pointers. Therefore this transformation must always be followed by
-    the :any:`BlockIndexInjectTransformation`.
+    the :any:`InjectBlockIndexTransformation`.
 
     For example, the following code:
 
@@ -247,7 +247,7 @@ class BlockViewToFieldViewTransformation(Transformation):
                                          successors, targets, exclude_arrays)
 
 
-class BlockIndexInjectTransformation(Transformation):
+class InjectBlockIndexTransformation(Transformation):
     """
     A transformation pass to inject the block-index in arrays promoted by a previous transformation pass. As such,
     this transformation also relies on the block-index, or a known alias, being *already* present in routines that
@@ -323,7 +323,7 @@ class BlockIndexInjectTransformation(Transformation):
         Specify a different identifier under which trafo_data is stored
     """
 
-    _key = 'BlockIndexInjectTransformation'
+    _key = 'InjectBlockIndexTransformation'
     """Default identifier for trafo_data entry"""
 
     # This trafo only operates on procedures
