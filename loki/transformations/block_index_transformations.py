@@ -66,7 +66,7 @@ class BlockViewToFieldViewTransformation(Transformation):
 
     @staticmethod
     def get_parent_typedef(var, symbol_map):
-        """Utility method to retrieve derived-tyoe definition of parent type."""
+        """Utility method to retrieve derived-type definition of parent type."""
 
         if not var.parent.type.dtype.typedef is BasicType.DEFERRED:
             return var.parent.type.dtype.typedef
@@ -77,8 +77,8 @@ class BlockViewToFieldViewTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
-        if not (item := kwargs['item']):
-            raise RuntimeError('Cannot apply DeprivatiseStructsTransformation without item to store definitions')
+        if not (item := kwargs.get('item', None)):
+            raise RuntimeError('Cannot apply BlockViewToFieldViewTransformation without item to store definitions')
         successors = kwargs.get('successors', ())
 
         role = kwargs['role']
@@ -197,7 +197,7 @@ class BlockViewToFieldViewTransformation(Transformation):
 
         # build list of type-bound array access using the horizontal index
         _vars = [var for var in FindVariables().visit(body)
-                if isinstance(var, Array) and var.parents and self.horizontal.index in getattr(var, 'dimensions', ())]
+                if isinstance(var, Array) and var.parents and self.horizontal.index in var.dimensions]
 
         # build list of type-bound view pointers passed as subroutine arguments
         for call in [call for call in FindNodes(ir.CallStatement).visit(body) if call.name in targets]:
@@ -361,7 +361,7 @@ class BlockIndexInjectTransformation(Transformation):
     @staticmethod
     def get_call_arg_rank(arg):
         """
-        Utility to retrieve the local rank of a :any:`CallSatement` argument.
+        Utility to retrieve the local rank of a :any:`CallStatement` argument.
         """
 
         rank = len(arg.shape) if getattr(arg, 'shape', None) else 0

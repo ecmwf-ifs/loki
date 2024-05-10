@@ -182,7 +182,7 @@ subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, 
       enddo
    enddo
 
-   call another_kernel(start, end, nlon, nlev, data=yda_data%p)
+   call another_kernel(nlon, nlev, data=yda_data%p)
 
    {'end associate' if not request.param else ''}
 end subroutine kernel
@@ -192,9 +192,12 @@ end subroutine kernel
         'another_kernel': (
         #-------
 """
-subroutine another_kernel(start, end, nproma, nlev, data)
+subroutine another_kernel(nproma, nlev, data)
    implicit none
-   integer, intent(in) :: nproma, nlev, start, end
+   !... not a sequential routine but still labelling it as one to test the
+   !... bail-out mechanism
+   !$loki routine seq
+   integer, intent(in) :: nproma, nlev
    real, intent(inout) :: data(nproma, nlev)
 end subroutine another_kernel
 """
@@ -259,6 +262,59 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
+                         'OMNI fails to import undefined module.')]))
+@pytest.mark.parametrize('global_gfl_ptr', [False, True])
+def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blockview_to_fieldview_code,
+                                     global_gfl_ptr):
+
+    config['routines'] = {
+        'driver': {'role': 'driver'}
+    }
+
+    scheduler = Scheduler(
+        paths=(blockview_to_fieldview_code[0],), config=config, seed_routines='driver', frontend=frontend
+    )
+    scheduler.process(BlockViewToFieldViewTransformation(horizontal, global_gfl_ptr=global_gfl_ptr))
+
+    kernel = scheduler['#kernel'].ir
+    aliased_bounds = not blockview_to_fieldview_code[1]
+    ibl_expr = blocking.index
+    if aliased_bounds:
+        ibl_expr = blocking.index_expressions[1]
+
+    assigns = FindNodes(Assignment).visit(kernel.body)
+
+    # check that access pointers for arrays without horizontal index in dimensions were not updated
+    assert assigns[0].lhs == 'ydvars%var%p_field(:,:)'
+    assert assigns[1].lhs == f'ydvars%var%p_field(:,:,{ibl_expr})'
+
+    # check that vector notation was resolved correctly
+    assert assigns[2].lhs == 'yda_data%p_field(jl, :)'
+    assert assigns[3].lhs == 'ydvars%var%p_field(jl, :)'
+
+    # check thread-local ydvars%gfl_ptr was replaced with its global equivalent
+    if global_gfl_ptr:
+        gfl_ptr_vars = {v for v in FindVariables().visit(kernel.body) if 'ydvars%gfl_ptr' in v.name.lower()}
+        gfl_ptr_g_vars = {v for v in FindVariables().visit(kernel.body) if 'ydvars%gfl_ptr_g' in v.name.lower()}
+        assert gfl_ptr_g_vars
+        assert not gfl_ptr_g_vars - gfl_ptr_vars
+    else:
+        assert not {v for v in FindVariables().visit(kernel.body) if 'ydvars%gfl_ptr_g' in v.name.lower()}
+
+    assert assigns[4].rhs == 'yda_data%p_field(jl,:)'
+    if global_gfl_ptr:
+        assert assigns[4].lhs == 'ydvars%gfl_ptr_g(jfld)%ptr%p_field(jl,:)'
+        assert assigns[5].lhs == 'container%vars(ydvars%gfl_ptr_g(jfld)%comp)%p_field(jl,:)'
+    else:
+        assert assigns[4].lhs == 'ydvars%gfl_ptr(jfld)%ptr%p_field(jl,:)'
+        assert assigns[5].lhs == 'container%vars(ydvars%gfl_ptr(jfld)%comp)%p_field(jl,:)'
+
+    # check callstatement was updated correctly
+    call = FindNodes(CallStatement).visit(kernel.body)[0]
+    assert 'yda_data%p_field' in call.arg_map.values()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
                          'OMNI correctly complains about rank mismatch in assignment.')]))
 def test_simple_blockindex_inject(blocking, frontend):
     fcode = """
@@ -274,13 +330,13 @@ subroutine kernel(nlon,nlev,nb,var)
   end interface
 
   integer, intent(in) :: nlon,nlev,nb
-  real, intent(inout) :: var(nlon,nlev,nb) !... this dummy arg was potentially promoted by a previous transformation
+  real, intent(inout) :: var(nlon,nlev,4,nb) !... this dummy arg was potentially promoted by a previous transformation
 
   integer :: ibl
 
   do ibl=1,nb !... this loop was potentially lowered by a previous transformation
-     var(:,:) = 0.
-     call compute(nlon,nlev,var)
+     var(:,:,:) = 0.
+     call compute(nlon,nlev,var(:,:,1))
   enddo
 
 end subroutine kernel
@@ -290,17 +346,17 @@ end subroutine kernel
     BlockIndexInjectTransformation(blocking).apply(kernel, role='kernel', targets=('compute',))
 
     assigns = FindNodes(Assignment).visit(kernel.body)
-    assert assigns[0].lhs == 'var(:,:,ibl)'
+    assert assigns[0].lhs == 'var(:,:,:,ibl)'
 
     calls = FindNodes(CallStatement).visit(kernel.body)
-    assert 'var(:,:,ibl)' in calls[0].arguments
+    assert 'var(:,:,1,ibl)' in calls[0].arguments
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
                          'OMNI complains about undefined type.')]))
 def test_blockview_to_fieldview_exception(frontend, horizontal):
     fcode = """
-subroutine kernel(nlon,nlev,var)
+subroutine kernel(nlon,nlev,start,end,var)
   implicit none
 
   interface
@@ -311,7 +367,7 @@ subroutine kernel(nlon,nlev,var)
     end subroutine compute
   end interface
 
-  integer, intent(in) :: nlon,nlev
+  integer, intent(in) :: nlon,nlev,start,end
   type(wrapped_field) :: var
 
   call compute(nlon,nlev,var%p)
@@ -324,4 +380,8 @@ end subroutine kernel
     item.trafo_data['foobar'] = {'definitions': []}
     with pytest.raises(RuntimeError):
         BlockViewToFieldViewTransformation(horizontal, key='foobar').apply(kernel, item=item, role='kernel',
-                                                             targets=('compute',))
+                                           targets=('compute',))
+
+    with pytest.raises(RuntimeError):
+        BlockViewToFieldViewTransformation(horizontal, key='foobar').apply(kernel, role='kernel',
+                                           targets=('compute',))
