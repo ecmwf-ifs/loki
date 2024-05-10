@@ -15,7 +15,6 @@ language features.
 # pylint: disable=too-many-lines
 
 from pathlib import Path
-from shutil import rmtree
 from time import perf_counter
 import numpy as np
 import pytest
@@ -23,7 +22,7 @@ import pytest
 from loki import (
     Module, Subroutine, FindVariables, BasicType, config, Sourcefile,
     RawSource, RegexParserClass, ProcedureType, DerivedType,
-    PreprocessorDirective, config_override, gettempdir
+    PreprocessorDirective, config_override
 )
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
@@ -1852,7 +1851,7 @@ end subroutine test_inline_comments
 
 @pytest.mark.parametrize('from_file', (True, False))
 @pytest.mark.parametrize('preprocess', (True, False))
-def test_source_sanitize_fp_source(from_file, preprocess):
+def test_source_sanitize_fp_source(tmp_path, from_file, preprocess):
     """
     Test that source sanitizing works as expected and postprocessing
     rules are correctly applied
@@ -1871,11 +1870,7 @@ end subroutine some_routine
 """.strip()
 
     if from_file:
-        workdir = gettempdir()/'test_source_sanitize_fp_source'
-        if workdir.exists():
-            rmtree(workdir)
-        workdir.mkdir()
-        filepath = workdir/'some_routine.F90'
+        filepath = tmp_path/'some_routine.F90'
         filepath.write_text(fcode)
         obj = Sourcefile.from_file(filepath, frontend=FP, preprocess=preprocess, defines=('MY_VAR=5',))
     else:
@@ -1891,9 +1886,6 @@ end subroutine some_routine
         assert '"we print CPP value ", MY_VAR' in obj.to_fortran()
 
     assert 'newunit=fu' in obj.to_fortran()
-
-    if from_file:
-        rmtree(workdir)
 
 
 @pytest.mark.parametrize('preprocess', (True, False))

@@ -7,12 +7,11 @@
 
 import importlib
 from pathlib import Path
-from shutil import rmtree
 import xml.etree.ElementTree as ET
 import pytest
 from fparser.two.utils import FortranSyntaxError
 
-from loki import Sourcefile, Assignment, FindNodes, FindVariables, gettempdir
+from loki import Sourcefile, Assignment, FindNodes, FindVariables
 from loki.lint import (
     GenericHandler, Reporter, Linter, GenericRule,
     LinterTransformation, lint_files, LazyTextfile
@@ -398,7 +397,7 @@ class PicklableTestHandler(GenericHandler):
         'projA/source/another_l2.F90'
     ])
 ])
-def test_linter_lint_files_glob(testdir, rules, counter, exclude, files, max_workers):
+def test_linter_lint_files_glob(tmp_path, testdir, rules, counter, exclude, files, max_workers):
     basedir = testdir/'sources'
     config = {
         'basedir': str(basedir),
@@ -409,7 +408,7 @@ def test_linter_lint_files_glob(testdir, rules, counter, exclude, files, max_wor
     if max_workers is not None:
         config['max_workers'] = max_workers
 
-    target_file_name = gettempdir()/'linter_lint_files_glob.log'
+    target_file_name = tmp_path/'linter_lint_files_glob.log'
     if max_workers and max_workers > 1:
         target = LazyTextfile(target_file_name)
     else:
@@ -429,8 +428,6 @@ def test_linter_lint_files_glob(testdir, rules, counter, exclude, files, max_wor
         assert set(checked_files) == set(files)
     else:
         assert checked_files == files
-
-    target_file_name.unlink(missing_ok=True)
 
 
 @pytest.mark.parametrize('routines,files', [
@@ -512,7 +509,7 @@ def test_linter_lint_files_scheduler(testdir, rules, routines, files):
     {'include': ['linter_lint_files_fix.F90']}
 ])
 @pytest.mark.parametrize('backup_suffix', [None, '.bak'])
-def test_linter_lint_files_fix(config, backup_suffix):
+def test_linter_lint_files_fix(tmp_path, config, backup_suffix):
 
     class TestRule(GenericRule):
 
@@ -549,12 +546,10 @@ end subroutine OTHER_ROUTINE
     assert fcode.count('some_routine') == 3
     assert fcode.count('SOME_ROUTINE') == 0
 
-    basedir = gettempdir()/'lint_files_fix'
-    basedir.mkdir(exist_ok=True)
-    filename = basedir/'linter_lint_files_fix.F90'
+    filename = tmp_path/'linter_lint_files_fix.F90'
     filename.write_text(fcode)
 
-    config['basedir'] = basedir
+    config['basedir'] = tmp_path
     config['fix'] = True
     if backup_suffix:
         config['backup_suffix'] = backup_suffix
@@ -570,8 +565,6 @@ end subroutine OTHER_ROUTINE
         backup_file = filename.with_suffix('.bak.F90')
         assert backup_file.read_text() == fcode
 
-    rmtree(basedir)
-
 
 @pytest.mark.parametrize('config', [
     {'scheduler': {
@@ -585,7 +578,7 @@ end subroutine OTHER_ROUTINE
     }},
     {'include': ['*.F90']}
 ])
-def test_linter_fortran_syntax_error(config, rules):
+def test_linter_fortran_syntax_error(tmp_path, config, rules):
     fcode = """
 subroutine some_routine
 implicit none
@@ -598,14 +591,12 @@ call some_routine
 end subroutine OTHER_ROUTINE
     """.strip()
 
-    basedir = gettempdir()/'lint_files_syntax_error'
-    basedir.mkdir(exist_ok=True)
-    filename = basedir/'linter_lint_files_syntax_error.F90'
+    filename = tmp_path/'linter_lint_files_syntax_error.F90'
     filename.write_text(fcode)
-    junitxml_file = basedir/'junitxml.xml'
+    junitxml_file = tmp_path/'junitxml.xml'
 
     config.update({
-        'basedir': basedir,
+        'basedir': tmp_path,
         'junitxml_file': str(junitxml_file)
     })
 
@@ -622,5 +613,3 @@ end subroutine OTHER_ROUTINE
         assert xml.attrib['failures'] == '1'
         report = xml.find('testsuite/testcase/failure')
         assert 'This is invalid Fortran syntax' in report.attrib['message']
-
-    rmtree(basedir)

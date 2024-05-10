@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 
 from loki import (
-    Scheduler, SchedulerConfig, is_iterable, gettempdir,
+    Scheduler, SchedulerConfig, is_iterable,
     normalize_range_indexing, FindInlineCalls
 )
 from loki.build import jit_compile_lib, clean_test, Builder
@@ -534,7 +534,7 @@ def test_hoist_allocatable(here, testdir, frontend, config, as_kwarguments):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_hoist_mixed_variable_declarations(frontend, config):
+def test_hoist_mixed_variable_declarations(tmp_path, frontend, config):
 
     fcode_driver = """
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
@@ -586,10 +586,8 @@ contains
 end module kernel_mod
     """.strip()
 
-    basedir = gettempdir()/'test_hoist_mixed_variable_declarations'
-    basedir.mkdir(exist_ok=True)
-    (basedir/'driver.F90').write_text(fcode_driver)
-    (basedir/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
 
     config = {
         'default': {
@@ -603,7 +601,7 @@ end module kernel_mod
         }
     }
 
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
 
     if frontend == OMNI:
         for item in scheduler.items:

@@ -14,7 +14,7 @@ import networkx as nx
 import pytest
 
 from loki import (
-    Sourcefile, Subroutine, as_tuple, gettempdir, RawSource, TypeDef,
+    Sourcefile, Subroutine, as_tuple, RawSource, TypeDef,
     Scalar, ProcedureSymbol
 )
 from loki.batch import (
@@ -632,7 +632,7 @@ def test_procedure_item_with_config2(testdir, disable):
 
 
 @pytest.mark.parametrize('enable_imports', [False, True])
-def test_procedure_item_external_item(enable_imports, default_config):
+def test_procedure_item_external_item(tmp_path, enable_imports, default_config):
     """
     Test that dependencies to external module procedures are marked as external item
     """
@@ -647,9 +647,7 @@ subroutine procedure_item_external_item
     my_type%my_val = external_var
 end subroutine procedure_item_external_item
     """
-    workdir = gettempdir()/'test_procedure_item_external_item'
-    workdir.mkdir(exist_ok=True)
-    filepath = workdir/'procedure_item_external_item.F90'
+    filepath = tmp_path/'procedure_item_external_item.F90'
     filepath.write_text(fcode)
 
     default_config['default']['enable_imports'] = enable_imports
@@ -670,9 +668,6 @@ end subroutine procedure_item_external_item
     assert items == ('external_mod', 'external_mod#external_proc')
     assert all(isinstance(it, ExternalItem) for it in items)
     assert [it.origin_cls for it in items] == [ModuleItem, ProcedureItem]
-
-    filepath.unlink(missing_ok=True)
-    workdir.rmdir()
 
 
 def test_typedef_item(testdir):
@@ -1000,7 +995,7 @@ def test_item_graph(testdir, comp1_expected_dependencies):
      # Not fully-qualified procedure name for a module procedure
     ('mod_proc', 'mod_proc_expected_dependencies'),
 ])
-def test_sgraph_from_seed(testdir, default_config, seed, dependencies_fixture, request):
+def test_sgraph_from_seed(tmp_path, testdir, default_config, seed, dependencies_fixture, request):
     expected_dependencies = request.getfixturevalue(dependencies_fixture)
     proj = testdir/'sources/projBatch'
     suffixes = ['.f90', '.F90']
@@ -1036,7 +1031,7 @@ def test_sgraph_from_seed(testdir, default_config, seed, dependencies_fixture, r
     }
 
     # Check the graph visualization
-    graph_file = gettempdir()/'sgraph_from_seed.dot'
+    graph_file = tmp_path/'sgraph_from_seed.dot'
     sgraph.export_to_file(graph_file)
     assert graph_file.exists()
     assert graph_file.with_suffix('.dot.pdf').exists()
@@ -1048,8 +1043,6 @@ def test_sgraph_from_seed(testdir, default_config, seed, dependencies_fixture, r
         for node, dependencies in expected_dependencies.items()
         for dependency in dependencies
     }
-    graph_file.unlink()
-    graph_file.with_suffix('.dot.pdf').unlink()
 
 
 @pytest.mark.parametrize('seed,disable,active_nodes', [

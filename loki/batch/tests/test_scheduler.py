@@ -53,13 +53,12 @@ from itertools import chain
 from functools import partial
 from pathlib import Path
 import re
-from shutil import rmtree
 from subprocess import CalledProcessError
 import pytest
 
 from loki import (
     Sourcefile, Subroutine, Dimension, fexprgen, BasicType,
-    gettempdir, ProcedureType, DerivedType, flatten, as_tuple,
+    ProcedureType, DerivedType, flatten, as_tuple,
     CaseInsensitiveDict, graphviz_present
 )
 from loki.batch import (
@@ -1553,7 +1552,7 @@ def test_scheduler_traversal_order(here, testdir, config, frontend, use_file_gra
 
 @pytest.mark.parametrize('use_file_graph', [False, True])
 @pytest.mark.parametrize('reverse', [False, True])
-def test_scheduler_member_routines(config, frontend, use_file_graph, reverse):
+def test_scheduler_member_routines(tmp_path, config, frontend, use_file_graph, reverse):
     """
     Make sure that transformation processing works also for contained member routines
 
@@ -1581,11 +1580,9 @@ contains
 end module member_mod
     """.strip()
 
-    workdir = gettempdir()/'test_scheduler_member_routines'
-    workdir.mkdir(exist_ok=True)
-    (workdir/'member_mod.F90').write_text(fcode_mod)
+    (tmp_path/'member_mod.F90').write_text(fcode_mod)
 
-    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['member_mod#driver'], frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=config, seed_routines=['member_mod#driver'], frontend=frontend)
 
     class LoggingTransformation(Transformation):
 
@@ -1609,7 +1606,7 @@ end module member_mod
     scheduler.process(transformation=transformation)
 
     if use_file_graph:
-        expected = [f'{workdir/"member_mod.F90"!s}'.lower() + '::member_mod.F90']
+        expected = [f'{tmp_path/"member_mod.F90"!s}'.lower() + '::member_mod.F90']
     else:
         expected = [
             'member_mod#driver::driver',
@@ -1626,11 +1623,9 @@ end module member_mod
 
     assert transformation.record == flatten(expected)
 
-    rmtree(workdir)
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scheduler_nested_type_enrichment(frontend, config):
+def test_scheduler_nested_type_enrichment(tmp_path, frontend, config):
     """
     Make sure that enrichment works correctly for nested types across
     multiple source files
@@ -1735,13 +1730,11 @@ subroutine driver
 end subroutine driver
     """.strip()
 
-    workdir = gettempdir()/'test_scheduler_nested_type_enrichment'
-    workdir.mkdir(exist_ok=True)
-    (workdir/'typebound_procedure_calls_mod.F90').write_text(fcode1)
-    (workdir/'other_typebound_procedure_calls_mod.F90').write_text(fcode2)
-    (workdir/'driver.F90').write_text(fcode3)
+    (tmp_path/'typebound_procedure_calls_mod.F90').write_text(fcode1)
+    (tmp_path/'other_typebound_procedure_calls_mod.F90').write_text(fcode2)
+    (tmp_path/'driver.F90').write_text(fcode3)
 
-    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['driver'], frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=config, seed_routines=['driver'], frontend=frontend)
 
     driver = scheduler['#driver'].source['driver']
     calls = FindNodes(ir.CallStatement).visit(driver.body)
@@ -1790,11 +1783,9 @@ end subroutine driver
         assert call.function.parent.parent.type.dtype.name == 'third_type'
         assert isinstance(call.function.parent.parent.type.dtype.typedef, ir.TypeDef)
 
-    rmtree(workdir)
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scheduler_interface_inline_call(here, testdir, config, frontend):
+def test_scheduler_interface_inline_call(tmp_path, testdir, config, frontend):
     """
     Test that inline function calls declared via an explicit interface are added as dependencies.
     """
@@ -1838,9 +1829,7 @@ def test_scheduler_interface_inline_call(here, testdir, config, frontend):
     assert isinstance(scheduler['some_module#add_three_args'], ProcedureItem)
 
     # Testing of callgraph visualisation with imports
-    workdir = gettempdir()/'test_scheduler_import_dependencies'
-    workdir.mkdir(exist_ok=True)
-    cg_path = workdir/'callgraph'
+    cg_path = tmp_path/'callgraph'
     scheduler.callgraph(cg_path)
 
     vgraph = VisGraphWrapper(cg_path)
@@ -1849,11 +1838,9 @@ def test_scheduler_interface_inline_call(here, testdir, config, frontend):
         (a.upper(), b.upper()) for a, deps in expected_dependencies.items() for b in deps
     }
 
-    rmtree(workdir)
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scheduler_interface_dependencies(frontend, config):
+def test_scheduler_interface_dependencies(tmp_path, frontend, config):
     """
     Ensure that interfaces are treated as intermediate nodes and incur
     dependencies on the actual procedures
@@ -1893,15 +1880,11 @@ end subroutine test_scheduler_interface_dependencies_driver
         'role': 'driver'
     }
 
-    workdir = gettempdir()/'test_scheduler_interface_dependencies'
-    if workdir.exists():
-        rmtree(workdir)
-    workdir.mkdir()
-    (workdir/'test_scheduler_interface_dependencies_mod.F90').write_text(fcode_module)
-    (workdir/'test_scheduler_interface_dependencies_driver.F90').write_text(fcode_driver)
+    (tmp_path/'test_scheduler_interface_dependencies_mod.F90').write_text(fcode_module)
+    (tmp_path/'test_scheduler_interface_dependencies_driver.F90').write_text(fcode_driver)
 
     scheduler = Scheduler(
-        paths=[workdir], config=config, seed_routines=['test_scheduler_interface_dependencies_driver'],
+        paths=[tmp_path], config=config, seed_routines=['test_scheduler_interface_dependencies_driver'],
         frontend=frontend
     )
 
@@ -1924,8 +1907,6 @@ end subroutine test_scheduler_interface_dependencies_driver
     assert isinstance(scheduler['test_scheduler_interface_dependencies_mod#my_intf'], InterfaceItem)
     assert isinstance(scheduler['test_scheduler_interface_dependencies_mod#proc1'], ProcedureItem)
     assert isinstance(scheduler['test_scheduler_interface_dependencies_mod#proc2'], ProcedureItem)
-
-    rmtree(workdir)
 
 
 def test_scheduler_item_successors(testdir, config, frontend):
@@ -1959,7 +1940,7 @@ def test_scheduler_item_successors(testdir, config, frontend):
     (ProcedureItem, InterfaceItem, ProcedureBindingItem),
     (ProcedureItem, TypeDefItem),
 ])
-def test_scheduler_successors(config, trafo_item_filter):
+def test_scheduler_successors(tmp_path, config, trafo_item_filter):
     fcode_mod = """
 module some_mod
     implicit none
@@ -2054,12 +2035,11 @@ end subroutine caller
             successors = kwargs.get('successors')
             assert set(successors) == set(self.expected_successors[item.name])
 
-    workdir = gettempdir()/'test_scheduler_successors'
-    workdir.mkdir(exist_ok=True)
-    (workdir/'some_mod.F90').write_text(fcode_mod)
-    (workdir/'caller.F90').write_text(fcode)
+    tmp_path = tmp_path/'test_scheduler_successors'
+    (tmp_path/'some_mod.F90').write_text(fcode_mod)
+    (tmp_path/'caller.F90').write_text(fcode)
 
-    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'])
+    scheduler = Scheduler(paths=[tmp_path], config=config, seed_routines=['caller'])
 
     assert set(scheduler.items) == set(expected_dependencies)
     assert set(scheduler.dependencies) == {
@@ -2105,11 +2085,9 @@ end subroutine caller
         'other': 1,
     }
 
-    rmtree(workdir)
-
 
 @pytest.mark.parametrize('full_parse', [True, False])
-def test_scheduler_typebound_inline_call(config, full_parse):
+def test_scheduler_typebound_inline_call(tmp_path, config, full_parse):
     fcode_mod = """
 module some_mod
     implicit none
@@ -2144,10 +2122,8 @@ subroutine caller(b)
 end subroutine caller
     """.strip()
 
-    workdir = gettempdir()/'test_scheduler_typebound_inline_call'
-    workdir.mkdir(exist_ok=True)
-    (workdir/'some_mod.F90').write_text(fcode_mod)
-    (workdir/'caller.F90').write_text(fcode_caller)
+    (tmp_path/'some_mod.F90').write_text(fcode_mod)
+    (tmp_path/'caller.F90').write_text(fcode_caller)
 
     def verify_graph(scheduler, expected_dependencies):
         assert set(scheduler.items) == set(expected_dependencies)
@@ -2158,7 +2134,7 @@ end subroutine caller
         assert all(item.source._incomplete is not full_parse for item in scheduler.items)
 
         # Testing of callgraph visualisation
-        cg_path = workdir/'callgraph'
+        cg_path = tmp_path/'callgraph'
         scheduler.callgraph(cg_path)
 
         vgraph = VisGraphWrapper(cg_path)
@@ -2168,7 +2144,7 @@ end subroutine caller
             for b in deps
         }
 
-    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
+    scheduler = Scheduler(paths=[tmp_path], config=config, seed_routines=['caller'], full_parse=full_parse)
 
     expected_dependencies = {
         '#caller': (
@@ -2190,11 +2166,9 @@ end subroutine caller
 
     # TODO: test adding a nested derived type dependency!
 
-    rmtree(workdir)
-
 
 @pytest.mark.parametrize('full_parse', [False, True])
-def test_scheduler_cycle(config, full_parse):
+def test_scheduler_cycle(tmp_path, config, full_parse):
     fcode_mod = """
 module some_mod
     implicit none
@@ -2239,12 +2213,10 @@ subroutine caller
 end subroutine caller
     """.strip()
 
-    workdir = gettempdir()/'test_scheduler_cycle'
-    workdir.mkdir(exist_ok=True)
-    (workdir/'some_mod.F90').write_text(fcode_mod)
-    (workdir/'caller.F90').write_text(fcode_caller)
+    (tmp_path/'some_mod.F90').write_text(fcode_mod)
+    (tmp_path/'caller.F90').write_text(fcode_caller)
 
-    scheduler = Scheduler(paths=[workdir], config=config, seed_routines=['caller'], full_parse=full_parse)
+    scheduler = Scheduler(paths=[tmp_path], config=config, seed_routines=['caller'], full_parse=full_parse)
 
     # Make sure we the outgoing edges from the recursive routine to the procedure binding
     # and itself are removed but the other edge still exists
@@ -2254,8 +2226,6 @@ end subroutine caller
     assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_proc']) not in scheduler.dependencies
     assert (scheduler['some_mod#some_proc'], scheduler['some_mod#some_type%other']) in scheduler.dependencies
     assert (scheduler['some_mod#some_type%other'], scheduler['some_mod#some_other']) in scheduler.dependencies
-
-    rmtree(workdir)
 
 
 def test_scheduler_unqualified_imports(config):
@@ -2480,7 +2450,7 @@ def test_scheduler_config_match_item_keys(item_name, keys, use_pattern_matching,
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scheduler_filter_items_file_graph(frontend, config):
+def test_scheduler_filter_items_file_graph(tmp_path, frontend, config):
     """
     Ensure that the ``items`` list given to a transformation in
     a file graph traversal is filtered to include only used items
@@ -2533,15 +2503,11 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
         'role': 'driver'
     }
 
-    workdir = gettempdir()/'test_scheduler_filter_program_units_file_graph'
-    if workdir.exists():
-        rmtree(workdir)
-    workdir.mkdir()
-    filepath = workdir/'test_scheduler_filter_program_units_file_graph.F90'
+    filepath = tmp_path/'test_scheduler_filter_program_units_file_graph.F90'
     filepath.write_text(fcode)
 
     scheduler = Scheduler(
-        paths=[workdir], config=config, seed_routines=['test_scheduler_filter_program_units_file_graph_driver'],
+        paths=[tmp_path], config=config, seed_routines=['test_scheduler_filter_program_units_file_graph_driver'],
         frontend=frontend
     )
 
@@ -2582,8 +2548,6 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
             }
 
     scheduler.process(transformation=MyFileTrafo())
-
-    rmtree(workdir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -2632,7 +2596,7 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
         }
     ),
 ])
-def test_scheduler_frontend_args(frontend, frontend_args, defines, preprocess,
+def test_scheduler_frontend_args(tmp_path, frontend, frontend_args, defines, preprocess,
                                  has_cpp_directives, additional_dependencies, config):
     """
     Test overwriting frontend options via Scheduler config
@@ -2670,13 +2634,9 @@ implicit none
 end subroutine test_scheduler_frontend_args4
     """.strip()
 
-    workdir = gettempdir()/'test_scheduler_frontend_args'
-    if workdir.exists():
-        rmtree(workdir)
-    workdir.mkdir()
-    (workdir/'file1.F90').write_text(fcode1)
-    (workdir/'file2.F90').write_text(fcode2)
-    (workdir/'file3_4.F90').write_text(fcode3_4)
+    (tmp_path/'file1.F90').write_text(fcode1)
+    (tmp_path/'file2.F90').write_text(fcode2)
+    (tmp_path/'file3_4.F90').write_text(fcode3_4)
 
     expected_dependencies = {
         '#test_scheduler_frontend_args1': ('#test_scheduler_frontend_args2',),
@@ -2690,8 +2650,8 @@ end subroutine test_scheduler_frontend_args4
     config['frontend_args'] = frontend_args
 
     scheduler = Scheduler(
-        paths=[workdir], config=config, seed_routines=['test_scheduler_frontend_args1'],
-        frontend=frontend, defines=defines, preprocess=preprocess, xmods=[workdir]
+        paths=[tmp_path], config=config, seed_routines=['test_scheduler_frontend_args1'],
+        frontend=frontend, defines=defines, preprocess=preprocess, xmods=[tmp_path]
     )
 
     assert set(scheduler.items) == set(expected_dependencies)
@@ -2705,11 +2665,9 @@ end subroutine test_scheduler_frontend_args4
         # NB: OMNI always does preprocessing, therefore we won't find the CPP directives
         #     after the full parse
 
-    rmtree(workdir)
-
 
 @pytest.mark.skipif(not (HAVE_OMNI and HAVE_FP), reason="OMNI or FP not available")
-def test_scheduler_frontend_overwrite(config):
+def test_scheduler_frontend_overwrite(tmp_path, config):
     """
     Test the use of a different frontend via Scheduler config
     """
@@ -2730,27 +2688,23 @@ subroutine test_scheduler_frontend_overwrite_kernel
 end subroutine test_scheduler_frontend_overwrite_kernel
     """.strip()
 
-    workdir = gettempdir()/'test_scheduler_frontend_overwrite'
-    if workdir.exists():
-        rmtree(workdir)
-    workdir.mkdir()
-    (workdir/'test_scheduler_frontend_overwrite_header.F90').write_text(fcode_header)
-    (workdir/'test_scheduler_frontend_overwrite_kernel.F90').write_text(fcode_kernel)
+    (tmp_path/'test_scheduler_frontend_overwrite_header.F90').write_text(fcode_header)
+    (tmp_path/'test_scheduler_frontend_overwrite_kernel.F90').write_text(fcode_kernel)
 
     # Make sure that OMNI cannot parse the header file
     with pytest.raises(CalledProcessError):
-        Sourcefile.from_source(fcode_header, frontend=OMNI, xmods=[workdir])
+        Sourcefile.from_source(fcode_header, frontend=OMNI, xmods=[tmp_path])
 
     # ...and that the problem exists also during Scheduler traversal
     with pytest.raises(CalledProcessError):
         Scheduler(
-            paths=[workdir], config=config, seed_routines=['test_scheduler_frontend_overwrite_kernel'],
-            frontend=OMNI, xmods=[workdir]
+            paths=[tmp_path], config=config, seed_routines=['test_scheduler_frontend_overwrite_kernel'],
+            frontend=OMNI, xmods=[tmp_path]
         )
 
     # Strip the comment from the header file and parse again to generate an xmod
     fcode_header_lines = fcode_header.split('\n')
-    Sourcefile.from_source('\n'.join(fcode_header_lines[:3] + fcode_header_lines[4:]), frontend=OMNI, xmods=[workdir])
+    Sourcefile.from_source('\n'.join(fcode_header_lines[:3] + fcode_header_lines[4:]), frontend=OMNI, xmods=[tmp_path])
 
     # Setup the config with the frontend overwrite
     config['frontend_args'] = {
@@ -2759,8 +2713,8 @@ end subroutine test_scheduler_frontend_overwrite_kernel
 
     # ...and now it works fine
     scheduler = Scheduler(
-        paths=[workdir], config=config, seed_routines=['test_scheduler_frontend_overwrite_kernel'],
-        frontend=OMNI, xmods=[workdir]
+        paths=[tmp_path], config=config, seed_routines=['test_scheduler_frontend_overwrite_kernel'],
+        frontend=OMNI, xmods=[tmp_path]
     )
 
     assert set(scheduler.items) == {
@@ -2775,8 +2729,6 @@ end subroutine test_scheduler_frontend_overwrite_kernel
     comments = FindNodes(ir.Comment).visit(scheduler['test_scheduler_frontend_overwrite_header#some_type'].ir.body)
     assert len(comments) == 1
     assert comments[0].text == '! We have a comment'
-
-    rmtree(workdir)
 
 
 def test_scheduler_pipeline_simple(testdir, config, frontend):

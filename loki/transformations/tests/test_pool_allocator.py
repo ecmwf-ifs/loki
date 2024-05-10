@@ -5,11 +5,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from shutil import rmtree
-
 import pytest
 
-from loki import gettempdir, Dimension, normalize_range_indexing
+from loki import Dimension, normalize_range_indexing
 from loki.batch import Scheduler, SchedulerConfig, SFilter, ProcedureItem
 from loki.expression import (
     FindVariables, FindInlineCalls, InlineCall, simplify
@@ -115,8 +113,8 @@ def check_stack_created_in_driver(
 @pytest.mark.parametrize('check_bounds', [False, True])
 @pytest.mark.parametrize('nclv_param', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_temporaries(frontend, generate_driver_stack, block_dim, check_bounds, nclv_param,
-        cray_ptr_loc_rhs):
+def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, block_dim, check_bounds,
+                                    nclv_param, cray_ptr_loc_rhs):
     fcode_iso_c_binding = "use, intrinsic :: iso_c_binding, only: c_sizeof"
     fcode_nclv_param = 'integer, parameter :: nclv = 2'
     if frontend == OMNI:
@@ -230,10 +228,8 @@ contains
 end module kernel_mod
     """.strip()
 
-    basedir = gettempdir()/'test_pool_allocator_temporaries'
-    basedir.mkdir(exist_ok=True)
-    (basedir/'driver.F90').write_text(fcode_driver)
-    (basedir/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
 
     config = {
         'default': {
@@ -256,7 +252,7 @@ end module kernel_mod
         Fortran2003.Intrinsic_Name.generic_function_names.update({"LOC": {'min': 1, 'max': 1}})
         Fortran2003.Intrinsic_Name.function_names += ["LOC"]
 
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
 
     if frontend == OMNI:
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
@@ -459,15 +455,14 @@ end module kernel_mod
     else:
         assert 'if (ylstack_l > ylstack_u)' not in fcode.lower()
         assert 'stop' not in fcode.lower()
-    rmtree(basedir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 @pytest.mark.parametrize('stack_insert_pragma', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_temporaries_kernel_sequence(frontend, block_dim, directive, stack_insert_pragma,
-        cray_ptr_loc_rhs):
+def test_pool_allocator_temporaries_kernel_sequence(tmp_path, frontend, block_dim, directive,
+                                                    stack_insert_pragma, cray_ptr_loc_rhs):
     if directive == 'openmp':
         driver_loop_pragma1 = '!$omp parallel default(shared) private(b) firstprivate(a)\n    !$omp do'
         driver_end_loop_pragma1 = '!$omp end do\n    !$omp end parallel'
@@ -584,11 +579,9 @@ contains
 end module kernel_mod
     """.strip()
 
-    basedir = gettempdir()/'test_pool_allocator_temporaries_kernel_sequence'
-    basedir.mkdir(exist_ok=True)
-    (basedir/'driver.F90').write_text(fcode_driver)
-    (basedir/'kernel_mod.F90').write_text(fcode_kernel)
-    (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'parkind_mod.F90').write_text(fcode_parkind_mod)
 
     config = {
         'default': {
@@ -602,7 +595,7 @@ end module kernel_mod
             'driver': {'role': 'driver'}
         }
     }
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
     if frontend == OMNI:
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
@@ -780,13 +773,11 @@ end module kernel_mod
             assert fcode.lower().count('if (ylstack_l > ylstack_u)') == 2
             assert fcode.lower().count('stop') == 2
 
-    rmtree(basedir)
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_temporaries_kernel_nested(frontend, block_dim, directive, cray_ptr_loc_rhs):
+def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs):
     if directive == 'openmp':
         driver_pragma = '!$omp PARALLEL do PRIVATE(b)'
         driver_end_pragma = '!$omp end parallel do'
@@ -884,11 +875,9 @@ contains
 end module kernel_mod
     """.strip()
 
-    basedir = gettempdir()/'test_pool_allocator_temporaries_kernel_nested'
-    basedir.mkdir(exist_ok=True)
-    (basedir/'driver.F90').write_text(fcode_driver)
-    (basedir/'kernel_mod.F90').write_text(fcode_kernel)
-    (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'parkind_mod.F90').write_text(fcode_parkind_mod)
 
     config = {
         'default': {
@@ -903,7 +892,7 @@ end module kernel_mod
         }
     }
 
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
     if frontend == OMNI:
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
@@ -1086,12 +1075,10 @@ end module kernel_mod
             assert fcode.lower().count('if (ylstack_l > ylstack_u)') == 2
             assert fcode.lower().count('stop') == 2
 
-    rmtree(basedir)
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_more_call_checks(frontend, block_dim, caplog, cray_ptr_loc_rhs):
+def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, cray_ptr_loc_rhs):
     fcode = """
     module kernel_mod
       type point
@@ -1137,9 +1124,7 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog, cray_ptr_l
     end module kernel_mod
     """.strip()
 
-    basedir = gettempdir()/'test_pool_allocator_inline_call'
-    basedir.mkdir(exist_ok=True)
-    (basedir/'kernel.F90').write_text(fcode)
+    (tmp_path/'kernel.F90').write_text(fcode)
 
     config = {
         'default': {
@@ -1153,7 +1138,7 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog, cray_ptr_l
             'kernel': {}
         }
     }
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
     if frontend == OMNI:
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
@@ -1196,12 +1181,11 @@ def test_pool_allocator_more_call_checks(frontend, block_dim, caplog, cray_ptr_l
         assert relevant_call.kwarguments == expected_kwarguments
 
     assert 'Derived-type vars in Subroutine:: kernel not supported in pool allocator' in caplog.text
-    rmtree(basedir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_args_vs_kwargs(frontend, block_dim_alt, cray_ptr_loc_rhs):
+def test_pool_allocator_args_vs_kwargs(tmp_path, frontend, block_dim_alt, cray_ptr_loc_rhs):
     fcode_module = """
 module geom_mod
     implicit none
@@ -1294,11 +1278,9 @@ contains
 end module kernel_mod
     """.strip()
 
-    basedir = gettempdir() / 'test_pool_allocator_args_vs_kwargs'
-    basedir.mkdir(exist_ok=True)
-    (basedir / 'driver.F90').write_text(fcode_driver)
-    (basedir / 'kernel.F90').write_text(fcode_kernel)
-    (basedir / 'module.F90').write_text(fcode_module)
+    (tmp_path / 'driver.F90').write_text(fcode_driver)
+    (tmp_path / 'kernel.F90').write_text(fcode_kernel)
+    (tmp_path / 'module.F90').write_text(fcode_module)
 
     config = {
         'default': {
@@ -1313,7 +1295,7 @@ end module kernel_mod
             'driver': {'role': 'driver'}
         }
     }
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
 
     if frontend == OMNI:
         for item in scheduler.items:
@@ -1362,5 +1344,3 @@ end module kernel_mod
     # check stack size allocation
     allocations = FindNodes(Allocation).visit(driver.body)
     assert len(allocations) == 1 and 'zstack(istsz,geom%blk_dim%nb)' in allocations[0].variables
-
-    rmtree(basedir)

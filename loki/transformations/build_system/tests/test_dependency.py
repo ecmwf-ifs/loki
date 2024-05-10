@@ -1,8 +1,14 @@
+# (C) Copyright 2018- ECMWF.
+# This software is licensed under the terms of the Apache Licence Version 2.0
+# which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
+# In applying this licence, ECMWF does not waive the privileges and immunities
+# granted to it by virtue of its status as an intergovernmental organisation
+# nor does it submit to any jurisdiction.
+
 from pathlib import Path
-from shutil import rmtree
 import pytest
 
-from loki import Sourcefile, gettempdir
+from loki import Sourcefile
 from loki.batch import Scheduler, SchedulerConfig
 from loki.expression import FindInlineCalls
 from loki.frontend import available_frontends, OMNI, OFP
@@ -16,14 +22,6 @@ from loki.transformations import (
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
-
-@pytest.fixture(scope='function', name='tempdir')
-def fixture_tempdir(request):
-    basedir = gettempdir()/request.function.__name__
-    basedir.mkdir(exist_ok=True)
-    yield basedir
-    if basedir.exists():
-        rmtree(basedir)
 
 
 @pytest.fixture(scope='function', name='config')
@@ -44,7 +42,7 @@ def fixture_config():
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('use_scheduler', [False, True])
-def test_dependency_transformation_globalvar_imports(frontend, use_scheduler, tempdir, config):
+def test_dependency_transformation_globalvar_imports(frontend, use_scheduler, tmp_path, config):
     """
     Test that global variable imports are not renamed as a
     call statement would be.
@@ -79,9 +77,9 @@ END SUBROUTINE driver
     transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
 
     if use_scheduler:
-        (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
-        (tempdir/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        (tmp_path/'kernel_mod.F90').write_text(kernel_fcode)
+        (tmp_path/'driver.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
         scheduler.process(transformation)
 
         # Check that both, old and new module exist now in the scheduler graph
@@ -92,10 +90,10 @@ END SUBROUTINE driver
         driver = scheduler['#driver'].source
 
         # Check that the not-renamed module is indeed the original one
-        scheduler.item_factory.item_cache[str(tempdir/'kernel_mod.F90')].source.make_complete(frontend=frontend)
+        scheduler.item_factory.item_cache[str(tmp_path/'kernel_mod.F90')].source.make_complete(frontend=frontend)
         assert (
             Sourcefile.from_source(kernel_fcode, frontend=frontend).to_fortran() ==
-            scheduler.item_factory.item_cache[str(tempdir/'kernel_mod.F90')].source.to_fortran()
+            scheduler.item_factory.item_cache[str(tmp_path/'kernel_mod.F90')].source.to_fortran()
         )
 
     else:
@@ -126,7 +124,7 @@ END SUBROUTINE driver
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('use_scheduler', [False, True])
-def test_dependency_transformation_globalvar_imports_driver_mod(frontend, use_scheduler, tempdir, config):
+def test_dependency_transformation_globalvar_imports_driver_mod(frontend, use_scheduler, tmp_path, config):
     """
     Test that global variable imports are not renamed as a
     call statement would be.
@@ -162,9 +160,9 @@ END MODULE DRIVER_MOD
     transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
 
     if use_scheduler:
-        (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
-        (tempdir/'driver_mod.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        (tmp_path/'kernel_mod.F90').write_text(kernel_fcode)
+        (tmp_path/'driver_mod.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
         scheduler.process(transformation)
 
         kernel = scheduler['kernel_test_mod#kernel_test'].source
@@ -259,7 +257,7 @@ END SUBROUTINE myfunc
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
 @pytest.mark.parametrize('use_scheduler', [False, True])
-def test_dependency_transformation_module_wrap(frontend, use_scheduler, tempdir, config):
+def test_dependency_transformation_module_wrap(frontend, use_scheduler, tmp_path, config):
     """
     Test injection of suffixed kernels into unchanged driver
     routines automatic module wrapping of the kernel.
@@ -292,9 +290,9 @@ END SUBROUTINE kernel
     )
 
     if use_scheduler:
-        (tempdir/'kernel.F90').write_text(kernel_fcode)
-        (tempdir/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        (tmp_path/'kernel.F90').write_text(kernel_fcode)
+        (tmp_path/'driver.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
         for transformation in transformations:
             scheduler.process(transformation)
 
@@ -338,7 +336,7 @@ END SUBROUTINE kernel
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('use_scheduler', [False, True])
 @pytest.mark.parametrize('module_wrap', [True, False])
-def test_dependency_transformation_replace_interface(frontend, use_scheduler, module_wrap, tempdir, config):
+def test_dependency_transformation_replace_interface(frontend, use_scheduler, module_wrap, tmp_path, config):
     """
     Test injection of suffixed kernels defined in interface block
     into unchanged driver routines automatic module wrapping of the kernel.
@@ -373,12 +371,12 @@ END SUBROUTINE kernel
     transformations = []
     if module_wrap:
         transformations += [ModuleWrapTransformation(module_suffix='_mod')]
-    transformations += [DependencyTransformation(suffix='_test', include_path=tempdir, module_suffix='_mod')]
+    transformations += [DependencyTransformation(suffix='_test', include_path=tmp_path, module_suffix='_mod')]
 
     if use_scheduler:
-        (tempdir/'kernel.F90').write_text(kernel_fcode)
-        (tempdir/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        (tmp_path/'kernel.F90').write_text(kernel_fcode)
+        (tmp_path/'driver.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
         for transformation in transformations:
             scheduler.process(transformation)
 
@@ -590,7 +588,7 @@ END FUNCTION kernel
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('use_scheduler', [False, True])
-def test_dependency_transformation_contained_member(frontend, use_scheduler, tempdir, config):
+def test_dependency_transformation_contained_member(frontend, use_scheduler, tmp_path, config):
     """
     The scheduler currently does not recognize or allow processing contained member routines as part
     of the scheduler graph traversal. This test ensures that the transformation class
@@ -636,9 +634,9 @@ END SUBROUTINE driver
     transformation = DependencyTransformation(suffix='_test', module_suffix='_mod')
 
     if use_scheduler:
-        (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
-        (tempdir/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        (tmp_path/'kernel_mod.F90').write_text(kernel_fcode)
+        (tmp_path/'driver.F90').write_text(driver_fcode)
+        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
         scheduler.process(transformation)
 
         kernel = scheduler['kernel_test_mod#kernel_test'].source
@@ -679,7 +677,7 @@ END SUBROUTINE driver
 
 @pytest.mark.parametrize('frontend', available_frontends(
                          xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
-def test_dependency_transformation_item_filter(frontend, tempdir, config):
+def test_dependency_transformation_item_filter(frontend, tmp_path, config):
     """
     Test that injection is not applied to modules that have no procedures
     in the scheduler graph, even if they have other item members.
@@ -719,13 +717,13 @@ MODULE header_mod
 END MODULE header_mod
     """.strip()
 
-    (tempdir/'kernel_mod.F90').write_text(kernel_fcode)
-    (tempdir/'header_mod.F90').write_text(header_fcode)
-    (tempdir/'driver.F90').write_text(driver_fcode)
+    (tmp_path/'kernel_mod.F90').write_text(kernel_fcode)
+    (tmp_path/'header_mod.F90').write_text(header_fcode)
+    (tmp_path/'driver.F90').write_text(driver_fcode)
 
     # Create the scheduler such that it chases imports
     config['default']['enable_imports'] = True
-    scheduler = Scheduler(paths=[tempdir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
 
     # Make sure the header module item exists
     assert 'header_mod' in scheduler.items
@@ -775,7 +773,7 @@ END MODULE header_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_dependency_transformation_filter_items_file_graph(frontend, config):
+def test_dependency_transformation_filter_items_file_graph(tmp_path, frontend, config):
     """
     Ensure that the ``items`` list given to a transformation in
     a file graph traversal is filtered to include only used items
@@ -828,15 +826,11 @@ end subroutine test_dependency_transformation_filter_items_driver
         'test_dependency_transformation_filter_items_driver': {'role': 'driver'},
     }
 
-    workdir = gettempdir()/'test_dependency_transformation_filter_items'
-    if workdir.exists():
-        rmtree(workdir)
-    workdir.mkdir()
-    filepath = workdir/'test_dependency_transformation_filter_items.F90'
+    filepath = tmp_path/'test_dependency_transformation_filter_items.F90'
     filepath.write_text(fcode)
 
     scheduler = Scheduler(
-        paths=[workdir], config=config,
+        paths=[tmp_path], config=config,
         seed_routines=['test_dependency_transformation_filter_items_driver'],
         frontend=frontend
     )
@@ -921,5 +915,3 @@ end subroutine test_dependency_transformation_filter_items_driver
 
     assert [r.name.lower() for r in original_mod1.subroutines] == ['proc1', 'unused_proc']
     assert [r.name.lower() for r in new_mod1.subroutines] == ['proc1_foo']
-
-    rmtree(workdir)

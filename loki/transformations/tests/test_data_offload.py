@@ -6,11 +6,10 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
-from shutil import rmtree
 import pytest
 
 from loki import (
-    Sourcefile, gettempdir, Scheduler,  FindInlineCalls
+    Sourcefile, Scheduler,  FindInlineCalls
 )
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
@@ -245,7 +244,7 @@ def test_data_offload_region_multiple(frontend):
 
 
 @pytest.fixture(name='global_variable_analysis_code')
-def fixture_global_variable_analysis_code():
+def fixture_global_variable_analysis_code(tmp_path):
     fcode = {
         #------------------------------
         'global_var_analysis_header_mod': (
@@ -355,16 +354,9 @@ end subroutine driver
         ).strip()
     }
 
-    workdir = gettempdir()/'test_global_variable_analysis'
-    if workdir.exists():
-        rmtree(workdir)
-    workdir.mkdir()
     for name, code in fcode.items():
-        (workdir/f'{name}.F90').write_text(code)
-
-    yield workdir
-
-    rmtree(workdir)
+        (tmp_path/f'{name}.F90').write_text(code)
+    return tmp_path
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
