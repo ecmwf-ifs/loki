@@ -55,15 +55,13 @@ class BlockViewToFieldViewTransformation(Transformation):
     """
 
     _key = 'BlockViewToFieldViewTransformation'
-    """Default identifier for trafo_data entry"""
+    """Identifier for trafo_data entry"""
 
     item_filter = (ProcedureItem,)
 
-    def __init__(self, horizontal, global_gfl_ptr=False, key=None):
+    def __init__(self, horizontal, global_gfl_ptr=False):
         self.horizontal = horizontal
         self.global_gfl_ptr = global_gfl_ptr
-        if key:
-            self._key = key
 
     @staticmethod
     def get_parent_typedef(var, symbol_map):
@@ -323,16 +321,11 @@ class InjectBlockIndexTransformation(Transformation):
         Specify a different identifier under which trafo_data is stored
     """
 
-    _key = 'InjectBlockIndexTransformation'
-    """Default identifier for trafo_data entry"""
-
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
 
-    def __init__(self, block_dim, key=None):
+    def __init__(self, block_dim):
         self.block_dim = block_dim
-        if key:
-            self._key = key
 
     def transform_subroutine(self, routine, **kwargs):
 
