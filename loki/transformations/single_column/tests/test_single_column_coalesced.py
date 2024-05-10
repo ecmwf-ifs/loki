@@ -5,11 +5,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from shutil import rmtree
-
 import pytest
 
-from loki import Subroutine, Sourcefile, Dimension, fgen, gettempdir
+from loki import Subroutine, Sourcefile, Dimension, fgen
 from loki.batch import Scheduler, SchedulerConfig, ProcedureItem, ModuleItem
 from loki.expression import Scalar, Array, IntLiteral, RangeIndex
 from loki.frontend import available_frontends, OMNI, OFP
@@ -524,7 +522,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('trim_vector_sections', [True, False])
-def test_scc_hoist_multiple_kernels_loops(frontend, trim_vector_sections, horizontal, blocking):
+def test_scc_hoist_multiple_kernels_loops(tmp_path, frontend, trim_vector_sections, horizontal, blocking):
     """
     Test hoisting of column temporaries to "driver" level.
     """
@@ -613,10 +611,8 @@ CONTAINS
 END MODULE kernel_mod
 """.strip()
 
-    basedir = gettempdir() / 'test_scc_hoist_multiple_kernels_loops'
-    basedir.mkdir(exist_ok=True)
-    (basedir / 'driver.F90').write_text(fcode_driver)
-    (basedir / 'kernel.F90').write_text(fcode_kernel)
+    (tmp_path / 'driver.F90').write_text(fcode_driver)
+    (tmp_path / 'kernel.F90').write_text(fcode_kernel)
 
     config = {
         'default': {
@@ -629,7 +625,7 @@ END MODULE kernel_mod
             'driver': {'role': 'driver'}
         }
     }
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
 
     driver = scheduler["#driver"].ir
     kernel = scheduler["kernel_mod#kernel"].ir
@@ -724,8 +720,6 @@ END MODULE kernel_mod
     assert assign.rhs == 'nlon-nb'
     assigns = FindNodes(Assignment).visit(driver_loops[9])
     assert not assign in assigns
-
-    rmtree(basedir)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -5,14 +5,15 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import itertools
 import importlib
+import itertools
+from shutil import rmtree
 from pathlib import Path
 import numpy as np
 import pytest
 
 from loki import Subroutine
-from loki.build import jit_compile, clean_test
+from loki.build import jit_compile
 from loki.frontend import available_frontends
 
 from loki.transformations.transpile import FortranPythonTransformation
@@ -30,10 +31,6 @@ pytestmark = [
     )
 ]
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
 
 def load_module(path):
     path = Path(path)
@@ -47,9 +44,9 @@ def load_module(path):
         return importlib.import_module(path.stem)
 
 
-def create_sdfg(routine, here):
+def create_sdfg(routine, tmp_path):
     trafo = FortranPythonTransformation(with_dace=True, suffix='_py')
-    routine.apply(trafo, path=here)
+    routine.apply(trafo, path=tmp_path)
 
     mod = load_module(trafo.py_path)
     function = getattr(mod, routine.name)
@@ -57,7 +54,7 @@ def create_sdfg(routine, here):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sdfg_routine_copy(here, frontend):
+def test_sdfg_routine_copy(tmp_path, frontend):
 
     fcode = """
 subroutine routine_copy(n, x, y)
@@ -77,7 +74,7 @@ end subroutine routine_copy
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the reference solution
-    filepath = here/(f'routine_copy_{frontend}.f90')
+    filepath = tmp_path/(f'routine_copy_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_copy')
 
     n = 64
@@ -89,7 +86,7 @@ end subroutine routine_copy
     assert all(x_ref == y)
 
     # Create and compile the SDFG
-    sdfg = create_sdfg(routine, here)
+    sdfg = create_sdfg(routine, tmp_path)
     assert sdfg.validate() is None
 
     csdfg = sdfg.compile()
@@ -100,14 +97,11 @@ end subroutine routine_copy
     csdfg(n=np.int32(n), x=x, y=y)
     assert all(x_ref == y)
 
-    clean_test(filepath)
-    (here / (routine.name + '.py')).unlink()
-
 
 @pytest.mark.xfail(reason='Scalar inout arguments do not work in dace')
 @pytest.mark.filterwarnings('ignore:The value of the smallest subnormal.*class \'numpy.float64\':UserWarning')
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sdfg_routine_axpy_scalar(here, frontend):
+def test_sdfg_routine_axpy_scalar(tmp_path, frontend):
 
     fcode = """
 subroutine routine_axpy_scalar(a, x, y)
@@ -124,7 +118,7 @@ end subroutine routine_axpy_scalar
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the reference solution
-    filepath = here/(f'sdfg_routine_axpy_scalar_{frontend}.f90')
+    filepath = tmp_path/(f'sdfg_routine_axpy_scalar_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_axpy_scalar')
 
     a = np.float64(23)
@@ -135,7 +129,7 @@ end subroutine routine_axpy_scalar
     assert x_out == a * x + y
 
     # Create and compile the SDFG
-    sdfg = create_sdfg(routine, here)
+    sdfg = create_sdfg(routine, tmp_path)
     assert sdfg.validate() is None
 
     csdfg = sdfg.compile()
@@ -146,12 +140,9 @@ end subroutine routine_axpy_scalar
     csdfg(a=a, x=x_out, y=y)
     assert x_out == a * x + y
 
-    clean_test(filepath)
-    (here / (routine.name + '.py')).unlink()
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sdfg_routine_copy_stream(here, frontend):
+def test_sdfg_routine_copy_stream(tmp_path, frontend):
 
     fcode = """
 subroutine routine_copy_stream(length, alpha, vector_in, vector_out)
@@ -172,7 +163,7 @@ end subroutine routine_copy_stream
     # TODO: make alpha a true scalar, which doesn't seem to work with SDFG at the moment???
 
     # Test the reference solution
-    filepath = here/(f'sdfg_routine_copy_stream_{frontend}.f90')
+    filepath = tmp_path/(f'sdfg_routine_copy_stream_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_copy_stream')
 
     length = 32
@@ -183,7 +174,7 @@ end subroutine routine_copy_stream
     assert np.all(vector_out == np.array(range(length)) + alpha)
 
     # Create and compile the SDFG
-    sdfg = create_sdfg(routine, here)
+    sdfg = create_sdfg(routine, tmp_path)
     assert sdfg.validate() is None
 
     csdfg = sdfg.compile()
@@ -195,12 +186,9 @@ end subroutine routine_copy_stream
     csdfg(length=length, alpha=alpha, vector_in=vec_in, vector_out=vec_out)
     assert np.all(vec_out == np.array(range(length)) + alpha)
 
-    clean_test(filepath)
-    (here / (routine.name + '.py')).unlink()
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sdfg_routine_fixed_loop(here, frontend):
+def test_sdfg_routine_fixed_loop(tmp_path, frontend):
 
     fcode = """
 subroutine routine_fixed_loop(scalar, vector, vector_out, tensor, tensor_out)
@@ -224,7 +212,7 @@ subroutine routine_fixed_loop(scalar, vector, vector_out, tensor, tensor_out)
 end subroutine routine_fixed_loop
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'sdfg_routine_fixed_loop_{frontend}.f90')
+    filepath = tmp_path/(f'sdfg_routine_fixed_loop_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_fixed_loop')
 
     # Test the reference solution
@@ -240,7 +228,7 @@ end subroutine routine_fixed_loop
     assert np.all(tensor_out == ref_tensor)
 
     # Create and compile the SDFG
-    sdfg = create_sdfg(routine, here)
+    sdfg = create_sdfg(routine, tmp_path)
     assert sdfg.validate() is None
 
     csdfg = sdfg.compile()
@@ -257,15 +245,12 @@ end subroutine routine_fixed_loop
     assert np.all(vector == ref_vector)
     assert np.all(tensor_out == ref_tensor)
 
-    clean_test(filepath)
-    (here / (routine.name + '.py')).unlink()
-
 
 @pytest.mark.skip(reason=('This translates successfully but the generated OpenMP code does not '
                           'honour the loop-carried dependency, thus creating data races for more '
                           'than 1 thread.'))
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sdfg_routine_loop_carried_dependency(here, frontend):
+def test_sdfg_routine_loop_carried_dependency(tmp_path, frontend):
 
     fcode = """
 subroutine routine_loop_carried_dependency(vector)
@@ -281,7 +266,7 @@ subroutine routine_loop_carried_dependency(vector)
 end subroutine routine_loop_carried_dependency
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'sdfg_routine_loop_carried_dependency_{frontend}.f90')
+    filepath = tmp_path/(f'sdfg_routine_loop_carried_dependency_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_loop_carried_dependency')
 
     # Test the reference solution
@@ -292,7 +277,7 @@ end subroutine routine_loop_carried_dependency
     assert np.all(vector == ref_vector)
 
     # Create and compile the SDFG
-    sdfg = create_sdfg(routine, here)
+    sdfg = create_sdfg(routine, tmp_path)
     assert sdfg.validate() is None
 
     csdfg = sdfg.compile()
@@ -305,16 +290,13 @@ end subroutine routine_loop_carried_dependency
     csdfg(vector=vector)
     assert np.all(vector == ref_vector)
 
-    clean_test(filepath)
-    (here / (routine.name + '.py')).unlink()
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sdfg_routine_moving_average(here, frontend):
+def test_sdfg_routine_moving_average(tmp_path, frontend):
     # TODO: This needs more work to properly handle boundary values.
     # In the current form, these values seem to be handled in a way
     # that causes race conditions. Either this is a DaCe bug or we are
-    # using DaCe wrong here.
+    # using DaCe wrong tmp_path.
 
     fcode = """
 subroutine routine_moving_average(length, data_in, data_out)
@@ -354,7 +336,7 @@ subroutine routine_moving_average(length, data_in, data_out)
 end subroutine routine_moving_average
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'sdfg_routine_moving_average_{frontend}.f90')
+    filepath = tmp_path/(f'sdfg_routine_moving_average_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_moving_average')
 
     # Create random input data
@@ -373,7 +355,7 @@ end subroutine routine_moving_average
     assert np.all(data_out[1:-1] == expected[1:-1])
 
     # Create and compile the SDFG
-    sdfg = create_sdfg(routine, here)
+    sdfg = create_sdfg(routine, tmp_path)
     assert sdfg.validate() is None
 
     csdfg = sdfg.compile()
@@ -383,6 +365,3 @@ end subroutine routine_moving_average
     data_out = np.zeros(shape=(n,), order='F')
     csdfg(length=n, data_in=data_in, data_out=data_out)
     assert np.all(data_out[1:-1] == expected[1:-1])
-
-    clean_test(filepath)
-    (here / (routine.name + '.py')).unlink()

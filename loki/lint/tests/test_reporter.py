@@ -16,7 +16,7 @@ try:
 except ImportError:
     HAVE_YAML = False
 
-from loki import Intrinsic, gettempdir
+from loki.ir import Intrinsic
 from loki.lint.linter import lint_files
 from loki.lint.reporter import (
     ProblemReport, RuleReport, FileReport,
@@ -123,10 +123,9 @@ def test_violation_file_handler(dummy_file, dummy_file_report):
     assert 'GenericRule' in file_report['rules']
 
 
-def test_lazy_textfile():
+def test_lazy_textfile(tmp_path):
     # Choose the output file and make sure it doesn't exist
-    filename = gettempdir()/'lazytextfile.log'
-    filename.unlink(missing_ok=True)
+    filename = tmp_path/'lazytextfile.log'
 
     # Instantiating the object should _not_ create the file
     f = LazyTextfile(filename)
@@ -145,12 +144,10 @@ def test_lazy_textfile():
     del f
     assert filename.read_text() == 's0me TEXT AAAAND other Th1ngs!!!'
 
-    filename.unlink(missing_ok=True)
-
 
 @pytest.mark.parametrize('max_workers', [None, 1])
 @pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',4)])
-def test_linter_junitxml(testdir, max_workers, fail_on, failures):
+def test_linter_junitxml(tmp_path, testdir, max_workers, fail_on, failures):
     class RandomFailingRule(GenericRule):
         type = RuleType.WARN
         docs = {'title': 'A dummy rule for the sake of testing the Linter'}
@@ -162,8 +159,7 @@ def test_linter_junitxml(testdir, max_workers, fail_on, failures):
                 rule_report.add(cls.__name__, subroutine)
 
     basedir = testdir/'sources'
-    junitxml_file = gettempdir()/'linter_junitxml_outputfile.xml'
-    junitxml_file.unlink(missing_ok=True)
+    junitxml_file = tmp_path/'linter_junitxml_outputfile.xml'
     config = {
         'basedir': str(basedir),
         'include': ['projA/**/*.f90', 'projA/**/*.F90'],
@@ -182,14 +178,12 @@ def test_linter_junitxml(testdir, max_workers, fail_on, failures):
     assert xml.attrib['tests'] == '15'
     assert xml.attrib['failures'] == str(failures)
 
-    junitxml_file.unlink(missing_ok=True)
-
 
 @pytest.mark.skipif(not HAVE_YAML, reason='Pyyaml not installed')
 @pytest.mark.parametrize('max_workers', [None, 1])
 @pytest.mark.parametrize('fail_on,failures', [(None,0), ('kernel',4)])
 @pytest.mark.parametrize('use_line_hashes', [None, False, True])
-def test_linter_violation_file(testdir, rules, max_workers, fail_on, failures, use_line_hashes):
+def test_linter_violation_file(tmp_path, testdir, rules, max_workers, fail_on, failures, use_line_hashes):
     class RandomFailingRule(GenericRule):
         type = RuleType.WARN
         docs = {'title': 'A dummy rule for the sake of testing the Linter'}
@@ -201,8 +195,7 @@ def test_linter_violation_file(testdir, rules, max_workers, fail_on, failures, u
                 rule_report.add(cls.__name__, subroutine)
 
     basedir = testdir/'sources'
-    violations_file = gettempdir()/'linter_violations_file.yml'
-    violations_file.unlink(missing_ok=True)
+    violations_file = tmp_path/'linter_violations_file.yml'
     config = {
         'basedir': str(basedir),
         'include': ['projA/**/*.f90', 'projA/**/*.F90'],
@@ -244,5 +237,3 @@ def test_linter_violation_file(testdir, rules, max_workers, fail_on, failures, u
     checked = lint_files([RandomFailingRule, rules.DummyRule], config)
     assert checked == 15
     assert yaml.safe_load(violations_file.read_text()) is None
-
-    violations_file.unlink(missing_ok=True)

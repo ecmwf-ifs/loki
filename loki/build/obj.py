@@ -5,17 +5,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import re
+from functools import cached_property
 from pathlib import Path
-
-try:
-    from functools import cached_property
-except ImportError:
-    try:
-        from cached_property import cached_property
-    except ImportError:
-        def cached_property(func):
-            return func
+import re
 
 from loki.logging import debug
 from loki.tools import execute, as_tuple, flatten, cached_func
@@ -59,6 +51,11 @@ class Obj:
         return obj
 
     __xnew_cached_ = staticmethod(cached_func(__new_stage2_))
+
+    @classmethod
+    def clear_cache(cls):
+        debug('Clearing Obj cache')
+        cls._Obj__xnew_cached_.cache_clear()
 
     def __init__(self, name=None, source_path=None):  # pylint: disable=unused-argument
         self.path = None  # The eventual .o path

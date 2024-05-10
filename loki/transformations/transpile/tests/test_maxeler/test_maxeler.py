@@ -101,7 +101,8 @@ def fixture_here():
 @pytest.fixture(scope='module', name='builder')
 def fixture_builder(here):
     include_dirs = get_max_includes() if is_maxeler_available() else []
-    return Builder(source_dirs=here, include_dirs=include_dirs, build_dir=here/'build')
+    yield Builder(source_dirs=here, include_dirs=include_dirs, build_dir=here/'build')
+    Obj.clear_cache()
 
 
 def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):

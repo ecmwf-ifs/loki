@@ -370,7 +370,7 @@ def test_transformation_post_apply_module(here, frontend, post_apply_rescope_sym
             assert module.variable_map['j'].scope is tmp_scope
 
     fcode = """
-module transformation_module_post_apply
+module module_post_apply
   integer :: i = 0
 contains
   subroutine test_post_apply(ret)
@@ -378,7 +378,7 @@ contains
     i = i + 1
     ret = i
   end subroutine test_post_apply
-end module transformation_module_post_apply
+end module module_post_apply
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend)

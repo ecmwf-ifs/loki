@@ -30,7 +30,7 @@ from loki.frontend import (
 )
 from loki.ir import nodes as ir, FindNodes
 from loki.tools import (
-    gettempdir, filehash, stdchannel_redirected, stdchannel_is_captured
+    filehash, stdchannel_redirected, stdchannel_is_captured
 )
 
 # pylint: disable=too-many-lines
@@ -489,7 +489,7 @@ end subroutine index_ranges
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_strings(here, frontend, capsys):
+def test_strings(tmp_path, frontend, capsys):
     """
     Test recognition of literal strings.
     """
@@ -504,16 +504,14 @@ subroutine strings()
   print *, "42!"
 end subroutine strings
 """
-    filepath = here/(f'expression_strings_{frontend}.f90')
+    filepath = tmp_path/(f'expression_strings_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     function = jit_compile(routine, filepath=filepath, objname='strings')
-    output_file = gettempdir()/filehash(str(filepath), prefix='', suffix='.log')
+    output_file = tmp_path/filehash(str(filepath), prefix='', suffix='.log')
     with capsys.disabled():
         with stdchannel_redirected(sys.stdout, output_file):
             function()
-
-    clean_test(filepath)
 
     with open(output_file, 'r') as f:
         output_str = f.read()

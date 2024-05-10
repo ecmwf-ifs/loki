@@ -7,11 +7,10 @@
 
 from pathlib import Path
 from itertools import zip_longest
-from shutil import rmtree
 import pytest
 
 from loki import (
-    Sourcefile, Scheduler, ProcedureItem, as_tuple, gettempdir,
+    Sourcefile, Scheduler, ProcedureItem, as_tuple,
     ProcedureDeclaration, BasicType, CaseInsensitiveDict,
 )
 from loki.expression import Scalar, Array, FindVariables, FindInlineCalls
@@ -1314,7 +1313,7 @@ end module some_mod
 
 @pytest.mark.parametrize('duplicate', [False,True])
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_typebound_procedure_calls(frontend, config, duplicate):
+def test_transform_typebound_procedure_calls(tmp_path, frontend, config, duplicate):
     fcode1 = """
 module typebound_procedure_calls_mod
     implicit none
@@ -1438,15 +1437,13 @@ subroutine driver
 end subroutine driver
     """.strip()
 
-    workdir = gettempdir()/'test_transform_typebound_procedure_calls'
-    workdir.mkdir(exist_ok=True)
-    (workdir/'typebound_procedure_calls_mod.F90').write_text(fcode1)
-    (workdir/'other_typebound_procedure_calls_mod.F90').write_text(fcode2)
-    (workdir/'function_mod.F90').write_text(fcode3)
-    (workdir/'driver.F90').write_text(fcode4)
+    (tmp_path/'typebound_procedure_calls_mod.F90').write_text(fcode1)
+    (tmp_path/'other_typebound_procedure_calls_mod.F90').write_text(fcode2)
+    (tmp_path/'function_mod.F90').write_text(fcode3)
+    (tmp_path/'driver.F90').write_text(fcode4)
 
     scheduler = Scheduler(
-        paths=[workdir], config=config, seed_routines=['driver'], frontend=frontend
+        paths=[tmp_path], config=config, seed_routines=['driver'], frontend=frontend
     )
 
     transformation = TypeboundProcedureCallTransformation(duplicate_typebound_kernels=duplicate)
@@ -1525,5 +1522,3 @@ end subroutine driver
         assert [
             str(call.name) for call in FindNodes(CallStatement).visit(other_mod['init_'].ir)
         ] == ['this%stuff(i)%arr(j)%reset', 'this%stuff(i)%arr(j)%add']
-
-    rmtree(workdir)

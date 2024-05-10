@@ -13,7 +13,7 @@ from loki import (
     Module, Subroutine, FindVariables, BasicType, DerivedType,
     FindInlineCalls
 )
-from loki.build import jit_compile, jit_compile_lib, Builder
+from loki.build import jit_compile, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import nodes as ir, FindNodes
@@ -34,7 +34,8 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='builder')
 def fixture_builder(here):
-    return Builder(source_dirs=here, build_dir=here/'build')
+    yield Builder(source_dirs=here, build_dir=here/'build')
+    Obj.clear_cache()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -117,20 +118,20 @@ end module parameters_mod
 """
 
     fcode = """
-module transform_inline_constant_parameters_mod
+module inline_const_param_mod
   ! TODO: use parameters_mod, only: b
   implicit none
   integer, parameter :: c = 1+1
 contains
-  subroutine transform_inline_constant_parameters(v1, v2, v3)
+  subroutine inline_const_param(v1, v2, v3)
     use parameters_mod, only: a, b
     integer, intent(in) :: v1
     integer, intent(out) :: v2, v3
 
     v2 = v1 + b - a
     v3 = c
-  end subroutine transform_inline_constant_parameters
-end module transform_inline_constant_parameters_mod
+  end subroutine inline_const_param
+end module inline_const_param_mod
 """
     # Generate reference code, compile run and verify
     param_module = Module.from_source(fcode_module, frontend=frontend)
@@ -138,7 +139,7 @@ end module transform_inline_constant_parameters_mod
     refname = f'ref_{module.name}_{ frontend}'
     reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
 
-    v2, v3 = reference.transform_inline_constant_parameters_mod.transform_inline_constant_parameters(10)
+    v2, v3 = reference.inline_const_param_mod.inline_const_param(10)
     assert v2 == 8
     assert v3 == 2
     (here/f'{module.name}.f90').unlink()
@@ -146,16 +147,16 @@ end module transform_inline_constant_parameters_mod
 
     # Now transform with supplied elementals but without module
     module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
-    assert len(FindNodes(ir.Import).visit(module['transform_inline_constant_parameters'].spec)) == 1
+    assert len(FindNodes(ir.Import).visit(module['inline_const_param'].spec)) == 1
     for routine in module.subroutines:
         inline_constant_parameters(routine, external_only=True)
-    assert not FindNodes(ir.Import).visit(module['transform_inline_constant_parameters'].spec)
+    assert not FindNodes(ir.Import).visit(module['inline_const_param'].spec)
 
     # Hack: rename module to use a different filename in the build
     module.name = f'{module.name}_'
     obj = jit_compile_lib([module], path=here, name=f'{module.name}_{frontend}', builder=builder)
 
-    v2, v3 = obj.transform_inline_constant_parameters_mod_.transform_inline_constant_parameters(10)
+    v2, v3 = obj.inline_const_param_mod_.inline_const_param(10)
     assert v2 == 8
     assert v3 == 2
 
@@ -175,16 +176,16 @@ end module kind_parameters_mod
 """
 
     fcode = """
-module transform_inline_constant_parameters_kind_mod
+module inline_const_param_kind_mod
   implicit none
 contains
-  subroutine transform_inline_constant_parameters_kind(v1)
+  subroutine inline_const_param_kind(v1)
     use kind_parameters_mod, only: jprb
     real(kind=jprb), intent(out) :: v1
 
     v1 = real(2, kind=jprb) + 3.
-  end subroutine transform_inline_constant_parameters_kind
-end module transform_inline_constant_parameters_kind_mod
+  end subroutine inline_const_param_kind
+end module inline_const_param_kind_mod
 """
     # Generate reference code, compile run and verify
     param_module = Module.from_source(fcode_module, frontend=frontend)
@@ -192,23 +193,23 @@ end module transform_inline_constant_parameters_kind_mod
     refname = f'ref_{module.name}_{frontend}'
     reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
 
-    v1 = reference.transform_inline_constant_parameters_kind_mod.transform_inline_constant_parameters_kind()
+    v1 = reference.inline_const_param_kind_mod.inline_const_param_kind()
     assert v1 == 5.
     (here/f'{module.name}.f90').unlink()
     (here/f'{param_module.name}.f90').unlink()
 
     # Now transform with supplied elementals but without module
     module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
-    assert len(FindNodes(ir.Import).visit(module['transform_inline_constant_parameters_kind'].spec)) == 1
+    assert len(FindNodes(ir.Import).visit(module['inline_const_param_kind'].spec)) == 1
     for routine in module.subroutines:
         inline_constant_parameters(routine, external_only=True)
-    assert not FindNodes(ir.Import).visit(module['transform_inline_constant_parameters_kind'].spec)
+    assert not FindNodes(ir.Import).visit(module['inline_const_param_kind'].spec)
 
     # Hack: rename module to use a different filename in the build
     module.name = f'{module.name}_'
     obj = jit_compile_lib([module], path=here, name=f'{module.name}_{frontend}', builder=builder)
 
-    v1 = obj.transform_inline_constant_parameters_kind_mod_.transform_inline_constant_parameters_kind()
+    v1 = obj.inline_const_param_kind_mod_.inline_const_param_kind()
     assert v1 == 5.
 
     (here/f'{module.name}.f90').unlink()
@@ -227,17 +228,17 @@ end module replace_kind_parameters_mod
 """
 
     fcode = """
-module transform_inline_constant_parameters_replace_kind_mod
+module inline_param_repl_kind_mod
   implicit none
 contains
-  subroutine transform_inline_constant_parameters_replace_kind(v1)
+  subroutine inline_param_repl_kind(v1)
     use replace_kind_parameters_mod, only: jprb
     real(kind=jprb), intent(out) :: v1
     real(kind=jprb) :: a = 3._JPRB
 
     v1 = 1._jprb + real(2, kind=jprb) + a
-  end subroutine transform_inline_constant_parameters_replace_kind
-end module transform_inline_constant_parameters_replace_kind_mod
+  end subroutine inline_param_repl_kind
+end module inline_param_repl_kind_mod
 """
     # Generate reference code, compile run and verify
     param_module = Module.from_source(fcode_module, frontend=frontend)
