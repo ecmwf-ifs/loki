@@ -22,7 +22,7 @@ from loki.expression import (
     SubstituteExpressions, LokiIdentityMapper
 )
 from loki.types import BasicType
-from loki.tools import as_tuple
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import warning, error
 from loki.subroutine import Subroutine
 
@@ -607,7 +607,7 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
 
         # Now move any callee imports we might need over to the caller
         new_imports = set()
-        imported_module_map = {im.module: im for im in routine.imports}
+        imported_module_map = CaseInsensitiveDict((im.module, im) for im in routine.imports)
         for callee in call_sets.keys():
             for impt in callee.imports:
 

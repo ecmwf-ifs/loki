@@ -1286,7 +1286,7 @@ module test_inline_mod
   contains
 
 subroutine test_inline_inner(a, b)
-  use bnds_module, only: n, m
+  use BNDS_module, only: n, m
   use another_module, only: x
 
   real(kind=8), intent(inout) :: a(n), b(n)
