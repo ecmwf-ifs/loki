@@ -182,7 +182,7 @@ subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, 
       enddo
    enddo
 
-   call another_kernel(start, end, nlon, nlev, yda_data%p)
+   call another_kernel(start, end, nlon, nlev, data=yda_data%p)
 
    {'end associate' if not request.param else ''}
 end subroutine kernel
@@ -255,7 +255,7 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
 
     # check callstatement was updated correctly
     call = FindNodes(CallStatement).visit(kernel.body)[0]
-    assert f'yda_data%p_field(:,:,{ibl_expr})' in call.arguments
+    assert f'yda_data%p_field(:,:,{ibl_expr})' in call.arg_map.values()
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,

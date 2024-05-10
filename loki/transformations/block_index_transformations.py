@@ -387,7 +387,7 @@ class BlockIndexInjectTransformation(Transformation):
     def process_body(self, body, block_index, targets, exclude_arrays):
         # The logic for callstatement args differs from other variables in the body,
         # so we build a list to filter
-        call_args = [a for call in FindNodes(ir.CallStatement).visit(body) for a in call.arguments]
+        call_args = [a for call in FindNodes(ir.CallStatement).visit(body) for a in call.arg_map.values()]
 
         # First get rank mismatched call statement args
         vmap = {}
