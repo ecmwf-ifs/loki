@@ -39,9 +39,21 @@ class BlockViewToFieldViewTransformation(Transformation):
           mystruct%p_field(jlon,:) = 0.
         enddo
 
-    Where the rank of ``my_struct%p_field`` is one greater than that of ``my_struct%p``. Specific arrays in individual
-    routines can also be marked for exclusion from this transformation by assigning them to the `exclude_arrays` list
-    in the :any:`SchedulerConfig`.
+    As the rank of ``my_struct%p_field`` is one greater than that of ``my_struct%p``, we would need to also apply
+    the :any:`InjectBlockIndexTransformation` to obtain semantically correct code: 
+
+    .. code-block:: fortran
+
+        do jlon=1,nproma
+          mystruct%p_field(jlon,:,ibl) = 0.
+        enddo
+    
+    Specific arrays in individual routines can also be marked for exclusion from this transformation by assigning
+    them to the `exclude_arrays` list in the :any:`SchedulerConfig`.
+
+    This transformation also creates minimal definitions of FIELD API wrappers (i.e. FIELD_RANKSUFF_ARRAY) and
+    uses them to enrich the :any:`DataType` of relevant variable declarations and expression nodes. This is
+    required because FIELD API can be built independently of library targets Loki would typically operate on.
 
     Parameters
     ----------
