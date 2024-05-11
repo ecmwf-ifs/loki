@@ -187,8 +187,8 @@ class BlockViewToFieldViewTransformation(Transformation):
             parent = self.build_ydvars_global_gfl_ptr(parent)
 
         _type = var.type
-        if 'gfl_ptr' in var.name.lower().split('%')[-1]:
-            _type = parent.type.dtype.typedef.variable_map['gfl_ptr_g'].type
+        if 'gfl_ptr' in var.basename.lower():
+            _type = parent.variable_map['gfl_ptr_g'].type
 
         return var.clone(name=var.name.upper().replace('GFL_PTR', 'GFL_PTR_G'),
                          parent=parent, type=_type)
@@ -200,10 +200,11 @@ class BlockViewToFieldViewTransformation(Transformation):
                 if isinstance(var, Array) and var.parents and self.horizontal.index in var.dimensions]
 
         # build list of type-bound view pointers passed as subroutine arguments
-        for call in [call for call in FindNodes(ir.CallStatement).visit(body) if call.name in targets]:
-            _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)}
-            _vars += [a for a, d in _args.items()
-                     if any(v in d.shape for v in self.horizontal.size_expressions) and a.parents]
+        for call in FindNodes(ir.CallStatement).visit(body):
+            if call.name in targets:
+                _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)}
+                _vars += [a for a, d in _args.items()
+                         if any(v in d.shape for v in self.horizontal.size_expressions) and a.parents]
 
         # replace per-block view pointers with full field pointers
         vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
@@ -342,23 +343,12 @@ class InjectBlockIndexTransformation(Transformation):
         #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
 
     @staticmethod
-    def _update_expr_map(var, rank, index):
-        """
-        Return a map with the block-index appended to the variable's dimensions.
-        """
-
-        if getattr(var, 'dimensions', None):
-            return {var: var.clone(dimensions=var.dimensions + as_tuple(index))}
-        return {var:
-                var.clone(dimensions=((RangeIndex(children=(None, None)),) * (rank - 1)) + as_tuple(index))}
-
-    @staticmethod
     def get_call_arg_rank(arg):
         """
         Utility to retrieve the local rank of a :any:`CallStatement` argument.
         """
 
-        rank = len(arg.shape) if getattr(arg, 'shape', None) else 0
+        rank = len(getattr(arg, 'shape', ()))
         if getattr(arg, 'dimensions', None):
             # We assume here that the callstatement is free of sequence association
             rank = rank - len([d for d in arg.dimensions if not isinstance(d, RangeIndex)])
@@ -385,26 +375,29 @@ class InjectBlockIndexTransformation(Transformation):
 
         # First get rank mismatched call statement args
         vmap = {}
-        for call in [call for call in FindNodes(ir.CallStatement).visit(body) if call.name in targets]:
-            for dummy, arg in call.arg_map.items():
-                arg_rank = self.get_call_arg_rank(arg)
-                dummy_rank = len(dummy.shape) if getattr(dummy, 'shape', None) else 0
-                if arg_rank - 1 == dummy_rank:
-                    vmap.update(self._update_expr_map(arg, arg_rank, block_index))
+        for call in FindNodes(ir.CallStatement).visit(body):
+            if call.name in targets:
+                for dummy, arg in call.arg_map.items():
+                    arg_rank = self.get_call_arg_rank(arg)
+                    dummy_rank = len(getattr(dummy, 'shape', ()))
+                    if arg_rank - 1 == dummy_rank:
+                        dimensions = getattr(arg, 'dimensions', None) or ((RangeIndex((None, None)),) * (arg_rank - 1))
+                        vmap.update({arg: arg.clone(dimensions=dimensions + as_tuple(block_index))})
 
         # Now get the rest of the variables
-        for var in [var for var in FindVariables().visit(body)
-                    if getattr(var, 'dimensions', None) and not var in call_args]:
+        for var in FindVariables().visit(body):
+            if getattr(var, 'dimensions', None) and not var in call_args:
 
-            local_rank = len(var.dimensions)
-            decl_rank = local_rank
-            # we assume here that all derived-type components we wish to transform
-            # have been parsed
-            if getattr(var, 'shape', None):
-                decl_rank = len(var.shape)
-
-            if local_rank == decl_rank - 1:
-                vmap.update(self._update_expr_map(var, decl_rank, block_index))
+                local_rank = len(var.dimensions)
+                decl_rank = local_rank
+                # we assume here that all derived-type components we wish to transform
+                # have been parsed
+                if getattr(var, 'shape', None):
+                    decl_rank = len(var.shape)
+    
+                if local_rank == decl_rank - 1:
+                    dimensions = getattr(var, 'dimensions', None) or ((RangeIndex((None, None)),) * (decl_rank - 1))
+                    vmap.update({var: var.clone(dimensions=dimensions + as_tuple(block_index))})
 
         # filter out arrays marked for exclusion
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
