@@ -11,8 +11,9 @@ from loki.module import Module
 from loki.tools import as_tuple
 from loki.types import SymbolAttributes, BasicType
 from loki.expression import Variable, Array, RangeIndex, FindVariables, SubstituteExpressions
-from loki.transformations import resolve_associates, recursive_expression_map_update
-from loki.transformations.single_column import SCCBaseTransformation
+from loki.transformations.sanitise import resolve_associates
+from loki.transformations.utilities import recursive_expression_map_update
+from loki.transformations.single_column.base import SCCBaseTransformation
 
 __all__ = ['BlockViewToFieldViewTransformation', 'InjectBlockIndexTransformation']
 
@@ -193,7 +194,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         return var.clone(name=var.name.upper().replace('GFL_PTR', 'GFL_PTR_G'),
                          parent=parent, type=_type)
 
-    def process_body(self, body, symbol_map, definitions, successors, targets, exclude_arrays):
+    def process_body(self, body, definitions, successors, targets, exclude_arrays):
 
         # build list of type-bound array access using the horizontal index
         _vars = [var for var in FindVariables().visit(body)
@@ -242,7 +243,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
         # for kernels we process the entire body
-        routine.body = self.process_body(routine.body, routine.symbol_map, item.trafo_data[self._key]['definitions'],
+        routine.body = self.process_body(routine.body, item.trafo_data[self._key]['definitions'],
                                          successors, targets, exclude_arrays)
 
 
@@ -394,7 +395,7 @@ class InjectBlockIndexTransformation(Transformation):
                 # have been parsed
                 if getattr(var, 'shape', None):
                     decl_rank = len(var.shape)
-    
+
                 if local_rank == decl_rank - 1:
                     dimensions = getattr(var, 'dimensions', None) or ((RangeIndex((None, None)),) * (decl_rank - 1))
                     vmap.update({var: var.clone(dimensions=dimensions + as_tuple(block_index))})

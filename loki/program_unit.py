@@ -389,7 +389,7 @@ class ProgramUnit(Scope):
         if decl_map:
             # DataType's are not stored directly in the SymbolTable, thus updating the
             # imported symbols is not enough to update the type.dtype of expression nodes.
-            # Therefore we must also update the variable declaration with the updated symbol 
+            # Therefore we must also update the variable declaration with the updated symbol
             for decl, symbol_map in decl_map.items():
                 _symbols = SubstituteExpressions(symbol_map).visit(decl.symbols)
                 decl._update(symbols=as_tuple(_symbols))
