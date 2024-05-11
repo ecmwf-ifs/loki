@@ -377,7 +377,7 @@ end subroutine kernel
     kernel = Subroutine.from_source(fcode, frontend=frontend)
     item = Item(name='#kernel', source=kernel)
     item.trafo_data['BlockViewToFieldViewTransformation'] = {'definitions': []}
-    with pytest.raises(RuntimeError):
+    with pytest.raises(KeyError):
         BlockViewToFieldViewTransformation(horizontal).apply(kernel, item=item, role='kernel',
                                            targets=('compute',))
 

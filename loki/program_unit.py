@@ -6,8 +6,9 @@
 # nor does it submit to any jurisdiction.
 
 from abc import abstractmethod
+from collections import defaultdict
 
-from loki.expression import Variable
+from loki.expression import Variable, SubstituteExpressions
 from loki.frontend import (
     Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
@@ -327,6 +328,9 @@ class ProgramUnit(Scope):
         """
         definitions_map = CaseInsensitiveDict((r.name, r) for r in as_tuple(definitions))
 
+        decls = FindNodes(ir.VariableDeclaration).visit(self.spec)
+        decl_map = defaultdict(dict)
+
         for imprt in self.imports:
             if not (module := definitions_map.get(imprt.module)):
                 # Skip modules that are not available in the definitions list
@@ -361,6 +365,13 @@ class ProgramUnit(Scope):
                     updated_symbol_attrs[local_name] = symbol.type.clone(
                         dtype=remote_node.dtype, imported=True, module=module
                     )
+
+                    # Update the DataType (type.dtype) of relevant derived type variables
+                    for decl in decls:
+                        for sym in decl.symbols:
+                            if sym.type.dtype.name.lower() == remote_node.dtype.name.lower():
+                                decl_map[decl].update({sym: sym.clone(type=sym.type.clone(dtype=remote_node.dtype))})
+
                 elif hasattr(remote_node, 'type'):
                     # This is a global variable or interface import
                     updated_symbol_attrs[local_name] = remote_node.type.clone(
@@ -374,6 +385,14 @@ class ProgramUnit(Scope):
                 # Rebuild the symbols in the import's symbol list to obtain the correct
                 # expression nodes
                 imprt._update(symbols=tuple(symbol.clone() for symbol in imprt.symbols))
+
+        if decl_map:
+            # DataType's are not stored directly in the SymbolTable, thus updating the
+            # imported symbols is not enough to update the type.dtype of expression nodes.
+            # Therefore we must also update the variable declaration with the updated symbol 
+            for decl, symbol_map in decl_map.items():
+                _symbols = SubstituteExpressions(symbol_map).visit(decl.symbols)
+                decl._update(symbols=as_tuple(_symbols))
 
         # Update any symbol table entries that have been inherited from the parent
         if self.parent:

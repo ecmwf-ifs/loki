@@ -63,17 +63,6 @@ class BlockViewToFieldViewTransformation(Transformation):
         self.horizontal = horizontal
         self.global_gfl_ptr = global_gfl_ptr
 
-    @staticmethod
-    def get_parent_typedef(var, symbol_map):
-        """Utility method to retrieve derived-type definition of parent type."""
-
-        if not var.parent.type.dtype.typedef is BasicType.DEFERRED:
-            return var.parent.type.dtype.typedef
-        if  (_parent_type := symbol_map.get(var.parent.type.dtype.name, None)):
-            if not _parent_type.type.dtype.typedef is BasicType.DEFERRED:
-                return _parent_type.type.dtype.typedef
-        raise RuntimeError(f'Container data-type {var.parent.type.dtype.name} not enriched')
-
     def transform_subroutine(self, routine, **kwargs):
 
         if not (item := kwargs.get('item', None)):
@@ -205,9 +194,8 @@ class BlockViewToFieldViewTransformation(Transformation):
                      if any(v in d.shape for v in self.horizontal.size_expressions) and a.parents]
 
         # replace per-block view pointers with full field pointers
-        vmap = {var:
-                var.clone(name=var.name_parts[-1] + '_FIELD',
-                type=self.get_parent_typedef(var, symbol_map).variable_map[var.name_parts[-1] + '_FIELD'].type)
+        vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
+                               type=var.parent.variable_map[var.name_parts[-1] + '_FIELD'].type)
                 for var in _vars}
 
         # replace thread-private GFL_PTR with global
