@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 """
 Expression layer of the two-level Loki IR based on `Pymbolic
-<https://github.com/inducer/pymbolic`_.
+<https://github.com/inducer/pymbolic>`_.
 """
 
 from loki.expression.expr_visitors import *  # noqa
