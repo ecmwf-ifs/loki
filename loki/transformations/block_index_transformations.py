@@ -197,7 +197,7 @@ class BlockViewToFieldViewTransformation(Transformation):
     def process_body(self, body, definitions, successors, targets, exclude_arrays):
 
         # build list of type-bound array access using the horizontal index
-        _vars = [var for var in FindVariables().visit(body)
+        _vars = [var for var in FindVariables(unique=False).visit(body)
                 if isinstance(var, Array) and var.parents and self.horizontal.index in var.dimensions]
 
         # build list of type-bound view pointers passed as subroutine arguments
@@ -215,7 +215,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         # replace thread-private GFL_PTR with global
         if self.global_gfl_ptr:
             vmap.update({v: self.build_ydvars_global_gfl_ptr(vmap.get(v, v))
-                         for v in FindVariables().visit(body) if 'ydvars%gfl_ptr' in v.name.lower()})
+                         for v in FindVariables(unique=False).visit(body) if 'ydvars%gfl_ptr' in v.name.lower()})
             vmap = recursive_expression_map_update(vmap)
 
         # filter out arrays marked for exclusion
@@ -386,7 +386,7 @@ class InjectBlockIndexTransformation(Transformation):
                         vmap.update({arg: arg.clone(dimensions=dimensions + as_tuple(block_index))})
 
         # Now get the rest of the variables
-        for var in FindVariables().visit(body):
+        for var in FindVariables(unique=False).visit(body):
             if getattr(var, 'dimensions', None) and not var in call_args:
 
                 local_rank = len(var.dimensions)
