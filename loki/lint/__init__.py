@@ -4,6 +4,9 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
+"""
+Code linting infrastructure to allow coding standard checks using Loki.
+"""
 
 from loki.lint.utils import * # noqa
 from loki.lint.rules import * # noqa

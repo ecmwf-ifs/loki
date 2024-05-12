@@ -259,7 +259,6 @@ Mix-ins
 
 .. autosummary::
 
-   loki.expression.symbols.ExprMetadataMixin
    loki.expression.symbols.StrCompareMixin
 
 Expression modules

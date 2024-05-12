@@ -32,7 +32,9 @@ def extract_contained_procedures(procedure):
     3. All procedures are removed from the CONTAINS block of ``procedure``.
 
     As a basic example of this transformation, the Fortran subroutine:
+
     .. code-block::
+
         subroutine outer()
             integer :: y
             integer :: o
@@ -47,8 +49,11 @@ def extract_contained_procedures(procedure):
                o = x + y ! Note, 'y' is "global" here!
             end subroutine inner
         end subroutine outer
+
     is modified to:
+
     .. code-block::
+
         subroutine outer()
             integer :: y
             integer :: o
@@ -57,8 +62,11 @@ def extract_contained_procedures(procedure):
             call inner(o, y) ! 'y' now passed as argument.
             contains
         end subroutine outer
+
     and the (modified) child:
+
     .. code-block::
+
         subroutine inner(o, y)
                integer, intent(inout) :: o
                integer, intent(inout) :: y
@@ -66,6 +74,7 @@ def extract_contained_procedures(procedure):
                x = 4
                o = x + y ! Note, 'y' is no longer "global"
         end subroutine inner
+
     is returned.
     """
     new_procedures = []

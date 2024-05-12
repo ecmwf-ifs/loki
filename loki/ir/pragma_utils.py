@@ -33,7 +33,7 @@ def is_loki_pragma(pragma, starts_with=None):
 
     Parameters
     ----------
-    pragma : :any:`Pragma` or `list`/`tuple` of `ir.Pragma` or `None`
+    pragma : :any:`Pragma` or `list`/`tuple` of :any:`Pragma` or `None`
         the pragma or list of pragmas to check.
     starts_with : str, optional
         the keyword the pragma content must start with.
@@ -349,7 +349,7 @@ def attach_pragmas(ir, node_type, attach_pragma_post=True):
         the root of (a section of the) intermediate representation in which
         pragmas are to be attached.
     node_type : list
-        the (list of) :any:`ir.Node` types pragmas should be attached to.
+        the (list of) :any:`Node` types pragmas should be attached to.
     attach_pragma_post : bool, optional
         process ``pragma_post`` attachments.
     """
@@ -377,7 +377,7 @@ def detach_pragmas(ir, node_type, detach_pragma_post=True):
         the root node of the (section of the) intermediate representation
         in which pragmas are to be detached.
     node_type :
-        the (list of) :any:`ir.Node` types that pragmas should be detached from.
+        the (list of) :any:`Node` types that pragmas should be detached from.
     detach_pragma_post: bool, optional
         process ``pragma_post`` attachments.
     """
@@ -435,7 +435,7 @@ def pragmas_attached(module_or_routine, node_type, attach_pragma_post=True):
     module_or_routine : :any:`Module` or :any:`Subroutine`
         the program unit in which pragmas are to be inlined.
     node_type :
-        the (list of) :any:`ir.Node` types, that pragmas should be
+        the (list of) :any:`Node` types, that pragmas should be
         attached to.
     attach_pragma_post : bool, optional
         process ``pragma_post`` attachments.

@@ -60,7 +60,7 @@ class SGraph:
 
     def as_filegraph(self, item_factory, config=None, item_filter=None, exclude_ignored=False):
         """
-        Convert the :any:`Sgraph` to a dependency graph that only contains
+        Convert the :any:`SGraph` to a dependency graph that only contains
         :any:`FileItem` nodes.
 
         Parameters

@@ -72,7 +72,7 @@ class Item(ItemConfig):
     * :any:`InterfaceItem`: corresponding to :any:`Interface`
     * :any:`TypeDefItem`: corresponding to :any:`TypeDef`
     * :any:`ProcedureBindingItem`: corresponding to the :any:`ProcedureSymbol`
-      that is declared in a :any:`Declaration` in a derived type.
+      that is declared in a :any:`ProcedureDeclaration` in a derived type.
 
     The IR node corresponding to an item can be obtain via the :attr:`ir` property.
 
@@ -1397,7 +1397,7 @@ class ItemFactory:
             The config object from which the item configuration will be derived
         module_names : list of str, optional
             List of module candidates in which to create the definition items. If not provided,
-            all :any:`ModuleItems` in the cache will be considered.
+            all :any:`ModuleItem` in the cache will be considered.
         only : list of :any:`Item` classes, optional
             Filter the generated items to include only those of the type provided in the list
 

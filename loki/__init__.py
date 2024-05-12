@@ -5,6 +5,10 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+"""
+The Loki source-to-source translation package for Fortran codes.
+"""
+
 from importlib.metadata import version, PackageNotFoundError
 
 # Import the global configuration map

@@ -230,7 +230,8 @@ def inline_constant_parameters(routine, external_only=True):
     The ``.type.initial`` property is used to derive the replacement
     value,a which means for symbols imported from external modules,
     the parent :any:`Module` needs to be supplied in the
-    ``definitions`` to the constructor when creating :param:`routine`.
+    ``definitions`` to the constructor when creating the
+    :any:`Subroutine`.
 
     Variables that are replaced are also removed from their
     corresponding import statements, with empty import statements
