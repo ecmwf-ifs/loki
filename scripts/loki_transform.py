@@ -183,6 +183,8 @@ def convert(
 
         scheduler.process( config.pipelines[mode] )
 
+        mode = mode.replace('-', '_')  # Sanitize mode string
+
         # Write out all modified source files into the build directory
         file_write_trafo = FileWriteTransformation(builddir=build, mode=mode)
         scheduler.process(transformation=file_write_trafo)
