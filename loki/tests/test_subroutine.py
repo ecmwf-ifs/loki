@@ -12,15 +12,16 @@ import numpy as np
 
 from loki import (
     Sourcefile, Module, Subroutine, FindVariables, FindNodes, Section,
-    CallStatement, BasicType, Array, Scalar, Variable,
+    Array, Scalar, Variable,
     SymbolAttributes, StringLiteral, fgen, fexprgen,
     VariableDeclaration, Transformer, FindTypedSymbols,
-    ProcedureSymbol, ProcedureType, StatementFunction,
-    normalize_range_indexing, DeferredTypeSymbol, Assignment,
-    Interface
+    ProcedureSymbol, StatementFunction,
+    normalize_range_indexing, DeferredTypeSymbol
 )
 from loki.build import jit_compile, jit_compile_lib, clean_test
 from loki.frontend import available_frontends, OFP, OMNI, REGEX
+from loki.types import BasicType, DerivedType, ProcedureType
+from loki.ir import nodes as ir
 
 
 @pytest.fixture(scope='module', name='here')
@@ -767,7 +768,7 @@ end subroutine routine_call_caller
 """
     header = Sourcefile.from_file(header_path, frontend=frontend)['header']
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
-    call = FindNodes(CallStatement).visit(routine.body)[0]
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
 
     assert str(call.arguments[0]) == 'x'
     assert str(call.arguments[1]) == 'y'
@@ -797,7 +798,7 @@ subroutine routine_call_no_arg()
   call abort
 end subroutine routine_call_no_arg
 """)
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].arguments == ()
     assert calls[0].kwarguments == ()
@@ -813,7 +814,7 @@ subroutine routine_call_kwargs()
   call mpl_init(kprocs=kprocs, cdstring='routine_call_kwargs')
 end subroutine routine_call_kwargs
 """)
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].name == 'mpl_init'
 
@@ -838,7 +839,7 @@ subroutine routine_call_args_kwargs(pbuf, ktag, kdest)
   call mpl_send(pbuf, ktag, kdest, cdstring='routine_call_args_kwargs')
 end subroutine routine_call_args_kwargs
 """)
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].name == 'mpl_send'
     assert len(calls[0].arguments) == 3
@@ -1520,7 +1521,7 @@ end subroutine subroutine_stmt_func
     routine.name += f'_{frontend!s}'
 
     # Make sure the statement function injection doesn't invalidate source
-    for assignment in FindNodes(Assignment).visit(routine.body):
+    for assignment in FindNodes(ir.Assignment).visit(routine.body):
         assert assignment.source is not None
 
     # OMNI inlines statement functions, so we can only check correct representation
@@ -1958,7 +1959,7 @@ end subroutine driver
     kernels = driver.subroutines
 
     def _verify_call_enrichment(driver_, kernels_):
-        calls = FindNodes(CallStatement).visit(driver_.body)
+        calls = FindNodes(ir.CallStatement).visit(driver_.body)
         assert len(calls) == 2
 
         for call in calls:
@@ -2048,12 +2049,12 @@ def test_enrich_explicit_interface(frontend):
     driver.enrich(kernel)
 
     # check if call is enriched correctly
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert calls[0].routine is kernel
 
     # check if the procedure symbol in the interface block has been removed from
     # driver's symbol table
-    intfs = FindNodes(Interface).visit(driver.spec)
+    intfs = FindNodes(ir.Interface).visit(driver.spec)
     assert not intfs[0].body[0].parent
 
     # check that call still points to correct subroutine
@@ -2063,6 +2064,64 @@ def test_enrich_explicit_interface(frontend):
     # confirm that rescoping symbols has no effect
     driver.rescope_symbols()
     assert calls[0].routine is kernel
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_enrich_derived_types(tmp_path, frontend):
+    fcode = """
+subroutine enrich_derived_types_routine(yda_array)
+use field_array_module, only : field_3rb_array
+implicit none
+type(field_3rb_array), intent(inout) :: yda_array
+yda_array%p = 0.
+end subroutine enrich_derived_types_routine
+    """.strip()
+
+    fcode_module = """
+module field_array_module
+implicit none
+type field_3rb_array
+    real, pointer :: p(:,:,:)
+end type field_3rb_array
+end module field_array_module
+    """.strip()
+
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+
+    # The derived type is a dangling import
+    field_3rb_symbol = routine.symbol_map['field_3rb_array']
+    assert field_3rb_symbol.type.imported
+    assert field_3rb_symbol.type.module is None
+    assert field_3rb_symbol.type.dtype is BasicType.DEFERRED
+
+    # The variable type is recognized as a derived type but without enrichment
+    yda_array = routine.variable_map['yda_array']
+    assert isinstance(yda_array.type.dtype, DerivedType)
+    assert routine.variable_map['yda_array'].type.dtype.typedef is BasicType.DEFERRED
+
+    # The pointer member has no type information
+    yda_array_p = routine.resolve_typebound_var('yda_array%p')
+    assert yda_array_p.type.dtype is BasicType.DEFERRED
+    assert yda_array_p.type.shape is None
+
+    # Pick out the typedef (before enrichment to validate object consistency)
+    field_3rb_tdef = module['field_3rb_array']
+    assert isinstance(field_3rb_tdef, ir.TypeDef)
+
+    # Enrich the routine with module definitions
+    routine.enrich(module)
+
+    # Ensure the imported type symbol is correctly enriched
+    assert field_3rb_symbol.type.imported
+    assert field_3rb_symbol.type.module is module
+    assert isinstance(field_3rb_symbol.type.dtype, DerivedType)
+
+    # Ensure the information has been propagated to other variables
+    assert isinstance(yda_array.type.dtype, DerivedType)
+    assert yda_array.type.dtype.typedef is field_3rb_tdef
+    assert yda_array_p.type.dtype is BasicType.REAL
+    assert yda_array_p.type.shape == (':', ':', ':')
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -2099,15 +2158,15 @@ end subroutine myroutine
 
     # Replace all assignments with dummy calls
     map_nodes={}
-    for assign in FindNodes(Assignment).visit(new_routine.body):
-        map_nodes[assign] = CallStatement(
+    for assign in FindNodes(ir.Assignment).visit(new_routine.body):
+        map_nodes[assign] = ir.CallStatement(
             name=DeferredTypeSymbol(name='testcall'), arguments=(assign.lhs,), scope=new_routine
         )
     new_routine.body = Transformer(map_nodes).visit(new_routine.body)
 
     # Ensure that the original copy of the routine remains unaffected
-    assert len(FindNodes(Assignment).visit(routine.body)) == 3
-    assert len(FindNodes(Assignment).visit(new_routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
+    assert len(FindNodes(ir.Assignment).visit(new_routine.body)) == 0
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_call_args_kwargs_conversion(frontend):
@@ -2162,20 +2221,20 @@ def test_call_args_kwargs_conversion(frontend):
     len_kwargs = (0, 7, 7, 2)
 
     # sort kwargs
-    for i_call, call in enumerate(FindNodes(CallStatement).visit(driver.body)):
+    for i_call, call in enumerate(FindNodes(ir.CallStatement).visit(driver.body)):
         assert call.check_kwarguments_order() == kwargs_in_order[i_call]
         call.sort_kwarguments()
 
     # check calls with sorted kwargs
-    for i_call, call in enumerate(FindNodes(CallStatement).visit(driver.body)):
+    for i_call, call in enumerate(FindNodes(ir.CallStatement).visit(driver.body)):
         assert tuple(arg[1].name for arg in call.arg_iter()) == call_args
         assert len(call.kwarguments) == len_kwargs[i_call]
 
     # kwarg to arg conversion
-    for call in FindNodes(CallStatement).visit(driver.body):
+    for call in FindNodes(ir.CallStatement).visit(driver.body):
         call.convert_kwargs_to_args()
 
     # check calls with kwargs converted to args
-    for call in FindNodes(CallStatement).visit(driver.body):
+    for call in FindNodes(ir.CallStatement).visit(driver.body):
         assert tuple(arg.name for arg in call.arguments) == call_args
         assert call.kwarguments == ()
