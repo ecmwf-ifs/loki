@@ -26,21 +26,28 @@ __all__ = ['ParallelRoutineDispatchTransformation']
 
 class ParallelRoutineDispatchTransformation(Transformation):
 
-    def __init__(self):
-        self.is_intent = False #set to True if the intent are read for interface block
-        self.horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
+    def __init__(self, is_intent, horizontal, path_map_index):
+        self.is_intent = is_intent #set to True if the intent are read for interface block
+        #self.is_intent = False #set to True if the intent are read for interface block
+        self.horizontal = horizontal
+#        self.horizontal = [
+#            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+#            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+#    ]
+
         self.map_call_compute = {
             "OpenMP" : self.create_compute_openmp, 
             "OpenMPSingleColumn" : self.create_compute_openmpscc,
             "OpenACCSingleColumn" : self.create_compute_openaccscc
                        }
 
-        #TODO : do smthg for opening field_index.pkl
-        with open(os.getcwd()+"/transformations/transformations/field_index.pkl", 'rb') as fp:
+        self.path_map_index = path_map_index
+        with open(os.getcwd()+path_map_index, 'rb') as fp:
             self.map_index = pickle.load(fp)
+
+#        with open(os.getcwd()+"/transformations/transformations/field_index.pkl", 'rb') as fp:
+#            self.map_index = pickle.load(fp)
+
         # CALL FIELD_NEW (YL_ZA, UBOUNDS=[KLON, KFLEVG, KGPBLKS], LBOUNDS=[1, 0, 1], PERSISTENT=.TRUE.)
         #self.new_calls = []
         # IF (ASSOCIATED (YL_ZA)) CALL FIELD_DELETE (YL_ZA)

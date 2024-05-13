@@ -31,7 +31,13 @@ def test_parallel_routine_dispatch_dr_hook(here, frontend):
     calls = FindNodes(CallStatement).visit(routine.body)
     assert len(calls) == 3
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name=='DR_HOOK']
@@ -44,7 +50,16 @@ def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+
+
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
     var_lst=["YL_ZRDG_CVGQ", "ZRDG_CVGQ", "YL_ZRDG_MU0LU", "ZRDG_MU0LU", "YL_ZRDG_MU0M", "ZRDG_MU0M", "YL_ZRDG_MU0N", "ZRDG_MU0N", "YL_ZRDG_MU0", "ZRDG_MU0"]
     dcls = [dcl for dcl in routine.declarations if dcl.symbols[0].name in var_lst]
@@ -70,7 +85,14 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     var_lst = ["YL_ZRDG_CVGQ", "ZRDG_CVGQ", "YL_ZRDG_MU0LU", "ZRDG_MU0LU", "YL_ZRDG_MU0M", "ZRDG_MU0M", "YL_ZRDG_MU0N", "ZRDG_MU0N", "YL_ZRDG_MU0", "ZRDG_MU0"]
@@ -111,7 +133,14 @@ def test_parallel_routine_dispatch_derived_dcl(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     dcls = [fgen(dcl) for dcl in routine.spec.body[-13:-1]]
@@ -139,7 +168,14 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     
@@ -174,7 +210,14 @@ def test_parallel_routine_dispatch_get_data(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     get_data = item.trafo_data['create_parallel']['map_region']['get_data']
@@ -282,7 +325,14 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIE
 ###    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
 ###    routine = source['dispatch_routine']
 ###
-###    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+###    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
 ###    transformation.apply(source['dispatch_routine'], item=item)
 ###
 ###    get_data = transformation.get_data
@@ -304,7 +354,14 @@ def test_parallel_routine_dispatch_synchost(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     synchost = item.trafo_data['create_parallel']['map_region']['synchost']
@@ -343,7 +400,14 @@ def test_parallel_routine_dispatch_nullify(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     nullify = item.trafo_data['create_parallel']['map_region']['nullify']
@@ -382,7 +446,14 @@ def test_parallel_routine_dispatch_compute_openmp(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     map_compute = item.trafo_data['create_parallel']['map_region']['compute']
@@ -436,7 +507,14 @@ def test_parallel_routine_dispatch_compute_openmpscc(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     map_compute = item.trafo_data['create_parallel']['map_region']['compute']
@@ -504,7 +582,14 @@ def test_parallel_routine_dispatch_compute_openaccscc(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     map_compute = item.trafo_data['create_parallel']['map_region']['compute']
@@ -591,7 +676,14 @@ def test_parallel_routine_dispatch_variables(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     variables = item.trafo_data['create_parallel']['map_routine']['dcls']
@@ -613,7 +705,14 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     imports = item.trafo_data['create_parallel']['map_routine']['imports']
@@ -638,7 +737,14 @@ def test_parallel_routine_dispatch_new_callee_imports(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    transformation = ParallelRoutineDispatchTransformation()
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     imports = item.trafo_data['create_parallel']['map_routine']['callee_imports']
