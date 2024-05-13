@@ -25,7 +25,7 @@ def fixture_blocking():
     return Dimension(name='blocking', size='nb', index='ibl', index_aliases='bnds%kbl')
 
 
-@pytest.fixture(scope='module', name='config')
+@pytest.fixture(scope='function', name='config')
 def fixture_config():
     """
     Default configuration dict with basic options.

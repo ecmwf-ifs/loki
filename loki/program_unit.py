@@ -6,9 +6,8 @@
 # nor does it submit to any jurisdiction.
 
 from abc import abstractmethod
-from collections import defaultdict
 
-from loki.expression import Variable, SubstituteExpressions
+from loki.expression import Variable
 from loki.frontend import (
     Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
