@@ -361,6 +361,13 @@ class ProgramUnit(Scope):
                     updated_symbol_attrs[local_name] = symbol.type.clone(
                         dtype=remote_node.dtype, imported=True, module=module
                     )
+                    # Update dtype for local variables using this type
+                    variables_with_this_type = {
+                        name: type_.clone(dtype=remote_node.dtype)
+                        for name, type_ in self.symbol_attrs.items()
+                        if getattr(type_.dtype, 'name') == remote_node.dtype.name
+                    }
+                    updated_symbol_attrs.update(variables_with_this_type)
                 elif hasattr(remote_node, 'type'):
                     # This is a global variable or interface import
                     updated_symbol_attrs[local_name] = remote_node.type.clone(
