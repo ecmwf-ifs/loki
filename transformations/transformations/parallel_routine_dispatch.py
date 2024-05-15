@@ -141,11 +141,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 routine_map_derived[var_name]=region_map_derived[var_name]
 
         for field_new in map_region['field_new']:
-            if field_new not in map_routine['field_new']:
+            if field_new.arguments[0].name not in [x.arguments[0].name for x in map_routine['field_new']]:
                 map_routine['field_new'].append(field_new)
 
         for field_delete in map_region['field_delete']:
-            if field_delete not in map_routine['field_delete']:
+            if field_delete.body[0].arguments[0].name not in [x.body[0].arguments[0].name for x in map_routine['field_delete']]:
                 map_routine['field_delete'].append(field_delete)
 
         #map_routine['routine_map_temp'] = routine_map_temp
