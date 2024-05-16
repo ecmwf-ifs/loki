@@ -70,6 +70,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine['map_call_scc'] = {}
         map_routine['field_new'] = [] 
         map_routine['field_delete'] = []
+        map_routine['nb_no_name'] = 0 #to give unique identifier to parallel regions with no name
 
         imports = self.create_imports(routine, map_routine)
         dcls = self.create_variables(routine, map_routine)
@@ -106,6 +107,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
             return
         if 'target' not in pragma_attrs:
             pragma_attrs['target'] = 'OpenMP/OpenMPSingleColumn/OpenACCSingleColumn'
+        if 'name' not in pragma_attrs:
+            pragma_attrs['name'] = str(map_routine['nb_no_name'])
+            map_routine['nb_no_name'] += 1
+
         pragma_attrs['target'] = pragma_attrs['target'].split('/')
         region_name = pragma_attrs['name']
         dr_hook_calls = self.create_dr_hook_calls(
