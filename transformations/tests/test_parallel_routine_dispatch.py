@@ -750,3 +750,28 @@ def test_parallel_routine_dispatch_new_callee_imports(here, frontend):
     imports = item.trafo_data['create_parallel']['map_routine']['callee_imports']
 
     assert fgen(imports) == '#include "cpphinp_openacc.intfb.h"'
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+def test_parallel_routine_dispatch_lparallel(here, frontend):
+    #TODO : add imports to _parallel routines
+
+    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
+    routine = source['dispatch_routine']
+
+    is_intent = False 
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = "/transformations/transformations/field_index.pkl"
+
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    transformation.apply(source['dispatch_routine'], item=item)
+
+
+    routine_str = fgen(routine)
+    assert "LPARALLELMETHOD" in fgen(routine_str)
+    assert "'OPENMP'" in fgen(routine_str)
+    assert "'OPENMPSINGLECOLUMN'" in fgen(routine_str)
+    assert "'OPENACCSINGLECOLUMN'" in fgen(routine_str)

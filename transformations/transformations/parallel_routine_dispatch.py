@@ -188,8 +188,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 has_elseif=True
                         )
             cond = ir.Conditional(
-                condition=map_region['lparallel'][targets[2]],
-                body=map_region['region'][targets[2]],
+                condition=map_region['lparallel'][targets[0]],
+                body=map_region['region'][targets[0]],
                 else_body=(cond2,),
                 has_elseif=True
                         )
