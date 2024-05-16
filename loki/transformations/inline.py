@@ -607,20 +607,20 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
                 import_map[impt] = impt.clone(symbols=new_symbols) if new_symbols else None
 
         # Now move any callee imports we might need over to the caller
-        new_imports = set()
+        new_imports = tuple()
         imported_module_map = CaseInsensitiveDict((im.module, im) for im in routine.imports)
         for callee in call_sets.keys():
             for impt in callee.imports:
 
                 # Add any callee module we do not yet know
                 if impt.module not in imported_module_map:
-                    new_imports.add(impt)
+                    new_imports += (impt,)
 
                 # If we're importing the same module, check for missing symbols
                 if m := imported_module_map.get(impt.module):
                     if not all(s in m.symbols for s in impt.symbols):
                         new_symbols = tuple(s.rescope(routine) for s in impt.symbols)
-                        import_map[m] = m.clone(symbols=tuple(set(m.symbols + new_symbols)))
+                        import_map[m] = m.clone(symbols=tuple(dict.fromkeys(m.symbols + new_symbols)))
 
         # Finally, apply the import remapping
         routine.spec = Transformer(import_map).visit(routine.spec)
