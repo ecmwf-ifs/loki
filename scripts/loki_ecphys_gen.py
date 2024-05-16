@@ -180,3 +180,41 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
     ModuleWrapTransformation(module_suffix='_MOD').apply(srcfile, role='kernel')
 
     srcfile.write()
+
+
+@cli.command()
+@click.option('--source', '-s', '--path', type=click.Path(), default=Path.cwd(),
+              help='Path to search for initial input sources.')
+@click.option('--build', '-b', '--out', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+@click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
+              type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
+              help='Log level to output during processing')
+def parallel(source, build, log_level):
+    """
+    Generate parallel regions with OpenMP and OpenACC dispatch.
+    """
+    loki_config['log-level'] = log_level
+
+    source = Path(source)
+    build = Path(build)
+
+    # Get everything set up...
+    ec_phys_fc = Sourcefile.from_file(source/'ec_phys_fc_mod.F90')['EC_PHYS_FC']
+
+    # Clone original and change subroutine name
+    ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
+
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
+        # Add OpenMP pragmas around marked loops
+        add_openmp_regions(
+            routine=ec_phys_parallel,
+            field_group_types=field_group_types,
+            global_variables=global_variables
+        )
+
+    # Create source file, wrap as a module and write to file
+    srcfile = Sourcefile(path=build/'ec_phys_parallel_mod.F90', ir=(ec_phys_parallel,))
+    ModuleWrapTransformation(module_suffix='_MOD').apply(srcfile, role='kernel')
+
+    srcfile.write()
