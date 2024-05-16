@@ -104,6 +104,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         }
         if 'parallel' not in pragma_attrs:
             return
+        if 'target' not in pragma_attrs:
+            pragma_attrs['target'] = 'OpenMP/OpenMPSingleColumn/OpenACCSingleColumn'
         pragma_attrs['target'] = pragma_attrs['target'].split('/')
         region_name = pragma_attrs['name']
         dr_hook_calls = self.create_dr_hook_calls(
