@@ -533,7 +533,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
                         elif arg.name in region_map_derived:
                             new_arguments += [self.update_args(arg, region_map_derived)]
                         elif arg.name_parts[0]==cpg_bnds.name:
-                            new_arguments += [routine.resolve_typebound_var(f"{lcpg_bnds}%{arg.name_parts[1]}")]
+                            if len(arg.name_parts)==2:
+                                new_arguments += [routine.resolve_typebound_var(f"{lcpg_bnds}%{arg.name_parts[1]}")]
+                            else:
+                                new_arguments += [lcpg_bnds]
                         else:
                             new_arguments += [arg]
                     else:
