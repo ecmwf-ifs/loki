@@ -525,14 +525,19 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if call.name!="DR_HOOK":
                 new_arguments = []
                 for arg in call.arguments:
-                    if arg.name in region_map_temp:
-                        new_arguments +=[self.update_args(arg, region_map_temp)]
-                    elif arg.name in region_map_derived:
-                        new_arguments +=[self.update_args(arg, region_map_derived)]
-                    elif arg.name_parts[0]==cpg_bnds.name:
-                        new_arguments += [routine.resolve_typebound_var(f"{lcpg_bnds}%{arg.name_parts[1]}")]
+                    if not (
+                        isinstance(arg, sym.LogicalOr) or isinstance(arg, sym.LogicalAnd)):
+
+                        if arg.name in region_map_temp:
+                            new_arguments += [self.update_args(arg, region_map_temp)]
+                        elif arg.name in region_map_derived:
+                            new_arguments += [self.update_args(arg, region_map_derived)]
+                        elif arg.name_parts[0]==cpg_bnds.name:
+                            new_arguments += [routine.resolve_typebound_var(f"{lcpg_bnds}%{arg.name_parts[1]}")]
+                        else:
+                            new_arguments += [arg]
                     else:
-                        new_arguments +=[arg]
+                        new_arguments += [arg]
                 if scc:
                     new_kwarguments = call.kwarguments + (("YDSTACK", routine.variable_map["YLSTACK"]),)
                     new_calls += [
