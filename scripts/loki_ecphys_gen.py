@@ -36,6 +36,27 @@ from loki.transformations.remove_code import do_remove_marked_regions
 from loki.transformations.build_system import ModuleWrapTransformation
 
 
+# List of types that we know to be FIELD API groups
+field_group_types = [
+    'FIELD_VARIABLES', 'DIMENSION_TYPE', 'STATE_TYPE',
+    'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
+    'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
+    'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
+    'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
+    # 'SURF_AND_MORE_TYPE', 'MODEL_STATE_TYPE',
+]
+
+# List of variables that we know to have global scope
+global_variables = [
+    'PGFL', 'PGFLT1', 'YDGSGEOM', 'YDMODEL',
+    'YDDIM', 'YDSTOPH', 'YDGEOMETRY',
+    'YDSURF', 'YDGMV', 'SAVTEND',
+    'YGFL', 'PGMV', 'PGMVT1', 'ZGFL_DYN',
+    'ZCONVCTY', 'YDDIMV', 'YDPHY2',
+    'PHYS_MWAVE', 'ZSPPTGFIX', 'ZSURF_SERIAL'
+]
+
+
 def substitute_spec_symbols(mapping, routine):
     """
     Do symbol substitution on the spec/declartion of a subroutine from
@@ -179,11 +200,9 @@ def cli():
               help='Path to search for initial input sources.')
 @click.option('--build', '-b', '--out', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
-@click.option('--remove-regions/--no-remove-regions', default=True,
-              help='Remove pragma-marked code regions.')
 @click.option('--remove-openmp/--no-remove-openmp', default=True,
               help='Flag to replace OpenMP loop annotations with Loki pragmas.')
-def inline(source, build, remove_regions, remove_openmp):
+def inline(source, build, remove_openmp):
     """
     Inlines EC_PHYS and CALLPAR into EC_PHYS_DRV to expose the parallel loop.
     """
@@ -231,43 +250,21 @@ def inline(source, build, remove_regions, remove_openmp):
         # Now just inline CALLPAR
         inline_marked_subroutines(ec_phys_fc, allowed_aliases=('JL', 'JK', 'J2D'))
 
-    if remove_regions:
-        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
-            do_remove_marked_regions(ec_phys_fc)
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
+        do_remove_marked_regions(ec_phys_fc)
 
-    if remove_openmp:
-        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove OpenMP regions in {s:.2f}s'):
-            # Now remove OpenMP regions, as their symbols are not remapped
-            remove_openmp_regions(ec_phys_fc)
-
-    field_group_types = [
-        'FIELD_VARIABLES', 'DIMENSION_TYPE', 'STATE_TYPE',
-        'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
-        'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
-        'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
-        'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
-        # 'SURF_AND_MORE_TYPE', 'MODEL_STATE_TYPE',
-    ]
-
-    global_variables = [
-        'PGFL', 'PGFLT1', 'YDGSGEOM', 'YDMODEL',
-        'YDDIM', 'YDSTOPH', 'YDGEOMETRY',
-        'YDSURF', 'YDGMV', 'SAVTEND',
-        'YGFL', 'PGMV', 'PGMVT1', 'ZGFL_DYN',
-        'ZCONVCTY', 'YDDIMV', 'YDPHY2',
-        'PHYS_MWAVE', 'ZSPPTGFIX', 'ZSURF_SERIAL'
-    ]
-
-    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-wrote OpenMP regions in {s:.2f}s'):
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove OpenMP regions in {s:.2f}s'):
         # Now remove OpenMP regions, as their symbols are not remapped
         remove_openmp_regions(ec_phys_fc)
 
-        # Add OpenMP pragmas around marked loops
-        add_openmp_pragmas(
-            routine=ec_phys_fc,
-            field_group_types=field_group_types,
-            global_variables=global_variables
-        )
+    if not remove_openmp:
+        # Re-insert OpenMP parallel regions after inlining
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated OpenMP regions in {s:.2f}s'):
+            add_openmp_pragmas(
+                routine=ec_phys_fc,
+                field_group_types=field_group_types,
+                global_variables=global_variables
+            )
 
     # Replace the docstring to mark routine as auto-generated
     ec_phys_fc.docstring = """
@@ -287,6 +284,39 @@ def inline(source, build, remove_regions, remove_openmp):
 
     # Create source file, wrap as a module and write to file
     srcfile = Sourcefile(path=build/'ec_phys_fc_mod.F90', ir=(ec_phys_fc,))
+    ModuleWrapTransformation(module_suffix='_MOD').apply(srcfile, role='kernel')
+
+    srcfile.write()
+
+
+@cli.command()
+@click.option('--source', '-s', '--path', type=click.Path(), default=Path.cwd(),
+              help='Path to search for initial input sources.')
+@click.option('--build', '-b', '--out', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+def parallel(source, build):
+    """
+    Generate parallel regions with OpenMP and OpenACC dispatch.
+    """
+    source = Path(source)
+    build = Path(build)
+
+    # Get everything set up...
+    ec_phys_fc = Sourcefile.from_file(source/'ec_phys_fc_mod.F90')['EC_PHYS_FC']
+
+    # Clone original and change subroutine name
+    ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
+
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
+        # Add OpenMP pragmas around marked loops
+        add_openmp_pragmas(
+            routine=ec_phys_parallel,
+            field_group_types=field_group_types,
+            global_variables=global_variables
+        )
+
+    # Create source file, wrap as a module and write to file
+    srcfile = Sourcefile(path=build/'ec_phys_parallel_mod.F90', ir=(ec_phys_parallel,))
     ModuleWrapTransformation(module_suffix='_MOD').apply(srcfile, role='kernel')
 
     srcfile.write()
