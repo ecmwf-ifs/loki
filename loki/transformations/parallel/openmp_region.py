@@ -106,11 +106,11 @@ def add_openmp_regions(routine, global_variables=None, field_group_types=None):
         v for v in routine.variables if v not in routine_arguments
     )
     local_scalars = tuple(
-        v.name for v in local_variables if isinstance(v, sym.Scalar)
+        v for v in local_variables if isinstance(v, sym.Scalar)
     )
     # Filter arrays by block-dim size, as these are global
     local_arrays = tuple(
-        v.name for v in local_variables
+        v for v in local_variables
         if isinstance(v, sym.Array) and not v.dimensions[-1] == block_dim_size
     )
 
@@ -131,17 +131,17 @@ def add_openmp_regions(routine, global_variables=None, field_group_types=None):
                     loop.variable for loop in FindNodes(ir.Loop).visit(region.body)
                 )))
 
-                local_vars += tuple(v for v in symbols if v.name in local_scalars)
-                local_vars += tuple(v for v in symbols if v.name in local_arrays)
+                local_vars += tuple(v for v in local_scalars if v.name in symbols)
+                local_vars += tuple(v for v in local_arrays if v.name in symbols )
 
                 # Also add used symbols that might be field groups
                 local_vars += tuple(dict.fromkeys(
-                    v for v in symbols
-                    if isinstance(v, sym.Scalar) and str(v.type.dtype) in field_group_types
+                    v for v in routine_arguments
+                    if v.name in symbols and str(v.type.dtype) in field_group_types
                 ))
 
                 # Filter out known global variables
-                local_vars = tuple(v for v in local_vars if v not in global_variables)
+                local_vars = tuple(v for v in local_vars if v.name not in global_variables)
 
                 # Make field group types firstprivate
                 firstprivates = tuple(dict.fromkeys(
