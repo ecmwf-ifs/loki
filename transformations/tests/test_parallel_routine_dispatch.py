@@ -194,7 +194,7 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
         "YDCPG_DYN0%CTY%EVEL" : ["YDCPG_DYN0%CTY%F_EVEL", "Z_YDCPG_DYN0_CTY_EVEL"], 
         "YDMF_PHYS_SURF%GSD_VF%PZ0F" : ["YDMF_PHYS_SURF%GSD_VF%F_Z0F", "Z_YDMF_PHYS_SURF_GSD_VF_PZ0F"]
     }
-    routine_map_derived = item.trafo_data['create_parallel']['map_routine']['routine_map_derived']
+    routine_map_derived = item.trafo_data['create_parallel']['map_routine']['map_derived']
     for var_name in routine_map_derived:
         value = routine_map_derived[var_name]
         field_ptr = value[0]

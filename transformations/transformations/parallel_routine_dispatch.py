@@ -65,8 +65,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         map_routine = {}
         map_region= {}
-        map_routine['routine_map_temp'] = {} 
-        map_routine['routine_map_derived'] = {} 
+        map_routine['map_temp'] = {} 
+        map_routine['map_derived'] = {} 
         map_routine['map_call_scc'] = {}
         map_routine['field_new'] = [] 
         map_routine['field_delete'] = []
@@ -123,8 +123,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         region_map_temp = self.decl_local_array(routine, region, map_region) #map_region to store field_new and field_delete
         region_map_derived = self.decl_derived_types(routine, region)
-        map_region['region_map_temp']= region_map_temp
-        map_region['region_map_derived']= region_map_derived
+        map_region['map_temp']= region_map_temp
+        map_region['map_derived']= region_map_derived
 
         self.create_synchost(routine, region_name, map_region)
         self.create_nullify(routine, region_name, map_region)
@@ -136,8 +136,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.create_new_region(routine, region, region_name, map_routine, map_region, targets)
 
 
-        routine_map_temp = map_routine['routine_map_temp']
-        routine_map_derived = map_routine['routine_map_derived']
+        routine_map_temp = map_routine['map_temp']
+        routine_map_derived = map_routine['map_derived']
         
         for var_name in region_map_temp:
             if var_name not in routine_map_temp:
@@ -298,7 +298,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return(region_map_temp)
 
     def add_temp(self, routine, map_routine):
-        routine_map_temp = map_routine['routine_map_temp']
+        routine_map_temp = map_routine['map_temp']
         # Replace temporary declaration by pointer to array and pointer to field_api object
         map_dcl = {}
         for decl in routine.declarations:
@@ -370,7 +370,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return(region_map_derived)
 
     def add_derived(self, routine, map_routine):
-        routine_map_derived = map_routine['routine_map_derived']
+        routine_map_derived = map_routine['map_derived']
         routine.variables += tuple(v[1] for v in routine_map_derived.values())
     
     def add_routine_imports(self, routine, map_routine):
@@ -382,8 +382,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         routine.spec.prepend(imports)
         
     def create_pt_sync(self, routine, target, region_name, is_get_data, map_region):
-        region_map_derived = map_region['region_map_derived']
-        region_map_temp = map_region['region_map_temp']
+        region_map_derived = map_region['map_derived']
+        region_map_temp = map_region['map_temp']
         if is_get_data: #GET_***_DATA
             hook_name = "GET_DATA"
             if target == "OpenMP" or target == "OpenMPSingleColumn" : 
@@ -426,8 +426,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         
 
     def create_nullify(self, routine, region_name, map_region):
-        region_map_temp = map_region['region_map_derived']
-        region_map_derived = map_region['region_map_derived']
+        region_map_temp = map_region['map_temp']
+        region_map_derived = map_region['map_derived']
         dr_hook_calls = self.create_dr_hook_calls(
             routine, cdname=f"{routine.name}:{region_name}:NULLIFY",
             handle=sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
@@ -520,13 +520,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return new_arg.clone(dimensions=new_dimensions)
 
     def process_call(self, routine, region, map_routine, map_region, scc):
-        region_map_temp = map_region["region_map_temp"]
-        region_map_derived = map_region["region_map_derived"]
+        region_map_temp = map_region["map_temp"]
+        region_map_derived = map_region["map_derived"]
         map_call_scc = map_routine["map_call_scc"]
         cpg_bnds = map_routine['cpg_bnds']
         lcpg_bnds = map_routine['lcpg_bnds']
         new_calls = []
-        for call in FindNodes(ir.CallStatement).visit(region):
+        calls = [call for call in FindNodes(ir.CallStatement).visit(region)]
+        for call in calls:
             if call.name!="DR_HOOK":
                 new_arguments = []
                 for arg in call.arguments:
@@ -653,8 +654,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return compute_openmpscc
 
     def create_compute_openaccscc(self, routine, region, region_name, map_routine, map_region):
-        region_map_temp = map_region["region_map_temp"]
-        region_map_derived = map_region["region_map_derived"]
+        region_map_temp = map_region["map_temp"]
+        region_map_derived = map_region["map_derived"]
         cpg_opts = map_routine["cpg_opts"]
         lst_private1 = f"JBLK"
         lst_private2 = f"JLON, YLCPG_BNDS, YLSTACK"
