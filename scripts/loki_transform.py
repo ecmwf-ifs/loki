@@ -49,7 +49,8 @@ from transformations.single_column_coalesced_vector import (
 )
 from transformations.scc_cuf import (
     HoistTemporaryArraysDeviceAllocatableTransformation,
-    HoistTemporaryArraysCstyleTransformation, SccCufTransformationNew
+    HoistTemporaryArraysCstyleTransformation, SccCufTransformationNew,
+    SccLowLevelDataOffload, SccLowLevelLaunchConfiguration
 )
 from loki.transform.transform_inline import (
     inline_constant_parameters, inline_elemental_functions
@@ -325,17 +326,49 @@ def convert(
         scheduler.process(transformation=BlockIndexInjectTransformation(block_dim))
         scheduler.process(transformation=BlockLoopLowerTransformation(block_dim))
 
-        # SccCufTransformationNew !
-        scheduler.process( transformation=scheduler.config.transformations[mode] )
+        if False:
+            # SccCufTransformationNew !
+            scheduler.process( transformation=scheduler.config.transformations[mode] )
+        else:
+            scheduler.process( transformation=SccLowLevelLaunchConfiguration(transformation_type='hoist', derived_types = ['TECLDP'],
+                horizontal=horizontal, vertical=vertical, block_dim=block_dim, mode='cuda') )
+
+            scheduler.process( transformation=SccLowLevelDataOffload(transformation_type='hoist', derived_types = ['TECLDP'],
+                horizontal=horizontal, vertical=vertical, block_dim=block_dim, mode='cuda') )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        # These transformations requires complex constructor arguments,
-        # so we use the file-based transformation configuration.
-        scheduler.process( transformation=scheduler.config.transformations[mode] )
+        if False:
+            # These transformations requires complex constructor arguments,
+            # so we use the file-based transformation configuration.
+            scheduler.process( transformation=scheduler.config.transformations[mode] )
+        else:
+            scheduler.process(transformation=BlockIndexLowerTransformation(block_dim))
+            scheduler.process(transformation=BlockIndexInjectTransformation(block_dim))
+            scheduler.process(transformation=BlockLoopLowerTransformation(block_dim))
+
+            # scheduler.process( transformation=SccLowLevelDataOffload(transformation_type=mode.replace('cuf-', ''), derived_types = ['TECLDP'],
+            #     horizontal=horizontal, vertical=vertical, block_dim=block_dim) )
+
+            scheduler.process( transformation=SccLowLevelLaunchConfiguration(transformation_type=mode.replace('cuf-', ''), derived_types = ['TECLDP'],
+                horizontal=horizontal, vertical=vertical, block_dim=block_dim) )
+
+            scheduler.process( transformation=SccLowLevelDataOffload(transformation_type=mode.replace('cuf-', ''), derived_types = ['TECLDP'],
+                horizontal=horizontal, vertical=vertical, block_dim=block_dim) )
 
     if global_var_offload:
         scheduler.process(transformation=GlobalVariableAnalysis())
         scheduler.process(transformation=GlobalVarOffloadTransformation())
+
+    if mode == 'cuf-parametrise':
+        # This transformation requires complex constructora arguments,
+        # so we use the file-based transformation configuration.
+        transformation = scheduler.config.transformations['ParametriseTransformation']
+        scheduler.process(transformation=transformation)
+
+    if mode == "cuf-hoist":
+        vertical = scheduler.config.dimensions['vertical']
+        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
+        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
 
     # Now we create and apply the main transformation pipeline
     if mode == 'idem':

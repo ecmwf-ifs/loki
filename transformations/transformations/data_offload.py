@@ -920,7 +920,7 @@ class GlobalVarHoistTransformation(Transformation):
         for arg in new_arguments:
             assert arg.scope == routine
         # TODO: necessary?
-        for new_arg in new_arguments:
-            if new_arg.name in routine.symbol_attrs:
-                routine.symbol_attrs.update({new_arg.name: new_arg.type.clone(parameter=None)})
+        # for new_arg in new_arguments:
+        #     if new_arg.name in routine.symbol_attrs:
+        #         routine.symbol_attrs.update({new_arg.name: new_arg.type.clone(parameter=None)})
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
