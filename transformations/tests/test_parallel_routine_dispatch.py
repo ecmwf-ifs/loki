@@ -29,7 +29,7 @@ def test_parallel_routine_dispatch_dr_hook(here, frontend):
     routine = source['dispatch_routine']
 
     calls = FindNodes(CallStatement).visit(routine.body)
-    assert len(calls) == 3
+    assert len(calls) == 4
 
     is_intent = False 
     horizontal = [
@@ -61,12 +61,25 @@ def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
-    var_lst=["YL_ZRDG_CVGQ", "ZRDG_CVGQ", "YL_ZRDG_MU0LU", "ZRDG_MU0LU", "YL_ZRDG_MU0M", "ZRDG_MU0M", "YL_ZRDG_MU0N", "ZRDG_MU0N", "YL_ZRDG_MU0", "ZRDG_MU0"]
+    var_lst=["YL_ZRDG_CVGQ",
+        "ZRDG_CVGQ",
+        "YL_ZRDG_MU0LU",
+        "ZRDG_MU0LU",
+        "YL_ZRDG_MU0M",
+        "ZRDG_MU0M",
+        "YL_ZRDG_MU0N",
+        "ZRDG_MU0N",
+        "YL_ZRDG_MU0",
+        "ZRDG_MU0",
+        "YL_ZPFL_FPLCH",
+        "ZPFL_FPLCH",
+        "YL_ZPFL_FPLSH",
+        "ZPFL_FPLSH"]
     dcls = [dcl for dcl in routine.declarations if dcl.symbols[0].name in var_lst]
     str_dcls = ""
     for dcl in dcls:
         str_dcls += fgen(dcl)+"\n"
-    assert str_dcls == """CLASS(FIELD_3RB), POINTER :: YL_ZRDG_CVGQ => NULL()
+    dcls_test = """CLASS(FIELD_3RB), POINTER :: YL_ZRDG_CVGQ => NULL()
 REAL(KIND=JPRB), POINTER :: ZRDG_CVGQ(:, :, :) => NULL()
 CLASS(FIELD_2RB), POINTER :: YL_ZRDG_MU0LU => NULL()
 REAL(KIND=JPRB), POINTER :: ZRDG_MU0LU(:, :) => NULL()
@@ -76,7 +89,12 @@ CLASS(FIELD_2RB), POINTER :: YL_ZRDG_MU0N => NULL()
 REAL(KIND=JPRB), POINTER :: ZRDG_MU0N(:, :) => NULL()
 CLASS(FIELD_2RB), POINTER :: YL_ZRDG_MU0 => NULL()
 REAL(KIND=JPRB), POINTER :: ZRDG_MU0(:, :) => NULL()
+CLASS(FIELD_3RB), POINTER :: YL_ZPFL_FPLCH => NULL()
+REAL(KIND=JPRB), POINTER :: ZPFL_FPLCH(:, :, :) => NULL()
+CLASS(FIELD_3RB), POINTER :: YL_ZPFL_FPLSH => NULL()
+REAL(KIND=JPRB), POINTER :: ZPFL_FPLSH(:, :, :) => NULL()
 """
+    assert str_dcls == dcls_test
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
 def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
@@ -96,15 +114,17 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
     transformation.apply(source['dispatch_routine'], item=item)
 
     var_lst = ["YL_ZRDG_CVGQ", "ZRDG_CVGQ", "YL_ZRDG_MU0LU", "ZRDG_MU0LU", "YL_ZRDG_MU0M", "ZRDG_MU0M", "YL_ZRDG_MU0N", "ZRDG_MU0N", "YL_ZRDG_MU0", "ZRDG_MU0"]
-    field_create = ["CALL FIELD_NEW(YL_ZRDG_CVGQ, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KFLEVG, YDCPG_OPTS%KGPBLKS /), LBOUNDS=(/ 0, 1 /),  &\n& PERSISTENT=.true.)",
+    field_create = ["CALL FIELD_NEW(YL_ZRDG_CVGQ, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KFLEVG, YDCPG_OPTS%KGPBLKS /), LBOUNDS=(/ 1, 1, 1 /),  &\n& PERSISTENT=.true.)",
                 "CALL FIELD_NEW(YL_ZRDG_MU0N, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KGPBLKS /), PERSISTENT=.true.)",
                 "CALL FIELD_NEW(YL_ZRDG_MU0LU, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KGPBLKS /), PERSISTENT=.true.)",
                 "CALL FIELD_NEW(YL_ZRDG_MU0, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KGPBLKS /), PERSISTENT=.true.)",
-                "CALL FIELD_NEW(YL_ZRDG_MU0M, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KGPBLKS /), PERSISTENT=.true.)"
+                "CALL FIELD_NEW(YL_ZRDG_MU0M, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KGPBLKS /), PERSISTENT=.true.)",
+                "CALL FIELD_NEW(YL_ZPFL_FPLSH, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KFLEVG, YDCPG_OPTS%KGPBLKS /), LBOUNDS=(/ 1, 0, 1 /),  &\n& PERSISTENT=.true.)",
+                "CALL FIELD_NEW(YL_ZPFL_FPLCH, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KFLEVG, YDCPG_OPTS%KGPBLKS /), LBOUNDS=(/ 1, 0, 1 /),  &\n& PERSISTENT=.true.)"
                 ]
 
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name=="FIELD_NEW"]
-    assert len(calls) == 5
+    assert len(calls) == 7
     for call in calls:
         assert fgen(call) in field_create
     
@@ -112,7 +132,9 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
                 "IF (ASSOCIATED(YL_ZRDG_MU0LU)) CALL FIELD_DELETE(YL_ZRDG_MU0LU)",
                 "IF (ASSOCIATED(YL_ZRDG_MU0M)) CALL FIELD_DELETE(YL_ZRDG_MU0M)",
                 "IF (ASSOCIATED(YL_ZRDG_MU0)) CALL FIELD_DELETE(YL_ZRDG_MU0)",
-                "IF (ASSOCIATED(YL_ZRDG_MU0N)) CALL FIELD_DELETE(YL_ZRDG_MU0N)"
+                "IF (ASSOCIATED(YL_ZRDG_MU0N)) CALL FIELD_DELETE(YL_ZRDG_MU0N)",
+                "IF (ASSOCIATED(YL_ZPFL_FPLSH)) CALL FIELD_DELETE(YL_ZPFL_FPLSH)",
+                "IF (ASSOCIATED(YL_ZPFL_FPLCH)) CALL FIELD_DELETE(YL_ZPFL_FPLCH)"
                 ]
 
     conds = [cond for cond in FindNodes(Conditional).visit(routine.body)]
@@ -122,7 +144,7 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
                 if call.name.name=="FIELD_DELETE":
                     conditional.append(cond)
 
-    assert len(conditional) == 5
+    assert len(conditional) == 7
     for cond in conditional:
         assert fgen(cond) in field_delete
 
@@ -688,14 +710,17 @@ def test_parallel_routine_dispatch_variables(here, frontend):
 
     variables = item.trafo_data['create_parallel']['map_routine']['dcls']
 
-    test_variables = '''TYPE(CPG_BNDS_TYPE), INTENT(IN) :: YLCPG_BNDS
-TYPE(STACK) :: YLSTACK
-INTEGER(KIND=JPIM) :: JBLK
-REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_FIELD_API
-REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_PARALLEL
-REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_COMPUTE'''
+    routine_str = fgen(routine)
 
-    assert fgen(variables) == test_variables
+    test_variables = ["TYPE(CPG_BNDS_TYPE), INTENT(IN) :: YLCPG_BNDS", 
+"TYPE(STACK) :: YLSTACK", 
+"INTEGER(KIND=JPIM) :: JBLK", 
+"REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_FIELD_API", 
+"REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_PARALLEL", 
+"REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_COMPUTE"]
+
+    for var in test_variables : 
+        assert var in routine_str
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
 def test_parallel_routine_dispatch_imports(here, frontend):
@@ -716,21 +741,23 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     transformation.apply(source['dispatch_routine'], item=item)
 
     imports = item.trafo_data['create_parallel']['map_routine']['imports']
+    imports = [fgen(imp) for imp in imports]
 
-    test_imports = """
-USE ACPY_MOD
-USE STACK_MOD
-USE YOMPARALLELMETHOD
-USE FIELD_ACCESS_MODULE
-USE FIELD_FACTORY_MODULE
-USE FIELD_MODULE
-#include "stack.h"
-"""
-    for imp in imports:
-        assert fgen(imp) in test_imports
+    test_imports = [
+"USE ACPY_MOD", 
+"USE STACK_MOD", 
+"USE YOMPARALLELMETHOD", 
+"USE FIELD_ACCESS_MODULE", 
+"USE FIELD_FACTORY_MODULE", 
+"USE FIELD_MODULE", 
+'#include "stack.h"']
+
+    assert len(test_imports) == len(imports)
+    for imp in test_imports:
+        assert fgen(imp) in imports
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
-def test_parallel_routine_dispatch_new_callee_imports(here, frontend):
+def test_parallel_routine_dispatch_imports(here, frontend):
     #TODO : add imports to _parallel routines
 
     source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
@@ -747,9 +774,12 @@ def test_parallel_routine_dispatch_new_callee_imports(here, frontend):
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
-    imports = item.trafo_data['create_parallel']['map_routine']['callee_imports']
+    routine_str = fgen(routine)
 
-    assert fgen(imports) == '#include "cpphinp_openacc.intfb.h"'
+    assert '#include "cpphinp_openacc.intfb.h"' in routine_str
+    assert '#include "cpphinp.intfb.h"' in routine_str
+    assert '#include "mf_phys_fpl_part1.intfb.h"' not in routine_str
+    assert '#include "mf_phys_fpl_part1_parallel.intfb.h"' in routine_str
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
 def test_parallel_routine_dispatch_lparallel(here, frontend):

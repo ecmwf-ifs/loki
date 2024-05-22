@@ -67,22 +67,35 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_region= {}
         map_routine['map_temp'] = {} 
         map_routine['map_derived'] = {} 
-        map_routine['map_call_scc'] = {}
+        map_routine['c_imports_scc'] = {}
+        map_routine['c_imports'] = {imp.module: 
+            imp for imp in FindNodes(ir.Import).visit(routine.spec) if imp.c_import==True}
         map_routine['field_new'] = [] 
         map_routine['field_delete'] = []
         map_routine['nb_no_name'] = 0 #to give unique identifier to parallel regions with no name
+        map_routine['not_in_pragma_calls'] = []
+        map_routine['c_imports_parallel'] = []
+        map_routine['imports_mapper'] = {}
+        map_routine['call_mapper'] = {}
 
         imports = self.create_imports(routine, map_routine)
         dcls = self.create_variables(routine, map_routine)
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        in_pragma_calls = []
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
                 if is_loki_pragma(region.pragma):
+                    in_pragma_calls += FindNodes(ir.CallStatement).visit(region)
                     self.process_parallel_region(routine, region, map_routine, map_region)
+        map_routine['not_in_pragma_calls'] = [call for call in calls if call not in in_pragma_calls]
         single_variable_declaration(routine)
+        self.process_not_region_call(routine, map_routine, map_region)
         self.add_temp(routine, map_routine)
         self.add_field(routine, map_routine)
         self.add_derived(routine, map_routine)
         self.add_routine_imports(routine, map_routine)
+       # self.process_not_region_loop(routine, map_routine)
+
         #call add_arrays etc...
         if item:
 #            item.trafo_data['create_parallel']['imports'] = imports
@@ -136,24 +149,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.create_new_region(routine, region, region_name, map_routine, map_region, targets)
 
 
-        routine_map_temp = map_routine['map_temp']
-        routine_map_derived = map_routine['map_derived']
         
-        for var_name in region_map_temp:
-            if var_name not in routine_map_temp:
-                routine_map_temp[var_name]=region_map_temp[var_name]
+        self.add_to_map_routine(map_routine, map_region)
 
-        for var_name in region_map_derived:
-            if var_name not in routine_map_derived:
-                routine_map_derived[var_name]=region_map_derived[var_name]
-
-        for field_new in map_region['field_new']:
-            if field_new.arguments[0].name not in [x.arguments[0].name for x in map_routine['field_new']]:
-                map_routine['field_new'].append(field_new)
-
-        for field_delete in map_region['field_delete']:
-            if field_delete.body[0].arguments[0].name not in [x.body[0].arguments[0].name for x in map_routine['field_delete']]:
-                map_routine['field_delete'].append(field_delete)
 
         #map_routine['routine_map_temp'] = routine_map_temp
         #map_routine['routine_map_derived'] = routine_map_derived
@@ -245,9 +243,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
         has_lbounds = has_lbounds and isinstance(var_shape[-1], sym.RangeIndex)
         if has_lbounds:
             lbounds = [
-                d.lower if isinstance(d, sym.RangeIndex) else sym.IntLiteral(0)
+                d.lower if isinstance(d, sym.RangeIndex) else sym.IntLiteral(1)
                 for d in var_shape
             ]
+            lbounds.append(sym.IntLiteral(1))
             kwarguments = (
                 ('UBOUNDS', sym.LiteralList(ubounds)),
             ('LBOUNDS', sym.LiteralList(lbounds)),
@@ -374,12 +373,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         routine.variables += tuple(v[1] for v in routine_map_derived.values())
     
     def add_routine_imports(self, routine, map_routine):
-        map_call_scc = map_routine['map_call_scc']
-        imports = [] 
-        for imp in map_call_scc.values():
-            imports.append(imp)
-        map_routine['callee_imports'] = imports
-        routine.spec.prepend(imports)
+        routine.spec=Transformer(map_routine['imports_mapper']).visit(routine.spec)
         
     def create_pt_sync(self, routine, target, region_name, is_get_data, map_region):
         region_map_derived = map_region['map_derived']
@@ -522,7 +516,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
     def process_call(self, routine, region, map_routine, map_region, scc):
         region_map_temp = map_region["map_temp"]
         region_map_derived = map_region["map_derived"]
-        map_call_scc = map_routine["map_call_scc"]
+        c_imports = map_routine['c_imports']
         cpg_bnds = map_routine['cpg_bnds']
         lcpg_bnds = map_routine['lcpg_bnds']
         new_calls = []
@@ -554,12 +548,20 @@ class ParallelRoutineDispatchTransformation(Transformation):
                             name=sym.ProcedureSymbol(name=f"{call.name.name}_OPENACC"), 
                             arguments=as_tuple(new_arguments), 
                             kwarguments=new_kwarguments)]
-                    if call.name.name not in map_call_scc:
-                        import_name = f"{call.name.name.lower()}_openacc.intfb.h"
-                        map_call_scc["call.name.name"] = ir.Import(module=import_name, c_import=True)
+                    c_import_name = f"{call.name.name.lower()}.intfb.h"
+                    if c_import_name not in c_imports:
+                        print(f'{map_routine["c_imports"]=}')
+                        raise Exception(f"{call.name.name} should have an interface block")
+                    else:
+                        c_import = c_imports[c_import_name]
+                        if c_import not in map_routine["imports_mapper"]:
+                            new_c_import_name = f"{call.name.name.lower()}_openacc.intfb.h"
+                            new_c_import = ir.Import(module=new_c_import_name, c_import=True)
+                            map_routine["imports_mapper"][c_import] = (c_import,new_c_import)
         
                 else:
                     new_calls += [call.clone(arguments=as_tuple(new_arguments))]
+
         return new_calls
 
     def create_compute_openmp(self, routine, region, region_name, map_routine, map_region):
@@ -667,5 +669,84 @@ class ParallelRoutineDispatchTransformation(Transformation):
         pragma2 = ir.Pragma(keyword="ACC", content=f"LOOP VECTOR PRIVATE ({lst_private2})")
         compute_openaccscc = self.create_scc(routine, region, region_name, map_routine, map_region, pragma1, pragma2)
         return compute_openaccscc
+
+    def process_not_region_call(self, routine, map_routine, map_region):
+        c_imports = map_routine['c_imports']
+
+        calls = map_routine['not_in_pragma_calls']
+
+        call_mapper = {} #mapper for transformation
+        for call in calls:
+            if call.name!="DR_HOOK":
+                region_map_temp = self.decl_local_array(routine, call, map_region) #map_region to store field_new and field_delete
+                region_map_derived = self.decl_derived_types(routine, call)
+                map_region['map_temp'] = region_map_temp
+                map_region['map_derived'] = region_map_derived
+#TODO 2 cases : derived type used just outside acdc region : no field, or use in both : field...
+#                map_region['map_derived'][1] = None #no field to add to routine dcl
+                new_arguments = []
+                for arg in call.arguments:
+                    if not (
+                        isinstance(arg, sym.LogicalOr) or isinstance(arg, sym.LogicalAnd)):
+
+                        if arg.name in region_map_temp:
+                            new_arguments += [region_map_temp[arg.name][0]]
+                        elif arg.name in region_map_derived:
+                            new_arguments += [region_map_derived[arg.name][0]]
+                        else:
+                            new_arguments += [arg]
+                    else:
+                        new_arguments += [arg]
+
+                import_name = f"{call.name.name.lower()}.intfb.h"
+                if  import_name in c_imports:
+                    c_import = c_imports[import_name]
+                    import_name_parallel = f"{call.name.name.lower()}_parallel.intfb.h"
+#                    if import_name not in c_imports:
+                    new_c_import = c_import.clone(module=import_name_parallel)
+                    map_routine['imports_mapper'][c_import] = new_c_import
+                    #map_routine['c_imports_parallel'].append(new_c_import)
+                else: 
+                    raise Exception(f"{call.name.name} should have an interface block")
+
+                new_call = call.clone(
+                name=sym.ProcedureSymbol(name=f"{call.name.name}_PARALLEL"), 
+                arguments=as_tuple(new_arguments))
+                call._update(
+                name=sym.ProcedureSymbol(name=f"{call.name.name}_PARALLEL"), 
+                arguments=as_tuple(new_arguments))
+                call_mapper[call] = new_call
+        map_region['map_derived'] = [] #pointers on field associated to derived type musn't be added to routine dcl
+        self.add_to_map_routine(map_routine, map_region)
+        map_routine['call_mapper'] = call_mapper
+        #routine.body=Transformer(map_routine['call_mapper']).visit(routine.body)
+
+
+  
+    
+    def add_to_map_routine(self, map_routine, map_region):
+        routine_map_temp = map_routine['map_temp']
+        routine_map_derived = map_routine['map_derived']
+
+        region_map_temp = map_region['map_temp']
+        region_map_derived = map_region['map_derived']
+
+        for var_name in region_map_temp:
+            if var_name not in routine_map_temp:
+                routine_map_temp[var_name]=region_map_temp[var_name]
+
+        for var_name in region_map_derived:
+            if var_name not in routine_map_derived:
+                routine_map_derived[var_name]=region_map_derived[var_name]
+
+        for field_new in map_region['field_new']:
+            if field_new.arguments[0].name not in [x.arguments[0].name for x in map_routine['field_new']]:
+                map_routine['field_new'].append(field_new)
+
+        for field_delete in map_region['field_delete']:
+            if field_delete.body[0].arguments[0].name not in [x.body[0].arguments[0].name for x in map_routine['field_delete']]:
+                map_routine['field_delete'].append(field_delete)
+
+#    def process_not_region_loop(self, routine, map_routine):
 
     #TODO : fix create ylstack!!!!!!!!!!
