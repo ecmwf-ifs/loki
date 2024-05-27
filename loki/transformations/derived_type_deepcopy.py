@@ -6,15 +6,14 @@
 # nor does it submit to any jurisdiction.
 
 import re
-from loki.transform import Transformation
 from loki.tools import as_tuple
-from loki import ir
+from loki.ir import nodes as ir
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import Variable, LogicLiteral, IntrinsicLiteral, LogicalNot, LoopRange, SubstituteExpressions
 from loki.expression import IntLiteral, RangeIndex, ProcedureSymbol, InlineCall
 from loki.types import BasicType, SymbolAttributes, ProcedureType, DerivedType
-from loki.batch import TypeDefItem
+from loki.batch import Transformation, TypeDefItem
 from loki.sourcefile import Sourcefile
 
 __all__ = ['DerivedTypeDeepcopyTransformation']
