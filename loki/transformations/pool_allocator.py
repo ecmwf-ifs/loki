@@ -570,7 +570,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         elif arr.type.dtype == BasicType.COMPLEX:
             param = Cast(name='CMPLX', expression=(IntLiteral(1), IntLiteral(1)))
 
-        param.kind = getattr(arr.type, 'kind', None)
+        param.kind = getattr(arr.type, 'kind', None) # pylint: disable=possibly-used-before-assignment
 
         return param
 

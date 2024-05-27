@@ -164,7 +164,7 @@ class ProgramUnit(Scope):
         if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
             return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions,
-                                pp_info=pp_info, parent=parent)
+                                pp_info=pp_info, parent=parent) # pylint: disable=possibly-used-before-assignment
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
