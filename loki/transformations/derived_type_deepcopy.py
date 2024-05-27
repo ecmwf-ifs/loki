@@ -179,6 +179,7 @@ class DerivedTypeDeepcopyTransformation(Transformation):
     def create_field_api_wipe(self, var, aliased_ptrs, yd):
         field_ptr_name = var.name[1:] + '_FIELD'
         field_ptr_var = var.scope.variable_map[field_ptr_name].clone(parent=yd, dimensions=None)
+        field_object = var.clone(parent=yd)
         body = ()
         if field_ptr_name.lower() in aliased_ptrs:
             if self.directive == 'openacc':
@@ -187,6 +188,8 @@ class DerivedTypeDeepcopyTransformation(Transformation):
                                            content=f'exit data detach({arg})'))
         if self.directive == 'openacc':
             body += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr_var})'))
+            body += as_tuple(ir.CallStatement(name=Variable(name='DELETE_DEVICE_DATA', parent=field_object),
+                                     arguments=()))
         return body
 
     def create_copy_method(self, parent_type, offload_vars, aliased_ptrs, successor_types):
