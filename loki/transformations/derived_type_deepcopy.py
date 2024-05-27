@@ -334,7 +334,7 @@ class DerivedTypeDeepcopyTransformation(Transformation):
 
     def transform_typedef(self, typedef, **kwargs):
 
-        if 'cpg_sl1' in typedef.name.lower():
+        if 'cpg_sl1_3d' in typedef.name.lower() or 'cpg_sl1_2d' in typedef.name.lower():
             return
 
         item = kwargs['item']
