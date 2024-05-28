@@ -176,7 +176,7 @@ class MaxjCodegen(Stringifier):
 
         # Class signature
         if is_manager:
-            if is_interface:
+            if is_interface: # pylint: disable=possibly-used-before-assignment
                 header += [self.format_line(
                     'public interface ', o.name, ' extends ManagerPCIe, ManagerKernel {')]
             else:

@@ -724,7 +724,7 @@ class SccCufTransformation(Transformation):
 
         remove_pragmas(routine)
         single_variable_declaration(routine=routine, group_by_shape=True)
-        device_subroutine_prefix(routine, depth)
+        device_subroutine_prefix(routine, depth) # pylint: disable=possibly-used-before-assignment
 
         routine.spec.prepend(ir.Import(module="cudafor"))
 

@@ -685,6 +685,7 @@ class FParser2IR(GenericVisitor):
         * some scalar expression for the kind
         """
         length = None
+        kind = None
         if o.children[0] is not None:
             length = self.visit(o.children[0], **kwargs)
         if o.children[1] is not None:
