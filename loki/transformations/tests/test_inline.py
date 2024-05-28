@@ -787,6 +787,109 @@ end module util_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_marked_subroutines_with_interfaces(frontend):
+    """ Test inlining of subroutines with explicit interfaces via marker pragmas. """
+
+    fcode_driver = """
+subroutine test_pragma_inline(a, b)
+  implicit none
+
+  interface
+    subroutine add_a_to_b(a, b, n)
+      real(kind=8), intent(inout) :: a(:), b(:)
+      integer, intent(in) :: n
+    end subroutine add_a_to_b
+    subroutine add_one(a)
+      real(kind=8), intent(inout) :: a
+    end subroutine add_one
+  end interface
+
+  interface
+    subroutine add_two(a)
+      real(kind=8), intent(inout) :: a
+    end subroutine add_two
+  end interface
+
+  real(kind=8), intent(inout) :: a(3), b(3)
+  integer, parameter :: n = 3
+  integer :: i
+
+  do i=1, n
+    !$loki inline
+    call add_one(a(i))
+  end do
+
+  !$loki inline
+  call add_a_to_b(a(:), b(:), 3)
+
+  do i=1, n
+    call add_one(b(i))
+    !$loki inline
+    call add_two(b(i))
+  end do
+
+end subroutine test_pragma_inline
+    """
+
+    fcode_module = """
+module util_mod
+implicit none
+
+contains
+  subroutine add_one(a)
+    real(kind=8), intent(inout) :: a
+    a = a + 1
+  end subroutine add_one
+
+  subroutine add_two(a)
+    real(kind=8), intent(inout) :: a
+    a = a + 2
+  end subroutine add_two
+
+  subroutine add_a_to_b(a, b, n)
+    real(kind=8), intent(inout) :: a(:), b(:)
+    integer, intent(in) :: n
+    integer :: i
+
+    do i = 1, n
+      a(i) = a(i) + b(i)
+    end do
+  end subroutine add_a_to_b
+end module util_mod
+"""
+
+    module = Module.from_source(fcode_module, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich(module.subroutines)
+
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    assert calls[0].routine == module['add_one']
+    assert calls[1].routine == module['add_a_to_b']
+    assert calls[2].routine == module['add_one']
+    assert calls[3].routine == module['add_two']
+
+    inline_marked_subroutines(routine=driver, allowed_aliases=('I',))
+
+    # Check inlined loops and assignments
+    assert len(FindNodes(ir.Loop).visit(driver.body)) == 3
+    assign = FindNodes(ir.Assignment).visit(driver.body)
+    assert len(assign) == 3
+    assert assign[0].lhs == 'a(i)' and assign[0].rhs == 'a(i) + 1'
+    assert assign[1].lhs == 'a(i)' and assign[1].rhs == 'a(i) + b(i)'
+    assert assign[2].lhs == 'b(i)' and assign[2].rhs == 'b(i) + 2'
+
+    # Check that the last call is left untouched
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    assert len(calls) == 1
+    assert calls[0].routine.name == 'add_one'
+    assert calls[0].arguments == ('b(i)',)
+
+    intfs = FindNodes(ir.Interface).visit(driver.spec)
+    assert len(intfs) == 1
+    assert intfs[0].symbols == ('add_one',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('adjust_imports', [True, False])
 def test_inline_marked_routine_with_optionals(frontend, adjust_imports):
     """ Test subroutine inlining via marker pragmas with omitted optionals. """

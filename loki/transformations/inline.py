@@ -15,7 +15,7 @@ from collections import defaultdict, ChainMap
 from loki.batch import Transformation
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
-    Transformer, FindNodes, pragmas_attached, is_loki_pragma
+    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface
 )
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
@@ -194,8 +194,8 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
 
 def resolve_sequence_association_for_inlined_calls(routine, inline_internals, inline_marked):
     """
-    Resolve sequence association in calls to all member procedures (if `inline_internals = True`) 
-    or in calls to procedures that have been marked with an inline pragma (if `inline_marked = True`). 
+    Resolve sequence association in calls to all member procedures (if `inline_internals = True`)
+    or in calls to procedures that have been marked with an inline pragma (if `inline_marked = True`).
     If both `inline_internals` and `inline_marked` are `False`, no processing is done.
     """
     call_map = {}
@@ -211,9 +211,9 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
                     # asked sequence assoc to happen with inlining, so source for routine should be
                     # found in calls to be inlined.
                     raise ValueError(
-                        f"Cannot resolve sequence association for call to `{call.name}` " + 
-                        f"to be inlined in routine `{routine.name}`, because " + 
-                        f"the `CallStatement` referring to `{call.name}` does not contain " + 
+                        f"Cannot resolve sequence association for call to `{call.name}` " +
+                        f"to be inlined in routine `{routine.name}`, because " +
+                        f"the `CallStatement` referring to `{call.name}` does not contain " +
                         "the source code of the procedure. " +
                         "If running in batch processing mode, please recheck Scheduler configuration."
                     )
@@ -605,6 +605,18 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
                 )
                 # Remove import if no further symbols used, otherwise clone with new symbols
                 import_map[impt] = impt.clone(symbols=new_symbols) if new_symbols else None
+
+        # Remove explicit interfaces of inlined routines
+        for intf in FindNodes(Interface).visit(routine.ir):
+            if not intf.spec:
+                _body = []
+                for s in intf.symbols:
+                    if s.name not in callees or s.name in not_inlined:
+                        _body += [s.type.dtype.procedure,]
+                if _body:
+                    import_map[intf] = intf.clone(body=as_tuple(_body))
+                else:
+                    import_map[intf] = None
 
         # Now move any callee imports we might need over to the caller
         new_imports = set()
