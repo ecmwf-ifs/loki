@@ -1127,6 +1127,147 @@ def test_single_column_coalesced_hoist_nested_openacc(frontend, horizontal, vert
         assert outer_kernel_pragmas[2].keyword == 'acc'
         assert outer_kernel_pragmas[2].content == 'end data'
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_hoist_nested_inline_openacc(frontend, horizontal, vertical, blocking):
+    """
+    Test the correct addition of OpenACC pragmas to SCC format code
+    when hoisting array temporaries to driver.
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column(start, end, nlon, nz, q(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_outer_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) + 1.0
+    END DO
+
+    !$loki inline
+    call update_q(start, end, nlon, nz, q, c)
+
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+  END SUBROUTINE compute_column
+"""
+
+    fcode_inner_kernel = """
+  SUBROUTINE update_q(start, end, nlon, nz, q, c)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL, INTENT(IN)    :: c
+    REAL :: t(nlon,nz)
+    INTEGER :: jl, jk
+
+    DO jk = 2, nz
+      DO jl = start, end
+        t(jl, jk) = c * jk
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+  END SUBROUTINE update_q
+"""
+
+    # Mimic the scheduler internal mechanis to apply the transformation cascade
+    outer_kernel_source = Sourcefile.from_source(fcode_outer_kernel, frontend=frontend)
+    inner_kernel_source = Sourcefile.from_source(fcode_inner_kernel, frontend=frontend)
+    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    driver = driver_source['column_driver']
+    outer_kernel = outer_kernel_source['compute_column']
+    inner_kernel = inner_kernel_source['update_q']
+    outer_kernel.enrich(inner_kernel)  # Attach kernel source to driver call
+    driver.enrich(outer_kernel)  # Attach kernel source to driver call
+
+    driver_item = ProcedureItem(name='#column_driver', source=driver)
+    outer_kernel_item = ProcedureItem(name='#compute_column', source=outer_kernel)
+    inner_kernel_item = ProcedureItem(name='#update_q', source=inner_kernel)
+
+    scc_hoist = SCCHoistPipeline(
+        horizontal=horizontal, block_dim=blocking,
+        dim_vars=(vertical.size,), directive='openacc'
+    )
+
+    InlineTransformation(allowed_aliases=horizontal.index).apply(outer_kernel)
+
+    # Apply in reverse order to ensure hoisting analysis gets run on kernel first
+    scc_hoist.apply(inner_kernel, role='kernel', item=inner_kernel_item)
+    scc_hoist.apply(
+        outer_kernel, role='kernel', item=outer_kernel_item,
+        targets=['compute_q'], successors=(inner_kernel_item,)
+    )
+    scc_hoist.apply(
+        driver, role='driver', item=driver_item,
+        targets=['compute_column'], successors=(outer_kernel_item,)
+    )
+
+    # Ensure calls have correct arguments
+    # driver
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == ('start', 'end', 'nlon', 'nz', 'q(:, :, b)',
+            'compute_column_t(:, :, b)')
+
+    # Ensure a single outer parallel loop in driver
+    with pragmas_attached(driver, Loop):
+        driver_loops = FindNodes(Loop).visit(driver.body)
+        assert len(driver_loops) == 1
+        assert driver_loops[0].variable == 'b'
+        assert driver_loops[0].bounds == '1:nb'
+        assert driver_loops[0].pragma[0].keyword == 'acc'
+        assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
+
+        # Ensure we have a kernel call in the driver loop
+        kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
+        assert len(kernel_calls) == 1
+        assert kernel_calls[0].name == 'compute_column'
+
+    # Ensure that the intermediate kernel contains two wrapped loops and an unwrapped call statement
+    with pragmas_attached(outer_kernel, Loop):
+        outer_kernel_loops = FindNodes(Loop).visit(outer_kernel.body)
+        assert len(outer_kernel_loops) == 2
+        assert outer_kernel_loops[0].variable == 'jl'
+        assert outer_kernel_loops[0].bounds == 'start:end'
+        assert outer_kernel_loops[0].pragma[0].keyword == 'acc'
+        assert outer_kernel_loops[0].pragma[0].content == 'loop vector'
+
+        # check correctly nested vertical loop from inlined routine
+        assert outer_kernel_loops[1] in FindNodes(Loop).visit(outer_kernel_loops[0].body)
+
+        # Ensure the call was inlined
+        assert not FindNodes(CallStatement).visit(outer_kernel.body)
+
+        # Ensure the routine has been marked properly
+        outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.ir)
+        assert len(outer_kernel_pragmas) == 3
+        assert outer_kernel_pragmas[0].keyword == 'acc'
+        assert outer_kernel_pragmas[0].content == 'routine vector'
+        assert outer_kernel_pragmas[1].keyword == 'acc'
+        assert outer_kernel_pragmas[1].content == 'data present(q, t)'
+        assert outer_kernel_pragmas[2].keyword == 'acc'
+        assert outer_kernel_pragmas[2].content == 'end data'
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_nested(frontend, horizontal, blocking):
     """

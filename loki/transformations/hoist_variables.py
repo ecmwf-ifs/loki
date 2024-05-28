@@ -152,6 +152,11 @@ class HoistVariablesAnalysis(Transformation):
         for child in successors:
             if not isinstance(child, ProcedureItem):
                 continue
+
+            # skip successors that might have been inlined
+            if not call_map.get(child.local_name, None):
+                continue
+
             arg_map = dict(call_map[child.local_name].arg_iter())
             hoist_variables = []
             for var in child.trafo_data[self._key]["hoist_variables"]:
