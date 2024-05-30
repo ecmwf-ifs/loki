@@ -10,7 +10,7 @@ import pytest
 from loki import (
     Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
     CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol, WhileLoop,
-    Associate
+    Associate, Module
 )
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
@@ -280,6 +280,41 @@ end subroutine test
         assert len(routine.spec.defines_symbols) == 1
         assert isinstance(list(routine.spec.defines_symbols)[0], ProcedureSymbol)
         assert 'random_call' in routine.spec.defines_symbols
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_analyse_imports(frontend):
+    fcode_module = """
+module some_mod
+implicit none
+real :: my_global
+contains
+subroutine random_call(v_out,v_in,v_inout)
+
+  real,intent(in)  :: v_in
+  real,intent(out)  :: v_out
+  real,intent(inout)  :: v_inout
+
+
+end subroutine random_call
+end module some_mod
+""".strip()
+
+    fcode = """
+subroutine test()
+use some_mod, only: my_global, random_call
+implicit none
+
+end subroutine test
+""".strip()
+
+    module = Module.from_source(fcode_module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module)
+
+    with dataflow_analysis_attached(routine):
+        assert len(routine.spec.defines_symbols) == 1
+        assert 'random_call' in routine.spec.defines_symbols
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_enriched_call(frontend):

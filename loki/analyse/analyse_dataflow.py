@@ -10,7 +10,7 @@ Collection of dataflow analysis schema routines.
 """
 
 from contextlib import contextmanager
-from loki.expression import FindVariables, Array, FindInlineCalls
+from loki.expression import FindVariables, Array, FindInlineCalls, ProcedureSymbol, FindTypedSymbols
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.ir import Visitor, Transformer
@@ -269,7 +269,8 @@ class DataflowAnalysisAttacher(Transformer):
     visit_Nullify = visit_Deallocation
 
     def visit_Import(self, o, **kwargs):
-        defines = self._symbols_from_expr(o.symbols or ())
+        defines = set(s.clone(dimensions=None) for s in FindTypedSymbols().visit(o.symbols or ())
+                      if isinstance(s, ProcedureSymbol))
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
     def visit_VariableDeclaration(self, o, **kwargs):
