@@ -464,13 +464,15 @@ implicit none
 
 end subroutine random_call
 
-subroutine test(v,n)
+subroutine test(v,n,b)
 implicit none
 
   integer,intent(out) :: v(:)
   integer,intent( in) :: n
+  integer,intent( in) :: b(n)
 
   call random_call(v(n))
+  call random_call(v(b(1)))
 
 end subroutine test
     """.strip()
@@ -478,12 +480,14 @@ end subroutine test
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
 
-    call = FindNodes(CallStatement).visit(routine.body)[0]
+    calls = FindNodes(CallStatement).visit(routine.body)
     routine.enrich(source.all_subroutines)
 
     with dataflow_analysis_attached(routine):
-        assert 'n' in call.uses_symbols
-        assert not 'n' in call.defines_symbols
+        assert 'n' in calls[0].uses_symbols
+        assert not 'n' in calls[0].defines_symbols
+        assert 'b' in calls[1].uses_symbols
+        assert not 'b' in calls[0].defines_symbols
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

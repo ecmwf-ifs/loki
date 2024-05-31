@@ -232,9 +232,9 @@ class DataflowAnalysisAttacher(Transformer):
             outvals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'out')]
             invals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'in')]
 
+            arrays = [v for v in FindVariables().visit(outvals) if isinstance(v, Array)]
+            dims = set(v for a in arrays for v in self._symbols_from_expr(a.dimensions))
             for val in outvals:
-                arrays = [v for v in FindVariables().visit(outvals) if isinstance(v, Array)]
-                dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
                 exprs = self._symbols_from_expr(val)
                 defines |= {e for e in exprs if not e in dims}
                 uses |= dims
