@@ -16,6 +16,7 @@ from loki import (
 )
 from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends, OFP, OMNI
+from loki.sourcefile import Sourcefile
 
 
 @pytest.fixture(scope='module', name='here')
@@ -1320,3 +1321,50 @@ end module module_all_imports_routine_mod
     assert routine.symbol_map['b'].type.module is header_a
     assert routine_mod.symbol_map['b_b'].type.module is header_b
     assert routine_mod.symbol_map['b_b'].type.use_name == 'b'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_enrichment_within_file(frontend, tmp_path):
+    fcode = """
+module foo
+  implicit none
+  integer, parameter :: j = 16
+
+  contains
+    integer function SUM(v)
+      implicit none
+      integer, intent(in) :: v
+      SUM = v + 1
+    end function SUM
+end module foo
+
+module test
+    use foo
+    implicit none
+    integer, parameter :: rk = selected_real_kind(12)
+    integer, parameter :: ik = selected_int_kind(9)
+contains
+    subroutine calc (n, res)
+        integer, intent(in) :: n
+        real(kind=rk), intent(inout) :: res
+        integer(kind=ik) :: i
+        do i = 1, n
+            res = res + SUM(j)
+        end do
+    end subroutine calc
+end module test
+"""
+
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = source['calc']
+    calls = list(FindInlineCalls().visit(routine.body))
+    assert len(calls) == 1
+    assert calls[0].function == 'sum'
+    assert calls[0].function.type.imported
+    assert calls[0].function.type.module is source['foo']
+    assert calls[0].function.type.dtype.procedure is source['sum']
+    assert calls[0].arguments[0].type.dtype == BasicType.INTEGER
+    assert calls[0].arguments[0].type.imported
+    assert calls[0].arguments[0].type.parameter
+    assert calls[0].arguments[0].type.initial == 16
+    assert calls[0].arguments[0].type.module is source['foo']
