@@ -900,8 +900,8 @@ class VariableDeclarationPattern(Pattern):
         super().__init__(
             r'^(((?:type|class)[ \t]*\([ \t]*(?P<typename>\w+)[ \t]*\))|' # TYPE or CLASS keyword with typename
             r'^([ \t]*(?P<basic_type>(logical|real|integer|complex|character))'
-            r'(?P<param>\((kind|len)=[a-z0-9_-]+\))?[ \t]*))'
-            r'(?:[ \t]*,[ \t]*[a-z]+(?:\((.(\(.*\))?)*?\))?)*'  # Optional attributes
+            r'[ \t]*(?P<param>\([ \t]*(kind|len)[ \t]*=[ \t]*[a-z0-9_-]+[ \t]*\))?[ \t]*))'
+            r'(?:[ \t]*,[ \t]*[a-z]+(?:[ \t]*\((.(\(.*\))?)*?\))?)*'  # Optional attributes
             r'(?:[ \t]*::)?'  # Optional `::` delimiter
             r'[ \t]*'  # Some white space
             r'(?P<variables>\w+\b.*?)$',  # Variable names
