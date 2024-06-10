@@ -738,11 +738,19 @@ implicit none
 
 contains
   subroutine add_one(a)
+    interface
+      subroutine do_something()
+      end subroutine do_something
+    end interface
     real(kind=8), intent(inout) :: a
     a = a + 1
   end subroutine add_one
 
   subroutine add_a_to_b(a, b, n)
+    interface
+      subroutine do_something_else()
+      end subroutine do_something_else
+    end interface
     real(kind=8), intent(inout) :: a(:), b(:)
     integer, intent(in) :: n
     integer :: i
@@ -785,6 +793,14 @@ end module util_mod
         assert imports[0].symbols == ('add_one',)
     else:
         assert imports[0].symbols == ('add_one', 'add_a_to_b')
+
+    if adjust_imports:
+        # check that explicit interfaces were imported
+        intfs = driver.interfaces
+        assert len(intfs) == 1
+        assert all(isinstance(s, sym.ProcedureSymbol) for s in driver.interface_symbols)
+        assert 'do_something' in driver.interface_symbols
+        assert 'do_something_else' in driver.interface_symbols
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

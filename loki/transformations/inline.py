@@ -15,7 +15,7 @@ from collections import defaultdict, ChainMap
 from loki.batch import Transformation
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
-    Transformer, FindNodes, pragmas_attached, is_loki_pragma
+    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface
 )
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
@@ -629,6 +629,19 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
 
         # Finally, apply the import remapping
         routine.spec = Transformer(import_map).visit(routine.spec)
+
+        # Add missing explicit interfaces from inlined subroutines
+        new_intfs = []
+        intf_symbols = routine.interface_symbols
+        for callee in call_sets.keys():
+            for intf in callee.interfaces:
+                for b in intf.body:
+                    s = getattr(b, 'procedure_symbol', None)
+                    if not s in intf_symbols:
+                        new_intfs += [b,]
+
+        if new_intfs:
+            routine.spec.append(Interface(body=as_tuple(new_intfs)))
 
         # Add Fortran imports to the top, and C-style interface headers at the bottom
         c_imports = tuple(im for im in new_imports if im.c_import)
