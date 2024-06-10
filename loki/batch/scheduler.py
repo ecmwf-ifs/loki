@@ -503,8 +503,10 @@ class Scheduler:
 
         if transformation.creates_items:
             self._discover()
-
             self._parse_items()
+
+        if transformation.creates_edges:
+            self._discover()
 
     def callgraph(self, path, with_file_graph=False, with_legend=False):
         """

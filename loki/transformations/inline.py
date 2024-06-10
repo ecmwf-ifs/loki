@@ -74,6 +74,8 @@ class InlineTransformation(Transformation):
         inlining constants (default: True)
     resolve_sequence_association: bool
         Resolve sequence association for routines that contain calls to inline (default: False)
+    creates_edges: bool
+        Run the scheduler discovery mechanism to re-compute the callgraph edges (default: False)
     """
 
     # Ensure correct recursive inlining by traversing from the leaves
@@ -84,7 +86,8 @@ class InlineTransformation(Transformation):
             inline_internals=False, inline_marked=True,
             remove_dead_code=True, allowed_aliases=None,
             adjust_imports=True, external_only=True,
-            resolve_sequence_association=False
+            resolve_sequence_association=False,
+            creates_edges=False
     ):
         self.inline_constants = inline_constants
         self.inline_elementals = inline_elementals
@@ -95,6 +98,7 @@ class InlineTransformation(Transformation):
         self.adjust_imports = adjust_imports
         self.external_only = external_only
         self.resolve_sequence_association = resolve_sequence_association
+        self.creates_edges = creates_edges
 
     def transform_subroutine(self, routine, **kwargs):
 
