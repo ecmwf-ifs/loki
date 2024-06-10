@@ -67,10 +67,14 @@ class PragmaParameters:
 
         .. note::
             This allows nested parenthesis by matching pairs of
-            parantheses starting at the end by pushing and popping
+            parentheses starting at the end by pushing and popping
             from a stack.
         """
         string = cls._pattern_quoted_string.sub('', string)
+        if not string.strip():
+            # Early bail-out on empty strings
+            return {}
+
         p_open = [match.start() for match in cls._pattern_opening_parenthesis.finditer(string)]
         p_close = [match.start() for match in cls._pattern_closing_parenthesis.finditer(string)]
         assert len(p_open) == len(p_close)
@@ -101,18 +105,21 @@ class PragmaParameters:
             spans.append(p_spans.pop())
         if p_spans:
             spans += p_spans[::-1]
+
+        # Build the list of parameters from the matched spans
         parameters = defaultdict(list)
-        if not spans and string.strip():
-            for key in string.strip().split(' '):
-                if key != '':
-                    parameters[key].append(None)
         for i, span in enumerate(spans):
             keys = string[spans[i-1][1]+1 if i>=1 else 0:span[0]].strip().split(' ')
-            if len(keys) > 1:
-                for key in keys[:-1]:
-                    if key != '':
-                        parameters[key].append(None)
+            for key in keys[:-1]:
+                if key:
+                    parameters[key].append(None)
             parameters[keys[-1]].append(string[span[0]+1:span[1]])
+
+        # Tail handling (including strings without any matched spans)
+        tail_span = spans[-1][1] + 1 if spans else 0
+        for key in string[tail_span:].strip().split(' '):
+            if key != '':
+                parameters[key].append(None)
         parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
         return parameters
 
