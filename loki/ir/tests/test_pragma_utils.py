@@ -678,4 +678,4 @@ END SUBROUTINE TEST
 
     routine.spec.prepend(pragma)
     fgen_code = routine.to_fortran()
-    assert '!$acc routine( TEST ) seq' in fgen_code
+    assert f'!$acc routine( {routine.name} ) seq' in fgen_code
