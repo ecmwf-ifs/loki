@@ -1363,8 +1363,10 @@ end module test
     assert calls[0].function.type.imported
     assert calls[0].function.type.module is source['foo']
     assert calls[0].function.type.dtype.procedure is source['sum']
-    assert calls[0].arguments[0].type.dtype == BasicType.INTEGER
-    assert calls[0].arguments[0].type.imported
-    assert calls[0].arguments[0].type.parameter
-    assert calls[0].arguments[0].type.initial == 16
-    assert calls[0].arguments[0].type.module is source['foo']
+    if frontend != OMNI:
+        # OMNI inlines parameters
+        assert calls[0].arguments[0].type.dtype == BasicType.INTEGER
+        assert calls[0].arguments[0].type.imported
+        assert calls[0].arguments[0].type.parameter
+        assert calls[0].arguments[0].type.initial == 16
+        assert calls[0].arguments[0].type.module is source['foo']
