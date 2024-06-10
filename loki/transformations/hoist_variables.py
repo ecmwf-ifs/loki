@@ -142,8 +142,9 @@ class HoistVariablesAnalysis(Transformation):
             variables = self.find_variables(routine)
             item.trafo_data[self._key]["to_hoist"] = variables
             dims = flatten([getattr(v, 'shape', []) for v in variables])
+            import_map = routine.import_map
             item.trafo_data[self._key]["imported_sizes"] = [(d.type.module, d) for d in dims
-                                                            if str(d) in routine.import_map]
+                                                            if str(d) in import_map]
             item.trafo_data[self._key]["hoist_variables"] = [var.clone(name=f'{routine.name}_{var.name}')
                                                              for var in variables]
         else:
@@ -281,8 +282,9 @@ class HoistVariablesTransformation(Transformation):
 
         # Add imports used to define hoisted
         missing_imports_map = defaultdict(set)
+        import_map = routine.import_map
         for module, var in item.trafo_data[self._key]["imported_sizes"]:
-            if not var.name in routine.import_map:
+            if not var.name in import_map:
                 missing_imports_map[module] |= {var}
 
         if missing_imports_map:

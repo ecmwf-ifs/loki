@@ -199,9 +199,9 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
 
 def resolve_sequence_association_for_inlined_calls(routine, inline_internals, inline_marked):
     """
-    Resolve sequence association in calls to all member procedures (if `inline_internals = True`)
-    or in calls to procedures that have been marked with an inline pragma (if `inline_marked = True`).
-    If both `inline_internals` and `inline_marked` are `False`, no processing is done.
+    Resolve sequence association in calls to all member procedures (if ``inline_internals = True``)
+    or in calls to procedures that have been marked with an inline pragma (if ``inline_marked = True``).
+    If both ``inline_internals`` and ``inline_marked`` are ``False``, no processing is done.
     """
     call_map = {}
     with pragmas_attached(routine, node_type=CallStatement):
@@ -636,10 +636,9 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
         intf_symbols = routine.interface_symbols
         for callee in call_sets.keys():
             for intf in callee.interfaces:
-                for b in intf.body:
-                    s = getattr(b, 'procedure_symbol', None)
+                for s in intf.symbols:
                     if not s in intf_symbols:
-                        new_intfs += [b,]
+                        new_intfs += [s.type.dtype.procedure,]
 
         if new_intfs:
             routine.spec.append(Interface(body=as_tuple(new_intfs)))
