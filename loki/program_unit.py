@@ -822,6 +822,7 @@ class ProgramUnit(Scope):
             _variable_map = self.variable_map
 
         name_parts = name.split('%', maxsplit=1)
-        if (var := _variable_map.get(name_parts[0], None)) and len(name_parts) > 1:
+        var = _variable_map[name_parts[0]]
+        if len(name_parts) > 1:
             var = var.get_derived_type_member(name_parts[1])
         return var
