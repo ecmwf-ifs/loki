@@ -10,6 +10,7 @@ from loki.expression import (
     symbols as sym, FindExpressions, SubstituteExpressions
 )
 from loki.ir import nodes as ir, FindNodes, Transformer
+from loki.logging import debug
 from loki.tools import as_tuple
 from loki.types import SymbolAttributes, BasicType
 
@@ -180,8 +181,15 @@ class SCCBaseTransformation(Transformation):
         bounds_str = f'{bounds[0]}:{bounds[1]}'
 
         variable_map = routine.variable_map
-        bounds_v = (routine.resolve_typebound_var(bounds[0], variable_map),
-                    routine.resolve_typebound_var(bounds[1], variable_map))
+        try:
+            bounds_v = (routine.resolve_typebound_var(bounds[0], variable_map),
+                        routine.resolve_typebound_var(bounds[1], variable_map))
+        except KeyError:
+            debug(
+                'SCCBaseTransformation.resolve_vector_dimension: '
+                f'Dimension bound {bounds[0]} or {bounds[1]} not found in {routine.name}.'
+            )
+            return
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
