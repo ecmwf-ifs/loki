@@ -105,7 +105,6 @@ class Transformation:
     # Control Scheduler cache update requirements after applying the transformation
     renames_items = False
     creates_items = False
-    creates_edges = False
 
     def __str__(self):
         """ Pretty-print transformation details """

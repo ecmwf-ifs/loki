@@ -505,9 +505,6 @@ class Scheduler:
             self._discover()
             self._parse_items()
 
-        if transformation.creates_edges:
-            self._discover()
-
     def callgraph(self, path, with_file_graph=False, with_legend=False):
         """
         Generate a callgraph visualization and dump to file.

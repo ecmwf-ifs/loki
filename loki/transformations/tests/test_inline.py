@@ -1397,7 +1397,7 @@ end module innermost_mod
     assert len(_get_successors('intermediate_mod#intermediate')) == 1
     assert scheduler['innermost_mod#innermost'] in _get_successors('intermediate_mod#intermediate')
 
-    scheduler.process( transformation=InlineTransformation(creates_edges=True) )
+    scheduler.process( transformation=InlineTransformation() )
 
     # check graph edges were updated correctly
     assert len(scheduler.items) == 2
