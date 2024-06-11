@@ -71,14 +71,14 @@ def test_cloudsc2_tl_ad(here, frontend):
 
     # Run the produced binaries
     nl_binaries = [
-        ('dwarf-cloudsc2-nl-loki-idem', '2', '16000', '32'),
-        ('dwarf-cloudsc2-nl-loki-scc', '1', '16000', '32'),
-        ('dwarf-cloudsc2-nl-loki-scc-hoist', '1', '16000', '32'),
+        ('dwarf-cloudsc2-nl-loki-idem', '2', '16384', '32'),
+        ('dwarf-cloudsc2-nl-loki-scc', '1', '16384', '32'),
+        ('dwarf-cloudsc2-nl-loki-scc-hoist', '1', '16384', '32'),
     ]
     tl_binaries = [
-        ('dwarf-cloudsc2-tl-loki-idem',),
-        ('dwarf-cloudsc2-tl-loki-scc',),
-        ('dwarf-cloudsc2-tl-loki-scc-hoist',),
+        ('dwarf-cloudsc2-tl-loki-idem', '1', '1024', '32'),
+        ('dwarf-cloudsc2-tl-loki-scc', '1', '1024', '32'),
+        ('dwarf-cloudsc2-tl-loki-scc-hoist', '1', '1024', '32'),
     ]
     ad_binaries = [
         ('dwarf-cloudsc2-ad-loki-idem',),
