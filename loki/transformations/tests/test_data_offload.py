@@ -433,8 +433,6 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         if item == 'global_var_analysis_data_mod#some_type':
             continue
         for trafo_data_key, trafo_data_value in item.trafo_data[key].items():
-            print(item)
-            print(trafo_data_value)
             assert (
                 sorted(
                     tuple(str(vv) for vv in v) if isinstance(v, tuple) else str(v)

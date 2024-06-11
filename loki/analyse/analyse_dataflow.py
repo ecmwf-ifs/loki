@@ -275,8 +275,7 @@ class DataflowAnalysisAttacher(Transformer):
 
     def visit_VariableDeclaration(self, o, **kwargs):
         defines = self._symbols_from_expr(o.symbols, condition=lambda v: v.type.initial is not None)
-        arrays = [a for a in o.symbols if isinstance(a, Array)]
-        uses = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
+        uses = {v for a in o.symbols if isinstance(a, Array) for v in self._symbols_from_expr(a.dimensions)}
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
 
