@@ -43,6 +43,69 @@ class SCCBaseTransformation(Transformation):
         assert directive in [None, 'openacc']
         self.directive = directive
 
+    # TODO: correct "definition" of a pure/elemental routine (take e.g. loki serial into account ...)
+    @staticmethod
+    def is_elemental(routine):
+        """
+        Check whether :any:`Subroutine` ``routine`` is an elemental routine.
+        Need for distinguishing elemental and non-elemental function to transform
+        those in a different way.
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to check whether elemental
+        """
+        for prefix in routine.prefix:
+            if prefix.lower() == 'elemental':
+                return True
+        return False
+
+    @staticmethod
+    def check_array_dimensions_in_calls(routine):
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        for call in calls:
+            for arg in call.arguments:
+                if isinstance(arg, sym.Array):
+                    if any(dim == sym.RangeIndex((None, None)) for dim in arg.dimensions):
+                        return False
+        return True
+
+    @staticmethod
+    def remove_dimensions(routine, calls_only=False):
+        if calls_only:
+            calls = FindNodes(ir.CallStatement).visit(routine.body)
+            for call in calls:
+                arguments = ()
+                for arg in call.arguments:
+                    if isinstance(arg, sym.Array):
+                        if all(dim == sym.RangeIndex((None, None)) for dim in arg.dimensions):
+                            new_dimensions = None
+                            arguments += (arg.clone(dimensions=new_dimensions),)
+                        else:
+                            arguments += (arg,)
+                    else:
+                        arguments += (arg,)
+                call._update(arguments=arguments)
+
+        else:
+            arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
+            array_map = {}
+            for array in arrays:
+                if all(dim == sym.RangeIndex((None, None)) for dim in array.dimensions):
+                    new_dimensions = None
+                    array_map[array] = array.clone(dimensions=new_dimensions)
+            routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
+    @staticmethod
+    def explicit_dimensions(routine):
+        arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
+        array_map = {}
+        for array in arrays:
+            if not array.dimensions:
+                new_dimensions = (sym.RangeIndex((None, None)),) * len(array.shape)
+                array_map[array] = array.clone(dimensions=new_dimensions)
+        routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
     @classmethod
     def resolve_masked_stmts(cls, routine, loop_variable):
         """
