@@ -8,7 +8,7 @@
 from pathlib import Path
 from collections import OrderedDict
 
-from loki.backend import cgen, fgen
+from loki.backend import cgen, fgen, cudagen
 from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, Variable, InlineCall, RangeIndex, Scalar, Array,
@@ -17,7 +17,8 @@ from loki.expression import (
 )
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement,
-    VariableDeclaration, TypeDef, Assignment, Transformer, FindNodes
+    VariableDeclaration, TypeDef, Assignment, Transformer, FindNodes,
+    Pragma, Comment
 )
 from loki.logging import debug
 from loki.module import Module
@@ -41,7 +42,6 @@ from loki.transformations.inline import (
 
 
 __all__ = ['FortranCTransformation']
-
 
 class DeReferenceTrafo(Transformer):
     """
@@ -106,6 +106,8 @@ class FortranCTransformation(Transformation):
     use_c_ptr : bool, optional
         Use ``c_ptr`` for array declarations in the F2C wrapper and ``c_loc(...)`` to pass
         the corresponding argument. Default is ``False``.
+    codegen : 
+        Wrapper function calling the Stringifier instance. 
     path : str, optional
         Path to generate C sources.
     """
@@ -114,10 +116,23 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None):
+    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None, language='c'): # codegen=cgen):
         self.inline_elementals = inline_elementals
         self.use_c_ptr = use_c_ptr
         self.path = Path(path) if path is not None else None
+        # self.codegen = codegen
+        self.language = language.lower()
+        assert self.language in ['c', 'cuda'] # , 'hip']
+
+        # self.langgen = cgen if self.language == 'c' else cppgen
+        if self.language == 'c':
+            self.codegen = cgen
+        elif self.language == 'cuda':
+            self.codegen = cudagen
+            # elif self.language == 'hip':
+            #     self.langgen = hipgen
+        else:
+            assert False
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -141,7 +156,7 @@ class FortranCTransformation(Transformation):
             # Generate C header file from module
             c_header = self.generate_c_header(module)
             self.c_path = (path/c_header.name.lower()).with_suffix('.h')
-            Sourcefile.to_file(source=cgen(c_header), path=self.c_path)
+            Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
 
     def transform_subroutine(self, routine, **kwargs):
         if self.path is None:
@@ -149,6 +164,17 @@ class FortranCTransformation(Transformation):
         else:
             path = self.path
         role = kwargs.get('role', 'kernel')
+        item = kwargs.get('item', None)
+        depths = kwargs.get('depths', None)
+        targets = kwargs.get('targets', None)
+        successors = kwargs.get('successors', ())
+        if depths is None:
+            if role == 'driver':
+                depth = 0
+            elif role == 'kernel':
+                depth = 1
+        else:
+            depth = depths[item]
 
         if role == 'driver':
             return
@@ -159,16 +185,66 @@ class FortranCTransformation(Transformation):
 
         if role == 'kernel':
             # Generate Fortran wrapper module
-            wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
+            bind_name = None if self.language == 'c' else f'{routine.name.lower()}_c_launch'
+            wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs, bind_name=bind_name)
             contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
+            ### new ###
+            module.spec = Section(body=(Import(module='iso_c_binding'),))
+
+            # Generate C source file from Loki IR
+            c_kernel = self.generate_c_kernel(routine, targets=targets)
+            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+            # Sourcefile.to_file(source=self.langgen(c_kernel), path=self.c_path)
+            ### end new ###
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
             # Generate C source file from Loki IR
-            c_kernel = self.generate_c_kernel(routine)
+            # c_kernel = self.generate_c_kernel(routine)
+            # self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+            # Sourcefile.to_file(source=self.codegen(c_kernel), path=self.c_path)
+            #### new ####
+            # c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
+            for successor in successors:
+                if self.language == 'c':
+                    c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
+                else:
+                    # TODO: should include .h file, however problem compiling/running multiple compilation units ...
+                    c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
+
+            # Sourcefile.to_file(source=self.langgen(c_kernel), path=self.c_path)
+
+            if depth == 1:
+                if self.language != 'c':
+                    c_kernel_launch = c_kernel.clone(name=f"{c_kernel.name}_launch", prefix="extern_c")
+                    self.generate_c_kernel_launch(c_kernel_launch, c_kernel)
+                    self.c_path = (path/c_kernel_launch.name.lower()).with_suffix('.h')
+                    Sourcefile.to_file(source=self.codegen(c_kernel_launch, extern=True), path=self.c_path)
+            else:
+                # TODO: nested device routines ..., should work correctly?
+                c_kernel_header = c_kernel.clone(name=f"{c_kernel.name}", prefix="header_only device")
+                # c_kernel_header = c_kernel.clone(name=f"{routine.name.lower()}", prefix="header_only device")
+                # TODO: this shouldn't be necessary anymore usinge self.codegen(..., header=True)
+                # self.generate_c_kernel_header(c_kernel_header)
+                # self.c_path =(path/c_kernel_header.name.lower()).with_suffix('.h')
+                # Sourcefile.to_file(source=self.codegen(c_kernel_header), path=self.c_path)
+
+            ## new
+            assignments = FindNodes(Assignment).visit(c_kernel.body)
+            assignments2remove = ['griddim', 'blockdim']
+            assignment_map = {assignment: None for assignment in assignments if assignment.lhs.name.lower() in assignments2remove} # == block_dim.index.lower() or assignment.lhs.name.lower() in [_.lower() for _ in horizontal.bounds]}
+            c_kernel.body = Transformer(assignment_map).visit(c_kernel.body)
+            ## end:new
+
+            if depth > 1:
+                c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-            Sourcefile.to_file(source=cgen(c_kernel), path=self.c_path)
+            Sourcefile.to_file(source=self.codegen(c_kernel), path=self.c_path)
+
+            self.c_path = (path/c_kernel.name.lower()).with_suffix('.h')
+            Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=self.c_path)
+            #### end new ####
 
     def c_struct_typedef(self, derived):
         """
@@ -265,6 +341,7 @@ class FortranCTransformation(Transformation):
                     arg_map[arg] = arg.clone(dimensions=new_dims, type=arg.type.clone(target=True))
             routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
 
+            use_device_addr = []
             call_arguments = []
             for arg in routine.arguments:
                 if isinstance(arg, Array):
@@ -273,6 +350,7 @@ class FortranCTransformation(Transformation):
                         function=sym.ProcedureSymbol(name="c_loc", scope=routine),
                         parameters=(new_arg,))
                     call_arguments.append(c_loc)
+                    use_device_addr.append(arg.name)
                 elif isinstance(arg.type.dtype, DerivedType):
                     cvar = Variable(name=f'{arg.name}_c', type=ctype, scope=wrapper)
                     call_arguments.append(cvar)
@@ -282,9 +360,13 @@ class FortranCTransformation(Transformation):
             call_arguments = arguments
 
         wrapper_body = casts_in
+        if self.language in ['cuda', 'hip']:
+            wrapper_body += [Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')]
         wrapper_body += [
             CallStatement(name=Variable(name=interface.body[0].name), arguments=call_arguments)  # pylint: disable=unsubscriptable-object
         ]
+        if self.language in ['cuda', 'hip']:
+            wrapper_body += [Pragma(keyword='acc', content=f'end host_data')]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
 
@@ -314,22 +396,23 @@ class FortranCTransformation(Transformation):
         spec = [original_import, isoc_import, implicit_none]
 
         # Create getter methods for module-level variables (I know... :( )
-        wrappers = []
-        for decl in FindNodes(VariableDeclaration).visit(module.spec):
-            for v in decl.symbols:
-                if isinstance(v.type.dtype, DerivedType) or v.type.pointer or v.type.allocatable:
-                    continue
-                gettername = f'{module.name.lower()}__get__{v.name.lower()}'
-                getter = Subroutine(name=gettername, bind=gettername, is_function=True, parent=wrapper_module)
+        if self.language == 'c':
+            wrappers = []
+            for decl in FindNodes(VariableDeclaration).visit(module.spec):
+                for v in decl.symbols:
+                    if isinstance(v.type.dtype, DerivedType) or v.type.pointer or v.type.allocatable:
+                        continue
+                    gettername = f'{module.name.lower()}__get__{v.name.lower()}'
+                    getter = Subroutine(name=gettername, bind=gettername, is_function=True, parent=wrapper_module)
 
-                getter.spec = Section(body=(Import(module=module.name, symbols=(v.clone(scope=getter), )), ))
-                isoctype = SymbolAttributes(v.type.dtype, kind=self.iso_c_intrinsic_kind(v.type, getter))
-                if isoctype.kind in ['c_int', 'c_float', 'c_double']:
-                    getter.spec.append(Import(module='iso_c_binding', symbols=(isoctype.kind, )))
-                getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
-                getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
-                wrappers += [getter]
-        wrapper_module.contains = Section(body=(Intrinsic('CONTAINS'), *wrappers))
+                    getter.spec = Section(body=(Import(module=module.name, symbols=(v.clone(scope=getter), )), ))
+                    isoctype = SymbolAttributes(v.type.dtype, kind=self.iso_c_intrinsic_kind(v.type, getter))
+                    if isoctype.kind in ['c_int', 'c_float', 'c_double']:
+                        getter.spec.append(Import(module='iso_c_binding', symbols=(isoctype.kind, )))
+                    getter.body = Section(body=(Assignment(lhs=Variable(name=gettername, scope=getter), rhs=v),))
+                    getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
+                    wrappers += [getter]
+            wrapper_module.contains = Section(body=(Intrinsic('CONTAINS'), *wrappers))
 
         # Create function interface definitions for module functions
         intfs = []
@@ -364,10 +447,11 @@ class FortranCTransformation(Transformation):
         intf_name = f'{routine.name}_iso_c'
         intf_routine = Subroutine(name=intf_name, body=None, args=(), parent=scope, bind=bind_name)
         intf_spec = Section(body=as_tuple(self.iso_c_intrinsic_import(intf_routine)))
-        for im in FindNodes(Import).visit(routine.spec):
-            if not im.c_import:
-                im_symbols = tuple(s.clone(scope=intf_routine) for s in im.symbols)
-                intf_spec.append(im.clone(symbols=im_symbols))
+        if self.language == 'c': 
+            for im in FindNodes(Import).visit(routine.spec):
+                if not im.c_import:
+                    im_symbols = tuple(s.clone(scope=intf_routine) for s in im.symbols)
+                    intf_spec.append(im.clone(symbols=im_symbols))
         intf_spec.append(Intrinsic(text='implicit none'))
         intf_spec.append(c_structs.values())
         intf_routine.spec = intf_spec
@@ -455,6 +539,10 @@ class FortranCTransformation(Transformation):
         header_module.rescope_symbols()
         return header_module
 
+    def generate_c_kernel_header(self, c_kernel_header):
+        c_kernel_header.body = None
+
+
     @staticmethod
     def apply_de_reference(routine):
         """
@@ -468,7 +556,7 @@ class FortranCTransformation(Transformation):
 
         routine.body = DeReferenceTrafo(to_be_dereferenced).visit(routine.body)
 
-    def generate_c_kernel(self, routine):
+    def generate_c_kernel(self, routine, targets, **kwargs):
         """
         Re-generate the C kernel and insert wrapper-specific peculiarities,
         such as the explicit getter calls for imported module-level variables.
@@ -486,7 +574,7 @@ class FortranCTransformation(Transformation):
         # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         invert_array_indices(kernel)
-        shift_to_zero_indexing(kernel)
+        shift_to_zero_indexing(kernel, ignore=() if self.language == 'c' else ('jl', 'ibl'))
         flatten_arrays(kernel, order='C', start_index=0)
 
         # Inline all known parameters, since they can be used in declarations,
@@ -498,39 +586,41 @@ class FortranCTransformation(Transformation):
             inline_elemental_functions(kernel)
 
         # Create declarations for module variables
-        module_variables = {
-            im.module.lower(): [
-                s.clone(scope=kernel, type=s.type.clone(imported=None, module=None)) for s in im.symbols
-                if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED and not s.type.parameter
-            ]
-            for im in kernel.imports
-        }
-        kernel.variables += as_tuple(flatten(list(module_variables.values())))
+        # TODO: can't just comment that ...
+        if self.language == 'c':
+            module_variables = {
+                im.module.lower(): [
+                    s.clone(scope=kernel, type=s.type.clone(imported=None, module=None)) for s in im.symbols
+                    if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED and not s.type.parameter
+                ]
+                for im in kernel.imports
+            }
+            kernel.variables += as_tuple(flatten(list(module_variables.values())))
 
-        # Create calls to getter routines for module variables
-        getter_calls = []
-        for module, variables in module_variables.items():
-            for var in variables:
-                getter = f'{module}__get__{var.name.lower()}'
-                vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
-                getter_calls += [vget]
-        kernel.body.prepend(getter_calls)
+            # Create calls to getter routines for module variables
+            getter_calls = []
+            for module, variables in module_variables.items():
+                for var in variables:
+                    getter = f'{module}__get__{var.name.lower()}'
+                    vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
+                    getter_calls += [vget]
+            kernel.body.prepend(getter_calls)
 
-        # Change imports to C header includes
-        import_map = {}
-        for im in kernel.imports:
-            if str(im.module).upper() in self.__fortran_intrinsic_modules:
-                # Remove imports of Fortran intrinsic modules
-                import_map[im] = None
+            # Change imports to C header includes
+            import_map = {}
+            for im in kernel.imports:
+                if str(im.module).upper() in self.__fortran_intrinsic_modules:
+                    # Remove imports of Fortran intrinsic modules
+                    import_map[im] = None
 
-            elif not im.c_import and im.symbols:
-                # Create a C-header import for any converted modules
-                import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=())
+                elif not im.c_import and im.symbols:
+                    # Create a C-header import for any converted modules
+                    import_map[im] = im.clone(module=f'{im.module.lower()}_c.h', c_import=True, symbols=())
 
-            else:
-                # Remove other imports, as they might include untreated Fortran code
-                import_map[im] = None
-        kernel.spec = Transformer(import_map).visit(kernel.spec)
+                else:
+                    # Remove other imports, as they might include untreated Fortran code
+                    import_map[im] = None
+            kernel.spec = Transformer(import_map).visit(kernel.spec)
 
         # Remove intrinsics from spec (eg. implicit none)
         intrinsic_map = {i: None for i in FindNodes(Intrinsic).visit(kernel.spec)
@@ -565,3 +655,36 @@ class FortranCTransformation(Transformation):
         sanitise_imports(kernel)
 
         return kernel
+
+    def generate_c_kernel_launch(self, kernel_launch, kernel, **kwargs):
+        import_map = {}
+        for im in FindNodes(Import).visit(kernel_launch.spec):
+            import_map[im] = None
+        kernel_launch.spec = Transformer(import_map).visit(kernel_launch.spec)
+
+        kernel_call = kernel.clone()
+        call_arguments = []
+        for arg in kernel_call.arguments:
+            # TODO: ?
+            if False: # isinstance(arg, Array):
+                # _type = arg.type.clone(pointer=False)
+                # kernel_call.symbol_attrs[arg.name] = _type
+                call_arguments.append(arg.clone(dimensions=None))
+                # call_arguments.append(arg.clone(dimensions=None, type=_type))
+            else:
+                call_arguments.append(arg)
+
+        griddim = kernel_launch.variable_map['griddim']
+        blockdim = kernel_launch.variable_map['blockdim']
+        assignments = FindNodes(Assignment).visit(kernel_launch.body)
+        griddim_assignment = None
+        blockdim_assignment = None
+        for assignment in assignments:
+            if assignment.lhs == griddim:
+                griddim_assignment = assignment.clone()
+            if assignment.lhs == blockdim:
+                blockdim_assignment = assignment.clone()
+        kernel_launch.body = (Comment(text="! here should be the launcher ...."),
+                griddim_assignment, blockdim_assignment, CallStatement(name=Variable(name=kernel.name),
+                    arguments=call_arguments, chevron=(sym.Variable(name="griddim"),
+                        sym.Variable(name="blockdim"))))
