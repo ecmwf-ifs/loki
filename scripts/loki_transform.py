@@ -45,7 +45,13 @@ from loki.transformations.single_column import (
     HoistTemporaryArraysDeviceAllocatableTransformation,
 )
 from loki.transformations.transpile import FortranCTransformation
-
+from loki.transformations.block_index_transformations import (
+        LowerBlockIndexTransformation, InjectBlockIndexTransformation,
+        LowerBlockLoopTransformation
+)
+from loki.transformations.single_column.scc_low_level import (
+    SCCLowLevelCufHoist, SCCLowLevelCufParametrise, SCCLowLevelHoist, SCCLowLevelParametrise
+)
 
 class IdemTransformation(Transformation):
     """
@@ -69,8 +75,8 @@ def cli(debug):
 @cli.command()
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
-                  ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack']
+                  ['idem', "c", 'idem-lower', 'idem-lower-loop', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'cuda-parametrise', 'cuda-hoist', 'scc-raw-stack']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -201,7 +207,7 @@ def convert(
         scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Re-write DR_HOOK labels for non-GPU paths
-    if 'scc' not in mode:
+    if 'scc' not in mode and 'cuda' not in mode :
         scheduler.process( DrHookTransformation(mode=mode, remove=False) )
 
     # Perform general source removal of unwanted calls or code regions
@@ -238,13 +244,14 @@ def convert(
         scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
     # Insert data offload regions for GPUs and remove OpenMP threading directives
-    use_claw_offload = True
-    if data_offload:
-        offload_transform = DataOffloadTransformation(
-            remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
-        )
-        scheduler.process(offload_transform)
-        use_claw_offload = not offload_transform.has_data_regions
+    if mode not in ['cuda-hoist', 'cuda-parametrise']:
+        use_claw_offload = True
+        if data_offload:
+            offload_transform = DataOffloadTransformation(
+                remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
+            )
+            scheduler.process(offload_transform)
+            use_claw_offload = not offload_transform.has_data_regions
 
     if frontend == Frontend.OMNI and mode in ['idem-stack', 'scc-stack']:
         # To make the pool allocator size derivation work correctly, we need
@@ -268,6 +275,28 @@ def convert(
         pipeline = Pipeline(
             classes=(IdemTransformation, TemporariesPoolAllocatorTransformation),
             block_dim=block_dim, directive='openmp', check_bounds=True
+        )
+        scheduler.process( pipeline )
+
+    if mode == 'idem-lower':
+        pipeline = Pipeline(
+            classes=(IdemTransformation,
+                LowerBlockIndexTransformation,
+                InjectBlockIndexTransformation,),
+                # LowerBlockLoopTransformation),
+            block_dim=block_dim, directive='openmp', check_bounds=True,
+            horizontal=horizontal, vertical=vertical,
+        )
+        scheduler.process( pipeline )
+
+    if mode == 'idem-lower-loop':
+        pipeline = Pipeline(
+            classes=(IdemTransformation,
+                LowerBlockIndexTransformation,
+                InjectBlockIndexTransformation,
+                LowerBlockLoopTransformation),
+            block_dim=block_dim, directive='openmp', check_bounds=True,
+            horizontal=horizontal, vertical=vertical,
         )
         scheduler.process( pipeline )
 
@@ -324,25 +353,41 @@ def convert(
             )
         scheduler.process( pipeline )
 
-    if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-        # These transformations requires complex constructor arguments,
-        # so we use the file-based transformation configuration.
-        scheduler.process( transformation=scheduler.config.transformations[mode] )
+    if mode in ['cuf-hoist']:
+        pipeline = SCCLowLevelCufHoist(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+                transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim,
+                dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True)
+        scheduler.process( pipeline )
+    
+    if mode in ['cuf-parametrise']:
+        dic2p = {'NLEV': 137}
+        pipeline = SCCLowLevelCufParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+                transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim,
+                dim_vars=(vertical.size,), as_kwarguments=True, dic2p=dic2p, remove_vector_section=True)
+        scheduler.process( pipeline )
 
-    if mode == 'cuf-parametrise':
-        # This transformation requires complex constructora arguments,
-        # so we use the file-based transformation configuration.
-        transformation = scheduler.config.transformations['ParametriseTransformation']
-        scheduler.process(transformation=transformation)
+    if mode in ['cuda-hoist']:
+        pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+                transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
+                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True)
+        scheduler.process( pipeline )
 
-    if mode == "cuf-hoist":
-        vertical = scheduler.config.dimensions['vertical']
-        scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=(vertical.size,)))
-        scheduler.process(transformation=HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True))
+
+    if mode in ['cuda-parametrise']:
+        dic2p = {'NLEV': 137}
+        pipeline = SCCLowLevelParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+                transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
+                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True, dic2p=dic2p)
+        scheduler.process( pipeline )
 
     mode = mode.replace('-', '_')  # Sanitize mode string
-    if mode in ["c"]:
-        f2c_transformation = FortranCTransformation(path=build)
+    if mode in ['c', 'cuda_parametrise', 'cuda_hoist']:
+        if mode in ['c']:
+            f2c_transformation = FortranCTransformation(path=build)
+        elif mode in ['cuda_parametrise', 'cuda_hoist']:
+            f2c_transformation = FortranCTransformation(path=build, language='cuda', use_c_ptr=True)
+        else:
+            assert False
         scheduler.process(f2c_transformation)
         for h in definitions:
             f2c_transformation.apply(h, role='header')
