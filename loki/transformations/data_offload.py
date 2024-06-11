@@ -833,8 +833,8 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Get module variables/symbols (grouped by routine/successor).
         """
-        defines_symbols = {}
-        uses_symbols = {}
+        defines_symbols = CaseInsensitiveDict()
+        uses_symbols = CaseInsensitiveDict()
         for item in successors:
             if not isinstance(item, ProcedureItem):
                 continue
@@ -860,6 +860,7 @@ class GlobalVarHoistTransformation(Transformation):
                 if module.lower() in self.ignore_modules:
                     continue
                 symbol_map[key].add(var.parents[0] if var.parent else var)
+        symbol_map = CaseInsensitiveDict(symbol_map)
         call_map = {}
         calls = FindNodes(CallStatement).visit(routine.body)
         for call in calls:
