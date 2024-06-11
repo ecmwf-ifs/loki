@@ -40,7 +40,7 @@ jobs:
         with:
           repository: ecmwf-ifs/dwarf-p-cloudsc2-tl-ad
           path: cloudsc2_tl_ad
-          ref: develop
+          ref: nabr-cloudsc2_tl_loki-debug
 
       - name: Clone ECWAM
         uses: actions/checkout@v4
