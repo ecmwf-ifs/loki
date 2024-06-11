@@ -1214,7 +1214,7 @@ def test_single_column_coalesced_hoist_nested_inline_openacc(frontend, horizonta
     scc_hoist.apply(inner_kernel, role='kernel', item=inner_kernel_item)
     scc_hoist.apply(
         outer_kernel, role='kernel', item=outer_kernel_item,
-        targets=['compute_q'], successors=(inner_kernel_item,)
+        targets=['compute_q'], successors=()
     )
     scc_hoist.apply(
         driver, role='driver', item=driver_item,

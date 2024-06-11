@@ -15,7 +15,7 @@ from collections import defaultdict, ChainMap
 from loki.batch import Transformation
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
-    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface
+    Transformer, FindNodes, pragmas_attached, is_loki_pragma
 )
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
@@ -607,14 +607,14 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
                 import_map[impt] = impt.clone(symbols=new_symbols) if new_symbols else None
 
         # Remove explicit interfaces of inlined routines
-        for intf in FindNodes(Interface).visit(routine.ir):
+        for intf in routine.interfaces:
             if not intf.spec:
-                _body = []
-                for s in intf.symbols:
-                    if s.name not in callees or s.name in not_inlined:
-                        _body += [s.type.dtype.procedure,]
+                _body = tuple(
+	                    s.type.dtype.procedure for s in intf.symbols
+	                    if s.name not in callees or s.name in not_inlined
+                )
                 if _body:
-                    import_map[intf] = intf.clone(body=as_tuple(_body))
+                    import_map[intf] = intf.clone(body=_body)
                 else:
                     import_map[intf] = None
 
