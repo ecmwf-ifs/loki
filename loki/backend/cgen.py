@@ -17,23 +17,39 @@ from loki.expression import (
         symbols as sym
 )
 from loki.types import BasicType, SymbolAttributes, DerivedType
-__all__ = ['cgen', 'CCodegen', 'CCodeMapper']
+
+__all__ = ['cgen', 'CCodegen', 'CCodeMapper', 'IntrinsicTypeC']
 
 
-def c_intrinsic_type(_type):
-    if _type.dtype == BasicType.LOGICAL:
-        return 'int'
-    if _type.dtype == BasicType.INTEGER:
-        return 'int'
-    if _type.dtype == BasicType.REAL:
-        if str(_type.kind) in ['real32']:
-            return 'float'
-        return 'double'
-    raise ValueError(str(_type))
+class IntrinsicTypeC:
+    # pylint: disable=abstract-method, unused-argument
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, _type, *args, **kwargs):
+        return self.c_intrinsic_type(_type, *args, **kwargs)
+
+    def c_intrinsic_type(self, _type, *args, **kwargs):
+        if _type.dtype == BasicType.LOGICAL:
+            return 'int'
+        if _type.dtype == BasicType.INTEGER:
+            return 'int'
+        if _type.dtype == BasicType.REAL:
+            if str(_type.kind) in ['real32']:
+                return 'float'
+            return 'double'
+        raise ValueError(str(_type))
+
+# pylint: disable=redefined-outer-name
+c_intrinsic_type = IntrinsicTypeC()
 
 class CCodeMapper(LokiStringifyMapper):
     # pylint: disable=abstract-method, unused-argument
+
+    def __init__(self, c_intrinsic_type, *args, **kwargs):
+        super().__init__()
+        self.c_intrinsic_type = c_intrinsic_type
 
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
@@ -41,13 +57,13 @@ class CCodeMapper(LokiStringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.REAL, kind=expr.kind)
-            return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
+            return f'({self.c_intrinsic_type(_type)}) {str(expr.value)}'
         return str(expr.value)
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
-            return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
+            return f'({self.c_intrinsic_type(_type)}) {str(expr.value)}'
         return str(expr.value)
 
     def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
@@ -59,11 +75,12 @@ class CCodeMapper(LokiStringifyMapper):
             self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
             PREC_CALL, PREC_NONE)
         return self.parenthesize_if_needed(
-            self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
+            self.format('(%s) %s', self.c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
         if expr.parent is not None:
-            parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
+            # parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
+            parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs)
             return self.format('%s.%s', parent, expr.basename)
         return self.format('%s', expr.name)
 
@@ -75,15 +92,19 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
         name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
-        if expr.aggregate.type.pointer and name_str.startswith('*'):
-            # Strip the pointer '*' because subscript dereference
-            name_str = name_str[1:]
-        index_str = ''
-        for index in expr.index_tuple:
-            d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
-            if d:
-                index_str += self.format('[%s]', d)
-        return self.format('%s%s', name_str, index_str)
+        # TODO: why is this necessary?
+        if expr.aggregate.type is not None:
+            if expr.aggregate.type.pointer and name_str.startswith('*'):
+                # Strip the pointer '*' because subscript dereference
+                name_str = name_str[1:]
+            index_str = ''
+            for index in expr.index_tuple:
+                d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+                if d:
+                    index_str += self.format('[%s]', d)
+            return self.format('%s%s', name_str, index_str)
+        else:
+            return self.format('%s', name_str)
 
     map_string_subscript = map_array_subscript
 
@@ -122,10 +143,15 @@ class CCodegen(Stringifier):
     """
     Tree visitor to generate standardized C code from IR.
     """
+    # pylint: disable=abstract-method, unused-argument
 
-    def __init__(self, depth=0, indent='  ', linewidth=90):
+    standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
+
+    def __init__(self, depth=0, indent='  ', linewidth=90, **kwargs):
+        symgen = kwargs.get('symgen', CCodeMapper(c_intrinsic_type))
+        line_cont = kwargs.get('line_cont', '\n{}  '.format)
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont='\n{}  '.format, symgen=CCodeMapper())
+                         line_cont=line_cont, symgen=symgen)
 
     # Handler for outer objects
 
@@ -143,48 +169,47 @@ class CCodegen(Stringifier):
         routines = self.visit(o.routines, **kwargs)
         return self.join_lines(spec, routines)
 
-    def visit_Subroutine(self, o, **kwargs):
-        """
-        Format as:
-
-          ...imports...
-          int <name>(<args>) {
-            ...spec without imports and argument declarations...
-            ...body...
-          }
-        """
+    def _subroutine_header(self, o, **kwargs):
         # Some boilerplate imports...
-        standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
-        header = [self.format_line('#include <', name, '>') for name in standard_imports]
-
+        header = [self.format_line('#include <', name, '>') for name in self.standard_imports]
         # ...and imports from the spec
         spec_imports = FindNodes(Import).visit(o.spec)
         header += [self.visit(spec_imports, **kwargs)]
+        return header
 
-        # Generate header with argument signature
-        aptr = []
+    def _subroutine_arguments(self, o, **kwargs):
+        var_keywords = []
+        pass_by = []
         for a in o.arguments:
+            var_keywords += ['']
             if isinstance(a, Array) > 0:
-                aptr += ['* restrict ']
+                pass_by += ['* restrict ']
             elif isinstance(a.type.dtype, DerivedType):
-                aptr += ['*']
+                pass_by += ['*']
             elif a.type.pointer:
-                aptr += ['*']
+                pass_by += ['*']
             else:
-                aptr += ['']
-        arguments = [f'{self.visit(a.type, **kwargs)} {p}{a.name}'
-                     for a, p in zip(o.arguments, aptr)]
+                pass_by += ['']
+        return pass_by, var_keywords
 
+    def _subroutine_declaration(self, o, **kwargs):
+        pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
+        arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
+                     for a, p, k in zip(o.arguments, pass_by, var_keywords)]
+        opt_header = kwargs.get('header', False)
+        end = ' {' if not opt_header else ';'
         # check whether to return something and define function return type accordingly
         if o.is_function:
             return_type = c_intrinsic_type(o.return_type)
         else:
             return_type = 'void'
+        declaration = [self.format_line(f'{return_type} ', o.name, '(', self.join_items(arguments), ')', end)]
+        return declaration
 
-        header += [self.format_line(f'{return_type} ', o.name, '(', self.join_items(arguments), ') {')]
-
+    def _subroutine_body(self, o, **kwargs):
         self.depth += 1
 
+        # body = ['{']
         # ...and generate the spec without imports and argument declarations
         body = [self.visit(o.spec, skip_imports=True, skip_argument_declarations=True, **kwargs)]
 
@@ -197,9 +222,38 @@ class CCodegen(Stringifier):
 
         # Close everything off
         self.depth -= 1
-        footer = [self.format_line('}')]
+        # footer = [self.format_line('}')]
+        return body
 
-        return self.join_lines(*header, *body, *footer)
+    def _subroutine_footer(self, o, **kwargs):
+        footer = [self.format_line('}')]
+        return footer
+
+    def visit_Subroutine(self, o, **kwargs):
+        """
+        Format as:
+
+          ...imports...
+          int <name>(<args>) {
+            ...spec without imports and argument declarations...
+            ...body...
+          }
+        """
+        opt_header = kwargs.get('header', False)
+        opt_guards = kwargs.get('guards', False)
+        opt_guard_name = kwargs.get('guard_name', None)
+
+        header = self._subroutine_header(o, **kwargs)
+        declaration = self._subroutine_declaration(o, **kwargs)
+        body = self._subroutine_body(o, **kwargs) if not opt_header else []
+        footer = self._subroutine_footer(o, **kwargs) if not opt_header else []
+
+        if opt_guards:
+            guard_name = f'{o.name.upper()}_H' if opt_guard_name is None else opt_guard_name
+            header = [self.format_line(f'#ifndef {guard_name}'), self.format_line(f'#define {guard_name}\n\n')] + header
+            footer += ['\n#endif']
+
+        return self.join_lines(*header, '\n', *declaration, *body, *footer)
 
     # Handler for AST base nodes
 
@@ -222,7 +276,8 @@ class CCodegen(Stringifier):
         """
         Format comments.
         """
-        text = o.text or o.source.string
+        # TODO: why is o.text AND o.source None?
+        text = o.text or (o.source.string if o.source else '')
         text = str(text).lstrip().replace('!', '//', 1)
         return self.format_line(text, no_wrap=True)
 
@@ -281,7 +336,9 @@ class CCodegen(Stringifier):
         control = 'for ({var} = {start}; {var} {crit} {end}; {var} += {incr})'.format(
             var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
             end=self.visit(o.bounds.stop, **kwargs),
+            # TODO: !!! pymbolic/primitives.py", line 664, in __gt__ raise TypeError("expressions don't have an order")
             crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
+            # crit='<=',
             incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
         header = self.format_line(control, ' {')
         footer = self.format_line('}')
@@ -367,7 +424,7 @@ class CCodegen(Stringifier):
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):
             return f'struct {o.dtype.name}'
-        return c_intrinsic_type(o)
+        return self.symgen.c_intrinsic_type(o)
 
     def visit_TypeDef(self, o, **kwargs):
         header = self.format_line('struct ', o.name.lower(), ' {')
@@ -396,7 +453,7 @@ class CCodegen(Stringifier):
             if any(isinstance(val, sym.RangeIndex) for val in value):
                 # TODO: in Fortran a case can be a range, which is not straight-forward
                 #  to translate/transfer to C
-                #  https://j3-fortran.org/doc/year/10/10-007.pdf#page=200
+                #  https://j3-fortran.org/doc/year/10/10-007.pdf#page=200
                 raise NotImplementedError
             case = self.visit_all(as_tuple(value), **kwargs)
             cases.append(self.format_line('case ', self.join_items(case), ':'))
@@ -412,8 +469,8 @@ class CCodegen(Stringifier):
         return self.join_lines(header, *branches, footer)
 
 
-def cgen(ir):
+def cgen(ir, **kwargs):
     """
     Generate standardized C code from one or many IR objects/trees.
     """
-    return CCodegen().visit(ir)
+    return CCodegen().visit(ir, **kwargs)
