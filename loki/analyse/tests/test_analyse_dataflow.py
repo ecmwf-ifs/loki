@@ -10,7 +10,7 @@ import pytest
 from loki import (
     Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
     CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol, WhileLoop,
-    Associate
+    Associate, Module
 )
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
@@ -281,6 +281,41 @@ end subroutine test
         assert isinstance(list(routine.spec.defines_symbols)[0], ProcedureSymbol)
         assert 'random_call' in routine.spec.defines_symbols
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_analyse_imports(frontend):
+    fcode_module = """
+module some_mod
+implicit none
+real :: my_global
+contains
+subroutine random_call(v_out,v_in,v_inout)
+
+  real,intent(in)  :: v_in
+  real,intent(out)  :: v_out
+  real,intent(inout)  :: v_inout
+
+
+end subroutine random_call
+end module some_mod
+""".strip()
+
+    fcode = """
+subroutine test()
+use some_mod, only: my_global, random_call
+implicit none
+
+end subroutine test
+""".strip()
+
+    module = Module.from_source(fcode_module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module)
+
+    with dataflow_analysis_attached(routine):
+        assert len(routine.spec.defines_symbols) == 1
+        assert 'random_call' in routine.spec.defines_symbols
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_enriched_call(frontend):
     fcode = """
@@ -429,13 +464,15 @@ implicit none
 
 end subroutine random_call
 
-subroutine test(v,n)
+subroutine test(v,n,b)
 implicit none
 
   integer,intent(out) :: v(:)
   integer,intent( in) :: n
+  integer,intent( in) :: b(n)
 
   call random_call(v(n))
+  call random_call(v(b(1)))
 
 end subroutine test
     """.strip()
@@ -443,12 +480,14 @@ end subroutine test
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
 
-    call = FindNodes(CallStatement).visit(routine.body)[0]
+    calls = FindNodes(CallStatement).visit(routine.body)
     routine.enrich(source.all_subroutines)
 
     with dataflow_analysis_attached(routine):
-        assert 'n' in call.uses_symbols
-        assert not 'n' in call.defines_symbols
+        assert 'n' in calls[0].uses_symbols
+        assert not 'n' in calls[0].defines_symbols
+        assert 'b' in calls[1].uses_symbols
+        assert not 'b' in calls[0].defines_symbols
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

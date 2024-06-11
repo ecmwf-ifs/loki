@@ -10,7 +10,7 @@ Collection of dataflow analysis schema routines.
 """
 
 from contextlib import contextmanager
-from loki.expression import FindVariables, Array, FindInlineCalls
+from loki.expression import FindVariables, Array, FindInlineCalls, ProcedureSymbol, FindTypedSymbols
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.ir import Visitor, Transformer
@@ -232,9 +232,9 @@ class DataflowAnalysisAttacher(Transformer):
             outvals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'out')]
             invals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'in')]
 
+            arrays = [v for v in FindVariables().visit(outvals) if isinstance(v, Array)]
+            dims = set(v for a in arrays for v in self._symbols_from_expr(a.dimensions))
             for val in outvals:
-                arrays = [v for v in FindVariables().visit(outvals) if isinstance(v, Array)]
-                dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
                 exprs = self._symbols_from_expr(val)
                 defines |= {e for e in exprs if not e in dims}
                 uses |= dims
@@ -269,12 +269,14 @@ class DataflowAnalysisAttacher(Transformer):
     visit_Nullify = visit_Deallocation
 
     def visit_Import(self, o, **kwargs):
-        defines = self._symbols_from_expr(o.symbols or ())
+        defines = set(s.clone(dimensions=None) for s in FindTypedSymbols().visit(o.symbols or ())
+                      if isinstance(s, ProcedureSymbol))
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
     def visit_VariableDeclaration(self, o, **kwargs):
         defines = self._symbols_from_expr(o.symbols, condition=lambda v: v.type.initial is not None)
-        return self.visit_Node(o, defines_symbols=defines, **kwargs)
+        uses = {v for a in o.symbols if isinstance(a, Array) for v in self._symbols_from_expr(a.dimensions)}
+        return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
 
 class DataflowAnalysisDetacher(Transformer):

@@ -296,6 +296,10 @@ class GlobalVariableAnalysis(Transformation):
                 var for var in routine.body.uses_symbols
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
             }
+            uses_imported_symbols |= {
+                var for var in routine.spec.uses_symbols
+                if var.name in import_map or (var.parent and var.parents[0].name in import_map)
+            }
             defines_imported_symbols = {
                 var for var in routine.body.defines_symbols
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
