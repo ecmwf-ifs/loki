@@ -147,10 +147,17 @@ class MissingIntfbRule(GenericRule):
         }
 
         # Collect all symbols declared via intfb includees
+        c_includes = [
+            include for include in FindNodes(ir.Import).visit(program_unit.ir)
+            if include.c_import
+        ]
         external_symbols |= {
-            include.module[:-8].lower()
-            for include in FindNodes(ir.Import).visit(program_unit.ir)
-            if include.c_import and include.module.endswith('intfb.h')
+            include.module[:-8].lower() for include in c_includes
+            if include.module.endswith('.intfb.h')
+        }
+        external_symbols |= {
+            include.module[:-7].lower() for include in c_includes
+            if include.module.endswith('.func.h')
         }
 
         # Add locally declared interface symbols
