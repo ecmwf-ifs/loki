@@ -1535,8 +1535,8 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
             return None
         if not self.parent:
             return BasicType.DEFERRED
-        parent_type = self.parent.symbol_attrs[self.extends]
-        if not isinstance(parent_type.dtype, DerivedType):
+        parent_type = self.parent.symbol_attrs.lookup(self.extends)
+        if not (parent_type and isinstance(parent_type.dtype, DerivedType)):
             return BasicType.DEFERRED
         return parent_type.dtype.typedef
 

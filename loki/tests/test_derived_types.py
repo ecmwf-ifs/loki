@@ -1523,7 +1523,8 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_inheritance_missing_parent(frontend, tmp_path):
+@pytest.mark.parametrize('qualified_import', (True, False))
+def test_derived_type_inheritance_missing_parent(frontend, qualified_import, tmp_path):
     fcode_parent = """
 module parent_mod
     implicit none
@@ -1533,9 +1534,9 @@ module parent_mod
 end module parent_mod
     """.strip()
 
-    fcode_derived = """
+    fcode_derived = f"""
 module derived_mod
-    use parent_mod, only: parent_type
+    use parent_mod{", only: parent_type" if qualified_import else ""}
     implicit none
     type, public, extends(parent_type) :: derived_type
         integer :: val2
