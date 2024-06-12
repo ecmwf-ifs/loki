@@ -256,6 +256,8 @@ module global_var_analysis_header_mod
     integer, parameter :: nval = 5
     integer, parameter :: nfld = 3
 
+    integer :: n
+
     integer :: iarr(nfld)
     real :: rarr(nval, nfld)
 end module global_var_analysis_header_mod
@@ -297,10 +299,11 @@ module global_var_analysis_kernel_mod
 
 contains
     subroutine kernel_a(arg, tt)
-        use global_var_analysis_header_mod, only: iarr, nval, nfld
+        use global_var_analysis_header_mod, only: iarr, nval, nfld, n
 
         real, intent(inout) :: arg(:,:)
         type(some_type), intent(in) :: tt
+        real :: tmp(n)
         integer :: i, j
 
         do i=1,nfld
@@ -390,7 +393,7 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
 
     expected_trafo_data = {
         'global_var_analysis_header_mod': {
-            'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
+            'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})', 'n'},
             'offload': {}
         },
         'global_var_analysis_data_mod': {
@@ -402,6 +405,7 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
             'defines_symbols': set(),
             'uses_symbols': nval_data | nfld_data | {
                 (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
+                ('n', 'global_var_analysis_header_mod'),
                 (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
             }
         },
@@ -416,6 +420,7 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
             'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
             'uses_symbols': nval_data | nfld_data | {
                 ('rdata(:, :, :)', 'global_var_analysis_data_mod'),
+                ('n', 'global_var_analysis_header_mod'),
                 ('tt', 'global_var_analysis_data_mod'), ('tt%vals', 'global_var_analysis_data_mod'),
                 (f'iarr({nfld_dim})', 'global_var_analysis_header_mod'),
                 (f'rarr({nval_dim}, {nfld_dim})', 'global_var_analysis_header_mod')
@@ -465,8 +470,8 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
 
     expected_trafo_data = {
         'global_var_analysis_header_mod': {
-            'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'},
-            'offload': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})'}
+            'declares': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})', 'n'},
+            'offload': {f'iarr({nfld_dim})', f'rarr({nval_dim}, {nfld_dim})', 'n'}
         },
         'global_var_analysis_data_mod': {
             'declares': {'rdata(:, :, :)', 'tt'},
@@ -486,7 +491,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
 
     # Verify imports have been added to the driver
     expected_imports = {
-        'global_var_analysis_header_mod': {'iarr', 'rarr'},
+        'global_var_analysis_header_mod': {'iarr', 'rarr', 'n'},
         'global_var_analysis_data_mod': {'rdata'}
     }
 
@@ -495,7 +500,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
         assert {var.name.lower() for var in import_.symbols} == expected_imports[import_.module.lower()]
 
     expected_h2d_pragmas = {
-        'update device': {'iarr', 'rdata', 'rarr'},
+        'update device': {'iarr', 'rdata', 'rarr', 'n'},
         'enter data copyin': {'tt%vals'}
     }
     expected_d2h_pragmas = {
@@ -515,7 +520,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
 
     # Verify declarations have been added to the header modules
     expected_declarations = {
-        'global_var_analysis_header_mod': {'iarr', 'rarr'},
+        'global_var_analysis_header_mod': {'iarr', 'rarr', 'n'},
         'global_var_analysis_data_mod': {'rdata', 'tt'}
     }
 

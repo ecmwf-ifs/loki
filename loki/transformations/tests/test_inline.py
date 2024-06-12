@@ -17,6 +17,7 @@ from loki.build import jit_compile, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import nodes as ir, FindNodes
+from loki.batch import Scheduler, SchedulerConfig
 
 from loki.transformations.inline import (
     inline_elemental_functions, inline_constant_parameters,
@@ -1066,7 +1067,6 @@ end module inline_declarations
 """
     module = Module.from_source(fcode, frontend=frontend)
     outer = module['outer']
-    inner = module['inner']
 
     inline_marked_subroutines(routine=outer, adjust_imports=True)
 
@@ -1431,3 +1431,78 @@ end module test_inline_mod
     assert imports[0].symbols == ('x',)
     assert imports[1].module == 'bnds_module'
     assert 'm' in imports[1].symbols and 'n' in imports[1].symbols
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_transformation_intermediate(tmp_path, frontend):
+    fcode_outermost = """
+module outermost_mod
+implicit none
+contains
+subroutine outermost()
+use intermediate_mod, only: intermediate
+
+!$loki inline
+call intermediate()
+
+end subroutine outermost
+end module outermost_mod
+"""
+
+    fcode_intermediate = """
+module intermediate_mod
+implicit none
+contains
+subroutine intermediate()
+use innermost_mod, only: innermost
+
+call innermost()
+
+end subroutine intermediate
+end module intermediate_mod
+"""
+
+    fcode_innermost = """
+module innermost_mod
+implicit none
+contains
+subroutine innermost()
+
+end subroutine innermost
+end module innermost_mod
+"""
+
+    (tmp_path/'outermost_mod.F90').write_text(fcode_outermost)
+    (tmp_path/'intermediate_mod.F90').write_text(fcode_intermediate)
+    (tmp_path/'innermost_mod.F90').write_text(fcode_innermost)
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True
+        },
+        'routines': {
+            'outermost': {'role': 'kernel'}
+        }
+    }
+
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+
+    def _get_successors(item):
+        return scheduler.sgraph.successors(scheduler[item])
+
+    # check graph edges before transformation
+    assert len(scheduler.items) == 3
+    assert len(_get_successors('outermost_mod#outermost')) == 1
+    assert scheduler['intermediate_mod#intermediate'] in _get_successors('outermost_mod#outermost')
+    assert len(_get_successors('intermediate_mod#intermediate')) == 1
+    assert scheduler['innermost_mod#innermost'] in _get_successors('intermediate_mod#intermediate')
+
+    scheduler.process( transformation=InlineTransformation() )
+
+    # check graph edges were updated correctly
+    assert len(scheduler.items) == 2
+    assert len(_get_successors('outermost_mod#outermost')) == 1
+    assert scheduler['innermost_mod#innermost'] in _get_successors('outermost_mod#outermost')

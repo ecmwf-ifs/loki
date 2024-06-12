@@ -79,6 +79,9 @@ class InlineTransformation(Transformation):
     # Ensure correct recursive inlining by traversing from the leaves
     reverse_traversal = True
 
+    # This transformation will potentially change the edges in the callgraph
+    creates_items = False
+
     def __init__(
             self, inline_constants=False, inline_elementals=True,
             inline_internals=False, inline_marked=True,
@@ -95,6 +98,8 @@ class InlineTransformation(Transformation):
         self.adjust_imports = adjust_imports
         self.external_only = external_only
         self.resolve_sequence_association = resolve_sequence_association
+        if self.inline_marked:
+            self.creates_items = True
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -211,9 +216,9 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
                     # asked sequence assoc to happen with inlining, so source for routine should be
                     # found in calls to be inlined.
                     raise ValueError(
-                        f"Cannot resolve sequence association for call to `{call.name}` " +
-                        f"to be inlined in routine `{routine.name}`, because " +
-                        f"the `CallStatement` referring to `{call.name}` does not contain " +
+                        f"Cannot resolve sequence association for call to ``{call.name}`` " +
+                        f"to be inlined in routine ``{routine.name}``, because " +
+                        f"the ``CallStatement`` referring to ``{call.name}`` does not contain " +
                         "the source code of the procedure. " +
                         "If running in batch processing mode, please recheck Scheduler configuration."
                     )
