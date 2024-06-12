@@ -503,7 +503,6 @@ class Scheduler:
 
         if transformation.creates_items:
             self._discover()
-
             self._parse_items()
 
     def callgraph(self, path, with_file_graph=False, with_legend=False):
