@@ -1520,3 +1520,41 @@ end module some_mod
     assert not extended_extended_type.imported_symbol_map
     #check for non-empty declarations
     assert all(decl.symbols for decl in extended_extended_type.declarations)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_inheritance_missing_parent(frontend, tmp_path):
+    fcode_parent = """
+module parent_mod
+    implicit none
+    type, abstract, public :: parent_type
+        integer :: val
+    end type parent_type
+end module parent_mod
+    """.strip()
+
+    fcode_derived = """
+module derived_mod
+    use parent_mod, only: parent_type
+    implicit none
+    type, public, extends(parent_type) :: derived_type
+        integer :: val2
+    end type derived_type
+contains
+    subroutine do_something(this)
+        class(derived_type), intent(inout) :: this
+        this%val = 1
+        this%val2 = 2
+    end subroutine do_something
+end module derived_mod
+    """.strip()
+
+    parent = Module.from_source(fcode_parent, frontend=frontend, xmods=[tmp_path])
+
+    # Without enrichment we obtain only DEFERRED type information (but don't fail!)
+    derived = Module.from_source(fcode_derived, frontend=frontend, xmods=[tmp_path])
+    assert derived['derived_type'].parent_type == BasicType.DEFERRED
+
+    # With enrichment we obtain the parent type from the parent module
+    derived = Module.from_source(fcode_derived, frontend=frontend, xmods=[tmp_path], definitions=[parent])
+    assert derived['derived_type'].parent_type is parent['parent_type']
