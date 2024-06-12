@@ -611,6 +611,18 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
                 # Remove import if no further symbols used, otherwise clone with new symbols
                 import_map[impt] = impt.clone(symbols=new_symbols) if new_symbols else None
 
+        # Remove explicit interfaces of inlined routines
+        for intf in routine.interfaces:
+            if not intf.spec:
+                _body = tuple(
+	                    s.type.dtype.procedure for s in intf.symbols
+	                    if s.name not in callees or s.name in not_inlined
+                )
+                if _body:
+                    import_map[intf] = intf.clone(body=_body)
+                else:
+                    import_map[intf] = None
+
         # Now move any callee imports we might need over to the caller
         new_imports = set()
         imported_module_map = CaseInsensitiveDict((im.module, im) for im in routine.imports)

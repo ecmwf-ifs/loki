@@ -65,12 +65,13 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
 
         # Add explicit device-side allocations/deallocations for hoisted temporaries
         vnames = ', '.join(v.name for v in variables)
-        pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-        pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+        if vnames:
+            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
 
-        # Add comments around standalone pragmas to avoid false attachment
-        routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-        routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+            # Add comments around standalone pragmas to avoid false attachment
+            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
     def driver_call_argument_remapping(self, routine, call, variables):
         """
