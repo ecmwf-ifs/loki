@@ -1048,7 +1048,7 @@ end module some_mod
     assert calls[2].kwarguments == (('opt1', '1'), ('val', '1'), ('t_arr', 't%arr'), ('opt2', '2'))
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for recursive prefix')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_derived_type_arguments_recursive(frontend):
     fcode = """
 module some_mod

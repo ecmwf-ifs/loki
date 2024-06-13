@@ -94,9 +94,7 @@ def test_symbol_attributes_compare():
     assert not someint.compare(somereal)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[
-  (OFP, 'OFP needs preprocessing to support contiguous keyword'
-)]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_type_declaration_attributes(frontend):
     """
     Test recognition of different declaration attributes.

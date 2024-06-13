@@ -627,6 +627,12 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     def init_arg_names(self):
         return self.symbol.init_arg_names
 
+    def _lookup_type(self, scope):
+        """
+        Helper method to look-up type information in any :data:`scope`
+        """
+        return self.symbol._lookup_type(scope)
+
     def clone(self, **kwargs):
         """
         Replicate the object with the provided overrides.

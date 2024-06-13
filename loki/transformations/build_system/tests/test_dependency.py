@@ -514,8 +514,7 @@ END FUNCTION kernel
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-                         xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_dependency_transformation_inline_call_result_var(frontend):
     """
     Test injection of suffixed kernel, accessed through inline function call.
@@ -675,8 +674,7 @@ END SUBROUTINE driver
     assert calls[0].name == 'get_b'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-                         xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_dependency_transformation_item_filter(frontend, tmp_path, config):
     """
     Test that injection is not applied to modules that have no procedures
