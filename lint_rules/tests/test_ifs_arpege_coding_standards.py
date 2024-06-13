@@ -175,6 +175,7 @@ subroutine missing_intfb_rule(a, b, dt)
         end subroutine local_intf_routine
     end interface
 #include "included_func.intfb.h"
+#include "other_inc_func.func.h"
 
     CALL IMPORTED_ROUTINE(A)
     CALL INCLUDED_ROUTINE(B)
@@ -185,6 +186,8 @@ subroutine missing_intfb_rule(a, b, dt)
     LOCAL_VAR = LOCAL_VAR + MIN(INCLUDED_FUNC(B), 1)
     LOCAL_VAR = LOCAL_VAR + MISSING_FUNC(A, B)
     LOCAL_VAR = LOCAL_VAR + DT%FUNC(A+B)
+    LOCAL_VAR = LOCAL_VAR + OTHER_INC_FUNC(A, 'STR VAL')
+    LOCAL_VAR = LOCAL_VAR + MISSING_INC_FUNC(A, 'STR VAL')
 end subroutine missing_intfb_rule
 """.strip()
     source = Sourcefile.from_source(fcode)
@@ -193,11 +196,14 @@ end subroutine missing_intfb_rule
     run_linter(source, [rules.MissingIntfbRule], handlers=[handler])
 
     expected_messages = (
-        (['[L9]', 'MissingIntfbRule', '`missing_routine`', '(l. 19)']),
-        # (['[L9]', 'MissingIntfbRule', 'MISSING_FUNC', '(l. 15)']),
+        (['[L9]', 'MissingIntfbRule', '`missing_routine`', '(l. 20)']),
+        # (['[L9]', 'MissingIntfbRule', 'MISSING_FUNC', '(l. 25)']),
+        (['[L9]', 'MissingIntfbRule', '`missing_inc_func`', '(l. 28)'])
         # NB:
-        #     - The missing function is not discovered because it is syntactically
+        #     - The `missing_func` is not discovered because it is syntactically
         #       indistinguishable from an Array subscript
+        #     - The `missing_inc_func` has a string argument and can therefore be
+        #       identified as an inline call by fparser
         #     - Calls to type-bound procedures are not reported
     )
 
