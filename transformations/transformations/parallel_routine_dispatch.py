@@ -364,7 +364,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 else:
                     # YL%A becomes YL%F_A
                     field_name = f"{'%'.join(var.name_parts[:-1])}%F_{var.name_parts[-1]}"
-                field_ptr_var = var.clone(name=field_name)
+                field_ptr_var = var.clone(name=field_name, dimensions=None)
                 region_map_derived[var.name] = [field_ptr_var, ptr_var]
         return(region_map_derived)
 
