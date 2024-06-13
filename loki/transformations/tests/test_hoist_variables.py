@@ -557,6 +557,11 @@ contains
     subroutine kernel(start, end, klon, klev, nclv, field1, field2)
         use, intrinsic :: iso_c_binding, only : c_size_t
         implicit none
+        interface
+           subroutine another_kernel(klev)
+               integer, intent(in) :: klev
+           end subroutine another_kernel
+        end interface
         integer, parameter :: jprb = selected_real_kind(13,300)
         integer, intent(in) :: nclv
         integer, intent(in) :: start, end, klon, klev
@@ -582,19 +587,38 @@ contains
              tmp5(jl, jm, :) = field1(jl)
            enddo
         enddo
+
+        call another_kernel(klev)
     end subroutine kernel
 end module kernel_mod
     """.strip()
+    fcode_mod = """
+module size_mod
+   implicit none
+   integer :: n
+end module size_mod
+""".strip()
+    fcode_another_kernel = """
+subroutine another_kernel(klev)
+    use size_mod, only : n
+    implicit none
+    integer, intent(in) :: klev
+    real :: another_tmp(klev,n)
+end subroutine another_kernel
+""".strip()
 
     (tmp_path/'driver.F90').write_text(fcode_driver)
     (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'size_mod.F90').write_text(fcode_mod)
+    (tmp_path/'another_kernel.F90').write_text(fcode_another_kernel)
 
     config = {
         'default': {
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'enable_imports': True
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -613,11 +637,12 @@ end module kernel_mod
     driver_variables = (
         'jprb', 'nlon', 'nz', 'nb', 'b',
         'field1(nlon, nb)', 'field2(nlon, nz, nb)',
-        'kernel_tmp2(:,:)', 'kernel_tmp5(:,:,:)'
+        'kernel_tmp2(:,:)', 'kernel_tmp5(:,:,:)', 'another_kernel_another_tmp(:,:)'
     )
     kernel_arguments = (
        'start', 'end', 'klon', 'klev', 'nclv',
-        'field1(klon)', 'field2(klon,klev)', 'tmp2(klon,klev)', 'tmp5(klon,nclv,klev)'
+        'field1(klon)', 'field2(klon,klev)', 'tmp2(klon,klev)', 'tmp5(klon,nclv,klev)',
+        'another_kernel_another_tmp(klev,n)'
     )
 
     # Check hoisting and declaration in driver
@@ -629,8 +654,17 @@ end module kernel_mod
     assert len(calls) == 1
     assert calls[0].arguments == (
         '1', 'nlon', 'nlon', 'nz', '2', 'field1(:,b)', 'field2(:,:,b)',
-        'kernel_tmp2', 'kernel_tmp5'
+        'kernel_tmp2', 'kernel_tmp5', 'another_kernel_another_tmp'
     )
 
     # Check that fgen works
     assert scheduler['kernel_mod#kernel'].source.to_fortran()
+
+    # Check that imports were updated
+    imports = FindNodes(ir.Import).visit(scheduler['kernel_mod#kernel'].ir.spec)
+    assert len(imports) == 2
+    assert 'n' in scheduler['kernel_mod#kernel'].ir.imported_symbols
+
+    imports = FindNodes(ir.Import).visit(scheduler['#driver'].ir.spec)
+    assert len(imports) == 2
+    assert 'n' in scheduler['#driver'].ir.imported_symbols

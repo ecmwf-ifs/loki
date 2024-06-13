@@ -738,11 +738,19 @@ implicit none
 
 contains
   subroutine add_one(a)
+    interface
+      subroutine do_something()
+      end subroutine do_something
+    end interface
     real(kind=8), intent(inout) :: a
     a = a + 1
   end subroutine add_one
 
   subroutine add_a_to_b(a, b, n)
+    interface
+      subroutine do_something_else()
+      end subroutine do_something_else
+    end interface
     real(kind=8), intent(inout) :: a(:), b(:)
     integer, intent(in) :: n
     integer :: i
@@ -785,6 +793,14 @@ end module util_mod
         assert imports[0].symbols == ('add_one',)
     else:
         assert imports[0].symbols == ('add_one', 'add_a_to_b')
+
+    if adjust_imports:
+        # check that explicit interfaces were imported
+        intfs = driver.interfaces
+        assert len(intfs) == 1
+        assert all(isinstance(s, sym.ProcedureSymbol) for s in driver.interface_symbols)
+        assert 'do_something' in driver.interface_symbols
+        assert 'do_something_else' in driver.interface_symbols
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1361,6 +1377,7 @@ def test_inline_transformation_adjust_imports(frontend):
 module bnds_module
   integer :: m
   integer :: n
+  integer :: l
 end module bnds_module
     """
 
@@ -1374,10 +1391,13 @@ end module another_module
 subroutine test_inline_outer(a, b)
   use bnds_module, only: n
   use test_inline_mod, only: test_inline_inner
+  use test_inline_another_mod, only: test_inline_another_inner
   implicit none
 
   real(kind=8), intent(inout) :: a(n), b(n)
 
+  !$loki inline
+  call test_inline_another_inner()
   !$loki inline
   call test_inline_inner(a, b)
 end subroutine test_inline_outer
@@ -1403,11 +1423,25 @@ subroutine test_inline_inner(a, b)
 end subroutine test_inline_inner
 end module test_inline_mod
     """
+
+    fcode_another_inner = """
+module test_inline_another_mod
+  implicit none
+  contains
+
+subroutine test_inline_another_inner()
+  use BNDS_module, only: n, m, l
+
+end subroutine test_inline_another_inner
+end module test_inline_another_mod
+    """
+
     _ = Module.from_source(fcode_another, frontend=frontend)
     _ = Module.from_source(fcode_module, frontend=frontend)
     inner = Module.from_source(fcode_inner, frontend=frontend)
+    another_inner = Module.from_source(fcode_another_inner, frontend=frontend)
     outer = Subroutine.from_source(
-        fcode_outer, definitions=inner, frontend=frontend
+        fcode_outer, definitions=(inner, another_inner), frontend=frontend
     )
 
     trafo = InlineTransformation(
@@ -1430,7 +1464,7 @@ end module test_inline_mod
     assert imports[0].module == 'another_module'
     assert imports[0].symbols == ('x',)
     assert imports[1].module == 'bnds_module'
-    assert 'm' in imports[1].symbols and 'n' in imports[1].symbols
+    assert all(_ in imports[1].symbols for _ in ['l', 'm', 'n'])
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

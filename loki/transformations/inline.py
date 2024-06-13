@@ -15,7 +15,7 @@ from collections import defaultdict, ChainMap
 from loki.batch import Transformation
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
-    Transformer, FindNodes, pragmas_attached, is_loki_pragma
+    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface
 )
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
@@ -199,9 +199,9 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
 
 def resolve_sequence_association_for_inlined_calls(routine, inline_internals, inline_marked):
     """
-    Resolve sequence association in calls to all member procedures (if `inline_internals = True`)
-    or in calls to procedures that have been marked with an inline pragma (if `inline_marked = True`).
-    If both `inline_internals` and `inline_marked` are `False`, no processing is done.
+    Resolve sequence association in calls to all member procedures (if ``inline_internals = True``)
+    or in calls to procedures that have been marked with an inline pragma (if ``inline_marked = True``).
+    If both ``inline_internals`` and ``inline_marked`` are ``False``, no processing is done.
     """
     call_map = {}
     with pragmas_attached(routine, node_type=CallStatement):
@@ -635,12 +635,25 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
 
                 # If we're importing the same module, check for missing symbols
                 if m := imported_module_map.get(impt.module):
-                    if not all(s in m.symbols for s in impt.symbols):
+                    _m = import_map.get(m, m)
+                    if not all(s in _m.symbols for s in impt.symbols):
                         new_symbols = tuple(s.rescope(routine) for s in impt.symbols)
-                        import_map[m] = m.clone(symbols=tuple(set(m.symbols + new_symbols)))
+                        import_map[m] = m.clone(symbols=tuple(set(_m.symbols + new_symbols)))
 
         # Finally, apply the import remapping
         routine.spec = Transformer(import_map).visit(routine.spec)
+
+        # Add missing explicit interfaces from inlined subroutines
+        new_intfs = []
+        intf_symbols = routine.interface_symbols
+        for callee in call_sets.keys():
+            for intf in callee.interfaces:
+                for s in intf.symbols:
+                    if not s in intf_symbols:
+                        new_intfs += [s.type.dtype.procedure,]
+
+        if new_intfs:
+            routine.spec.append(Interface(body=as_tuple(new_intfs)))
 
         # Add Fortran imports to the top, and C-style interface headers at the bottom
         c_imports = tuple(im for im in new_imports if im.c_import)

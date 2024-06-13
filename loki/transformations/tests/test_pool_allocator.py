@@ -1196,6 +1196,8 @@ module geom_mod
     type geom_type
        type(dim_type) :: blk_dim
     end type geom_type
+
+    integer :: n
 end module geom_mod
 """
 
@@ -1228,6 +1230,7 @@ module kernel_mod
 contains
     subroutine kernel(start, end, klon, klev, field1, field2)
         use parkind1, only : jpim, jplm
+        use geom_mod, only : n
         implicit none
         integer, parameter :: jwrb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, klon, klev
@@ -1237,6 +1240,7 @@ contains
         real(kind=jwrb) :: tmp2(klon, klev)
         integer(kind=jpim) :: tmp3(klon*2)
         logical(kind=jplm) :: tmp4(klev)
+        logical(kind=jplm) :: tmp5(klev,n)
         integer :: jk, jl
 
         do jk=1,klev
@@ -1247,6 +1251,7 @@ contains
             end do
             field1(jl) = tmp1(jl)
             tmp4(jk) = .true.
+            tmp5(jk,1:n) = .true.
         end do
 
         do jl=start,end
@@ -1344,3 +1349,6 @@ end module kernel_mod
     # check stack size allocation
     allocations = FindNodes(Allocation).visit(driver.body)
     assert len(allocations) == 1 and 'zstack(istsz,geom%blk_dim%nb)' in allocations[0].variables
+
+    # check that array size was imported to the driver
+    assert 'n' in driver.imported_symbols

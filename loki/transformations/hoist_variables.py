@@ -80,15 +80,17 @@ are provided to create derived classes for specialisation of the actual hoisting
         scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable(key=key))
 """
 
+from collections import defaultdict
+
 from loki.batch import Transformation, ProcedureItem
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls,
     SubstituteExpressions, is_dimension_constant
 )
 from loki.ir import (
-    CallStatement, Allocation, Deallocation, Transformer, FindNodes
+    CallStatement, Allocation, Deallocation, Transformer, FindNodes, Comment, Import
 )
-from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
+from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict, flatten
 
 from loki.transformations.utilities import single_variable_declaration
 
@@ -139,9 +141,14 @@ class HoistVariablesAnalysis(Transformation):
         if role != 'driver':
             variables = self.find_variables(routine)
             item.trafo_data[self._key]["to_hoist"] = variables
+            dims = flatten([getattr(v, 'shape', []) for v in variables])
+            import_map = routine.import_map
+            item.trafo_data[self._key]["imported_sizes"] = [(d.type.module, d) for d in dims
+                                                            if str(d) in import_map]
             item.trafo_data[self._key]["hoist_variables"] = [var.clone(name=f'{routine.name}_{var.name}')
                                                              for var in variables]
         else:
+            item.trafo_data[self._key]["imported_sizes"] = []
             item.trafo_data[self._key]["to_hoist"] = []
             item.trafo_data[self._key]["hoist_variables"] = []
 
@@ -166,6 +173,7 @@ class HoistVariablesAnalysis(Transformation):
             item.trafo_data[self._key]["hoist_variables"].extend(hoist_variables)
             item.trafo_data[self._key]["hoist_variables"] = list(dict.fromkeys(
                 item.trafo_data[self._key]["hoist_variables"]))
+            item.trafo_data[self._key]["imported_sizes"] += child.trafo_data[self._key]["imported_sizes"]
 
     def find_variables(self, routine):
         """
@@ -272,6 +280,25 @@ class HoistVariablesTransformation(Transformation):
                     self.kernel_inline_call_argument_remapping(
                         routine=routine, call=call, variables=hoisted_variables
                     )
+
+        # Add imports used to define hoisted
+        missing_imports_map = defaultdict(set)
+        import_map = routine.import_map
+        for module, var in item.trafo_data[self._key]["imported_sizes"]:
+            if not var.name in import_map:
+                missing_imports_map[module] |= {var}
+
+        if missing_imports_map:
+            routine.spec.prepend(Comment(text=(
+                '![Loki::HoistVariablesTransformation] ---------------------------------------'
+            )))
+            for module, variables in missing_imports_map.items():
+                routine.spec.prepend(Import(module=module.name, symbols=variables))
+
+            routine.spec.prepend(Comment(text=(
+                '![Loki::HoistVariablesTransformation] '
+                '-------- Added hoisted temporary size imports -------------------------------'
+            )))
 
         routine.body = Transformer(call_map).visit(routine.body)
 

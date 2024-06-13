@@ -731,10 +731,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     stack_size, stack_storage)
             allocations += allocation
 
-            # Store type information of temporary allocation
-            if item and (_kind := arr.type.kind):
-                if _kind in routine.imported_symbols:
-                    item.trafo_data[self._key]['kind_imports'][_kind] = routine.import_map[_kind.name].module.lower()
+            # Store type and size information of temporary allocation
+            if item:
+                if (kind := arr.type.kind):
+                    if kind in routine.imported_symbols:
+                        item.trafo_data[self._key]['kind_imports'][kind] = routine.import_map[kind.name].module.lower()
+                dims = [d for d in arr.shape if d in routine.imported_symbols]
+                for d in dims:
+                    item.trafo_data[self._key]['kind_imports'][d] = routine.import_map[d.name].module.lower()
 
         routine.spec.append(declarations)
         routine.body.prepend(allocations)
