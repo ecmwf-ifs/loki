@@ -513,13 +513,20 @@ class ParallelRoutineDispatchTransformation(Transformation):
         new_dimensions += (self.jblk,)
         return new_arg.clone(dimensions=new_dimensions)
 
+    def process_loops(self, routine, region, map_routine, map_region, scc):
+        map_new_loops = {}
+        loops = [loop for loop in FindNodes(ir.Loop).visit(region)]
+        for loop in loops:
+            map_new_loops[loop] = loop #call scc transformation here
+        return map_new_loops
+
     def process_call(self, routine, region, map_routine, map_region, scc):
         region_map_temp = map_region["map_temp"]
         region_map_derived = map_region["map_derived"]
         c_imports = map_routine['c_imports']
         cpg_bnds = map_routine['cpg_bnds']
         lcpg_bnds = map_routine['lcpg_bnds']
-        new_calls = []
+        map_new_calls = {}
         calls = [call for call in FindNodes(ir.CallStatement).visit(region)]
         for call in calls:
             if call.name!="DR_HOOK":
@@ -543,11 +550,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
                         new_arguments += [arg]
                 if scc:
                     new_kwarguments = call.kwarguments + (("YDSTACK", routine.variable_map["YLSTACK"]),)
-                    new_calls += [
-                        call.clone(
+                    new_call = call.clone(
                             name=sym.ProcedureSymbol(name=f"{call.name.name}_OPENACC"), 
                             arguments=as_tuple(new_arguments), 
-                            kwarguments=new_kwarguments)]
+                            kwarguments=new_kwarguments)
+                    map_new_calls[call] = new_call
                     c_import_name = f"{call.name.name.lower()}.intfb.h"
                     if c_import_name not in c_imports:
                         print(f'{map_routine["c_imports"]=}')
@@ -560,9 +567,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
                             map_routine["imports_mapper"][c_import] = (c_import,new_c_import)
         
                 else:
-                    new_calls += [call.clone(arguments=as_tuple(new_arguments))]
+                    new_call = call.clone(arguments=as_tuple(new_arguments))
+                    map_new_calls[call] = new_call
 
-        return new_calls
+        return map_new_calls
 
     def create_compute_openmp(self, routine, region, region_name, map_routine, map_region):
         lcpg_bnds = map_routine['lcpg_bnds']
@@ -584,10 +592,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         )
         #TODO : musn't be call but the body of the region here?? 
 
-        new_calls = self.process_call(routine, region, map_routine, map_region, scc=False)
-        new_calls = tuple(new_calls)
+        map_new_calls = self.process_call(routine, region, map_routine, map_region, scc=False)
+        map_new_loops = self.process_loops(routine, region, map_routine, map_region, scc=False)
+        map_new_region = map_new_calls | map_new_loops
+        new_region_body = Transformer(map_new_region).visit(region.body)
+#        new_calls = tuple(new_calls)
         
-        loop_body = (update,) + new_calls
+        loop_body = (update,) + new_region_body
         loop = ir.Loop(variable=self.jblk, bounds=sym.LoopRange((1,routine.resolve_typebound_var(f"{cpg_opts}%KGPBLKS"))), body=loop_body)
         dr_hook_calls = self.create_dr_hook_calls(
             routine, f"{routine.name}:{region_name}:COMPUTE",
@@ -623,9 +634,16 @@ class ParallelRoutineDispatchTransformation(Transformation):
             lhs=routine.resolve_typebound_var("YLSTACK%U"),
             rhs=sym.InlineCall(sym.Variable(name='stack_u'), parameters=stack_param),
         )
-        new_calls = self.process_call(routine, region, map_routine, map_region, scc=True)
+        #new_calls = self.process_call(routine, region, map_routine, map_region, scc=True)
 
-        loop_jlon_body = [kidia, kfdia, ylstack_l, ylstack_u] + new_calls
+        #TODO save the new_region_body in order to apply Transformer once instead of twice    
+
+        map_new_calls = self.process_call(routine, region, map_routine, map_region, scc=True)
+        map_new_loops = self.process_loops(routine, region, map_routine, map_region, scc=True)
+        map_new_region = map_new_calls | map_new_loops
+        new_region_body = Transformer(map_new_region).visit(region.body)
+
+        loop_jlon_body = [kidia, kfdia, ylstack_l, ylstack_u] + list(new_region_body)
         min_rhs = parse_expr("YDCPG_OPTS%KGPCOMP - (JBLK - 1) * YDCPG_OPTS%KLON")
         loop_jlon_bounds = (1,
             sym.InlineCall(sym.DeferredTypeSymbol(name="MIN"),

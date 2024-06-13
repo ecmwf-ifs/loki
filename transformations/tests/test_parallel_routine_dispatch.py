@@ -517,7 +517,7 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
     assert fgen(loop.bounds) ==  '1,YDCPG_OPTS%KGPBLKS'
     assert fgen(loop.variable) ==  'JBLK'
     assert fgen(loop.body[0]) == 'CALL YLCPG_BNDS%UPDATE(JBLK)'    
-    call = loop.body[1]
+    call = loop.body[2]
     assert fgen(call.name) == 'CPPHINP'
     for arg in call.arguments:
         assert fgen(arg) in test_call_var
@@ -591,7 +591,7 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
     loop_jlon_body = loop_jlon.body
     for node in loop_jlon_body[:4]:
         assert fgen(node) in test_compute
-    call = loop_jlon_body[4]
+    call = loop_jlon_body[5]
     assert call.name == 'CPPHINP_OPENACC'
     for arg in call.arguments:
         assert fgen(arg) in test_call_var
@@ -682,7 +682,7 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
     loop_jlon_body = loop_jlon.body
     for node in loop_jlon_body[:4]:
         assert fgen(node) in test_compute
-    call = loop_jlon_body[4]
+    call = loop_jlon_body[5]
     assert call.name == 'CPPHINP_OPENACC'
     for arg in call.arguments:
         assert fgen(arg) in test_call_var
