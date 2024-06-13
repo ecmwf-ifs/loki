@@ -28,7 +28,7 @@ from loki.transformations.utilities import (
 
 __all__ = [
     'SCCDevectorTransformation', 'SCCRevectorTransformation',
-    'SCCDemoteTransformation'
+    'SCCDemoteTransformation', 'wrap_vector_section'
 ]
 
 
@@ -249,6 +249,33 @@ class SCCDevectorTransformation(Transformation):
         routine.body = Transformer(driver_loop_map).visit(routine.body)
 
 
+def wrap_vector_section(section, routine, horizontal):
+    """
+    Wrap a section of nodes in a vector-level loop across the horizontal.
+
+    Parameters
+    ----------
+    section : tuple of :any:`Node`
+        A section of nodes to be wrapped in a vector-level loop
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    horizontal: :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    """
+    bounds = get_loop_bounds(routine, dimension=horizontal)
+
+    # Create a single loop around the horizontal from a given body
+    index = get_integer_variable(routine, horizontal.index)
+    bounds = sym.LoopRange(bounds)
+
+    # Ensure we clone all body nodes, to avoid recursion issues
+    vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
+
+    # Add a comment before and after the pragma-annotated loop to ensure
+    # we do not overlap with neighbouring pragmas
+    return (ir.Comment(''), vector_loop, ir.Comment(''))
+
+
 class SCCRevectorTransformation(Transformation):
     """
     A transformation to wrap thread-parallel IR sections within a horizontal loop.
@@ -264,33 +291,6 @@ class SCCRevectorTransformation(Transformation):
     def __init__(self, horizontal):
         self.horizontal = horizontal
 
-    @classmethod
-    def wrap_vector_section(cls, section, routine, horizontal):
-        """
-        Wrap a section of nodes in a vector-level loop across the horizontal.
-
-        Parameters
-        ----------
-        section : tuple of :any:`Node`
-            A section of nodes to be wrapped in a vector-level loop
-        routine : :any:`Subroutine`
-            The subroutine in the vector loops should be removed.
-        horizontal: :any:`Dimension`
-            The dimension specifying the horizontal vector dimension
-        """
-        bounds = get_loop_bounds(routine, dimension=horizontal)
-
-        # Create a single loop around the horizontal from a given body
-        index = get_integer_variable(routine, horizontal.index)
-        bounds = sym.LoopRange(bounds)
-
-        # Ensure we clone all body nodes, to avoid recursion issues
-        vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
-
-        # Add a comment before and after the pragma-annotated loop to ensure
-        # we do not overlap with neighbouring pragmas
-        return (ir.Comment(''), vector_loop, ir.Comment(''))
-
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply SCCRevector utilities to a :any:`Subroutine`.
@@ -302,7 +302,7 @@ class SCCRevectorTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
-        mapper = {s.body: self.wrap_vector_section(s.body, routine, self.horizontal)
+        mapper = {s.body: wrap_vector_section(s.body, routine, self.horizontal)
                   for s in FindNodes(ir.Section).visit(routine.body)
                   if s.label == 'vector_section'}
         routine.body = NestedTransformer(mapper).visit(routine.body)
