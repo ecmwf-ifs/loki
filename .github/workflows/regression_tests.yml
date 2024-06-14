@@ -33,7 +33,7 @@ jobs:
         with:
           repository: ecmwf-ifs/dwarf-p-cloudsc
           path: cloudsc
-          ref: develop
+          ref: nams-cloudsc-low-level-GPU
 
       - name: Clone ECWAM
         uses: actions/checkout@v4
