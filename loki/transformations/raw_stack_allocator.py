@@ -88,7 +88,7 @@ class TemporariesRawStackTransformation(Transformation):
     def __init__(
             self, block_dim, horizontal, stack_name='STACK',
             local_int_var_name_pattern='JD_{name}', directive=None,
-            key=None, driver_horizontal=None, **kwargs
+            driver_horizontal=None, **kwargs
     ):
         super().__init__(**kwargs)
         self.block_dim = block_dim
@@ -97,9 +97,6 @@ class TemporariesRawStackTransformation(Transformation):
         self.local_int_var_name_pattern = local_int_var_name_pattern
         self.directive = directive
         self.driver_horizontal = driver_horizontal
-
-        if key:
-            self._key = key
 
     @property
     def int_type(self):
@@ -151,7 +148,7 @@ class TemporariesRawStackTransformation(Transformation):
 
         Parameters
         ----------
-        routine : :any:'Subroutine
+        routine : :any:`Subroutine`
             The routine in which to transform call statements
         stack_arg_dict : dict
             dict that maps dtype and kind to the sets of stack size variables
@@ -160,7 +157,7 @@ class TemporariesRawStackTransformation(Transformation):
             The items corresponding to successor routines called from :data:`routine`
         """
         successor_map = {
-            successor.ir.name.lower(): successor
+            successor.local_name: successor
             for successor in successors if isinstance(successor, ProcedureItem)
         }
         call_map = {}
@@ -205,7 +202,7 @@ class TemporariesRawStackTransformation(Transformation):
 
         Parameters
         ----------
-        routine : :any:'Subroutine
+        routine : :any:`Subroutine`
             The driver subroutine to get the stack_variables
         stack_dict : dict
             dict that maps dtype and kind to an expression for the required stack size
@@ -385,7 +382,7 @@ class TemporariesRawStackTransformation(Transformation):
 
         Parameters
         ----------
-        routine : :any:'Subroutine
+        routine : :any:`Subroutine`
             Subroutine object to apply transformation to
 
         Returns
