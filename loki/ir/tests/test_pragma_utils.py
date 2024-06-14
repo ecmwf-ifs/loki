@@ -3,7 +3,7 @@ import pytest
 
 from loki import Module, Subroutine, FindNodes, flatten, pprint, fgen
 from loki.frontend import available_frontends
-from loki.ir import Pragma, Loop, VariableDeclaration, PragmaRegion
+from loki.ir import Comment, Pragma, Loop, VariableDeclaration, PragmaRegion
 from loki.ir.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
     pragmas_attached, pragma_regions_attached
@@ -640,3 +640,42 @@ end subroutine test_pragmas_map
     assert 'map( to: a )' in fgen_code
     assert 'map( b )' in fgen_code
     assert 'map( tofrom: c )' in fgen_code
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pragmas_mixed_key_value_attrs(frontend):
+    """
+    Test correct handling of pragmas that contain attributes with and without
+    values in parentheses (reported in #317).
+    """
+    fcode = """
+SUBROUTINE TEST()
+IMPLICIT NONE
+END SUBROUTINE TEST
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    pragma = Pragma(keyword='acc', content=f'kernels num_gangs ( 1 ) async wait')
+    assert get_pragma_parameters(pragma, only_loki_pragmas=False) == {
+        'kernels': None,
+        'num_gangs': ' 1 ',
+        'async': None,
+        'wait': None
+    }
+
+    pragma = Pragma(keyword='acc', content=f'seq routine ({routine.name})')
+    assert get_pragma_parameters(pragma, only_loki_pragmas=False) == {
+        'seq': None,
+        'routine': routine.name
+    }
+
+    pragma = Pragma(keyword='acc', content=f'routine ({routine.name}) seq')
+    assert get_pragma_parameters(pragma, only_loki_pragmas=False) == {
+        'seq': None,
+        'routine': routine.name
+    }
+
+    routine.spec.prepend(pragma)
+    fgen_code = routine.to_fortran()
+    assert f'!$acc routine( {routine.name} ) seq' in fgen_code
