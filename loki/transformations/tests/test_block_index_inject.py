@@ -397,8 +397,8 @@ def test_simple_lower_loop(blocking, frontend, block_dim_arg, recurse_to_kernels
 
     fcode_driver = f"""
 subroutine driver(nlon,nlev,nb,var)
-  implicit none
   use kernel_mod, only: kernel
+  implicit none
   integer, intent(in) :: nlon,nlev,nb
   real, intent(inout) :: var(nlon,nlev,nb)
   real :: some_var(nlon,nlev,nb)
@@ -423,8 +423,8 @@ module kernel_mod
 implicit none
 contains
 subroutine kernel(nlon,nlev,var,another_var,icend,lstart,lend{', ibl, nb' if block_dim_arg else ''})
-  implicit none
   use compute_mod, only: compute
+  implicit none
   integer, intent(in) :: nlon,nlev,icend,lstart,lend
   real, intent(inout) :: var(nlon,nlev)
   real, intent(inout) :: another_var(nlon, nlev)
@@ -546,8 +546,8 @@ def test_lower_loop(blocking, frontend):
 
     fcode_driver = """
 subroutine driver(nlon,nlev,nb,var)
-  implicit none
   use kernel_mod, only: kernel
+  implicit none
   integer, intent(in) :: nlon,nlev,nb
   real, intent(inout) :: var(nlon,nlev,nb)
   real :: some_var(nlon,nlev,nb)
@@ -564,8 +564,8 @@ module kernel_mod
 implicit none
 contains
 subroutine kernel(nlon,nlev,var,another_var)
-  implicit none
   use compute_mod, only: compute
+  implicit none
   integer, intent(in) :: nlon,nlev
   real, intent(inout) :: var(nlon,nlev)
   real, intent(inout) :: another_var(nlon, nlev)

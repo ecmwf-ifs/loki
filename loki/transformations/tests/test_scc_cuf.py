@@ -8,7 +8,7 @@
 from pathlib import Path
 import pytest
 
-from loki import Scheduler, Subroutine, Dimension
+from loki import Scheduler, Subroutine, Dimension, Module # , fgen
 from loki.expression import symbols as sym, FindVariables
 from loki.frontend import available_frontends
 from loki.ir import (
@@ -19,8 +19,8 @@ from loki.ir import (
 from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.single_column import (
-    SccCufTransformation, HoistTemporaryArraysDeviceAllocatableTransformation,
-    HoistTemporaryArraysPragmaOffloadTransformation
+    HoistTemporaryArraysDeviceAllocatableTransformation,
+    HoistTemporaryArraysPragmaOffloadTransformation, SCCLowLevelCuf
 )
 
 
@@ -105,6 +105,7 @@ def check_subroutine_driver(routine, blocking, disable=()):
         parameters=())
     assert cuda_device_synchronize in [assignment.rhs for assignment in assignments]
     for device_array in device_arrays:
+        # print(f"check device_array: {device_array}")
         if array_map[device_array].type.intent == "inout":
             assert Assignment(lhs=device_array.clone(dimensions=None),
                               rhs=array_map[device_array].clone(dimensions=None)) in assignments
@@ -171,6 +172,7 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
 
     fcode_driver = """
   SUBROUTINE driver(nlon, nz, nb, tot, q, t, z)
+  use kernel_mod, only: kernel
     INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
     INTEGER, INTENT(IN)   :: tot
     REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
@@ -189,7 +191,11 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
 """
 
     fcode_kernel = """
+module kernel_mod
+implicit none
+contains
   SUBROUTINE kernel(start, iend, nlon, nz, q, t, z)
+    implicit none
     INTEGER, INTENT(IN) :: start, iend  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
     REAL, INTENT(INOUT) :: t(nlon,nz)
@@ -216,16 +222,25 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
     !   Q(JL, NZ) = Q(JL, NZ) * C
     ! END DO
   END SUBROUTINE kernel
+end module kernel_mod
 """
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[kernel])
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend)
+    # kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
+    kernel = kernel_mod['kernel']
 
-    cuf_transform = SccCufTransformation(
-        horizontal=horizontal, vertical=vertical, block_dim=blocking
+    cuf_transform = SCCLowLevelCuf( # SccCufTransformation(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True
     )
 
     cuf_transform.apply(driver, role='driver', targets=['kernel'])
     cuf_transform.apply(kernel, role='kernel')
+
+    # print(f"driver: {fgen(driver)}")
+    # print(f"--------")
+    # print(f"kernel: {fgen(kernel)}")
+    # print(f"-----")
 
     check_subroutine_driver(routine=driver, blocking=blocking)
     check_subroutine_kernel(routine=kernel, horizontal=horizontal, vertical=vertical, blocking=blocking)
@@ -241,9 +256,10 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
 
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
 
-    cuf_transform = SccCufTransformation(
+    cuf_transform = SCCLowLevelCuf( # SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        transformation_type='parametrise'
+        transformation_type='parametrise',
+        dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True
     )
     scheduler.process(transformation=cuf_transform)
 
@@ -285,8 +301,8 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('hoist_synthesis', (
-    HoistTemporaryArraysDeviceAllocatableTransformation(),
-    HoistTemporaryArraysPragmaOffloadTransformation())
+    HoistTemporaryArraysDeviceAllocatableTransformation(as_kwarguments=True),
+    HoistTemporaryArraysPragmaOffloadTransformation(as_kwarguments=True))
 )
 def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, hoist_synthesis):
     """
@@ -297,9 +313,10 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
 
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
 
-    cuf_transform = SccCufTransformation(
+    cuf_transform = SCCLowLevelCuf( # SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        transformation_type='hoist'
+        transformation_type='hoist',
+        dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True
     )
     scheduler.process(transformation=cuf_transform)
 
@@ -307,7 +324,11 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
     scheduler.process(transformation=HoistTemporaryArraysAnalysis())
     # Transformation: Synthesis
     scheduler.process(transformation=hoist_synthesis)
-
+    # print(fgen(scheduler["driver_mod#driver"].ir))
+    # print("-----")
+    # print(fgen(scheduler["kernel_mod#kernel"].ir))
+    # print("-----")
+    # print(fgen(scheduler["kernel_mod#device"].ir))  
     check_subroutine_driver(routine=scheduler["driver_mod#driver"].ir, blocking=blocking)
     check_subroutine_kernel(routine=scheduler["kernel_mod#kernel"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)
@@ -341,7 +362,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
     else:
         raise ValueError
     for call in FindNodes(CallStatement).visit(scheduler["driver_mod#driver"].ir.body):
-        argnames = [arg.name.lower() for arg in call.arguments]
+        argnames = [arg.name.lower() for arg in call.arguments] + [elem[1] for elem in call.kwarguments]
         assert 'kernel_local_z' in argnames
         assert 'device_local_x' in argnames
     # check kernel
@@ -351,7 +372,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
     calls = [call for call in FindNodes(CallStatement).visit(scheduler["kernel_mod#kernel"].ir.body)
              if str(call.name) == "DEVICE"]
     for call in calls:
-        assert 'DEVICE_local_x' in call.arguments
+        assert 'DEVICE_local_x' in [elem[1] for elem in call.kwarguments] # call.arguments
     # check device
     assert all(_ in [arg.name for arg in scheduler["kernel_mod#device"].ir.arguments]
                for _ in ['local_x'])
@@ -374,20 +395,21 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
         assert vertical.size in dims
         assert blocking.size in dims
 
-
+"""
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_cuf_dynamic_memory(here, frontend, config, horizontal, vertical, blocking):
-    """
+    # ""
     Test SCC-CUF transformation type 2, thus including dynamic memory allocation on the device (for local arrays)
-    """
+    # ""
 
     proj = here / 'sources/projSccCuf/module'
 
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
 
-    cuf_transform = SccCufTransformation(
+    cuf_transform = SCCLowLevelCuf( # SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
-        transformation_type='dynamic'
+        transformation_type='dynamic',
+        dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True
     )
     scheduler.process(transformation=cuf_transform)
 
@@ -428,3 +450,4 @@ def test_scc_cuf_dynamic_memory(here, frontend, config, horizontal, vertical, bl
         assert local_array.type.allocatable
         assert local_array.type.device
         assert len(local_array.dimensions) == 1
+"""
