@@ -813,11 +813,7 @@ class TemporariesRawStackTransformation(Transformation):
         stack_name = self.type_name_dict[dtype][self.role] + '_' + self._get_kind_name(kind) + '_' + self.stack_name
         stack_name = stack_name.replace('__', '_')
 
-        if self.role == 'kernel':
-            stack_intent = 'INOUT'
-
-        if self.role == 'driver':
-            stack_intent = None
+        stack_intent = 'INOUT' if self.role == 'kernel' else None
 
         stack_type = SymbolAttributes(dtype = dtype,
                                       kind = kind,
