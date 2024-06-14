@@ -27,7 +27,7 @@ from loki.frontend.util import OFP, sanitize_ir
 from loki import ir
 from loki.ir import (
     GenericVisitor, attach_pragmas, process_dimension_pragmas,
-    detach_pragmas, pragmas_attached
+    detach_pragmas, pragmas_attached, FindNodes
 )
 import loki.expression.symbols as sym
 from loki.expression.operations import (
@@ -37,6 +37,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
 from loki.tools import (
     as_tuple, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
+    LazyNodeLookup
 )
 from loki.logging import debug, info, warning, error
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
@@ -457,6 +458,45 @@ class OFP2IR(GenericVisitor):
     def visit_assignment(self, o, **kwargs):
         lhs = self.visit(o.find('target'), **kwargs)
         rhs = self.visit(o.find('value'), **kwargs)
+
+        # Special-case: Identify statement functions using our internal symbol table
+        symbol_attrs = kwargs['scope'].symbol_attrs
+        if isinstance(lhs, sym.Array) and symbol_attrs.lookup(lhs.name) is not None:
+            # If this looks like an array but we have an explicit scalar declaration then
+            # this might in fact be a statement function.
+            # To avoid the costly lookup for declarations on each array assignment, we run through
+            # some sanity checks instead that allow us to bail out early in most cases
+            lhs_type = lhs.type
+            could_be_a_statement_func = not (
+                lhs_type.shape or lhs_type.length  # Declaration with length or dimensions
+                or lhs.parent  # Derived type member (we might lack information from enrichment)
+                or lhs_type.intent or lhs_type.imported  # Dummy argument or imported from module
+                or isinstance(lhs.scope, ir.Associate)  # Symbol stems from an associate
+            )
+
+            if could_be_a_statement_func:
+                def _create_stmt_func_type(stmt_func):
+                    name = str(stmt_func.variable)
+                    procedure = LazyNodeLookup(
+                        anchor=kwargs['scope'],
+                        query=lambda x: [
+                            f for f in FindNodes(ir.StatementFunction).visit(x.spec) if f.variable == name
+                        ][0]
+                    )
+                    proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
+                    return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
+
+                f_symbol = sym.ProcedureSymbol(name=lhs.name, scope=kwargs['scope'])
+                stmt_func = ir.StatementFunction(
+                    variable=f_symbol, arguments=lhs.dimensions,
+                    rhs=rhs, return_type=symbol_attrs[lhs.name],
+                    label=kwargs.get('label'), source=kwargs.get('source')
+                )
+
+                # Update the type in the local scope and return stmt func node
+                symbol_attrs[str(stmt_func.variable)] = _create_stmt_func_type(stmt_func)
+                return stmt_func
+
         return ir.Assignment(lhs=lhs, rhs=rhs, label=kwargs['label'], source=kwargs['source'])
 
     def visit_pointer_assignment(self, o, **kwargs):
@@ -943,19 +983,19 @@ class OFP2IR(GenericVisitor):
 
                         length = None
                         kind = None
-                        if tk1 in ('', 'len'):
+                        if tk1.lower() in ('', 'len'):
                             # The first child _should_ be the length selector
                             length = self.visit(o[0], **kwargs)
 
-                            if tk2 == 'kind' or selector_idx > 2:
+                            if tk2.lower() == 'kind' or selector_idx > 2:
                                 # There is another value, presumably the kind specifier, which
                                 # should be right before the char-selector
                                 kind = self.visit(o[selector_idx-1], **kwargs)
-                        elif tk1 == 'kind':
+                        elif tk1.lower() == 'kind':
                             # The first child _should_ be the kind selector
                             kind = self.visit(o[0], **kwargs)
 
-                            if tk2 == 'len':
+                            if tk2.lower() == 'len':
                                 # The second child should then be the length selector
                                 assert selector_idx > 2
                                 length = self.visit(o[1], **kwargs)
@@ -1125,7 +1165,7 @@ class OFP2IR(GenericVisitor):
         name = f'OPERATOR({o.attrib["definedOp"]})'
         return sym.Variable(name=name)
 
-    def _create_Subroutine_object(self, o, scope):
+    def _create_Subroutine_object(self, o, scope, prefix=None):
         """Helper method to instantiate a Subroutine object"""
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         assert o.tag in ('subroutine', 'function')
@@ -1165,7 +1205,12 @@ class OFP2IR(GenericVisitor):
             if suffix.attrib['result'] == 'result':
                 result_name = header_ast.find('name').attrib['name']
 
-        prefix = [a.attrib['spec'].upper() for a in header_ast.findall('t-prefix-spec')] or None
+        if prefix:
+            prefix = [a.attrib['spec'].upper() for a in prefix if a.tag == 't-prefix-spec']
+        else:
+            prefix = []
+        if header_ast:
+            prefix += [a.attrib['spec'].upper() for a in header_ast.findall('t-prefix-spec')]
 
         if routine is None:
             routine = Subroutine(
@@ -1276,10 +1321,14 @@ class OFP2IR(GenericVisitor):
             # subroutine objects using the weakref pointers stored in the symbol table.
             # I know, it's not pretty but alternatively we could hand down this array as part of
             # kwargs but that feels like carrying around a lot of bulk, too.
-            contains = [
-                self._create_Subroutine_object(member_ast, kwargs['scope'])
-                for member_ast in contains_ast if member_ast.tag in ('subroutine', 'function')
-            ]
+            contains = []
+            prefix = []
+            for member_ast in contains_ast:
+                if member_ast.tag in ('subroutine', 'function'):
+                    contains += [self._create_Subroutine_object(member_ast, kwargs['scope'], prefix)]
+                    prefix = []
+                else:
+                    prefix += [member_ast]
 
         # Parse the spec
         spec = self.visit(spec_ast, **kwargs)
@@ -1567,10 +1616,14 @@ class OFP2IR(GenericVisitor):
         return tuple(self.visit(c, **kwargs) for c in o.findall('name'))
 
     def visit_name(self, o, **kwargs):
+        scope = kwargs.get('scope', None)
 
         if o.find('generic-name-list-part') is not None:
             # From an external-stmt or use-stmt
-            return sym.Variable(name=o.attrib['id'])
+            name = o.attrib['id']
+            if scope:
+                scope = scope.get_symbol_scope(name)
+            return sym.Variable(name=name, scope=scope)
 
         if o.find('generic_spec') is not None:
             return self.visit(o.find('generic_spec'), **kwargs)
@@ -1582,6 +1635,10 @@ class OFP2IR(GenericVisitor):
             name, parent = self.visit(part_ref, **kwargs), name
             if parent:
                 name = name.clone(name=f'{parent.name}%{name.name}', parent=parent)
+                scope = parent.scope
+            if scope:
+                scope = scope.get_symbol_scope(name.name)
+                name = name.clone(scope=scope)
 
             if part_ref.attrib['hasSectionSubscriptList'] == 'true':
                 if i < num_part_ref - 1 or o.attrib['type'] == 'variable':
@@ -1775,7 +1832,6 @@ class OFP2IR(GenericVisitor):
         scope.symbol_attrs.update({s.name: s.type.clone(**type_attrs) for s in symbols})
         symbols = tuple(s.rescope(scope=scope) for s in symbols)
         return ir.ProcedureDeclaration(symbols=symbols, interface=iface, source=source)
-
 
     def create_typedef_variable_declaration(self, t, comps, attr=None, scope=None, source=None):
         """

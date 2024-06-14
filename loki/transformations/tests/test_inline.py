@@ -87,6 +87,9 @@ end subroutine transform_inline_elemental_functions
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
     inline_elemental_functions(routine)
 
+    # Make sure there are no more inline calls in the routine body
+    assert not FindInlineCalls().visit(routine.body)
+
     # Verify correct scope of inlined elements
     assert all(v.scope is routine for v in FindVariables().visit(routine.body))
 

@@ -2983,22 +2983,31 @@ class FParser2IR(GenericVisitor):
 
         # Special-case: Identify statement functions using our internal symbol table
         symbol_attrs = kwargs['scope'].symbol_attrs
-        if isinstance(lhs, sym.Array) and not lhs.parent and lhs.name in symbol_attrs:
+        if isinstance(lhs, sym.Array) and symbol_attrs.lookup(lhs.name) is not None:
+            # If this looks like an array but we have an explicit scalar declaration then
+            # this might in fact be a statement function.
+            # To avoid the costly lookup for declarations on each array assignment, we run through
+            # some sanity checks instead that allow us to bail out early in most cases
+            lhs_type = lhs.type
+            could_be_a_statement_func = not (
+                lhs_type.shape or lhs_type.length  # Declaration with length or dimensions
+                or lhs.parent  # Derived type member (we might lack information from enrichment)
+                or lhs_type.intent or lhs_type.imported  # Dummy argument or imported from module
+                or isinstance(lhs.scope, ir.Associate)  # Symbol stems from an associate
+            )
 
-            def _create_stmt_func_type(stmt_func):
-                name = str(stmt_func.variable)
-                procedure = LazyNodeLookup(
-                    anchor=kwargs['scope'],
-                    query=lambda x: [
-                        f for f in FindNodes(ir.StatementFunction).visit(x.spec) if f.variable == name
-                    ][0]
-                )
-                proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
-                return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
+            if could_be_a_statement_func:
+                def _create_stmt_func_type(stmt_func):
+                    name = str(stmt_func.variable)
+                    procedure = LazyNodeLookup(
+                        anchor=kwargs['scope'],
+                        query=lambda x: [
+                            f for f in FindNodes(ir.StatementFunction).visit(x.spec) if f.variable == name
+                        ][0]
+                    )
+                    proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
+                    return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
 
-            if not lhs.type.shape and not lhs.type.intent:
-                # If the LHS array access is actually declared as a scalar,
-                # we are actually dealing with a statement function!
                 f_symbol = sym.ProcedureSymbol(name=lhs.name, scope=kwargs['scope'])
                 stmt_func = ir.StatementFunction(
                     variable=f_symbol, arguments=lhs.dimensions,
