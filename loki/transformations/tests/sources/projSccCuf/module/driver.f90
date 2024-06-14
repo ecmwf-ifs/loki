@@ -19,12 +19,12 @@ CONTAINS
           call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
         end do
 
-        do b=1,iend,nlon
+       do b=1,iend,nlon
           ibl = (b-1)/nlon+1
           icend = MIN(nlon,tot-b+1)
           call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
           call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
-        end do
+       end do
 
     END SUBROUTINE driver
 END MODULE driver_mod
