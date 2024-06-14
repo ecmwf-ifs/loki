@@ -230,7 +230,7 @@ module kernel3_mod
       zde3 = pzz
       zde3(1:nlon,1:klev) = pzz
 
-!$acc iend data
+!$acc end data
 
   end subroutine kernel3
 end module kernel3_mod
@@ -463,62 +463,62 @@ end module kernel3_mod
 
     assignments = FindNodes(Assignment).visit(kernel3.body)
 
-    assert fgen(assignments[0].lhs).lower() == 'jd_zde1'
-    assert fgen(assignments[0].rhs).lower() == '0'
+    assert assignments[0].lhs == 'jd_zde1'
+    assert assignments[0].rhs == '0'
 
-    assert fgen(assignments[1].lhs).lower() == 'jd_zde2'
-    assert fgen(assignments[1].rhs).lower() == 'jd_zde1 + ydphy%n_spband + klev*ydphy%n_spband'
+    assert assignments[1].lhs == 'jd_zde2'
+    assert assignments[1].rhs == 'jd_zde1 + ydphy%n_spband + klev*ydphy%n_spband'
 
-    assert fgen(assignments[2].lhs).lower() == 'jd_zde3'
-    assert fgen(assignments[2].rhs).lower() == 'jd_zde2 + klev*ydphy%n_spband'
+    assert assignments[2].lhs == 'jd_zde3'
+    assert assignments[2].rhs == 'jd_zde2 + klev*ydphy%n_spband'
 
     if frontend == OMNI:
-        assert fgen(assignments[3].lhs).lower() == 'j_p_selected_real_kind_13_300_stack_used'
-        assert fgen(assignments[3].rhs).lower() == 'jd_zde3 + klev'
+        assert assignments[3].lhs == 'j_p_selected_real_kind_13_300_stack_used'
+        assert assignments[3].rhs == 'jd_zde3 + klev'
 
-        assert fgen(assignments[4].lhs).lower() == 'p_selected_real_kind_13_300_stack(:, jd_zde1 + jb - klev + jb*klev)'
-        assert fgen(assignments[4].rhs).lower() == '0._jprb'
+        assert assignments[4].lhs == 'p_selected_real_kind_13_300_stack(:, jd_zde1 + jb - klev + jb*klev)'
+        assert fgen(assignments[4].rhs) == '0._jprb'  # Need fgen for kind specified
 
-        assert fgen(assignments[5].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
-                                                   '(:, jd_zde2 + 1 - klev + jb*klev:jd_zde2 + jb*klev)'
-        assert fgen(assignments[5].rhs).lower() == '0._jprb'
+        assert assignments[5].lhs == 'p_selected_real_kind_13_300_stack'\
+            '(:, jd_zde2 + 1 - klev + jb*klev:jd_zde2 + jb*klev)'
+        assert fgen(assignments[5].rhs) == '0._jprb'
 
-        assert fgen(assignments[6].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
-                                                   '(jl, jd_zde1 + jlev + jb - klev + jb*klev)'
-        assert fgen(assignments[6].rhs).lower() == '1._jprb'
+        assert assignments[6].lhs == 'p_selected_real_kind_13_300_stack'\
+            '(jl, jd_zde1 + jlev + jb - klev + jb*klev)'
+        assert fgen(assignments[6].rhs) == '1._jprb'
 
-        assert fgen(assignments[7].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
-                                                   '(jl, jd_zde2 + jlev - klev + jb*klev)'
-        assert fgen(assignments[7].rhs).lower() == '0._jprb'
+        assert assignments[7].lhs == 'p_selected_real_kind_13_300_stack'\
+            '(jl, jd_zde2 + jlev - klev + jb*klev)'
+        assert fgen(assignments[7].rhs) == '0._jprb'
 
-        assert fgen(assignments[8].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
-                                                   '(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
-        assert fgen(assignments[8].rhs).lower() == 'pzz'
+        assert assignments[8].lhs == 'p_selected_real_kind_13_300_stack'\
+            '(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
+        assert assignments[8].rhs == 'pzz'
 
-        assert fgen(assignments[9].lhs).lower() == 'p_selected_real_kind_13_300_stack'\
-                                                   '(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
-        assert fgen(assignments[9].rhs).lower() == 'pzz'
+        assert assignments[9].lhs == 'p_selected_real_kind_13_300_stack'\
+            '(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
+        assert assignments[9].rhs == 'pzz'
     else:
-        assert fgen(assignments[3].lhs).lower() == 'j_p_jprb_stack_used'
-        assert fgen(assignments[3].rhs).lower() == 'jd_zde3 + klev'
+        assert assignments[3].lhs == 'j_p_jprb_stack_used'
+        assert assignments[3].rhs == 'jd_zde3 + klev'
 
-        assert fgen(assignments[4].lhs).lower() == 'p_jprb_stack(:, jd_zde1 + jb - klev + jb*klev)'
-        assert fgen(assignments[4].rhs).lower() == '0._jprb'
+        assert assignments[4].lhs == 'p_jprb_stack(:, jd_zde1 + jb - klev + jb*klev)'
+        assert fgen(assignments[4].rhs) == '0._jprb'  # Need fgen for kind specified
 
-        assert fgen(assignments[5].lhs).lower() == 'p_jprb_stack(:, jd_zde2 + 1 - klev + jb*klev:jd_zde2 + jb*klev)'
-        assert fgen(assignments[5].rhs).lower() == '0._jprb'
+        assert assignments[5].lhs == 'p_jprb_stack(:, jd_zde2 + 1 - klev + jb*klev:jd_zde2 + jb*klev)'
+        assert fgen(assignments[5].rhs) == '0._jprb'
 
-        assert fgen(assignments[6].lhs).lower() == 'p_jprb_stack(jl, jd_zde1 + jlev + jb - klev + jb*klev)'
-        assert fgen(assignments[6].rhs).lower() == '1._jprb'
+        assert assignments[6].lhs == 'p_jprb_stack(jl, jd_zde1 + jlev + jb - klev + jb*klev)'
+        assert fgen(assignments[6].rhs) == '1._jprb'
 
-        assert fgen(assignments[7].lhs).lower() == 'p_jprb_stack(jl, jd_zde2 + jlev - klev + jb*klev)'
-        assert fgen(assignments[7].rhs).lower() == '0._jprb'
+        assert assignments[7].lhs == 'p_jprb_stack(jl, jd_zde2 + jlev - klev + jb*klev)'
+        assert fgen(assignments[7].rhs) == '0._jprb'
 
-        assert fgen(assignments[8].lhs).lower() == 'p_jprb_stack(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
-        assert fgen(assignments[8].rhs).lower() == 'pzz'
+        assert assignments[8].lhs == 'p_jprb_stack(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
+        assert assignments[8].rhs == 'pzz'
 
-        assert fgen(assignments[9].lhs).lower() == 'p_jprb_stack(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
-        assert fgen(assignments[9].rhs).lower() == 'pzz'
+        assert assignments[9].lhs == 'p_jprb_stack(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
+        assert assignments[9].rhs == 'pzz'
 
     if directive in ['openacc', 'openmp']:
         pragmas = FindNodes(Pragma).visit(driver.body)
