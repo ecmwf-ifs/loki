@@ -7,7 +7,8 @@
 
 from loki.batch import Transformation
 from loki.expression import (
-    symbols as sym, FindExpressions, SubstituteExpressions
+    symbols as sym, FindExpressions, SubstituteExpressions,
+    FindVariables
 )
 from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.tools import as_tuple
