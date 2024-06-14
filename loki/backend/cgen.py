@@ -103,8 +103,8 @@ class CCodeMapper(LokiStringifyMapper):
                 if d:
                     index_str += self.format('[%s]', d)
             return self.format('%s%s', name_str, index_str)
-        else:
-            return self.format('%s', name_str)
+        # else:
+        return self.format('%s', name_str)
 
     map_string_subscript = map_array_subscript
 

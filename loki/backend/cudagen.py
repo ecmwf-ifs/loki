@@ -5,15 +5,12 @@
 # nor does it submit to any jurisdiction.
 
 # from loki.expression import Array
-from loki.types import DerivedType, BasicType, SymbolAttributes
+from loki.types import DerivedType
 from loki.backend.cppgen import CppCodegen, CppCodeMapper, IntrinsicTypeCpp
 
-from loki.tools import as_tuple
-from loki.ir import Import, Stringifier, FindNodes
-from loki.expression import (
-        LokiStringifyMapper, Array, symbolic_op, Literal,
-        symbols as sym
-)
+# from loki.tools import as_tuple
+from loki.ir import Import, FindNodes
+from loki.expression import Array
 
 __all__ = ['cudagen', 'CudaCodegen', 'CudaCodeMapper']
 
@@ -93,7 +90,7 @@ class CudaCodegen(CppCodegen):
         if o.prefix and "global" in o.prefix[0].lower():
             prefix = '__global__ '
         if o.is_function:
-            return_type = c_intrinsic_type(o.return_type)
+            return_type = cuda_intrinsic_type(o.return_type)
         else:
             return_type = 'void'
         opt_extern = kwargs.get('extern', False)
