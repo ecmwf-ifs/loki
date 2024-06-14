@@ -26,7 +26,7 @@ from loki.transformations.single_column import (
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
-    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'))
+    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'iend'))
 
 
 @pytest.fixture(scope='module', name='vertical')
@@ -176,11 +176,11 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
     REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
     REAL, INTENT(INOUT)   :: z(nlon,nz+1,nb)
-    INTEGER :: b, start, end, ibl, icend
+    INTEGER :: b, start, iend, ibl, icend
 
     start = 1
-    end = tot
-    do b=1,end,nlon
+    iend = tot
+    do b=1,iend,nlon
       ibl = (b-1)/nlon+1
       icend = MIN(nlon,tot-b+1)
       call kernel(start, icend, nlon, nz, q(:,:,b), t(:,:,b), z(:,:,b))
@@ -189,8 +189,8 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
 """
 
     fcode_kernel = """
-  SUBROUTINE kernel(start, end, nlon, nz, q, t, z)
-    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+  SUBROUTINE kernel(start, iend, nlon, nz, q, t, z)
+    INTEGER, INTENT(IN) :: start, iend  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
     REAL, INTENT(INOUT) :: t(nlon,nz)
     REAL, INTENT(INOUT) :: q(nlon,nz)
@@ -200,19 +200,19 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
 
     c = 5.345
     DO jk = 2, nz
-      DO jl = start, end
+      DO jl = start, iend
         t(jl, jk) = c * jk
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
 
     DO jk = 2, nz
-      DO jl = start, end
+      DO jl = start, iend
         z(jl, jk) = 0.0
       END DO
     END DO
 
-    ! DO JL = START, END
+    ! DO JL = START, IEND
     !   Q(JL, NZ) = Q(JL, NZ) * C
     ! END DO
   END SUBROUTINE kernel

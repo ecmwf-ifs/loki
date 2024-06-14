@@ -2168,6 +2168,7 @@ end subroutine myroutine
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
     assert len(FindNodes(ir.Assignment).visit(new_routine.body)) == 0
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_call_args_kwargs_conversion(frontend):
 
@@ -2238,3 +2239,102 @@ def test_call_args_kwargs_conversion(frontend):
     for call in FindNodes(ir.CallStatement).visit(driver.body):
         assert tuple(arg.name for arg in call.arguments) == call_args
         assert call.kwarguments == ()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_typebound_var(frontend, tmp_path):
+    """
+    Test correct behaviour of :any:`Scope.resolve_typebound_var` utility
+    """
+    fcode = """
+module header_mod
+    implicit none
+    type some_type
+        integer :: ival
+    end type some_type
+
+    type other_type
+        type(some_type) :: other
+    end type other_type
+
+    type third_type
+        type(other_type) :: some
+    end type third_type
+end module header_mod
+
+subroutine some_routine
+    use header_mod, only: third_type
+    implicit none
+    type(third_type) :: tt
+end subroutine
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = source['some_routine']
+
+    tt_some = routine.resolve_typebound_var('tt%some')
+    assert tt_some == 'tt%some'
+    assert tt_some.type.dtype.name == 'other_type'
+    assert tt_some.type.dtype.typedef is source['header_mod']['other_type']
+
+    tt_some_other_ival = routine.resolve_typebound_var('tt%some%other%ival')
+    assert tt_some_other_ival == 'tt%some%other%ival'
+    assert tt_some_other_ival.type.dtype == BasicType.INTEGER
+    assert tt_some_other_ival.parent.type.dtype.name == 'some_type'
+    assert tt_some_other_ival.parent.type.dtype.typedef is source['header_mod']['some_type']
+
+    tt = routine.resolve_typebound_var('tt')
+    assert tt == 'tt'
+    assert tt.type.dtype.name == 'third_type'
+    assert tt.type.dtype.typedef is source['header_mod']['third_type']
+
+    # This throws an error as the type definition is available and therefore
+    # the invalid member can be deduced
+    with pytest.raises(KeyError):
+        routine.resolve_typebound_var('tt%invalid%val')
+
+    with pytest.raises(KeyError):
+        routine.resolve_typebound_var('tt%some%invalid')
+
+    # This throws errors as resolving derived type members for
+    # non-declared derived types should not be possible
+    with pytest.raises(KeyError):
+        routine.resolve_typebound_var('not_tt%invalid')
+
+    with pytest.raises(KeyError):
+        routine.resolve_typebound_var('not_a_var')
+
+    # Instead, we can creatae a deferred type variable in the scope and
+    # resolve members relative to it
+    not_tt = Variable(name='not_tt', scope=routine)
+    assert not_tt.type.dtype == BasicType.DEFERRED
+    not_tt_invalid = not_tt.get_derived_type_member('invalid')
+    assert not_tt_invalid == 'not_tt%invalid'
+    assert not_tt_invalid.type.dtype == BasicType.DEFERRED
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'Parsing fails with no header information available')]
+))
+def test_resolve_typebound_var_missing_definition(frontend, tmp_path):
+    """
+    Test correct behaviour of :any:`Scope.resolve_typebound_var` utility
+    in the absence of type information
+    """
+    fcode = """
+subroutine some_routine
+    use header_mod, only: third_type
+    implicit none
+    type(third_type) :: tt
+end subroutine
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = source['some_routine']
+
+    # This does not throw an error as the use-case of incomplete type definitions
+    # may well require working with incomplete type definitions
+    tt_invalid_val = routine.resolve_typebound_var('tt%invalid%val')
+    assert tt_invalid_val == 'tt%invalid%val'
+    assert tt_invalid_val.type.dtype == BasicType.DEFERRED
+    assert tt_invalid_val.parent.type.dtype == BasicType.DEFERRED

@@ -465,8 +465,9 @@ class OMNI2IR(GenericVisitor):
             if module_type and module_type.dtype.module != BasicType.DEFERRED:
                 return module_type.dtype.module
 
-        return Module(name=name, parent=scope)
-
+        module = Module(name=name, parent=scope)
+        self.definitions[name] = module
+        return module
 
     def visit_FmoduleDefinition(self, o, **kwargs):
         # Update the symbol map with local entries

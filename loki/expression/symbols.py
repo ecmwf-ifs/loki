@@ -367,6 +367,8 @@ class TypedSymbol:
         Resolve type-bound variables of arbitrary nested depth.
         """
         name_parts = name_str.split('%', maxsplit=1)
+        if self.type.dtype is not BasicType.DEFERRED and self.type.dtype.typedef is not BasicType.DEFERRED:
+            assert self.type.dtype.typedef.variable_map[name_parts[0]]
         declared_var = Variable(name=f'{self.name}%{name_parts[0]}', scope=self.scope, parent=self)
         if len(name_parts) > 1:
             return declared_var.get_derived_type_member(name_parts[1])  # pylint:disable=no-member
