@@ -168,6 +168,7 @@ class FortranCTransformation(Transformation):
         depths = kwargs.get('depths', None)
         targets = kwargs.get('targets', None)
         successors = kwargs.get('successors', ())
+        depth = 0
         if depths is None:
             if role == 'driver':
                 depth = 0
@@ -223,7 +224,8 @@ class FortranCTransformation(Transformation):
                     Sourcefile.to_file(source=self.codegen(c_kernel_launch, extern=True), path=self.c_path)
             else:
                 # TODO: nested device routines ..., should work correctly?
-                c_kernel_header = c_kernel.clone(name=f"{c_kernel.name}", prefix="header_only device")
+                # c_kernel_header = c_kernel.clone(name=f"{c_kernel.name}", prefix="header_only device")
+                pass
                 # c_kernel_header = c_kernel.clone(name=f"{routine.name.lower()}", prefix="header_only device")
                 # TODO: this shouldn't be necessary anymore usinge self.codegen(..., header=True)
                 # self.generate_c_kernel_header(c_kernel_header)
@@ -233,7 +235,9 @@ class FortranCTransformation(Transformation):
             ## new
             assignments = FindNodes(Assignment).visit(c_kernel.body)
             assignments2remove = ['griddim', 'blockdim']
-            assignment_map = {assignment: None for assignment in assignments if assignment.lhs.name.lower() in assignments2remove} # == block_dim.index.lower() or assignment.lhs.name.lower() in [_.lower() for _ in horizontal.bounds]}
+            assignment_map = {assignment: None for assignment in assignments
+                    if assignment.lhs.name.lower() in assignments2remove}
+            # == block_dim.index.lower() or assignment.lhs.name.lower() in [_.lower() for _ in horizontal.bounds]}
             c_kernel.body = Transformer(assignment_map).visit(c_kernel.body)
             ## end:new
 
@@ -241,9 +245,9 @@ class FortranCTransformation(Transformation):
                 c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
             Sourcefile.to_file(source=self.codegen(c_kernel), path=self.c_path)
-
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.h')
             Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=self.c_path)
+            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
             #### end new ####
 
     def c_struct_typedef(self, derived):
@@ -366,7 +370,7 @@ class FortranCTransformation(Transformation):
             CallStatement(name=Variable(name=interface.body[0].name), arguments=call_arguments)  # pylint: disable=unsubscriptable-object
         ]
         if self.language in ['cuda', 'hip']:
-            wrapper_body += [Pragma(keyword='acc', content=f'end host_data')]
+            wrapper_body += [Pragma(keyword='acc', content='end host_data')]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
 
@@ -447,7 +451,7 @@ class FortranCTransformation(Transformation):
         intf_name = f'{routine.name}_iso_c'
         intf_routine = Subroutine(name=intf_name, body=None, args=(), parent=scope, bind=bind_name)
         intf_spec = Section(body=as_tuple(self.iso_c_intrinsic_import(intf_routine)))
-        if self.language == 'c': 
+        if self.language == 'c':
             for im in FindNodes(Import).visit(routine.spec):
                 if not im.c_import:
                     im_symbols = tuple(s.clone(scope=intf_routine) for s in im.symbols)
@@ -666,13 +670,13 @@ class FortranCTransformation(Transformation):
         call_arguments = []
         for arg in kernel_call.arguments:
             # TODO: ?
-            if False: # isinstance(arg, Array):
-                # _type = arg.type.clone(pointer=False)
-                # kernel_call.symbol_attrs[arg.name] = _type
-                call_arguments.append(arg.clone(dimensions=None))
-                # call_arguments.append(arg.clone(dimensions=None, type=_type))
-            else:
-                call_arguments.append(arg)
+            # if False: # isinstance(arg, Array):
+            #     # _type = arg.type.clone(pointer=False)
+            #     # kernel_call.symbol_attrs[arg.name] = _type
+            #     call_arguments.append(arg.clone(dimensions=None))
+            #     # call_arguments.append(arg.clone(dimensions=None, type=_type))
+            # else:
+            call_arguments.append(arg)
 
         griddim = kernel_launch.variable_map['griddim']
         blockdim = kernel_launch.variable_map['blockdim']

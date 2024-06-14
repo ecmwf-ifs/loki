@@ -42,14 +42,14 @@ MODULE KERNEL_MOD
       x = 0.0
     END SUBROUTINE ELEMENTAL_DEVICE
 
-    SUBROUTINE DEVICE(nlon, nz, jk_start, jl_start, jl_end, x)
-        INTEGER, INTENT(IN) :: jk_start, jl_start, jl_end
+    SUBROUTINE DEVICE(nlon, nz, jk_start, start, iend, x)
+        INTEGER, INTENT(IN) :: jk_start, start, iend
         INTEGER, INTENT(IN) :: nlon, nz
         REAL, INTENT(INOUT) :: x(nlon, nz)
         REAL    :: local_x(nlon, nz)
         INTEGER :: jk, jl
         DO jk = jk_start, nz
-            DO jl = jl_start, jl_end
+            DO jl = start, iend
                 local_x(jl, jk) = 0.0
                 x(jl, jk) = local_x(jl, jk)
             END DO

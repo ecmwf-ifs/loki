@@ -7,9 +7,9 @@
 
 from functools import partial
 
-from loki.batch import Pipeline
+from loki.batch import Pipeline, Transformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
-from loki import Transformation
+# from loki import Transformation
 
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.vector import (
@@ -28,7 +28,7 @@ from loki.transformations.block_index_transformations import (
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
-    DataOffloadTransformation, GlobalVariableAnalysis, GlobalVarOffloadTransformation,
+    GlobalVariableAnalysis, # GlobalVarOffloadTransformation,
     GlobalVarHoistTransformation
 )
 from loki.transformations.parametrise import ParametriseTransformation
@@ -44,7 +44,8 @@ from loki.transformations.inline import (
 # from loki.transformations.single_column.vector import SCCDevectorTransformation
 # from loki.transformations.utilities import single_variable_declaration
 
-__all__ = ['SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist', 'SCCLowLevelParametrise']
+__all__ = ['SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
+        'SCCLowLevelParametrise', 'SCCLowLevelCuf']
 
 def inline_elemental_kernel(routine, **kwargs):
     role = kwargs['role']
@@ -67,6 +68,20 @@ class InlineTransformation(Transformation):
 
             inline_constant_parameters(routine, external_only=True)
             inline_elemental_functions(routine)
+
+SCCLowLevelCuf = partial(
+    Pipeline, classes=(
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorTransformation,
+        LowerBlockIndexTransformation,
+        InjectBlockIndexTransformation,
+        LowerBlockLoopTransformation,
+        SccLowLevelLaunchConfiguration,
+        SccLowLevelDataOffload,
+    )
+)
 
 SCCLowLevelCufParametrise = partial(
     Pipeline, classes=(
