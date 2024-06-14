@@ -179,10 +179,6 @@ if( NOT HAVE_NO_INSTALL )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
     message( STATUS "Install Loki in virtual environment - done" )
 
-    message( STATUS "Install Loki transformations in virtual environment" )
-    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/transformations )
-    message( STATUS "Install Loki transformations in virtual environment - done" )
-
     message( STATUS "Install Loki lint_rules in virtual environment" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules )
     message( STATUS "Install Loki lint_rules in virtual environment - done" )
