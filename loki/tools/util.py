@@ -12,7 +12,7 @@ import os
 import io
 import weakref
 from functools import lru_cache
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from shlex import split
 from subprocess import run, PIPE, STDOUT, CalledProcessError
@@ -32,7 +32,8 @@ from loki.logging import debug, error
 
 __all__ = [
     'as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
-    'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
+    'execute', 'CaseInsensitiveDict', 'CaseInsensitiveDefaultDict',
+    'strip_inline_comments',
     'binary_insertion_sort', 'cached_func', 'optional',
     'LazyNodeLookup', 'yaml_include_constructor',
     'auto_post_mortem_debugger', 'set_excepthook', 'timeout',
@@ -236,6 +237,23 @@ class CaseInsensitiveDict(OrderedDict):
 
     Basic idea from:
     https://stackoverflow.com/questions/2082152/case-insensitive-dictionary
+    """
+    def __setitem__(self, key, value):
+        super().__setitem__(key.lower(), value)
+
+    def __getitem__(self, key):
+        return super().__getitem__(key.lower())
+
+    def get(self, key, default=None):
+        return super().get(key.lower(), default)
+
+    def __contains__(self, key):
+        return super().__contains__(key.lower())
+
+
+class CaseInsensitiveDefaultDict(defaultdict):
+    """
+    DefaultDict that ignores the casing of string keys.
     """
     def __setitem__(self, key, value):
         super().__setitem__(key.lower(), value)
