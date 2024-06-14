@@ -7,7 +7,8 @@
 
 from loki.batch import Transformation
 from loki.expression import (
-    symbols as sym, FindExpressions, SubstituteExpressions
+    symbols as sym, FindExpressions, SubstituteExpressions,
+    FindVariables
 )
 from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.logging import debug
@@ -355,7 +356,7 @@ class SCCBaseTransformation(Transformation):
         """
 
         # Bail if routine is marked as sequential or routine has already been processed
-        if self.check_routine_pragmas(routine, self.directive):
+        if self.check_routine_pragmas(routine, self.directive) or self.is_elemental(routine):
             return
 
         # check for horizontal loop bounds in subroutine symbol table

@@ -18,7 +18,7 @@ from loki.ir import (
     Transformer, pragma_regions_attached, get_pragma_parameters
 )
 from loki.logging import warning
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict
 from loki.types import BasicType, DerivedType
 
 
@@ -833,8 +833,8 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Get module variables/symbols (grouped by routine/successor).
         """
-        defines_symbols = CaseInsensitiveDict()
-        uses_symbols = CaseInsensitiveDict()
+        defines_symbols = CaseInsensitiveDict() # {} # CaseInsensitiveDict()
+        uses_symbols = CaseInsensitiveDict() # {} # CaseInsensitiveDict()
         for item in successors:
             if not isinstance(item, ProcedureItem):
                 continue
@@ -852,7 +852,7 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Helper to append variables to the call(s) (arguments).
         """
-        symbol_map = defaultdict(set)
+        symbol_map = CaseInsensitiveDefaultDict(set)
         for key, _ in uses_symbols.items():
             all_symbols = uses_symbols[key]|defines_symbols[key]
             for var, module in all_symbols:
@@ -860,7 +860,6 @@ class GlobalVarHoistTransformation(Transformation):
                 if module.lower() in self.ignore_modules:
                     continue
                 symbol_map[key].add(var.parents[0] if var.parent else var)
-        symbol_map = CaseInsensitiveDict(symbol_map)
         call_map = {}
         calls = FindNodes(CallStatement).visit(routine.body)
         for call in calls:
