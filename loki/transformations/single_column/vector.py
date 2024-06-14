@@ -313,7 +313,8 @@ class SCCRevectorTransformation(Transformation):
         if self.remove_vector_section:
             # Remove the vector section wrappers
             # These have been inserted by SCCDevectorTransformation
-            section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
+            section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body)
+                    if s.label == 'vector_section'}
             if section_mapper:
                 routine.body = Transformer(section_mapper).visit(routine.body)
 
