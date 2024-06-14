@@ -19,13 +19,11 @@ from loki.types import BasicType, DerivedType
 from loki.scope import SymbolAttributes
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
-from loki.transformations.sanitise import resolve_associates
+# from loki.transformations.sanitise import resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.vector import SCCDevectorTransformation
-from loki.transformations.utilities import (
-    single_variable_declaration, get_integer_variable
-)
-from loki.ir.pragma_utils import get_pragma_parameters, pragmas_attached
+from loki.transformations.utilities import single_variable_declaration
+from loki.ir.pragma_utils import get_pragma_parameters
 
 __all__ = [
     # 'SccCufTransformation',
@@ -162,6 +160,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         role = kwargs.get('role')
         depths = kwargs.get('depths', None)
         targets = kwargs.get('targets', None)
+        depth = 0
         if depths is None:
             if role == 'driver':
                 depth = 0
@@ -199,9 +198,8 @@ class SccLowLevelLaunchConfiguration(Transformation):
         """
 
         self.kernel_cuf(
-            routine, self.horizontal, self.vertical, self.block_dim,
-            self.transformation_type, depth=depth,
-            derived_type_variables=self.derived_type_variables, targets=targets
+            routine, self.horizontal, self.vertical, self.block_dim, depth=depth,
+            targets=targets
         )
 
         # dynamic memory allocation of local arrays (only for version with dynamic memory allocation on device)
@@ -225,14 +223,17 @@ class SccLowLevelLaunchConfiguration(Transformation):
         self.driver_device_variables(routine=routine, targets=targets)
         # remove block loop and generate launch configuration for CUF kernels
         """
-        upper, step, block_dim_size, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment = self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
+        # upper, step, block_dim_size, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment =\
+        #         self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
+        upper, step, _, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment =\
+                self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
 
         if self.mode in ['cuda', 'hip']:
             call_map = {}
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if str(call.name).lower() in as_tuple(targets):
                     new_args = ()
-                    if upper.name not in call.routine.arguments: 
+                    if upper.name not in call.routine.arguments:
                         new_args += (upper,)
                     if step.name not in call.routine.arguments:
                         new_args += (step,)
@@ -245,20 +246,20 @@ class SccLowLevelLaunchConfiguration(Transformation):
             routine.body = Transformer(call_map).visit(routine.body)
         elif self.mode == 'cuf':
             # increase heap size (only for version with dynamic memory allocation on device)
-            if self.transformation_type == 'dynamic':
-                increase_heap_size(routine)
+            # if self.transformation_type == 'dynamic':
+            #     increase_heap_size(routine)
 
             routine.body.prepend(ir.Comment(f"!@cuf print *, 'executing SCC-CUF type: {self.transformation_type} - "
                                             f"{self.transformation_description[self.transformation_type]}'"))
             routine.body.prepend(ir.Comment(""))
 
-    def kernel_cuf(self, routine, horizontal, vertical, block_dim, transformation_type,
-               depth, derived_type_variables, targets=None):
+    def kernel_cuf(self, routine, horizontal, vertical, block_dim,
+               depth, targets=None):
 
         if SCCBaseTransformation.is_elemental(routine):
             # TODO: correct "definition" of elemental/pure routines and corresponding removing
             #  of subroutine prefix(es)/specifier(s)
-            routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]]) # , "PURE"]])
+            routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]]) #,"PURE"]])
             return
 
         single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
@@ -270,19 +271,22 @@ class SccLowLevelLaunchConfiguration(Transformation):
         # find vertical and block loops and replace with implicit "loops"
         loop_map = {}
         for loop in FindNodes(ir.Loop).visit(routine.body):
-            if loop.variable == self.block_dim.index or loop.variable.name.lower() in [_.lower() for _ in self.block_dim._aliases]:
+            if loop.variable == self.block_dim.index or loop.variable.name.lower()\
+                    in [_.lower() for _ in self.block_dim._aliases]:
                 loop_map[loop] = loop.body
-            if loop.variable == self.horizontal.index or loop.variable.name.lower() in [_.lower() for _ in self.horizontal._aliases]:
+            if loop.variable == self.horizontal.index or loop.variable.name.lower()\
+                    in [_.lower() for _ in self.horizontal._aliases]:
                 loop_map[loop] = loop.body
-        print(f"kernel_cuf loop_map: {loop_map}")
         routine.body = Transformer(loop_map).visit(routine.body)
 
         if depth == 1:
 
             ##new
             assignments = FindNodes(ir.Assignment).visit(routine.body)
-            assignments2remove = [block_dim.index.lower()] + [_.lower() for _ in horizontal.bounds] #  + ['griddim', 'blockdim']
-            assignment_map = {assignment: None for assignment in assignments if assignment.lhs.name.lower() in assignments2remove} # == block_dim.index.lower() or assignment.lhs.name.lower() in [_.lower() for _ in horizontal.bounds]}
+            assignments2remove = [block_dim.index.lower()] + [_.lower() for _ in horizontal.bounds]
+            #  + ['griddim', 'blockdim']
+            assignment_map = {assign: None for assign in assignments if assign.lhs.name.lower() in assignments2remove}
+            # == block_dim.index.lower() or assignment.lhs.name.lower() in [_.lower() for _ in horizontal.bounds]}
             routine.body = Transformer(assignment_map).visit(routine.body)
             ##end: new
 
@@ -316,7 +320,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
                             ir.Conditional(condition=condition, body=as_tuple(routine.body), else_body=())))
         else:
             pass
-        call_map = {}
+        # call_map = {}
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if call.routine.name.lower() in targets and not SCCBaseTransformation.is_elemental(call.routine):
                 horizontal_index = routine.variable_map[horizontal.index]
@@ -325,61 +329,20 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 additional_kwargs = ()
                 if horizontal_index.name not in call.routine.arguments:
                     if horizontal_index.name in call.routine.variables:
-                        call.routine.symbol_attrs.update({horizontal_index.name: call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
-                        # call.routine.variable_map[horizontal_index.name]._update(type=call.routine.variable_map[horizontal_index.name].type.clone(intent='in'))
-                    # else:
-                    # additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in', scope=call.routine)),)
+                        call.routine.symbol_attrs.update({horizontal_index.name:\
+                                call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
                     additional_args += (horizontal_index.clone(),)
                 if horizontal_index.name not in call.arg_map:
                     additional_kwargs += ((horizontal_index.name, horizontal_index.clone()),)
 
                 if block_dim_index.name not in call.routine.arguments:
-                    additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in', scope=call.routine)),)
+                    additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in',
+                        scope=call.routine)),)
                     additional_kwargs += ((block_dim_index.name, block_dim_index.clone()),)
                 if additional_kwargs:
                     call._update(kwarguments=call.kwarguments+additional_kwargs)
                 if additional_args:
                     call.routine.arguments += additional_args
-
-        """
-        relevant_local_arrays = []
-        var_map = {}
-        for var in routine.variables:
-            if var in routine.arguments:
-                # if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
-                # TODO: "and var.type.intent.lower() == 'in'" needs a commit
-                if isinstance(var, sym.Scalar) and var not in derived_type_variables and var.type.intent.lower() == 'in':
-                    var_map[var] = var.clone(type=var.type.clone(value=True))
-            else:
-                if isinstance(var, sym.Array):
-                    dimensions = list(var.dimensions)
-                    shape = list(var.shape)
-                    if horizontal.size in list(FindVariables().visit(var.dimensions)):
-                        if transformation_type == 'hoist':
-                            dimensions += [routine.variable_map[block_dim.size]]
-                            shape = list(var.shape) + [routine.variable_map[block_dim.size]]
-                            vtype = var.type.clone(shape=as_tuple(shape))
-                            relevant_local_arrays.append(var.name)
-                        else:
-                            dimensions.remove(horizontal.size)
-                            shape.remove(horizontal.size)
-                            relevant_local_arrays.append(var.name)
-                            vtype = var.type.clone(device=True, shape=shape)
-                        var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=vtype)
-        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
-        var_map = {}
-        arguments_name = [var.name for var in routine.arguments]
-        for var in FindVariables().visit(routine.body):
-            if var.name not in arguments_name:
-                if transformation_type == 'hoist':
-                    if var.name in relevant_local_arrays:
-                        var_map[var] = var.clone(dimensions=var.dimensions + (routine.variable_map[block_dim.index],))
-                else:
-                    if var.name in relevant_local_arrays:
-                        dimensions = list(var.dimensions)
-                        var_map[var] = var.clone(dimensions=as_tuple(dimensions[1:]))
-        routine.body = SubstituteExpressions(var_map).visit(routine.body)
-        """
 
     @staticmethod
     def kernel_demote_private_locals(routine, horizontal, vertical):
@@ -468,71 +431,74 @@ class SccLowLevelLaunchConfiguration(Transformation):
         blockdim_assignment = None
         griddim_assignment = None
         mapper = {}
-        
-        with pragmas_attached(routine, node_type=ir.CallStatement):
-            for call in FindNodes(ir.CallStatement).visit(routine.body):
-                if call.name not in as_tuple(targets):
-                    continue
 
-                if call.pragma:
-                    parameters = get_pragma_parameters(call.pragma, starts_with='removed_loop')
-                else:
-                    parameters = ()
+        # with pragmas_attached(routine, node_type=ir.CallStatement):
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if call.name not in as_tuple(targets):
+                continue
 
-                assignment_lhs = routine.variable_map["istat"]
-                assignment_rhs = sym.InlineCall(
-                    function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
-                    parameters=())
-
-                upper = routine.variable_map[parameters['upper']]
-                try:
-                    step = routine.variable_map[parameters['step']]
-                except:
-                    step = sym.IntLiteral(1)
-
-
-                if self.mode == 'cuf':
-                    func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
-                    func_ceiling = sym.ProcedureSymbol(name="CEILING", scope=routine)
-
-                    # BLOCKDIM
-                    lhs = routine.variable_map["blockdim"]
-                    rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
-                    blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-
-                    # GRIDDIM
-                    lhs = routine.variable_map["griddim"]
-                    rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
-                                                                        sym.InlineCall(function=func_ceiling,
-                                                                                        parameters=as_tuple(
-                                                                                            sym.Cast(name="REAL",
-                                                                                                    expression=upper) /
-                                                                                            sym.Cast(name="REAL",
-                                                                                                    expression=step)))))
-                    griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-                    # mapper[call] = (blockdim_assignment, griddim_assignment, ir.Comment(""), call) # , loop.body)
-                    mapper[call] = (blockdim_assignment, griddim_assignment, ir.Comment(""), call.clone(chevron=(routine.variable_map["GRIDDIM"], routine.variable_map["BLOCKDIM"]),), ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
-                else:
-                    func_dim3 = sym.ProcedureSymbol(name="dim3", scope=routine)
-                    func_ceiling = sym.ProcedureSymbol(name="ceil", scope=routine)
-
-                    # BLOCKDIM
-                    lhs = blockdim_var # routine.variable_map["blockdim"]
-                    rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
-                    blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-
-                    # GRIDDIM
-                    lhs = griddim_var # routine.variable_map["griddim"]
-                    rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
-                        parameters=as_tuple(
-                            sym.Cast(name="REAL", expression=upper) /
-                            sym.Cast(name="REAL", expression=step))),
-                        sym.IntLiteral(1), sym.IntLiteral(1)))
-                    griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+            if call.pragma:
+                parameters = get_pragma_parameters(call.pragma, starts_with='removed_loop')
             else:
-                pass
+                parameters = ()
+            assignment_lhs = routine.variable_map["istat"]
+            assignment_rhs = sym.InlineCall(
+                function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
+                parameters=())
+
+            upper = routine.variable_map[parameters['upper']]
+            try:
+                step = routine.variable_map[parameters['step']]
+            except Exception as e:
+                print(f"Exception: {e}")
+                step = sym.IntLiteral(1)
+
+
+            if self.mode == 'cuf':
+                func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
+                func_ceiling = sym.ProcedureSymbol(name="CEILING", scope=routine)
+
+                # BLOCKDIM
+                lhs = routine.variable_map["blockdim"]
+                rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
+                blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+
+                # GRIDDIM
+                lhs = routine.variable_map["griddim"]
+                rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
+                                                                    sym.InlineCall(function=func_ceiling,
+                                                                                    parameters=as_tuple(
+                                                                                        sym.Cast(name="REAL",
+                                                                                                expression=upper) /
+                                                                                        sym.Cast(name="REAL",
+                                                                                                expression=step)))))
+                griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+                # mapper[call] = (blockdim_assignment, griddim_assignment, ir.Comment(""), call) # , loop.body)
+                mapper[call] = (blockdim_assignment, griddim_assignment, ir.Comment(""),
+                        call.clone(chevron=(routine.variable_map["GRIDDIM"], routine.variable_map["BLOCKDIM"]),),
+                        ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
+            else:
+                func_dim3 = sym.ProcedureSymbol(name="dim3", scope=routine)
+                func_ceiling = sym.ProcedureSymbol(name="ceil", scope=routine)
+
+                # BLOCKDIM
+                lhs = blockdim_var # routine.variable_map["blockdim"]
+                rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
+                blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+
+                # GRIDDIM
+                lhs = griddim_var # routine.variable_map["griddim"]
+                rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
+                    parameters=as_tuple(
+                        sym.Cast(name="REAL", expression=upper) /
+                        sym.Cast(name="REAL", expression=step))),
+                    sym.IntLiteral(1), sym.IntLiteral(1)))
+                griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
+        # else:
+        #     pass
         routine.body = Transformer(mapper=mapper).visit(routine.body)
-        return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var, blockdim_assignment, griddim_assignment # blockdim_assignment_2, griddim_assignment_2
+        return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
+                blockdim_assignment, griddim_assignment
 
 class SccLowLevelDataOffload(Transformation):
 
@@ -561,17 +527,17 @@ class SccLowLevelDataOffload(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
-        item = kwargs.get('item', None)
+        # item = kwargs.get('item', None)
         role = kwargs.get('role')
-        depths = kwargs.get('depths', None)
+        # depths = kwargs.get('depths', None)
         targets = kwargs.get('targets', None)
-        if depths is None:
-            if role == 'driver':
-                depth = 0
-            elif role == 'kernel':
-                depth = 1
-        else:
-            depth = depths[item]
+        # if depths is None:
+        #     if role == 'driver':
+        #         depth = 0
+        #     elif role == 'kernel':
+        #         depth = 1
+        # else:
+        #     depth = depths[item]
 
         remove_pragmas(routine)
         single_variable_declaration(routine=routine, group_by_shape=True)
@@ -583,7 +549,7 @@ class SccLowLevelDataOffload(Transformation):
         if role == 'driver':
             self.process_driver(routine, targets=targets)
         if role == 'kernel':
-            self.process_kernel(routine, depth=depth, targets=targets)
+            self.process_kernel(routine) # , depth=depth, targets=targets)
 
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if call.name in as_tuple(targets):
@@ -608,40 +574,14 @@ class SccLowLevelDataOffload(Transformation):
         )
         # create variables needed for the device execution, especially generate device versions of arrays
         self.driver_device_variables(routine=routine, targets=targets)
-        """
-        # remove block loop and generate launch configuration for CUF kernels
-        upper, step, block_dim_size, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment = self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
-        if self.mode in ['cuda', 'hip']:
-            call_map = {}
-            for call in FindNodes(ir.CallStatement).visit(routine.body):
-                if call.name in as_tuple(targets):
-                    if upper.name not in call.routine.arguments and step.name not in call.routine.arguments:
-                        call.routine.arguments = list(call.routine.arguments) + [upper, step] # , block_dim_size]
-                        # call_map[call] = call.clone(arguments=as_tuple(list(call.arguments) + [upper, step])) # , block_dim_size]))
-                        call_map[call] = call.clone(kwarguments=as_tuple(list(call.kwarguments) + [(upper.name, upper), (step.name, step)])) # , block_dim_size]))
-                        # call.routine.spec.append((ir.Pragma(keyword='loki', content=f'blockdim {blockdim_assignment}'),ir.Pragma(keyword='loki', content=f'griddim {griddim_assignment}')))
-                        # call.routine.body.prepend([blockdim_assignment, griddim_assignment])
-                        call.routine.variables += (blockdim_var, griddim_var)
-                        call.routine.body = (blockdim_assignment, griddim_assignment) + call.routine.body
-            routine.body = Transformer(call_map).visit(routine.body)
-        elif self.mode == 'cuf':
-            # increase heap size (only for version with dynamic memory allocation on device)
-            if self.transformation_type == 'dynamic':
-                increase_heap_size(routine)
-            routine.body.prepend(ir.Comment(f"!@cuf print *, 'executing SCC-CUF type: {self.transformation_type} - "
-                                            f"{self.transformation_description[self.transformation_type]}'"))
-            routine.body.prepend(ir.Comment(""))
-        """
 
-    def process_kernel(self, routine, depth=1, targets=None):
+    def process_kernel(self, routine): # , depth=1, targets=None):
         """
         Kernel/Device subroutine specific changes/transformations.
         Parameters
         ----------
         routine: :any:`Subroutine`
             The subroutine (kernel/device subroutine) to process
-        depth: int
-            The subroutines depth
         """
 
         v_index = get_integer_variable(routine, name=self.horizontal.index)
@@ -651,17 +591,18 @@ class SccLowLevelDataOffload(Transformation):
         SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)
 
         self.kernel_cuf(
-            routine, self.horizontal, self.vertical, self.block_dim,
-            self.transformation_type, depth=depth,
-            derived_type_variables=self.derived_type_variables, targets=targets
+            routine, self.horizontal, self.block_dim, self.transformation_type,
+            derived_type_variables=self.derived_type_variables
         )
 
         # dynamic memory allocation of local arrays (only for version with dynamic memory allocation on device)
         #if self.transformation_type == 'dynamic':
         #    dynamic_local_arrays(routine, self.vertical)
 
-    def kernel_cuf(self, routine, horizontal, vertical, block_dim, transformation_type,
-               depth, derived_type_variables, targets=None):
+    def kernel_cuf(self, routine, horizontal, block_dim, transformation_type,
+               derived_type_variables):
+        # def kernel_cuf(self, routine, horizontal, vertical, block_dim, transformation_type,
+        #            depth, derived_type_variables, targets=None):
 
         relevant_local_arrays = []
         var_map = {}
@@ -669,7 +610,8 @@ class SccLowLevelDataOffload(Transformation):
             if var in routine.arguments:
                 # if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
                 # TODO: "and var.type.intent.lower() == 'in'" needs a commit
-                if isinstance(var, sym.Scalar) and var not in derived_type_variables and var.type.intent.lower() == 'in':
+                if isinstance(var, sym.Scalar) and var not in derived_type_variables\
+                        and var.type.intent.lower() == 'in':
                     var_map[var] = var.clone(type=var.type.clone(value=True))
             else:
                 if isinstance(var, sym.Array):
@@ -702,7 +644,7 @@ class SccLowLevelDataOffload(Transformation):
                         dimensions = list(var.dimensions)
                         var_map[var] = var.clone(dimensions=as_tuple(dimensions[1:]))
 
-        routine.body = SubstituteExpressions(var_map).visit(routine.body)       
+        routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
     @staticmethod
     def kernel_demote_private_locals(routine, horizontal, vertical):
@@ -839,9 +781,8 @@ class SccLowLevelDataOffload(Transformation):
             # insert_index = None
             for call in calls:
                 if call.routine is BasicType.DEFERRED:
-                    warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched with ' +
-                        f'in {str(call.name).lower()}')
-
+                    # warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched with ' +
+                    #     f'in {str(call.name).lower()}')
                     continue
                 for param, arg in call.arg_iter():
                     if isinstance(param, sym.Array) and param.type.intent.lower() == 'in':
@@ -865,13 +806,13 @@ class SccLowLevelDataOffload(Transformation):
             copy_end_pragmas = []
             if outargs:
                 copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyout({", ".join(outargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
+                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
             if inoutargs:
                 copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copy({", ".join(inoutargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
+                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
             if inargs:
                 copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyin({", ".join(inargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content=f'end data')]
+                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
 
             if copy_pragmas:
                 pragma_map = {}
@@ -894,9 +835,9 @@ class SccLowLevelDataOffload(Transformation):
             routine.spec.append(ir.Comment(''))
             routine.spec.append(ir.Comment('! Device arrays'))
             for array in relevant_arrays:
-                vshape = [sym.RangeIndex((None, None))] * len(array.shape)
+                # vshape = [sym.RangeIndex((None, None))] * len(array.shape)
                 vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-                vdimensions = [sym.RangeIndex((None, None))] * len(array.shape) # len(array.dimensions)
+                vdimensions = [sym.RangeIndex((None, None))] * len(array.shape)
                 var = array.clone(name=f"{array.name}_d", type=vtype, dimensions=as_tuple(vdimensions))
                 routine.spec.append(ir.VariableDeclaration(symbols=as_tuple(var)))
 
@@ -917,8 +858,8 @@ class SccLowLevelDataOffload(Transformation):
             # Copy host to device
             for array in reversed(relevant_arrays):
                 vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-                lhs = array.clone(name=f"{array.name}_d", type=vtype, dimensions=None)
-                rhs = array.clone(dimensions=None)
+                lhs = array.clone(name=f"{array.name}_d", type=vtype, dimensions=())
+                rhs = array.clone(dimensions=())
                 if insert_index is not None:
                     routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
                 else:
@@ -938,9 +879,9 @@ class SccLowLevelDataOffload(Transformation):
                 routine.body.append(ir.Comment('! Copy device to host'))
             for v in reversed(relevant_arrays):
                 if v.type.intent != "in":
-                    lhs = v.clone(dimensions=None)
+                    lhs = v.clone(dimensions=())
                     vtype = v.type.clone(device=True, allocatable=True, intent=None, shape=None)
-                    rhs = v.clone(name=f"{v.name}_d", type=vtype, dimensions=None)
+                    rhs = v.clone(name=f"{v.name}_d", type=vtype, dimensions=())
                     if insert_index is None:
                         routine.body.append(ir.Assignment(lhs=lhs, rhs=rhs))
                     else:
@@ -952,7 +893,7 @@ class SccLowLevelDataOffload(Transformation):
             routine.body.append(ir.Comment(''))
             routine.body.append(ir.Comment('! De-allocation'))
             for array in relevant_arrays:
-                routine.body.append(ir.Deallocation((array.clone(name=f"{array.name}_d", dimensions=None),)))
+                routine.body.append(ir.Deallocation((array.clone(name=f"{array.name}_d", dimensions=()),)))
 
             call_map = {}
             for call in calls:
@@ -961,7 +902,7 @@ class SccLowLevelDataOffload(Transformation):
                     if arg in relevant_arrays:
                         # vtype = arg.type.clone(device=True, allocatable=True, shape=None, intent=None)
                         vtype = arg.type.clone(device=True, allocatable=True, intent=None)
-                        arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=None))
+                        arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=()))
                     else:
                         arguments.append(arg)
                 call_map[call] = call.clone(arguments=as_tuple(arguments))
