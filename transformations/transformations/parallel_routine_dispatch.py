@@ -15,7 +15,8 @@ from loki.transform import Transformation
 from loki import (
     FindVariables, DerivedType, SymbolAttributes,
     Array, single_variable_declaration, Transformer,
-    BasicType, as_tuple, parse_expr
+    BasicType, as_tuple, parse_expr, 
+    SubstituteExpressions, 
 )
 import pickle
 import os
@@ -513,16 +514,69 @@ class ParallelRoutineDispatchTransformation(Transformation):
         new_dimensions += (self.jblk,)
         return new_arg.clone(dimensions=new_dimensions)
 
+    def update_vars(self, routine, var, region_map):
+        new_var = region_map[var.name][1]
+        if isinstance(var.dimensions[0], sym.RangeIndex):
+            jlon = routine.variable_map['JLON'], 
+            new_dimensions = jlon + var.dimensions[1:]
+        else:
+            new_dimensions = var.dimensions
+        new_dimensions += (self.jblk,)
+        return new_var.clone(dimensions=new_dimensions)
+
+
+    def process_not_call(self, routine, region, map_routine, map_region, scc):
+
+        verbose=False
+        region_map_temp = map_region["map_temp"]
+        region_map_derived = map_region["map_derived"]
+        map_not_call= {}
+        map_region["new_region_body"] = region.body 
+#                if not (
+#                    isinstance(var, sym.LogicalOr) or isinstance(var, sym.LogicalAnd)):
+        for stmt in FindNodes(ir.Assignment).visit(region):
+            exprmap = {}
+            for var in FindVariables().visit(stmt):
+                if var.name in region_map_temp:
+                    if verbose: print(f"var_temp={var}")
+                    new_var = self.update_vars(routine, var, region_map_temp)
+                    if verbose: print(f"new_var_temp={new_var}")
+                    exprmap[var] = new_var
+#                    var._update(name=new_var.name, dimensions=new_var.dimensions)
+                elif var.name in region_map_derived:
+                    if verbose: print(f"var_derived={var}")
+                    new_var = self.update_vars(routine, var, region_map_derived)
+                    if verbose: print(f"new_var_derived={new_var}")
+                    exprmap[var] = new_var
+            new_stmt = SubstituteExpressions(exprmap).visit(stmt)
+            map_not_call[stmt] = new_stmt
+            map_region["map_not_call"] = map_not_call 
+            map_region["new_region_body"] = Transformer(map_not_call).visit(region.body)
+
+
     def process_loops(self, routine, region, map_routine, map_region, scc):
+        new_region_body = map_region["new_region_body"]
         map_new_loops = {}
-        loops = [loop for loop in FindNodes(ir.Loop).visit(region)]
+        loops = [loop for loop in FindNodes(ir.Loop).visit(region) if loop.variable.name=="JLON"]
         for loop in loops:
             map_new_loops[loop] = loop #call scc transformation here
+        
+        if scc:
+            lst_horizontal_idx=['JLON','JROF']
+            loop_map={}
+            for loop in FindNodes(ir.Loop).visit(new_region_body):
+                if loop.variable.name in lst_horizontal_idx:
+                    loop_map[loop]=loop.body
+            new_region_body=Transformer(loop_map).visit(new_region_body)
+        map_region["new_region_body"] = new_region_body
+
+
         return map_new_loops
 
     def process_call(self, routine, region, map_routine, map_region, scc):
         region_map_temp = map_region["map_temp"]
         region_map_derived = map_region["map_derived"]
+        vars_call = []
         c_imports = map_routine['c_imports']
         cpg_bnds = map_routine['cpg_bnds']
         lcpg_bnds = map_routine['lcpg_bnds']
@@ -532,6 +586,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if call.name!="DR_HOOK":
                 new_arguments = []
                 for arg in call.arguments:
+                    if arg not in vars_call:
+                        vars_call.append(arg)
                     if not (
                         isinstance(arg, sym.LogicalOr) or isinstance(arg, sym.LogicalAnd)):
 
@@ -570,6 +626,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     new_call = call.clone(arguments=as_tuple(new_arguments))
                     map_new_calls[call] = new_call
 
+        map_region["vars_call"] = vars_call
         return map_new_calls
 
     def create_compute_openmp(self, routine, region, region_name, map_routine, map_region):
@@ -593,9 +650,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         #TODO : musn't be call but the body of the region here?? 
 
         map_new_calls = self.process_call(routine, region, map_routine, map_region, scc=False)
+        map_not_calls = self.process_not_call(routine, region, map_routine, map_region, scc=False)
         map_new_loops = self.process_loops(routine, region, map_routine, map_region, scc=False)
-        map_new_region = map_new_calls | map_new_loops
-        new_region_body = Transformer(map_new_region).visit(region.body)
+        map_new_region = map_new_calls #| map_new_loops
+        new_region_body = map_region["new_region_body"]
+        new_region_body = Transformer(map_new_region).visit(new_region_body)
+        #new_region_body = Transformer(map_new_region).visit(region.body)
 #        new_calls = tuple(new_calls)
         
         loop_body = (update,) + new_region_body
@@ -639,9 +699,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         #TODO save the new_region_body in order to apply Transformer once instead of twice    
 
         map_new_calls = self.process_call(routine, region, map_routine, map_region, scc=True)
+        map_not_calls = self.process_not_call(routine, region, map_routine, map_region, scc=True)
         map_new_loops = self.process_loops(routine, region, map_routine, map_region, scc=True)
-        map_new_region = map_new_calls | map_new_loops
-        new_region_body = Transformer(map_new_region).visit(region.body)
+        map_new_region = map_new_calls #| map_new_loops
+        new_region_body = map_region["new_region_body"]
+        new_region_body = Transformer(map_new_region).visit(new_region_body)
+        #new_region_body = Transformer(map_new_region).visit(region.body)
 
         loop_jlon_body = [kidia, kfdia, ylstack_l, ylstack_u] + list(new_region_body)
         min_rhs = parse_expr("YDCPG_OPTS%KGPCOMP - (JBLK - 1) * YDCPG_OPTS%KLON")

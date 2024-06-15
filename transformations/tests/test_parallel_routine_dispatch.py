@@ -12,6 +12,7 @@ import pytest
 
 from loki.frontend import available_frontends, OMNI
 from loki import Sourcefile, FindNodes, CallStatement, fgen, Conditional, ProcedureItem
+from loki import Loop
 
 from transformations.parallel_routine_dispatch import ParallelRoutineDispatchTransformation
 
@@ -74,7 +75,9 @@ def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
         "YL_ZPFL_FPLCH",
         "ZPFL_FPLCH",
         "YL_ZPFL_FPLSH",
-        "ZPFL_FPLSH"]
+        "ZPFL_FPLSH",
+        "YL_TOTO",
+        "TOTO"]
     dcls = [dcl for dcl in routine.declarations if dcl.symbols[0].name in var_lst]
     str_dcls = ""
     for dcl in dcls:
@@ -93,7 +96,10 @@ CLASS(FIELD_3RB), POINTER :: YL_ZPFL_FPLCH => NULL()
 REAL(KIND=JPRB), POINTER :: ZPFL_FPLCH(:, :, :) => NULL()
 CLASS(FIELD_3RB), POINTER :: YL_ZPFL_FPLSH => NULL()
 REAL(KIND=JPRB), POINTER :: ZPFL_FPLSH(:, :, :) => NULL()
+CLASS(FIELD_2RB), POINTER :: YL_TOTO => NULL()
+REAL(KIND=JPRB), POINTER :: TOTO(:, :) => NULL()
 """
+
     assert str_dcls == dcls_test
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
@@ -120,11 +126,12 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
                 "CALL FIELD_NEW(YL_ZRDG_MU0, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KGPBLKS /), PERSISTENT=.true.)",
                 "CALL FIELD_NEW(YL_ZRDG_MU0M, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KGPBLKS /), PERSISTENT=.true.)",
                 "CALL FIELD_NEW(YL_ZPFL_FPLSH, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KFLEVG, YDCPG_OPTS%KGPBLKS /), LBOUNDS=(/ 1, 0, 1 /),  &\n& PERSISTENT=.true.)",
-                "CALL FIELD_NEW(YL_ZPFL_FPLCH, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KFLEVG, YDCPG_OPTS%KGPBLKS /), LBOUNDS=(/ 1, 0, 1 /),  &\n& PERSISTENT=.true.)"
+                "CALL FIELD_NEW(YL_ZPFL_FPLCH, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KFLEVG, YDCPG_OPTS%KGPBLKS /), LBOUNDS=(/ 1, 0, 1 /),  &\n& PERSISTENT=.true.)",
+                "CALL FIELD_NEW(YL_TOTO, UBOUNDS=(/ YDCPG_OPTS%KLON, YDCPG_OPTS%KGPBLKS /), PERSISTENT=.true.)"
                 ]
 
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name=="FIELD_NEW"]
-    assert len(calls) == 7
+    assert len(calls) == 8
     for call in calls:
         assert fgen(call) in field_create
     
@@ -134,7 +141,8 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
                 "IF (ASSOCIATED(YL_ZRDG_MU0)) CALL FIELD_DELETE(YL_ZRDG_MU0)",
                 "IF (ASSOCIATED(YL_ZRDG_MU0N)) CALL FIELD_DELETE(YL_ZRDG_MU0N)",
                 "IF (ASSOCIATED(YL_ZPFL_FPLSH)) CALL FIELD_DELETE(YL_ZPFL_FPLSH)",
-                "IF (ASSOCIATED(YL_ZPFL_FPLCH)) CALL FIELD_DELETE(YL_ZPFL_FPLCH)"
+                "IF (ASSOCIATED(YL_ZPFL_FPLCH)) CALL FIELD_DELETE(YL_ZPFL_FPLCH)",
+                "IF (ASSOCIATED(YL_TOTO)) CALL FIELD_DELETE(YL_TOTO)"
                 ]
 
     conds = [cond for cond in FindNodes(Conditional).visit(routine.body)]
@@ -144,7 +152,7 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
                 if call.name.name=="FIELD_DELETE":
                     conditional.append(cond)
 
-    assert len(conditional) == 7
+    assert len(conditional) == 8
     for cond in conditional:
         assert fgen(cond) in field_delete
 
@@ -179,7 +187,8 @@ def test_parallel_routine_dispatch_derived_dcl(here, frontend):
 "REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_DM(:, :, :)",
 "REAL(KIND=JPRB), POINTER :: Z_YDCPG_DYN0_CTY_EVEL(:, :, :)",
 "REAL(KIND=JPRB), POINTER :: Z_YDMF_PHYS_SURF_GSD_VF_PZ0F(:, :)",
-"REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_DL(:, :, :)"]
+"REAL(KIND=JPRB), POINTER :: Z_YDVARS_CVGQ_DL(:, :, :)",
+"REAL(KIND=JPRB), POINTER :: Z_YDMF_PHYS_OUT_CT(:, :)"]
     for dcl in dcls:
         assert dcl in test_dcls
 
@@ -214,7 +223,8 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
         "YDVARS%CVGQ%DL" : ["YDVARS%CVGQ%FDL", "Z_YDVARS_CVGQ_DL"],
         "YDCPG_PHY0%XYB%RDELP" : ["YDCPG_PHY0%XYB%F_RDELP", "Z_YDCPG_PHY0_XYB_RDELP"],
         "YDCPG_DYN0%CTY%EVEL" : ["YDCPG_DYN0%CTY%F_EVEL", "Z_YDCPG_DYN0_CTY_EVEL"], 
-        "YDMF_PHYS_SURF%GSD_VF%PZ0F" : ["YDMF_PHYS_SURF%GSD_VF%F_Z0F", "Z_YDMF_PHYS_SURF_GSD_VF_PZ0F"]
+        "YDMF_PHYS_SURF%GSD_VF%PZ0F" : ["YDMF_PHYS_SURF%GSD_VF%F_Z0F", "Z_YDMF_PHYS_SURF_GSD_VF_PZ0F"],
+        "YDMF_PHYS%OUT%CT": ["YDMF_PHYS%OUT%F_CT", "Z_YDMF_PHYS_OUT_CT"]
     }
     routine_map_derived = item.trafo_data['create_parallel']['map_routine']['map_derived']
     for var_name in routine_map_derived:
@@ -287,6 +297,8 @@ Z_YDVARS_Q_T0 => GET_HOST_DATA_RDWR(YDVARS%Q%FT0)
 Z_YDVARS_U_T0 => GET_HOST_DATA_RDWR(YDVARS%U%FT0)
 Z_YDVARS_V_T0 => GET_HOST_DATA_RDWR(YDVARS%V%FT0)
 Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_HOST_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)
+TOTO => GET_HOST_DATA_RDWR(YL_TOTO)
+Z_YDMF_PHYS_OUT_CT => GET_HOST_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
 """
     test_get_data["OpenMPSingleColumn"] = test_get_data["OpenMP"]
@@ -334,6 +346,8 @@ Z_YDVARS_Q_T0 => GET_DEVICE_DATA_RDWR(YDVARS%Q%FT0)
 Z_YDVARS_U_T0 => GET_DEVICE_DATA_RDWR(YDVARS%U%FT0)                                                                                                          
 Z_YDVARS_V_T0 => GET_DEVICE_DATA_RDWR(YDVARS%V%FT0)                                                                                                          
 Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_DEVICE_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)                                                                          |276 REAL(KIND=JPRB)     :: ZPFL_FPLSH (YDCPG_OPTS%KLON, 0:YDCPG_OPTS%KFLEVG)                                                                                           
+TOTO => GET_DEVICE_DATA_RDWR(YL_TOTO)
+Z_YDMF_PHYS_OUT_CT => GET_DEVICE_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
 """
 
@@ -408,6 +422,8 @@ def test_parallel_routine_dispatch_synchost(here, frontend):
  Z_YDVARS_U_T0 => GET_HOST_DATA_RDWR(YDVARS%U%FT0)
  Z_YDVARS_V_T0 => GET_HOST_DATA_RDWR(YDVARS%V%FT0)
  Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_HOST_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)
+ TOTO => GET_HOST_DATA_RDWR(YL_TOTO)
+ Z_YDMF_PHYS_OUT_CT => GET_HOST_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
  IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:SYNCHOST', 1, ZHOOK_HANDLE_FIELD_API)
  ENDIF
 """
@@ -454,6 +470,8 @@ Z_YDVARS_Q_T0 => NULL()
 Z_YDVARS_U_T0 => NULL()
 Z_YDVARS_V_T0 => NULL()
 Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => NULL() 
+TOTO => NULL()
+Z_YDMF_PHYS_OUT_CT => NULL()
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:NULLIFY', 1, ZHOOK_HANDLE_FIELD_API)
 """
 
@@ -805,3 +823,33 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
     assert "'OPENMP'" in fgen(routine_str)
     assert "'OPENMPSINGLECOLUMN'" in fgen(routine_str)
     assert "'OPENACCSINGLECOLUMN'" in fgen(routine_str)
+
+
+#@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
+#def test_parallel_routine_dispatch_lparallel(here, frontend):
+#
+#    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
+#    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
+#    routine = source['dispatch_routine']
+#
+#    is_intent = False 
+#    horizontal = [
+#            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+#            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+#    ]
+#    path_map_index = "/transformations/transformations/field_index.pkl"
+#
+#    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+#    transformation.apply(source['dispatch_routine'], item=item)
+#
+#    loops = [loop for loop in FindNodes(Loop).visit(routine) if loop.variable.name=="JLON"]
+#
+#    str_loops_body = [fgen(loop.body) for loop in loops]
+##    str_loops_spec = [fgen(loop.spec) for loop in loops]
+#    #str_loops = [fgen(loop) for loop in loops]
+#
+#    test_loop="Z_YDMF_PHYS_OUT_CT(JLON, JBLK) = TOTO(JLON, JBLK)"
+#
+#    print(fgen(routine.body))
+#    assert test_loop in str_loops_body
+        
