@@ -14,6 +14,7 @@ current version of the coding standards.
 
 from collections import defaultdict
 import re
+import difflib
 
 try:
     from fparser.two.Fortran2003 import Intrinsic_Name
@@ -22,14 +23,83 @@ except ImportError:
     _intrinsic_fortran_names = ()
 
 from loki import (
-    FindInlineCalls, FindNodes, GenericRule, Module, RuleType
+    FindInlineCalls, FindNodes, GenericRule, Module, RuleType,
+    ExpressionFinder, ExpressionRetriever, FloatLiteral,
+    SubstituteExpressions
 )
-from loki import ir
-
+from loki import ir, fgen
+from loki.frontend.util import read_file
 
 __all__ = [
     'MissingImplicitNoneRule', 'OnlyParameterGlobalVarRule', 'MissingIntfbRule',
+    'MissingKindSpecifierRealLiterals'
 ]
+
+
+class FindFloatLiterals(ExpressionFinder):
+    """
+    A visitor to collects :any:`FloatLiteral` used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (FloatLiteral,)))
+
+class MissingKindSpecifierRealLiterals(GenericRule):
+    """
+    ...
+    """
+
+    type = RuleType.SERIOUS
+    fixable = True
+
+    docs = {
+        'id': 'L0',
+        'title': (
+            'Real Literals must have a kind specifier. '
+        ),
+    }
+
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
+        """
+        ...
+        """
+        literal_nodes = FindFloatLiterals(with_ir_node=True).visit(subroutine.body)
+        for node, literals in literal_nodes:
+            for literal in literals:
+                if literal.kind is None:
+                    rule_report.add(f'Real/Float literal without kind specifier "{literal}"', node)
+
+    @classmethod
+    def fix_subroutine(cls, subroutine, rule_report, config, sourcefile=None):
+        """
+        ...
+        """
+        original_content = read_file(str(sourcefile.path))
+        content = original_content
+        literal_nodes = FindFloatLiterals(with_ir_node=True).visit(subroutine.body)
+        for node, literals in literal_nodes:
+            literal_map = {}
+            for literal in literals:
+                if literal.kind is None:
+                    literal_map[literal] = FloatLiteral(value=literal.value, kind='JPRB')
+            if literal_map:
+                fixed_node = SubstituteExpressions(literal_map).visit(node)
+                indent = int((len(node.source.string) - len(node.source.string.lstrip(' ')))/2)
+                fixed_node_str = fgen(fixed_node, depth=indent)
+                content_new = re.sub(rf'{re.escape(node.source.string)}',
+                        fixed_node_str, content, flags = re.S)
+                content = content_new
+        diff = difflib.unified_diff(original_content.splitlines(), content_new.splitlines(),
+                f'a/{sourcefile.path}', f'b/{sourcefile.path}', lineterm='')
+        diff_str = '\n'.join(list(diff))
+        # print(f"---{sourcefile.path}------")
+        # print(diff_str)
+        # print(f"--------------------------")
+        with open (f'loki_lint_{subroutine.name}.patch', 'w') as f:
+            f.write(diff_str)
+            f.write('\n')
 
 
 class MissingImplicitNoneRule(GenericRule):
