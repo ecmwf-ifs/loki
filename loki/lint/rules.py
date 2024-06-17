@@ -175,7 +175,7 @@ class GenericRule:
                     cls.check(member, rule_report, config, **kwargs)
 
     @classmethod
-    def fix_module(cls, module, rule_report, config):
+    def fix_module(cls, module, rule_report, config, sourcefile=None):
         """
         Fix rule violations on module level
 
@@ -183,7 +183,7 @@ class GenericRule:
         """
 
     @classmethod
-    def fix_subroutine(cls, subroutine, rule_report, config):
+    def fix_subroutine(cls, subroutine, rule_report, config, sourcefile=None):
         """
         Fix rule violations on subroutine level
 
