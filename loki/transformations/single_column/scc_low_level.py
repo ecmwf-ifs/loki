@@ -9,43 +9,32 @@ from functools import partial
 
 from loki.batch import Pipeline, Transformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
-# from loki import Transformation
-
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.vector import (
     SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
 )
 from loki.transformations.single_column.scc_cuf import (
     HoistTemporaryArraysDeviceAllocatableTransformation,
-    HoistTemporaryArraysPragmaOffloadTransformation, # SccCufTransformationNew,
+    HoistTemporaryArraysPragmaOffloadTransformation,
     SccLowLevelDataOffload, SccLowLevelLaunchConfiguration
 )
-# __all__ = ['BlockViewToFieldViewTransformation', 'InjectBlockIndexTransformation',
-#         'LowerBlockIndexTransformation', 'LowerBlockLoopTransformation']
 from loki.transformations.block_index_transformations import (
         InjectBlockIndexTransformation,
         LowerBlockIndexTransformation, LowerBlockLoopTransformation
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
-    GlobalVariableAnalysis, # GlobalVarOffloadTransformation,
-    GlobalVarHoistTransformation
+    GlobalVariableAnalysis, GlobalVarHoistTransformation
 )
 from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
 
-##
-
-# from loki.transformations.hoist_variables import HoistVariablesTransformation
-# from loki.transformations.sanitise import resolve_associates
-# from loki.transformations.single_column.base import SCCBaseTransformation
-# from loki.transformations.single_column.vector import SCCDevectorTransformation
-# from loki.transformations.utilities import single_variable_declaration
-
-__all__ = ['SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
-        'SCCLowLevelParametrise', 'SCCLowLevelCuf']
+__all__ = [
+        'SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
+        'SCCLowLevelParametrise', 'SCCLowLevelCuf'
+]
 
 def inline_elemental_kernel(routine, **kwargs):
     role = kwargs['role']
@@ -55,8 +44,6 @@ def inline_elemental_kernel(routine, **kwargs):
         inline_constant_parameters(routine, external_only=True)
         inline_elemental_functions(routine)
 
-# InlineTrafo = type("InlineTrafo", (Transformation, object), {
-#             "transform_subroutine": lambda self, routine, **kwargs: inline_elemental_kernel(routine, **kwargs)})()
 
 class InlineTransformation(Transformation):
 
@@ -85,10 +72,6 @@ SCCLowLevelCuf = partial(
 
 SCCLowLevelCufParametrise = partial(
     Pipeline, classes=(
-        # InlineTransformation,
-        # GlobalVariableAnalysis,
-        # GlobalVarHoistTransformation,
-        # DerivedTypeArgumentsTransformation,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -98,18 +81,12 @@ SCCLowLevelCufParametrise = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-        # HoistTemporaryArraysAnalysis,
-        # HoistTemporaryArraysCstyleTransformation,
         ParametriseTransformation
     )
 )
 
 SCCLowLevelCufHoist = partial(
     Pipeline, classes=(
-        # InlineTransformation,
-        # GlobalVariableAnalysis,
-        # GlobalVarHoistTransformation,
-        # DerivedTypeArgumentsTransformation,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -120,7 +97,6 @@ SCCLowLevelCufHoist = partial(
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
         HoistTemporaryArraysAnalysis,
-        # HoistTemporaryArraysCstyleTransformation,
         HoistTemporaryArraysDeviceAllocatableTransformation
     )
 )
@@ -140,8 +116,6 @@ SCCLowLevelParametrise = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-        # HoistTemporaryArraysAnalysis,
-        # HoistTemporaryArraysCstyleTransformation,
         ParametriseTransformation
     )
 )
