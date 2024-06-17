@@ -40,9 +40,9 @@ from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransfor
 from loki.transformations.remove_code import RemoveCodeTransformation
 from loki.transformations.sanitise import SanitiseTransformation
 from loki.transformations.single_column import (
-    ExtractSCATransformation, CLAWTransformation,
-    SCCVectorPipeline, SCCHoistPipeline, SCCStackPipeline,
-    HoistTemporaryArraysDeviceAllocatableTransformation
+    ExtractSCATransformation, CLAWTransformation, SCCVectorPipeline,
+    SCCHoistPipeline, SCCStackPipeline, SCCRawStackPipeline,
+    HoistTemporaryArraysDeviceAllocatableTransformation,
 )
 from loki.transformations.transpile import FortranCTransformation
 
@@ -70,7 +70,7 @@ def cli(debug):
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
                   ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']
+                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -282,30 +282,47 @@ def convert(
         scheduler.process( pipeline )
 
     if mode == 'scc':
-        pipeline = SCCVectorPipeline(
-            horizontal=horizontal,
-            block_dim=block_dim, directive=directive,
-            trim_vector_sections=trim_vector_sections
-        )
+        pipeline = scheduler.config.transformations.get('scc', None)
+        if not pipeline:
+            pipeline = SCCVectorPipeline(
+                horizontal=horizontal,
+                block_dim=block_dim, directive=directive,
+                trim_vector_sections=trim_vector_sections
+            )
         scheduler.process( pipeline )
 
     if mode == 'scc-hoist':
-        pipeline = SCCHoistPipeline(
-            horizontal=horizontal,
-            block_dim=block_dim, directive=directive,
-            dim_vars=(vertical.size,) if vertical else None,
-            trim_vector_sections=trim_vector_sections
-        )
+        pipeline = scheduler.config.transformations.get('scc-hoist', None)
+        if not pipeline:
+            pipeline = SCCHoistPipeline(
+                horizontal=horizontal,
+                block_dim=block_dim, directive=directive,
+                dim_vars=(vertical.size,) if vertical else None,
+                trim_vector_sections=trim_vector_sections
+            )
         scheduler.process( pipeline )
 
     if mode == 'scc-stack':
-        pipeline = SCCStackPipeline(
-            horizontal=horizontal,
-            block_dim=block_dim, directive=directive,
-            check_bounds=False,
-            trim_vector_sections=trim_vector_sections )
+        pipeline = scheduler.config.transformations.get('scc-stack', None)
+        if not pipeline:
+            pipeline = SCCStackPipeline(
+                horizontal=horizontal,
+                block_dim=block_dim, directive=directive,
+                check_bounds=False,
+                trim_vector_sections=trim_vector_sections
+            )
         scheduler.process( pipeline )
 
+    if mode == 'scc-raw-stack':
+        pipeline = scheduler.config.transformations.get('scc-raw-stack', None)
+        if not pipeline:
+            pipeline = SCCStackPipeline(
+                horizontal=horizontal,
+                block_dim=block_dim, directive=directive,
+                check_bounds=False,
+                trim_vector_sections=trim_vector_sections,
+            )
+        scheduler.process( pipeline )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         # These transformations requires complex constructor arguments,

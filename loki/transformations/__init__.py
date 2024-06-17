@@ -21,6 +21,7 @@ from loki.transformations.extract import * # noqa
 from loki.transformations.hoist_variables import * # noqa
 from loki.transformations.inline import * # noqa
 from loki.transformations.parametrise import * # noqa
+from loki.transformations.raw_stack_allocator import * # noqa
 from loki.transformations.remove_code import * # noqa
 from loki.transformations.sanitise import * # noqa
 from loki.transformations.single_column import * # noqa
