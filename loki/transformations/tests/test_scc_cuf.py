@@ -8,7 +8,7 @@
 from pathlib import Path
 import pytest
 
-from loki import Scheduler, Subroutine, Dimension, Module # , fgen
+from loki import Scheduler, Subroutine, Dimension, Module
 from loki.expression import symbols as sym, FindVariables
 from loki.frontend import available_frontends
 from loki.ir import (
@@ -142,9 +142,6 @@ def _check_subroutine_kernel(routine, horizontal, vertical, blocking):
     for argument_array in argument_arrays:
         dims = FindVariables().visit(argument_array.dimensions)
         assert blocking.index in dims or blocking.size in dims
-    # TODO: assert for local arrays!
-    # arrays = [var for var in routine.variables if isinstance(var, sym.Array)]
-
 
 def check_subroutine_kernel(routine, horizontal, vertical, blocking):
     _check_subroutine_kernel(routine=routine, horizontal=horizontal, vertical=vertical, blocking=blocking)
@@ -217,18 +214,14 @@ contains
       END DO
     END DO
 
-    ! DO JL = START, IEND
-    !   Q(JL, NZ) = Q(JL, NZ) * C
-    ! END DO
   END SUBROUTINE kernel
 end module kernel_mod
 """
     kernel_mod = Module.from_source(fcode_kernel, frontend=frontend)
-    # kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
     kernel = kernel_mod['kernel']
 
-    cuf_transform = SCCLowLevelCuf( # SccCufTransformation(
+    cuf_transform = SCCLowLevelCuf(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
         dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True
     )
