@@ -139,12 +139,10 @@ class SccLowLevelLaunchConfiguration(Transformation):
         self.transformation_type = transformation_type
         # `parametrise` : parametrising the array dimensions
         # `hoist`: host side hoisting
-        # `dynamic`: dynamic memory allocation on the device
         print(f"self.transformation_type: '{self.transformation_type}'")
-        assert self.transformation_type in ['parametrise', 'hoist', 'dynamic']
+        assert self.transformation_type in ['parametrise', 'hoist']
         self.transformation_description = {'parametrise': 'parametrised array dimensions of local arrays',
-                                           'hoist': 'host side hoisted local arrays',
-                                           'dynamic': 'dynamic memory allocation on the device'}
+                                           'hoist': 'host side hoisted local arrays'}
 
         if derived_types is None:
             self.derived_types = ()
@@ -200,10 +198,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
             targets=targets
         )
 
-        # dynamic memory allocation of local arrays (only for version with dynamic memory allocation on device)
-        #if self.transformation_type == 'dynamic':
-        #    dynamic_local_arrays(routine, self.vertical)
-
     def process_driver(self, routine, targets=None):
         """
         Driver subroutine specific changes/transformations.
@@ -233,10 +227,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     call.routine.body = (blockdim_assignment, griddim_assignment) + as_tuple(call.routine.body)
             routine.body = Transformer(call_map).visit(routine.body)
         elif self.mode == 'cuf':
-            # increase heap size (only for version with dynamic memory allocation on device)
-            # if self.transformation_type == 'dynamic':
-            #     increase_heap_size(routine)
-
             routine.body.prepend(ir.Comment(f"!@cuf print *, 'executing SCC-CUF type: {self.transformation_type} - "
                                             f"{self.transformation_description[self.transformation_type]}'"))
             routine.body.prepend(ir.Comment(""))
@@ -487,11 +477,9 @@ class SccLowLevelDataOffload(Transformation):
         self.transformation_type = transformation_type
         # `parametrise` : parametrising the array dimensions
         # `hoist`: host side hoisting
-        # `dynamic`: dynamic memory allocation on the device
-        assert self.transformation_type in ['parametrise', 'hoist', 'dynamic']
+        assert self.transformation_type in ['parametrise', 'hoist']
         self.transformation_description = {'parametrise': 'parametrised array dimensions of local arrays',
-                                           'hoist': 'host side hoisted local arrays',
-                                           'dynamic': 'dynamic memory allocation on the device'}
+                                           'hoist': 'host side hoisted local arrays'}
 
         if derived_types is None:
             self.derived_types = ()
@@ -558,10 +546,6 @@ class SccLowLevelDataOffload(Transformation):
             routine, self.horizontal, self.block_dim, self.transformation_type,
             derived_type_variables=self.derived_type_variables
         )
-
-        # dynamic memory allocation of local arrays (only for version with dynamic memory allocation on device)
-        #if self.transformation_type == 'dynamic':
-        #    dynamic_local_arrays(routine, self.vertical)
 
     def kernel_cuf(self, routine, horizontal, block_dim, transformation_type,
                derived_type_variables):
