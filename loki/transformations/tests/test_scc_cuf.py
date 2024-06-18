@@ -8,7 +8,7 @@
 from pathlib import Path
 import pytest
 
-from loki import Scheduler, Subroutine, Dimension, Module # , fgen
+from loki import Scheduler, Subroutine, Dimension, Module
 from loki.expression import symbols as sym, FindVariables
 from loki.frontend import available_frontends
 from loki.ir import (
@@ -105,7 +105,6 @@ def check_subroutine_driver(routine, blocking, disable=()):
         parameters=())
     assert cuda_device_synchronize in [assignment.rhs for assignment in assignments]
     for device_array in device_arrays:
-        # print(f"check device_array: {device_array}")
         if array_map[device_array].type.intent == "inout":
             assert Assignment(lhs=device_array.clone(dimensions=None),
                               rhs=array_map[device_array].clone(dimensions=None)) in assignments
@@ -143,9 +142,6 @@ def _check_subroutine_kernel(routine, horizontal, vertical, blocking):
     for argument_array in argument_arrays:
         dims = FindVariables().visit(argument_array.dimensions)
         assert blocking.index in dims or blocking.size in dims
-    # TODO: assert for local arrays!
-    # arrays = [var for var in routine.variables if isinstance(var, sym.Array)]
-
 
 def check_subroutine_kernel(routine, horizontal, vertical, blocking):
     _check_subroutine_kernel(routine=routine, horizontal=horizontal, vertical=vertical, blocking=blocking)
@@ -218,29 +214,20 @@ contains
       END DO
     END DO
 
-    ! DO JL = START, IEND
-    !   Q(JL, NZ) = Q(JL, NZ) * C
-    ! END DO
   END SUBROUTINE kernel
 end module kernel_mod
 """
     kernel_mod = Module.from_source(fcode_kernel, frontend=frontend)
-    # kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
     kernel = kernel_mod['kernel']
 
-    cuf_transform = SCCLowLevelCuf( # SccCufTransformation(
+    cuf_transform = SCCLowLevelCuf(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
         dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True
     )
 
     cuf_transform.apply(driver, role='driver', targets=['kernel'])
     cuf_transform.apply(kernel, role='kernel')
-
-    # print(f"driver: {fgen(driver)}")
-    # print(f"--------")
-    # print(f"kernel: {fgen(kernel)}")
-    # print(f"-----")
 
     check_subroutine_driver(routine=driver, blocking=blocking)
     check_subroutine_kernel(routine=kernel, horizontal=horizontal, vertical=vertical, blocking=blocking)
@@ -313,7 +300,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
 
     scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
 
-    cuf_transform = SCCLowLevelCuf( # SccCufTransformation(
+    cuf_transform = SCCLowLevelCuf(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
         transformation_type='hoist',
         dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True
@@ -324,11 +311,6 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
     scheduler.process(transformation=HoistTemporaryArraysAnalysis())
     # Transformation: Synthesis
     scheduler.process(transformation=hoist_synthesis)
-    # print(fgen(scheduler["driver_mod#driver"].ir))
-    # print("-----")
-    # print(fgen(scheduler["kernel_mod#kernel"].ir))
-    # print("-----")
-    # print(fgen(scheduler["kernel_mod#device"].ir))  
     check_subroutine_driver(routine=scheduler["driver_mod#driver"].ir, blocking=blocking)
     check_subroutine_kernel(routine=scheduler["kernel_mod#kernel"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)

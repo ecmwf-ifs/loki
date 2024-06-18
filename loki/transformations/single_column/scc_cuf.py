@@ -19,14 +19,11 @@ from loki.types import BasicType, DerivedType
 from loki.scope import SymbolAttributes
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
-# from loki.transformations.sanitise import resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
-# from loki.transformations.single_column.vector import SCCDevectorTransformation
 from loki.transformations.utilities import single_variable_declaration
-from loki.ir.pragma_utils import get_pragma_parameters # , pragmas_attached
+from loki.ir.pragma_utils import get_pragma_parameters
 
 __all__ = [
-    # 'SccCufTransformation',
     'HoistTemporaryArraysDeviceAllocatableTransformation',
     'HoistTemporaryArraysPragmaOffloadTransformation',
     'SccLowLevelLaunchConfiguration',
@@ -215,16 +212,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
             The subroutine (driver) to process
         """
 
-        """
-        self.derived_type_variables = self.device_derived_types(
-            routine=routine, derived_types=self.derived_types, targets=targets
-        )
-        # create variables needed for the device execution, especially generate device versions of arrays
-        self.driver_device_variables(routine=routine, targets=targets)
-        # remove block loop and generate launch configuration for CUF kernels
-        """
-        # upper, step, block_dim_size, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment =\
-        #         self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
         upper, step, _, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment =\
                 self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
 
@@ -264,7 +251,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
         single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
 
-        # TODO: as all locals do have the block_dim index (because of SCCLowerLoop)
         #  this does not make any difference ...
         self.kernel_demote_private_locals(routine, horizontal, vertical)
 
@@ -281,14 +267,12 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
         if depth == 1:
 
-            ##new
+            ## bit hacky ...
             assignments = FindNodes(ir.Assignment).visit(routine.body)
             assignments2remove = [block_dim.index.lower()] + [_.lower() for _ in horizontal.bounds]
-            #  + ['griddim', 'blockdim']
             assignment_map = {assign: None for assign in assignments if assign.lhs.name.lower() in assignments2remove}
-            # == block_dim.index.lower() or assignment.lhs.name.lower() in [_.lower() for _ in horizontal.bounds]}
             routine.body = Transformer(assignment_map).visit(routine.body)
-            ##end: new
+            ##end: bit hacky
 
             # CUDA thread mapping
             if self.mode == 'cuf':
@@ -296,8 +280,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 var_x = sym.Variable(name="X", parent=var_thread_idx)
             else:
                 ctype = SymbolAttributes(DerivedType(name="threadIdx"))
-                var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=True) # , type=ctype)
-                # TODO: "type=ctype" needs a commit
+                var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=True)
                 var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True, type=ctype)
             horizontal_assignment = ir.Assignment(lhs=routine.variable_map[horizontal.index], rhs=var_x)
 
@@ -306,8 +289,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 var_x = sym.Variable(name="Z", parent=var_thread_idx)
             else:
                 ctype = SymbolAttributes(DerivedType(name="blockIdx"))
-                var_thread_idx = sym.Variable(name="blockIdx", case_sensitive=True) # , type=ctype)
-                # TODO: "type=ctype" needs a commit
+                var_thread_idx = sym.Variable(name="blockIdx", case_sensitive=True)
                 var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True, type=ctype)
             block_dim_assignment = ir.Assignment(lhs=routine.variable_map[block_dim.index], rhs=var_x)
 
@@ -318,9 +300,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
             routine.body = ir.Section((horizontal_assignment, block_dim_assignment, ir.Comment(''),
                             ir.Conditional(condition=condition, body=as_tuple(routine.body), else_body=())))
-        else:
-            pass
-        # call_map = {}
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if call.routine.name.lower() in targets and not SCCBaseTransformation.is_elemental(call.routine):
                 horizontal_index = routine.variable_map[horizontal.index]
@@ -420,9 +399,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
         griddim_var = sym.Variable(name="GRIDDIM", type=d_type)
         if self.mode == 'cuf':
             routine.spec.append(ir.VariableDeclaration(symbols=(griddim_var, blockdim_var)))
-        # d_type = SymbolAttributes(types.DerivedType("dim3"))
-        # routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="griddim", type=d_type),
-        #     sym.Variable(name="blockdim", type=d_type))))
 
         # istat: status of CUDA runtime function (e.g. for cudaDeviceSynchronize(), cudaMalloc(), cudaFree(), ...)
         i_type = SymbolAttributes(BasicType.INTEGER)
@@ -432,7 +408,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
         griddim_assignment = None
         mapper = {}
 
-        # with pragmas_attached(routine, node_type=ir.CallStatement):
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if call.name not in as_tuple(targets):
                 continue
@@ -473,7 +448,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
                                                                                         sym.Cast(name="REAL",
                                                                                                 expression=step)))))
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-                # mapper[call] = (blockdim_assignment, griddim_assignment, ir.Comment(""), call) # , loop.body)
                 mapper[call] = (blockdim_assignment, griddim_assignment, ir.Comment(""),
                         call.clone(chevron=(routine.variable_map["GRIDDIM"], routine.variable_map["BLOCKDIM"]),),
                         ir.Assignment(lhs=assignment_lhs, rhs=assignment_rhs))
@@ -482,23 +456,22 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 func_ceiling = sym.ProcedureSymbol(name="ceil", scope=routine)
 
                 # BLOCKDIM
-                lhs = blockdim_var # routine.variable_map["blockdim"]
+                lhs = blockdim_var
                 rhs = sym.InlineCall(function=func_dim3, parameters=(step, sym.IntLiteral(1), sym.IntLiteral(1)))
                 blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-
                 # GRIDDIM
-                lhs = griddim_var # routine.variable_map["griddim"]
+                lhs = griddim_var
                 rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
                     parameters=as_tuple(
                         sym.Cast(name="REAL", expression=upper) /
                         sym.Cast(name="REAL", expression=step))),
                     sym.IntLiteral(1), sym.IntLiteral(1)))
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
-        # else:
-        #     pass
+
         routine.body = Transformer(mapper=mapper).visit(routine.body)
         return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
                 blockdim_assignment, griddim_assignment
+
 
 class SccLowLevelDataOffload(Transformation):
 
@@ -527,21 +500,11 @@ class SccLowLevelDataOffload(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
-        # item = kwargs.get('item', None)
         role = kwargs.get('role')
-        # depths = kwargs.get('depths', None)
         targets = kwargs.get('targets', None)
-        # if depths is None:
-        #     if role == 'driver':
-        #         depth = 0
-        #     elif role == 'kernel':
-        #         depth = 1
-        # else:
-        #     depth = depths[item]
 
         remove_pragmas(routine)
         single_variable_declaration(routine=routine, group_by_shape=True)
-        # device_subroutine_prefix(routine, depth) # pylint: disable=possibly-used-before-assignment
 
         if self.mode == 'cuf':
             routine.spec.prepend(ir.Import(module="cudafor"))
@@ -595,15 +558,12 @@ class SccLowLevelDataOffload(Transformation):
 
     def kernel_cuf(self, routine, horizontal, block_dim, transformation_type,
                derived_type_variables):
-        # def kernel_cuf(self, routine, horizontal, vertical, block_dim, transformation_type,
-        #            depth, derived_type_variables, targets=None):
 
         relevant_local_arrays = []
         var_map = {}
         for var in routine.variables:
             if var in routine.arguments:
                 # if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
-                # TODO: "and var.type.intent.lower() == 'in'" needs a commit
                 if isinstance(var, sym.Scalar) and var not in derived_type_variables\
                         and var.type.intent.lower() == 'in':
                     var_map[var] = var.clone(type=var.type.clone(value=True))
@@ -639,63 +599,6 @@ class SccLowLevelDataOffload(Transformation):
                         var_map[var] = var.clone(dimensions=as_tuple(dimensions[1:]))
 
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
-
-    @staticmethod
-    def kernel_demote_private_locals(routine, horizontal, vertical):
-        """
-        Demotes all local variables.
-        Array variables whose dimensions include only the vector dimension
-        or known (short) constant dimensions (eg. local vector or matrix arrays)
-        can be privatized without requiring shared GPU memory. Array variables
-        with unknown (at compile time) dimensions (eg. the vertical dimension)
-        cannot be privatized at the vector loop level and should therefore not
-        be demoted here.
-        Parameters
-        ----------
-        routine: :any:`Subroutine`
-            The subroutine to demote the private locals
-        horizontal: :any:`Dimension`
-            The dimension object specifying the horizontal vector dimension
-        vertical: :any:`Dimension`
-            The dimension object specifying the vertical loop dimension
-        """
-
-        # Establish the new dimensions and shapes first, before cloning the variables
-        # The reason for this is that shapes of all variable instances are linked
-        # via caching, meaning we can easily void the shape of an unprocessed variable.
-        variables = list(routine.variables)
-        variables += list(FindVariables(unique=False).visit(routine.body))
-
-        # Filter out purely local array variables
-        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-        variables = [v for v in variables if not v.name in argument_map]
-        variables = [v for v in variables if isinstance(v, sym.Array)]
-
-        # Find all arrays with shapes that do not include the vertical
-        # dimension and can thus be privatized.
-        variables = [v for v in variables if v.shape is not None]
-        variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
-
-        # Filter out variables that we will pass down the call tree
-        calls = FindNodes(ir.CallStatement).visit(routine.body)
-        call_args = flatten(call.arguments for call in calls)
-        call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
-        variables = [v for v in variables if v.name not in call_args]
-
-        shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
-        vmap = {}
-        for v in variables:
-            old_shape = shape_map[v.name]
-            # TODO: "s for s in old_shape if s not in expressions" sufficient?
-            new_shape = as_tuple(s for s in old_shape if s not in horizontal.size_expressions)
-
-            if old_shape and old_shape[0] in horizontal.size_expressions:
-                new_type = v.type.clone(shape=new_shape or None)
-                new_dims = v.dimensions[1:] or None
-                vmap[v] = v.clone(dimensions=new_dims, type=new_type)
-
-        routine.body = SubstituteExpressions(vmap).visit(routine.body)
-        routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
     def device_derived_types(self, routine, derived_types, targets=None):
         """
