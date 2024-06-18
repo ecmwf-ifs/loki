@@ -504,8 +504,7 @@ class SccLowLevelDataOffload(Transformation):
             self.process_kernel(routine) # , depth=depth, targets=targets)
 
         for call in FindNodes(ir.CallStatement).visit(routine.body):
-            if call.name in as_tuple(targets):
-                # call.sort_kwarguments()
+            if str(call.name).lower() in as_tuple(targets):
                 call.convert_kwargs_to_args()
 
     def process_driver(self, routine, targets=None):
@@ -555,8 +554,9 @@ class SccLowLevelDataOffload(Transformation):
         for var in routine.variables:
             if var in routine.arguments:
                 # if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
+                # TODO: var.type.intent is not None shouldn't be necessary ...
                 if isinstance(var, sym.Scalar) and var not in derived_type_variables\
-                        and var.type.intent.lower() == 'in':
+                        and var.type.intent is not None and var.type.intent.lower() == 'in':
                     var_map[var] = var.clone(type=var.type.clone(value=True))
             else:
                 if isinstance(var, sym.Array):

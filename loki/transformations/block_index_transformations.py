@@ -549,7 +549,6 @@ class LowerBlockLoopTransformation(Transformation):
         #     self.arg_to_local_var(call.routine, call.arg_map[var.name])
         # elif var.name in call.routine.arguments:
         if var.name in call.routine.arguments:
-            print(f"arg to local var [2] {var}")
             self.arg_to_local_var(call.routine, var)
         else:
             call.routine.variables += (var.clone(scope=call.routine),)
@@ -639,7 +638,6 @@ class LowerBlockLoopTransformation(Transformation):
                 continue
             # self.local_var(routine, call, loop.variable)
             for var in to_local_var[call.routine.name]:
-                print(f"self.local_var for {var}")
                 self.local_var(call, var)
         # TODO: remove
         self.remove_openmp_pragmas(routine)

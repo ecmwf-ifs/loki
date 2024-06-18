@@ -2,7 +2,8 @@ MODULE KERNEL_MOD
     IMPLICIT NONE
     CONTAINS
     SUBROUTINE kernel(start, iend, nlon, nz, q, t, z)
-        INTEGER, INTENT(IN) :: start, iend  ! Iteration indices
+        INTEGER, INTENT(IN) :: start
+        INTEGER, INTENT(IN) :: iend  ! Iteration indices
         INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
         REAL, INTENT(INOUT) :: t(nlon,nz)
         REAL, INTENT(INOUT) :: q(nlon,nz)
@@ -43,7 +44,8 @@ MODULE KERNEL_MOD
     END SUBROUTINE ELEMENTAL_DEVICE
 
     SUBROUTINE DEVICE(nlon, nz, jk_start, start, iend, x)
-        INTEGER, INTENT(IN) :: jk_start, start, iend
+        INTEGER, INTENT(IN) :: jk_start, start
+        INTEGER, INTENT(IN) :: iend
         INTEGER, INTENT(IN) :: nlon, nz
         REAL, INTENT(INOUT) :: x(nlon, nz)
         REAL    :: local_x(nlon, nz)

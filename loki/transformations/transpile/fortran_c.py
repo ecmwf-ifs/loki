@@ -9,7 +9,7 @@ from pathlib import Path
 from collections import OrderedDict
 
 from loki.backend import cgen, fgen, cudagen
-from loki.batch import Transformation
+from loki.batch import Transformation, ProcedureItem
 from loki.expression import (
     symbols as sym, Variable, InlineCall, RangeIndex, Scalar, Array,
     ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
@@ -184,6 +184,10 @@ class FortranCTransformation(Transformation):
             if isinstance(arg.type.dtype, DerivedType):
                 self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
 
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if str(call.name).lower() in as_tuple(targets):
+                call.convert_kwargs_to_args()
+
         if role == 'kernel':
             # Generate Fortran wrapper module
             bind_name = None if self.language == 'c' else f'{routine.name.lower()}_c_launch'
@@ -212,7 +216,8 @@ class FortranCTransformation(Transformation):
                     c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
                 else:
                     # TODO: should include .h file, however problem compiling/running multiple compilation units ...
-                    c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
+                    if not isinstance(successor, ProcedureItem):
+                        c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
 
             # Sourcefile.to_file(source=self.langgen(c_kernel), path=self.c_path)
 
@@ -337,6 +342,7 @@ class FortranCTransformation(Transformation):
 
         arguments = tuple(local_arg_map[a] if a in local_arg_map else Variable(name=a)
                           for a in routine.argnames)
+        use_device_addr = []
         if self.use_c_ptr:
             arg_map = {}
             for arg in routine.arguments:
@@ -345,7 +351,7 @@ class FortranCTransformation(Transformation):
                     arg_map[arg] = arg.clone(dimensions=new_dims, type=arg.type.clone(target=True))
             routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
 
-            use_device_addr = []
+            # use_device_addr = []
             call_arguments = []
             for arg in routine.arguments:
                 if isinstance(arg, Array):
@@ -468,7 +474,8 @@ class FortranCTransformation(Transformation):
             else:
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
-                value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
+                # TODO: arg.type.intent is not None, shouldn't be necessary
+                value = isinstance(arg, Scalar) and arg.type.intent is not None and arg.type.intent.lower() == 'in'
                 kind = self.iso_c_intrinsic_kind(arg.type, intf_routine, is_array=isinstance(arg, Array))
                 if self.use_c_ptr:
                     if isinstance(arg, Array):
@@ -555,7 +562,8 @@ class FortranCTransformation(Transformation):
         """
         to_be_dereferenced = []
         for arg in routine.arguments:
-            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+            # TODO: arg.type.intent is not None shouldn't be necessary
+            if arg.type.intent is not None and not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 to_be_dereferenced.append(arg.name.lower())
 
         routine.body = DeReferenceTrafo(to_be_dereferenced).visit(routine.body)
@@ -639,7 +647,9 @@ class FortranCTransformation(Transformation):
 
         # Force pointer on reference-passed arguments (and lower case type names for derived types)
         for arg in kernel.arguments:
-            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+
+            # TODO: arg.type.intent is not None, shouldn't be necessary
+            if arg.type.intent is not None and not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 _type = arg.type.clone(pointer=True)
                 if isinstance(arg.type.dtype, DerivedType):
                     # Lower case type names for derived types
@@ -678,8 +688,12 @@ class FortranCTransformation(Transformation):
             # else:
             call_arguments.append(arg)
 
-        griddim = kernel_launch.variable_map['griddim']
-        blockdim = kernel_launch.variable_map['blockdim']
+        griddim = None
+        blockdim = None
+        if 'griddim' in kernel_launch.variable_map:
+            griddim = kernel_launch.variable_map['griddim']
+        if 'blockdim' in kernel_launch.variable_map:
+            blockdim = kernel_launch.variable_map['blockdim']
         assignments = FindNodes(Assignment).visit(kernel_launch.body)
         griddim_assignment = None
         blockdim_assignment = None
