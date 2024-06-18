@@ -132,7 +132,7 @@ class CudaCodegen(CppCodegen):
         args = self.visit_all(o.arguments, **kwargs)
         assert not o.kwarguments
         chevron = f'<<<{",".join([str(elem) for elem in o.chevron])}>>>' if o.chevron is not None else ''
-        return self.format_line(str(o.name).lower(), chevron, '(', self.join_items(args), ');')
+        return self.format_line(str(o.name), chevron, '(', self.join_items(args), ');')
 
 
 def cudagen(ir, **kwargs):
