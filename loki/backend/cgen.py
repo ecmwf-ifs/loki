@@ -194,7 +194,7 @@ class CCodegen(Stringifier):
 
     def _subroutine_declaration(self, o, **kwargs):
         pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
-        arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
+        arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name}'
                      for a, p, k in zip(o.arguments, pass_by, var_keywords)]
         opt_header = kwargs.get('header', False)
         end = ' {' if not opt_header else ';'
