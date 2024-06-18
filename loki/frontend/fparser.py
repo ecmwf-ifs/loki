@@ -2687,6 +2687,68 @@ class FParser2IR(GenericVisitor):
         return symbol.clone(type=_type)
 
     #
+    # FORALL construct
+    #
+
+    def visit_Forall_Stmt(self, o, **kwargs):
+        """
+        Visit and process a single-line FORALL statement:
+            FORALL (<variable> = <bound>[, <variable> = <bound>] ... [, <mask>]) assign-stmt
+        """
+        named_bounds, mask = self.visit(o.children[0], **kwargs)
+        # At this point, the body should contain one child. This will be validated during the construction of ir.Forall
+        body = as_tuple(self.visit(child, **kwargs) for child in o.children[1:])
+        return ir.Forall(named_bounds=named_bounds, mask=mask, body=body, inline=True,
+                         source=kwargs.get("source"))
+
+    def visit_Forall_Construct(self, o, **kwargs):
+        """
+        Visit and process a multi-line FORALL construct:
+            [name:] FORALL (<variable> = <bound>[, <variable> = <bound>] ... [, <mask>])
+                ...body...
+            END FORALL [name]
+
+        Notes:
+            * Optional `name` of the construct is stored by fparser only in the End_Forall_Stmt at the end,
+              and not in the beginning of the whole statement.
+            * The body can consist of not only assignment statements, but also comments and nested FORALLs
+        """
+        start = get_child(o, Fortran2003.Forall_Construct_Stmt)
+        start_idx = o.children.index(start)
+        # Anything before the construct (comments and/or pragmas)
+        prelude = as_tuple(self.visit(c, **kwargs) for c in o.children[:start_idx])
+        # Analyse body of the construct
+        body = node_sublist(o.children, Fortran2003.Forall_Construct_Stmt, Fortran2003.End_Forall_Stmt)
+        # The construct name is the second child of the End_Forall_Stmt (it is not stored in the header by fparser!)
+        end = get_child(o, Fortran2003.End_Forall_Stmt)
+        if name := end.children[1]:
+            name = name.string
+        # In the visit() below, skip the Forall_Constrct_Stmt and go directly to the Forall_Header
+        named_bounds, mask = self.visit(start.children[1], **kwargs)
+        body = as_tuple(self.visit(c, **kwargs) for c in body)
+        return *prelude, ir.Forall(name=name, named_bounds=named_bounds, mask=mask,
+                                   body=body, inline=False, source=kwargs.get("source"))
+
+    def visit_Forall_Header(self, o, **kwargs):
+        """
+        Visit FORALL header consisting of variables with their bounds and an optional mask
+        """
+        # Skip the Forall_Triplet_Spec_List, and go directly into each Forall_Triplet_Spec (named bounds)
+        named_bounds = as_tuple(self.visit(c, **kwargs) for c in o.children[0].children)
+        mask = self.visit(o.children[1], **kwargs)
+        return named_bounds, mask
+
+    def visit_Forall_Triplet_Spec(self, o, **kwargs):
+        """
+        Visit a triplet specification consisting of named variable, `=`, and a range (hence, the triplet!)
+        """
+        # The optional [type::] (integer data type) is not handled by fparser2,
+        # so, the first child is always the variable name
+        variable = self.visit(o.children[0], **kwargs)
+        bounds = as_tuple((self.visit(a, **kwargs) for a in (o.children[1:])))
+        return variable, sym.Range(bounds)
+
+    #
     # WHERE construct
     #
 
