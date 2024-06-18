@@ -30,8 +30,66 @@ from loki.transformations.utilities import (
 
 __all__ = [
     'SCCDevectorTransformation', 'SCCRevectorTransformation',
-    'SCCDemoteTransformation', 'wrap_vector_section'
+    'SCCDemoteTransformation', 'wrap_vector_section',
+    'get_trimmed_sections', 'trim_vector_section'
 ]
+
+
+def trim_vector_section(section, symbols):
+    """
+    Returns the smallest sub-section of an IR section in which
+    all nodes that use the given horizontal dimension.
+
+    This requires dataflow analysis to be attached to the section.
+
+    Parameters
+    ----------
+    section : tuple of :any:`Node`
+        Section of nodes from which to trim non-vector scalar operations.
+    symbols : tuple of :any:`TypedSymbol`
+        Symbols used to match nodes against
+
+    Returns
+    -------
+    tuple of :any:`Node`
+        Trimmed section with leading and trailing non-matching nodes removed.
+    """
+    symbols = as_tuple(symbols)
+
+    vec_nodes = [
+        node for node in section
+        if any(s in node.uses_symbols for s in symbols)
+    ]
+    start = section.index(vec_nodes[0])
+    end = section.index(vec_nodes[-1])
+
+    return section[start:end+1]
+
+
+def get_trimmed_sections(routine, sections, symbols):
+    """
+    Trim extracted vector sections to remove nodes that are not
+    assignments involving vector parallel arrays.
+
+    Parameters
+    ----------
+    section : tuple of tuple of :any:`Node`
+        Tuoke of node sections from which to trim non-matched operations.
+    symbols : tuple of :any:`TypedSymbol`
+        Symbols used to match nodes against
+
+    Returns
+    -------
+    tuple of tuple of :any:`Node`
+        Tuple of trimmed sections with leading and trailing
+        non-matching nodes removed.
+    """
+    with dataflow_analysis_attached(routine):
+        trimmed_sections = tuple(
+            trim_vector_section(sec, symbols=symbols) for sec in sections
+        )
+
+    return trimmed_sections
 
 
 class SCCDevectorTransformation(Transformation):
@@ -153,24 +211,6 @@ class SCCDevectorTransformation(Transformation):
 
         return subsections
 
-    @classmethod
-    def get_trimmed_sections(cls, routine, horizontal, sections):
-        """
-        Trim extracted vector sections to remove nodes that are not assignments
-        involving vector parallel arrays.
-        """
-
-        trimmed_sections = ()
-        with dataflow_analysis_attached(routine):
-            for sec in sections:
-                vec_nodes = [node for node in sec if horizontal.index.lower() in node.uses_symbols]
-                start = sec.index(vec_nodes[0])
-                end = sec.index(vec_nodes[-1])
-
-                trimmed_sections += (sec[start:end+1],)
-
-        return trimmed_sections
-
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply SCCDevector utilities to a :any:`Subroutine`.
@@ -209,7 +249,7 @@ class SCCDevectorTransformation(Transformation):
         sections = self.extract_vector_sections(routine.body.body, self.horizontal)
 
         if self.trim_vector_sections:
-            sections = self.get_trimmed_sections(routine, self.horizontal, sections)
+            sections = get_trimmed_sections(routine, sections, self.horizontal.index)
 
         # Replace sections with marked Section node
         section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
@@ -244,7 +284,7 @@ class SCCDevectorTransformation(Transformation):
             new_driver_loop = loop.clone(body=new_driver_loop)
             sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
             if self.trim_vector_sections:
-                sections = self.get_trimmed_sections(new_driver_loop, self.horizontal, sections)
+                sections = get_trimmed_sections(new_driver_loop, sections, self.horizontal.index)
             section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
             new_driver_loop = NestedTransformer(section_mapper).visit(new_driver_loop)
             driver_loop_map[loop] = new_driver_loop
