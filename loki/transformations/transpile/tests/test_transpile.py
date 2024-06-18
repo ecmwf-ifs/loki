@@ -5,18 +5,19 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from shutil import rmtree
+from pathlib import Path
+# from shutil import rmtree
 import pytest
 import numpy as np
 
-from loki import Subroutine, Module, cgen
+from loki import Subroutine, Module, cgen, cppgen, cudagen, FindNodes, Dimension, Scheduler, read_file
 from loki.build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
 import loki.expression.symbols as sym
 from loki.frontend import available_frontends, OFP
-import loki.ir as ir
+from loki import ir
 
 from loki.transformations.transpile import FortranCTransformation
-
+from loki.transformations.single_column import SCCLowLevelHoist, SCCLowLevelParametrise
 
 @pytest.fixture(scope='function', name='builder')
 def fixture_builder(tmp_path):
@@ -26,7 +27,8 @@ def fixture_builder(tmp_path):
 
 @pytest.mark.parametrize('case_sensitive', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transpile_case_sensitivity(tmp_path, frontend, case_sensitive):
+@pytest.mark.parametrize('language', ('c', 'cuda'))
+def test_transpile_case_sensitivity(tmp_path, frontend, case_sensitive, language):
     """
     A simple test for testing lowering the case and case-sensitivity
     for specific symbols.
@@ -56,7 +58,7 @@ end subroutine transpile_case_sensitivity
     inline_call_assignment = ir.Assignment(lhs=routine.variable_map['a'], rhs=inline_call)
     routine.body = (routine.body, assignment, call, inline_call_assignment)
 
-    f2c = FortranCTransformation()
+    f2c = FortranCTransformation(language=language, use_c_ptr=language=='cuda')
     f2c.apply(source=routine, path=tmp_path)
     ccode = f2c.c_path.read_text().replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '')
     assert convert_case('transpile_case_sensitivity_c(inta,intsOmE_vAr,intoTher_VaR)', case_sensitive) in ccode
@@ -977,17 +979,20 @@ end subroutine transpile_expressions
 
 @pytest.mark.parametrize('use_c_ptr', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transpile_call(tmp_path, frontend, use_c_ptr):
+@pytest.mark.parametrize('language', ('c', 'cuda'))
+@pytest.mark.parametrize('chevron', (False, True))
+def test_transpile_call(tmp_path, frontend, use_c_ptr, language, chevron):
     fcode_module = """
 module transpile_call_kernel_mod
   implicit none
 contains
 
-  subroutine transpile_call_kernel(a, b, c, arr1, len)
+  subroutine transpile_call_kernel(a, b, c, arr1, arr2, len)
     integer, intent(inout) :: a, c
     integer, intent(in) :: b
     integer, intent(in) :: len
     integer, intent(inout) :: arr1(len, len)
+    integer, intent(in) :: arr2(len, len)
     a = b
     c = b
   end subroutine transpile_call_kernel
@@ -1003,12 +1008,15 @@ subroutine transpile_call_driver(a)
     integer :: arr2(len, len)
     integer :: b
     b = 2 * len
-    call transpile_call_kernel(a, b, arr2(1, 1), arr1, len)
+    call transpile_call_kernel(a, b, arr2(1, 1), arr1, arr2, len)
 end subroutine transpile_call_driver
 """
     module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module, xmods=[tmp_path])
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr, path=tmp_path)
+    if chevron:
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        calls[0]._update(chevron=(sym.IntLiteral(1), sym.IntLiteral(1)))
+    f2c = FortranCTransformation(use_c_ptr=use_c_ptr, path=tmp_path, language=language)
     f2c.apply(source=module.subroutine_map['transpile_call_kernel'], path=tmp_path, role='kernel')
     ccode_kernel = f2c.c_path.read_text().replace(' ', '').replace('\n', '')
     f2c.apply(source=routine, path=tmp_path, role='kernel')
@@ -1018,13 +1026,22 @@ end subroutine transpile_call_driver
     # check for applied Dereference
     assert "(*a)=b;" in ccode_kernel
     assert "(*c)=b;" in ccode_kernel
-    # check for applied Reference
-    assert "transpile_call_kernel((&a),b,(&arr2[" in ccode_driver
+    # check for applied 'const' and 'restrict'/'__restrict__'
+    if language == 'cuda':
+        assert 'int*a,intb,int*c,int*__restrict__arr1,constint*__restrict__arr2' in ccode_kernel
+    else:
+        assert 'int*a,intb,int*c,int*restrictarr1,int*restrictarr2' in ccode_kernel
+    # check for applied Reference and chevron
+    if chevron and language == 'cuda':
+        assert "transpile_call_kernel<<<1,1>>>((&a),b,(&arr2[" in ccode_driver
+    else:
+        assert "transpile_call_kernel((&a),b,(&arr2[" in ccode_driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('f_type', ['integer', 'real'])
-def test_transpile_inline_functions(tmp_path, frontend, f_type):
+@pytest.mark.parametrize('codegen', (cgen, cppgen, cudagen))
+def test_transpile_inline_functions(tmp_path, frontend, f_type, codegen):
     """
     Test correct transpilation of functions in C transpilation.
     """
@@ -1043,14 +1060,15 @@ end function add
     f2c.apply(source=routine, path=tmp_path)
 
     f_type_map = {'integer': 'int', 'real': 'double'}
-    c_routine = cgen(routine)
+    c_routine = codegen(routine)
     assert 'return add;' in c_routine
     assert f'{f_type_map[f_type]} add(' in c_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('f_type', ['integer', 'real'])
-def test_transpile_inline_functions_return(tmp_path, frontend, f_type):
+@pytest.mark.parametrize('codegen', (cgen, cppgen, cudagen))
+def test_transpile_inline_functions_return(tmp_path, frontend, f_type, codegen):
     """
     Test correct transpilation of functions in C transpilation.
     """
@@ -1069,13 +1087,14 @@ end function add
     f2c.apply(source=routine, path=tmp_path)
 
     f_type_map = {'integer': 'int', 'real': 'double'}
-    c_routine = cgen(routine)
+    c_routine = codegen(routine)
     assert 'return res;' in c_routine
     assert f'{f_type_map[f_type]} add(' in c_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transpile_multiconditional(tmp_path, builder, frontend):
+@pytest.mark.parametrize('codegen', (cgen, cppgen, cudagen))
+def test_transpile_multiconditional(tmp_path, builder, frontend, codegen):
     """
     A simple test to verify multiconditionals/select case statements.
     """
@@ -1119,7 +1138,7 @@ end subroutine multi_cond
     f2c.apply(source=routine, path=tmp_path)
 
     # check whether 'switch' statement is within C code
-    assert 'switch' in cgen(routine)
+    assert 'switch' in codegen(routine)
 
     # compile C version
     libname = f'fc_{routine.name}_{frontend}'
@@ -1178,3 +1197,189 @@ end subroutine transpile_multi_conditional_range
     f2c = FortranCTransformation()
     with pytest.raises(NotImplementedError):
         f2c.apply(source=routine, path=tmp_path)
+
+@pytest.fixture(scope='module', name='horizontal')
+def fixture_horizontal():
+    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'iend'))
+
+
+@pytest.fixture(scope='module', name='vertical')
+def fixture_vertical():
+    return Dimension(name='vertical', size='nz', index='jk')
+
+
+@pytest.fixture(scope='module', name='blocking')
+def fixture_blocking():
+    return Dimension(name='blocking', size='nb', index='b')
+
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
+
+
+@pytest.fixture(name='config')
+def fixture_config():
+    """
+    Default configuration dict with basic options.
+    """
+    return {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': False,  # cudafor import
+        },
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
+    }
+
+def remove_whitespace_linebreaks(text):
+    return text.replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '').lower()
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vertical, blocking):
+    """
+    Test SCC-CUF transformation type 0, thus including parametrising (array dimension(s))
+    """
+
+    proj = here / '../../tests/sources/projSccCuf/module'
+
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+
+    dic2p = {'nz': 137}
+    cuda_transform = SCCLowLevelParametrise(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        transformation_type='parametrise',
+        dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True,
+        use_c_ptr=True, dic2p=dic2p, path=here, mode='cuda'
+    )
+    scheduler.process(transformation=cuda_transform)
+    f2c_transformation = FortranCTransformation(path=tmp_path, language='cuda', use_c_ptr=True)
+    scheduler.process(transformation=f2c_transformation)
+
+    # f_driver = remove_whitespace_linebreaks(fgen(scheduler["driver_mod#driver"].ir))
+    fc_kernel = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_fc.F90'))
+    c_kernel = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c.c'))
+    c_kernel_header = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c.h'))
+    c_kernel_launch = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c_launch.h'))
+    c_device = remove_whitespace_linebreaks(read_file(tmp_path/'device_c.c'))
+    # c_device_header = remove_whitespace_linebreaks(read_file(tmp_path/'device_c.h'))
+    c_elemental_device = remove_whitespace_linebreaks(read_file(tmp_path/'elemental_device_c.c'))
+
+    calls = FindNodes(ir.CallStatement).visit(scheduler["driver_mod#driver"].ir.body)
+    assert len(calls) == 3
+    for call in calls:
+        assert str(call.name).lower() == 'kernel'
+        assert call.pragma[0].keyword == 'loki'
+        assert 'removed_loop' in call.pragma[0].content
+    # kernel_fc.F90
+    assert '!$acchost_datause_device(q,t,z)' in fc_kernel
+    assert 'kernel_iso_c(start,nlon,c_loc(q),c_loc(t),c_loc(z),nb,tot,iend)' in fc_kernel
+    assert 'bind(c,name="kernel_c_launch")' in fc_kernel
+    assert 'useiso_c_binding' in fc_kernel
+    # kernel_c.c
+    assert '#include<cuda.h>' in c_kernel
+    assert '#include<cuda_runtime.h>' in c_kernel
+    assert '#include"kernel_c.h"' in c_kernel
+    assert '#include"kernel_c_launch.h"' in c_kernel
+    assert '__global__voidkernel_c' in c_kernel
+    assert 'jl=threadidx.x;' in c_kernel
+    assert 'b=blockidx.x;' in c_kernel
+    # kernel_c.h
+    assert '__global__voidkernel_c' in c_kernel_header
+    assert 'jl=threadidx.x;' not in c_kernel_header
+    assert 'b=blockidx.x;' not in c_kernel_header
+    # kernel_c_launch.h
+    assert 'extern"c"' in c_kernel_launch
+    assert 'voidkernel_c_launch(' in c_kernel_launch
+    assert 'structdim3blockdim;' in c_kernel_launch
+    assert 'structdim3griddim;' in c_kernel_launch
+    assert 'griddim=dim3(' in c_kernel_launch
+    assert 'blockdim=dim3(' in c_kernel_launch
+    assert 'kernel_c<<<griddim,blockdim>>>(' in c_kernel_launch
+    assert 'cudadevicesynchronize();' in c_kernel_launch
+    # device_c.c
+    assert '#include<cuda.h>' in c_device
+    assert '#include<cuda_runtime.h>' in c_device
+    assert '#include"device_c.h"' in c_device
+    # assert '__device__voiddevice_c' in c_device # TODO
+    # elemental_device_c.c
+    assert '#include<cuda.h>' in c_elemental_device
+    assert '#include<cuda_runtime.h>' in c_elemental_device
+    assert '#include"elemental_device_c.h"' in c_elemental_device
+    # assert '__device__voidelemental_device_c' in c_elemental_device # TODO
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, blocking):
+    """
+    Test SCC-CUF transformation type 0, thus including parametrising (array dimension(s))
+    """
+
+    proj = here / '../../tests/sources/projSccCuf/module'
+
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+
+    cuda_transform = SCCLowLevelHoist(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        transformation_type='parametrise',
+        dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True,
+        use_c_ptr=True, path=here, mode='cuda'
+    )
+    scheduler.process(transformation=cuda_transform)
+    f2c_transformation = FortranCTransformation(path=tmp_path, language='cuda', use_c_ptr=True)
+    scheduler.process(transformation=f2c_transformation)
+
+    # f_driver = remove_whitespace_linebreaks(fgen(scheduler["driver_mod#driver"].ir))
+    fc_kernel = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_fc.F90'))
+    c_kernel = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c.c'))
+    c_kernel_header = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c.h'))
+    c_kernel_launch = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c_launch.h'))
+    c_device = remove_whitespace_linebreaks(read_file(tmp_path/'device_c.c'))
+    # c_device_header = remove_whitespace_linebreaks(read_file(tmp_path/'device_c.h'))
+    c_elemental_device = remove_whitespace_linebreaks(read_file(tmp_path/'elemental_device_c.c'))
+
+    calls = FindNodes(ir.CallStatement).visit(scheduler["driver_mod#driver"].ir.body)
+    assert len(calls) == 3
+    for call in calls:
+        assert str(call.name).lower() == 'kernel'
+        assert call.pragma[0].keyword == 'loki'
+        assert 'removed_loop' in call.pragma[0].content
+    # kernel_fc.F90
+    assert '!$acchost_datause_device(q,t,z,local_z,device_local_x)' in fc_kernel
+    assert 'kernel_iso_c(start,nlon,nz,c_loc(q),c_loc(t),c_loc(z)' in fc_kernel
+    assert 'c_loc(z),nb,tot,iend,c_loc(local_z),c_loc(device_local_x))' in fc_kernel
+    assert 'bind(c,name="kernel_c_launch")' in fc_kernel
+    assert 'useiso_c_binding' in fc_kernel
+    # kernel_c.c
+    assert '#include<cuda.h>' in c_kernel
+    assert '#include<cuda_runtime.h>' in c_kernel
+    assert '#include"kernel_c.h"' in c_kernel
+    assert '#include"kernel_c_launch.h"' in c_kernel
+    assert '__global__voidkernel_c' in c_kernel
+    assert 'jl=threadidx.x;' in c_kernel
+    assert 'b=blockidx.x;' in c_kernel
+    # kernel_c.h
+    assert '__global__voidkernel_c' in c_kernel_header
+    assert 'jl=threadidx.x;' not in c_kernel_header
+    assert 'b=blockidx.x;' not in c_kernel_header
+    # kernel_c_launch.h
+    assert 'extern"c"' in c_kernel_launch
+    assert 'voidkernel_c_launch(' in c_kernel_launch
+    assert 'structdim3blockdim;' in c_kernel_launch
+    assert 'structdim3griddim;' in c_kernel_launch
+    assert 'griddim=dim3(' in c_kernel_launch
+    assert 'blockdim=dim3(' in c_kernel_launch
+    assert 'kernel_c<<<griddim,blockdim>>>(' in c_kernel_launch
+    assert 'cudadevicesynchronize();' in c_kernel_launch
+    # device_c.c
+    assert '#include<cuda.h>' in c_device
+    assert '#include<cuda_runtime.h>' in c_device
+    assert '#include"device_c.h"' in c_device
+    # assert '__device__voiddevice_c' in c_device # TODO
+    # elemental_device_c.c
+    assert '#include<cuda.h>' in c_elemental_device
+    assert '#include<cuda_runtime.h>' in c_elemental_device
+    assert '#include"elemental_device_c.h"' in c_elemental_device
+    # assert '__device__voidelemental_device_c' in c_elemental_device # TODO
