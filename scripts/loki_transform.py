@@ -76,7 +76,7 @@ def cli(debug):
 @click.option('--mode', '-m', default='idem',
               type=click.Choice(
                   ['idem', "c", 'idem-lower', 'idem-lower-loop', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'cuda-parametrise', 'cuda-hoist', 'scc-raw-stack']
+                   'cuf-parametrise', 'cuf-hoist', 'cuda-parametrise', 'cuda-hoist', 'scc-raw-stack']
               ),
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
