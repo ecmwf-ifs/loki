@@ -16,6 +16,8 @@ from loki import Loop
 
 from transformations.parallel_routine_dispatch import ParallelRoutineDispatchTransformation
 
+import os
+
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
@@ -37,7 +39,7 @@ def test_parallel_routine_dispatch_dr_hook(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
@@ -58,7 +60,7 @@ def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -114,7 +116,7 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -168,7 +170,7 @@ def test_parallel_routine_dispatch_derived_dcl(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -204,7 +206,7 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -247,7 +249,7 @@ def test_parallel_routine_dispatch_get_data(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -366,7 +368,7 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIE
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
 ###    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
 ###    transformation.apply(source['dispatch_routine'], item=item)
@@ -395,7 +397,7 @@ def test_parallel_routine_dispatch_synchost(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -443,7 +445,7 @@ def test_parallel_routine_dispatch_nullify(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -491,7 +493,7 @@ def test_parallel_routine_dispatch_compute_openmp(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -552,7 +554,7 @@ def test_parallel_routine_dispatch_compute_openmpscc(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -627,7 +629,7 @@ def test_parallel_routine_dispatch_compute_openaccscc(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -721,7 +723,7 @@ def test_parallel_routine_dispatch_variables(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -730,7 +732,7 @@ def test_parallel_routine_dispatch_variables(here, frontend):
 
     routine_str = fgen(routine)
 
-    test_variables = ["TYPE(CPG_BNDS_TYPE), INTENT(IN) :: YLCPG_BNDS", 
+    test_variables = ["TYPE(CPG_BNDS_TYPE) :: YLCPG_BNDS", 
 "TYPE(STACK) :: YLSTACK", 
 "INTEGER(KIND=JPIM) :: JBLK", 
 "REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_FIELD_API", 
@@ -753,7 +755,7 @@ def test_parallel_routine_dispatch_imports(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -787,7 +789,7 @@ def test_parallel_routine_dispatch_imports(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -812,7 +814,7 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
-    path_map_index = "/transformations/transformations/field_index.pkl"
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -837,7 +839,7 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
 #            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
 #            "KPROMA", "YDDIM%NPROMA", "NPROMA"
 #    ]
-#    path_map_index = "/transformations/transformations/field_index.pkl"
+#    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 #
 #    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
 #    transformation.apply(source['dispatch_routine'], item=item)

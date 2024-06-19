@@ -43,7 +43,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
                        }
 
         self.path_map_index = path_map_index
-        with open(os.getcwd()+path_map_index, 'rb') as fp:
+        with open(path_map_index, 'rb') as fp:
+        #with open(os.getcwd()+path_map_index, 'rb') as fp:
             self.map_index = pickle.load(fp)
 
 #        with open(os.getcwd()+"/transformations/transformations/field_index.pkl", 'rb') as fp:
@@ -95,6 +96,16 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.add_field(routine, map_routine)
         self.add_derived(routine, map_routine)
         self.add_routine_imports(routine, map_routine)
+
+        #sanitise_imports(routine) => bug...
+        calls = [call.name.name.lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
+        map_imports = {}
+        for imp in map_routine["c_imports"].values():
+            imp_name = imp.module.replace(".intfb.h","")
+            if imp_name not in calls:
+                map_imports[imp] = None
+        routine.spec = Transformer(map_imports).visit(routine.spec)
+            
        # self.process_not_region_loop(routine, map_routine)
 
         #call add_arrays etc...
@@ -110,6 +121,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_region['compute'] = {}
         map_region['region'] = {}
         map_region['lparallel'] = {}
+        map_region['private'] = []
 
         pragma_content = region.pragma.content.split(maxsplit=1)
         pragma_content = [entry.split('=', maxsplit=1) for entry in pragma_content[1].split(',')]
@@ -120,7 +132,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         if 'parallel' not in pragma_attrs:
             return
         if 'target' not in pragma_attrs:
-            pragma_attrs['target'] = 'OpenMP/OpenMPSingleColumn/OpenACCSingleColumn'
+            pragma_attrs['target'] = 'OpenMP'
+            #pragma_attrs['target'] = 'OpenMP/OpenMPSingleColumn/OpenACCSingleColumn'
         if 'name' not in pragma_attrs:
             pragma_attrs['name'] = str(map_routine['nb_no_name'])
             map_routine['nb_no_name'] += 1
@@ -450,9 +463,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 if "YD" in cpg_bnds.name:
                     lcpg_bnds_name = cpg_bnds.name.replace("YD", "YL")
                     #self.lcpg_bnds = self.cpg_bnds.clone(name=lcpg_bnds_name) 
+                    lcpg_bnds_type = cpg_bnds.type.clone(intent=None)
                     lcpg_bnds = sym.Variable(
                         name=lcpg_bnds_name, 
-                        type=cpg_bnds.type,
+                        type=lcpg_bnds_type,
                         scope=routine)
                     map_routine['lcpg_bnds'] = lcpg_bnds
                     dcl = ir.VariableDeclaration(symbols=(lcpg_bnds,))
@@ -589,7 +603,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     if arg not in vars_call:
                         vars_call.append(arg)
                     if not (
-                        isinstance(arg, sym.LogicalOr) or isinstance(arg, sym.LogicalAnd)):
+                        isinstance(arg, sym.LogicalOr) 
+                        or isinstance(arg, sym.LogicalAnd) 
+                        or isinstance(arg, sym.IntLiteral)):
 
                         if arg.name in region_map_temp:
                             new_arguments += [self.update_args(arg, region_map_temp)]
@@ -603,6 +619,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
                         else:
                             new_arguments += [arg]
                     else:
+                        map_region['private'].append(arg)
                         new_arguments += [arg]
                 if scc:
                     new_kwarguments = call.kwarguments + (("YDSTACK", routine.variable_map["YLSTACK"]),)
