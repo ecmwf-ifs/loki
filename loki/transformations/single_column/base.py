@@ -51,6 +51,7 @@ class SCCBaseTransformation(Transformation):
         Check whether :any:`Subroutine` ``routine`` is an elemental routine.
         Need for distinguishing elemental and non-elemental function to transform
         those in a different way.
+
         Parameters
         ----------
         routine: :any:`Subroutine`
@@ -62,17 +63,17 @@ class SCCBaseTransformation(Transformation):
         return False
 
     @staticmethod
-    def check_array_dimensions_in_calls(routine):
-        calls = FindNodes(ir.CallStatement).visit(routine.body)
-        for call in calls:
-            for arg in call.arguments:
-                if isinstance(arg, sym.Array):
-                    if any(dim == sym.RangeIndex((None, None)) for dim in arg.dimensions):
-                        return False
-        return True
-
-    @staticmethod
     def remove_dimensions(routine, calls_only=False):
+        """
+        Remove colon notation from array dimensions within :any:`Subroutine` ``routine``.
+        E.g., convert two-dimensional array ``arr2d(:,:)`` to ``arr2d`` or
+        ``arr3d(:,:,:)`` to ``arr3d``, but NOT e.g., ``arr(1,:,:)``.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to check
+        """
         if calls_only:
             calls = FindNodes(ir.CallStatement).visit(routine.body)
             for call in calls:
@@ -87,7 +88,6 @@ class SCCBaseTransformation(Transformation):
                     else:
                         arguments += (arg,)
                 call._update(arguments=arguments)
-
         else:
             arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
             array_map = {}
@@ -99,6 +99,16 @@ class SCCBaseTransformation(Transformation):
 
     @staticmethod
     def explicit_dimensions(routine):
+        """
+        Make dimensions of arrays explicit within :any:`Subroutine` ``routine``.
+        E.g., convert two-dimensional array ``arr2d`` to ``arr2d(:,:)`` or
+        ``arr3d`` to ``arr3d(:,:,:)``.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to check
+        """
         arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
         array_map = {}
         for array in arrays:

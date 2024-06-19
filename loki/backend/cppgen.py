@@ -13,6 +13,9 @@ __all__ = ['cppgen', 'CppCodegen', 'CppCodeMapper', 'IntrinsicTypeCpp']
 
 
 class IntrinsicTypeCpp(IntrinsicTypeC):
+    """
+    Mapping Fortran type to corresponding C++ type.
+    """
 
     def c_intrinsic_type(self, _type, *args, **kwargs):
         if _type.dtype == BasicType.INTEGER:
@@ -25,7 +28,11 @@ cpp_intrinsic_type = IntrinsicTypeCpp()
 
 
 class CppCodeMapper(CCodeMapper):
-    # pylint: disable=abstract-method, unused-argument
+    """
+    A :class:`StringifyMapper`-derived visitor for Pymbolic expression trees that converts an
+    expression to a string adhering to standardized C++.
+    """
+    # pylint: disable=abstract-method, unused-argument, unnecessary-pass
     pass
 
 
@@ -47,9 +54,6 @@ class CppCodegen(CCodegen):
         return header
 
     def _subroutine_arguments(self, o, **kwargs):
-        # opt_extern = kwargs.get('extern', False)
-        # if opt_extern:
-        #     return super()._subroutine_arguments(o, **kwargs)
         var_keywords = []
         pass_by = []
         for a in o.arguments:
