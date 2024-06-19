@@ -250,19 +250,20 @@ class ParallelRoutineDispatchTransformation(Transformation):
         # Create the FIELD_NEW call
         var_shape = var.shape
         ubounds = [d.upper if isinstance(d, sym.RangeIndex) else d for d in var_shape]
-        ubounds += [sym.Variable(name="KGPBLKS", parent=routine.variable_map["YDCPG_OPTS"])]
+        ubounds += [sym.Variable(name="JBLKMAX", parent=routine.variable_map["YDCPG_OPTS"])]
         # NB: This is presumably what the condition should look like, however, the
         #     logic is flawed in to_parallel and it will only insert lbounds if _the last_
         #     dimension has an lbound. We emulate this with the second line here to
         #     generate identical results, but this line should probably not be there
         has_lbounds = any(isinstance(d, sym.RangeIndex) for d in var_shape)
         has_lbounds = has_lbounds and isinstance(var_shape[-1], sym.RangeIndex)
+        has_lbounds = True
         if has_lbounds:
             lbounds = [
                 d.lower if isinstance(d, sym.RangeIndex) else sym.IntLiteral(1)
                 for d in var_shape
             ]
-            lbounds.append(sym.IntLiteral(1))
+            lbounds.append(sym.Variable(name="JBLKMIN", parent=routine.variable_map["YDCPG_OPTS"]))
             kwarguments = (
                 ('UBOUNDS', sym.LiteralList(ubounds)),
             ('LBOUNDS', sym.LiteralList(lbounds)),
@@ -678,7 +679,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
 #        new_calls = tuple(new_calls)
         
         loop_body = (update,) + new_region_body
-        loop = ir.Loop(variable=self.jblk, bounds=sym.LoopRange((1,routine.resolve_typebound_var(f"{cpg_opts}%KGPBLKS"))), body=loop_body)
+        lower_bound = routine.resolve_typebound_var(f"{cpg_opts}%JBLKMIN")
+        upper_bound = routine.resolve_typebound_var(f"{cpg_opts}%JBLKMAX")
+        loop = ir.Loop(variable=self.jblk, bounds=sym.LoopRange((lower_bound, upper_bound)), body=loop_body)
         dr_hook_calls = self.create_dr_hook_calls(
             routine, f"{routine.name}:{region_name}:COMPUTE",
             sym.Variable(name='ZHOOK_HANDLE_COMPUTE', scope=routine)
@@ -693,17 +696,20 @@ class ParallelRoutineDispatchTransformation(Transformation):
     # ==============================================================
     # ==============================================================
         cpg_opts = map_routine['cpg_opts']
+        lower_bound = routine.resolve_typebound_var(f"{cpg_opts}%JBLKMIN")
+        upper_bound = routine.resolve_typebound_var(f"{cpg_opts}%JBLKMAX")
+
         cpg_opts_kgpblks = routine.resolve_typebound_var("YDCPG_OPTS%KGPBLKS")
-        lcpg_opts_kgpblks = routine.resolve_typebound_var("YLCPG_OPTS%KGPBLKS")
         kidia = ir.Assignment(
             lhs=routine.resolve_typebound_var("YLCPG_BNDS%KIDIA"),
             rhs=routine.variable_map["JLON"])
         kfdia = ir.Assignment(
             lhs=routine.resolve_typebound_var("YLCPG_BNDS%KFDIA"),
             rhs=routine.variable_map["JLON"])
+        jblk_param=parse_expr("JBLK-YDCPG_OPTS%JBLKMIN+1")
 
         stack_param = (sym.Variable(name="YSTACK", scope=routine), 
-            self.jblk, 
+            jblk_param, 
             cpg_opts_kgpblks) 
         ylstack_l8 = ir.Assignment(
             lhs=routine.resolve_typebound_var("YLSTACK%L8"),
@@ -746,7 +752,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         loop_jblk_body = [pragma2, loop_jlon] 
         loop_jblk = ir.Loop(
             variable=routine.variable_map['JBLK'],
-            bounds=sym.LoopRange((1,cpg_opts_kgpblks)),
+            bounds=sym.LoopRange((lower_bound, upper_bound)),
             body=loop_jblk_body
         )
         dr_hook_calls = self.create_dr_hook_calls(
