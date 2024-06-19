@@ -659,7 +659,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         # ==============================================================
         # ==============================================================
         lst_private = "JBLK"
-        pragma = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE {lst_private} FIRSTPRIVATE ({lcpg_bnds.name})")
+        pragma = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({lst_private}) FIRSTPRIVATE ({lcpg_bnds.name})")
         update = ir.CallStatement(  
             name=routine.resolve_typebound_var(f"{lcpg_bnds.name}%UPDATE"), 
             arguments=(self.jblk,)
