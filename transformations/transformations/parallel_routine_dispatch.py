@@ -762,6 +762,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         lst_present = "YDCPG_OPTS, YDGEOMETRY, YDMODEL, YSTACK, "
         for var in chain(region_map_temp.values(), region_map_derived.values()):
             lst_present += f"{var[1].name}, "
+        lst_present = lst_present[:-2]+" " #rm the coma
         acc_vector_length = f"{cpg_opts}%KLON"
         pragma1 = ir.Pragma(keyword="ACC", content=f"PARALLEL LOOP GANG PRESENT ({lst_present}) PRIVATE ({lst_private1}) VECTOR_LENGTH({acc_vector_length})")
         pragma2 = ir.Pragma(keyword="ACC", content=f"LOOP VECTOR PRIVATE ({lst_private2})")
