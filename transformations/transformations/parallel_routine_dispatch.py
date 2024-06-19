@@ -705,14 +705,23 @@ class ParallelRoutineDispatchTransformation(Transformation):
         stack_param = (sym.Variable(name="YSTACK", scope=routine), 
             self.jblk, 
             cpg_opts_kgpblks) 
-        ylstack_l = ir.Assignment(
-            lhs=routine.resolve_typebound_var("YLSTACK%L"),
-            rhs=sym.InlineCall(sym.Variable(name='stack_l'), parameters=stack_param),
+        ylstack_l8 = ir.Assignment(
+            lhs=routine.resolve_typebound_var("YLSTACK%L8"),
+            rhs=sym.InlineCall(sym.Variable(name='stack_l8'), parameters=stack_param),
         )
-        ylstack_u = ir.Assignment(
-            lhs=routine.resolve_typebound_var("YLSTACK%U"),
-            rhs=sym.InlineCall(sym.Variable(name='stack_u'), parameters=stack_param),
+        ylstack_u8 = ir.Assignment(
+            lhs=routine.resolve_typebound_var("YLSTACK%U8"),
+            rhs=sym.InlineCall(sym.Variable(name='stack_u8'), parameters=stack_param),
         )
+        ylstack_l4 = ir.Assignment(
+            lhs=routine.resolve_typebound_var("YLSTACK%L4"),
+            rhs=sym.InlineCall(sym.Variable(name='stack_l4'), parameters=stack_param),
+        )
+        ylstack_u4 = ir.Assignment(
+            lhs=routine.resolve_typebound_var("YLSTACK%U4"),
+            rhs=sym.InlineCall(sym.Variable(name='stack_u4'), parameters=stack_param),
+        )
+
         #new_calls = self.process_call(routine, region, map_routine, map_region, scc=True)
 
         #TODO save the new_region_body in order to apply Transformer once instead of twice    
@@ -725,7 +734,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         new_region_body = Transformer(map_new_region).visit(new_region_body)
         #new_region_body = Transformer(map_new_region).visit(region.body)
 
-        loop_jlon_body = [kidia, kfdia, ylstack_l, ylstack_u] + list(new_region_body)
+        loop_jlon_body = [kidia, kfdia, ylstack_l8, ylstack_u8, ylstack_l4, ylstack_u4] + list(new_region_body)
         min_rhs = parse_expr("YDCPG_OPTS%KGPCOMP - (JBLK - 1) * YDCPG_OPTS%KLON")
         loop_jlon_bounds = (1,
             sym.InlineCall(sym.DeferredTypeSymbol(name="MIN"),

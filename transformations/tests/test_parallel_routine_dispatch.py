@@ -573,8 +573,10 @@ DO JBLK = 1, YDCPG_OPTS%KGPBLKS
     DO JLON = 1,MIN(YDCPG_OPTS%KLON, YDCPG_OPTS%KGPCOMP - (JBLK - 1)*YDCPG_OPTS%KLON)
       YLCPG_BNDS%KIDIA = JLON
       YLCPG_BNDS%KFDIA = JLON
-      YLSTACK%L = stack_l(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
-      YLSTACK%U = stack_u(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%L8 = stack_l8(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%U8 = stack_u8(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%L4 = stack_l4(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%U4 = stack_u4(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
 
       CALL CPPHINP_OPENACC (YDGEOMETRY, YDMODEL, YLCPG_BNDS%KIDIA, YLCPG_BNDS%KFDIA, Z_YDVARS_GEOMETRY_GEMU_T0&
     &(:, JBLK), Z_YDVARS_GEOMETRY_GELAM_T0(:, JBLK), Z_YDVARS_U_T0(:,:, JBLK), Z_YDVARS_V_T0(:,:, JBLK&
@@ -612,7 +614,7 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
     loop_jlon_body = loop_jlon.body
     for node in loop_jlon_body[:4]:
         assert fgen(node) in test_compute
-    call = loop_jlon_body[5]
+    call = loop_jlon_body[7]
     assert call.name == 'CPPHINP_OPENACC'
     for arg in call.arguments:
         assert fgen(arg) in test_call_var
@@ -663,8 +665,10 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 0, ZHOOK_HANDLE_COMP
     DO JLON = 1,MIN(YDCPG_OPTS%KLON, YDCPG_OPTS%KGPCOMP - (JBLK - 1)*YDCPG_OPTS%KLON)
       YLCPG_BNDS%KIDIA = JLON
       YLCPG_BNDS%KFDIA = JLON
-      YLSTACK%L = stack_l(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
-      YLSTACK%U = stack_u(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%L8 = stack_l8(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%U8 = stack_u8(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%L4 = stack_l4(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
+      YLSTACK%U4 = stack_u4(YSTACK, JBLK, YDCPG_OPTS%KGPBLKS)
 
       CALL CPPHINP_OPENACC (YDGEOMETRY, YDMODEL, YLCPG_BNDS%KIDIA, YLCPG_BNDS%KFDIA, Z_YDVARS_GEOMETRY_GEMU_T0&
     &(:, JBLK), Z_YDVARS_GEOMETRY_GELAM_T0(:, JBLK), Z_YDVARS_U_T0(:,:, JBLK), Z_YDVARS_V_T0(:,:, JBLK&
@@ -703,7 +707,7 @@ IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE:CPPHINP:COMPUTE', 1, ZHOOK_HANDLE_COMP
     loop_jlon_body = loop_jlon.body
     for node in loop_jlon_body[:4]:
         assert fgen(node) in test_compute
-    call = loop_jlon_body[5]
+    call = loop_jlon_body[7]
     assert call.name == 'CPPHINP_OPENACC'
     for arg in call.arguments:
         assert fgen(arg) in test_call_var
