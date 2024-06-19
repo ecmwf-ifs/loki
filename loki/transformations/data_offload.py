@@ -833,8 +833,8 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Get module variables/symbols (grouped by routine/successor).
         """
-        defines_symbols = CaseInsensitiveDict() # {} # CaseInsensitiveDict()
-        uses_symbols = CaseInsensitiveDict() # {} # CaseInsensitiveDict()
+        defines_symbols = CaseInsensitiveDict()
+        uses_symbols = CaseInsensitiveDict()
         for item in successors:
             if not isinstance(item, ProcedureItem):
                 continue

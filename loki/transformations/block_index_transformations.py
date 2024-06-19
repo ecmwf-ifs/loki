@@ -425,7 +425,10 @@ class InjectBlockIndexTransformation(Transformation):
 
 class LowerBlockIndexTransformation(Transformation):
     """
-    ...
+    Transformation to lower the block index via appending the block index 
+    to variable dimensions/shape. However, this only handles variable
+    declarations/definitions. Therefore this transformation must always be followed by
+    the :any:`InjectBlockIndexTransformation`.
 
     Parameters
     ----------
@@ -508,29 +511,78 @@ class LowerBlockIndexTransformation(Transformation):
             processed_routines += (call.routine.name,)
 
 
-
 class LowerBlockLoopTransformation(Transformation):
     """
-    ...
+    Lower the block loop to calls within this loop. 
+
+    For example, the following code:
+
+    .. code-block:: fortran
+
+        subroutine driver(nblks, ...)
+            ...
+            integer, intent(in) :: nblks
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+
+            do ibl=1,nblks
+                call kernel2(var,...,nblks,ibl)
+            enddo
+            ...
+        end subroutine driver
+
+        subroutine kernel(var, ..., nblks, ibl)
+            ...
+            real :: var(jlon,nlev,nblks)
+
+            do jl=1,...
+                do jk=1,...
+                    var(jk,jl,ibl) = ...
+                end do
+            end do
+        end subroutine kernel
+
+    is transformed to:
+    
+    .. code-block:: fortran
+
+        subroutine driver(nblks, ...)
+            ...
+            integer, intent(in) :: nblks
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+
+            call kernel2(var,..., nblks)
+            ...
+        end subroutine driver
+
+        subroutine kernel(var, ..., nblks)
+            ...
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+            
+            do ibl=1,nblks
+                do jl=1,...
+                    do jk=1,...
+                        var(jk,jl,ibl) = ...
+                    end do
+                end do
+            end do
+        end subroutine kernel
 
     Parameters
     ----------
     block_dim : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the blocking data dimension and iteration space.
-    recurse_to_kernels : bool, optional
-        Recurse/continue with/to (nested) kernels and lower the block index for those
-        as well (default: `False`).
     """
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
 
-    def __init__(self, block_dim): # , recurse_to_kernels=False): # , key=None):
+    def __init__(self, block_dim):
         self.block_dim = block_dim
-        # self.remove_loop = True
 
     def transform_subroutine(self, routine, **kwargs):
-
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         if role == 'driver':
@@ -544,15 +596,10 @@ class LowerBlockLoopTransformation(Transformation):
             type=routine.variable_map[var.name].type.clone(intent=None)),)
 
     def local_var(self, call, var):
-        # if var.name in call.arg_map:
-        #     print(f"arg to local var [1] {var} | {call.arg_map[var.name]}")
-        #     self.arg_to_local_var(call.routine, call.arg_map[var.name])
-        # elif var.name in call.routine.arguments:
         if var.name in call.routine.arguments:
             self.arg_to_local_var(call.routine, var)
         else:
             call.routine.variables += (var.clone(scope=call.routine),)
-            # (routine.variable_map[var.name].clone(scope=call.routine))
 
     @staticmethod
     def remove_openmp_pragmas(routine):
@@ -568,21 +615,16 @@ class LowerBlockLoopTransformation(Transformation):
 
     def process_driver(self, routine, targets):
         # find block loops
-        # with pragmas_attached(routine, (ir.Loop, ir.CallStatement)):
-        # if True:
         loops = FindNodes(ir.Loop).visit(routine.body)
         loops = [loop for loop in loops if loop.variable == self.block_dim.index
                 or loop.variable in self.block_dim._index_aliases]
-        # if True:
-        # loop_map = {}
-        # ignore_routine = []
         driver_loop_map = {}
         to_local_var = {}
         processed_routines = ()
         calls = ()
         for loop in loops:
             lower_loop = False
-            for call in  FindNodes(ir.CallStatement).visit(loop.body): #visit(routine.body):
+            for call in  FindNodes(ir.CallStatement).visit(loop.body):
                 if str(call.name).lower() not in targets:
                     continue
                 lower_loop = True
@@ -593,7 +635,7 @@ class LowerBlockLoopTransformation(Transformation):
                 # replace/substitute variables according to the caller-callee argument map
                 loop_to_lower = SubstituteExpressions(call_arg_map).visit(loop_to_lower)
                 # remove calls that are not within targets # TODO: rather a hack to remove
-                #  "CALL TIMER%THREAD_LOG(TID, IGPC=ICEND)"
+                #  e.g., "CALL TIMER%THREAD_LOG(TID, IGPC=ICEND)"
                 calls_within_loop = [_call for _call in  FindNodes(ir.CallStatement).visit(loop_to_lower.body)
                         if str(_call.name).lower() not in targets]
                 loop_to_lower = Transformer({call: None for call in calls_within_loop}).visit(loop_to_lower)
@@ -633,10 +675,9 @@ class LowerBlockLoopTransformation(Transformation):
             if lower_loop:
                 driver_loop_map[loop] = loop.body
         routine.body = Transformer(driver_loop_map).visit(routine.body)
-        for call in calls: #  FindNodes(ir.CallStatement).visit(routine.body):
+        for call in calls:
             if str(call.name).lower() not in targets:
                 continue
-            # self.local_var(routine, call, loop.variable)
             for var in to_local_var[call.routine.name]:
                 self.local_var(call, var)
         # TODO: remove
