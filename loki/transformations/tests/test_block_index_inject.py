@@ -390,8 +390,6 @@ end subroutine kernel
                                            targets=('compute',))
 
 
-# @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
-#                          'OMNI correctly complains about rank mismatch in assignment.')]))
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_dim_arg', (False, True))
 @pytest.mark.parametrize('recurse_to_kernels', (False, True))
@@ -538,18 +536,7 @@ end module compute_mod
     assert blocking.index not in kernel_mod['kernel'].arguments
     assert blocking.index in kernel_mod['kernel'].variable_map
 
-    # print(f"---------------\ndriver:\n{fgen(driver)}")
-    # print(f"---------------\nkernel:\n{fgen(kernel_mod['kernel'])}")
-    # print(f"---------------\nkernel:\n{fgen(nested_kernel_mod['compute'])}")
-    # print("\n\n")
-    # print(f"kernel.symbol_table: {dict(kernel['kernel'].symbol_attrs)}")
-    # assigns = FindNodes(Assignment).visit(kernel.body)
-    # assert assigns[0].lhs == 'var(:,:,ibl)'
-    # calls = FindNodes(CallStatement).visit(kernel.body)
-    # assert 'var(:,:,ibl)' in calls[0].arguments
 
-# @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
-#                          'OMNI correctly complains about rank mismatch in assignment.')]))
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('recurse_to_kernels', (False, True))
 @pytest.mark.parametrize('targets', (('kernel', 'another_kernel', 'compute'), ('kernel', 'compute')))
@@ -753,9 +740,3 @@ end module compute_mod
     assert blocking.size in kernel_mod['kernel'].arguments
     assert blocking.index not in kernel_mod['kernel'].arguments
     assert blocking.index in kernel_mod['kernel'].variable_map
-
-    # print(f"---------------\ndriver:\n{fgen(driver)}")
-    # print(f"---------------\nkernel:\n{fgen(kernel_mod['kernel'])}")
-    # print(f"---------------\nkernel:\n{fgen(another_kernel_mod['another_kernel'])}")
-    # print(f"---------------\nkernel:\n{fgen(nested_kernel_mod['compute'])}")
-    # print("\n\n")

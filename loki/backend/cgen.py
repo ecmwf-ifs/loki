@@ -22,6 +22,9 @@ __all__ = ['cgen', 'CCodegen', 'CCodeMapper', 'IntrinsicTypeC']
 
 
 class IntrinsicTypeC:
+    """
+    Mapping Fortran type to corresponding C type.
+    """
     # pylint: disable=abstract-method, unused-argument
 
     def __init__(self, *args, **kwargs):
@@ -45,6 +48,10 @@ class IntrinsicTypeC:
 c_intrinsic_type = IntrinsicTypeC()
 
 class CCodeMapper(LokiStringifyMapper):
+    """
+    A :class:`StringifyMapper`-derived visitor for Pymbolic expression trees that converts an
+    expression to a string adhering to standardized C.
+    """
     # pylint: disable=abstract-method, unused-argument
 
     def __init__(self, c_intrinsic_type, *args, **kwargs):
@@ -103,7 +110,6 @@ class CCodeMapper(LokiStringifyMapper):
                 if d:
                     index_str += self.format('[%s]', d)
             return self.format('%s%s', name_str, index_str)
-        # else:
         return self.format('%s', name_str)
 
     map_string_subscript = map_array_subscript
@@ -170,6 +176,9 @@ class CCodegen(Stringifier):
         return self.join_lines(spec, routines)
 
     def _subroutine_header(self, o, **kwargs):
+        """
+        Helper function/header for :func:`~loki.backend.CCodegen.visit_Subroutine`.
+        """
         # Some boilerplate imports...
         header = [self.format_line('#include <', name, '>') for name in self.standard_imports]
         # ...and imports from the spec
@@ -178,6 +187,9 @@ class CCodegen(Stringifier):
         return header
 
     def _subroutine_arguments(self, o, **kwargs):
+        """
+        Helper function/routine arguments for :func:`~loki.backend.CCodegen.visit_Subroutine`.
+        """
         var_keywords = []
         pass_by = []
         for a in o.arguments:
@@ -193,6 +205,9 @@ class CCodegen(Stringifier):
         return pass_by, var_keywords
 
     def _subroutine_declaration(self, o, **kwargs):
+        """
+        Helper function/function declaration part for :func:`~loki.backend.CCodegen.visit_Subroutine`.
+        """
         pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
         arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name}'
                      for a, p, k in zip(o.arguments, pass_by, var_keywords)]
@@ -207,6 +222,9 @@ class CCodegen(Stringifier):
         return declaration
 
     def _subroutine_body(self, o, **kwargs):
+        """
+        Helper function/body for :func:`~loki.backend.CCodegen.visit_Subroutine`.
+        """
         self.depth += 1
 
         # body = ['{']
@@ -226,6 +244,9 @@ class CCodegen(Stringifier):
         return body
 
     def _subroutine_footer(self, o, **kwargs):
+        """
+        Helper function/footer for :func:`~loki.backend.CCodegen.visit_Subroutine`.
+        """
         footer = [self.format_line('}')]
         return footer
 
@@ -234,7 +255,7 @@ class CCodegen(Stringifier):
         Format as:
 
           ...imports...
-          int <name>(<args>) {
+          <return_type> <name>(<args>) {
             ...spec without imports and argument declarations...
             ...body...
           }
@@ -427,6 +448,12 @@ class CCodegen(Stringifier):
         return self.symgen.c_intrinsic_type(o)
 
     def visit_TypeDef(self, o, **kwargs):
+        """
+        Format type definition/struct as
+          struct <name> {
+            ...declarations...
+          };
+        """
         header = self.format_line('struct ', o.name.lower(), ' {')
         footer = self.format_line('};')
         self.depth += 1

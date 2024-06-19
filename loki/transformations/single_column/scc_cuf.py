@@ -28,7 +28,6 @@ __all__ = [
     'HoistTemporaryArraysPragmaOffloadTransformation',
     'SccLowLevelLaunchConfiguration',
     'SccLowLevelDataOffload',
-
 ]
 
 
@@ -126,9 +125,55 @@ def device_subroutine_prefix(routine, depth):
         routine.prefix += ("ATTRIBUTES(DEVICE)",)
 
 class SccLowLevelLaunchConfiguration(Transformation):
+    """
+    Part of the pipeline for generating Single Column Coalesced
+    Low Level GPU (CUDA Fortran, CUDA C, HIP, ...) for block-indexed gridpoint/single-column
+    routines (responsible for the launch configuration including the chevron notation).
+    """
 
-    def __init__(self, horizontal, vertical, block_dim, transformation_type='parametrise',
-                 derived_types=None, mode="CUF"):
+    def __init__(self, horizontal, vertical, block_dim, transformation_type='parametrise', mode="CUF"):
+        """
+        Part of the pipeline for generating Single Column Coalesced
+        Low Level GPU (CUDA Fortran, CUDA C, HIP, ...) for block-indexed gridpoint/single-column
+        routines responsible for the launch configuration including the chevron notation.
+
+        .. note::
+            In dependence of the transformation type ``transformation_type``, further
+            transformations are necessary:
+
+            * ``transformation_type = 'parametrise'`` requires a subsequent
+              :any:`ParametriseTransformation` transformation with the necessary information
+              to parametrise (at least) the ``vertical`` `size`
+            * ``transformation_type = 'hoist'`` requires subsequent :any:`HoistVariablesAnalysis`
+              and :class:`HoistVariablesTransformation` transformations (e.g.
+              :any:`HoistTemporaryArraysAnalysis` for analysis and
+              :any:`HoistTemporaryArraysTransformationDeviceAllocatable` or
+              :any:`HoistTemporaryArraysPragmaOffloadTransformation` for synthesis)
+
+        Parameters
+        ----------
+        horizontal : :any:`Dimension`
+            :any:`Dimension` object describing the variable conventions used in code
+            to define the horizontal data dimension and iteration space.
+        vertical : :any:`Dimension`
+            :any:`Dimension` object describing the variable conventions used in code
+            to define the vertical dimension, as needed to decide array privatization.
+        block_dim : :any:`Dimension`
+            :any:`Dimension` object to define the blocking dimension
+            to use for hoisted column arrays if hoisting is enabled.
+        transformation_type : str
+            Kind of transformation/Handling of temporaries/local arrays
+
+            - `parametrise`: parametrising the array dimensions to make the vertical dimension
+              a compile-time constant
+            - `hoist`: host side hoisting of (relevant) arrays
+        mode: str
+            Mode/language to target
+
+            - `CUF` - CUDA Fortran
+            - `CUDA` - CUDA C
+            - `HIP` - HIP
+        """
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
@@ -142,12 +187,6 @@ class SccLowLevelLaunchConfiguration(Transformation):
         assert self.transformation_type in ['parametrise', 'hoist']
         self.transformation_description = {'parametrise': 'parametrised array dimensions of local arrays',
                                            'hoist': 'host side hoisted local arrays'}
-
-        if derived_types is None:
-            self.derived_types = ()
-        else:
-            self.derived_types = [_.upper() for _ in derived_types]
-        self.derived_type_variables = ()
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -464,9 +503,58 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
 
 class SccLowLevelDataOffload(Transformation):
+    """
+    Part of the pipeline for generating Single Column Coalesced
+    Low Level GPU (CUDA Fortran, CUDA C, HIP, ...) for block-indexed gridpoint/single-column
+    routines (responsible for the data offload).
+    """
 
     def __init__(self, horizontal, vertical, block_dim, transformation_type='parametrise',
                  derived_types=None, mode="CUF"):
+        """
+        Part of the pipeline for generating Single Column Coalesced
+        Low Level GPU (CUDA Fortran, CUDA C, HIP, ...) for block-indexed gridpoint/single-column
+        routines responsible for the data offload..
+
+        .. note::
+            In dependence of the transformation type ``transformation_type``, further
+            transformations are necessary:
+
+            * ``transformation_type = 'parametrise'`` requires a subsequent
+              :any:`ParametriseTransformation` transformation with the necessary information
+              to parametrise (at least) the ``vertical`` `size`
+            * ``transformation_type = 'hoist'`` requires subsequent :any:`HoistVariablesAnalysis`
+              and :class:`HoistVariablesTransformation` transformations (e.g.
+              :any:`HoistTemporaryArraysAnalysis` for analysis and
+              :any:`HoistTemporaryArraysTransformationDeviceAllocatable` or
+              :any:`HoistTemporaryArraysPragmaOffloadTransformation` for synthesis)
+
+        Parameters
+        ----------
+        horizontal : :any:`Dimension`
+            :any:`Dimension` object describing the variable conventions used in code
+            to define the horizontal data dimension and iteration space.
+        vertical : :any:`Dimension`
+            :any:`Dimension` object describing the variable conventions used in code
+            to define the vertical dimension, as needed to decide array privatization.
+        block_dim : :any:`Dimension`
+            :any:`Dimension` object to define the blocking dimension
+            to use for hoisted column arrays if hoisting is enabled.
+        derived_types: tuple
+            Derived types that are relevant
+        transformation_type : str
+            Kind of transformation/Handling of temporaries/local arrays
+
+            - `parametrise`: parametrising the array dimensions to make the vertical dimension
+              a compile-time constant
+            - `hoist`: host side hoisting of (relevant) arrays
+        mode: str
+            Mode/language to target
+
+            - `CUF` - CUDA Fortran
+            - `CUDA` - CUDA C
+            - `HIP` - HIP
+        """
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
@@ -709,8 +797,6 @@ class SccLowLevelDataOffload(Transformation):
                         pragma_map[pragma] = as_tuple(copy_end_pragmas)
                 if pragma_map:
                     routine.body = Transformer(pragma_map).visit(routine.body)
-
-            # return
         else:
             # Declaration
             routine.spec.append(ir.Comment(''))

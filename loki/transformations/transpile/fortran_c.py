@@ -116,15 +116,13 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None, language='c'): # codegen=cgen):
+    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None, language='c'):
         self.inline_elementals = inline_elementals
         self.use_c_ptr = use_c_ptr
         self.path = Path(path) if path is not None else None
-        # self.codegen = codegen
         self.language = language.lower()
         assert self.language in ['c', 'cuda'] # , 'hip']
 
-        # self.langgen = cgen if self.language == 'c' else cppgen
         if self.language == 'c':
             self.codegen = cgen
         elif self.language == 'cuda':
@@ -195,21 +193,14 @@ class FortranCTransformation(Transformation):
             contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
-            ### new ###
             module.spec = Section(body=(Import(module='iso_c_binding'),))
 
             # Generate C source file from Loki IR
             c_kernel = self.generate_c_kernel(routine, targets=targets)
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-            # Sourcefile.to_file(source=self.langgen(c_kernel), path=self.c_path)
-            ### end new ###
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
             # Generate C source file from Loki IR
-            # c_kernel = self.generate_c_kernel(routine)
-            # self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-            # Sourcefile.to_file(source=self.codegen(c_kernel), path=self.c_path)
-            #### new ####
             # c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             for successor in successors:
                 if self.language == 'c':
@@ -219,32 +210,19 @@ class FortranCTransformation(Transformation):
                     if not isinstance(successor, ProcedureItem):
                         c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
 
-            # Sourcefile.to_file(source=self.langgen(c_kernel), path=self.c_path)
-
             if depth == 1:
                 if self.language != 'c':
                     c_kernel_launch = c_kernel.clone(name=f"{c_kernel.name}_launch", prefix="extern_c")
                     self.generate_c_kernel_launch(c_kernel_launch, c_kernel)
                     self.c_path = (path/c_kernel_launch.name.lower()).with_suffix('.h')
                     Sourcefile.to_file(source=self.codegen(c_kernel_launch, extern=True), path=self.c_path)
-            else:
-                # TODO: nested device routines ..., should work correctly?
-                # c_kernel_header = c_kernel.clone(name=f"{c_kernel.name}", prefix="header_only device")
-                pass
-                # c_kernel_header = c_kernel.clone(name=f"{routine.name.lower()}", prefix="header_only device")
-                # TODO: this shouldn't be necessary anymore usinge self.codegen(..., header=True)
-                # self.generate_c_kernel_header(c_kernel_header)
-                # self.c_path =(path/c_kernel_header.name.lower()).with_suffix('.h')
-                # Sourcefile.to_file(source=self.codegen(c_kernel_header), path=self.c_path)
 
-            ## new
             assignments = FindNodes(Assignment).visit(c_kernel.body)
             assignments2remove = ['griddim', 'blockdim']
             assignment_map = {assignment: None for assignment in assignments
                     if assignment.lhs.name.lower() in assignments2remove}
             # == block_dim.index.lower() or assignment.lhs.name.lower() in [_.lower() for _ in horizontal.bounds]}
             c_kernel.body = Transformer(assignment_map).visit(c_kernel.body)
-            ## end:new
 
             if depth > 1:
                 c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
@@ -253,7 +231,6 @@ class FortranCTransformation(Transformation):
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.h')
             Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=self.c_path)
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-            #### end new ####
 
     def c_struct_typedef(self, derived):
         """
@@ -679,13 +656,6 @@ class FortranCTransformation(Transformation):
         kernel_call = kernel.clone()
         call_arguments = []
         for arg in kernel_call.arguments:
-            # TODO: ?
-            # if False: # isinstance(arg, Array):
-            #     # _type = arg.type.clone(pointer=False)
-            #     # kernel_call.symbol_attrs[arg.name] = _type
-            #     call_arguments.append(arg.clone(dimensions=None))
-            #     # call_arguments.append(arg.clone(dimensions=None, type=_type))
-            # else:
             call_arguments.append(arg)
 
         griddim = None
