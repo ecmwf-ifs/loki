@@ -99,6 +99,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         #sanitise_imports(routine) => bug...
         calls = [call.name.name.lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
+        routine.name = routine.name + "_PARALLEL"
+
         map_imports = {}
         for imp in map_routine["c_imports"].values():
             imp_name = imp.module.replace(".intfb.h","")
