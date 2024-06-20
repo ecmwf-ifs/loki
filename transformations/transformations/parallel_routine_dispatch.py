@@ -298,8 +298,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
             dim = len(var_shape) + 1 # Temporary dimensions + block
 
             # The FIELD_{d}RB variable
+            if var.type.dtype.name=="REAL":
+                field_name = 'RB'
+            if var.type.dtype.name=="INTEGER":
+                field_name = 'IM'
             field_ptr_type = SymbolAttributes(
-                dtype=DerivedType(f'FIELD_{dim}RB'),
+                dtype=DerivedType(f'FIELD_{dim}{field_name}'),
                 pointer=True, polymorphic=True, initial="NULL()"
             )
             field_ptr_var = sym.Variable(name=f'YL_{var.name}', type=field_ptr_type, scope=routine)
