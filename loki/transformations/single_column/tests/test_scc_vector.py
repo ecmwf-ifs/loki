@@ -8,12 +8,14 @@
 import pytest
 
 from loki import Subroutine, Sourcefile, Dimension, fgen
+from loki.batch import Pipeline
 from loki.frontend import available_frontends
 from loki.ir import (
     nodes as ir, FindNodes, pragmas_attached, is_loki_pragma
 )
 from loki.transformations.single_column import (
-    SCCDevectorTransformation, SCCRevectorTransformation, SCCVectorPipeline
+    SCCDevectorTransformation, SCCRevectorTransformation,
+    SCCRevectorOuterTransformation, SCCVectorPipeline
 )
 
 
@@ -562,3 +564,94 @@ def test_scc_vector_section_trim_complex(
     else:
         assert assign in loop.body
         assert(len(FindNodes(ir.Assignment).visit(loop.body)) == 4)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_revector_driver(frontend, horizontal, blocking):
+    """
+    Test revectorisation at the driver level.
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nz, q, t, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column(start, end, nlon, nz, q(:,:,b), t(:,:,b))
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = start, end
+        t(jl, jk) = c * jk
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+
+    # Ensure we have three loops in the kernel prior to transformation
+    kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
+    assert len(kernel_loops) == 3
+
+    pipeline = Pipeline(
+        classes=(SCCDevectorTransformation, SCCRevectorOuterTransformation),
+        horizontal=horizontal, block_dim=blocking
+    )
+    pipeline.apply(driver, role='driver', targets=('compute_column',))
+    pipeline.apply(kernel, role='kernel')
+
+    # Check that vector loop exists in driver
+    driver_loops = FindNodes(ir.Loop).visit(driver.body)
+    assert len(driver_loops) == 2
+    assert driver_loops[0].variable == 'b'
+    assert driver_loops[0].bounds == '1:nb'
+    assert driver_loops[1].variable == 'jl'
+    assert driver_loops[1].bounds == 'start:end'
+
+    # Check that the vector index is passed down via keyword-args
+    driver_calls = FindNodes(ir.CallStatement).visit(driver.body)
+    assert len(driver_calls) == 1
+    assert ('jl', 'jl') in driver_calls[0].kwarguments
+
+    # Now check loops and arguments in kernel
+    kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
+    assert len(kernel_loops) == 1
+    assert kernel_loops[0].variable == 'jk'
+    assert kernel_loops[0].bounds == '2:nz'
+
+    # Check that vector index variable is declared correctly
+    assert 'jl' in kernel.arguments
+    decls = tuple(
+        decl for decl in FindNodes(ir.VariableDeclaration).visit(kernel.spec)
+        if 'jl' in decl.symbols
+    )
+    assert len(decls) == 1
+    assert len(decls[0].symbols) == 1
+    assert decls[0].symbols[0].type.intent == 'in'
+
+    # Check that the vector label has been remove
+    assert 'vector_section' not in kernel.to_fortran()

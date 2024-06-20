@@ -26,12 +26,13 @@ from loki.transformations.utilities import (
     get_integer_variable, get_loop_bounds, find_driver_loops,
     get_local_arrays, check_routine_sequential
 )
+from loki.transformations.utilities import single_variable_declaration
 
 
 __all__ = [
     'SCCDevectorTransformation', 'SCCRevectorTransformation',
-    'SCCDemoteTransformation', 'wrap_vector_section',
-    'get_trimmed_sections', 'trim_vector_section'
+    'SCCDemoteTransformation', 'SCCRevectorOuterTransformation',
+    'wrap_vector_section', 'get_trimmed_sections', 'trim_vector_section'
 ]
 
 
@@ -487,6 +488,122 @@ class SCCRevectorTransformation(Transformation):
 
                     # Mark outer driver loops
                     self.mark_driver_loop(routine, loop)
+
+
+class SCCRevectorOuterTransformation(Transformation):
+    """
+    A transformation to wrap kernel calls and vector sections in
+    driver routines in vector loops and pass the vector loop index as
+    argument.
+
+    Parameters
+    ----------
+    horizontal : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the horizontal data dimension and iteration space.
+    """
+
+    def __init__(self, horizontal, block_dim):
+        self.horizontal = horizontal
+        self.block_dim = block_dim
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Apply re-vectorisation to "driver" routines and add vector
+        indices to subroutine calls and subroutine signatures.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : string
+            Role of the subroutine in the call tree; should be
+            ``"kernel"`` or ``"driver"``
+        targets : list or string
+            List of subroutine names that are part of the
+            transformation call tree.
+        """
+        role = kwargs['role']
+        targets = kwargs.get('targets', ())
+
+        if role == 'driver':
+            self.wrap_driver_loops(routine, targets)
+
+        # Always pass the vector index through the call tree
+        self.add_vector_index_to_calls(
+            routine, targets, add_to_signature=role=='kernel'
+        )
+
+        if role == 'kernel':
+            # Remove previous vectorisation labels
+            for sec in FindNodes(ir.Section).visit(routine.body):
+                if sec.label == 'vector_section':
+                    sec._update(label=None)
+
+    def wrap_driver_loops(self, routine, targets):
+        """
+        Wrap the outer kernel invocation in a vector loop.
+
+        routine : :any:`Subroutine`
+            Subroutine to wrap "driver" loops in
+        targets : list or string
+            List of subroutine names that are part of the
+            transformation call tree.
+        """
+
+        # Dataflow analysis is required for vector section trimming
+        with dataflow_analysis_attached(routine):
+            with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                driver_loops = find_driver_loops(routine=routine, targets=targets)
+
+            loop_map = {}
+            for loop in driver_loops:
+                # Trim scalar setup/teardown from loop body before
+                # wrapping it in a vector loop
+                new_body = trim_vector_section(
+                    loop.body, symbols=(self.block_dim.index, self.horizontal.index)
+                )
+                new_loop = loop.clone(
+                    body=wrap_vector_section(new_body, routine, self.horizontal)
+                )
+                loop_map[loop] = new_loop
+
+            routine.body = Transformer(loop_map).visit(routine.body)
+
+    def add_vector_index_to_calls(self, routine, targets, add_to_signature=False):
+        """
+        Add the horizontal vector index variable to
+        :any:`CallStatement` nodes and optionally add it to the
+        suboutine signature
+
+        routine : :any:`Subroutine`
+            Subroutine in which to add index variable
+        targets : list or string
+            List of subroutine names that are part of the
+            transformation call tree.
+        add_to_signature : bool, optional
+            Flag to trigger addition of the variable to the signature
+            and force a single-variable declaration with ``intent(in)``.
+        """
+        call_map = {}
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if str(call.name).lower() not in targets:
+                continue
+
+            # Add vector index variable to calls
+            ivar = get_integer_variable(routine, self.horizontal.index)
+            new_kwargs = (self.horizontal.index, ivar)
+            call_map[call] = call.clone(kwarguments=call.kwarguments + (new_kwargs,))
+
+        routine.body = Transformer(call_map).visit(routine.body)
+
+        if add_to_signature:
+            # Get vector index variable and ensure it has its own declaration
+            ivar = get_integer_variable(routine, self.horizontal.index)
+            single_variable_declaration(routine, variables=(ivar,))
+
+            # Add it to the routine signature
+            routine.arguments += (ivar.clone(type=ivar.type.clone(intent='in')),)
 
 
 class SCCDemoteTransformation(Transformation):
