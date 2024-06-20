@@ -788,6 +788,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
     def process_not_region_call(self, routine, map_routine, map_region):
         c_imports = map_routine['c_imports']
+        map_region['map_temp'] = {}
+        map_region['map_derived'] = {}
 
         calls = map_routine['not_in_pragma_calls']
 
@@ -796,8 +798,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if call.name!="DR_HOOK":
                 region_map_temp = self.decl_local_array(routine, call, map_region) #map_region to store field_new and field_delete
                 region_map_derived = self.decl_derived_types(routine, call)
-                map_region['map_temp'] = region_map_temp
-                map_region['map_derived'] = region_map_derived
+#                map_region['map_temp'] = region_map_temp
+#                map_region['map_derived'] = region_map_derived
+                map_region['map_temp'] = map_region['map_temp'] | region_map_temp
+                map_region['map_derived'] = map_region['map_derived'] | region_map_derived
 #TODO 2 cases : derived type used just outside acdc region : no field, or use in both : field...
 #                map_region['map_derived'][1] = None #no field to add to routine dcl
                 new_arguments = []
