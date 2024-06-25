@@ -1868,6 +1868,7 @@ class FParser2IR(GenericVisitor):
 
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, ir.VariableDeclaration):
+            print(f"process_dimension_pragmas for routine: {routine}")
             routine.spec = process_dimension_pragmas(routine.spec, scope=routine)
 
         if isinstance(o, Fortran2003.Subroutine_Body):
@@ -2064,6 +2065,11 @@ class FParser2IR(GenericVisitor):
         if spec_ast:
             spec = self.visit(spec_ast, **kwargs)
             spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+
+            # Infer any additional shape information from `!$loki dimension` pragmas
+            spec = attach_pragmas(spec, ir.VariableDeclaration)
+            spec = process_dimension_pragmas(spec)
+            spec = detach_pragmas(spec, ir.VariableDeclaration)
 
             # Another big hack: fparser allocates all comments before and after the
             # spec to the spec. We remove them from the beginning to get the docstring.

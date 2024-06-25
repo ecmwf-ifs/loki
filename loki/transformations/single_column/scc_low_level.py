@@ -30,6 +30,9 @@ from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
+from loki.transformations.argument_shape import (
+    ExplicitArgumentArrayShapeTransformation, ArgumentArrayShapeAnalysis 
+)
 
 __all__ = [
         'SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
@@ -52,6 +55,7 @@ class InlineTransformation(Transformation):
 
         if role == 'kernel':
 
+            SCCBaseTransformation.explicit_dimensions(routine)
             inline_constant_parameters(routine, external_only=True)
             inline_elemental_functions(routine)
 
@@ -432,6 +436,8 @@ SCCLowLevelHoist = partial(
         GlobalVariableAnalysis,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
+        ArgumentArrayShapeAnalysis,
+        ExplicitArgumentArrayShapeTransformation,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -441,7 +447,7 @@ SCCLowLevelHoist = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-      HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysAnalysis,
         HoistTemporaryArraysPragmaOffloadTransformation
     )
 )

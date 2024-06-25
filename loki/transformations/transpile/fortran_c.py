@@ -39,7 +39,7 @@ from loki.transformations.sanitise import resolve_associates
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
-
+from loki.transformations.single_column.base import SCCBaseTransformation
 
 __all__ = ['FortranCTransformation']
 
@@ -86,7 +86,7 @@ class DeReferenceTrafo(Transformer):
                     or call_arg_map[arg].type.intent.lower() != 'in'):
                 new_args += (Reference(arg.clone()),)
             else:
-                if isinstance(arg, Scalar) and call_arg_map[arg].type.intent.lower() != 'in':
+                if isinstance(arg, Scalar) and call_arg_map[arg].type.intent is not None and call_arg_map[arg].type.intent.lower() != 'in':
                     new_args += (Reference(arg.clone()),)
                 else:
                     new_args += (arg,)
@@ -203,12 +203,22 @@ class FortranCTransformation(Transformation):
             # Generate C source file from Loki IR
             # c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             for successor in successors:
-                if self.language == 'c':
-                    c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
-                else:
-                    # TODO: should include .h file, however problem compiling/running multiple compilation units ...
-                    if not isinstance(successor, ProcedureItem):
-                        c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
+                # if self.language == 'c':
+                #     c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
+                # else:
+                #     # TODO: should include .h file, however problem compiling/running multiple compilation units ...
+                #     if not isinstance(successor, ProcedureItem):
+                #         c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
+                # if isinstance(successor, ProcedureItem) or successor.routine is None:
+                #     continue
+                # try:
+                #     c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
+                # except Exception as e:
+                #     print(f"exception: {e} - routine: {routine} , successor: {successor}")
+                if successor.ir is None:
+                    continue
+                print(f"successor: {successor} | ir {successor.ir} type {type(successor.ir)}")
+                c_kernel.spec.prepend(Import(module=f'{successor.ir.name.lower()}_c.h', c_import=True))
 
             if depth == 1:
                 if self.language != 'c':
@@ -558,12 +568,14 @@ class FortranCTransformation(Transformation):
 
         # Clean up Fortran vector notation
         resolve_vector_notation(kernel)
+        SCCBaseTransformation.remove_dimensions(kernel)
         normalize_array_shape_and_access(kernel)
 
         # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         invert_array_indices(kernel)
         shift_to_zero_indexing(kernel, ignore=() if self.language == 'c' else ('jl', 'ibl'))
+        # SCCBaseTransformation.remove_dimensions(kernel)
         flatten_arrays(kernel, order='C', start_index=0)
 
         # Inline all known parameters, since they can be used in declarations,

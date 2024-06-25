@@ -254,9 +254,9 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 if str(call.name).lower() in as_tuple(targets):
                     new_args = ()
                     if upper.name not in call.routine.arguments:
-                        new_args += (upper,)
+                        new_args += (upper.clone(type=upper.type.clone(intent='in')),)
                     if step.name not in call.routine.arguments:
-                        new_args += (step,)
+                        new_args += (step.clone(type=step.type.clone(intent='in')),)
                     new_kwargs = tuple((_.name, _) for _ in new_args)
                     if new_args:
                         call.routine.arguments = list(call.routine.arguments) + list(new_args)
@@ -278,7 +278,8 @@ class SccLowLevelLaunchConfiguration(Transformation):
             routine.prefix = as_tuple([prefix for prefix in routine.prefix if prefix not in ["ELEMENTAL"]]) #,"PURE"]])
             return
 
-        single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
+        single_variable_declaration(routine)
+        # single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
 
         #  this does not make any difference ...
         self.kernel_demote_private_locals(routine, horizontal, vertical)
@@ -339,7 +340,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     if horizontal_index.name in call.routine.variables:
                         call.routine.symbol_attrs.update({horizontal_index.name:\
                                 call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
-                    additional_args += (horizontal_index.clone(),)
+                    additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in')),)
                 if horizontal_index.name not in call.arg_map:
                     additional_kwargs += ((horizontal_index.name, horizontal_index.clone()),)
 
@@ -450,9 +451,11 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
                 parameters=())
 
-            upper = routine.variable_map[parameters['upper']]
+            # upper = routine.variable_map[parameters['upper']]
+            upper = SCCBaseTransformation.get_integer_variable(routine, parameters['upper'])
             try:
-                step = routine.variable_map[parameters['step']]
+                # step = routine.variable_map[parameters['step']]
+                step = SCCBaseTransformation.get_integer_variable(routine, parameters['step'])
             except Exception as e:
                 print(f"Exception: {e}")
                 step = sym.IntLiteral(1)
@@ -498,7 +501,9 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
 
         routine.body = Transformer(mapper=mapper).visit(routine.body)
-        return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
+        # return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
+        #         blockdim_assignment, griddim_assignment
+        return upper, step, SCCBaseTransformation.get_integer_variable(routine, block_dim.size), blockdim_var, griddim_var,\
                 blockdim_assignment, griddim_assignment
 
 

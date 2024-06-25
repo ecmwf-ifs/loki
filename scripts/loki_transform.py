@@ -377,7 +377,8 @@ def convert(
         dic2p = {'NLEV': 137}
         pipeline = SCCLowLevelParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
                 transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
-                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True, dic2p=dic2p)
+                # dim_vars=(vertical.size,),
+                as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True, dic2p=dic2p)
         scheduler.process( pipeline )
 
     mode = mode.replace('-', '_')  # Sanitize mode string
@@ -408,7 +409,7 @@ def convert(
 
 @cli.command('plan')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack']))
+              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack', 'cuda-hoist']))
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,

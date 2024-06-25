@@ -104,7 +104,9 @@ class CudaCodegen(CppCodegen):
     def _subroutine_body(self, o, **kwargs):
         self.depth += 1
         # ...and generate the spec without imports and argument declarations
-        body = [self.visit(o.spec, skip_imports=True, skip_argument_declarations=True, **kwargs)]
+        skip_imports = kwargs.pop('skip_imports', None)
+        skip_argument_declarations = kwargs.pop('skip_argument_declarations', None)
+        body = [self.visit(o.spec, skip_imports=skip_imports or True, skip_argument_declarations=skip_argument_declarations or True, **kwargs)]
         # Fill the body
         body += [self.visit(o.body, **kwargs)]
         opt_extern = kwargs.get('extern', False)

@@ -161,6 +161,9 @@ class CCodegen(Stringifier):
 
     # Handler for outer objects
 
+    def visit_Interface(self, o, **kwargs):
+        return ''
+
     def visit_Sourcefile(self, o, **kwargs):
         """
         Format as

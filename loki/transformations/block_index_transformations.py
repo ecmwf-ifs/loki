@@ -407,6 +407,7 @@ class InjectBlockIndexTransformation(Transformation):
         # filter out arrays marked for exclusion
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
+        vmap = recursive_expression_map_update(vmap)
         # finally we perform the substitution
         return SubstituteExpressions(vmap).visit(body)
 
@@ -414,6 +415,7 @@ class InjectBlockIndexTransformation(Transformation):
 
         # we skip routines that do not contain the block index or any known alias
         if not (block_index := self.get_block_index(routine)):
+            print(f"skipping routine {routine} as it doesn't contain the block index or any known alias")
             return
 
         # for kernels we process the entire subroutine body
@@ -449,6 +451,7 @@ class LowerBlockIndexTransformation(Transformation):
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         # dispatch driver in any case and recurse to kernels if corresponding flag is set
         if role == 'driver' or self.recurse_to_kernels and role == 'kernel':
+            SCCBaseTransformation.explicit_dimensions(routine)
             self.process(routine, targets, role)
 
     def process(self, routine, targets, role):
@@ -465,21 +468,29 @@ class LowerBlockIndexTransformation(Transformation):
             else:
                 # block_dim.index already defined in relevant kernel, thus remember used name
                 call_block_dim_index = call_arg_map[call_block_dim_index]
-            call_block_dim_size = routine.variable_map[self.block_dim.size]
-            if routine.variable_map[self.block_dim.size] not in call_arg_map:
-                new_args += (routine.variable_map[self.block_dim.size],)
+            # print(f"routine: {routine}")
+            # print(f"\n  variable_map: {routine.variable_map}")
+            # call_block_dim_size = routine.variable_map[self.block_dim.size]
+            call_block_dim_size = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size)
+            # if routine.variable_map[self.block_dim.size] not in call_arg_map:
+            if SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size) not in call_arg_map:
+                new_args += (SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size),) # (routine.variable_map[self.block_dim.size],)
             else:
                 # block_dim.size already defined in relevant kernel, thus remember used name
                 call_block_dim_size = call_arg_map[call_block_dim_size]
             if new_args:
                 call._update(kwarguments=call.kwarguments+tuple((new_arg.name, new_arg) for new_arg in new_args))
                 if call.routine.name not in processed_routines:
-                    call.routine.arguments += tuple((routine.variable_map[new_arg.name].clone(scope=call.routine,
+                    # call.routine.arguments += tuple((routine.variable_map[new_arg.name].clone(scope=call.routine,
+                    #     type=new_arg.type.clone(intent='in')) for new_arg in new_args))
+                    call.routine.arguments += tuple((SCCBaseTransformation.get_integer_variable(routine, new_arg.name).clone(scope=call.routine,
                         type=new_arg.type.clone(intent='in')) for new_arg in new_args))
             # update dimensions and shape
             var_map = {}
             for arg, call_arg in call.arg_iter():
-                if isinstance(arg, Array) and len(call_arg.shape) > len(arg.shape):
+                # if arg.name.upper() == 'EMEAN':
+                #     print(f"LowerBlockIndexTransformation - arg: {arg} ({arg.shape} - {arg.dimensions}) | call_arg {call_arg} ({call_arg.shape} - {call_arg.dimensions})")
+                if isinstance(arg, Array) and isinstance(call_arg, Array) and len(call_arg.shape) > len(arg.shape):
                     call_routine_var = call.routine.variable_map[arg.name]
                     new_dims = call_routine_var.dimensions + (call.routine.variable_map[call_block_dim_size.name],)
                     new_shape = call_routine_var.shape + (call.routine.variable_map[call_block_dim_size.name],)

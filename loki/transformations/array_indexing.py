@@ -23,7 +23,7 @@ from loki.ir import (
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType
-
+from loki.transformations.utilities import recursive_expression_map_update
 
 __all__ = [
     'shift_to_zero_indexing', 'invert_array_indices',
@@ -62,6 +62,7 @@ def shift_to_zero_indexing(routine, ignore=None):
                     else:
                         new_dims += [d - sym.Literal(1)]
             vmap[v] = v.clone(dimensions=as_tuple(new_dims))
+    vmap = recursive_expression_map_update(vmap)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
@@ -79,6 +80,7 @@ def invert_array_indices(routine):
         if isinstance(v, sym.Array):
             rdim = as_tuple(reversed(v.dimensions))
             vmap[v] = v.clone(dimensions=rdim)
+    vmap = recursive_expression_map_update(vmap)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     # Invert variable and argument dimensions for the automatic cast generation
@@ -525,6 +527,7 @@ def normalize_array_shape_and_access(routine):
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
         if isinstance(v, sym.Array):
+            # print(f"normalize_array_shape_and_access - {routine} - var: {v} | {v.shape} | {v.dimensions}")
             # skip if e.g., `array(len)`, passed as `call routine(array)`
             if not v.dimensions:
                 continue
@@ -541,12 +544,14 @@ def normalize_array_shape_and_access(routine):
                 else:
                     new_dims += [v.dimensions[i]]
             if new_dims:
+                vmap = recursive_expression_map_update(vmap)
                 vmap[v] = v.clone(dimensions=as_tuple(new_dims))
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     vmap = {}
     for v in routine.variables:
         if isinstance(v, sym.Array):
+            # print(f"normalize_array_shape_and_access - {routine} - var: {v} | {v.shape} | {v.dimensions}")
             new_dims = [sym.RangeIndex((1, simplify(d.upper - d.lower + 1)))
                 if is_explicit_range_index(d) else d for d in v.dimensions]
             new_shape = [sym.RangeIndex((1, simplify(d.upper - d.lower + 1)))
@@ -571,33 +576,34 @@ def flatten_arrays(routine, order='F', start_index=1):
     start_index : int
         Assume array indexing starts with `start_index`.
     """
-    def new_dims(dim, shape):
+    def new_dims(dim, shape, var, routine):
         if all(_dim == sym.RangeIndex((None, None)) for _dim in dim):
             return None
         if len(dim) > 1:
             if isinstance(shape[-2], sym.RangeIndex):
-                raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening!')
+                raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening! routine: {routine} - var: {var} - dim: {dim} shape: {shape}')
             _dim = (sym.Sum((dim[-2], sym.Product((shape[-2], dim[-1] - start_index)))),)
             new_dim = dim[:-2]
             new_dim += _dim
-            return new_dims(new_dim, shape[:-1])
+            return new_dims(new_dim, shape[:-1], var, routine)
         return dim
 
     if order == 'C':
         array_map = {
-            var: var.clone(dimensions=new_dims(var.dimensions[::-1], var.shape[::-1]))
+            var: var.clone(dimensions=new_dims(var.dimensions[::-1], var.shape[::-1], var, routine))
             for var in FindVariables().visit(routine.body)
             if isinstance(var, sym.Array) and var.shape and len(var.shape)
         }
     elif order == 'F':
         array_map = {
-            var: var.clone(dimensions=new_dims(var.dimensions, var.shape))
+            var: var.clone(dimensions=new_dims(var.dimensions, var.shape, var, routine))
             for var in FindVariables().visit(routine.body)
             if isinstance(var, sym.Array) and var.shape and len(var.shape)
         }
     else:
         raise ValueError(f'Unsupported array order "{order}"')
 
+    array_map = recursive_expression_map_update(array_map)
     routine.body = SubstituteExpressions(array_map).visit(routine.body)
 
     routine.variables = [v.clone(dimensions=as_tuple(sym.Product(v.shape)),
