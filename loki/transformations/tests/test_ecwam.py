@@ -14,7 +14,7 @@ import pytest
 from loki.tools import (
     execute, write_env_launch_script, local_loki_setup, local_loki_cleanup
 )
-from loki.frontend import HAVE_FP, FP
+from loki.frontend import HAVE_FP
 
 pytestmark = pytest.mark.skipif('ECWAM_DIR' not in os.environ, reason='ECWAM_DIR not set')
 
@@ -39,7 +39,7 @@ def fixture_bundle_create(here, local_loki_bundle):
 
     # Run ecbundle to fetch dependencies
     execute(
-        ['./ecwam-bundle', 'create'],
+        ['./package/bundle/ecwam-bundle', 'create', '--bundle', 'package/bundle/bundle.yml'],
         cwd=here,
         silent=False, env=env
     )
@@ -47,10 +47,11 @@ def fixture_bundle_create(here, local_loki_bundle):
 
 @pytest.mark.usefixtures('bundle_create')
 @pytest.mark.skipif(not HAVE_FP, reason="FP needed for ECWAM parsing")
-def test_ecwam(here, frontend=FP):
+@pytest.mark.parametrize('mode', ['scc', 'scc-stack'])
+def test_ecwam(here, mode):
     build_cmd = [
-        './ecwam-bundle', 'build', '--clean',
-        '--with-loki', '--loki-frontend=' + str(frontend), '--without-loki-install'
+        './package/bundle/ecwam-bundle', 'build', '--clean',
+        '--with-loki', '--without-loki-install', '--loki-mode', mode
     ]
 
     if 'ECWAM_ARCH' in os.environ:
@@ -90,32 +91,26 @@ def test_ecwam(here, frontend=FP):
         msg = '\n'.join([f'Non-zero return code {rcode} in {p}' for p, rcode in failures.items()])
         pytest.fail(msg)
 
-    # Run the produced binaries
-    binaries = [
-        ('ecwam-run-model', '--run-dir=wamrun_48', '--variant=loki-idem'),
-        ('ecwam-run-model', '--run-dir=wamrun_48', '--variant=loki-idem-stack'),
-        ('ecwam-run-model', '--run-dir=wamrun_48', '--variant=loki-scc'),
-        ('ecwam-run-model', '--run-dir=wamrun_48', '--variant=loki-scc-stack')
-    ]
+    # Run the produced binary
+    binary = 'ecwam-run-model'
+    args = ('--run-dir=wamrun_48',)
 
-    failures = {}
-    for binary, *args in binaries:
-        # Write a script to source env.sh and launch the binary
-        script = write_env_launch_script(here, binary, args)
+    # Write a script to source env.sh and launch the binary
+    script = write_env_launch_script(here, binary, args)
 
-        # Run the script and verify error norms
-        try:
-            execute([str(script)], cwd=here/'build', silent=False, env=env)
-            with open(here/"build/wamrun_48/logs/model/stdout.log") as reader:
-                lines = list(reader)
+    # Run the script and verify error norms
+    failure = None
+    try:
+        execute([str(script)], cwd=here/'build', silent=False, env=env)
+        with open(here/"build/wamrun_48/logs/model/stdout.log") as reader:
+            lines = list(reader)
 
-            if 'Validation FAILED' in lines[-1]:
-                failures[binary] = 'Validation failed'
-            elif not 'Validation PASSED' in lines[-1]:
-                failures[binary] = 'Validation check never run'
-        except CalledProcessError as err:
-            failures[binary] = f'Failed with error code: {err.returncode}'
+        if 'Validation FAILED' in lines[-1]:
+            failure = 'Validation failed'
+        elif not 'Validation PASSED' in lines[-1]:
+            failure = 'Validation check never run'
+    except CalledProcessError as err:
+        failure = f'Failed with error code: {err.returncode}'
 
-    if failures:
-        msg = '\n'.join([f'{binary}: {stat}' for binary, stat in failures.items()])
-        pytest.fail(msg)
+    if failure:
+        pytest.fail(f'{binary}: {failure}')
