@@ -48,10 +48,12 @@ def fixture_bundle_create(here, local_loki_bundle):
 @pytest.mark.usefixtures('bundle_create')
 @pytest.mark.skipif(not HAVE_FP, reason="FP needed for ECWAM parsing")
 @pytest.mark.parametrize('mode', ['scc', 'scc-stack'])
-def test_ecwam(here, mode):
+def test_ecwam(here, mode, tmp_path):
+    build_dir = tmp_path/'build'
     build_cmd = [
         './package/bundle/ecwam-bundle', 'build', '--clean',
-        '--with-loki', '--without-loki-install', '--loki-mode', mode
+        '--with-loki', '--without-loki-install', '--loki-mode', mode,
+        '--build-dir', str(build_dir)
     ]
 
     if 'ECWAM_ARCH' in os.environ:
@@ -69,21 +71,22 @@ def test_ecwam(here, mode):
     env.update({'OMP_STACKSIZE': '2G', 'NVCOMPILER_ACC_CUDA_HEAPSIZE': '2G'})
 
     # create rundir
-    os.mkdir(here/'build/wamrun_48')
+    rundir = build_dir/'wamrun_48'
+    os.mkdir(rundir)
 
     # Run pre-processing steps
     preprocs = [
-        ('ecwam-run-preproc', '--run-dir=wamrun_48', '--config=../source/ecwam/tests/etopo1_oper_an_fc_O48.yml'),
+        ('ecwam-run-preproc', '--run-dir=wamrun_48', f'--config={here}/source/ecwam/tests/etopo1_oper_an_fc_O48.yml'),
         ('ecwam-run-preset', '--run-dir=wamrun_48')
     ]
 
     failures = {}
     for preproc, *args in preprocs:
-        script = write_env_launch_script(here, preproc, args)
+        script = write_env_launch_script(tmp_path, preproc, args)
 
         # Run the script and verify error norms
         try:
-            execute([str(script)], cwd=here/'build', silent=False, env=env)
+            execute([str(script)], cwd=build_dir, silent=False, env=env)
         except CalledProcessError as err:
             failures[preproc] = err.returncode
 
@@ -96,21 +99,32 @@ def test_ecwam(here, mode):
     args = ('--run-dir=wamrun_48',)
 
     # Write a script to source env.sh and launch the binary
-    script = write_env_launch_script(here, binary, args)
+    script = write_env_launch_script(tmp_path, binary, args)
+
+    def get_logs():
+        logs = rundir.glob('**/*.log')
+        return '\n'.join(
+            (
+                f'-------------------------------------------------------\n{log}:\n\n'
+                + log.read_text()
+            )
+            for log in logs
+        )
 
     # Run the script and verify error norms
     failure = None
     try:
-        execute([str(script)], cwd=here/'build', silent=False, env=env)
-        with open(here/"build/wamrun_48/logs/model/stdout.log") as reader:
-            lines = list(reader)
-
-        if 'Validation FAILED' in lines[-1]:
-            failure = 'Validation failed'
-        elif not 'Validation PASSED' in lines[-1]:
-            failure = 'Validation check never run'
+        execute([str(script)], cwd=build_dir, silent=False, env=env)
     except CalledProcessError as err:
-        failure = f'Failed with error code: {err.returncode}'
+        pytest.fail(f'{binary}: Failed with error code: {err.returncode}\n{get_logs()}')
+
+    with open(build_dir/"wamrun_48/logs/model/stdout.log") as reader:
+        lines = list(reader)
+
+    if 'Validation FAILED' in lines[-1]:
+        failure = 'Validation failed'
+    elif not 'Validation PASSED' in lines[-1]:
+        failure = 'Validation check never run'
 
     if failure:
-        pytest.fail(f'{binary}: {failure}')
+        pytest.fail(f'{binary}: {failure}\n{get_logs()}')
