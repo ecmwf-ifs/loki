@@ -47,7 +47,7 @@ def fixture_bundle_create(here, local_loki_bundle):
 
 @pytest.mark.usefixtures('bundle_create')
 @pytest.mark.skipif(not HAVE_FP, reason="FP needed for ECWAM parsing")
-@pytest.mark.parametrize('mode', ['scc', 'scc-stack'])
+@pytest.mark.parametrize('mode', ['idem', 'idem-stack', 'scc', 'scc-stack'])
 def test_ecwam(here, mode, tmp_path):
     build_dir = tmp_path/'build'
     build_cmd = [
