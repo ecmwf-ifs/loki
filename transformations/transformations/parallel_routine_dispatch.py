@@ -156,9 +156,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
 #        region.append(dr_hook_calls[1])
 
         region_map_temp = self.decl_local_array(routine, region, map_region) #map_region to store field_new and field_delete
-        region_map_derived = self.decl_derived_types(routine, region)
+        region_map_derived, region_map_not_field = self.decl_derived_types(routine, region)
+        region_map_scalar = self.get_scalar(routine, region) 
+        #region_map_not_field = self.get_not_field_array(routine, region) 
         map_region['map_temp']= region_map_temp
         map_region['map_derived']= region_map_derived
+        map_region['scalar']= region_map_scalar
+        map_region['not_field_array']= region_map_not_field
 
         self.create_synchost(routine, region_name, map_region)
         self.create_nullify(routine, region_name, map_region)
@@ -357,12 +361,16 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
     def decl_derived_types(self, routine, region):
         region_map_derived = {}
+        not_field_array = []
+        basename_derived = []
         derived = [var for var in FindVariables().visit(region) if var.name_parts[0] in routine.arguments]
         for var in derived :
             
             key = f"{routine.variable_map[var.name_parts[0]].type.dtype.name}%{'%'.join(var.name_parts[1:])}"
             #TODO : maybe have a global derive typed table, to avoid to many lookup in the map_index???
             if key in self.map_index:
+                if var.name_parts[0] not in basename_derived:
+                    basename_derived.append(var.name_parts[0])
                 value = self.map_index[key]
                 # Creating the pointer on the data : YL_A
                 data_name = f"Z_{var.name.replace('%', '_')}"
@@ -392,7 +400,23 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     field_name = f"{'%'.join(var.name_parts[:-1])}%F_{var.name_parts[-1]}"
                 field_ptr_var = var.clone(name=field_name, dimensions=None)
                 region_map_derived[var.name] = [field_ptr_var, ptr_var]
-        return(region_map_derived)
+            else:
+                if var.name_parts[0] not in not_field_array:
+                    if routine.variable_map[var.name_parts[0]].type.dtype.name!="CPG_BNDS_TYPE":
+                        not_field_array.append(var.name_parts[0])
+        not_field_array_ = [var for var in not_field_array if var not in basename_derived]
+        return(region_map_derived, not_field_array_)
+
+    def get_scalar(self, routine, region):
+        scalar = [var for var in FindVariables().visit(region) if isinstance(var, sym.Scalar)]
+        scalar_ = [var.name for var in scalar if not isinstance(var.type.dtype, DerivedType)]
+        return scalar_
+
+#     def get_not_field_array(routine, region):
+#        not_field_array = [var for var in FindVariables().visit(region) if var.nameçparts[0] in routine.arguments]
+
+
+        
 
     def add_derived(self, routine, map_routine):
         routine_map_derived = map_routine['map_derived']
@@ -634,10 +658,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
                             else:
                                 new_arguments += [lcpg_bnds]
                         else:
-                            map_region['not_field_array'].append(arg)
                             new_arguments += [arg]
                     else: 
-                        map_region['scalar'].append(arg)
                         new_arguments += [arg]
                 if scc:
                     new_kwarguments = call.kwarguments + (("YDSTACK", routine.variable_map["YLSTACK"]),)
@@ -676,7 +698,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
         #TODO : generate lst_private !!!! see LLHMT in CALL ACSOL
         # ==============================================================
         # ==============================================================
-        lst_private = "JBLK"
+        lst_private = "JBLK, "
+        for scalar in map_region["scalar"]: 
+            lst_private += f"{scalar}, "
+        lst_private = lst_private[:-2] #rm the coma
         pragma = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({lst_private}) FIRSTPRIVATE ({lcpg_bnds.name})")
         update = ir.CallStatement(  
             name=routine.resolve_typebound_var(f"{lcpg_bnds.name}%UPDATE"), 
@@ -776,7 +801,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
 
     def create_compute_openmpscc(self, routine, region, region_name, map_routine, map_region):
-        lst_private = f"JBLK, JLON, YLCPG_BNDS, YLSTACK"
+        lst_private = f"JBLK, JLON, YLCPG_BNDS, YLSTACK, "
+        for scalar in map_region["scalar"]:
+            if scalar not in lst_private:
+                lst_private += f"{scalar}, "
+        lst_private = lst_private[:-2] #rm coma
         pragma1 = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({lst_private})")
         pragma2 = None
         compute_openmpscc = self.create_scc(routine, region, region_name, map_routine, map_region, pragma1, pragma2)
@@ -785,12 +814,22 @@ class ParallelRoutineDispatchTransformation(Transformation):
     def create_compute_openaccscc(self, routine, region, region_name, map_routine, map_region):
         region_map_temp = map_region["map_temp"]
         region_map_derived = map_region["map_derived"]
+        not_field_array = map_region['not_field_array']
         cpg_opts = map_routine["cpg_opts"]
         lst_private1 = f"JBLK"
-        lst_private2 = f"JLON, YLCPG_BNDS, YLSTACK"
-        lst_present = "YDCPG_OPTS, YDGEOMETRY, YDMODEL, YSTACK, "
+        lst_private2 = f"JLON, YLCPG_BNDS, YLSTACK, "
+        for scalar in map_region["scalar"]:
+            if scalar not in lst_private2:
+                lst_private2 += f"{scalar}, "
+        lst_private2 = lst_private2[:-2] #rm the coma
+        lst_present = "YDCPG_OPTS, YDMODEL, YSTACK, "
+        #lst_present = "YDCPG_OPTS, YDGEOMETRY, YDMODEL, YSTACK, "
+        for var_name in not_field_array:
+            if var_name not in lst_present:
+                lst_present += f"{var_name}, "
         for var in chain(region_map_temp.values(), region_map_derived.values()):
-            lst_present += f"{var[1].name}, "
+            if var[1].name not in lst_present:
+                lst_present += f"{var[1].name}, "
         lst_present = lst_present[:-2]+" " #rm the coma
         acc_vector_length = f"{cpg_opts}%KLON"
         pragma1 = ir.Pragma(keyword="ACC", content=f"PARALLEL LOOP GANG PRESENT ({lst_present}) PRIVATE ({lst_private1}) VECTOR_LENGTH({acc_vector_length})")
@@ -809,7 +848,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         for call in calls:
             if call.name!="DR_HOOK":
                 region_map_temp = self.decl_local_array(routine, call, map_region) #map_region to store field_new and field_delete
-                region_map_derived = self.decl_derived_types(routine, call)
+#                region_map_derived = self.decl_derived_types(routine, call)
+                region_map_derived, region_map_not_field = self.decl_derived_types(routine, call)
 #                map_region['map_temp'] = region_map_temp
 #                map_region['map_derived'] = region_map_derived
                 map_region['map_temp'] = map_region['map_temp'] | region_map_temp
