@@ -37,7 +37,7 @@ def fixture_config():
             'expand': True,
             'strict': True,
             'enable_imports': True,
-            'disable': ['*%init', '*%final']
+            'disable': ['*%init', '*%final', 'abor1'],
         },
     }
 
@@ -157,7 +157,8 @@ subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, 
    {'use dims_type_mod, only: dims_type' if not request.param else ''}
    implicit none
 
-   #include "another_kernel.intfb.h"
+#include "another_kernel.intfb.h"
+#include "abor1.intfb.h"
 
    integer, intent(in) :: nlon, nlev
    type(field_variables), intent(inout) :: ydvars
@@ -167,6 +168,8 @@ subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, 
 
    integer :: jl, jfld
    {'associate(start=>bnds%start, end=>bnds%end, ibl=>bnds%kbl)' if not request.param else ''}
+
+   if(nlon < 0) call abor1('kernel')
 
    ydvars%var%p_field(:,:) = 0. !... this should only get the block-index
    ydvars%var%p_field(:,:,ibl) = 0. !... this should be untouched
@@ -256,8 +259,8 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
     assert assigns[5].lhs == f'container%vars(ydvars%gfl_ptr_g(jfld)%comp)%p_field(jl,:,{ibl_expr})'
 
     # check callstatement was updated correctly
-    call = FindNodes(CallStatement).visit(kernel.body)[0]
-    assert f'yda_data%p_field(:,:,{ibl_expr})' in call.arg_map.values()
+    calls = FindNodes(CallStatement).visit(kernel.body)
+    assert f'yda_data%p_field(:,:,{ibl_expr})' in calls[1].arg_map.values()
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
@@ -309,8 +312,8 @@ def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blo
         assert assigns[5].lhs == 'container%vars(ydvars%gfl_ptr(jfld)%comp)%p_field(jl,:)'
 
     # check callstatement was updated correctly
-    call = FindNodes(CallStatement).visit(kernel.body)[0]
-    assert 'yda_data%p_field' in call.arg_map.values()
+    calls = FindNodes(CallStatement).visit(kernel.body)
+    assert 'yda_data%p_field' in calls[1].arg_map.values()
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
