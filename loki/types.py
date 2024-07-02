@@ -170,9 +170,12 @@ class ProcedureType(DataType):
         Indicate that this is a generic function
     procedure : :any:`Subroutine` or :any:`StatementFunction` or :any:`LazyNodeLookup`, optional
         The procedure this type represents
+    concrete_procedure: :any:`Subroutine`, optional
+        The real procedure called when a generic functions is used
     """
 
-    def __init__(self, name=None, is_function=None, is_generic=False, procedure=None, return_type=None):
+    def __init__(self, name=None, is_function=None, is_generic=False, procedure=None, return_type=None,
+                 concrete_procedure=None):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         super().__init__()
         assert name or isinstance(procedure, Subroutine)
@@ -195,6 +198,10 @@ class ProcedureType(DataType):
             self._is_function = self.procedure.is_function
             # TODO: compare return type once type comparison is more robust
             self._return_type = self.procedure.return_type
+        if not self.is_generic:
+            self._concrete_procedure = self._procedure
+        else:
+            self._concrete_procedure = weakref.ref(concrete_procedure) if concrete_procedure is not None else None
 
     @property
     def _canonical(self):
@@ -231,6 +238,13 @@ class ProcedureType(DataType):
         if self._procedure() is None:
             return BasicType.DEFERRED
         return self._procedure()
+
+    @property
+    def concrete_procedure(self):
+        if self._concrete_procedure is None:
+            return self.procedure
+        else:
+            return self._concrete_procedure()
 
     @property
     def parameters(self):
