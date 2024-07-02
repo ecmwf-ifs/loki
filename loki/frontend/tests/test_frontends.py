@@ -2066,3 +2066,57 @@ end module mod_main
     assert var.type.imported is True
     # Check if the symbol comes from the mod_public module
     assert var.type.module is mod_public
+
+
+@pytest.mark.parametrize('frontend', [FP])
+def test_resolution_of_generic_procedures_ext_module(here, frontend):
+
+    code_swap_module = """
+module swap_module
+    implicit none
+    interface swap
+        module procedure swap_int, swap_real
+    end interface swap
+contains
+    subroutine swap_int(a, b)
+        integer, intent(inout) :: a, b
+        integer :: temp
+        temp = a
+        a = b
+        b = temp
+    end subroutine swap_int
+    
+    subroutine swap_real(a, b)
+        real, intent(inout) :: a, b
+        real :: temp
+        temp = a
+        a = b
+        b = temp
+    end subroutine swap_real
+end module swap_module
+    """
+    code_main_module = """
+module main
+    use swap_module, only: swap
+contains
+    subroutine test()
+        real :: r1, r2
+        integer :: i1, i2
+        r1 = 0.0
+        r2 = 3.0
+        call swap(r1, r2)
+        i1 = 1
+        i2 = 3
+        call swap(i1, i2)
+    end subroutine
+end module main
+"""
+    mod_swap = Module.from_source(code_swap_module, frontend=frontend)
+    mod_main = Module.from_source(code_main_module, frontend=frontend, definitions=[mod_swap])
+    # Procedures are defined in order: swap_int, swap_real
+    procedure_symbols = [routine for routine in mod_swap.subroutines]
+    test_routine = mod_main.subroutines[0]
+    calls = FindNodes(ir.CallStatement).visit(test_routine.body)
+
+    assert calls[0].procedure_type.concrete_procedure == procedure_symbols[1]  # swap_real
+    assert calls[1].procedure_type.concrete_procedure == procedure_symbols[0]  # swap_int
