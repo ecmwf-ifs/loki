@@ -203,7 +203,7 @@ def convert(
     block_dim = scheduler.config.dimensions.get('block_dim', None)
 
     # First, remove all derived-type arguments; caller first!
-    if remove_derived_args:
+    if remove_derived_args and mode not in ['cuda-hoist']:
         scheduler.process( DerivedTypeArgumentsTransformation() )
 
     # Re-write DR_HOOK labels for non-GPU paths
@@ -229,17 +229,18 @@ def convert(
     scheduler.process(transformation=sanitise_trafo)
 
     # Perform source-inlining either from CLI arguments or from config
-    inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
-    if not inline_trafo:
-        inline_trafo = InlineTransformation(
-            inline_internals=inline_members, inline_marked=inline_marked,
-            remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
-            resolve_sequence_association=resolve_sequence_association_inlined_calls 
-        )
-    scheduler.process(transformation=inline_trafo)
+    if False:
+        inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
+        if not inline_trafo:
+            inline_trafo = InlineTransformation(
+                inline_internals=inline_members, inline_marked=inline_marked,
+                remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
+                resolve_sequence_association=resolve_sequence_association_inlined_calls 
+            )
+        scheduler.process(transformation=inline_trafo)
 
     # Backward insert argument shapes (for surface routines)
-    if derive_argument_array_shape:
+    if derive_argument_array_shape and mode not in ['cuda-hoist']:
         scheduler.process(transformation=ArgumentArrayShapeAnalysis())
         scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
@@ -262,7 +263,7 @@ def convert(
 
         scheduler.process( NormalizeRangeIndexingTransformation() )
 
-    if global_var_offload:
+    if global_var_offload and mode not in ['cuda-hoist']:
         scheduler.process(transformation=GlobalVariableAnalysis())
         scheduler.process(transformation=GlobalVarOffloadTransformation())
 
@@ -367,9 +368,14 @@ def convert(
         scheduler.process( pipeline )
 
     if mode in ['cuda-hoist']:
+        dic2p = {'nang': 24, 'nfre': 36}
         pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
-                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True)
+                # dim_vars=(vertical.size, horizontal.size),
+                demote_local_arrays=False,
+                as_kwarguments=True, hoist_parameters=True,
+                ignore_modules=['parkind1'], all_derived_types=True,
+                dic2p=dic2p, skip_driver_imports=True)
         scheduler.process( pipeline )
 
 

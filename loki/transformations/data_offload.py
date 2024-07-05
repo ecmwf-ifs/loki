@@ -11,7 +11,7 @@ from itertools import chain
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation, ProcedureItem, ModuleItem
 from loki.expression import (
-    Scalar, Array, FindInlineCalls, SubstituteExpressions
+    Scalar, Array, FindInlineCalls, SubstituteExpressions, RangeIndex
 )
 from loki.ir import (
     FindNodes, PragmaRegion, CallStatement, Pragma, Import, Comment,
@@ -266,8 +266,9 @@ class GlobalVariableAnalysis(Transformation):
         item = kwargs['item']
 
         # Gather all module variables and filter out parameters
+        # TODO: !!!
         variables = {var for var in module.variables if not var.type.parameter}
-
+        # print(f"GlobalVarAnalysis: module {module} - variables: {variables}")
         # Initialize and store trafo data
         item.trafo_data[self._key] = {
             'declares': variables,
@@ -305,6 +306,8 @@ class GlobalVariableAnalysis(Transformation):
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
             }
 
+            if routine.name.lower == 'sinput_ard':
+                print(f"routine: {routine} | import_map: {import_map}")
             # Filter out type and procedure imports by restricting to Scalar and Array symbols
             uses_imported_symbols = {var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))}
             defines_imported_symbols = {var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))}
@@ -340,6 +343,14 @@ class GlobalVariableAnalysis(Transformation):
             if isinstance(successor, ProcedureItem):
                 item.trafo_data[self._key]['uses_symbols'] |= successor.trafo_data[self._key]['uses_symbols']
                 item.trafo_data[self._key]['defines_symbols'] |= successor.trafo_data[self._key]['defines_symbols']
+
+        # print(f"----------")
+        # print(f"routine: {routine}")
+        # print(f"item.trafo_data[self._key]['uses_symbols']: {item.trafo_data[self._key]['uses_symbols']}")
+        # print(f"")
+        # print(f"item.trafo_data[self._key]['defines_symbols']: {item.trafo_data[self._key]['defines_symbols']}")
+        # print(f"")
+        # print(f"")
 
 
 class GlobalVarOffloadTransformation(Transformation):
@@ -433,7 +444,8 @@ class GlobalVarOffloadTransformation(Transformation):
     # connectivity for traversal with the Scheduler
     item_filter = (ProcedureItem, ModuleItem)
 
-    def __init__(self, key=None):
+    def __init__(self, skip_driver_imports=False, key=None):
+        self.skip_driver_imports = skip_driver_imports
         self._key = key or GlobalVariableAnalysis._key
 
     def transform_module(self, module, **kwargs):
@@ -611,7 +623,7 @@ class GlobalVarOffloadTransformation(Transformation):
         for module, variables in offload_map.items():
             missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
 
-        if missing_imports_map:
+        if missing_imports_map and not self.skip_driver_imports:
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarOffloadTransformation] ---------------------------------------'
             )))
@@ -755,6 +767,11 @@ class GlobalVarHoistTransformation(Transformation):
         all_uses_symbols = set.union(*uses_symbols.values(), set())
         # add imports for symbols hoisted
         symbol_map = defaultdict(set)
+        # print(f"--------")
+        # print(f"all_uses_symbols: {all_uses_symbols}")
+        # print(f"")
+        # print(f"all_defines_symbols: {all_defines_symbols}")
+        # print(f"--------")
         for var, module in chain(all_uses_symbols, all_defines_symbols):
             # filter modules that are supposed to be ignored
             if module.lower() in self.ignore_modules:
@@ -767,6 +784,7 @@ class GlobalVarHoistTransformation(Transformation):
             scope = scope.parent
         missing_imports_map = defaultdict(set)
         for module, variables in symbol_map.items():
+            # print(f"GlobalVarHoistTransformation '{routine}' - symbol_map: module: {module} | variables: {variables} vs. import_map: {import_map}")
             missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
         if missing_imports_map:
             routine.spec.prepend(Comment(text=(
@@ -774,7 +792,15 @@ class GlobalVarHoistTransformation(Transformation):
             )))
             for module, variables in missing_imports_map.items():
                 symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
-                routine.spec.prepend(Import(module=module, symbols=symbols))
+                # print(f"GlobalVarHoistTransformation '{routine}': symbols {symbols} | module: {module} | variables: {variables}")
+                # routine.spec.prepend(Import(module=module, symbols=symbols))
+                _symbols = ()
+                for symbol in symbols:
+                    if isinstance(symbol, Array):
+                        _symbols += (symbol.clone(type=symbol.type.clone(shape=(RangeIndex((None, None)),) * len(symbol.shape))), )
+                    else:
+                        _symbols += (symbol,)
+                routine.spec.prepend(Import(module=module, symbols=_symbols))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarHoistTransformation] '
@@ -905,7 +931,11 @@ class GlobalVarHoistTransformation(Transformation):
         new_arguments = [
             arg.clone(scope=routine, type=arg.type.clone(
                 intent='inout' if arg in all_defines_vars else 'in',
-                parameter=False, initial=None
+                parameter=False, initial=None, device=arg.type.allocatable, allocatable=None
+                # parameter=None, initial=None, device=arg.type.allocatable, allocatable=None
             )) for arg in new_arguments
         ]
+        # if 'iab' in [arg.name.lower() for arg in new_arguments]:
+        #     print(f"IAB in new_arguments!!!!!!")
+        # print(f"GlobalVarHoist new_arguments for routine {routine}: {[arg.name.lower() for arg in new_arguments]}")
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))

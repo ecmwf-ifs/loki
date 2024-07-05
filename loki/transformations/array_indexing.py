@@ -524,9 +524,11 @@ def normalize_array_shape_and_access(routine):
         return (isinstance(dim, sym.RangeIndex)
                 and not (dim.lower == 1 or dim.lower is None or dim.upper is None))
 
+    # print(f"normalize_array_shape_and_access routine {routine}")
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
         if isinstance(v, sym.Array):
+            # print(f"  var: {v} | dimensions: {v.dimensions} | shape: {v.shape}")
             # print(f"normalize_array_shape_and_access - {routine} - var: {v} | {v.shape} | {v.dimensions}")
             # skip if e.g., `array(len)`, passed as `call routine(array)`
             if not v.dimensions:

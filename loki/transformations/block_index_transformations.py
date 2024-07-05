@@ -205,7 +205,7 @@ class BlockViewToFieldViewTransformation(Transformation):
 
         # build list of type-bound view pointers passed as subroutine arguments
         for call in FindNodes(ir.CallStatement).visit(body):
-            if call.name in targets:
+            if str(call.name).lower() in targets:
                 _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)}
                 _vars += [a for a, d in _args.items()
                          if any(v in d.shape for v in self.horizontal.size_expressions) and a.parents]
@@ -381,7 +381,7 @@ class InjectBlockIndexTransformation(Transformation):
         # First get rank mismatched call statement args
         vmap = {}
         for call in FindNodes(ir.CallStatement).visit(body):
-            if call.name in targets:
+            if str(call.name).lower() in targets:
                 for dummy, arg in call.arg_map.items():
                     arg_rank = self.get_call_arg_rank(arg)
                     dummy_rank = len(getattr(dummy, 'shape', ()))
@@ -483,8 +483,13 @@ class LowerBlockIndexTransformation(Transformation):
                 if call.routine.name not in processed_routines:
                     # call.routine.arguments += tuple((routine.variable_map[new_arg.name].clone(scope=call.routine,
                     #     type=new_arg.type.clone(intent='in')) for new_arg in new_args))
-                    call.routine.arguments += tuple((SCCBaseTransformation.get_integer_variable(routine, new_arg.name).clone(scope=call.routine,
-                        type=new_arg.type.clone(intent='in')) for new_arg in new_args))
+                    filtered_new_args = ()
+                    for new_arg in new_args:
+                        if new_arg not in call.routine.arguments:
+                            filtered_new_args += (new_arg,)
+                    if filtered_new_args:
+                        call.routine.arguments += tuple((SCCBaseTransformation.get_integer_variable(routine, new_arg.name).clone(scope=call.routine,
+                            type=new_arg.type.clone(intent='in')) for new_arg in filtered_new_args)) # new_args))
             # update dimensions and shape
             var_map = {}
             for arg, call_arg in call.arg_iter():
@@ -595,6 +600,13 @@ class LowerBlockLoopTransformation(Transformation):
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         if role == 'driver':
             self.process_driver(routine, targets)
+        self._remove_vector_sections(routine)
+
+    @staticmethod
+    def _remove_vector_sections(routine):
+        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
+        if section_mapper:
+            routine.body = Transformer(section_mapper).visit(routine.body)
 
     @staticmethod
     def arg_to_local_var(routine, var):
@@ -605,9 +617,11 @@ class LowerBlockLoopTransformation(Transformation):
 
     def local_var(self, call, var):
         if var.name in call.routine.arguments:
+            print(f"local_var() [1] call {call} | var {var}")
             self.arg_to_local_var(call.routine, var)
         else:
-            call.routine.variables += (var.clone(scope=call.routine),)
+            print(f"local_var() [2] call {call} | var {var}")
+            call.routine.variables += (var.clone(scope=call.routine, type=var.type.clone(intent=None)),)
 
     @staticmethod
     def remove_openmp_pragmas(routine):

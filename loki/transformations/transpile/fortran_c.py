@@ -13,7 +13,7 @@ from loki.batch import Transformation, ProcedureItem
 from loki.expression import (
     symbols as sym, Variable, InlineCall, RangeIndex, Scalar, Array,
     ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
-    ExpressionRetriever, SubstituteExpressionsMapper,
+    ExpressionRetriever, SubstituteExpressionsMapper, FindInlineCalls
 )
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement,
@@ -33,7 +33,8 @@ from loki.transformations.array_indexing import (
     flatten_arrays
 )
 from loki.transformations.utilities import (
-    convert_to_lower_case, replace_intrinsics, sanitise_imports
+    convert_to_lower_case, replace_intrinsics, sanitise_imports,
+    rename_variables
 )
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.inline import (
@@ -42,6 +43,11 @@ from loki.transformations.inline import (
 from loki.transformations.single_column.base import SCCBaseTransformation
 
 __all__ = ['FortranCTransformation']
+
+class SubstituteExpressionsMapperTest(SubstituteExpressionsMapper):
+
+    def map_inline_call(self, expr, *args, **kwargs):
+        return expr
 
 class DeReferenceTrafo(Transformer):
     """
@@ -73,7 +79,7 @@ class DeReferenceTrafo(Transformer):
             symbol: Dereference(symbol.clone()) for symbol in self.retriever.retrieve(o)
             if symbol.name.lower() in self.vars2dereference
         }
-        return SubstituteExpressionsMapper(symbol_map)(o)
+        return SubstituteExpressionsMapperTest(symbol_map)(o)
 
     def visit_CallStatement(self, o, **kwargs):
         new_args = ()
@@ -552,7 +558,9 @@ class FortranCTransformation(Transformation):
             # TODO: arg.type.intent is not None shouldn't be necessary
             if arg.type.intent is not None and not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 to_be_dereferenced.append(arg.name.lower())
-
+        
+        # if routine.name.lower() == 'stress_gc':
+        print(f"apply_de_reference for routine {routine}: {to_be_dereferenced}")
         routine.body = DeReferenceTrafo(to_be_dereferenced).visit(routine.body)
 
     def generate_c_kernel(self, routine, targets, **kwargs):
@@ -649,10 +657,28 @@ class FortranCTransformation(Transformation):
         # apply dereference and reference where necessary
         self.apply_de_reference(kernel)
 
+        call_map = {}
+        calls = FindNodes(CallStatement).visit(kernel.body)
+        for call in calls:
+            if call.name not in as_tuple(targets):
+                continue
+            call._update(name=Variable(name=f'{call.name}_c'.lower()))
+
+        callmap = {}
+        for call in FindInlineCalls(unique=False).visit(kernel.body):
+            # if call.function in members:
+            #     continue
+            if targets is None or call.name in as_tuple(targets):
+                # callmap[call] = call.clone(name=f'{call.name}_c')
+                callmap[call.function] = call.function.clone(name=f'{call.name}_c')
+        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
+
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
-                        'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
+                'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign', 'nint': 'rint'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
+        symbol_map = {'const': 'const_var'}
+        rename_variables(kernel, symbol_map=symbol_map)
 
         # Remove redundant imports
         sanitise_imports(kernel)

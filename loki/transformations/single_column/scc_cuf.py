@@ -193,7 +193,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         item = kwargs.get('item', None)
         role = kwargs.get('role')
         depths = kwargs.get('depths', None)
-        targets = kwargs.get('targets', None)
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None))) # kwargs.get('targets', None)
         depth = 0
         if depths is None:
             if role == 'driver':
@@ -216,7 +216,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
             self.process_kernel(routine, depth=depth, targets=targets)
 
         for call in FindNodes(ir.CallStatement).visit(routine.body):
-            if call.name in as_tuple(targets):
+            if str(call.name).lower() in as_tuple(targets):
                 # call.sort_kwarguments()
                 call.convert_kwargs_to_args()
 
@@ -245,7 +245,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
             The subroutine (driver) to process
         """
 
-        upper, step, _, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment =\
+        upper, step, num_threads, _, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment =\
                 self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
 
         if self.mode in ['cuda', 'hip']:
@@ -255,8 +255,12 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     new_args = ()
                     if upper.name not in call.routine.arguments:
                         new_args += (upper.clone(type=upper.type.clone(intent='in')),)
-                    if step.name not in call.routine.arguments:
+                    if isinstance(step, sym.Variable) and step.name not in call.routine.arguments:
                         new_args += (step.clone(type=step.type.clone(intent='in')),)
+                    # print(f"routine: {routine} | num_threads: {num_threads} ({type(num_threads)}) | {isinstance(num_threads, sym.Variable)} | {num_threads.name not in call.routine.arguments}")
+                    # if isinstance(num_threads, sym.Variable) and
+                    if num_threads.name not in call.routine.arguments:
+                        new_args += (num_threads.clone(type=step.type.clone(intent='in')),)
                     new_kwargs = tuple((_.name, _) for _ in new_args)
                     if new_args:
                         call.routine.arguments = list(call.routine.arguments) + list(new_args)
@@ -340,17 +344,18 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     if horizontal_index.name in call.routine.variables:
                         call.routine.symbol_attrs.update({horizontal_index.name:\
                                 call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
-                    additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in')),)
+                    additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in'), scope=call.routine),)
                 if horizontal_index.name not in call.arg_map:
-                    additional_kwargs += ((horizontal_index.name, horizontal_index.clone()),)
+                    additional_kwargs += ((horizontal_index.name, horizontal_index.clone(scope=routine)),)
 
                 if block_dim_index.name not in call.routine.arguments:
-                    additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in',
-                        scope=call.routine)),)
-                    additional_kwargs += ((block_dim_index.name, block_dim_index.clone()),)
+                    additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in'),
+                        scope=call.routine),)
+                    additional_kwargs += ((block_dim_index.name, block_dim_index.clone(scope=routine)),)
                 if additional_kwargs:
                     call._update(kwarguments=call.kwarguments+additional_kwargs)
                 if additional_args:
+                    # print(f"additional_args for call {call} - {additional_args}")
                     call.routine.arguments += additional_args
 
     @staticmethod
@@ -388,15 +393,19 @@ class SccLowLevelLaunchConfiguration(Transformation):
         # dimension and can thus be privatized.
         variables = [v for v in variables if v.shape is not None]
         variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
+        variables = [v for v in variables if not any(horizontal.size in d for d in v.shape)]
 
         # Filter out variables that we will pass down the call tree
         calls = FindNodes(ir.CallStatement).visit(routine.body)
         call_args = flatten(call.arguments for call in calls)
         call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
-        variables = [v for v in variables if v.name not in call_args]
+        # variables = [v for v in variables if v.name not in call_args]
+        call_args = [call_arg.name.lower() for call_arg in call_args if isinstance(call_arg, sym.Array)]
+        variables = [v for v in variables if v.name.lower() not in call_args]
 
         shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
         vmap = {}
+        vmap_dims = {}
         for v in variables:
             old_shape = shape_map[v.name]
             # TODO: "s for s in old_shape if s not in expressions" sufficient?
@@ -406,9 +415,19 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 new_type = v.type.clone(shape=new_shape or None)
                 new_dims = v.dimensions[1:] or None
                 vmap[v] = v.clone(dimensions=new_dims, type=new_type)
+                vmap_dims[v.name] = new_shape
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+
+        # TODO: is this necessary?
+        for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
+            if decl.symbols[0].name in [var.name for var in variables]:
+                try:
+                    # decl._update(dimensions=vmap[decl.symbols[0]].dimensions)
+                    decl._update(dimensions=vmap_dims[decl.symbols[0].name])
+                except:
+                    decl._update(dimensions=None)
 
     def driver_launch_configuration(self, routine, block_dim, targets=None):
         """
@@ -439,7 +458,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         mapper = {}
 
         for call in FindNodes(ir.CallStatement).visit(routine.body):
-            if call.name not in as_tuple(targets):
+            if str(call.name).lower() not in as_tuple(targets):
                 continue
 
             if call.pragma:
@@ -453,13 +472,26 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
             # upper = routine.variable_map[parameters['upper']]
             upper = SCCBaseTransformation.get_integer_variable(routine, parameters['upper'])
+            num_threads = None
             try:
                 # step = routine.variable_map[parameters['step']]
+                # TODO: ...
+                if parameters['step'] == '1':
+                    raise ValueError
                 step = SCCBaseTransformation.get_integer_variable(routine, parameters['step'])
+                # print(f"SCC_CUF routine: {routine} NoException | step: {step} | parameters['step']: {parameters['step']} ({type(parameters['step'])})")
             except Exception as e:
-                print(f"Exception: {e}")
+                # print(f"SCC_CUF routine: {routine} Exception: {e} | self.horizontal.size_expressions: {self.horizontal.size_expressions}")
+                # step = sym.IntLiteral(1)
+                for size_expr in self.horizontal.size_expressions:
+                    if size_expr in routine.symbol_map:
+                        num_threads = routine.symbol_map[size_expr]
+                        break
+            if num_threads is None:
                 step = sym.IntLiteral(1)
-
+            else:
+                step = num_threads
+            # print(f"routine: {routine} | scc_cuf - num_threads: {num_threads} | step: {parameters['step']}")
 
             if self.mode == 'cuf':
                 func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
@@ -472,13 +504,16 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
                 # GRIDDIM
                 lhs = routine.variable_map["griddim"]
-                rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
-                                                                    sym.InlineCall(function=func_ceiling,
-                                                                                    parameters=as_tuple(
-                                                                                        sym.Cast(name="REAL",
-                                                                                                expression=upper) /
-                                                                                        sym.Cast(name="REAL",
-                                                                                                expression=step)))))
+                if num_threads is None:
+                    rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
+                                                                        sym.InlineCall(function=func_ceiling,
+                                                                                        parameters=as_tuple(
+                                                                                            sym.Cast(name="REAL",
+                                                                                                    expression=upper) /
+                                                                                            sym.Cast(name="REAL",
+                                                                                                    expression=step)))))
+                else:
+                    rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1), upper))
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
                 mapper[call] = (blockdim_assignment, griddim_assignment, ir.Comment(""),
                         call.clone(chevron=(routine.variable_map["GRIDDIM"], routine.variable_map["BLOCKDIM"]),),
@@ -493,17 +528,20 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
                 # GRIDDIM
                 lhs = griddim_var
-                rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
-                    parameters=as_tuple(
-                        sym.Cast(name="REAL", expression=upper) /
-                        sym.Cast(name="REAL", expression=step))),
-                    sym.IntLiteral(1), sym.IntLiteral(1)))
+                if num_threads is None:
+                    rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
+                        parameters=as_tuple(
+                            sym.Cast(name="REAL", expression=upper) /
+                            sym.Cast(name="REAL", expression=step))),
+                        sym.IntLiteral(1), sym.IntLiteral(1)))
+                else:
+                    rhs = sym.InlineCall(function=func_dim3, parameters=(upper, sym.IntLiteral(1), sym.IntLiteral(1)))
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
 
         routine.body = Transformer(mapper=mapper).visit(routine.body)
         # return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
         #         blockdim_assignment, griddim_assignment
-        return upper, step, SCCBaseTransformation.get_integer_variable(routine, block_dim.size), blockdim_var, griddim_var,\
+        return upper, step, num_threads, SCCBaseTransformation.get_integer_variable(routine, block_dim.size), blockdim_var, griddim_var,\
                 blockdim_assignment, griddim_assignment
 
 
@@ -581,8 +619,18 @@ class SccLowLevelDataOffload(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
+        item = kwargs.get('item', None)
         role = kwargs.get('role')
-        targets = kwargs.get('targets', None)
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None))) # kwargs.get('targets', None)
+        depths = kwargs.get('depths', None)
+        depth = 0
+        if depths is None:
+            if role == 'driver':
+                depth = 0
+            elif role == 'kernel':
+                depth = 1
+        else:
+            depth = depths[item]
 
         remove_pragmas(routine)
         single_variable_declaration(routine=routine, group_by_shape=True)
@@ -593,11 +641,13 @@ class SccLowLevelDataOffload(Transformation):
         if role == 'driver':
             self.process_driver(routine, targets=targets)
         if role == 'kernel':
-            self.process_kernel(routine) # , depth=depth, targets=targets)
+            self.process_kernel(routine, depth=depth) # , depth=depth, targets=targets)
 
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if str(call.name).lower() in as_tuple(targets):
                 call.convert_kwargs_to_args()
+
+        SCCBaseTransformation.remove_dimensions(routine, calls_only=True)
 
     def process_driver(self, routine, targets=None):
         """
@@ -618,7 +668,7 @@ class SccLowLevelDataOffload(Transformation):
         # create variables needed for the device execution, especially generate device versions of arrays
         self.driver_device_variables(routine=routine, targets=targets)
 
-    def process_kernel(self, routine): # , depth=1, targets=None):
+    def process_kernel(self, routine, depth=1): # , depth=1, targets=None):
         """
         Kernel/Device subroutine specific changes/transformations.
         Parameters
@@ -629,11 +679,11 @@ class SccLowLevelDataOffload(Transformation):
 
         self.kernel_cuf(
             routine, self.horizontal, self.block_dim, self.transformation_type,
-            derived_type_variables=self.derived_type_variables
+            derived_type_variables=self.derived_type_variables, depth=depth
         )
 
     def kernel_cuf(self, routine, horizontal, block_dim, transformation_type,
-               derived_type_variables):
+               derived_type_variables, depth):
 
         relevant_local_arrays = []
         var_map = {}
@@ -677,6 +727,11 @@ class SccLowLevelDataOffload(Transformation):
 
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
+        # TODO: that should't be necessary, something goes wrong before ...
+        if depth == 1:
+            routine.variable_map[self.horizontal.index].rescope(scope=routine)
+            routine.symbol_attrs.update({self.horizontal.index: routine.variable_map[self.horizontal.index].type.clone(intent=None, value=None)})
+
     def device_derived_types(self, routine, derived_types, targets=None):
         """
         Create device versions of variables of specific derived types including
@@ -710,7 +765,7 @@ class SccLowLevelDataOffload(Transformation):
             routine.body.prepend(ir.Assignment(lhs=new_var, rhs=var))
 
         for call in FindNodes(ir.CallStatement).visit(routine.body):
-            if call.name not in as_tuple(targets):
+            if str(call.name).lower() not in as_tuple(targets):
                 continue
             arguments = tuple(var_map.get(arg, arg) for arg in call.arguments)
             call._update(arguments=arguments)
@@ -738,7 +793,7 @@ class SccLowLevelDataOffload(Transformation):
         relevant_arrays = []
         calls = tuple(
             call for call in FindNodes(ir.CallStatement).visit(routine.body)
-            if call.name in as_tuple(targets)
+            if str(call.name).lower() in as_tuple(targets)
         )
         for call in calls:
             relevant_arrays.extend([arg for arg in call.arguments if isinstance(arg, sym.Array)])

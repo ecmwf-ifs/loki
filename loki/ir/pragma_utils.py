@@ -183,9 +183,9 @@ def process_dimension_pragmas(ir, scope=None):
     """
     from loki.expression.parser import parse_expr  # pylint: disable=import-outside-toplevel
 
-    print(f"process_dimension_pragmas ...")
+    # print(f"process_dimension_pragmas ...")
     for decl in FindNodes(VariableDeclaration).visit(ir):
-        print(f"  decl.pragma {decl.pragma} ? {is_loki_pragma(decl.pragma, starts_with='dimension')}")
+        # print(f"  decl.pragma {decl.pragma} ? {is_loki_pragma(decl.pragma, starts_with='dimension')}")
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
             for v in decl.symbols:
                 # Found dimension override for variable
@@ -193,7 +193,7 @@ def process_dimension_pragmas(ir, scope=None):
                 dims = [d.strip() for d in dims.split(',')]
                 # parse each dimension
                 shape = tuple(parse_expr(d, scope=scope) for d in dims)
-                print(f"  v: new shape: {shape}")
+                # print(f"  v: new shape: {shape}")
                 # update symbol table
                 v.scope.symbol_attrs[v.name] = v.type.clone(shape=shape)
     return ir

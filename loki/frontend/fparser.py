@@ -1868,7 +1868,7 @@ class FParser2IR(GenericVisitor):
 
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, ir.VariableDeclaration):
-            print(f"process_dimension_pragmas for routine: {routine}")
+            # print(f"process_dimension_pragmas for routine: {routine}")
             routine.spec = process_dimension_pragmas(routine.spec, scope=routine)
 
         if isinstance(o, Fortran2003.Subroutine_Body):

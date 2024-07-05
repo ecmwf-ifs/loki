@@ -136,12 +136,19 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
     # (intrinsic) functions
     callmap = {}
     for call in FindInlineCalls(unique=False).visit(routine.ir):
-        if call.name in symbol_map:
+        if str(call.name).lower() in symbol_map:
+            # print(f"routine: {routine} - remap call {call.name} to {symbol_map[call.name]}")
             callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
+            # callmap[call] = sym.Variable(name=symbol_map[call.name])
 
-        if call.name in function_map:
-            callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
+        if str(call.name).lower() in function_map:
+            # print(f"routine: {routine} - remap call {call.name} ({type(call)}) to {function_map[call.name]}")
+            # callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
+            callmap[call] = call.clone(name=function_map[call.name], function=sym.ProcedureSymbol(name=function_map[call.name], scope=routine),
+                    parameters=tuple(sym.Cast(name='REAL', expression=parameter) for parameter in call.parameters))
 
+    # print(f"routine: {routine} - callmap: {callmap}")
+    callmap = recursive_expression_map_update(callmap)
     routine.spec = SubstituteExpressions(callmap).visit(routine.spec)
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
 
@@ -497,7 +504,10 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
         if isinstance(arg, (tuple, Expression)):
             return mapper(arg)
         if name == 'scope':
-            return expr.scope
+            try:
+                return expr.scope
+            except:
+                return arg
         return arg
 
     for _ in range(max_iterations):
@@ -514,7 +524,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
         }
 
         # Check for early termination opportunities
-        if prev_map == expr_map:
-            break
+        # if prev_map == expr_map:
+        #     break
 
     return expr_map

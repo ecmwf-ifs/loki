@@ -395,10 +395,12 @@ class HoistVariablesTransformation(Transformation):
         """
 
         if self.as_kwarguments:
-            kw_params = call.kw_parameters
-            kw_params.update(dict((a.name, v.clone(dimensions=None)) for (a, v) in variables))
-            _call_clone = call.clone(kw_parameters=kw_params)
-            vmap = {call: _call_clone}
+            # kw_params = call.kw_parameters
+            # kw_params.update(dict((a.name, v.clone(dimensions=None)) for (a, v) in variables))
+            new_args = tuple(v.clone(dimensions=None) for (a, v) in variables)
+            # _call_clone = call.clone(kw_parameters=kw_params)
+            vmap = {call: call.clone(parameters=call.parameters + new_args)}
+            # vmap = {call: _call_clone}
         else:
             new_args = tuple(v.clone(dimensions=None) for v in variables)
             vmap = {call: call.clone(parameters=call.parameters + new_args)}

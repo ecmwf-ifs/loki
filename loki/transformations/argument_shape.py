@@ -151,7 +151,7 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
             new_args = tuple(d for d in new_args if d not in imported_symbols)
             new_args = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in new_args)
             callee.arguments += new_args
-
+            # print(f"ExplicitArgumentArrayShapeTransformation new_args for callee {callee}: {new_args}")
             # Map all local dimension args to unknown callee dimension args
             if len(callee.arguments) > len(list(call.arg_iter())):
                 arg_keys = dict(call.arg_iter()).keys()

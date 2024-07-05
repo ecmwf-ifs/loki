@@ -659,12 +659,17 @@ class Scheduler:
                     sources_to_append += [newsource]
                     sources_to_remove += [sourcepath]
 
+        # sources_to_append += ['/lus/h2resw01/scratch/nams/git/ecwam-1.3.0/build-cuda/ecwam/src/ecwam/airsea_c.c'] 
+        # for source in sources_to_transform:
+        #     if "wamintgr" not in str(source).lower():
+        #         sources_to_append += [str(source).replace('.F90', '_c.c')]
+        #         print(f"appending source: {source}")
         with Path(filepath).open('w') as f:
-            s_transform = '\n'.join(f'    {s}' for s in sources_to_transform)
+            s_transform = '\n'.join(f'    {s}' for s in sources_to_transform) #  if "wamintgr" not in str(s).lower())
             f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
 
-            s_append = '\n'.join(f'    {s}' for s in sources_to_append)
+            s_append = '\n'.join(f'    {s}' for s in sources_to_append) #  if "wamintgr" not in str(s).lower())
             f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
 
-            s_remove = '\n'.join(f'    {s}' for s in sources_to_remove)
+            s_remove = '\n'.join(f'    {s}' for s in sources_to_remove if "wamintgr" not in str(s).lower())
             f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')

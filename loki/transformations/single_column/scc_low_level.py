@@ -26,7 +26,7 @@ from loki.transformations.transform_derived_types import DerivedTypeArgumentsTra
 from loki.transformations.data_offload import (
     GlobalVariableAnalysis, GlobalVarHoistTransformation
 )
-from loki.transformations.parametrise import ParametriseTransformation
+from loki.transformations.parametrise import ParametriseTransformation, ParametriseArrayDimsTransformation
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
@@ -56,7 +56,7 @@ class InlineTransformation(Transformation):
         if role == 'kernel':
 
             SCCBaseTransformation.explicit_dimensions(routine)
-            inline_constant_parameters(routine, external_only=True)
+            # inline_constant_parameters(routine, external_only=True)
             inline_elemental_functions(routine)
 
 
@@ -447,6 +447,7 @@ SCCLowLevelHoist = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
+        ParametriseArrayDimsTransformation,
         HoistTemporaryArraysAnalysis,
         HoistTemporaryArraysPragmaOffloadTransformation
     )

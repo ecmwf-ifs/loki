@@ -92,6 +92,8 @@ class CudaCodegen(CppCodegen):
         prefix = ''
         if o.prefix and "global" in o.prefix[0].lower():
             prefix = '__global__ '
+        if o.prefix and "device" in o.prefix[0].lower():
+            prefix = '__device__ '
         if o.is_function:
             return_type = cuda_intrinsic_type(o.return_type)
         else:

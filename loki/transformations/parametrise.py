@@ -83,14 +83,14 @@ using the transformation
 """
 
 from loki.batch import Transformation
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, SubstituteExpressions, FindVariables
 from loki.ir import nodes as ir, Transformer, FindNodes
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 
 from loki.transformations.inline import inline_constant_parameters
 
 
-__all__ = ['ParametriseTransformation']
+__all__ = ['ParametriseTransformation', 'ParametriseArrayDimsTransformation']
 
 
 class ParametriseTransformation(Transformation):
@@ -287,3 +287,76 @@ class ParametriseTransformation(Transformation):
             # replace all parameter variables with their corresponding value (inline constant parameters)
             if self.replace_by_value:
                 inline_constant_parameters(routine=routine, external_only=False)
+
+
+class ParametriseArrayDimsTransformation(Transformation):
+
+
+    _key = "ParametriseTransformation"
+    def __init__(self, dic2p, replace_by_value=False, entry_points=None, abort_callback=None, key=None):
+        self.dic2p = dic2p
+        if key is not None:
+            self._key = key
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        var2p = dict(self.dic2p)
+        variables = list(routine.variables)
+        variables += list(FindVariables(unique=False).visit(routine.body))
+
+        introduce_loki_params = []
+        var_map = {}
+        vmap_dims = {}
+        clone_var = False
+        for var in variables:
+            if not isinstance(var, sym.Array):
+                continue
+            # for dim in var.shape:
+            #     dim_var_map = {}
+            #     dim_vars = FindVariables(unique=False).visit(dim)
+            #     for dim_var in dim_vars:
+            #         if dim_var.name.lower() in vars2p:
+            #             dim_var_map[dim_var] = sym.Variable(name=f"{dim_var.name}_loki_param")
+            new_shape = ()
+            clone_var = False
+            for dim in var.shape:
+                _tmp_vars_in_dim = FindVariables(unique=False).visit(dim)
+                # if len(_tmp_vars_in_dim) > 1:
+                if dim in var2p:
+                    new_shape += (dim.clone(name=f"{dim.name}_loki_param"),)
+                    vmap_dims[dim] = dim.clone(name=f"{dim.name}_loki_param")
+                    introduce_loki_params.append(dim)
+                    clone_var = True
+                elif any([var.name in var2p for var in FindVariables().visit(dim)]):
+                    _dic2p = {}
+                    for var in FindVariables().visit(dim):
+                        if var in var2p:
+                            introduce_loki_params.append(var)
+                            _dic2p[var] = var.clone(name=f"{dim.name}_loki_param") 
+                    vmap_dims[dim] = SubstituteExpressions(_dic2p).visit(dim)
+                else:
+                    new_shape += (dim,)
+            # if new_shape != var.shape:
+            if clone_var:
+                var_map[var] = var.clone(type=var.type.clone(shape=new_shape), dimensions=new_shape)
+
+        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+
+        new_variables = ()
+        for var in list(dict.fromkeys(introduce_loki_params)):
+            # routine.variables += (var.clone(name=f"{var.name}_loki_param", type=var.type.clone(intent=None, value=None, parameter=True, initial=sym.IntLiteral(self.dic2p[var.name.lower()]))),)
+            new_variables += (var.clone(name=f"{var.name}_loki_param", type=var.type.clone(intent=None, value=None, parameter=True, initial=sym.IntLiteral(self.dic2p[var.name.lower()]))),)
+        # routine.variables = new_variables + routine.variables
+        new_var_decls = ()
+        for new_parameter in new_variables:
+                # routine.spec.prepend(ir.VariableDeclaration(symbols=(new_parameter,)))
+                new_var_decls += (ir.VariableDeclaration(symbols=(new_parameter,)),)
+        decl_map = {FindNodes(ir.VariableDeclaration).visit(routine.spec)[0]: new_var_decls + (FindNodes(ir.VariableDeclaration).visit(routine.spec)[0],)}
+        routine.spec = Transformer(decl_map).visit(routine.spec)
+
+        for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
+            if decl.symbols[0].name in [var.name for var in variables]:
+                try:
+                    decl._update(dimensions=vmap_dims[decl.symbols[0].name])
+                except:
+                    decl._update(dimensions=None)
