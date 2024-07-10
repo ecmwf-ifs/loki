@@ -170,7 +170,8 @@ class FortranCTransformation(Transformation):
         role = kwargs.get('role', 'kernel')
         item = kwargs.get('item', None)
         depths = kwargs.get('depths', None)
-        targets = kwargs.get('targets', None)
+        # targets = kwargs.get('targets', None)
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         successors = kwargs.get('successors', ())
         depth = 0
         if depths is None:
@@ -182,6 +183,9 @@ class FortranCTransformation(Transformation):
             depth = depths[item]
 
         if role == 'driver':
+            for call in FindNodes(CallStatement).visit(routine.body):
+                if str(call.name).lower() in as_tuple(targets):
+                    call.convert_kwargs_to_args()
             return
 
         for arg in routine.arguments:

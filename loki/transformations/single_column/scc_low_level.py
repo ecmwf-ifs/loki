@@ -24,7 +24,7 @@ from loki.transformations.block_index_transformations import (
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
-    GlobalVariableAnalysis, GlobalVarHoistTransformation
+    GlobalVariableAnalysis, GlobalVarHoistTransformation, GlobalVarOffloadTransformation
 )
 from loki.transformations.parametrise import ParametriseTransformation, ParametriseArrayDimsTransformation
 from loki.transformations.inline import (
@@ -434,6 +434,7 @@ SCCLowLevelHoist = partial(
     Pipeline, classes=(
         InlineTransformation,
         GlobalVariableAnalysis,
+        GlobalVarOffloadTransformation,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
         ArgumentArrayShapeAnalysis,
