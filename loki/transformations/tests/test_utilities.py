@@ -137,7 +137,7 @@ end subroutine my_NOT_ALL_lowercase_ROUTINE
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilities_recursive_expression_map_update(frontend):
+def test_transform_utilities_recursive_expression_map_update(frontend, tmp_path):
     fcode = """
 module some_mod
     implicit none
@@ -164,7 +164,7 @@ contains
 end module some_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['do']
 
     expr_map = {}
@@ -276,7 +276,7 @@ def test_transform_utilites_rename_variables_extended(frontend):
     fcode = """
 subroutine rename_variables_extended(KLON, ARR, TT)
     implicit none
-    
+
     INTEGER, INTENT(IN) :: KLON
     REAL, INTENT(INOUT) :: ARR(KLON)
     REAL :: MY_TMP(KLON)

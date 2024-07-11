@@ -14,11 +14,6 @@ from loki.transformations import (
 )
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
 @pytest.fixture(scope='module', name='rename_transform')
 def fixture_rename_transform():
 
@@ -44,7 +39,7 @@ def fixture_rename_transform():
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('method', ['source', 'transformation'])
 @pytest.mark.parametrize('lazy', [False, True])
-def test_transformation_apply(rename_transform, frontend, method, lazy):
+def test_transformation_apply(rename_transform, frontend, method, lazy, tmp_path):
     """
     Apply a simple transformation that renames routines and modules, and
     test that this also works when the original source object was parsed
@@ -62,19 +57,19 @@ subroutine myroutine(a, b)
 end subroutine myroutine
 """
     # Let source apply transformation to all items and verify
-    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend, xmods=[tmp_path])
     assert source._incomplete is lazy
     if method == 'source':
         if lazy:
             with pytest.raises(RuntimeError):
                 source.apply(rename_transform)
-            source.make_complete(frontend=frontend)
+            source.make_complete(frontend=frontend, xmods=[tmp_path])
         source.apply(rename_transform)
     elif method == 'transformation':
         if lazy:
             with pytest.raises(RuntimeError):
                 rename_transform.apply(source)
-            source.make_complete(frontend=frontend)
+            source.make_complete(frontend=frontend, xmods=[tmp_path])
         rename_transform.apply(source)
     else:
         raise ValueError(f'Unknown method "{method}"')
@@ -105,7 +100,7 @@ end subroutine myroutine
     ('myroutine', lambda transform, obj, **kwargs: transform.apply_subroutine(obj, **kwargs))
 ])
 @pytest.mark.parametrize('lazy', [False, True])
-def test_transformation_apply_subroutine(rename_transform, frontend, target, apply_method, lazy):
+def test_transformation_apply_subroutine(rename_transform, frontend, target, apply_method, lazy, tmp_path):
     """
     Apply a simple transformation that renames routines and modules
     """
@@ -135,14 +130,14 @@ subroutine myroutine(a, b)
   a = a + b
 end subroutine myroutine
 """
-    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend, xmods=[tmp_path])
     assert source._incomplete is lazy
     assert source[target]._incomplete is lazy
 
     if lazy:
         with pytest.raises(RuntimeError):
             apply_method(rename_transform, source[target])
-        source[target].make_complete(frontend=frontend)
+        source[target].make_complete(frontend=frontend, xmods=[tmp_path])
     apply_method(rename_transform, source[target])
 
     assert source._incomplete is lazy  # This should only have triggered a re-parse on the actual transformation target
@@ -174,7 +169,7 @@ end subroutine myroutine
     lambda transform, obj, **kwargs: transform.apply_module(obj, **kwargs)
 ])
 @pytest.mark.parametrize('lazy', [False, True])
-def test_transformation_apply_module(rename_transform, frontend, apply_method, lazy):
+def test_transformation_apply_module(rename_transform, frontend, apply_method, lazy, tmp_path):
     """
     Apply a simple transformation that renames routines and modules
     """
@@ -197,7 +192,7 @@ subroutine myroutine(a, b)
   a = a + b
 end subroutine myroutine
 """
-    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend)
+    source = Sourcefile.from_source(fcode, frontend=REGEX if lazy else frontend, xmods=[tmp_path])
     assert source._incomplete is lazy
     assert source['mymodule']._incomplete is lazy
     assert source['myroutine']._incomplete is lazy
@@ -205,7 +200,7 @@ end subroutine myroutine
     if lazy:
         with pytest.raises(RuntimeError):
             apply_method(rename_transform, source['mymodule'])
-        source['mymodule'].make_complete(frontend=frontend)
+        source['mymodule'].make_complete(frontend=frontend, xmods=[tmp_path])
     apply_method(rename_transform, source['mymodule'])
 
     assert source._incomplete is lazy
@@ -224,7 +219,7 @@ end subroutine myroutine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_replace_selected_kind(here, frontend):
+def test_transform_replace_selected_kind(tmp_path, frontend):
     """
     Test correct replacement of all `selected_x_kind` calls by
     iso_fortran_env constant.
@@ -252,7 +247,7 @@ end subroutine transform_replace_selected_kind
     assert len(imports[0].symbols) == 1 and imports[0].symbols[0].name.lower() == 'int8'
 
     # Test the original implementation
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     i, a = function()
@@ -282,7 +277,7 @@ end subroutine transform_replace_selected_kind
     assert {s.name.lower() for s in imports[0].symbols} == symbols
 
     # Test the transformed implementation
-    iso_filepath = here/(f'{routine.name}_replaced_{frontend}.f90')
+    iso_filepath = tmp_path/(f'{routine.name}_replaced_{frontend}.f90')
     iso_function = jit_compile(routine, filepath=iso_filepath, objname=routine.name)
 
     i, a = iso_function()
@@ -295,7 +290,7 @@ end subroutine transform_replace_selected_kind
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('post_apply_rescope_symbols', [True, False])
-def test_transformation_post_apply_subroutine(here, frontend, post_apply_rescope_symbols):
+def test_transformation_post_apply_subroutine(tmp_path, frontend, post_apply_rescope_symbols):
     """Verify that post_apply is called for subroutines."""
 
     #### Test that rescoping is applied and effective ####
@@ -323,7 +318,7 @@ end subroutine transformation_post_apply
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the original implementation
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     i = function()
@@ -338,7 +333,7 @@ end subroutine transformation_post_apply
         # Scope is wrong
         assert routine.variable_map['j'].scope is tmp_routine
 
-    new_filepath = here/(f'{routine.name}_{frontend}.f90')
+    new_filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
 
     i = new_function()
@@ -350,7 +345,7 @@ end subroutine transformation_post_apply
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('post_apply_rescope_symbols', [True, False])
-def test_transformation_post_apply_module(here, frontend, post_apply_rescope_symbols):
+def test_transformation_post_apply_module(tmp_path, frontend, post_apply_rescope_symbols):
     """Verify that post_apply is called for modules."""
 
     #### Test that rescoping is applied and effective ####
@@ -381,10 +376,10 @@ contains
 end module module_post_apply
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Test the original implementation
-    filepath = here/(f'{module.name}_{frontend}_{post_apply_rescope_symbols!s}.f90')
+    filepath = tmp_path/(f'{module.name}_{frontend}_{post_apply_rescope_symbols!s}.f90')
     mod = jit_compile(module, filepath=filepath, objname=module.name)
 
     i = mod.test_post_apply()
@@ -399,7 +394,7 @@ end module module_post_apply
         # Scope is wrong
         assert module.variable_map['j'].scope is tmp_scope
 
-    new_filepath = here/(f'{module.name}_{frontend}_{post_apply_rescope_symbols!s}.f90')
+    new_filepath = tmp_path/(f'{module.name}_{frontend}_{post_apply_rescope_symbols!s}.f90')
     new_mod = jit_compile(module, filepath=new_filepath, objname=module.name)
 
     i = new_mod.test_post_apply()
@@ -409,7 +404,7 @@ end module module_post_apply
     clean_test(new_filepath)
 
 
-def test_transformation_file_write(here):
+def test_transformation_file_write(tmp_path):
     """Verify that files get written with correct filenames"""
 
     fcode = """
@@ -422,32 +417,32 @@ end subroutine rick
     item = ProcedureItem(name='#rick', source=source)
 
     # Test default file writes
-    ricks_path = here/'rick.loki.F90'
+    ricks_path = tmp_path/'rick.loki.F90'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation(builddir=here).apply(source=source, item=item)
+    FileWriteTransformation(builddir=tmp_path).apply(source=source, item=item)
     assert ricks_path.exists()
     ricks_path.unlink()
 
     # Test mode and suffix overrides
-    ricks_path = here/'rick.roll.java'
+    ricks_path = tmp_path/'rick.roll.java'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation(builddir=here, mode='roll', suffix='.java').apply(source=source, item=item)
+    FileWriteTransformation(builddir=tmp_path, mode='roll', suffix='.java').apply(source=source, item=item)
     assert ricks_path.exists()
     ricks_path.unlink()
 
     # Test writing with "items" only (as in file graph traversal)
-    ricks_path = here/'rick.loki.F90'
+    ricks_path = tmp_path/'rick.loki.F90'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation(builddir=here).apply(source=source, items=(item,))
+    FileWriteTransformation(builddir=tmp_path).apply(source=source, items=(item,))
     assert ricks_path.exists()
     ricks_path.unlink()
 
     # Check error behaviour if no item provided
     with pytest.raises(ValueError):
-        FileWriteTransformation(builddir=here).apply(source=source)
+        FileWriteTransformation(builddir=tmp_path).apply(source=source)
 
 
 def test_transformation_pipeline_simple():

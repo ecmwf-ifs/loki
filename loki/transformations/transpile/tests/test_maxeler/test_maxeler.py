@@ -98,10 +98,10 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.fixture(scope='module', name='builder')
-def fixture_builder(here):
+@pytest.fixture(name='builder')
+def fixture_builder(tmp_path):
     include_dirs = get_max_includes() if is_maxeler_available() else []
-    yield Builder(source_dirs=here, include_dirs=include_dirs, build_dir=here/'build')
+    yield Builder(source_dirs=tmp_path, include_dirs=include_dirs, build_dir=tmp_path)
     Obj.clear_cache()
 
 
@@ -145,23 +145,23 @@ def test_max_simulator(simulator):
 
 
 @pytest.mark.skipif(not is_maxeler_available(), reason='Maxeler runtime environment not available')
-def test_max_passthrough(simulator, here):
+def test_max_passthrough(simulator, here, tmp_path):
     """
     A simple test streaming data to the DFE and back to CPU.
     """
-    build_dir = here/'build'
+    build_dir = Path(tmp_path)
     compile_all(c_src=here/'passthrough', maxj_src=here/'passthrough', build_dir=build_dir,
                 target='PassThrough', manager='PassThroughMAX5CManager', package='passthrough')
     simulator.run(build_dir/'PassThrough')
 
 
 @pytest.mark.skipif(not is_maxeler_available(), reason='Maxeler runtime environment not available')
-def test_max_passthrough_ctypes(simulator, here):
+def test_max_passthrough_ctypes(simulator, here, tmp_path):
     """
     A simple test streaming data to the DFE and back to CPU, called via ctypes
     """
     # First, build shared library
-    build_dir = here/'build'
+    build_dir = Path(tmp_path)
     compile_all(c_src=here/'passthrough', maxj_src=here/'passthrough', build_dir=build_dir,
                 target='libPassThrough.so', manager='PassThroughMAX5CManager', package='passthrough')
     lib = ct.CDLL(build_dir/'libPassThrough.so')
@@ -196,7 +196,7 @@ def test_max_passthrough_ctypes(simulator, here):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_max_routine_axpy_scalar(here, builder, simulator, frontend):
+def test_max_routine_axpy_scalar(tmp_path, builder, simulator, frontend):
 
     fcode = """
 subroutine routine_axpy_scalar(a, x, y)
@@ -211,7 +211,7 @@ subroutine routine_axpy_scalar(a, x, y)
 end subroutine routine_axpy_scalar
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'routine_axpy_scalar_{frontend}.f90')
+    filepath = tmp_path/(f'routine_axpy_scalar_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_axpy_scalar')
 
     # Test the reference solution
@@ -228,7 +228,7 @@ end subroutine routine_axpy_scalar
     # the Maxeler language...
     for _ in range(2):
         # Generate the transpiled kernel
-        max_kernel = max_transpile(routine, here, builder, frontend)
+        max_kernel = max_transpile(routine, tmp_path, builder, frontend)
 
         # Test the transpiled kernel
         a = -3.
@@ -241,12 +241,9 @@ end subroutine routine_axpy_scalar
 #    simulator.call(max_kernel.routine_axpy_scalar_fmax_mod.routine_axpy_scalar_fmax, a, x, y)
     assert np.all(a * 2. + y == x)
 
-    clean_test(filepath)
-    delete(here/routine.name, force=True)  # Delete MaxJ sources
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_max_routine_copy_scalar(here, builder, simulator, frontend):
+def test_max_routine_copy_scalar(tmp_path, builder, simulator, frontend):
 
     fcode = """
 subroutine routine_copy_scalar(x, y)
@@ -261,7 +258,7 @@ subroutine routine_copy_scalar(x, y)
 end subroutine routine_copy_scalar
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'routine_copy_scalar_{frontend}.f90')
+    filepath = tmp_path/(f'routine_copy_scalar_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_copy_scalar')
 
     # Test the reference solution
@@ -275,7 +272,7 @@ end subroutine routine_copy_scalar
     # the Maxeler language...
     for _ in range(2):
         # Generate the transpiled kernel
-        max_kernel = max_transpile(routine, here, builder, frontend)
+        max_kernel = max_transpile(routine, tmp_path, builder, frontend)
 
         # Test the transpiled kernel
         x = np.zeros(1) + 2.
@@ -284,12 +281,9 @@ end subroutine routine_copy_scalar
     simulator.stop()
     assert np.all(y == x)
 
-    clean_test(filepath)
-    delete(here/routine.name, force=True)  # Delete MaxJ sources
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_max_routine_fixed_loop(here, builder, simulator, frontend):
+def test_max_routine_fixed_loop(tmp_path, builder, simulator, frontend):
 
     fcode = """
 subroutine routine_fixed_loop(scalar, vector, vector_out, tensor, tensor_out)
@@ -314,7 +308,7 @@ subroutine routine_fixed_loop(scalar, vector, vector_out, tensor, tensor_out)
 end subroutine routine_fixed_loop
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'routine_fixed_loop_{frontend}.f90')
+    filepath = tmp_path/(f'routine_fixed_loop_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_fixed_loop')
 
     # Test the reference solution
@@ -330,7 +324,7 @@ end subroutine routine_fixed_loop
     assert np.all(tensor_out == ref_tensor)
 
     # Generate the transpiled kernel
-    max_kernel = max_transpile(routine, here, builder, frontend)
+    max_kernel = max_transpile(routine, tmp_path, builder, frontend)
 
     # Test the transpiled kernel
     n, m = 6, 4
@@ -346,12 +340,9 @@ end subroutine routine_fixed_loop
     assert np.all(vector == ref_vector)
     assert np.all(tensor_out == ref_tensor)
 
-    clean_test(filepath)
-    delete(here/routine.name, force=True)  # Delete MaxJ sources
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_max_routine_copy_stream(here, builder, simulator, frontend):
+def test_max_routine_copy_stream(tmp_path, builder, simulator, frontend):
 
     fcode = """
 subroutine routine_copy_stream(length, scalar, vector_in, vector_out)
@@ -369,7 +360,7 @@ subroutine routine_copy_stream(length, scalar, vector_in, vector_out)
 end subroutine routine_copy_stream
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'routine_copy_stream_{frontend}.f90')
+    filepath = tmp_path/(f'routine_copy_stream_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_copy_stream')
 
     # Test the reference solution
@@ -381,7 +372,7 @@ end subroutine routine_copy_stream
     assert np.all(vector_out == np.array(range(length)) + scalar)
 
     # Generate the transpiled kernel
-    max_kernel = max_transpile(routine, here, builder, frontend)
+    max_kernel = max_transpile(routine, tmp_path, builder, frontend)
 
     vec_in = np.array(range(length), order='F', dtype=np.intc)
     vec_out = np.zeros(length, order='F', dtype=np.intc)
@@ -390,12 +381,9 @@ end subroutine routine_copy_stream
                    vector_in_size=length * 4, vector_out=vec_out, vector_out_size=length * 4)
     assert np.all(vec_out == np.array(range(length)) + scalar)
 
-    clean_test(filepath)
-    delete(here/routine.name, force=True)  # Delete MaxJ sources
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_max_routine_moving_average(here, builder, simulator, frontend):
+def test_max_routine_moving_average(tmp_path, builder, simulator, frontend):
 
     fcode = """
 subroutine routine_moving_average(length, data_in, data_out)
@@ -427,7 +415,7 @@ subroutine routine_moving_average(length, data_in, data_out)
 end subroutine routine_moving_average
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'routine_moving_average_{frontend}.f90')
+    filepath = tmp_path/(f'routine_moving_average_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_moving_average')
 
     # Create random input data
@@ -446,7 +434,7 @@ end subroutine routine_moving_average
     assert np.all(data_out == expected)
 
     # Generate and test the transpiled kernel
-    max_kernel = max_transpile(routine, here, builder, frontend)
+    max_kernel = max_transpile(routine, tmp_path, builder, frontend)
 
     data_out = np.zeros(shape=(n,), order='F')
     function = max_kernel.routine_moving_average_c_fc_mod.routine_moving_average_c_fc
@@ -455,11 +443,11 @@ end subroutine routine_moving_average
     assert np.all(data_out == expected)
 
     clean_test(filepath)
-    delete(here/routine.name, force=True)  # Delete MaxJ sources
+    delete(tmp_path/routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_max_routine_laplace(here, builder, simulator, frontend):
+def test_max_routine_laplace(tmp_path, builder, simulator, frontend):
     fcode = """
 subroutine routine_laplace(h, data_in, data_out)
   use iso_fortran_env, only: real64
@@ -500,7 +488,7 @@ subroutine routine_laplace(h, data_in, data_out)
 end subroutine routine_laplace
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'routine_laplace_{frontend}.f90')
+    filepath = tmp_path/(f'routine_laplace_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_laplace')
 
     # Create random input data
@@ -533,13 +521,10 @@ end subroutine routine_laplace
     assert np.all(abs(data_out - expected) < 1e-12)
 
     # Generate the transpiled kernel
-    max_kernel = max_transpile(routine, here, builder, frontend)
+    max_kernel = max_transpile(routine, tmp_path, builder, frontend)
 
     data_out = np.zeros(shape=(length,), order='F')
     function = max_kernel.routine_laplace_c_fc_mod.routine_laplace_c_fc
     simulator.call(function, ticks=length, h=h, data_in=data_in, data_in_size=length * 8,
                    data_out=data_out, data_out_size=length * 8)
     assert np.all(abs(data_out - expected) < 1e-12)
-
-    clean_test(filepath)
-    delete(here/routine.name, force=True)  # Delete MaxJ sources

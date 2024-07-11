@@ -6,14 +6,13 @@
 # nor does it submit to any jurisdiction.
 
 # pylint: disable=too-many-lines
-from pathlib import Path
 import pytest
 import numpy as np
 
 from loki import Subroutine
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends, HAVE_FP, OMNI
+from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
     Assignment
@@ -25,16 +24,8 @@ from loki.transformations.transform_loop import (
 )
 
 
-# Polyhedron functionality relies on FParser's expression parsing
-pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
-
-
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_interchange_plain(here, frontend):
+def test_transform_loop_interchange_plain(tmp_path, frontend):
     """
     Apply loop interchange for two loops without further arguments.
     """
@@ -60,7 +51,7 @@ subroutine transform_loop_interchange_plain(a, m, n)
 end subroutine transform_loop_interchange_plain
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     m, n = 10, 20
     ref = np.array([[i+j for i in range(n)] for j in range(m)], order='F')
@@ -77,7 +68,7 @@ end subroutine transform_loop_interchange_plain
     # Apply transformation
     loop_interchange(routine)
 
-    interchanged_filepath = here/(f'{routine.name}_interchanged_{frontend}.f90')
+    interchanged_filepath = tmp_path/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
 
     # Test transformation
@@ -94,7 +85,7 @@ end subroutine transform_loop_interchange_plain
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_interchange(here, frontend):
+def test_transform_loop_interchange(tmp_path, frontend):
     """
     Apply loop interchange for three loops with specified order.
     """
@@ -127,7 +118,7 @@ subroutine transform_loop_interchange(a, m, n, nclv)
 end subroutine transform_loop_interchange
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     m, n, nclv = 10, 20, 5
     ref = np.array([[[i+j+k for k in range(nclv)] for i in range(n)] for j in range(m)], order='F')
@@ -148,7 +139,7 @@ end subroutine transform_loop_interchange
     # Apply transformation
     loop_interchange(routine)
 
-    interchanged_filepath = here/(f'{routine.name}_interchanged_{frontend}.f90')
+    interchanged_filepath = tmp_path/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
 
     # Test transformation
@@ -171,7 +162,7 @@ end subroutine transform_loop_interchange
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_interchange_project(here, frontend):
+def test_transform_loop_interchange_project(tmp_path, frontend):
     """
     Apply loop interchange for two loops with bounds projection.
     """
@@ -190,7 +181,7 @@ subroutine transform_loop_interchange_project(a, m, n)
 end subroutine transform_loop_interchange_project
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     m, n = 10, 20
     ref = np.array([[i+j if j>=i else 0 for i in range(1, n+1)]
@@ -208,7 +199,7 @@ end subroutine transform_loop_interchange_project
     # Apply transformation
     loop_interchange(routine, project_bounds=True)
 
-    interchanged_filepath = here/(f'{routine.name}_interchanged_{frontend}.f90')
+    interchanged_filepath = tmp_path/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
 
     # Test transformation
@@ -225,7 +216,7 @@ end subroutine transform_loop_interchange_project
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_matching(here, frontend):
+def test_transform_loop_fuse_matching(tmp_path, frontend):
     """
     Apply loop fusion for two loops with matching iteration spaces.
     """
@@ -247,7 +238,7 @@ subroutine transform_loop_fuse_matching(a, b, n)
 end subroutine transform_loop_fuse_matching
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -263,7 +254,7 @@ end subroutine transform_loop_fuse_matching
     loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -278,7 +269,7 @@ end subroutine transform_loop_fuse_matching
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_subranges(here, frontend):
+def test_transform_loop_fuse_subranges(tmp_path, frontend):
     """
     Apply loop fusion with annotated range for loops with
     non-matching iteration spaces.
@@ -309,7 +300,7 @@ subroutine transform_loop_fuse_subranges(a, b, n)
 end subroutine transform_loop_fuse_subranges
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -325,7 +316,7 @@ end subroutine transform_loop_fuse_subranges
     loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -340,7 +331,7 @@ end subroutine transform_loop_fuse_subranges
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_groups(here, frontend):
+def test_transform_loop_fuse_groups(tmp_path, frontend):
     """
     Apply loop fusion for multiple loop fusion groups.
     """
@@ -379,7 +370,7 @@ subroutine transform_loop_fuse_groups(a, b, c, n)
 end subroutine transform_loop_fuse_groups
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -397,7 +388,7 @@ end subroutine transform_loop_fuse_groups
     loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 2
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -441,7 +432,7 @@ end subroutine transform_loop_fuse_failures
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_alignment(here, frontend):
+def test_transform_loop_fuse_alignment(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fuse_alignment(a, b, n)
   integer, intent(out) :: a(n), b(n)
@@ -460,7 +451,7 @@ subroutine transform_loop_fuse_alignment(a, b, n)
 end subroutine transform_loop_fuse_alignment
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -476,7 +467,7 @@ end subroutine transform_loop_fuse_alignment
     loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -491,7 +482,7 @@ end subroutine transform_loop_fuse_alignment
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_nonmatching_lower(here, frontend):
+def test_transform_loop_fuse_nonmatching_lower(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fuse_nonmatching_lower(a, b, nclv, klev)
   integer, intent(out) :: a(klev), b(klev)
@@ -510,7 +501,7 @@ subroutine transform_loop_fuse_nonmatching_lower(a, b, nclv, klev)
 end subroutine transform_loop_fuse_nonmatching_lower
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -531,7 +522,7 @@ end subroutine transform_loop_fuse_nonmatching_lower
     assert loops[0].bounds.stop == 'klev'
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -547,7 +538,7 @@ end subroutine transform_loop_fuse_nonmatching_lower
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_nonmatching_lower_annotated(here, frontend):
+def test_transform_loop_fuse_nonmatching_lower_annotated(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fuse_nonmatching_lower_annotated(a, b, nclv, klev)
   integer, intent(out) :: a(klev), b(klev)
@@ -566,7 +557,7 @@ subroutine transform_loop_fuse_nonmatching_lower_annotated(a, b, nclv, klev)
 end subroutine transform_loop_fuse_nonmatching_lower_annotated
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -587,7 +578,7 @@ end subroutine transform_loop_fuse_nonmatching_lower_annotated
     assert loops[0].bounds.stop == 'klev'
     assert len(FindNodes(Conditional).visit(routine.body)) == 1
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -603,7 +594,7 @@ end subroutine transform_loop_fuse_nonmatching_lower_annotated
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_nonmatching_upper(here, frontend):
+def test_transform_loop_fuse_nonmatching_upper(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fuse_nonmatching_upper(a, b, klev)
   integer, intent(out) :: a(klev), b(klev+1)
@@ -622,7 +613,7 @@ subroutine transform_loop_fuse_nonmatching_upper(a, b, klev)
 end subroutine transform_loop_fuse_nonmatching_upper
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -643,7 +634,7 @@ end subroutine transform_loop_fuse_nonmatching_upper
     assert loops[0].bounds.stop == '1 + klev'
     assert len(FindNodes(Conditional).visit(routine.body)) == 1
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -659,7 +650,7 @@ end subroutine transform_loop_fuse_nonmatching_upper
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_collapse(here, frontend):
+def test_transform_loop_fuse_collapse(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fuse_collapse(a, b, klon, klev)
   integer, intent(inout) :: a(klon, klev), b(klon, klev)
@@ -682,7 +673,7 @@ subroutine transform_loop_fuse_collapse(a, b, klon, klev)
 end subroutine transform_loop_fuse_collapse
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -703,7 +694,7 @@ end subroutine transform_loop_fuse_collapse
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 1
     assert sum(loop.bounds.stop == 'klon' for loop in loops) == 1
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -720,7 +711,7 @@ end subroutine transform_loop_fuse_collapse
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_collapse_nonmatching(here, frontend):
+def test_transform_loop_fuse_collapse_nonmatching(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fuse_collapse_nonmatching(a, b, klon, klev)
   integer, intent(inout) :: a(klon, klev+1), b(klon+1, klev)
@@ -743,7 +734,7 @@ subroutine transform_loop_fuse_collapse_nonmatching(a, b, klon, klev)
 end subroutine transform_loop_fuse_collapse_nonmatching
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -765,7 +756,7 @@ end subroutine transform_loop_fuse_collapse_nonmatching
     assert sum(loop.bounds.stop == '1 + klon' for loop in loops) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -782,7 +773,7 @@ end subroutine transform_loop_fuse_collapse_nonmatching
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fuse_collapse_range(here, frontend):
+def test_transform_loop_fuse_collapse_range(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fuse_collapse_range(a, b, klon, klev)
   integer, intent(inout) :: a(klon, klev+1), b(klon+1, klev)
@@ -805,7 +796,7 @@ subroutine transform_loop_fuse_collapse_range(a, b, klon, klev)
 end subroutine transform_loop_fuse_collapse_range
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -827,7 +818,7 @@ end subroutine transform_loop_fuse_collapse_range
     assert sum(loop.bounds.stop == 'klon + 1' for loop in loops) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
-    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
+    fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -844,7 +835,7 @@ end subroutine transform_loop_fuse_collapse_range
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_single(here, frontend):
+def test_transform_loop_fission_single(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_single(a, b, n)
   integer, intent(out) :: a(n), b(n)
@@ -859,7 +850,7 @@ subroutine transform_loop_fission_single(a, b, n)
 end subroutine transform_loop_fission_single
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -880,7 +871,7 @@ end subroutine transform_loop_fission_single
         assert loop.bounds.start == '1'
         assert loop.bounds.stop == 'n'
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -896,7 +887,7 @@ end subroutine transform_loop_fission_single
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_nested(here, frontend):
+def test_transform_loop_fission_nested(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_nested(a, b, n)
   integer, intent(out) :: a(n), b(n)
@@ -913,7 +904,7 @@ subroutine transform_loop_fission_nested(a, b, n)
 end subroutine transform_loop_fission_nested
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -936,7 +927,7 @@ end subroutine transform_loop_fission_nested
         assert loop.bounds.stop == 'n + 1'
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -952,7 +943,7 @@ end subroutine transform_loop_fission_nested
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_nested_promote(here, frontend):
+def test_transform_loop_fission_nested_promote(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_nested_promote(a, b, n)
   integer, intent(out) :: a(n), b(n)
@@ -973,7 +964,7 @@ end subroutine transform_loop_fission_nested_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_range_indexing(routine)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -999,7 +990,7 @@ end subroutine transform_loop_fission_nested_promote
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
     assert all(d == ref for d, ref in zip(routine.variable_map['zqxfg'].shape, ['5', '1 + n']))
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1015,7 +1006,7 @@ end subroutine transform_loop_fission_nested_promote
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_collapse(here, frontend):
+def test_transform_loop_fission_collapse(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_collapse(a, n)
   integer, intent(out) :: a(n, n+1)
@@ -1041,7 +1032,7 @@ subroutine transform_loop_fission_collapse(a, n)
 end subroutine transform_loop_fission_collapse
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1062,7 +1053,7 @@ end subroutine transform_loop_fission_collapse
         assert loop.bounds.stop == {'j': 'n + 1', 'k': 'n'}[str(loop.variable).lower()]
     assert len(FindNodes(Assignment).visit(routine.body)) == 8
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1076,7 +1067,7 @@ end subroutine transform_loop_fission_collapse
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_multiple(here, frontend):
+def test_transform_loop_fission_multiple(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_multiple(a, b, c, n)
   integer, intent(out) :: a(n), b(n), c(n)
@@ -1093,7 +1084,7 @@ subroutine transform_loop_fission_multiple(a, b, c, n)
 end subroutine transform_loop_fission_multiple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1116,7 +1107,7 @@ end subroutine transform_loop_fission_multiple
         assert loop.bounds.start == '1'
         assert loop.bounds.stop == 'n'
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1134,7 +1125,7 @@ end subroutine transform_loop_fission_multiple
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_promote(here, frontend):
+def test_transform_loop_fission_promote(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_promote(a, b, n)
   integer, intent(out) :: a(n), b(n)
@@ -1150,7 +1141,7 @@ subroutine transform_loop_fission_promote(a, b, n)
 end subroutine transform_loop_fission_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1172,7 +1163,7 @@ end subroutine transform_loop_fission_promote
         assert loop.bounds.stop == 'n'
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['n']
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1188,7 +1179,7 @@ end subroutine transform_loop_fission_promote
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_promote_conflicting_lengths(here, frontend):
+def test_transform_loop_fission_promote_conflicting_lengths(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_conflicting_lengths(a, b, n)
   integer, intent(out) :: a(n), b(n+1)
@@ -1209,7 +1200,7 @@ subroutine transform_loop_fission_promote_conflicting_lengths(a, b, n)
 end subroutine transform_loop_fission_promote_conflicting_lengths
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1234,7 +1225,7 @@ end subroutine transform_loop_fission_promote_conflicting_lengths
     assert loops[3].bounds.stop == 'n + 1'
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['1 + n']
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1250,7 +1241,7 @@ end subroutine transform_loop_fission_promote_conflicting_lengths
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_promote_array(here, frontend):
+def test_transform_loop_fission_promote_array(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_array(a, klon, klev)
   integer, intent(inout) :: a(klon, klev)
@@ -1268,7 +1259,7 @@ subroutine transform_loop_fission_promote_array(a, klon, klev)
 end subroutine transform_loop_fission_promote_array
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1290,7 +1281,7 @@ end subroutine transform_loop_fission_promote_array
     else:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1304,7 +1295,7 @@ end subroutine transform_loop_fission_promote_array
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_promote_multiple(here, frontend):
+def test_transform_loop_fission_promote_multiple(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_multiple(a, klon, klev)
   integer, intent(inout) :: a(klon, klev)
@@ -1323,7 +1314,7 @@ subroutine transform_loop_fission_promote_multiple(a, klon, klev)
 end subroutine transform_loop_fission_promote_multiple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1347,7 +1338,7 @@ end subroutine transform_loop_fission_promote_multiple
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['klev']
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1362,7 +1353,7 @@ end subroutine transform_loop_fission_promote_multiple
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_multiple_promote(here, frontend):
+def test_transform_loop_fission_multiple_promote(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_multiple_promote(a, b, klon, klev, nclv)
   integer, intent(inout) :: a(klon, klev), b(klon, klev, nclv)
@@ -1390,7 +1381,7 @@ subroutine transform_loop_fission_multiple_promote(a, b, klon, klev, nclv)
 end subroutine transform_loop_fission_multiple_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1419,7 +1410,7 @@ end subroutine transform_loop_fission_multiple_promote
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
         assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['klon', 'nclv', 'klev']
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1436,7 +1427,7 @@ end subroutine transform_loop_fission_multiple_promote
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_promote_read_after_write(here, frontend):
+def test_transform_loop_fission_promote_read_after_write(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_read_after_write(a, klon, klev)
   integer, intent(inout) :: a(klon, klev)
@@ -1455,7 +1446,7 @@ subroutine transform_loop_fission_promote_read_after_write(a, klon, klev)
 end subroutine transform_loop_fission_promote_read_after_write
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1479,7 +1470,7 @@ end subroutine transform_loop_fission_promote_read_after_write
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['klev']
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1494,7 +1485,7 @@ end subroutine transform_loop_fission_promote_read_after_write
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fission_promote_multiple_read_after_write(here, frontend):
+def test_transform_loop_fission_promote_multiple_read_after_write(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_mult_r_a_w(a, b, klon, klev, nclv)
   integer, intent(inout) :: a(klon, klev), b(klon, klev, nclv)
@@ -1523,7 +1514,7 @@ subroutine transform_loop_fission_promote_mult_r_a_w(a, b, klon, klev, nclv)
 end subroutine transform_loop_fission_promote_mult_r_a_w
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1552,7 +1543,7 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
         assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['nclv', 'klon', 'klev']
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1569,7 +1560,7 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_loop_fusion_fission(here, frontend):
+def test_transform_loop_fusion_fission(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fusion_fission(a, b, klon, klev)
   integer, intent(inout) :: a(klon, klev), b(klon, klev)
@@ -1594,7 +1585,7 @@ subroutine transform_loop_fusion_fission(a, b, klon, klev)
 end subroutine transform_loop_fusion_fission
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1622,7 +1613,7 @@ end subroutine transform_loop_fusion_fission
     else:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
 
-    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
+    fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation

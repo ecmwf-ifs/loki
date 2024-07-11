@@ -232,14 +232,14 @@ def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, blocking):
+def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, blocking, tmp_path):
     """
     Test SCC-CUF transformation type 0, thus including parametrising (array dimension(s))
     """
 
     proj = here / 'sources/projSccCuf/module'
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path])
 
     cuf_transform = SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
@@ -288,14 +288,14 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
     HoistTemporaryArraysDeviceAllocatableTransformation(),
     HoistTemporaryArraysPragmaOffloadTransformation())
 )
-def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, hoist_synthesis):
+def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, hoist_synthesis, tmp_path):
     """
     Test SCC-CUF transformation type 1, thus including host side hoisting
     """
 
     proj = here / 'sources/projSccCuf/module'
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path])
 
     cuf_transform = SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
@@ -376,14 +376,14 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_cuf_dynamic_memory(here, frontend, config, horizontal, vertical, blocking):
+def test_scc_cuf_dynamic_memory(here, frontend, config, horizontal, vertical, blocking, tmp_path):
     """
     Test SCC-CUF transformation type 2, thus including dynamic memory allocation on the device (for local arrays)
     """
 
     proj = here / 'sources/projSccCuf/module'
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path])
 
     cuf_transform = SccCufTransformation(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,

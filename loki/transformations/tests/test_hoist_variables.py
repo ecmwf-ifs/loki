@@ -16,7 +16,7 @@ from loki import (
     Scheduler, SchedulerConfig, is_iterable,
     normalize_range_indexing, FindInlineCalls
 )
-from loki.build import jit_compile_lib, clean_test, Builder
+from loki.build import jit_compile_lib, Builder
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 from loki.transformations.hoist_variables import (
@@ -64,19 +64,20 @@ def fixture_config():
     }
 
 
-def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name="", items=None, inline=False):
+def compile_and_test(scheduler, path, a=(5,), frontend="",  test_name="", items=None, inline=False):
     """
     Compile the source code and call the driver function in order to test the results for correctness.
     """
     assert is_iterable(a) and all(isinstance(_a, int) for _a in a)
+    path = Path(path)
     if not items:
         items = [scheduler["transformation_module_hoist#driver"], scheduler["subroutines_mod#kernel1"]]
     for item in items:
         suffix = '.F90'
-        item.source.path = here / 'build' / Path(f"{item.source.path.stem}").with_suffix(suffix=suffix)
+        item.source.path = (path/f"{item.source.path.stem}").with_suffix(suffix=suffix)
     libname = f'lib_{test_name}_{frontend}'
-    builder = Builder(source_dirs=here/'build', build_dir=here/'build')
-    lib = jit_compile_lib([item.source for item in items], path=here/'build', name=libname, builder=builder)
+    builder = Builder(source_dirs=path, build_dir=path)
+    lib = jit_compile_lib([item.source for item in items], path=path, name=libname, builder=builder)
     item = items[0]
     for _a in a:
         parameter_length = 3
@@ -89,9 +90,6 @@ def compile_and_test(scheduler, here, a=(5,), frontend="",  test_name="", items=
         assert (b == 42).all()
         assert (c == 11).all()
     builder.clean()
-    for item in items:
-        item.source.path.unlink()
-    clean_test(filepath=here.parent / item.source.path.with_suffix(suffix).name)
 
 
 def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwarguments, driver_item=None,
@@ -164,16 +162,18 @@ def check_arguments(scheduler, subroutine_arguments, call_arguments, call_kwargu
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist(here, testdir, frontend, config, as_kwarguments):
+def test_hoist(tmp_path, testdir, frontend, config, as_kwarguments):
     """
     Basic testing of the non-modified Hoist functionality, thus hoisting all (non-parameter) local variables.
     """
 
     proj = testdir/'sources/projHoist'
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend, xmods=[tmp_path]
+    )
 
     # check correctness of original source code
-    compile_and_test(scheduler=scheduler, here=here, frontend=frontend, a=(5, 10, 100), test_name="source")
+    compile_and_test(scheduler=scheduler, path=tmp_path, frontend=frontend, a=(5, 10, 100), test_name="source")
 
     # Transformation: Analysis
     scheduler.process(transformation=HoistVariablesAnalysis())
@@ -215,12 +215,12 @@ def test_hoist(here, testdir, frontend, config, as_kwarguments):
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
             call_kwarguments=call_kwarguments)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="all_hoisted")
+    compile_and_test(scheduler=scheduler, path=tmp_path, a=(5, 10, 100), frontend=frontend, test_name="all_hoisted")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_disable(here, testdir, frontend, config, as_kwarguments):
+def test_hoist_disable(tmp_path, testdir, frontend, config, as_kwarguments):
     """
     Basic testing of the non-modified Hoist functionality excluding/disabling some subroutines,
     thus hoisting all (non-parameter) local variables for the non-disabled subroutines.
@@ -230,7 +230,7 @@ def test_hoist_disable(here, testdir, frontend, config, as_kwarguments):
     config['routines']['kernel2'] = {'role': 'kernel', 'block': disable}
     proj = testdir/'sources/projHoist'
     scheduler = Scheduler(
-        paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend, xmods=[tmp_path]
     )
 
     # Transformation: Analysis
@@ -279,20 +279,22 @@ def test_hoist_disable(here, testdir, frontend, config, as_kwarguments):
         include_device_functions=False
     )
     compile_and_test(
-        scheduler=scheduler, here=here, a=(5, 10, 100),
+        scheduler=scheduler, path=tmp_path, a=(5, 10, 100),
         frontend=frontend, test_name="all_hoisted_disable"
     )
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_arrays_inline(here, testdir, frontend, config, as_kwarguments):
+def test_hoist_arrays_inline(tmp_path, testdir, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays using the :class:`HoistTemporaryArraysAnalysis` for the *Analysis*
     part. The hoisted kernel contains inline function calls.
     """
 
     proj = testdir/'sources/projHoist'
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['inline_driver',], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['inline_driver',], frontend=frontend, xmods=[tmp_path]
+    )
 
     # Transformation: Analysis
     scheduler.process(transformation=HoistTemporaryArraysAnalysis())
@@ -339,21 +341,23 @@ def test_hoist_arrays_inline(here, testdir, frontend, config, as_kwarguments):
            call_kwarguments=call_kwarguments, driver_item=scheduler['transformation_module_hoist_inline#inline_driver'],
            driver_name='inline_driver', include_another_driver=False, subroutine_mod='subroutines_inline_mod',
            include_device_functions=True)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend,
+    compile_and_test(scheduler=scheduler, path=tmp_path, a=(5, 10, 100), frontend=frontend,
                      test_name="hoisted_arrays_inline",
                      items=[scheduler["transformation_module_hoist_inline#inline_driver"],
                             scheduler["subroutines_inline_mod#kernel1"]], inline=True)
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_arrays(here, testdir, frontend, config, as_kwarguments):
+def test_hoist_arrays(tmp_path, testdir, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays using the :class:`HoistTemporaryArraysAnalysis` for the *Analysis*
     part.
     """
 
     proj = testdir/'sources/projHoist'
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend, xmods=[tmp_path]
+    )
 
     # Transformation: Analysis
     scheduler.process(transformation=HoistTemporaryArraysAnalysis())
@@ -392,19 +396,21 @@ def test_hoist_arrays(here, testdir, frontend, config, as_kwarguments):
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
             call_kwarguments=call_kwarguments)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="hoisted_arrays")
+    compile_and_test(scheduler=scheduler, path=tmp_path, a=(5, 10, 100), frontend=frontend, test_name="hoisted_arrays")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_specific_variables(here, testdir, frontend, config, as_kwarguments):
+def test_hoist_specific_variables(tmp_path, testdir, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays with variable ``a`` in the array dimensions using the
     :class:`HoistTemporaryArraysAnalysis` for the *Analysis* part.
     """
 
     proj = testdir/'sources/projHoist'
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend, xmods=[tmp_path]
+    )
 
     # Transformation: Analysis
     scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('a', 'a1', 'a2')))
@@ -444,7 +450,7 @@ def test_hoist_specific_variables(here, testdir, frontend, config, as_kwargument
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
             call_kwarguments=call_kwarguments)
 
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend,
+    compile_and_test(scheduler=scheduler, path=tmp_path, a=(5, 10, 100), frontend=frontend,
                      test_name="hoisted_specific_arrays")
 
 
@@ -462,7 +468,7 @@ def check_variable_declaration(item, key):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
-def test_hoist_allocatable(here, testdir, frontend, config, as_kwarguments):
+def test_hoist_allocatable(tmp_path, testdir, frontend, config, as_kwarguments):
     """
     Testing hoist functionality for local arrays with variable ``a`` in the array dimensions using the
     :class:`HoistTemporaryArraysAnalysis` for the *Analysis* part **and** a *Synthesis* implementation using declaring
@@ -471,7 +477,9 @@ def test_hoist_allocatable(here, testdir, frontend, config, as_kwarguments):
     """
 
     proj = testdir/'sources/projHoist'
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend, xmods=[tmp_path]
+    )
 
     key = "HoistVariablesTransformation"
     # Transformation: Analysis
@@ -530,7 +538,7 @@ def test_hoist_allocatable(here, testdir, frontend, config, as_kwarguments):
 
     check_arguments(scheduler=scheduler, subroutine_arguments=subroutine_arguments, call_arguments=call_arguments,
             call_kwarguments=call_kwarguments)
-    compile_and_test(scheduler=scheduler, here=here, a=(5, 10, 100), frontend=frontend, test_name="allocatable")
+    compile_and_test(scheduler=scheduler, path=tmp_path, a=(5, 10, 100), frontend=frontend, test_name="allocatable")
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -625,7 +633,9 @@ end subroutine another_kernel
         }
     }
 
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+    )
 
     if frontend == OMNI:
         for item in scheduler.items:

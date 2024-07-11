@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 import pytest
 import numpy as np
 
@@ -15,13 +14,8 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_loop_nest_fixed(here, frontend):
+def test_loop_nest_fixed(tmp_path, frontend):
     """
     Test basic loops and reductions with fixed sizes.
 
@@ -54,7 +48,7 @@ subroutine loop_nest_fixed(in1, in2, out1, out2)
   end do
 end subroutine loop_nest_fixed
 """
-    filepath = here/(f'control_flow_loop_nest_fixed_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_loop_nest_fixed_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='loop_nest_fixed')
 
@@ -70,7 +64,7 @@ end subroutine loop_nest_fixed
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_loop_nest_variable(here, frontend):
+def test_loop_nest_variable(tmp_path, frontend):
     """
     Test basic loops and reductions with passed sizes.
 
@@ -104,7 +98,7 @@ subroutine loop_nest_variable(dim1, dim2, in1, in2, out1, out2)
   end do
 end subroutine loop_nest_variable
 """
-    filepath = here/(f'control_flow_loop_nest_variable_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_loop_nest_variable_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='loop_nest_variable')
 
@@ -120,7 +114,7 @@ end subroutine loop_nest_variable
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_loop_scalar_logical_expr(here, frontend):
+def test_loop_scalar_logical_expr(tmp_path, frontend):
     """
     Test a while loop with a logical expression as condition.
     """
@@ -135,7 +129,7 @@ subroutine loop_scalar_logical_expr(outvar)
   end do
 end subroutine loop_scalar_logical_expr
 """
-    filepath = here/(f'control_flow_loop_scalar_logical_expr_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_loop_scalar_logical_expr_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='loop_scalar_logical_expr')
 
@@ -145,7 +139,7 @@ end subroutine loop_scalar_logical_expr
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_loop_unbounded(here, frontend):
+def test_loop_unbounded(tmp_path, frontend):
     """
     Test unbounded loops.
     """
@@ -163,7 +157,7 @@ subroutine loop_unbounded(out)
   enddo
 end subroutine loop_unbounded
 """
-    filepath = here/(f'control_flow_loop_unbounded_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_loop_unbounded_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='loop_unbounded')
 
@@ -173,7 +167,7 @@ end subroutine loop_unbounded
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_loop_labeled_continue(here, frontend):
+def test_loop_labeled_continue(tmp_path, frontend):
     """
     Test labeled loops with continue statement.
 
@@ -193,7 +187,7 @@ subroutine loop_labeled_continue(out)
 101 continue
 end subroutine loop_labeled_continue
 """
-    filepath = here/(f'control_flow_loop_labeled_continue_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_loop_labeled_continue_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     if frontend != OMNI:  # OMNI doesn't read the Loop label...
@@ -207,7 +201,7 @@ end subroutine loop_labeled_continue
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_conditionals(here, frontend):
+def test_inline_conditionals(tmp_path, frontend):
     """
     Test the use of inline conditionals.
     """
@@ -224,7 +218,7 @@ subroutine inline_conditionals(in1, in2, out1, out2)
   if (in2 > 5) out2 = 5
 end subroutine inline_conditionals
 """
-    filepath = here/(f'control_flow_inline_conditionals_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_inline_conditionals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='inline_conditionals')
 
@@ -239,7 +233,7 @@ end subroutine inline_conditionals
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_multi_body_conditionals(here, frontend):
+def test_multi_body_conditionals(tmp_path, frontend):
     fcode = """
 subroutine multi_body_conditionals(in1, out1, out2)
   integer, intent(in) :: in1
@@ -263,7 +257,7 @@ subroutine multi_body_conditionals(in1, out1, out2)
   end if
 end subroutine multi_body_conditionals
 """
-    filepath = here/(f'control_flow_multi_body_conditionals_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_multi_body_conditionals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
@@ -288,7 +282,7 @@ end subroutine multi_body_conditionals
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_goto_stmt(here, frontend):
+def test_goto_stmt(tmp_path, frontend):
     fcode = """
 subroutine goto_stmt(var)
   implicit none
@@ -300,7 +294,7 @@ subroutine goto_stmt(var)
   var = 7
 end subroutine goto_stmt
 """
-    filepath = here/(f'control_flow_goto_stmt_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_goto_stmt_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='goto_stmt')
 
@@ -310,7 +304,7 @@ end subroutine goto_stmt
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_select_case(here, frontend):
+def test_select_case(tmp_path, frontend):
     fcode = """
 subroutine select_case(cmd, out1)
   implicit none
@@ -329,7 +323,7 @@ subroutine select_case(cmd, out1)
   end select
 end subroutine select_case
 """
-    filepath = here/(f'control_flow_select_case_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_select_case_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='select_case')
 
@@ -341,7 +335,7 @@ end subroutine select_case
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_select_case_nested(here, frontend):
+def test_select_case_nested(tmp_path, frontend):
     fcode = """
 subroutine select_case(cmd, out1)
   implicit none
@@ -376,7 +370,7 @@ subroutine select_case(cmd, out1)
   end select
 end subroutine select_case
 """
-    filepath = here/(f'control_flow_select_case_nested_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_select_case_nested_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='select_case')
 
@@ -390,7 +384,7 @@ end subroutine select_case
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_cycle_stmt(here, frontend):
+def test_cycle_stmt(tmp_path, frontend):
     fcode = """
 subroutine cycle_stmt(var)
   implicit none
@@ -404,7 +398,7 @@ subroutine cycle_stmt(var)
   end do
 end subroutine cycle_stmt
 """
-    filepath = here/(f'control_flow_cycle_stmt_{frontend}.f90')
+    filepath = tmp_path/(f'control_flow_cycle_stmt_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='cycle_stmt')
 

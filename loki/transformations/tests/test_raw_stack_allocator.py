@@ -5,8 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from shutil import rmtree
-
 import pytest
 
 from loki.backend import fgen
@@ -16,7 +14,6 @@ from loki.expression import DeferredTypeSymbol, InlineCall, IntLiteral
 from loki.frontend import available_frontends, OMNI
 from loki.ir import FindNodes, CallStatement, Assignment, Pragma
 from loki.sourcefile import Sourcefile
-from loki.tools import gettempdir
 from loki.types import BasicType
 
 from loki.transformations.array_indexing import normalize_range_indexing
@@ -33,7 +30,7 @@ def fixture_horizontal():
 
 @pytest.mark.parametrize('directive', ['openacc', 'openmp'])
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive):
+def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive, tmp_path):
 
     fcode_parkind_mod = """
 module parkind1
@@ -236,12 +233,10 @@ module kernel3_mod
 end module kernel3_mod
     """.strip()
 
-    basedir = gettempdir()/'test_pool_allocator_temporaries'
-    basedir.mkdir(exist_ok=True)
-    (basedir/'driver.F90').write_text(fcode_driver)
-    (basedir/'kernel1_mod.F90').write_text(fcode_kernel1)
-    (basedir/'kernel2_mod.F90').write_text(fcode_kernel2)
-    (basedir/'kernel3_mod.F90').write_text(fcode_kernel3)
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel1_mod.F90').write_text(fcode_kernel1)
+    (tmp_path/'kernel2_mod.F90').write_text(fcode_kernel2)
+    (tmp_path/'kernel3_mod.F90').write_text(fcode_kernel3)
 
     config = {
         'default': {
@@ -256,18 +251,18 @@ end module kernel3_mod
     }
 
     if frontend == OMNI:
-        (basedir/'parkind_mod.F90').write_text(fcode_parkind_mod)
-        parkind_mod = Sourcefile.from_file(basedir/'parkind_mod.F90', frontend=frontend)
-        (basedir/'yomphy_mod.F90').write_text(fcode_yomphy_mod)
-        yomphy_mod = Sourcefile.from_file(basedir/'yomphy_mod.F90', frontend=frontend)
-        (basedir/'mf_phys_mod.F90').write_text(fcode_mf_phys_mod)
-        mf_phys_mod = Sourcefile.from_file(basedir/'mf_phys_mod.F90', frontend=frontend)
+        (tmp_path/'parkind_mod.F90').write_text(fcode_parkind_mod)
+        parkind_mod = Sourcefile.from_file(tmp_path/'parkind_mod.F90', frontend=frontend, xmods=[tmp_path])
+        (tmp_path/'yomphy_mod.F90').write_text(fcode_yomphy_mod)
+        yomphy_mod = Sourcefile.from_file(tmp_path/'yomphy_mod.F90', frontend=frontend, xmods=[tmp_path])
+        (tmp_path/'mf_phys_mod.F90').write_text(fcode_mf_phys_mod)
+        mf_phys_mod = Sourcefile.from_file(tmp_path/'mf_phys_mod.F90', frontend=frontend, xmods=[tmp_path])
         definitions = parkind_mod.definitions + yomphy_mod.definitions + mf_phys_mod.definitions
     else:
         definitions = ()
 
-    scheduler = Scheduler(paths=[basedir], config=SchedulerConfig.from_dict(config), frontend=frontend,
-                          definitions=definitions)
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend,
+                          definitions=definitions, xmods=[tmp_path])
 
     if frontend == OMNI:
         for item in scheduler.items:
@@ -550,5 +545,3 @@ end module kernel3_mod
             assert pragmas[0].content.lower() == 'data present(p_selected_real_kind_13_300_stack, pzz)'
         else:
             assert pragmas[0].content.lower() == 'data present(p_jprb_stack, pzz)'
-
-    rmtree(basedir)

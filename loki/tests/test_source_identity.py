@@ -12,7 +12,6 @@ The tests in here do rarely verify correct representation internally,
 they mostly check whether at the end comes out what went in at the beginning.
 
 """
-from pathlib import Path
 import pytest
 
 from loki import Sourcefile, Subroutine, fgen
@@ -21,13 +20,8 @@ from loki.ir import nodes as ir, FindNodes
 from loki.frontend import available_frontends, OMNI
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
-def test_raw_source_loop(here, frontend):
+def test_raw_source_loop(tmp_path, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for loops."""
     fcode = """
@@ -47,7 +41,7 @@ outer: do ia=1,10
 end do outer
 end subroutine routine_raw_source_loop
     """.strip()
-    filename = here / (f'routine_raw_source_loop_{frontend}.f90')
+    filename = tmp_path / (f'routine_raw_source_loop_{frontend}.f90')
     Sourcefile.to_file(fcode, filename)
 
     source = Sourcefile.from_file(filename, frontend=frontend)
@@ -94,7 +88,7 @@ end subroutine routine_raw_source_loop
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
-def test_raw_source_conditional(here, frontend):
+def test_raw_source_conditional(tmp_path, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for conditionals."""
     fcode = """
@@ -111,7 +105,7 @@ end if check
 if (ic == 1) print *, ic
 end subroutine routine_raw_source_cond
     """.strip()
-    filename = here / (f'routine_raw_source_cond_{frontend}.f90')
+    filename = tmp_path / (f'routine_raw_source_cond_{frontend}.f90')
     Sourcefile.to_file(fcode, filename)
 
     source = Sourcefile.from_file(filename, frontend=frontend)
@@ -151,7 +145,7 @@ end subroutine routine_raw_source_cond
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
-def test_raw_source_multicond(here, frontend):
+def test_raw_source_multicond(tmp_path, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for multi conditionals."""
     fcode = """
@@ -168,7 +162,7 @@ case default multicond
 end select multicond
 end subroutine routine_raw_source_multicond
     """.strip()
-    filename = here / (f'routine_raw_source_multicond_{frontend}.f90')
+    filename = tmp_path / (f'routine_raw_source_multicond_{frontend}.f90')
     Sourcefile.to_file(fcode, filename)
 
     source = Sourcefile.from_file(filename, frontend=frontend)

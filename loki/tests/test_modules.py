@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 import pytest
 
 from loki import (
@@ -19,13 +18,8 @@ from loki.frontend import available_frontends, OFP, OMNI
 from loki.sourcefile import Sourcefile
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_from_source(frontend):
+def test_module_from_source(frontend, tmp_path):
     """
     Test the creation of `Module` objects from raw source strings.
     """
@@ -45,7 +39,7 @@ contains
   end subroutine my_routine
 end module a_module
 """.strip()
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     assert len([o for o in module.spec.body if isinstance(o, VariableDeclaration)]) == 2
     assert len([o for o in module.spec.body if isinstance(o, TypeDef)]) == 1
     assert 'derived_type' in module.typedef_map
@@ -57,7 +51,7 @@ end module a_module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_external_typedefs_subroutine(frontend):
+def test_module_external_typedefs_subroutine(frontend, tmp_path):
     """
     Test that externally provided type information is correctly
     attached to a `Module` subroutine when supplied via the `typedefs`
@@ -88,10 +82,10 @@ contains
 end module a_module
 """
 
-    external = Module.from_source(fcode_external, frontend=frontend)
+    external = Module.from_source(fcode_external, frontend=frontend, xmods=[tmp_path])
     assert 'ext_type' in external.typedef_map
 
-    module = Module.from_source(fcode_module, frontend=frontend, definitions=external)
+    module = Module.from_source(fcode_module, frontend=frontend, definitions=external, xmods=[tmp_path])
     routine = module.subroutines[0]
     pt_ext = routine.variables[0]
 
@@ -113,7 +107,7 @@ end module a_module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_external_typedefs_type(frontend):
+def test_module_external_typedefs_type(frontend, tmp_path):
     """
     Test that externally provided type information is correctly
     attached to a `Module` type and used in a contained subroutine
@@ -163,10 +157,10 @@ contains
 end module a_module
 """
 
-    external = Module.from_source(fcode_external, frontend=frontend)
+    external = Module.from_source(fcode_external, frontend=frontend, xmods=[tmp_path])
     assert 'ext_type' in external.typedef_map
 
-    other = Module.from_source(fcode_other, frontend=frontend)
+    other = Module.from_source(fcode_other, frontend=frontend, xmods=[tmp_path])
     assert 'other_type' in other.typedef_map
 
     if frontend != OMNI:  # OMNI needs to know imported modules
@@ -177,7 +171,7 @@ end module a_module
         assert 'other_type' not in module['other_routine'].symbol_attrs
         assert module['other_routine'].symbol_attrs['pt'].dtype.typedef is BasicType.DEFERRED
 
-    module = Module.from_source(fcode_module, frontend=frontend, definitions=[external, other])
+    module = Module.from_source(fcode_module, frontend=frontend, definitions=[external, other], xmods=[tmp_path])
     nested = module.typedef_map['nested_type']
     ext = nested.variables[0]
 
@@ -219,7 +213,7 @@ end module a_module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_nested_types(frontend):
+def test_module_nested_types(frontend, tmp_path):
     """
     Test that ensure that nested internal derived type definitions are
     detected and connected correctly.
@@ -242,7 +236,7 @@ end module type_mod
     # OMNI resolves explicit shape parameters in the frontend parser
     exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     parent = module.typedef_map['parent_type']
     pt = parent.variables[0]
     assert 'array' in pt.variable_map
@@ -252,7 +246,7 @@ end module type_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki annotation break parser')]))
-def test_dimension_pragmas(frontend):
+def test_dimension_pragmas(frontend, tmp_path):
     """
     Test that loki-specific dimension annotations are detected and
     used to set shapes.
@@ -267,13 +261,13 @@ module type_mod
   end type mytype
 end module type_mod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     mytype = module.typedef_map['mytype']
     assert fexprgen(mytype.variables[0].shape) == '(size,)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki annotation break parser')]))
-def test_nested_types_dimension_pragmas(frontend):
+def test_nested_types_dimension_pragmas(frontend, tmp_path):
     """
     Test that loki-specific dimension annotations are detected and
     propagated in nested type definitions.
@@ -292,7 +286,7 @@ module type_mod
   end type parent_type
 end module type_mod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     parent = module.typedef_map['parent_type']
     child = module.typedef_map['sub_type']
     assert fexprgen(child.variables[0].shape) == '(size,)'
@@ -302,7 +296,7 @@ end module type_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_internal_function_call(frontend):
+def test_internal_function_call(frontend, tmp_path):
     """
     Test the use of `InlineCall` symbols linked to an module function.
     """
@@ -337,7 +331,7 @@ contains
 
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['test_inline_call']
 
     inline_calls = list(FindInlineCalls().visit(routine.body))
@@ -351,7 +345,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_external_function_call(frontend):
+def test_external_function_call(frontend, tmp_path):
     """
     Test the use of `InlineCall` symbols linked to an external function definition.
     """
@@ -387,8 +381,8 @@ contains
   end function util_fct
 end module
 """
-    module = Module.from_source(fcode_util, frontend=frontend)
-    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+    module = Module.from_source(fcode_util, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend, xmods=[tmp_path])
 
     inline_calls = list(FindInlineCalls().visit(routine.body))
     assert len(inline_calls) == 1
@@ -398,7 +392,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_variables_add_remove(frontend):
+def test_module_variables_add_remove(frontend, tmp_path):
     """
     Test local variable addition and removal.
     """
@@ -410,7 +404,7 @@ module module_variables_add_remove
   real(kind=jprb), allocatable :: vector(:)
 end module module_variables_add_remove
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     module_vars = [str(arg) for arg in module.variables]
     assert module_vars == ['jprb', 'x', 'y', 'vector(:)']
 
@@ -455,7 +449,7 @@ integer :: c
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parsing fails without dummy module provided')]))
-def test_module_rescope_symbols(frontend):
+def test_module_rescope_symbols(frontend, tmp_path):
     """
     Test the rescoping of variables.
     """
@@ -467,7 +461,7 @@ module test_module_rescope
 end module test_module_rescope
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     ref_fgen = fgen(module)
 
     # Create a copy of the module with rescoping and make sure all symbols are in the right scope
@@ -495,7 +489,7 @@ end module test_module_rescope
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parsing fails without dummy module provided')]))
-def test_module_rescope_clone(frontend):
+def test_module_rescope_clone(frontend, tmp_path):
     """
     Test the rescoping of variables in clone.
     """
@@ -507,7 +501,7 @@ module test_module_rescope_clone
 end module test_module_rescope_clone
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     ref_fgen = fgen(module)
 
     # Create a copy of the module with rescoping and make sure all symbols are in the right scope
@@ -534,7 +528,7 @@ end module test_module_rescope_clone
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'Parsing fails without dummy module provided')]
 ))
-def test_module_deep_clone(frontend):
+def test_module_deep_clone(frontend, tmp_path):
     """
     Test the rescoping of variables in clone with nested scopes.
     """
@@ -554,7 +548,7 @@ module test_module_rescope_clone
 
 end module test_module_rescope_clone
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Deep-copy/clone the module
     new_module = module.clone()
@@ -582,7 +576,7 @@ end module test_module_rescope_clone
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_access_spec_none(frontend):
+def test_module_access_spec_none(frontend, tmp_path):
     """
     Test correct parsing without access-spec statements
     """
@@ -599,7 +593,7 @@ contains
 end module test_access_spec_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Check module properties
     assert module.default_access_spec is None
@@ -627,7 +621,7 @@ end module test_access_spec_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Inlines access-spec as declaration attr')]))
-def test_module_access_spec_private(frontend):
+def test_module_access_spec_private(frontend, tmp_path):
     """
     Test correct parsing of access-spec statements with default private
     """
@@ -649,7 +643,7 @@ contains
 end module test_access_spec_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Check module properties
     assert module.default_access_spec == 'private'
@@ -676,7 +670,7 @@ end module test_access_spec_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Inlines access-spec as declaration attr')]))
-def test_module_access_spec_public(frontend):
+def test_module_access_spec_public(frontend, tmp_path):
     """
     Test correct parsing of access-spec statements with default public
     """
@@ -698,7 +692,7 @@ contains
 end module test_access_spec_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Check module properties
     assert module.default_access_spec == 'public'
@@ -727,7 +721,7 @@ end module test_access_spec_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_access_attr(frontend):
+def test_module_access_attr(frontend, tmp_path):
     """
     Test correct parsing of access-spec attributes
     """
@@ -742,7 +736,7 @@ module test_access_attr_mod
 end module test_access_attr_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     code = module.to_fortran().upper()
 
     priv_var = module.variable_map['priv_var']
@@ -771,7 +765,7 @@ end module test_access_attr_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_rename_imports_with_definitions(frontend):
+def test_module_rename_imports_with_definitions(frontend, tmp_path):
     """
     Test use statement with rename lists
     """
@@ -802,9 +796,9 @@ module some_mod
 end module some_mod
     """.strip()
 
-    mod1 = Module.from_source(fcode_mod1, frontend=frontend)
-    mod2 = Module.from_source(fcode_mod2, frontend=frontend)
-    mod3 = Module.from_source(fcode_mod3, frontend=frontend, definitions=[mod1, mod2])
+    mod1 = Module.from_source(fcode_mod1, frontend=frontend, xmods=[tmp_path])
+    mod2 = Module.from_source(fcode_mod2, frontend=frontend, xmods=[tmp_path])
+    mod3 = Module.from_source(fcode_mod3, frontend=frontend, xmods=[tmp_path], definitions=[mod1, mod2])
 
     # Check all entries exist in the symbol table
     mod1_imports = {
@@ -856,12 +850,31 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_rename_imports_no_definitions(frontend):
+def test_module_rename_imports_no_definitions(frontend, tmp_path):
     """
     Test use statement with rename lists when definitions are not available
-    (Note: for OMNI this relies on the fact that the twin test ran first to
-    produce the xmod file)
     """
+    fcode_mod1 = """
+module test_rename_mod
+    implicit none
+    integer :: var1
+    integer :: var2
+    integer :: var3
+end module test_rename_mod
+    """.strip()
+
+    fcode_mod2 = """
+module test_other_rename_mod
+    implicit none
+    integer :: var1
+    integer :: var2
+    integer :: var3
+end module test_other_rename_mod
+    """.strip()
+
+    mod1 = Module.from_source(fcode_mod1, frontend=frontend, xmods=[tmp_path])
+    mod2 = Module.from_source(fcode_mod2, frontend=frontend, xmods=[tmp_path])
+
     fcode_mod3 = """
 module some_mod
     use test_rename_mod, first_var1 => var1, first_var3 => var3
@@ -871,7 +884,7 @@ module some_mod
 end module some_mod
     """.strip()
 
-    mod3 = Module.from_source(fcode_mod3, frontend=frontend)
+    mod3 = Module.from_source(fcode_mod3, frontend=frontend, xmods=[tmp_path])
 
     # Check all entries exist in the symbol table
     mod1_imports = {
@@ -920,23 +933,10 @@ end module some_mod
         assert use_name is None or f'{s} => {use_name}' in fcode
 
 
-@pytest.fixture(name='delete_iso_fortran_mod_file')
-def fixture_delete_iso_fortran_mod_file(here):
-    """
-    Make sure the iso_fortran_env mod file is explicitly delete to avoid
-    interference with subsequent tests that use the intrinsic module.
-    """
-    yield
-    if (here/'iso_fortran_env.mod').is_file():
-        (here/'iso_fortran_env.mod').unlink()
-    if Path('iso_fortran_env.xmod').is_file():
-        Path('iso_fortran_env.xmod').unlink()
-
-
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OFP, 'hasModuleNature on use-stmt but without conveying actual nature')]
 ))
-def test_module_use_module_nature(frontend, here, delete_iso_fortran_mod_file):  # pylint: disable=unused-argument
+def test_module_use_module_nature(frontend, tmp_path):
     """
     Test module natures attributes in ``USE`` statements
     """
@@ -967,7 +967,7 @@ contains
 end module module_nature_mod
     """.strip()
 
-    ext_mod = Module.from_source(mcode, frontend=frontend)
+    ext_mod = Module.from_source(mcode, frontend=frontend, xmods=[tmp_path])
 
     # Check properties on the Import IR node in the external module
     assert ext_mod.imported_symbols == ('int16',)
@@ -981,7 +981,7 @@ end module module_nature_mod
         # OMNI throws Syntax Error on NON_INTRINSIC...
         fcode = fcode.replace('use, non_intrinsic ::', 'use')
 
-    mod = Module.from_source(fcode, frontend=frontend, definitions=[ext_mod])
+    mod = Module.from_source(fcode, frontend=frontend, definitions=[ext_mod], xmods=[tmp_path])
 
     # Check properties on the Import IR node in both routines
     my_kinds = mod['inquire_my_kinds']
@@ -1021,8 +1021,8 @@ end module module_nature_mod
     assert 'use, intrinsic' in kinds.to_fortran().lower()
 
     # Verify JIT compile
-    ext_filepath = here/f'{ext_mod.name}.f90'
-    filepath = here/f'{mod.name}_{frontend}.f90'
+    ext_filepath = tmp_path/f'{ext_mod.name}.f90'
+    filepath = tmp_path/f'{mod.name}_{frontend}.f90'
     jit_ext = jit_compile(ext_mod, filepath=ext_filepath, objname=ext_mod.name)
     jit_mod = jit_compile(mod, filepath=filepath, objname=mod.name)
     my_kinds_func = jit_mod.inquire_my_kinds
@@ -1059,7 +1059,7 @@ integer :: var1
     """.strip(), (1, 0, 1)),
 ])
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_spec_parts(frontend, spec, part_lengths):
+def test_module_spec_parts(frontend, spec, part_lengths, tmp_path):
     """Test the :attr:`spec_parts` property of :class:`Module`"""
 
     header_mod_fcode = """
@@ -1068,7 +1068,7 @@ module header_mod
     integer, parameter :: param1 = 1
 end module header_mod
     """.strip()
-    header_mod = Module.from_source(header_mod_fcode, frontend=frontend)
+    header_mod = Module.from_source(header_mod_fcode, frontend=frontend, xmods=[tmp_path])
 
     docstring = '! This should become the doc string\n'
     fcode = f"""
@@ -1077,7 +1077,7 @@ module spec_parts
 end module spec_parts
     """.strip()
 
-    module = Module.from_source(fcode, definitions=header_mod, frontend=frontend)
+    module = Module.from_source(fcode, definitions=header_mod, frontend=frontend, xmods=[tmp_path])
     assert isinstance(module.spec_parts, tuple)
     assert all(isinstance(p, tuple) for p in module.spec_parts)
 
@@ -1095,7 +1095,7 @@ end module spec_parts
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_comparison(frontend):
+def test_module_comparison(frontend, tmp_path):
     """
     Test that string-equivalence works on relevant components.
     """
@@ -1118,8 +1118,8 @@ end module a_module
 """
 
     # Two distinct string-equivalent subroutine objects
-    m1 = Module.from_source(fcode, frontend=frontend)
-    m2 = Module.from_source(fcode, frontend=frontend)
+    m1 = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    m2 = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     assert m1.symbol_attrs == m2.symbol_attrs
     assert m1.spec == m2.spec
@@ -1128,7 +1128,7 @@ end module a_module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_comparison_case_sensitive(frontend):
+def test_module_comparison_case_sensitive(frontend, tmp_path):
     """
     Test that semantic, but no string-equivalence evaluates as not eqal
     """
@@ -1151,8 +1151,8 @@ end module a_module
 """
 
     # Two distinct string-equivalent subroutine objects
-    m1 = Module.from_source(fcode, frontend=frontend)
-    m2 = Module.from_source(fcode.replace('pt%array', 'pT%aRrAy'), frontend=frontend)
+    m1 = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    m2 = Module.from_source(fcode.replace('pt%array', 'pT%aRrAy'), frontend=frontend, xmods=[tmp_path])
 
     assert not 'pT%aRrAy' in fgen(m1)
     if frontend != OMNI:  # OMNI always downcases!
@@ -1169,7 +1169,7 @@ end module a_module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_contains_auto_insert(frontend):
+def test_module_contains_auto_insert(frontend, tmp_path):
     """
     Test that `CONTAINS` keyword is automatically inserted into the `contains` section
     of a :any:`ProgramUnit` object.
@@ -1188,9 +1188,9 @@ subroutine routine2
 end subroutine routine2
     """.strip()
 
-    module = Module.from_source(fcode_mod, frontend=frontend)
-    routine1 = Subroutine.from_source(fcode_routine1, frontend=frontend)
-    routine2 = Subroutine.from_source(fcode_routine2, frontend=frontend)
+    module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    routine1 = Subroutine.from_source(fcode_routine1, frontend=frontend, xmods=[tmp_path])
+    routine2 = Subroutine.from_source(fcode_routine2, frontend=frontend, xmods=[tmp_path])
 
     assert module.contains is None
     assert routine1.contains is None
@@ -1209,7 +1209,7 @@ end subroutine routine2
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('only_list', [True, False])
 @pytest.mark.parametrize('complete_tree', [True, False])
-def test_module_missing_imported_symbol(frontend, only_list, complete_tree):
+def test_module_missing_imported_symbol(frontend, only_list, complete_tree, tmp_path):
     fcode_mod1 = """
 module mod1
     implicit none
@@ -1233,12 +1233,13 @@ subroutine driver
 end subroutine driver
     """.strip()
 
+    mod1 = Module.from_source(fcode_mod1, frontend=frontend, xmods=[tmp_path])
     if complete_tree:
-        modules = [Module.from_source(fcode_mod1, frontend=frontend)]
+        modules = [mod1]
     else:
         modules = []
-    modules += [Module.from_source(fcode_mod2, frontend=frontend, definitions=modules)]
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=modules)
+    modules += [Module.from_source(fcode_mod2, frontend=frontend, definitions=modules, xmods=[tmp_path])]
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=modules, xmods=[tmp_path])
 
     a = driver.symbol_map['a']
     b = driver.symbol_map['b']
@@ -1261,7 +1262,7 @@ end subroutine driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_all_imports(frontend):
+def test_module_all_imports(frontend, tmp_path):
     fcode = {
         'header_a': (
         #--------
@@ -1305,9 +1306,9 @@ end module module_all_imports_routine_mod
         ).strip()
     }
 
-    header_a = Module.from_source(fcode['header_a'], frontend=frontend)
-    header_b = Module.from_source(fcode['header_b'], frontend=frontend)
-    routine_mod = Module.from_source(fcode['routine'], definitions=(header_a, header_b), frontend=frontend)
+    header_a = Module.from_source(fcode['header_a'], frontend=frontend, xmods=[tmp_path])
+    header_b = Module.from_source(fcode['header_b'], frontend=frontend, xmods=[tmp_path])
+    routine_mod = Module.from_source(fcode['routine'], definitions=(header_a, header_b), frontend=frontend, xmods=[tmp_path])
     routine = routine_mod['routine']
 
     assert routine_mod.parents == ()
