@@ -76,7 +76,20 @@ readme = {file = ["README.md", "INSTALL.md"], content-type = "text/markdown"}
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["cmake", "docs", "example*", "lint_rules*"]
+include = [
+  "loki",
+  "loki.*",
+  "scripts"
+]
+exclude = [
+  "build*",
+  "cmake*",
+  "docs*",
+  "example*",
+  "lint_rules*",
+  "loki_env*",
+]
+namespaces = false
 
 # Enable SCM versioning
 [tool.setuptools_scm]
