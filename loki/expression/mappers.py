@@ -571,7 +571,7 @@ class LokiIdentityMapper(IdentityMapper):
         kwargs['recurse_to_declaration_attributes'] = False
 
         new_type = expr.type
-        if recurse_to_declaration_attributes:
+        if recurse_to_declaration_attributes and new_type is not None:
             old_type = expr.type
             kind = self.rec(old_type.kind, *args, **kwargs)
 
@@ -611,7 +611,8 @@ class LokiIdentityMapper(IdentityMapper):
                 if expr.scope:
                     # Update symbol table entry
                     expr.scope.symbol_attrs[expr.name] = new_type
-
+        else:
+            is_type_changed = False
         parent = self.rec(expr.parent, *args, **kwargs)
         if expr.scope is None:
             if parent is expr.parent and not is_type_changed:
@@ -770,7 +771,16 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         otherwise continue tree traversal
         """
         if expr in self.expr_map:
-            return self.expr_map[expr]
+            expr = self.expr_map[expr]
+            if not kwargs['recurse_to_declaration_attributes']:
+                # To capture recursion on declaration attributes, such as an initial value,
+                # and which are stored in the symbol table rather than on symbol nodes itself
+                # (therefore their replacement can not be resolved in
+                # recursive_expression_map_update), we force recursion on the replaced
+                # expression node when declaration attributes are to be replaced. In all other
+                # cases (which will be the vast majority), we can bail out early here.
+                return expr
+            # return expr
         map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)
 

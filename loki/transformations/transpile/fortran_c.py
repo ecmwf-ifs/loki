@@ -186,6 +186,23 @@ class FortranCTransformation(Transformation):
             for call in FindNodes(CallStatement).visit(routine.body):
                 if str(call.name).lower() in as_tuple(targets):
                     call.convert_kwargs_to_args()
+            intfs = FindNodes(Interface).visit(routine.spec)
+            removal_map = {}
+            for i in intfs:
+                for b in i.body:
+                    if isinstance(b, Subroutine):
+                        if targets and b.name.lower() in targets:
+                            # Create a new module import with explicitly qualified symbol
+                            modname = f'{b.name}_FC_MOD'
+                            new_symbol = Variable(name=f'{b.name}_FC', scope=routine)
+                            new_import = Import(module=modname, c_import=False, symbols=(new_symbol,))
+                            routine.spec.prepend(new_import)
+                            # Mark current import for removal
+                            removal_map[i] = None
+
+            # Apply any scheduled interface removals to spec
+            if removal_map:
+                routine.spec = Transformer(removal_map).visit(routine.spec)
             return
 
         for arg in routine.arguments:
@@ -212,6 +229,7 @@ class FortranCTransformation(Transformation):
 
             # Generate C source file from Loki IR
             # c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
+            intfs = FindNodes(Interface).visit(routine.spec)
             for successor in successors:
                 # if self.language == 'c':
                 #     c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
@@ -227,7 +245,8 @@ class FortranCTransformation(Transformation):
                 #     print(f"exception: {e} - routine: {routine} , successor: {successor}")
                 if successor.ir is None:
                     continue
-                print(f"successor: {successor} | ir {successor.ir} type {type(successor.ir)}")
+                # print(f"successor: {successor} | ir {successor.ir} type {type(successor.ir)}")
+                print(f"routine {routine} add c import for successor: {successor.ir.name} | item.name: {item.name} vs. {successor.name} | interfaces: {intfs}")
                 c_kernel.spec.prepend(Import(module=f'{successor.ir.name.lower()}_c.h', c_import=True))
 
             if depth == 1:
@@ -586,6 +605,7 @@ class FortranCTransformation(Transformation):
         # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         invert_array_indices(kernel)
+        # shift_to_zero_indexing(kernel, ignore=() if self.language == 'c' else ('ij', 'ichnk'))
         shift_to_zero_indexing(kernel, ignore=() if self.language == 'c' else ('jl', 'ibl'))
         # SCCBaseTransformation.remove_dimensions(kernel)
         flatten_arrays(kernel, order='C', start_index=0)

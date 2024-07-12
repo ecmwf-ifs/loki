@@ -26,7 +26,9 @@ from loki.expression import Array, FindVariables, SubstituteExpressions
 from loki.ir import FindNodes, CallStatement, Transformer
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
-
+from loki.transformations.inline import (
+    inline_constant_parameters, inline_elemental_functions
+)
 
 __all__ = ['ArgumentArrayShapeAnalysis', 'ExplicitArgumentArrayShapeTransformation']
 
@@ -137,6 +139,7 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
                 continue
 
             callee = call.routine
+            inline_constant_parameters(callee, external_only=True)
             imported_symbols = callee.imported_symbols
             if callee.parent is not None:
                 imported_symbols += callee.parent.imported_symbols
@@ -149,9 +152,10 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
             new_args = tuple(d for d in dim_vars if d not in callee.arguments)
             new_args = tuple(d for d in new_args if d.type.dtype == BasicType.INTEGER)
             new_args = tuple(d for d in new_args if d not in imported_symbols)
+            # new_args = tuple(d for d in new_args if not d.type.parameter)
             new_args = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in new_args)
             callee.arguments += new_args
-            # print(f"ExplicitArgumentArrayShapeTransformation new_args for callee {callee}: {new_args}")
+            print(f"ExplicitArgumentArrayShapeTransformation new_args for callee {callee}: {new_args}")
             # Map all local dimension args to unknown callee dimension args
             if len(callee.arguments) > len(list(call.arg_iter())):
                 arg_keys = dict(call.arg_iter()).keys()

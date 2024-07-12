@@ -928,6 +928,7 @@ class GlobalVarHoistTransformation(Transformation):
                 continue
             new_arguments.append(var.parents[0] if var.parent else var)
         new_arguments = set(new_arguments) # remove duplicates
+        print(f"_append_routine_arguments new_arguments for routine: {routine} : {new_arguments}")
         new_arguments = [
             arg.clone(scope=routine, type=arg.type.clone(
                 intent='inout' if arg in all_defines_vars else 'in',

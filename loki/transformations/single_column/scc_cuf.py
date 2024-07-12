@@ -332,8 +332,14 @@ class SccLowLevelLaunchConfiguration(Transformation):
                                         sym.Comparison(routine.variable_map[horizontal.index], '<=',
                                                        routine.variable_map[horizontal.size])))
 
+            # new
+            horizontal_increment = ir.Assignment(lhs=routine.variable_map[horizontal.index],
+                    rhs=sym.Sum((routine.variable_map[horizontal.index], 1)))
+            block_increment = ir.Assignment(lhs=routine.variable_map[block_dim.index],
+                    rhs=sym.Sum((routine.variable_map[block_dim.index], 1)))
+            # end: new
             routine.body = ir.Section((horizontal_assignment, block_dim_assignment, ir.Comment(''),
-                            ir.Conditional(condition=condition, body=as_tuple(routine.body), else_body=())))
+                            ir.Conditional(condition=condition, body=(horizontal_increment, block_increment) + as_tuple(routine.body), else_body=())))
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if call.routine.name.lower() in targets and not SCCBaseTransformation.is_elemental(call.routine):
                 horizontal_index = routine.variable_map[horizontal.index]
@@ -831,32 +837,63 @@ class SccLowLevelDataOffload(Transformation):
             outargs = tuple(dict.fromkeys(outargs))
             inoutargs = tuple(dict.fromkeys(inoutargs))
 
-            copy_pragmas = []
-            copy_end_pragmas = []
-            if outargs:
-                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyout({", ".join(outargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
-            if inoutargs:
-                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copy({", ".join(inoutargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
-            if inargs:
-                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyin({", ".join(inargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+            use_copy_pragmas = False
+            if use_copy_pragmas:
+                copy_pragmas = []
+                copy_end_pragmas = []
+                if outargs:
+                    copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyout({", ".join(outargs)})')]
+                    copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                if inoutargs:
+                    copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copy({", ".join(inoutargs)})')]
+                    copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                if inargs:
+                    copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyin({", ".join(inargs)})')]
+                    copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
 
-            if copy_pragmas:
-                pragma_map = {}
-                for pragma in FindNodes(ir.Pragma).visit(routine.body):
-                    if pragma.content == 'data' and 'loki' == pragma.keyword:
-                        pragma_map[pragma] = as_tuple(copy_pragmas)
-                if pragma_map:
-                    routine.body = Transformer(pragma_map).visit(routine.body)
-            if copy_end_pragmas:
-                pragma_map = {}
-                for pragma in FindNodes(ir.Pragma).visit(routine.body):
-                    if pragma.content == 'end data' and 'loki' == pragma.keyword:
-                        pragma_map[pragma] = as_tuple(copy_end_pragmas)
-                if pragma_map:
-                    routine.body = Transformer(pragma_map).visit(routine.body)
+                if copy_pragmas:
+                    pragma_map = {}
+                    for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                        if pragma.content == 'data' and 'loki' == pragma.keyword:
+                            pragma_map[pragma] = as_tuple(copy_pragmas)
+                    if pragma_map:
+                        routine.body = Transformer(pragma_map).visit(routine.body)
+                if copy_end_pragmas:
+                    pragma_map = {}
+                    for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                        if pragma.content == 'end data' and 'loki' == pragma.keyword:
+                            pragma_map[pragma] = as_tuple(copy_end_pragmas)
+                    if pragma_map:
+                        routine.body = Transformer(pragma_map).visit(routine.body)
+            else:
+                field_api_device_ptr = ()
+                update_device = ()
+                for arg in inargs + outargs + inoutargs:
+                    if 'dptr' in arg.lower():
+                        field_api_device_ptr += (arg,)
+                    else:
+                        update_device += (arg,)
+                start_pragmas = []
+                end_pragmas = []
+                if field_api_device_ptr:
+                    start_pragmas += [ir.Pragma(keyword='acc', content=f'data present({", ".join(field_api_device_ptr)})')]
+                    end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                if update_device:
+                    start_pragmas += [ir.Pragma(keyword='acc', content=f'update device({", ".join(update_device)})')]
+                if start_pragmas:
+                    pragma_map = {}
+                    for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                        if pragma.content == 'data' and 'loki' == pragma.keyword:
+                            pragma_map[pragma] = as_tuple(start_pragmas)
+                    if pragma_map:
+                        routine.body = Transformer(pragma_map).visit(routine.body)
+                if end_pragmas:
+                    pragma_map = {}
+                    for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                        if pragma.content == 'end data' and 'loki' == pragma.keyword:
+                            pragma_map[pragma] = as_tuple(end_pragmas)
+                    if pragma_map:
+                        routine.body = Transformer(pragma_map).visit(routine.body)
         else:
             # Declaration
             routine.spec.append(ir.Comment(''))

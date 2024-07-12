@@ -448,7 +448,7 @@ SCCLowLevelHoist = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-        ParametriseArrayDimsTransformation,
+        # ParametriseArrayDimsTransformation,
         HoistTemporaryArraysAnalysis,
         HoistTemporaryArraysPragmaOffloadTransformation
     )
