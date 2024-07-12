@@ -85,6 +85,11 @@ class CudaCodegen(CppCodegen):
 
     def _subroutine_declaration(self, o, **kwargs):
         pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
+        # print(f"_subroutine_declaration for o: {o} | arguments: {o.arguments} | type: {[a.type for a in o.arguments]}")
+        if o.name.lower() == "cloudsc_c":
+            print(f"_subroutine_declaration for o: {o}")
+            for a in o.arguments:
+                print(f"arg: {a} | type: {a.type} | visit type: {self.visit(a.type, **kwargs)}")
         arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name}'
                      for a, p, k in zip(o.arguments, pass_by, var_keywords)]
         opt_header = kwargs.get('header', False)

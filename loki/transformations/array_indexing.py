@@ -522,11 +522,13 @@ def normalize_array_shape_and_access(routine):
         return (isinstance(dim, sym.RangeIndex)
                 and not (dim.lower == 1 or dim.lower is None or dim.upper is None))
 
+    # print(f"normalize_array_shape_and_access for routine: {routine}")
     vmap = {}
     for v in FindVariables(unique=False).visit(routine.body):
         if isinstance(v, sym.Array):
+            # print(f"  v: {v} | dimensions: {v.dimensions}")
             # skip if e.g., `array(len)`, passed as `call routine(array)`
-            if not v.dimensions:
+            if not v.dimensions or all(isinstance(dim, sym.RangeIndex) for dim in v.dimensions):
                 continue
             new_dims = []
             for i, d in enumerate(v.shape):
@@ -571,27 +573,29 @@ def flatten_arrays(routine, order='F', start_index=1):
     start_index : int
         Assume array indexing starts with `start_index`.
     """
-    def new_dims(dim, shape):
+    def new_dims(var, dim, shape):
         if all(_dim == sym.RangeIndex((None, None)) for _dim in dim):
             return None
         if len(dim) > 1:
             if isinstance(shape[-2], sym.RangeIndex):
-                raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening!')
+                # raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening!')
+                # print(f'routine: {routine} - var: {var} | dim: {dim} | shape: {shape} | Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening;')
+                return dim
             _dim = (sym.Sum((dim[-2], sym.Product((shape[-2], dim[-1] - start_index)))),)
             new_dim = dim[:-2]
             new_dim += _dim
-            return new_dims(new_dim, shape[:-1])
+            return new_dims(var, new_dim, shape[:-1])
         return dim
 
     if order == 'C':
         array_map = {
-            var: var.clone(dimensions=new_dims(var.dimensions[::-1], var.shape[::-1]))
+            var: var.clone(dimensions=new_dims(var, var.dimensions[::-1], var.shape[::-1]))
             for var in FindVariables().visit(routine.body)
             if isinstance(var, sym.Array) and var.shape and len(var.shape)
         }
     elif order == 'F':
         array_map = {
-            var: var.clone(dimensions=new_dims(var.dimensions, var.shape))
+            var: var.clone(dimensions=new_dims(var, var.dimensions, var.shape))
             for var in FindVariables().visit(routine.body)
             if isinstance(var, sym.Array) and var.shape and len(var.shape)
         }

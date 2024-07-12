@@ -344,6 +344,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 ]
 
         # Update arguments list
+        print(f"DerivedTypeArgumentsTransformation: update argument list for routine {routine}: {[a for arg in routine.arguments for a in arguments_map.get(arg, [arg])]}")
         routine.arguments = [a for arg in routine.arguments for a in arguments_map.get(arg, [arg])]
 
         # Update variable list, too, as this triggers declaration generation
@@ -354,13 +355,18 @@ class DerivedTypeArgumentsTransformation(Transformation):
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
+        print(f"routine: {routine}")
         # Update procedure bindings by specifying NOPASS attribute
         for arg in arguments_map:
-            for decl in arg.type.dtype.typedef.declarations:
-                if isinstance(decl, ProcedureDeclaration) and not decl.generic:
-                    for proc in decl.symbols:
-                        if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
-                            proc.type = proc.type.clone(pass_attr=False)
+            # print(f"arg: {arg} | arg.type: {arg.type} | arg.type.dtype: {arg.type.dtype} |  arg.type.dtype.typedef { arg.type.dtype.typedef}")
+            try:
+                for decl in arg.type.dtype.typedef.declarations:
+                    if isinstance(decl, ProcedureDeclaration) and not decl.generic:
+                        for proc in decl.symbols:
+                            if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
+                                proc.type = proc.type.clone(pass_attr=False)
+            except Exception as e:
+                print(f"arg: {arg} | arg.type: {arg.type} | arg.type.dtype: {arg.type.dtype} |  arg.type.dtype.typedef { arg.type.dtype.typedef}")
 
         trafo_data['expansion_map'] = expansion_map
         return trafo_data

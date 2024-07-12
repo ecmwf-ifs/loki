@@ -270,7 +270,7 @@ def inline_constant_parameters(routine, external_only=True):
             # Substitute kind specifier in literals in initializers (I know...)
             init_map = {literal.kind: literal.kind.type.initial
                         for literal in FindLiterals().visit(variable.type.initial)
-                        if is_inline_parameter(literal.kind)}
+                        if not isinstance(literal, sym.LogicLiteral) and is_inline_parameter(literal.kind)}
             if init_map:
                 initial = SubstituteExpressions(init_map).visit(variable.type.initial)
                 routine.symbol_attrs[variable.name] = variable.type.clone(initial=initial)

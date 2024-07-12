@@ -20,7 +20,8 @@ from loki.transformations.single_column.scc_cuf import (
 )
 from loki.transformations.block_index_transformations import (
         InjectBlockIndexTransformation,
-        LowerBlockIndexTransformation, LowerBlockLoopTransformation
+        LowerBlockIndexTransformation, LowerBlockLoopTransformation,
+        LowerConstantArrayIndex
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
@@ -30,6 +31,10 @@ from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
+from loki.transformations.argument_shape import (
+    ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
+)
+
 
 __all__ = [
         'SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
@@ -429,9 +434,13 @@ mode: str
 SCCLowLevelHoist = partial(
     Pipeline, classes=(
         InlineTransformation,
+        ArgumentArrayShapeAnalysis,
+        ExplicitArgumentArrayShapeTransformation,
+        LowerConstantArrayIndex,
         GlobalVariableAnalysis,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
+        # LowerConstantArrayIndex,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -441,7 +450,7 @@ SCCLowLevelHoist = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-      HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysAnalysis,
         HoistTemporaryArraysPragmaOffloadTransformation
     )
 )

@@ -253,9 +253,9 @@ class SccLowLevelLaunchConfiguration(Transformation):
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if str(call.name).lower() in as_tuple(targets):
                     new_args = ()
-                    if upper.name not in call.routine.arguments:
+                    if hasattr(upper, 'name') and upper.name not in call.routine.arguments:
                         new_args += (upper,)
-                    if step.name not in call.routine.arguments:
+                    if hasattr(step, 'name') and step.name not in call.routine.arguments:
                         new_args += (step,)
                     new_kwargs = tuple((_.name, _) for _ in new_args)
                     if new_args:
@@ -450,11 +450,16 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
                 parameters=())
 
-            upper = routine.variable_map[parameters['upper']]
+            print(f"scc_cuf parameters: {parameters}")
+            try:
+                upper = routine.variable_map[parameters['upper']]
+            except Exception as e:
+                print(f"routine {routine} - Exception: {e}")
+                upper = sym.IntLiteral(1)
             try:
                 step = routine.variable_map[parameters['step']]
             except Exception as e:
-                print(f"Exception: {e}")
+                print(f"routine {routine} - Exception: {e}")
                 step = sym.IntLiteral(1)
 
 

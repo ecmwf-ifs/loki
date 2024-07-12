@@ -908,4 +908,5 @@ class GlobalVarHoistTransformation(Transformation):
                 parameter=False, initial=None
             )) for arg in new_arguments
         ]
+        print(f"GlobalVarHoistTransformation new arguments for routine: {routine} - {new_arguments}")
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))

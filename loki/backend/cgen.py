@@ -42,7 +42,8 @@ class IntrinsicTypeC:
             if str(_type.kind) in ['real32']:
                 return 'float'
             return 'double'
-        raise ValueError(str(_type))
+        # raise ValueError(str(_type))
+        return f'<value error for "{str(_type)}">'
 
 # pylint: disable=redefined-outer-name
 c_intrinsic_type = IntrinsicTypeC()
@@ -209,6 +210,7 @@ class CCodegen(Stringifier):
         Helper function/function declaration part for :func:`~loki.backend.CCodegen.visit_Subroutine`.
         """
         pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
+        print(f"_subroutine_declaration for o: {o} | arguments: {o.arguments} | type: {[a.type for a in o.arguments]}")
         arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name}'
                      for a, p, k in zip(o.arguments, pass_by, var_keywords)]
         opt_header = kwargs.get('header', False)
@@ -326,10 +328,13 @@ class CCodegen(Stringifier):
                 continue
             var = self.visit(v, **kwargs)
             initial = ''
-            if v.initial is not None:
-                initial = f' = {self.visit(v.initial, **kwargs)}'
-            if v.type.pointer or v.type.allocatable:
-                var = '*' + var
+            try:
+                if v.initial is not None:
+                    initial = f' = {self.visit(v.initial, **kwargs)}'
+                if v.type.pointer or v.type.allocatable:
+                    var = '*' + var
+            except:
+                pass
             variables += [f'{var}{initial}']
         if not variables:
             return None
@@ -358,8 +363,8 @@ class CCodegen(Stringifier):
             var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
             end=self.visit(o.bounds.stop, **kwargs),
             # TODO: !!! pymbolic/primitives.py", line 664, in __gt__ raise TypeError("expressions don't have an order")
-            crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
-            # crit='<=',
+            # crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
+            crit='<=',
             incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
         header = self.format_line(control, ' {')
         footer = self.format_line('}')
@@ -445,6 +450,7 @@ class CCodegen(Stringifier):
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):
             return f'struct {o.dtype.name}'
+        print(f"visit_SymbolAttributes for o: {o} -> {self.symgen.c_intrinsic_type(o)}")
         return self.symgen.c_intrinsic_type(o)
 
     def visit_TypeDef(self, o, **kwargs):

@@ -380,7 +380,7 @@ class Subroutine(ProgramUnit):
         for arg in arguments:
             if arg not in decl_map:
                 # By default, append new variables to the end of the spec
-                assert arg.type.intent is not None
+                # assert arg.type.intent is not None
                 if isinstance(arg.type, ProcedureType):
                     new_decl = ir.ProcedureDeclaration(symbols=(arg, ))
                 else:

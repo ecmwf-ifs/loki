@@ -260,17 +260,21 @@ def find_and_eliminate_unused_imports(routine):
             return ()
 
     # Find all used symbols
-    used_symbols = set.union(*[used_names_from_symbol(s)
-                               for s in SymbolRetriever().visit([routine.spec, routine.body])])
-    used_symbols |= set.union(*[used_names_from_symbol(s) for s in routine.variables])
-    for typedef in FindNodes(TypeDef).visit(routine.spec):
-        used_symbols |= set.union(*[used_names_from_symbol(s) for s in typedef.variables])
+    try:
+        used_symbols = set.union(*[used_names_from_symbol(s)
+                                   for s in SymbolRetriever().visit([routine.spec, routine.body])])
+        used_symbols |= set.union(*[used_names_from_symbol(s) for s in routine.variables])
+        for typedef in FindNodes(TypeDef).visit(routine.spec):
+            used_symbols |= set.union(*[used_names_from_symbol(s) for s in typedef.variables])
 
-    # Recurse for contained subroutines/functions
-    for member in routine.members:
-        used_symbols |= find_and_eliminate_unused_imports(member)
+        # Recurse for contained subroutines/functions
+        for member in routine.members:
+            used_symbols |= find_and_eliminate_unused_imports(member)
 
-    eliminate_unused_imports(routine, used_symbols)
+        eliminate_unused_imports(routine, used_symbols)
+    except Exception as e:
+        print(f"Exception {e}")
+        used_symbols = set()
     return used_symbols
 
 

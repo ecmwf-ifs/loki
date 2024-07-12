@@ -83,7 +83,7 @@ class DeReferenceTrafo(Transformer):
         call_arg_map = dict((v,k) for k,v in o.arg_map.items())
         for arg in o.arguments:
             if not self.is_dereference(arg) and (isinstance(call_arg_map[arg], Array)\
-                    or call_arg_map[arg].type.intent.lower() != 'in'):
+                    or (call_arg_map[arg].type.intent is not None and call_arg_map[arg].type.intent.lower() != 'in')):
                 new_args += (Reference(arg.clone()),)
             else:
                 if isinstance(arg, Scalar) and call_arg_map[arg].type.intent.lower() != 'in':
@@ -152,9 +152,12 @@ class FortranCTransformation(Transformation):
             Sourcefile.to_file(source=fgen(wrapper), path=self.wrapperpath)
 
             # Generate C header file from module
-            c_header = self.generate_c_header(module)
-            self.c_path = (path/c_header.name.lower()).with_suffix('.h')
-            Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
+            try:
+                c_header = self.generate_c_header(module)
+                self.c_path = (path/c_header.name.lower()).with_suffix('.h')
+                Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
+            except Exception as e:
+                print(f"failed to generate C header for module {module}, because {e}")
 
     def transform_subroutine(self, routine, **kwargs):
         if self.path is None:
@@ -238,16 +241,19 @@ class FortranCTransformation(Transformation):
         """
         typename = f'{derived.name if isinstance(derived, TypeDef) else derived.dtype.name}_c'
         typedef = TypeDef(name=typename.lower(), body=(), bind_c=True)  # pylint: disable=unexpected-keyword-arg
-        if isinstance(derived, TypeDef):
-            variables = derived.variables
-        else:
-            variables = derived.dtype.typedef.variables
-        declarations = []
-        for v in variables:
-            ctype = v.type.clone(kind=self.iso_c_intrinsic_kind(v.type, typedef))
-            vnew = v.clone(name=v.basename.lower(), scope=typedef, type=ctype)
-            declarations += (VariableDeclaration(symbols=(vnew,)),)
-        typedef._update(body=as_tuple(declarations))
+        try:
+            if isinstance(derived, TypeDef):
+                variables = derived.variables
+            else:
+                variables = derived.dtype.typedef.variables
+            declarations = []
+            for v in variables:
+                ctype = v.type.clone(kind=self.iso_c_intrinsic_kind(v.type, typedef))
+                vnew = v.clone(name=v.basename.lower(), scope=typedef, type=ctype)
+                declarations += (VariableDeclaration(symbols=(vnew,)),)
+            typedef._update(body=as_tuple(declarations))
+        except:
+            pass
         return typedef
 
     def iso_c_intrinsic_import(self, scope):
@@ -362,7 +368,10 @@ class FortranCTransformation(Transformation):
         wrapper.arguments = tuple(arg.clone(scope=wrapper) for arg in routine.arguments)
 
         # Remove any unused imports
-        sanitise_imports(wrapper)
+        try:
+            sanitise_imports(wrapper)
+        except:
+            pass
         return wrapper
 
     def generate_iso_c_wrapper_module(self, module):
@@ -469,7 +478,10 @@ class FortranCTransformation(Transformation):
             intf_routine.variables += (var,)
             intf_routine.arguments += (var,)
 
-        sanitise_imports(intf_routine)
+        try:
+            sanitise_imports(intf_routine)
+        except:
+            pass
 
         return Interface(body=(intf_routine, ))
 

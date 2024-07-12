@@ -47,7 +47,7 @@ from loki.transformations.single_column import (
 from loki.transformations.transpile import FortranCTransformation
 from loki.transformations.block_index_transformations import (
         LowerBlockIndexTransformation, InjectBlockIndexTransformation,
-        LowerBlockLoopTransformation
+        LowerBlockLoopTransformation, LowerConstantArrayIndex
 )
 from loki.transformations.single_column.scc_low_level import (
     SCCLowLevelCufHoist, SCCLowLevelCufParametrise, SCCLowLevelHoist, SCCLowLevelParametrise
@@ -270,6 +270,11 @@ def convert(
     if mode == 'idem':
         pipeline = IdemTransformation()
         scheduler.process( pipeline )
+        # scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+        # scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
+        # transformation = LowerConstantArrayIndex()
+        # scheduler.process(transformation)
+
 
     if mode == 'idem-stack':
         pipeline = Pipeline(
@@ -408,7 +413,7 @@ def convert(
 
 @cli.command('plan')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack']))
+              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack', 'cuda-hoist']))
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,

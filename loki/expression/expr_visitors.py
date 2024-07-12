@@ -143,8 +143,14 @@ class ExpressionFinder(Visitor):
     def visit_VariableDeclaration(self, o, **kwargs):
         expressions = as_tuple(super().visit(o.children, **kwargs))
         for v in o.symbols:
+            # try:
             if v.type.initial is not None:
                 expressions += as_tuple(self.retrieve(v.type.initial))
+            # except Exception as e:
+            #      print(e)
+            #      print(f"o: {o}")
+            #      print(f"v: {v}")
+            #      raise ValueError
         return self._return(o, expressions)
 
 
