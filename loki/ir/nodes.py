@@ -38,7 +38,7 @@ __all__ = [
     'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
-    'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
+    'StatementFunction', 'TypeDef', 'MultiConditional', 'Forall', 'MaskedStatement',
     'Intrinsic', 'Enumeration', 'RawSource',
 ]
 
