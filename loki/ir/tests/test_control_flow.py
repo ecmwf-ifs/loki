@@ -12,7 +12,7 @@ import numpy as np
 from loki import Subroutine
 from loki.backend import fgen
 from loki.build import jit_compile, clean_test
-from loki.frontend import available_frontends, OMNI, FP
+from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import nodes as ir, FindNodes
 
 
@@ -502,21 +502,23 @@ END FUNCTION FUNC
     assert conditionals[1].else_body[-1].text.upper() == 'RETURN'
 
 
-@pytest.mark.parametrize('frontend', [FP])
+@pytest.mark.parametrize('frontend', available_frontends(
+        xfail=[(OMNI, 'Renames index variable to omnitmp000')]
+))
 def test_single_line_forall_stmt(tmp_path, frontend):
     fcode = """
 subroutine forall_stmt(n, a)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: n
-  real(kind=jprb), dimension(n, n), intent(inout) :: a
+    implicit none
+    integer, parameter :: jprb = selected_real_kind(13,300)
+    integer, intent(in) :: n
+    real(kind=jprb), dimension(n, n), intent(inout) :: a
+    integer :: i
 
-  ! Create a diagonal square matrix
-  forall (i=1:n)  a(i, i) = 1
+    ! Create a diagonal square matrix
+    forall (i=1:n)  a(i, i) = 1
 end subroutine forall_stmt
     """.strip()
-    filepath = tmp_path/f'single_line_forall_stmt_{frontend}.f90'
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    fun_forall_stmt = jit_compile(routine, filepath=filepath, objname="forall_stmt")
 
     # Check generated IR for the Forall statement
     statements = FindNodes(ir.Forall).visit(routine.ir)
@@ -524,7 +526,7 @@ end subroutine forall_stmt
     # Check the i=1:n bound
     assert len(statements[0].named_bounds) == 1
     bound_var, bound_range = statements[0].named_bounds[0]
-    assert bound_var.name == "i"
+    assert bound_var.name == 'i'
     assert bound_range == '1:n'
     # Check the a(i, i) = 1 assignment
     assignments = FindNodes(ir.Assignment).visit(statements[0])
@@ -533,6 +535,8 @@ end subroutine forall_stmt
     assert assignments[0].rhs == '1'  # Assign 1 on the diagonal
 
     # Check execution and produced results
+    filepath = tmp_path/f'single_line_forall_stmt_{frontend}.f90'
+    fun_forall_stmt = jit_compile(routine, filepath=filepath, objname="forall_stmt")
     n = 3
     a = np.zeros((n, n), order="F")
     fun_forall_stmt(n, a)
@@ -555,20 +559,22 @@ end subroutine forall_stmt
     assert expected_fcode in routine.to_fortran()
 
 
-@pytest.mark.parametrize('frontend', [FP])
+@pytest.mark.parametrize('frontend', available_frontends(
+        xfail=[(OMNI, 'Renames index variable to omnitmp000')]
+))
 def test_single_line_forall_masked_stmt(tmp_path, frontend):
     fcode = """
 subroutine forall_masked_stmt(n, a, b)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: n
-  real(kind=jprb), dimension(n, n), intent(inout) :: a, b
+    implicit none
+    integer, parameter :: jprb = selected_real_kind(13,300)
+    integer, intent(in) :: n
+    real(kind=jprb), dimension(n, n), intent(inout) :: a, b
+    integer :: i, j
 
-  forall(i = 1:n, j = 1:n, a(i, j) .ne. 0.0) b(i, j) = 1.0 / a(i, j)
+    forall(i = 1:n, j = 1:n, a(i, j) .ne. 0.0) b(i, j) = 1.0 / a(i, j)
 end subroutine forall_masked_stmt
     """.strip()
-    filepath = tmp_path / (f'single_line_forall_masked_stmt_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    fun_forall_masked_stmt = jit_compile(routine, filepath=filepath, objname="forall_masked_stmt")
 
     # Check generated IR for the Forall statement
     statements = FindNodes(ir.Forall).visit(routine.ir)
@@ -592,6 +598,8 @@ end subroutine forall_masked_stmt
     assert assignments[0].rhs == '1.0 / a(i, j)'
 
     # Check execution and produced results
+    filepath = tmp_path / (f'single_line_forall_masked_stmt_{frontend}.f90')
+    fun_forall_masked_stmt = jit_compile(routine, filepath=filepath, objname="forall_masked_stmt")
     n = 3
     a = np.array([[2.0, 0.0, 2.0],
                   [0.0, 4.0, 0.0],
@@ -606,23 +614,26 @@ end subroutine forall_masked_stmt
     assert expected_fcode in routine.to_fortran()
 
 
-@pytest.mark.parametrize('frontend', [FP])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+    (OMNI, 'Renames index variable to omnitmp000'),
+    (OFP, 'Parser fails to parse'),
+]))
 def test_multi_line_forall_construct(tmp_path, frontend):
     fcode = """
 subroutine forall_construct(n, c, d)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: n
-  real(kind=jprb), dimension(n, n), intent(inout) :: c, d
+    implicit none
+    integer, parameter :: jprb = selected_real_kind(13,300)
+    integer, intent(in) :: n
+    real(kind=jprb), dimension(n, n), intent(inout) :: c, d
+    integer :: i, j
 
-  forall(i = 3:n - 2, j = 3:n - 2)
-    c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)
-    d(i, j) = c(i, j)
-  end forall
+    forall(i = 3:n - 2, j = 3:n - 2)
+        c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)
+        d(i, j) = c(i, j)
+    end forall
 end subroutine forall_construct
     """.strip()
-    filepath = tmp_path / (f'multi_line_forall_construct_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    fun_forall_construct = jit_compile(routine, filepath=filepath, objname="forall_construct")
 
     # Check generated IR for the Forall statement
     statements = FindNodes(ir.Forall).visit(routine.ir)
@@ -646,6 +657,8 @@ end subroutine forall_construct
     assert assignments[1].lhs == 'd(i, j)'
     assert assignments[1].rhs == 'c(i, j)'
 
+    filepath = tmp_path / (f'multi_line_forall_construct_{frontend}.f90')
+    fun_forall_construct = jit_compile(routine, filepath=filepath, objname="forall_construct")
     n = 6
     c = np.zeros((n, n), order="F")
     c.fill(1)
@@ -666,7 +679,7 @@ end subroutine forall_construct
 
     # Check the fgen code generation
     regenerated_code = routine.to_fortran().split("\n")
-    assert regenerated_code[5].strip() == "FORALL(i = 3:n - 2, j = 3:n - 2)"
-    assert regenerated_code[6].strip() == "c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)"
-    assert regenerated_code[7].strip() == "d(i, j) = c(i, j)"
-    assert regenerated_code[8].strip() == "END FORALL"
+    assert regenerated_code[7].strip() == "FORALL(i = 3:n - 2, j = 3:n - 2)"
+    assert regenerated_code[8].strip() == "c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)"
+    assert regenerated_code[9].strip() == "d(i, j) = c(i, j)"
+    assert regenerated_code[10].strip() == "END FORALL"
