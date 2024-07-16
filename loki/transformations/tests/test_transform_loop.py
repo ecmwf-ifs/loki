@@ -4,7 +4,7 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
-
+import itertools
 # pylint: disable=too-many-lines
 import pytest
 import numpy as np
@@ -20,7 +20,7 @@ from loki.ir import (
 
 from loki.transformations.array_indexing import normalize_range_indexing
 from loki.transformations.transform_loop import (
-    loop_interchange, loop_fusion, loop_fission
+    loop_interchange, loop_fusion, loop_fission, loop_unroll
 )
 
 
@@ -1627,3 +1627,366 @@ end subroutine transform_loop_fusion_fission
 
     clean_test(filepath)
     clean_test(fissioned_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_loop_unroll(s)
+    implicit none
+    integer :: a
+    integer, intent(inout) :: s
+
+    !Loop A
+    !$loki loop-unroll
+    do a=1, 10
+        s = s + a + 1
+    end do
+
+end subroutine test_transform_loop_unroll
+ """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    s = np.zeros(1)
+    function(s=s)
+    assert s == sum([x + 1 for x in range(1, 11)])
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+    loop_unroll(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 0 and len(FindNodes(Assignment).visit(routine.body)) == 10
+
+    unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
+
+    # Test transformation
+    s = np.zeros(1)
+    unrolled_function(s=s)
+    assert s == sum([x + 1 for x in range(1, 11)])
+
+    clean_test(filepath)
+    clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_step(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_loop_unroll_step(s)
+    implicit none
+    integer :: a
+    integer, intent(inout) :: s
+
+    !Loop A
+    !$loki loop-unroll
+    do a=1, 10, 2
+        s = s + a + 1
+    end do
+
+end subroutine test_transform_loop_unroll_step
+ """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    s = np.zeros(1)
+    function(s=s)
+    assert s == sum([x + 1 for x in range(1, 11, 2)])
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+    loop_unroll(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 0 and len(FindNodes(Assignment).visit(routine.body)) == 5
+
+    unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
+
+    # Test transformation
+    s = np.zeros(1)
+    unrolled_function(s=s)
+    assert s == sum([x + 1 for x in range(1, 11, 2)])
+
+    clean_test(filepath)
+    clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_non_literal_range(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_loop_unroll_non_literal_range(s)
+    implicit none
+    integer :: a, i
+    integer, intent(inout) :: s
+
+    i = 10
+
+    !Loop A
+    !$loki loop-unroll
+    do a=1, i
+        s = s + a + 1
+    end do
+
+end subroutine test_transform_loop_unroll_non_literal_range
+ """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    s = np.zeros(1)
+    function(s=s)
+    assert s == sum([x + 1 for x in range(1, 11)])
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+    loop_unroll(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 1 and len(FindNodes(Assignment).visit(routine.body)) == 2
+
+    unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
+
+    # Test transformation
+    s = np.zeros(1)
+    unrolled_function(s=s)
+    assert s == sum([x + 1 for x in range(1, 11)])
+
+    clean_test(filepath)
+    clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_nested(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_loop_unroll_nested(s)
+    implicit none
+    integer :: a, b
+    integer, intent(inout) :: s
+
+    !Loop A
+    !$loki loop-unroll
+    do a=1, 10
+        !Loop B
+        do b=1, 5
+            s = s + a + b + 1
+        end do
+    end do
+
+end subroutine test_transform_loop_unroll_nested
+ """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    s = np.zeros(1)
+    function(s=s)
+    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_unroll(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 0 and len(FindNodes(Assignment).visit(routine.body)) == 50
+
+    unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
+
+    # Test transformation
+    s = np.zeros(1)
+    unrolled_function(s=s)
+    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+
+    clean_test(filepath)
+    clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_nested_restricted_depth(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_loop_unroll_nested_restricted_depth(s)
+    implicit none
+    integer :: a, b
+    integer, intent(inout) :: s
+
+    !Loop A
+    !$loki loop-unroll depth(1)
+    do a=1, 10
+        !Loop B
+        do b=1, 5
+            s = s + a + b + 1
+        end do
+    end do
+
+end subroutine test_transform_loop_unroll_nested_restricted_depth
+ """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    s = np.zeros(1)
+    function(s=s)
+    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_unroll(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 10 and len(FindNodes(Assignment).visit(routine.body)) == 10
+
+    unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
+
+    # Test transformation
+    s = np.zeros(1)
+    unrolled_function(s=s)
+    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+
+    clean_test(filepath)
+    clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_nested_restricted_depth_unrollable(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_loop_unroll_nested_restricted_depth(s)
+    implicit none
+    integer :: a, b, i
+    integer, intent(inout) :: s
+
+    i = 10
+
+    !Loop A
+    !$loki loop-unroll depth(1)
+    do a=1, i
+        !Loop B
+        do b=1, 5
+            s = s + a + b + 1
+        end do
+    end do
+
+end subroutine test_transform_loop_unroll_nested_restricted_depth
+ """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    s = np.zeros(1)
+    function(s=s)
+    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_unroll(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 1 and len(FindNodes(Assignment).visit(routine.body)) == 6
+
+    unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
+
+    # Test transformation
+    s = np.zeros(1)
+    unrolled_function(s=s)
+    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+
+    clean_test(filepath)
+    clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_nested_counters(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_loop_unroll_nested_counters(s)
+    implicit none
+
+    integer :: a, b
+    integer, intent(inout) :: s
+
+    !Loop A
+    !$loki loop-unroll
+    do a=1, 10
+        !Loop B
+        do b=1, a
+            s = s + a + b + 1
+        end do
+    end do
+
+end subroutine test_transform_loop_unroll_nested_counters
+ """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    s = np.zeros(1)
+    function(s=s)
+    tuples = [a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 11)) if b <= a]
+    assert s == sum(tuples)
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_unroll(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 0 and \
+           len(FindNodes(Assignment).visit(routine.body)) == len(tuples)
+
+    unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
+
+    # Test transformation
+    s = np.zeros(1)
+    unrolled_function(s=s)
+    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 11)) if b <= a])
+
+    clean_test(filepath)
+    clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_nested_neighbours(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_loop_unroll_nested_neighbours(s)
+    implicit none
+
+    integer :: a, b, c
+    integer, intent(inout) :: s
+
+    !Loop A
+    !$loki loop-unroll depth(1)
+    do a=1, 10
+        !Loop B
+        !$loki loop-unroll
+        do b=1, 5
+            s = s + a + b + 1
+        end do
+        !Loop C
+        do c=1, 5
+            s = s + a + c + 1
+        end do
+    end do
+
+end subroutine test_transform_loop_unroll_nested_neighbours
+ """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    s = np.zeros(1)
+    function(s=s)
+    assert s == 2 * sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 3
+    loop_unroll(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 10 and len(FindNodes(Assignment).visit(routine.body)) == 60
+
+    unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
+
+    # Test transformation
+    s = np.zeros(1)
+    unrolled_function(s=s)
+    assert s == 2 * sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+
+    clean_test(filepath)
+    clean_test(unrolled_filepath)
