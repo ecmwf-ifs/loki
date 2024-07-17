@@ -10,8 +10,9 @@ import pytest
 import numpy as np
 
 from loki import Subroutine
+from loki.backend import fgen
 from loki.build import jit_compile, clean_test
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import nodes as ir, FindNodes
 
 
@@ -499,3 +500,186 @@ END FUNCTION FUNC
     assert conditionals[1].body[-1].text.upper() == 'RETURN'
     assert isinstance(conditionals[1].else_body[-1], ir.Intrinsic)
     assert conditionals[1].else_body[-1].text.upper() == 'RETURN'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+        xfail=[(OMNI, 'Renames index variable to omnitmp000')]
+))
+def test_single_line_forall_stmt(tmp_path, frontend):
+    fcode = """
+subroutine forall_stmt(n, a)
+    implicit none
+    integer, parameter :: jprb = selected_real_kind(13,300)
+    integer, intent(in) :: n
+    real(kind=jprb), dimension(n, n), intent(inout) :: a
+    integer :: i
+
+    ! Create a diagonal square matrix
+    forall (i=1:n)  a(i, i) = 1
+end subroutine forall_stmt
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check generated IR for the Forall statement
+    statements = FindNodes(ir.Forall).visit(routine.ir)
+    assert len(statements) == 1
+    # Check the i=1:n bound
+    assert len(statements[0].named_bounds) == 1
+    bound_var, bound_range = statements[0].named_bounds[0]
+    assert bound_var.name == 'i'
+    assert bound_range == '1:n'
+    # Check the a(i, i) = 1 assignment
+    assignments = FindNodes(ir.Assignment).visit(statements[0])
+    assert len(assignments) == 1, "Single-line FORALL statement must have only one assignment"
+    assert assignments[0].lhs == "a(i, i)"  # Assign to array `a`
+    assert assignments[0].rhs == '1'  # Assign 1 on the diagonal
+
+    # Check execution and produced results
+    filepath = tmp_path/f'single_line_forall_stmt_{frontend}.f90'
+    fun_forall_stmt = jit_compile(routine, filepath=filepath, objname="forall_stmt")
+    n = 3
+    a = np.zeros((n, n), order="F")
+    fun_forall_stmt(n, a)
+    assert (a == [[1.0, 0.0, 0.0],
+                  [0.0, 1.0, 0.0],
+                  [0.0, 0.0, 1.0]]).all()
+    n = 5
+    a = np.empty((n, n), order="F")
+    a.fill(3.0)
+    fun_forall_stmt(n, a)
+    assert (a == [[1.0, 3.0, 3.0, 3.0, 3.0],
+                  [3.0, 1.0, 3.0, 3.0, 3.0],
+                  [3.0, 3.0, 1.0, 3.0, 3.0],
+                  [3.0, 3.0, 3.0, 1.0, 3.0],
+                  [3.0, 3.0, 3.0, 3.0, 1.0]]).all()
+
+    # Check the fgen code generation
+    expected_fcode = "FORALL(i = 1:n) a(i, i) = 1"
+    assert fgen(statements[0]) == expected_fcode
+    assert expected_fcode in routine.to_fortran()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+        xfail=[(OMNI, 'Renames index variable to omnitmp000')]
+))
+def test_single_line_forall_masked_stmt(tmp_path, frontend):
+    fcode = """
+subroutine forall_masked_stmt(n, a, b)
+    implicit none
+    integer, parameter :: jprb = selected_real_kind(13,300)
+    integer, intent(in) :: n
+    real(kind=jprb), dimension(n, n), intent(inout) :: a, b
+    integer :: i, j
+
+    forall(i = 1:n, j = 1:n, a(i, j) .ne. 0.0) b(i, j) = 1.0 / a(i, j)
+end subroutine forall_masked_stmt
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check generated IR for the Forall statement
+    statements = FindNodes(ir.Forall).visit(routine.ir)
+    assert len(statements) == 1
+    assert len(statements[0].named_bounds) == 2
+    # Check the i=1:n bound
+    bound_var, bound_range = statements[0].named_bounds[0]
+    assert bound_var == "i"
+    assert bound_range == '1:n'
+    # Check the j=1:n bound
+    bound_var, bound_range = statements[0].named_bounds[1]
+    assert bound_var == "j"
+    assert bound_range == '1:n'
+    # Check the array mask
+    mask = statements[0].mask
+    assert statements[0].mask == 'a(i, j) != 0.0'
+    # Quickly check assignment
+    assignments = FindNodes(ir.Assignment).visit(statements[0])
+    assert len(assignments) == 1
+    assert assignments[0].lhs.name == "b" and len(assignments[0].lhs.dimensions) == 2
+    assert assignments[0].rhs == '1.0 / a(i, j)'
+
+    # Check execution and produced results
+    filepath = tmp_path / (f'single_line_forall_masked_stmt_{frontend}.f90')
+    fun_forall_masked_stmt = jit_compile(routine, filepath=filepath, objname="forall_masked_stmt")
+    n = 3
+    a = np.array([[2.0, 0.0, 2.0],
+                  [0.0, 4.0, 0.0],
+                  [10.0, 10.0, 0.0]], order="F")
+    b = np.zeros((n, n), order="F")
+    fun_forall_masked_stmt(n, a, b)
+    assert (b == [[0.5, 0.0, 0.5], [0, 0.25, 0], [0.1, 0.1, 0]]).all()
+
+    # Check the fgen code generation
+    expected_fcode = "FORALL(i = 1:n, j = 1:n, a(i, j) /= 0.0) b(i, j) = 1.0 / a(i, j)"
+    assert fgen(statements[0]) == expected_fcode
+    assert expected_fcode in routine.to_fortran()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+    (OMNI, 'Renames index variable to omnitmp000'),
+    (OFP, 'Parser fails to parse'),
+]))
+def test_multi_line_forall_construct(tmp_path, frontend):
+    fcode = """
+subroutine forall_construct(n, c, d)
+    implicit none
+    integer, parameter :: jprb = selected_real_kind(13,300)
+    integer, intent(in) :: n
+    real(kind=jprb), dimension(n, n), intent(inout) :: c, d
+    integer :: i, j
+
+    forall(i = 3:n - 2, j = 3:n - 2)
+        c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)
+        d(i, j) = c(i, j)
+    end forall
+end subroutine forall_construct
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check generated IR for the Forall statement
+    statements = FindNodes(ir.Forall).visit(routine.ir)
+    assert len(statements) == 1
+    assert len(statements[0].named_bounds) == 2
+    # Check the i=3:(n-2) bound
+    bound_var, bound_range = statements[0].named_bounds[0]
+    assert bound_var.name == "i"
+    assert bound_range == '3:n-2'
+    # Check the j=3:(n-2) bound
+    bound_var, bound_range = statements[0].named_bounds[1]
+    assert bound_var.name == "j"
+    assert bound_range == '3:n-2'
+    # Check assignments
+    assignments = FindNodes(ir.Assignment).visit(statements[0])
+    assert len(assignments) == 2
+    # Quickly check first assignment
+    assert assignments[0].lhs == 'c(i, j)'
+    assert assignments[0].rhs == 'c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)'
+    # Check the second assignment
+    assert assignments[1].lhs == 'd(i, j)'
+    assert assignments[1].rhs == 'c(i, j)'
+
+    filepath = tmp_path / (f'multi_line_forall_construct_{frontend}.f90')
+    fun_forall_construct = jit_compile(routine, filepath=filepath, objname="forall_construct")
+    n = 6
+    c = np.zeros((n, n), order="F")
+    c.fill(1)
+    d = np.zeros((n, n), order="F")
+    fun_forall_construct(n, c, d)
+    assert (c == [[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+                  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+                  [1.0, 1.0, 4.0, 4.0, 1.0, 1.0],
+                  [1.0, 1.0, 4.0, 4.0, 1.0, 1.0],
+                  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+                  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]]).all()
+    assert (d == [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                  [0.0, 0.0, 4.0, 4.0, 0.0, 0.0],
+                  [0.0, 0.0, 4.0, 4.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]).all()
+
+    # Check the fgen code generation
+    regenerated_code = routine.to_fortran().split("\n")
+    assert regenerated_code[7].strip() == "FORALL(i = 3:n - 2, j = 3:n - 2)"
+    assert regenerated_code[8].strip() == "c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)"
+    assert regenerated_code[9].strip() == "d(i, j) = c(i, j)"
+    assert regenerated_code[10].strip() == "END FORALL"

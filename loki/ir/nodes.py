@@ -38,7 +38,7 @@ __all__ = [
     'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
-    'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
+    'StatementFunction', 'TypeDef', 'MultiConditional', 'Forall', 'MaskedStatement',
     'Intrinsic', 'Enumeration', 'RawSource',
 ]
 
@@ -1662,6 +1662,52 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
     def __repr__(self):
         label = f' {self.name}' if self.name else ''
         return f'MultiConditional::{label} {str(self.expr)}'
+
+
+@dataclass_strict(frozen=True)
+class _ForallBase():
+    """ Type definition for :any:`Forall` node type. """
+
+    named_bounds: Tuple[Tuple[Expression, Expression], ...]
+    body: Tuple[Node, ...]
+    mask: Expression = None
+    name: str = None
+    inline: bool = False
+
+
+@dataclass_strict(frozen=True)
+class Forall(InternalNode, _ForallBase):
+    """
+    Internal representation of a FORALL statement or construct.
+
+    Parameters
+    ----------
+    named_bounds : tuple of pairs (<variable>, <range>) of type :any:`pymbolic.primitives.Expression`
+        The collection of named variables with bounds (ranges).
+    body : tuple of :any:`Node`
+        The collection of assignment statements, nested FORALLs, and/or comments.
+    mask : :any:`pymbolic.primitives.Expression`, optional
+        The condition that define the mask.
+    name : str, optional
+        The name of the multi-line FORALL construct in the original source.
+    inline : bool, optional
+        Flag to indicate a single-line FORALL statement.
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+    _traversable = ['named_bounds', 'mask', 'body']
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_iterable(self.named_bounds) and all(isinstance(c, tuple) for c in self.named_bounds), \
+            "FORALL named bounds must be tuples of <variable, range>"
+        assert is_iterable(self.body), "FORALL body must be iterable"
+        if self.inline:
+            assert len(self.body) == 1, "FORALL statement must contain exactly one assignment"
+            assert self.name is None, "FORALL statement cannot have a name label"
+
+    def __repr__(self):
+        return f"Forall:: {', '.join([e[0].name for e in self.named_bounds])}"
 
 
 @dataclass_strict(frozen=True)

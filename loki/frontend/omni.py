@@ -996,6 +996,28 @@ class OMNI2IR(GenericVisitor):
             default = ()
         return ir.MaskedStatement(conditions=conditions, bodies=bodies, default=default, source=kwargs['source'])
 
+    def visit_blockStatement(self, o, **kwargs):
+        if (forall_stmt := o.find('body/forallStatement')) is not None:
+            return self.visit(forall_stmt, **kwargs)
+        self.warn_or_fail('Unsupported blockStatement')
+        return None
+
+    def visit_forallStatement(self, o, **kwargs):
+        body = self.visit(o.find('body'), **kwargs)
+        named_bounds = ()
+        for var, index_range in zip(o.findall('Var'), o.findall('indexRange')):
+            variable = self.visit(var, **kwargs)
+            lower = self.visit(index_range.find('lowerBound'), **kwargs)
+            upper = self.visit(index_range.find('upperBound'), **kwargs)
+            bounds = sym.RangeIndex((lower, upper))
+            named_bounds += ((variable, bounds),)
+        if (condition := o.find('condition')) is not None:
+            mask = self.visit(condition, **kwargs)
+        else:
+            mask = None
+        return ir.Forall(name=None, named_bounds=named_bounds, body=body,
+                         mask=mask, inline=False, source=kwargs.get('source'))
+
     def visit_FpointerAssignStatement(self, o, **kwargs):
         target = self.visit(o[0], **kwargs)
         expr = self.visit(o[1], **kwargs)
