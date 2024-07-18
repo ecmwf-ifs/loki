@@ -132,7 +132,7 @@ def test_dr_hook_transformation(frontend, config, source, tmp_path):
     """Test DrHook transformation for a renamed Subroutine"""
     scheduler_config = SchedulerConfig.from_dict(config)
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend, xmods=[tmp_path])
-    scheduler.process(transformation=DrHookTransformation(mode='you_up'))
+    scheduler.process(transformation=DrHookTransformation(suffix='you_up'))
 
     for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
         drhook_calls = [
@@ -165,7 +165,7 @@ def test_dr_hook_transformation_remove(frontend, config, source, tmp_path):
     """Test DrHook transformation in remove mode"""
     scheduler_config = SchedulerConfig.from_dict(config)
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend, xmods=[tmp_path])
-    scheduler.process(transformation=DrHookTransformation(mode='you_up', remove=True))
+    scheduler.process(transformation=DrHookTransformation(suffix='you_up', remove=True))
 
     for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
         drhook_calls = [
