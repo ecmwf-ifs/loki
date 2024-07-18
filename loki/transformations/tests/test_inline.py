@@ -21,10 +21,12 @@ from loki.batch import Scheduler, SchedulerConfig
 from loki.transformations.inline import (
     inline_elemental_functions, inline_constant_parameters,
     inline_member_procedures, inline_marked_subroutines,
-    InlineTransformation,
+    inline_statement_functions, InlineTransformation,
 )
 from loki.transformations.sanitise import ResolveAssociatesTransformer
 from loki.transformations.utilities import replace_selected_kind
+
+# pylint: disable=too-many-lines
 
 
 @pytest.fixture(name='builder')
@@ -699,6 +701,42 @@ end subroutine acraneb_transt
     assocs = FindNodes(ir.Associate).visit(routine.body)
     assert len(assocs) == 2
 
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OFP: "OFP apparently has problems dealing with those Statement Functions",
+          OMNI: "OMNI automatically inlines Statement Functions"}
+))
+def test_inline_statement_functions(frontend):
+    fcode = """
+subroutine stmt_func(arr, ret)
+    implicit none
+    real, intent(in) :: arr(:)
+    real, intent(inout) :: ret(:)
+    real :: ret2
+    real, parameter :: rtt = 1.0
+    real :: PTARE
+    real :: FOEDELTA
+    FOEDELTA ( PTARE ) = PTARE + 1.0
+    real :: FOEEW
+    FOEEW ( PTARE ) = PTARE + FOEDELTA(PTARE)
+
+    ret = foeew(arr) 
+    ret2 = foedelta(3.0)
+end subroutine stmt_func
+     """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert FindNodes(ir.StatementFunction).visit(routine.spec)
+    assert FindInlineCalls().visit(routine.body)
+    inline_statement_functions(routine)
+
+    assert not FindNodes(ir.StatementFunction).visit(routine.spec)
+    assert not FindInlineCalls().visit(routine.body)
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+    assert assignments[0].lhs  == 'ret'
+    assert assignments[0].rhs  ==  "arr + arr + 1.0"
+    assert assignments[1].lhs  == 'ret2'
+    assert assignments[1].rhs  ==  "3.0 + 1.0"
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('adjust_imports', [True, False])
