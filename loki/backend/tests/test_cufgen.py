@@ -15,7 +15,7 @@ from loki.frontend import available_frontends
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_cufgen(frontend):
+def test_cufgen(frontend, tmp_path):
     """
     A simple test routine to test the Cuda Fortran (CUF) backend
     """
@@ -36,15 +36,15 @@ contains
     integer :: var_shared
     integer :: var_pinned
     integer :: var_texture
-    call kernel(a, b)    
+    call kernel(a, b)
   end subroutine driver
 
   subroutine kernel(a, b)
     integer, intent(inout) :: a
     integer, intent(inout) :: b(len)
-    real :: x(a) 
+    real :: x(a)
     real :: k2_tmp(a, a)
-    call device1(x, k2_tmp) 
+    call device1(x, k2_tmp)
   end subroutine kernel
 
   subroutine device(x, y)
@@ -55,7 +55,7 @@ contains
 end module transformation_module_cufgen
 """
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     driver = module['driver']
     kernel = module['kernel']

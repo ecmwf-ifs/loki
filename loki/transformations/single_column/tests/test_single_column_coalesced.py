@@ -132,24 +132,24 @@ def test_scc_revector_transformation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_revector_transformation_aliased_bounds(frontend, horizontal_bounds_aliases):
+def test_scc_revector_transformation_aliased_bounds(frontend, horizontal_bounds_aliases, tmp_path):
     """
     Test removal of vector loops in kernel and re-insertion of a single
     hoisted horizontal loop in the kernel with aliased loop bounds.
     """
 
     fcode_bnds_type_mod = """
-    module bnds_type_mod
-    implicit none
-       type bnds_type
-          integer :: start
-          integer :: end
-       end type bnds_type
-    end module bnds_type_mod
-"""
+module bnds_type_mod
+implicit none
+    type bnds_type
+        integer :: start
+        integer :: end
+    end type bnds_type
+end module bnds_type_mod
+    """.strip()
 
     fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, t, nb)
+SUBROUTINE column_driver(nlon, nz, q, t, nb)
     USE bnds_type_mod, only : bnds_type
     INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
     REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
@@ -162,11 +162,11 @@ def test_scc_revector_transformation_aliased_bounds(frontend, horizontal_bounds_
     do b=1, nb
       call compute_column(bnds, nlon, nz, q(:,:,b), t(:,:,b))
     end do
-  END SUBROUTINE column_driver
-"""
+END SUBROUTINE column_driver
+    """.strip()
 
     fcode_kernel = """
-  SUBROUTINE compute_column(bnds, nlon, nz, q, t)
+SUBROUTINE compute_column(bnds, nlon, nz, q, t)
     USE bnds_type_mod, only : bnds_type
     TYPE(bnds_type), INTENT(IN) :: bnds
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
@@ -187,12 +187,13 @@ def test_scc_revector_transformation_aliased_bounds(frontend, horizontal_bounds_
     DO JL = BNDS%START, BNDS%END
       Q(JL, NZ) = Q(JL, NZ) * C
     END DO
-  END SUBROUTINE compute_column
-"""
-    bnds_type_mod = Sourcefile.from_source(fcode_bnds_type_mod, frontend=frontend)
-    kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend,
+END SUBROUTINE compute_column
+    """.strip()
+
+    bnds_type_mod = Sourcefile.from_source(fcode_bnds_type_mod, frontend=frontend, xmods=[tmp_path])
+    kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path],
                                     definitions=bnds_type_mod.definitions).subroutines[0]
-    driver = Sourcefile.from_source(fcode_driver, frontend=frontend,
+    driver = Sourcefile.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path],
                                     definitions=bnds_type_mod.definitions).subroutines[0]
 
     # Ensure we have three loops in the kernel prior to transformation
@@ -625,7 +626,9 @@ END MODULE kernel_mod
             'driver': {'role': 'driver'}
         }
     }
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+    )
 
     driver = scheduler["#driver"].ir
     kernel = scheduler["kernel_mod#kernel"].ir
@@ -819,20 +822,20 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, blocking):
+def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, blocking, tmp_path):
     """
     Test the correct addition of OpenACC pragmas to SCC format code
     when hoisting array temporaries to driver.
     """
 
     fcode_mod = """
-  MODULE BLOCK_DIM_MOD
-     INTEGER :: nb
-  END MODULE BLOCK_DIM_MOD
-  """
+MODULE BLOCK_DIM_MOD
+    INTEGER :: nb
+END MODULE BLOCK_DIM_MOD
+    """.strip()
 
     fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q)
+SUBROUTINE column_driver(nlon, nz, q)
     USE BLOCK_DIM_MOD, ONLY : nb
     INTEGER, INTENT(IN)   :: nlon, nz  ! Size of the horizontal and vertical
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
@@ -843,11 +846,11 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     do b=1, nb
       call compute_column(start, end, nlon, nz, q(:,:,b))
     end do
-  END SUBROUTINE column_driver
-"""
+END SUBROUTINE column_driver
+    """.strip()
 
     fcode_kernel = """
-  SUBROUTINE compute_column(start, end, nlon, nz, q)
+SUBROUTINE compute_column(start, end, nlon, nz, q)
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
     REAL, INTENT(INOUT) :: q(nlon,nz)
@@ -875,21 +878,23 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
 
       Q(JL, NZ) = Q(JL, NZ) * C
     END DO
-  END SUBROUTINE compute_column
-"""
+END SUBROUTINE compute_column
+    """.strip()
 
     fcode_module = """
 module my_scaling_value_mod
     implicit none
     REAL :: c = 5.345
 end module my_scaling_value_mod
-""".strip()
+    """.strip()
 
     # Mimic the scheduler internal mechanis to apply the transformation cascade
-    mod_source = Sourcefile.from_source(fcode_mod, frontend=frontend)
-    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
-    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=mod_source.modules)
-    module_source = Sourcefile.from_source(fcode_module, frontend=frontend)
+    mod_source = Sourcefile.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    driver_source = Sourcefile.from_source(
+        fcode_driver, frontend=frontend, definitions=mod_source.modules, xmods=[tmp_path]
+    )
+    module_source = Sourcefile.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
     module = module_source['my_scaling_value_mod']
@@ -1907,7 +1912,7 @@ def test_single_column_coalesced_vector_reduction(frontend, horizontal, blocking
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
+def test_single_column_coalesced_demotion_parameter(frontend, horizontal, tmp_path):
     """
     Test that temporary arrays with compile-time constants are marked for demotion.
     """
@@ -1938,9 +1943,9 @@ def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
     end subroutine some_kernel
     """
 
-    source = Sourcefile.from_source(fcode_mod, frontend=frontend)
+    source = Sourcefile.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode_kernel, definitions=source.definitions,
-                                     frontend=frontend)
+                                     frontend=frontend, xmods=[tmp_path])
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
@@ -1956,56 +1961,56 @@ def test_single_column_coalesced_demotion_parameter(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_base_horizontal_bounds_checks(frontend, horizontal, horizontal_bounds_aliases):
+def test_scc_base_horizontal_bounds_checks(frontend, horizontal, horizontal_bounds_aliases, tmp_path):
     """
     Test the SCCBaseTransformation checks for horizontal loop bounds.
     """
 
     fcode = """
-    subroutine kernel(start, end, work)
-      real, intent(inout) :: work
-      integer, intent(in) :: start, end
+subroutine kernel(start, end, work)
+    real, intent(inout) :: work
+    integer, intent(in) :: start, end
 
-    end subroutine kernel
-"""
+end subroutine kernel
+    """.strip()
 
     fcode_no_start = """
-    subroutine kernel(end, work)
-      real, intent(inout) :: work
-      integer, intent(in) :: end
+subroutine kernel(end, work)
+    real, intent(inout) :: work
+    integer, intent(in) :: end
 
-    end subroutine kernel
-"""
+end subroutine kernel
+    """.strip()
 
     fcode_no_end = """
-    subroutine kernel(start, work)
-      real, intent(inout) :: work
-      integer, intent(in) :: start
+subroutine kernel(start, work)
+    real, intent(inout) :: work
+    integer, intent(in) :: start
 
-    end subroutine kernel
-"""
+end subroutine kernel
+    """.strip()
 
     fcode_alias = """
-    module bnds_type_mod
+module bnds_type_mod
     implicit none
-       type bnds_type
-          integer :: start
-          integer :: end
-       end type bnds_type
-    end module bnds_type_mod
+    type bnds_type
+        integer :: start
+        integer :: end
+    end type bnds_type
+end module bnds_type_mod
 
-    subroutine kernel(bnds, work)
-      use bnds_type_mod, only : bnds_type
-      type(bnds_type), intent(in) :: bnds
-      real, intent(inout) :: work
+subroutine kernel(bnds, work)
+    use bnds_type_mod, only : bnds_type
+    type(bnds_type), intent(in) :: bnds
+    real, intent(inout) :: work
 
-    end subroutine kernel
-"""
+end subroutine kernel
+    """.strip()
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    no_start = Subroutine.from_source(fcode_no_start, frontend=frontend)
-    no_end = Subroutine.from_source(fcode_no_end, frontend=frontend)
-    alias = Sourcefile.from_source(fcode_alias, frontend=frontend).subroutines[0]
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    no_start = Subroutine.from_source(fcode_no_start, frontend=frontend, xmods=[tmp_path])
+    no_end = Subroutine.from_source(fcode_no_end, frontend=frontend, xmods=[tmp_path])
+    alias = Sourcefile.from_source(fcode_alias, frontend=frontend, xmods=[tmp_path]).subroutines[0]
 
     transform = SCCBaseTransformation(horizontal=horizontal)
     with pytest.raises(RuntimeError):

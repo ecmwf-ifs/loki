@@ -143,7 +143,10 @@ def test_parametrise_source(tmp_path, testdir, frontend, config):
     a = dic2p['a']
     b = dic2p['b']
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
+        frontend=frontend, xmods=[tmp_path]
+    )
 
     # check generated source code
     subroutine_arguments = {
@@ -189,7 +192,10 @@ def test_parametrise_simple(tmp_path, testdir, frontend, config):
     a = dic2p['a']
     b = dic2p['b']
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
+        frontend=frontend, xmods=[tmp_path]
+    )
 
     transformation = ParametriseTransformation(dic2p=dic2p)
     scheduler.process(transformation=transformation)
@@ -237,7 +243,10 @@ def test_parametrise_simple_replace_by_value(tmp_path, testdir, frontend, config
     a = dic2p['a']
     b = dic2p['b']
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
+        frontend=frontend, xmods=[tmp_path]
+    )
 
     transformation = ParametriseTransformation(dic2p=dic2p, replace_by_value=True)
     scheduler.process(transformation=transformation)
@@ -374,8 +383,10 @@ def test_parametrise_modified_callback(tmp_path, testdir, frontend, config):
     abort_callbacks = (error_stop, stop_execution)
 
     for i, abort_callback in enumerate(abort_callbacks):
-        scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
-                              frontend=frontend)
+        scheduler = Scheduler(
+            paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
+            frontend=frontend, xmods=[tmp_path]
+        )
         transformation = ParametriseTransformation(dic2p=dic2p, abort_callback=abort_callback)
         scheduler.process(transformation=transformation)
 
@@ -403,7 +414,10 @@ def test_parametrise_modified_callback_wrong_input(tmp_path, testdir, frontend, 
         abort = (ir.Intrinsic(text=f'print *, "This is just a warning: {msg}"'),)
         return abort
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
+        frontend=frontend, xmods=[tmp_path]
+    )
     transformation = ParametriseTransformation(dic2p=dic2p, abort_callback=only_warn)
     scheduler.process(transformation=transformation)
 
@@ -450,7 +464,10 @@ def test_parametrise_non_driver_entry_points(tmp_path, testdir, frontend, config
     a = dic2p['a']
     b = dic2p['b']
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend)
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver', 'another_driver'], frontend=frontend,
+        xmods=[tmp_path]
+    )
 
     transformation = ParametriseTransformation(dic2p=dic2p, entry_points=("kernel1", "kernel2"))
     scheduler.process(transformation=transformation)

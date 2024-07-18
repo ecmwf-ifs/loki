@@ -217,14 +217,15 @@ end subroutine another_kernel
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
                          'OMNI fails to import undefined module.')]))
-def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend, blockview_to_fieldview_code):
+def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend, blockview_to_fieldview_code, tmp_path):
 
     config['routines'] = {
         'driver': {'role': 'driver'}
     }
 
     scheduler = Scheduler(
-        paths=(blockview_to_fieldview_code[0],), config=config, seed_routines='driver', frontend=frontend
+        paths=(blockview_to_fieldview_code[0],), config=config, seed_routines='driver', frontend=frontend,
+        xmods=[tmp_path]
     )
     scheduler.process(BlockViewToFieldViewTransformation(horizontal, global_gfl_ptr=True))
     scheduler.process(InjectBlockIndexTransformation(blocking))
@@ -264,14 +265,15 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
                          'OMNI fails to import undefined module.')]))
 @pytest.mark.parametrize('global_gfl_ptr', [False, True])
 def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blockview_to_fieldview_code,
-                                     global_gfl_ptr):
+                                     global_gfl_ptr, tmp_path):
 
     config['routines'] = {
         'driver': {'role': 'driver'}
     }
 
     scheduler = Scheduler(
-        paths=(blockview_to_fieldview_code[0],), config=config, seed_routines='driver', frontend=frontend
+        paths=(blockview_to_fieldview_code[0],), config=config, seed_routines='driver', frontend=frontend,
+        xmods=[tmp_path]
     )
     scheduler.process(BlockViewToFieldViewTransformation(horizontal, global_gfl_ptr=global_gfl_ptr))
 

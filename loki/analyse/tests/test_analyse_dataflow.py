@@ -283,7 +283,7 @@ end subroutine test
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_analyse_imports(frontend):
+def test_analyse_imports(frontend, tmp_path):
     fcode_module = """
 module some_mod
 implicit none
@@ -308,8 +308,8 @@ implicit none
 end subroutine test
 """.strip()
 
-    module = Module.from_source(fcode_module, frontend=frontend)
-    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module, xmods=[tmp_path])
 
     with dataflow_analysis_attached(routine):
         assert len(routine.spec.defines_symbols) == 1

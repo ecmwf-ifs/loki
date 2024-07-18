@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 import pytest
 import numpy as np
 
@@ -23,11 +22,6 @@ from loki.transformations.array_indexing import (
 from loki.transformations.transpile import FortranCTransformation
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
 @pytest.fixture(scope='function', name='builder')
 def fixture_builder(tmp_path):
     yield Builder(source_dirs=tmp_path, build_dir=tmp_path)
@@ -35,7 +29,7 @@ def fixture_builder(tmp_path):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_promote_variable_scalar(here, frontend):
+def test_transform_promote_variable_scalar(tmp_path, frontend):
     """
     Apply variable promotion for a single scalar variable.
     """
@@ -55,7 +49,7 @@ end subroutine transform_promote_variable_scalar
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the original implementation
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     ret = function()
     assert ret == 55
@@ -66,17 +60,14 @@ end subroutine transform_promote_variable_scalar
     assert isinstance(routine.variable_map['tmp'], sym.Array)
     assert routine.variable_map['tmp'].shape == (sym.Literal(10),)
 
-    promoted_filepath = here/(f'{routine.name}_promoted_{frontend}.f90')
+    promoted_filepath = tmp_path/(f'{routine.name}_promoted_{frontend}.f90')
     promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
     ret = promoted_function()
     assert ret == 55
 
-    clean_test(filepath)
-    clean_test(promoted_filepath)
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_promote_variables(here, frontend):
+def test_transform_promote_variables(tmp_path, frontend):
     """
     Apply variable promotion for scalar and array variables.
     """
@@ -113,7 +104,7 @@ end subroutine transform_promote_variables
     normalize_range_indexing(routine) # Fix OMNI nonsense
 
     # Test the original implementation
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     n = 10
@@ -153,7 +144,7 @@ end subroutine transform_promote_variables
     assert routine.variable_map['tmp_matrix'].shape == (routine.variable_map['n'], ) * 3
 
     # Test promoted routine
-    promoted_filepath = here/(f'{routine.name}_promoted_{frontend}.f90')
+    promoted_filepath = tmp_path/(f'{routine.name}_promoted_{frontend}.f90')
     promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
 
     scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
@@ -163,12 +154,9 @@ end subroutine transform_promote_variables
     assert np.all(vector[:-1] == np.array(list(range(n + 1, 2*n)), order='F', dtype=np.int32))
     assert vector[-1] == 3*n
 
-    clean_test(filepath)
-    clean_test(promoted_filepath)
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_demote_variables(here, frontend):
+def test_transform_demote_variables(tmp_path, frontend):
     """
     Apply variable demotion to a range of array variables.
     """
@@ -210,7 +198,7 @@ end subroutine transform_demote_variables
     normalize_range_indexing(routine) # Fix OMNI nonsense
 
     # Test the original implementation
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     n = 3
@@ -238,7 +226,7 @@ end subroutine transform_demote_variables
     assert routine.variable_map['tmp_matrix'].shape == (routine.variable_map['n'], routine.variable_map['n'])
 
     # Test promoted routine
-    demoted_filepath = here/(f'{routine.name}_demoted_{frontend}.f90')
+    demoted_filepath = tmp_path/(f'{routine.name}_demoted_{frontend}.f90')
     demoted_function = jit_compile(routine, filepath=demoted_filepath, objname=routine.name)
 
     n = 3
@@ -260,33 +248,33 @@ end subroutine transform_demote_variables
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_demote_dimension_arguments(here, frontend):
+def test_transform_demote_dimension_arguments(tmp_path, frontend):
     """
     Apply variable demotion to array arguments defined with DIMENSION
     keywords.
     """
     fcode = """
 subroutine transform_demote_dimension_arguments(vec1, vec2, matrix, n, m)
-  implicit none
-  integer, intent(in) :: n, m
-  integer, dimension(n), intent(inout) :: vec1, vec2
-  integer, dimension(n, m), intent(inout) :: matrix
-  integer, dimension(n) :: vec_tmp
-  integer :: i, j
+    implicit none
+    integer, intent(in) :: n, m
+    integer, dimension(n), intent(inout) :: vec1, vec2
+    integer, dimension(n, m), intent(inout) :: matrix
+    integer, dimension(n) :: vec_tmp
+    integer :: i, j
 
-  do i=1,n
-    do j=1,m
-      vec_tmp(i) = vec1(i) + vec2(i)
-      matrix(i, j) = matrix(i, j) + vec_tmp(i)
+    do i=1,n
+        do j=1,m
+        vec_tmp(i) = vec1(i) + vec2(i)
+        matrix(i, j) = matrix(i, j) + vec_tmp(i)
+        end do
     end do
-  end do
 end subroutine transform_demote_dimension_arguments
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_range_indexing(routine) # Fix OMNI nonsense
 
     # Test the original implementation
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     assert isinstance(routine.variable_map['vec1'], sym.Array)
@@ -316,7 +304,7 @@ end subroutine transform_demote_dimension_arguments
     assert routine.variable_map['matrix'].shape == (routine.variable_map['m'],)
 
     # Test promoted routine
-    demoted_filepath = here/(f'{routine.name}_demoted_{frontend}.f90')
+    demoted_filepath = tmp_path/(f'{routine.name}_demoted_{frontend}.f90')
     demoted_function = jit_compile(routine, filepath=demoted_filepath, objname=routine.name)
 
     n = 3
@@ -332,7 +320,7 @@ end subroutine transform_demote_dimension_arguments
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('start_index', (0, 1, 5))
-def test_transform_normalize_array_shape_and_access(here, frontend, start_index):
+def test_transform_normalize_array_shape_and_access(tmp_path, frontend, start_index):
     """
     Test normalization of array shape and access, thus changing arrays with start
     index different than "1" to have start index "1".
@@ -416,10 +404,10 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
     l2 = 3
     l3 = 4
     l4 = 5
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     for routine in module.routines:
         normalize_range_indexing(routine) # Fix OMNI nonsense
-    filepath = here/(f'norm_arr_shape_access_{frontend}.f90')
+    filepath = tmp_path/(f'norm_arr_shape_access_{frontend}.f90')
     # compile and test "original" module/function
     mod = jit_compile(module, filepath=filepath, objname='norm_arr_shape_access_mod')
     function = getattr(mod, 'norm_arr_shape_access')
@@ -431,7 +419,7 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
     for routine in module.routines:
         normalize_array_shape_and_access(routine)
 
-    filepath = here/(f'norm_arr_shape_access_normalized_{frontend}.f90')
+    filepath = tmp_path/(f'norm_arr_shape_access_normalized_{frontend}.f90')
     # compile and test "normalized" module/function
     mod = jit_compile(module, filepath=filepath, objname='norm_arr_shape_access_mod')
     function = getattr(mod, 'norm_arr_shape_access')
@@ -453,7 +441,7 @@ def test_transform_normalize_array_shape_and_access(here, frontend, start_index)
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('start_index', (0, 1, 5))
-def test_transform_flatten_arrays(here, frontend, builder, start_index):
+def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     """
     Test flattening or arrays, meaning converting multi-dimensional
     arrays to one-dimensional arrays including corresponding
@@ -514,7 +502,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     # Test the original implementation
     routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_range_indexing(routine) # Fix OMNI nonsense
-    filepath = here/(f'{routine.name}_{start_index}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{start_index}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     orig_x1, orig_x2, orig_x3, orig_x4 = init_arguments(l1, l2, l3, l4)
     function(orig_x1, orig_x2, orig_x3, orig_x4, l1, l2, l3, l4)
@@ -525,7 +513,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     normalize_array_shape_and_access(f_routine)
     normalize_range_indexing(f_routine) # Fix OMNI nonsense
     flatten_arrays(routine=f_routine, order='F', start_index=1)
-    filepath = here/(f'{f_routine.name}_{start_index}_flattened_F_{frontend}.f90')
+    filepath = tmp_path/(f'{f_routine.name}_{start_index}_flattened_F_{frontend}.f90')
     function = jit_compile(f_routine, filepath=filepath, objname=routine.name)
     f_x1, f_x2, f_x3, f_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
     function(f_x1, f_x2, f_x3, f_x4, l1, l2, l3, l4)
@@ -543,7 +531,7 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     normalize_range_indexing(c_routine) # Fix OMNI nonsense
     invert_array_indices(c_routine)
     flatten_arrays(routine=c_routine, order='C', start_index=1)
-    filepath = here/(f'{c_routine.name}_{start_index}_flattened_C_{frontend}.f90')
+    filepath = tmp_path/(f'{c_routine.name}_{start_index}_flattened_C_{frontend}.f90')
     function = jit_compile(c_routine, filepath=filepath, objname=routine.name)
     c_x1, c_x2, c_x3, c_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
     function(c_x1, c_x2, c_x3, c_x4, l1, l2, l3, l4)
@@ -560,9 +548,9 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     # Test C transpilation (which includes flattening)
     f2c_routine = Subroutine.from_source(fcode, frontend=frontend)
     f2c = FortranCTransformation()
-    f2c.apply(source=f2c_routine, path=here)
+    f2c.apply(source=f2c_routine, path=tmp_path)
     libname = f'fc_{f2c_routine.name}_{start_index}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
     fc_function = c_kernel.transf_flatten_arr_fc_mod.transf_flatten_arr_fc
     f2c_x1, f2c_x2, f2c_x3, f2c_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
     fc_function(f2c_x1, f2c_x2, f2c_x3, f2c_x4, l1, l2, l3, l4)
@@ -572,11 +560,6 @@ def test_transform_flatten_arrays(here, frontend, builder, start_index):
     assert (f2c_x2 == orig_x2.flatten(order='F')).all()
     assert (f2c_x3 == orig_x3.flatten(order='F')).all()
     assert (f2c_x4 == orig_x4.flatten(order='F')).all()
-
-    builder.clean()
-    clean_test(filepath)
-    f2c.wrapperpath.unlink()
-    f2c.c_path.unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -646,7 +629,7 @@ def test_transform_flatten_arrays_call(tmp_path, frontend, builder, explicit_dim
     """
     array_dims = '(:,:)' if explicit_dimensions else ''
     fcode_driver = f"""
-  SUBROUTINE driver_routine(nlon, nlev, a, b)
+SUBROUTINE driver_routine(nlon, nlev, a, b)
     use kernel_mod, only: kernel_routine
     INTEGER, INTENT(IN)    :: nlon, nlev
     INTEGER, INTENT(INOUT) :: a(nlon,nlev)
@@ -654,13 +637,13 @@ def test_transform_flatten_arrays_call(tmp_path, frontend, builder, explicit_dim
 
     call kernel_routine(nlon, nlev, a{array_dims}, b{array_dims})
 
-  END SUBROUTINE driver_routine
+END SUBROUTINE driver_routine
     """
     fcode_kernel = """
-  module kernel_mod
-  IMPLICIT NONE
-  CONTAINS
-  SUBROUTINE kernel_routine(nlon, nlev, a, b)
+module kernel_mod
+IMPLICIT NONE
+CONTAINS
+SUBROUTINE kernel_routine(nlon, nlev, a, b)
     INTEGER, INTENT(IN)    :: nlon, nlev
     INTEGER, INTENT(INOUT) :: a(nlon,nlev)
     INTEGER, INTENT(INOUT) :: b(nlon,nlev)
@@ -672,8 +655,8 @@ def test_transform_flatten_arrays_call(tmp_path, frontend, builder, explicit_dim
         b(i,j) = i*10 + j + 1
       end do
     end do
-  END SUBROUTINE kernel_routine
-  end module kernel_mod
+END SUBROUTINE kernel_routine
+end module kernel_mod
     """
     def init_arguments(nlon, nlev, flattened=False):
         a = np.zeros(shape=(nlon*nlev) if flattened else (nlon,nlev,), order='F', dtype=np.int32)
@@ -685,8 +668,8 @@ def test_transform_flatten_arrays_call(tmp_path, frontend, builder, explicit_dim
         assert all(len(arr.dimensions) == 1 or not arr.dimensions for arr in arrays)
         assert all(len(arr.shape) == 1 for arr in arrays)
 
-    kernel_module = Module.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    kernel_module = Module.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
     kernel = kernel_module.subroutines[0]
 
     # check for a(:,:) and b(:,:) if "explicit_dimensions"

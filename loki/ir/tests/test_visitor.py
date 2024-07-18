@@ -376,7 +376,7 @@ end subroutine find_variables_associates
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_stringifier(frontend):
+def test_stringifier(frontend, tmp_path):
     """
     Test basic stringifier capability for most IR nodes.
     """
@@ -512,7 +512,7 @@ END MODULE some_mod
 
     cont_index = 27  # line number where line continuation is happening
     ref = '\n'.join(ref_lines)
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Test custom indentation
     def line_cont(indent):
@@ -1169,7 +1169,7 @@ end subroutine test_is_child_of
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_attach_scopes_associates(frontend):
+def test_attach_scopes_associates(frontend, tmp_path):
     fcode = """
 module attach_scopes_associates_mod
     implicit none
@@ -1197,7 +1197,7 @@ contains
 end module attach_scopes_associates_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['attach_scopes_associates']
     associates = FindNodes(Associate).visit(routine.body)
     assert len(associates) == 2

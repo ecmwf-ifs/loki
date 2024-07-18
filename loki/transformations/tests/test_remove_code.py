@@ -287,7 +287,7 @@ end subroutine test_remove_code
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('remove_imports', [True, False])
-def test_transform_remove_calls(frontend, remove_imports):
+def test_transform_remove_calls(frontend, remove_imports, tmp_path):
     """
     Test removal of utility calls and intrinsics with custom patterns.
     """
@@ -343,11 +343,11 @@ end subroutine
     """
 
     # Parse utility module first, to get type info for OMNI
-    _ = Module.from_source(fcode_yomhook, frontend=frontend)
-    _ = Module.from_source(fcode_abor1, frontend=frontend)
+    Module.from_source(fcode_yomhook, frontend=frontend, xmods=[tmp_path])
+    Module.from_source(fcode_abor1, frontend=frontend, xmods=[tmp_path])
 
     # Parse the main test function and remove calls
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Note that OMNI enforces keyword-arg passing for intrinsic
     # call to ``write``, so we match both conventions.
@@ -390,7 +390,7 @@ end subroutine
 ))
 @pytest.mark.parametrize('include_intrinsics', (True, False))
 @pytest.mark.parametrize('kernel_only', (True, False))
-def test_remove_code_transformation(frontend, source, include_intrinsics, kernel_only):
+def test_remove_code_transformation(frontend, source, include_intrinsics, kernel_only, tmp_path):
     """
     Test the use of code removal utilities, in particular the call
     removal, via the scheduler.
@@ -406,7 +406,7 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
         }
     }
     scheduler_config = SchedulerConfig.from_dict(config)
-    scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
+    scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend, xmods=[tmp_path])
 
     # Apply the transformation to the call tree
     transformation = RemoveCodeTransformation(

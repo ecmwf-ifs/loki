@@ -3,7 +3,7 @@ import pytest
 
 from loki import Module, Subroutine, FindNodes, flatten, pprint, fgen
 from loki.frontend import available_frontends
-from loki.ir import Comment, Pragma, Loop, VariableDeclaration, PragmaRegion
+from loki.ir import Pragma, Loop, VariableDeclaration, PragmaRegion
 from loki.ir.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
     pragmas_attached, pragma_regions_attached
@@ -405,7 +405,7 @@ end subroutine test_tools_pragmas_attached_post
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_tools_pragmas_attached_module(frontend):
+def test_tools_pragmas_attached_module(frontend, tmp_path):
     """
     Verify pragmas_attached works for Module objects.
     """
@@ -416,7 +416,7 @@ module test_tools_pragmas_attached_module
   integer, allocatable :: b(:,:)
 end module test_tools_pragmas_attached_module
     """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     assert len(FindNodes(Pragma).visit(module.spec)) == 1
     decl = FindNodes(VariableDeclaration).visit(module.spec)[1]

@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 import pytest
 import numpy as np
 
@@ -645,8 +644,8 @@ contains
   end subroutine reg_to_call_imps
 end module reg_to_call_imps_mod
 """
-    ext_module = Module.from_source(fcode_module, frontend=frontend)
-    module = Module.from_source(fcode, frontend=frontend, definitions=ext_module)
+    ext_module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    module = Module.from_source(fcode, frontend=frontend, definitions=ext_module, xmods=[tmp_path])
     normalize_range_indexing(module.subroutines[0])
     refname = f'ref_{module.name}_{frontend}'
     reference = jit_compile_lib([module, ext_module], path=tmp_path, name=refname, builder=builder)

@@ -252,7 +252,10 @@ end module kernel_mod
         Fortran2003.Intrinsic_Name.generic_function_names.update({"LOC": {'min': 1, 'max': 1}})
         Fortran2003.Intrinsic_Name.function_names += ["LOC"]
 
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
 
     if frontend == OMNI:
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
@@ -595,7 +598,10 @@ end module kernel_mod
             'driver': {'role': 'driver'}
         }
     }
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
     if frontend == OMNI:
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
@@ -892,7 +898,10 @@ end module kernel_mod
         }
     }
 
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
     if frontend == OMNI:
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
@@ -1138,7 +1147,9 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
             'kernel': {}
         }
     }
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+    )
     if frontend == OMNI:
         for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
             normalize_range_indexing(item.ir)
@@ -1186,6 +1197,15 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_args_vs_kwargs(tmp_path, frontend, block_dim_alt, cray_ptr_loc_rhs):
+    fcode_parkind_mod = """
+module parkind1
+implicit none
+integer, parameter :: jwrb = selected_real_kind(13,300)
+integer, parameter :: jpim = selected_int_kind(9)
+integer, parameter :: jplm = jpim
+end module parkind1
+    """.strip()
+
     fcode_module = """
 module geom_mod
     implicit none
@@ -1283,6 +1303,7 @@ contains
 end module kernel_mod
     """.strip()
 
+    (tmp_path / 'parkind1.F90').write_text(fcode_parkind_mod)
     (tmp_path / 'driver.F90').write_text(fcode_driver)
     (tmp_path / 'kernel.F90').write_text(fcode_kernel)
     (tmp_path / 'module.F90').write_text(fcode_module)
@@ -1293,14 +1314,17 @@ end module kernel_mod
             'role': 'kernel',
             'expand': True,
             'strict': True,
-            'disable': ['parkind1'],
+            'ignore': ['parkind1'],
             'enable_imports': True,
         },
         'routines': {
             'driver': {'role': 'driver'}
         }
     }
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
 
     if frontend == OMNI:
         for item in scheduler.items:

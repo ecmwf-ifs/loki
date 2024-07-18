@@ -14,7 +14,7 @@ from loki.ir import Intrinsic, DataDeclaration
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_fgen_literal_list_linebreak(frontend):
+def test_fgen_literal_list_linebreak(frontend, tmp_path):
     """
     Test correct handling of linebreaks for LiteralList expression nodes
     """
@@ -61,7 +61,7 @@ contains
 end module some_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['literal_list_linebreak']
 
     # Make sure all lines are continued correctly
@@ -175,7 +175,7 @@ end subroutine test_inline_multiline_long
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_fgen_save_attribute(frontend):
+def test_fgen_save_attribute(frontend, tmp_path):
     """
     Make sure the SAVE attribute on declarations is preserved (#164)
     """
@@ -184,7 +184,7 @@ MODULE test
     INTEGER, SAVE :: variable
 END MODULE test
     """.strip()
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     assert module['variable'].type.save is True
     assert len(module.declarations) == 1
     assert 'SAVE' in fgen(module.declarations[0])

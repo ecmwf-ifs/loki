@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 import pytest
 
 from loki import Sourcefile
@@ -17,11 +16,6 @@ from loki.ir import FindNodes, CallStatement, Import, Interface, Intrinsic
 from loki.transformations import (
     DependencyTransformation, ModuleWrapTransformation
 )
-
-
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
 
 
 @pytest.fixture(scope='function', name='config')
@@ -79,7 +73,9 @@ END SUBROUTINE driver
     if use_scheduler:
         (tmp_path/'kernel_mod.F90').write_text(kernel_fcode)
         (tmp_path/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler = Scheduler(
+            paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        )
         scheduler.process(transformation)
 
         # Check that both, old and new module exist now in the scheduler graph
@@ -90,15 +86,17 @@ END SUBROUTINE driver
         driver = scheduler['#driver'].source
 
         # Check that the not-renamed module is indeed the original one
-        scheduler.item_factory.item_cache[str(tmp_path/'kernel_mod.F90')].source.make_complete(frontend=frontend)
+        scheduler.item_factory.item_cache[str(tmp_path/'kernel_mod.F90')].source.make_complete(
+            frontend=frontend, xmods=[tmp_path]
+        )
         assert (
-            Sourcefile.from_source(kernel_fcode, frontend=frontend).to_fortran() ==
+            Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path]).to_fortran() ==
             scheduler.item_factory.item_cache[str(tmp_path/'kernel_mod.F90')].source.to_fortran()
         )
 
     else:
-        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
-        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path])
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend, xmods=[tmp_path])
 
         kernel.apply(transformation, role='kernel')
         driver['driver'].apply(transformation, role='driver', targets=('kernel', 'kernel_mod'))
@@ -162,15 +160,17 @@ END MODULE DRIVER_MOD
     if use_scheduler:
         (tmp_path/'kernel_mod.F90').write_text(kernel_fcode)
         (tmp_path/'driver_mod.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler = Scheduler(
+            paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        )
         scheduler.process(transformation)
 
         kernel = scheduler['kernel_test_mod#kernel_test'].source
         driver = scheduler['driver_mod#driver'].source
 
     else:
-        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
-        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path])
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend, xmods=[tmp_path])
 
         kernel.apply(transformation, role='kernel')
         driver.apply(transformation, role='driver', targets=('kernel', 'kernel_mod'))
@@ -195,7 +195,7 @@ END MODULE DRIVER_MOD
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
-def test_dependency_transformation_header_includes(here, frontend):
+def test_dependency_transformation_header_includes(tmp_path, frontend):
     """
     Test injection of suffixed kernels into unchanged driver
     routines via c-header includes.
@@ -223,12 +223,12 @@ END SUBROUTINE myfunc
 """, frontend=frontend)
 
     # Ensure header file does not exist a-priori
-    header_file = here/'myfunc_test.intfb.h'
+    header_file = tmp_path/'myfunc_test.intfb.h'
     if header_file.exists():
         header_file.unlink()
 
     # Apply injection transformation via C-style includes by giving `include_path`
-    transformation = DependencyTransformation(suffix='_test', include_path=here)
+    transformation = DependencyTransformation(suffix='_test', include_path=tmp_path)
     kernel['myfunc'].apply(transformation, role='kernel')
     driver['driver'].apply(transformation, role='driver', targets='myfunc')
 
@@ -292,7 +292,9 @@ END SUBROUTINE kernel
     if use_scheduler:
         (tmp_path/'kernel.F90').write_text(kernel_fcode)
         (tmp_path/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler = Scheduler(
+            paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        )
         for transformation in transformations:
             scheduler.process(transformation)
 
@@ -300,8 +302,8 @@ END SUBROUTINE kernel
         driver = scheduler['#driver'].source
 
     else:
-        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
-        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path])
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend, xmods=[tmp_path])
 
         kernel.apply(transformations[0], role='kernel')
         driver['driver'].apply(transformations[0], role='driver', targets=('kernel',))
@@ -376,7 +378,9 @@ END SUBROUTINE kernel
     if use_scheduler:
         (tmp_path/'kernel.F90').write_text(kernel_fcode)
         (tmp_path/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler = Scheduler(
+            paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        )
         for transformation in transformations:
             scheduler.process(transformation)
 
@@ -387,8 +391,8 @@ END SUBROUTINE kernel
         driver = scheduler['#driver'].source
 
     else:
-        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
-        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path])
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend, xmods=[tmp_path])
 
         targets = ('kernel',)
         for transformation in transformations:
@@ -635,14 +639,16 @@ END SUBROUTINE driver
     if use_scheduler:
         (tmp_path/'kernel_mod.F90').write_text(kernel_fcode)
         (tmp_path/'driver.F90').write_text(driver_fcode)
-        scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+        scheduler = Scheduler(
+            paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        )
         scheduler.process(transformation)
 
         kernel = scheduler['kernel_test_mod#kernel_test'].source
         driver = scheduler['#driver'].source
     else:
-        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend)
-        driver = Sourcefile.from_source(driver_fcode, frontend=frontend)
+        kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path])
+        driver = Sourcefile.from_source(driver_fcode, frontend=frontend, xmods=[tmp_path])
 
         kernel.apply(transformation, role='kernel', targets=('set_a', 'get_b'))
         driver['driver'].apply(transformation, role='driver', targets=('kernel', 'kernel_mod'))
@@ -721,7 +727,9 @@ END MODULE header_mod
 
     # Create the scheduler such that it chases imports
     config['default']['enable_imports'] = True
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+    )
 
     # Make sure the header module item exists
     assert 'header_mod' in scheduler.items
@@ -830,7 +838,7 @@ end subroutine test_dependency_transformation_filter_items_driver
     scheduler = Scheduler(
         paths=[tmp_path], config=config,
         seed_routines=['test_dependency_transformation_filter_items_driver'],
-        frontend=frontend
+        frontend=frontend, xmods=[tmp_path]
     )
 
     # Only the driver and mod1 are in the Sgraph

@@ -201,7 +201,7 @@ end subroutine transform_associates_nested_conditional
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_sequence_assocaition_scalar_notation(frontend):
+def test_transform_sequence_assocaition_scalar_notation(frontend, tmp_path):
     fcode = """
 module mod_a
     implicit none
@@ -244,7 +244,7 @@ contains
 end module mod_a
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['main']
 
     transform_sequence_association(routine)
@@ -261,7 +261,7 @@ end module mod_a
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('resolve_associate', [True, False])
 @pytest.mark.parametrize('resolve_sequence', [True, False])
-def test_transformation_sanitise(frontend, resolve_associate, resolve_sequence):
+def test_transformation_sanitise(frontend, resolve_associate, resolve_sequence, tmp_path):
     """
     Test that the selective dispatch of the sanitisations works.
     """
@@ -296,7 +296,7 @@ contains
   end subroutine test_transformation_sanitise
 end module test_transformation_sanitise_mod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['test_transformation_sanitise']
 
     assoc = FindNodes(Associate).visit(routine.body)
