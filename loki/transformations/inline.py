@@ -60,7 +60,7 @@ class InlineTransformation(Transformation):
     inline_stmt_funcs: bool
         Replaces  :any:`InlineCall` expression to statement functions
         with the corresponding rhs of the statement function if
-        the statement function declaration is available; default: True.
+        the statement function declaration is available; default: False.
     inline_internals : bool
         Inline internal procedure (see :any:`inline_internal_procedures`);
         default: False.
@@ -91,7 +91,7 @@ class InlineTransformation(Transformation):
 
     def __init__(
             self, inline_constants=False, inline_elementals=True,
-            inline_stmt_funcs=True, inline_internals=False,
+            inline_stmt_funcs=False, inline_internals=False,
             inline_marked=True, remove_dead_code=True,
             allowed_aliases=None, adjust_imports=True,
             external_only=True, resolve_sequence_association=False

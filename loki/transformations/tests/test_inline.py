@@ -706,19 +706,24 @@ end subroutine acraneb_transt
     skip={OFP: "OFP apparently has problems dealing with those Statement Functions",
           OMNI: "OMNI automatically inlines Statement Functions"}
 ))
-def test_inline_statement_functions(frontend):
-    fcode = """
+@pytest.mark.parametrize('stmt_decls', (True, False))
+def test_inline_statement_functions(frontend, stmt_decls):
+    stmt_decls_code = """
+    real :: PTARE
+    real :: FOEDELTA
+    FOEDELTA ( PTARE ) = PTARE + 1.0
+    real :: FOEEW
+    FOEEW ( PTARE ) = PTARE + FOEDELTA(PTARE)
+    """.strip()
+
+    fcode = f"""
 subroutine stmt_func(arr, ret)
     implicit none
     real, intent(in) :: arr(:)
     real, intent(inout) :: ret(:)
     real :: ret2
     real, parameter :: rtt = 1.0
-    real :: PTARE
-    real :: FOEDELTA
-    FOEDELTA ( PTARE ) = PTARE + 1.0
-    real :: FOEEW
-    FOEEW ( PTARE ) = PTARE + FOEDELTA(PTARE)
+    {stmt_decls_code if stmt_decls else ''}
 
     ret = foeew(arr) 
     ret2 = foedelta(3.0)
@@ -726,17 +731,23 @@ end subroutine stmt_func
      """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert FindNodes(ir.StatementFunction).visit(routine.spec)
+    if stmt_decls:
+        assert FindNodes(ir.StatementFunction).visit(routine.spec)
+    else:
+        assert not FindNodes(ir.StatementFunction).visit(routine.spec)
     assert FindInlineCalls().visit(routine.body)
     inline_statement_functions(routine)
 
     assert not FindNodes(ir.StatementFunction).visit(routine.spec)
-    assert not FindInlineCalls().visit(routine.body)
-    assignments = FindNodes(ir.Assignment).visit(routine.body)
-    assert assignments[0].lhs  == 'ret'
-    assert assignments[0].rhs  ==  "arr + arr + 1.0"
-    assert assignments[1].lhs  == 'ret2'
-    assert assignments[1].rhs  ==  "3.0 + 1.0"
+    if stmt_decls:
+        assert not FindInlineCalls().visit(routine.body)
+        assignments = FindNodes(ir.Assignment).visit(routine.body)
+        assert assignments[0].lhs  == 'ret'
+        assert assignments[0].rhs  ==  "arr + arr + 1.0"
+        assert assignments[1].lhs  == 'ret2'
+        assert assignments[1].rhs  ==  "3.0 + 1.0"
+    else:
+        assert FindInlineCalls().visit(routine.body)
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('adjust_imports', [True, False])
