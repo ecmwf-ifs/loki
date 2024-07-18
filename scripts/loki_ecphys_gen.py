@@ -33,6 +33,7 @@ from loki.types import BasicType
 from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import transform_sequence_association_append_map
 from loki.transformations.remove_code import do_remove_marked_regions
+from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.build_system import ModuleWrapTransformation
 
 
@@ -282,7 +283,12 @@ def inline(source, build, remove_openmp):
 
 """
 
-    # Create source file, wrap as a module and write to file
+    # Rename DR_HOOK calls to ensure appropriate performance logging
+    DrHookTransformation(
+        rename={'EC_PHYS_DRV': 'EC_PHYS_FC'}, kernel_only=False
+    ).apply(ec_phys_fc, role='driver')
+
+    # Create source file, wrap as a module adjust DR_HOOK labels and write to file
     srcfile = Sourcefile(path=build/'ec_phys_fc_mod.F90', ir=(ec_phys_fc,))
     ModuleWrapTransformation(module_suffix='_MOD').apply(srcfile, role='kernel')
 
@@ -314,6 +320,11 @@ def parallel(source, build):
             field_group_types=field_group_types,
             global_variables=global_variables
         )
+
+    # Rename DR_HOOK calls to ensure appropriate performance logging
+    DrHookTransformation(
+        rename={'EC_PHYS_FC': 'EC_PHYS_PARALLEL'}, kernel_only=False
+    ).apply(ec_phys_parallel, role='driver')
 
     # Create source file, wrap as a module and write to file
     srcfile = Sourcefile(path=build/'ec_phys_parallel_mod.F90', ir=(ec_phys_parallel,))
