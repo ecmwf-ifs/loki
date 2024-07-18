@@ -55,6 +55,8 @@ class DrHookTransformation(Transformation):
         Remove calls to ``DR_HOOK``
     """
 
+    recurse_to_internal_procedures = True
+
     def __init__(self, suffix=None, remove=False, **kwargs):
         self.remove = remove
         self.suffix = suffix
@@ -69,9 +71,6 @@ class DrHookTransformation(Transformation):
         # Leave DR_HOOK annotations in driver routine
         if role == 'driver':
             return
-
-        for r in routine.members:
-            self.transform_subroutine(r, **kwargs)
 
         mapper = {}
         for call in FindNodes(CallStatement).visit(routine.body):
