@@ -58,25 +58,28 @@ class DrHookTransformation(Transformation):
         Dict with explicit label rename mappings
     remove : bool
         Flag to explicitly remove calls to ``DR_HOOK``
+    kernel_only : boolean
+        Only apply to subroutines marked as "kernel"; default: ``False``
     """
 
     recurse_to_internal_procedures = True
 
-    def __init__(self, suffix=None, rename=None, remove=False, **kwargs):
+    def __init__(
+            self, suffix=None, rename=None, remove=False, kernel_only=True
+    ):
         self.suffix = suffix
         self.rename = rename
         self.remove = remove
-
-        super().__init__(**kwargs)
+        self.kernel_only = kernel_only
 
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply transformation to subroutine object
         """
-        role = kwargs['item'].role
+        role = kwargs.get('role')
 
         # Leave DR_HOOK annotations in driver routine
-        if role == 'driver':
+        if self.kernel_only and role == 'driver':
             return
 
         mapper = {}

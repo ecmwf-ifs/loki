@@ -210,7 +210,7 @@ def test_dr_hook_transformation_rename(frontend, config, source):
         transformation=DrHookTransformation(rename={
             'rick_astley': 'my_man_dave',
             'never_gonna_run_around': 'see_ya_later',
-        })
+        }, kernel_only=False)
     )
 
     for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
