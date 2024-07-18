@@ -306,8 +306,8 @@ class GlobalVariableAnalysis(Transformation):
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
             }
 
-            if routine.name.lower == 'sinput_ard':
-                print(f"routine: {routine} | import_map: {import_map}")
+            # if routine.name.lower == 'sinput_ard':
+            #     print(f"routine: {routine} | import_map: {import_map}")
             # Filter out type and procedure imports by restricting to Scalar and Array symbols
             uses_imported_symbols = {var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))}
             defines_imported_symbols = {var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))}
@@ -928,7 +928,7 @@ class GlobalVarHoistTransformation(Transformation):
                 continue
             new_arguments.append(var.parents[0] if var.parent else var)
         new_arguments = set(new_arguments) # remove duplicates
-        print(f"_append_routine_arguments new_arguments for routine: {routine} : {new_arguments}")
+        # print(f"_append_routine_arguments new_arguments for routine: {routine} : {new_arguments}")
         new_arguments = [
             arg.clone(scope=routine, type=arg.type.clone(
                 intent='inout' if arg in all_defines_vars else 'in',

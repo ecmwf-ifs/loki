@@ -15,11 +15,13 @@ from collections import defaultdict, ChainMap
 from loki.batch import Transformation
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
-    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface
+    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface,
+    StatementFunction
 )
+from pymbolic.primitives import Expression
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, LokiIdentityMapper
+    SubstituteExpressions, LokiIdentityMapper, FindInlineCallsArray
 )
 from loki.types import BasicType
 from loki.tools import as_tuple, CaseInsensitiveDict
@@ -31,12 +33,13 @@ from loki.transformations.sanitise import transform_sequence_association_append_
 from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update
 )
-
+from loki.backend import fgen
 
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
     'inline_internal_procedures', 'inline_member_procedures',
-    'inline_marked_subroutines', 'InlineTransformation'
+    'inline_marked_subroutines', 'InlineTransformation',
+    'inline_statement_functions'
 ]
 
 
@@ -87,7 +90,8 @@ class InlineTransformation(Transformation):
             inline_internals=False, inline_marked=True,
             remove_dead_code=True, allowed_aliases=None,
             adjust_imports=True, external_only=True,
-            resolve_sequence_association=False
+            resolve_sequence_association=False,
+            inline_stmt_funcs=True
     ):
         self.inline_constants = inline_constants
         self.inline_elementals = inline_elementals
@@ -98,6 +102,7 @@ class InlineTransformation(Transformation):
         self.adjust_imports = adjust_imports
         self.external_only = external_only
         self.resolve_sequence_association = resolve_sequence_association
+        self.inline_stmt_funcs = inline_stmt_funcs
         if self.inline_marked:
             self.creates_items = True
 
@@ -125,12 +130,18 @@ class InlineTransformation(Transformation):
         if self.inline_internals:
             inline_internal_procedures(routine, allowed_aliases=self.allowed_aliases)
 
+        if self.inline_stmt_funcs:
+            inline_statement_functions(routine)
+
         # Inline explicitly pragma-marked subroutines
         if self.inline_marked:
             inline_marked_subroutines(
                 routine, allowed_aliases=self.allowed_aliases,
                 adjust_imports=self.adjust_imports
             )
+
+        # if self.inline_stmt_funcs:
+        #     inline_statement_functions(routine)
 
         # After inlining, attempt to trim unreachable code paths
         if self.remove_dead_code:
@@ -183,6 +194,14 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
             # Unkonw inline call, potentially an intrinsic
             # We still need to recurse and ensure re-scoping
             return super().map_inline_call(expr, *args, **kwargs)
+        
+        if isinstance(expr.routine, StatementFunction):
+            function = expr.routine
+            v_result = expr.routine.variable
+            # Substitute all arguments through the elemental body
+            arg_map = dict(zip(function.arguments, expr.parameters))
+            fbody = SubstituteExpressions(arg_map).visit(function.rhs)
+            return fbody
 
         function = expr.procedure_type.procedure
         v_result = [v for v in function.variables if v == function.name][0]
@@ -338,6 +357,129 @@ def inline_elemental_functions(routine):
             import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)
 
+def recursive_inline_expression_map_update(expr_map, max_iterations=10):
+    def apply_to_init_arg(name, arg, expr, mapper):
+        # Helper utility to apply the mapper only to expression arguments and
+        # retain the scope while rebuilding the node
+        if isinstance(arg, (tuple, Expression)):
+            return mapper(arg)
+        if name == 'scope':
+            try:
+                return expr.scope
+            except:
+                return arg
+        return arg
+
+    for _ in range(max_iterations):
+        # We update the expression map by applying it to the children of each replacement
+        # node, thus making sure node replacements are also applied to nested attributes,
+        # e.g. call arguments or array subscripts etc.
+        mapper = InlineSubstitutionMapper(expr_map) # SubstituteExpressionsMapper(expr_map)
+        prev_map, expr_map = expr_map, {
+            expr: type(replacement)(**{
+                name: apply_to_init_arg(name, arg, expr, mapper)
+                for name, arg in zip(replacement.init_arg_names, replacement.__getinitargs__())
+            })
+            for expr, replacement in expr_map.items()
+        }
+
+        # Check for early termination opportunities
+        # if prev_map == expr_map:
+        #     break
+
+    return expr_map
+
+
+def inline_statement_functions(routine):
+    """
+    """
+
+    # Keep track of removed symbols
+    removed_functions = set()
+
+    stmt_func_decls = FindNodes(StatementFunction).visit(routine.spec)
+    # print(f"{routine} - stmt_func_decls: {stmt_func_decls}")
+    inline_calls_array = FindInlineCallsArray().visit(routine.ir)
+    # for inline_call_array in inline_calls_array:
+    #     print(f"   inline_call_array: {inline_call_array} | type: {type(inline_call_array)}")
+    inline_calls = FindInlineCalls().visit(routine.ir)
+    # print(f"\ninline_calls: {inline_calls}\n")
+    # print(f"  FindInlineCalls().visit(routine.ir): {FindInlineCalls().visit(routine.ir)}")
+    exprmap = {}
+    for call in inline_calls: # FindInlineCalls().visit(routine.ir): # .visit(routine.body):
+        if call.procedure_type is BasicType.DEFERRED:
+            # print(f"skipping call {call} because it is BasicType.DEFERRED")
+            continue
+        # print(f"    call: {call} | type: {type(call)} | call.procedure_type.is_function {call.procedure_type.is_function} | call.procedure_type.is_elemental {call.procedure_type.is_elemental}") #  | call.procedure_type.is_stmt_func {call.procedure_type.is_stmt_func}")
+        if call.procedure_type.is_function and isinstance(call.routine, StatementFunction): # call.procedure_type.is_elemental:
+            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
+            removed_functions.add(call.routine) # call.procedure_type ? 
+        else:
+            pass
+            # print(f"skipping call {call} because ? call.procedure_type.is_function {call.procedure_type.is_function} | type{call.routine}: {type(call.routine)}")
+        # Recursive update of the map in case of nested variables to map
+    # for stmt_func_decl in stmt_func_decls:
+    #     for call in FindInlineCalls().visit(stmt_func_decl.rhs):
+    #         exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
+    # print(f"[1] exprmap: {exprmap}")
+    # exprmap = recursive_expression_map_update(exprmap, max_iterations=10)
+    exprmap = recursive_inline_expression_map_update(exprmap, max_iterations=10)
+    # print(f"[2] exprmap: {exprmap}")
+    # routine.ir = SubstituteExpressions(exprmap).visit(routine.ir)
+    routine.body = SubstituteExpressions(exprmap).visit(routine.body)
+
+    stmt_arguments = set()
+    # TODO: remove the stmt_func_delcs ...
+    stmt_func_map = {}
+    for stmt_func_decl in stmt_func_decls:
+        for arg in stmt_func_decl.arguments:
+            stmt_arguments.add(arg)
+        stmt_func_map[stmt_func_decl] = None
+    # print(f"stmt_func_map: {stmt_func_map}")
+    routine.spec = Transformer(stmt_func_map).visit(routine.spec)
+    
+    # print(f"stmt_arguments: {stmt_arguments}")
+    decls = FindNodes(VariableDeclaration).visit(routine.spec)
+    # decls = tuple(d for d in decls if all(s.name.lower() not in callee._dummies for s in d.symbols))
+    # decls = tuple(d for d in decls if any(s.name.lower() in [stmt_func_decl.variable.name.lower() for stmt_func_decl in stmt_func_decls] for s in d.symbols))
+    decls = tuple(d for d in decls if any(isinstance(s, sym.ProcedureSymbol) or s in stmt_arguments for s in d.symbols))
+    # print(f"decls to remove: {decls}")
+    decl_map = {}
+    for decl in decls:
+        # for s in decl.symbols:
+        #     print(f"symbol {s} | type: {type(s)}")
+        decl_map[decl] = None
+    # print(f"decl_map: {decl_map}")
+    routine.spec = Transformer(decl_map).visit(routine.spec)
+    # for decl in decls:
+    #     if decl
+     
+    # if str(routine.name).lower() in ['cloudsc', 'cloud_supersatcheck']:
+    #     print(fgen(routine))
+    """
+    exprmap = {}
+    for call in FindInlineCalls().visit(routine.body):
+        if call.procedure_type is BasicType.DEFERRED:
+            continue
+
+        if call.procedure_type.is_function and call.procedure_type.is_elemental:
+            # Map each call to its substitutions, as defined by the
+            # recursive inline substitution mapper
+            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
+
+            # Mark function as removed for later cleanup
+            removed_functions.add(call.procedure_type)
+
+    # Apply expression-level substitution to routine
+    routine.body = SubstituteExpressions(exprmap).visit(routine.body)
+
+    # Remove all module imports that have become obsolete now
+    import_map = {}
+    for im in FindNodes(Import).visit(routine.spec):
+        if im.symbols and all(s.type.dtype in removed_functions for s in im.symbols):
+            import_map[im] = None
+    routine.spec = Transformer(import_map).visit(routine.spec)
+    """
 
 def map_call_to_procedure_body(call, caller):
     """
@@ -466,9 +608,11 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     parent_variables = routine.variable_map
     duplicates = tuple(
         v for v in callee.variables
-        if v.name in parent_variables and v.name.lower() not in callee._dummies
+        if not isinstance(v, sym.ProcedureSymbol)
+        and v.name in parent_variables and v.name.lower() not in callee._dummies
     )
     # Filter out allowed aliases to prevent suffixing
+    # print(f"inline ... routine: {routine} | calls: {calls} | callee: {callee} | duplicates: {duplicates}")
     duplicates = tuple(v for v in duplicates if v.symbol not in allowed_aliases)
     shadow_mapper = SubstituteExpressions(
         {v: v.clone(name=f'{callee.name}_{v.name}') for v in duplicates}

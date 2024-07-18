@@ -17,6 +17,7 @@ from loki.expression import (
     SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
+from loki.backend import fgen
 from loki.ir import (
     Import, TypeDef, VariableDeclaration, StatementFunction,
     Transformer, FindNodes
@@ -501,6 +502,8 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
     def apply_to_init_arg(name, arg, expr, mapper):
         # Helper utility to apply the mapper only to expression arguments and
         # retain the scope while rebuilding the node
+        # print(f"apply_to_init_arg: name {name} | arg {arg} | expr {expr}")
+        # print(f"apply_to_init_arg: apply to {arg} -> {mapper.expr_map}")
         if isinstance(arg, (tuple, Expression)):
             return mapper(arg)
         if name == 'scope':
@@ -510,11 +513,13 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
                 return arg
         return arg
 
+    # print(f"mapper: {expr_map}")
     for _ in range(max_iterations):
         # We update the expression map by applying it to the children of each replacement
         # node, thus making sure node replacements are also applied to nested attributes,
         # e.g. call arguments or array subscripts etc.
         mapper = SubstituteExpressionsMapper(expr_map)
+        # print(f"{_} mapper: {mapper}")
         prev_map, expr_map = expr_map, {
             expr: type(replacement)(**{
                 name: apply_to_init_arg(name, arg, expr, mapper)
@@ -522,6 +527,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
             })
             for expr, replacement in expr_map.items()
         }
+        # print(f"{_} mapper: {expr_map}")
 
         # Check for early termination opportunities
         # if prev_map == expr_map:

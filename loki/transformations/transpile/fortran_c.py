@@ -153,14 +153,20 @@ class FortranCTransformation(Transformation):
 
         if role == 'header':
             # Generate Fortran wrapper module
-            wrapper = self.generate_iso_c_wrapper_module(module)
-            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-            Sourcefile.to_file(source=fgen(wrapper), path=self.wrapperpath)
+            try:
+                wrapper = self.generate_iso_c_wrapper_module(module)
+                self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+                Sourcefile.to_file(source=fgen(wrapper), path=self.wrapperpath)
+            except Exception as e:
+                print(f"failed to genrate iso c wrapper for module {module} since {e}")
 
             # Generate C header file from module
-            c_header = self.generate_c_header(module)
-            self.c_path = (path/c_header.name.lower()).with_suffix('.h')
-            Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
+            try:
+                c_header = self.generate_c_header(module)
+                self.c_path = (path/c_header.name.lower()).with_suffix('.h')
+                Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
+            except Exception as e:
+                print(f"Exception e: {e} generating header for module {module}")
 
     def transform_subroutine(self, routine, **kwargs):
         if self.path is None:
@@ -401,7 +407,10 @@ class FortranCTransformation(Transformation):
         wrapper.arguments = tuple(arg.clone(scope=wrapper) for arg in routine.arguments)
 
         # Remove any unused imports
-        sanitise_imports(wrapper)
+        try:
+            sanitise_imports(wrapper)
+        except Exception as e:
+            print(f"Exception applying sanitise_imports: {e}")
         return wrapper
 
     def generate_iso_c_wrapper_module(self, module):
@@ -508,7 +517,10 @@ class FortranCTransformation(Transformation):
             intf_routine.variables += (var,)
             intf_routine.arguments += (var,)
 
-        sanitise_imports(intf_routine)
+        try:
+            sanitise_imports(intf_routine)
+        except Exception as e:
+            print(f"Exception applying sanitise_imports: {e}")
 
         return Interface(body=(intf_routine, ))
 
@@ -606,7 +618,7 @@ class FortranCTransformation(Transformation):
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         invert_array_indices(kernel)
         # shift_to_zero_indexing(kernel, ignore=() if self.language == 'c' else ('ij', 'ichnk'))
-        shift_to_zero_indexing(kernel, ignore=() if self.language == 'c' else ('jl', 'ibl'))
+        shift_to_zero_indexing(kernel, ignore=()) #  if self.language == 'c' else ('jl', 'ibl'))
         # SCCBaseTransformation.remove_dimensions(kernel)
         flatten_arrays(kernel, order='C', start_index=0)
 
@@ -705,7 +717,10 @@ class FortranCTransformation(Transformation):
         rename_variables(kernel, symbol_map=symbol_map)
 
         # Remove redundant imports
-        sanitise_imports(kernel)
+        try:
+            sanitise_imports(kernel)
+        except Exception as e:
+            print(f"Exception applying sanitise_imports: {e}")
 
         return kernel
 

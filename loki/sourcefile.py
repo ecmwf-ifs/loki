@@ -584,7 +584,10 @@ class Sourcefile:
         Same as :meth:`write` but can be called from a static context.
         """
         info(f'[Loki::Sourcefile] Writing to {path}')
-        with path.open('w') as f:
-            f.write(source)
-            if source[-1] != '\n':
-                f.write('\n')
+        try:
+            with path.open('w') as f:
+                f.write(source)
+                if source[-1] != '\n':
+                    f.write('\n')
+        except Exception as e:
+            print(f"Exception in to_file() for path: {path} since {e}")

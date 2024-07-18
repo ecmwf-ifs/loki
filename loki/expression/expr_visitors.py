@@ -25,7 +25,8 @@ from loki.expression.symbols import (
 
 __all__ = [
     'FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls',
-    'FindLiterals', 'SubstituteExpressions', 'ExpressionFinder', 'AttachScopes'
+    'FindLiterals', 'SubstituteExpressions', 'ExpressionFinder', 'AttachScopes',
+    'FindInlineCallsArray'
 ]
 
 
@@ -187,6 +188,13 @@ class FindInlineCalls(ExpressionFinder):
     """
     retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall))
 
+class FindInlineCallsArray(ExpressionFinder):
+    """
+    A visitor to collect all :any:`InlineCall` symbols used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (InlineCall, Array)))
 
 class FindLiterals(ExpressionFinder):
     """

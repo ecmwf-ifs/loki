@@ -2989,6 +2989,7 @@ class FParser2IR(GenericVisitor):
         lhs = self.visit(o.items[0], **kwargs)
         rhs = self.visit(o.items[2], **kwargs)
 
+        # print(f"visit_Assignment_Stmt o: {o}")
         # Special-case: Identify statement functions using our internal symbol table
         symbol_attrs = kwargs['scope'].symbol_attrs
         if isinstance(lhs, sym.Array) and symbol_attrs.lookup(lhs.name) is not None:
@@ -3004,28 +3005,33 @@ class FParser2IR(GenericVisitor):
                 or isinstance(lhs.scope, ir.Associate)  # Symbol stems from an associate
             )
 
-            if could_be_a_statement_func:
-                def _create_stmt_func_type(stmt_func):
-                    name = str(stmt_func.variable)
-                    procedure = LazyNodeLookup(
-                        anchor=kwargs['scope'],
-                        query=lambda x: [
-                            f for f in FindNodes(ir.StatementFunction).visit(x.spec) if f.variable == name
-                        ][0]
+            # print(f"o: {o}")
+            # try:
+            if True:
+                if could_be_a_statement_func:
+                    def _create_stmt_func_type(stmt_func):
+                        name = str(stmt_func.variable)
+                        procedure = LazyNodeLookup(
+                            anchor=kwargs['scope'],
+                            query=lambda x: [
+                                f for f in FindNodes(ir.StatementFunction).visit(x.spec) if f.variable == name
+                            ][0]
+                        )
+                        proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
+                        return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
+
+                    f_symbol = sym.ProcedureSymbol(name=lhs.name, scope=kwargs['scope'])
+                    stmt_func = ir.StatementFunction(
+                        variable=f_symbol, arguments=lhs.dimensions,
+                        rhs=rhs, return_type=symbol_attrs[lhs.name],
+                        label=kwargs.get('label'), source=kwargs.get('source')
                     )
-                    proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
-                    return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
 
-                f_symbol = sym.ProcedureSymbol(name=lhs.name, scope=kwargs['scope'])
-                stmt_func = ir.StatementFunction(
-                    variable=f_symbol, arguments=lhs.dimensions,
-                    rhs=rhs, return_type=symbol_attrs[lhs.name],
-                    label=kwargs.get('label'), source=kwargs.get('source')
-                )
-
-                # Update the type in the local scope and return stmt func node
-                symbol_attrs[str(stmt_func.variable)] = _create_stmt_func_type(stmt_func)
-                return stmt_func
+                    # Update the type in the local scope and return stmt func node
+                    symbol_attrs[str(stmt_func.variable)] = _create_stmt_func_type(stmt_func)
+                    return stmt_func
+            # except:
+            #     pass
 
         # Return Assignment node if we don't have to deal with the stupid side of Fortran!
         return ir.Assignment(

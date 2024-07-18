@@ -531,7 +531,7 @@ def normalize_array_shape_and_access(routine):
             # print(f"  var: {v} | dimensions: {v.dimensions} | shape: {v.shape}")
             # print(f"normalize_array_shape_and_access - {routine} - var: {v} | {v.shape} | {v.dimensions}")
             # skip if e.g., `array(len)`, passed as `call routine(array)`
-            if not v.dimensions:
+            if not v.dimensions or all(isinstance(dim, sym.RangeIndex) for dim in v.dimensions):
                 continue
             new_dims = []
             for i, d in enumerate(v.shape):

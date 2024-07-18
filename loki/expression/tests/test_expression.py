@@ -17,7 +17,7 @@ import pymbolic.mapper as pmbl_mapper
 
 from loki import (
     Sourcefile, Subroutine, Module, Scope, BasicType,
-    SymbolAttributes, DerivedType, ProcedureType
+    SymbolAttributes, DerivedType, ProcedureType, fgen
 )
 from loki.backend import cgen, fgen
 from loki.build import jit_compile, clean_test
@@ -32,7 +32,7 @@ from loki.ir import nodes as ir, FindNodes
 from loki.tools import (
     filehash, stdchannel_redirected, stdchannel_is_captured
 )
-
+from loki.transformations.inline import inline_statement_functions
 # pylint: disable=too-many-lines
 
 
@@ -2268,3 +2268,27 @@ END SUBROUTINE SOME_ROUTINE
     assert stmt_funcs[0].name.lower() == 'foealfa'
     assert isinstance(assignments[5].rhs, sym.InlineCall)
     assert isinstance(assignments[6].rhs, sym.InlineCall)
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_stmt_func_nested(frontend):
+    fcode = """
+subroutine stmt_func(arr, ret)
+    implicit none
+    real, intent(in) :: arr(:)
+    real, intent(inout) :: ret(:)
+    real, parameter :: rtt = 1.0
+    REAL :: PTARE
+    REAL :: FOEDELTA
+    FOEDELTA (PTARE) = MAX (0.0,SIGN(1.0,PTARE-RTT))
+    REAL :: FOEEW
+    FOEEW ( PTARE ) =  EXP (( 3.0*FOEDELTA(PTARE)+ 2.5*(1.0-FOEDELTA(PTARE)))*(PTARE-RTT)&
+    &/ (PTARE-( 4.0*FOEDELTA(PTARE)+ 3.5*(1.0-FOEDELTA(PTARE)))))
+
+    ret = foeew(arr)
+end subroutine stmt_func
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    # breakpoint()
+    inline_statement_functions(routine)
+    # print(fgen(routine))

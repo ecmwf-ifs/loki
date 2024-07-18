@@ -54,6 +54,7 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
         def on_error(self, file, line, msg):
             # Redirect CPP error to our logger and increment return code
             debug(f'[Loki-CPP] {file}:{line: d} error: {msg}')
+            # print(f'[Loki-CPP] {file}:{line: d} error: {msg}')
             self.return_code += 1
 
     # Add include paths to PP
@@ -62,10 +63,13 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     pp.line_directive = None
 
     for i in as_tuple(includes):
+        # print(f"  adding include: {i}")
         pp.add_path(str(i))
+        # pp.include(str(i), original_line=None)
 
     # Add and sanitize defines to PP
     for d in as_tuple(defines):
+        # print(f"  adding define: {d}")
         if '=' not in d:
             d += '=1'
         d = d.replace('=', ' ', 1)
@@ -74,13 +78,16 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     # Parse source through preprocessor
     pp.parse(source)
 
-    if config['cpp-dump-files']:
+    if True: # config['cpp-dump-files']:
+        # print(f"PREPROCESSING ...")
         if filepath is None:
             pp_path = Path(filehash(source, suffix='.cpp.f90'))
         else:
             pp_path = filepath.with_suffix('.cpp.f90')
-        pp_path = gettempdir()/pp_path.name
+        # pp_path = gettempdir()/pp_path.name
+        pp_path = Path().resolve()/pp_path.name
         debug(f'[Loki] C-preprocessor, writing {str(pp_path)}')
+        # print(f'[Loki] C-preprocessor, writing {str(pp_path)}')
 
         # Dump preprocessed source to file and read it
         with pp_path.open('w') as f:

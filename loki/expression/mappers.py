@@ -570,6 +570,11 @@ class LokiIdentityMapper(IdentityMapper):
         recurse_to_declaration_attributes = kwargs['recurse_to_declaration_attributes'] or expr.scope is None
         kwargs['recurse_to_declaration_attributes'] = False
 
+        ##
+        # from loki.expression.symbols import ProcedureSymbol
+        # if isinstance(expr, ProcedureSymbol):
+        #     print(f"map_variable_symbol ProcedureSymbol expr: {expr} | {expr.rhs}")
+        ##
         new_type = expr.type
         if recurse_to_declaration_attributes and new_type is not None:
             old_type = expr.type
@@ -648,7 +653,7 @@ class LokiIdentityMapper(IdentityMapper):
             # corrected thanks to type information in the symbol table.
             # When this happens, we need to convert this to an inline call here
             # and make sure we don't loose the call parameters (aka dimensions)
-            return InlineCall(function=symbol.clone(parent=parent), parameters=dimensions)
+            return InlineCall(function=symbol.clone(parent=parent), parameters=dimensions) # , rhs=self.rec(expr.rhs, *args, **kwargs))
 
         if kwargs['recurse_to_declaration_attributes']:
             _kwargs = kwargs.copy()
@@ -671,7 +676,27 @@ class LokiIdentityMapper(IdentityMapper):
         index_tuple = self.rec(expr.index_tuple, *args, **kwargs)
         return expr.__class__(symbol, index_tuple)
 
-    map_inline_call = IdentityMapper.map_call_with_kwargs
+    # map_inline_call = IdentityMapper.map_call_with_kwargs
+
+    def map_inline_call(self, expr, *args, **kwargs):
+        # print(f"LokiIdentityMapper map_inline_call is called! | {expr.function} type: {type(expr.function)} | mapper_method {expr.function.mapper_method} | expr: {expr} type {type(expr)}")
+        function = self.rec(expr.function, *args, **kwargs)
+        parameters = tuple([
+            self.rec(child, *args, **kwargs) for child in expr.parameters
+            ])
+        kw_parameters = {
+                key: self.rec(val, *args, **kwargs)
+                for key, val in expr.kw_parameters.items()}
+
+        if (function is expr.function
+            and all(child is orig_child for child, orig_child in
+                zip(parameters, expr.parameters))
+                and all(kw_parameters[k] is v for k, v in
+                        expr.kw_parameters.items())):
+            return expr
+        return type(expr)(function, parameters, kw_parameters)
+        ##
+        #return super().map_call_with_kwargs(expr, **kwargs)
 
     def map_cast(self, expr, *args, **kwargs):
         function = self.rec(expr.function, *args, **kwargs)

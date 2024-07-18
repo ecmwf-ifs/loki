@@ -329,7 +329,11 @@ class FortranCodegen(Stringifier):
         ignore = ['shape', 'dimensions', 'variables', 'source', 'initial']
 
         # Statement functions can share declarations with scalars, so we collect the variable types here
-        _var_types = [t.dtype.return_type.dtype if isinstance(t.dtype, ProcedureType) else t.dtype for t in types]
+        try:
+            _var_types = [t.dtype.return_type.dtype if isinstance(t.dtype, ProcedureType) else t.dtype for t in types]
+        except Exception as e:
+            print(f"Exception in fgen visit_VariableDeclaration ... {e}")
+            return '! <error in visit_VariableDeclaration ...>'
         _procedure_types = [t for t in types if isinstance(t.dtype, ProcedureType)]
 
         if _procedure_types:

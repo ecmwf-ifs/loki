@@ -42,7 +42,8 @@ class IntrinsicTypeC:
             if str(_type.kind) in ['real32']:
                 return 'float'
             return 'double'
-        raise ValueError(str(_type))
+        # raise ValueError(str(_type))
+        return f'<value error for: {str(_type)}>'
 
 # pylint: disable=redefined-outer-name
 c_intrinsic_type = IntrinsicTypeC()
@@ -325,21 +326,28 @@ class CCodegen(Stringifier):
         assert len(o.symbols) > 0
         variables = []
         for v in o.symbols:
-            if kwargs.get('skip_argument_declarations') and v.type.intent:
-                continue
-            var = self.visit(v, **kwargs)
-            initial = ''
-            if v.initial is not None:
-                initial = f' = {self.visit(v.initial, **kwargs)}'
-            if v.type.pointer or v.type.allocatable:
-                var = '*' + var
-            variables += [f'{var}{initial}']
+            try:
+                if kwargs.get('skip_argument_declarations') and v.type.intent:
+                    continue
+                var = self.visit(v, **kwargs)
+                initial = ''
+                if v.initial is not None:
+                    initial = f' = {self.visit(v.initial, **kwargs)}'
+                if v.type.pointer or v.type.allocatable:
+                    var = '*' + var
+                variables += [f'{var}{initial}']
+            except Exception as e:
+                # return f'<exception for var {v}>'
+                pass
         if not variables:
             return None
         comment = None
         if o.comment:
             comment = str(self.visit(o.comment, **kwargs))
-        return self.format_line(dtype, ' ', self.join_items(variables), ';', comment=comment)
+        if variables:
+            return self.format_line(dtype, ' ', self.join_items(variables), ';', comment=comment)
+        else:
+            return self.format_line(f'// failed for {o.symbols}')
 
     def visit_Import(self, o, **kwargs):  # pylint: disable=unused-argument
         """
@@ -357,13 +365,23 @@ class CCodegen(Stringifier):
             ...body...
           }
         """
-        control = 'for ({var} = {start}; {var} {crit} {end}; {var} += {incr})'.format(
-            var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
-            end=self.visit(o.bounds.stop, **kwargs),
-            # TODO: !!! pymbolic/primitives.py", line 664, in __gt__ raise TypeError("expressions don't have an order")
-            crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
-            # crit='<=',
-            incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
+        try:
+            control = 'for ({var} = {start}; {var} {crit} {end}; {var} += {incr})'.format(
+                var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
+                end=self.visit(o.bounds.stop, **kwargs),
+                # TODO: !!! pymbolic/primitives.py", line 664, in __gt__ raise TypeError("expressions don't have an order")
+                crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
+                # crit='<=',
+                incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
+        except Exception as e:
+            print(f"Exception: {e}, o.bounds: {o.bounds}")
+            control = 'for ({var} = {start}; {var} {crit} {end}; {var} += {incr})'.format(
+                var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
+                end=self.visit(o.bounds.stop, **kwargs),
+                # TODO: !!! pymbolic/primitives.py", line 664, in __gt__ raise TypeError("expressions don't have an order")
+                # crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
+                crit='<=',
+                incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
         header = self.format_line(control, ' {')
         footer = self.format_line('}')
         self.depth += 1

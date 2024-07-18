@@ -229,7 +229,7 @@ def convert(
     scheduler.process(transformation=sanitise_trafo)
 
     # Perform source-inlining either from CLI arguments or from config
-    if False:
+    if True:
         inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
         if not inline_trafo:
             inline_trafo = InlineTransformation(

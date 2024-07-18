@@ -104,7 +104,7 @@ def remove_pragmas(routine):
     routine: :any:`Subroutine`
         The subroutine in which to remove all pragmas
     """
-    pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body) if p.keyword.lower()!="loki"}
+    pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body) if p.keyword.lower() not in ["loki", "acc"]}
     routine.body = Transformer(pragma_map).visit(routine.body)
 
 def device_subroutine_prefix(routine, depth):
@@ -258,8 +258,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     if isinstance(step, sym.Variable) and step.name not in call.routine.arguments:
                         new_args += (step.clone(type=step.type.clone(intent='in')),)
                     # print(f"routine: {routine} | num_threads: {num_threads} ({type(num_threads)}) | {isinstance(num_threads, sym.Variable)} | {num_threads.name not in call.routine.arguments}")
-                    # if isinstance(num_threads, sym.Variable) and
-                    if num_threads.name not in call.routine.arguments:
+                    if isinstance(num_threads, sym.Variable) and num_threads.name not in call.routine.arguments:
                         new_args += (num_threads.clone(type=step.type.clone(intent='in')),)
                     new_kwargs = tuple((_.name, _) for _ in new_args)
                     if new_args:
@@ -292,10 +291,10 @@ class SccLowLevelLaunchConfiguration(Transformation):
         loop_map = {}
         for loop in FindNodes(ir.Loop).visit(routine.body):
             if loop.variable == self.block_dim.index or loop.variable.name.lower()\
-                    in [_.lower() for _ in self.block_dim._aliases]:
+                    in [_.lower() for _ in self.block_dim._index_aliases]:
                 loop_map[loop] = loop.body
             if loop.variable == self.horizontal.index or loop.variable.name.lower()\
-                    in [_.lower() for _ in self.horizontal._aliases]:
+                    in [_.lower() for _ in self.horizontal._index_aliases]:
                 loop_map[loop] = loop.body
         routine.body = Transformer(loop_map).visit(routine.body)
 
