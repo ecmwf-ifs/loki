@@ -27,7 +27,10 @@ from loki.ir import (
 from loki.tools import as_tuple, flatten
 
 from loki.transformations.inline import inline_marked_subroutines
-from loki.transformations.sanitise import transform_sequence_association_append_map
+from loki.transformations.sanitise import (
+    merge_associates, resolve_associates,
+    transform_sequence_association_append_map
+)
 from loki.transformations.remove_code import do_remove_marked_regions
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.build_system import ModuleWrapTransformation
@@ -199,7 +202,9 @@ def cli():
               help='Path to build directory for source generation.')
 @click.option('--remove-openmp/--no-remove-openmp', default=True,
               help='Flag to replace OpenMP loop annotations with Loki pragmas.')
-def inline(source, build, remove_openmp):
+@click.option('--sanitize-assoc/--no-sanitize-assoc', default=True,
+              help='Flag to trigger ASSOCIATE block sanitisation.')
+def inline(source, build, remove_openmp, sanitize_assoc):
     """
     Inlines EC_PHYS and CALLPAR into EC_PHYS_DRV to expose the parallel loop.
     """
@@ -267,6 +272,15 @@ def inline(source, build, remove_openmp):
                 field_group_types=field_group_types,
                 global_variables=global_variables
             )
+
+    if sanitize_assoc:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Merged associate blocks in {s:.2f}s'):
+            # First move all associatesion up to the outermost
+            merge_associates(ec_phys_fc, max_parents=2)
+
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Resolved associate blocks in {s:.2f}s'):
+            # Then resolve all remaining inner associations
+            resolve_associates(ec_phys_fc, start_depth=1)
 
     # Replace the docstring to mark routine as auto-generated
     ec_phys_fc.docstring = """
