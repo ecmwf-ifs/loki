@@ -253,6 +253,55 @@ end subroutine transform_associates_partial
     assert assigns[2].rhs == 'some_obj%b(i) + 1.'
 
 
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_associates_start_depth(frontend):
+    """
+    Test resolving associated symbols, but only for a part of an
+    associate's body.
+    """
+    fcode = """
+subroutine transform_associates_partial
+  use some_module, only: some_obj
+  implicit none
+
+  integer :: i
+  real :: local_var
+
+  associate (a=>some_obj%a, b=>some_obj%b)
+  associate (c=>a%b, d=>b%d)
+    local_var = a(1)
+
+    do i=1, some_obj%n
+      c(i) = c(i) + 1.
+      d(i) = d(i) + 1.
+    end do
+  end associate
+  end associate
+end subroutine transform_associates_partial
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    # Resolve all expect the outermost associate block
+    resolve_associates(routine, start_depth=1)
+
+    # Check that associated symbols have been resolved in loop body only
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 3
+    assert assigns[0].lhs == 'local_var'
+    assert assigns[0].rhs == 'a(1)'
+    assert assigns[1].lhs == 'a%b(i)'
+    assert assigns[1].rhs == 'a%b(i) + 1.'
+    assert assigns[2].lhs == 'b%d(i)'
+    assert assigns[2].rhs == 'b%d(i) + 1.'
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_sequence_assocaition_scalar_notation(frontend, tmp_path):
     fcode = """

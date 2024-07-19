@@ -15,7 +15,7 @@ code easier.
 from loki.batch import Transformation
 from loki.expression import Array, RangeIndex, LokiIdentityMapper
 from loki.ir import nodes as ir, FindNodes, Transformer
-from loki.tools import as_tuple
+from loki.tools import as_tuple, dict_override
 from loki.types import BasicType
 
 
@@ -58,16 +58,22 @@ class SanitiseTransformation(Transformation):
             transform_sequence_association(routine)
 
 
-def resolve_associates(routine):
+def resolve_associates(routine, start_depth=0):
     """
     Resolve :any:`Associate` mappings in the body of a given routine.
+
+    Optionally, partial resolution of only inner :any:`Associate`
+    mappings is supported when a ``start_depth`` is specified.
 
     Parameters
     ----------
     routine : :any:`Subroutine`
         The subroutine for which to resolve all associate blocks.
+    start_depth : int, optional
+        Starting depth for partial resolution of :any:`Associate`
     """
-    routine.body = ResolveAssociatesTransformer().visit(routine.body)
+    transformer = ResolveAssociatesTransformer(start_depth=start_depth)
+    routine.body = transformer.visit(routine.body)
 
     # Ensure that all symbols have the appropriate scope attached.
     # This is needed, as the parent of a symbol might have changed,
@@ -84,6 +90,10 @@ class ResolveAssociateMapper(LokiIdentityMapper):
     and replace it with the inverse of the associate mapping.
     """
 
+    def __init__(self, *args, start_depth=0, **kwargs):
+        self.start_depth = start_depth
+        super().__init__(*args, **kwargs)
+
     def map_scalar(self, expr, *args, **kwargs):
         # Skip unscoped expressions
         if not hasattr(expr, 'scope'):
@@ -94,6 +104,13 @@ class ResolveAssociateMapper(LokiIdentityMapper):
             return expr
 
         scope = expr.scope
+
+        # Determine the depth of the symbol-defining associate
+        depth = len(tuple(
+            p for p in scope.parents if isinstance(p, ir.Associate)
+        )) + 1
+        if depth <= self.start_depth:
+            return expr
 
         # Recurse on parent first and propagate scope changes
         parent = self.rec(expr.parent, *args, **kwargs)
@@ -136,17 +153,40 @@ class ResolveAssociatesTransformer(Transformer):
 
     Importantly, this :any:`Transformer` can also be applied over partial
     bodies of :any:`Associate` bodies.
+
+    Optionally, partial resolution of only inner :any:`Associate`
+    mappings is supported when a ``start_depth`` is specified.
+
+    Parameters
+    ----------
+    start_depth : int, optional
+        Starting depth for partial resolution of :any:`Associate`
     """
     # pylint: disable=unused-argument
 
+    def __init__(self, start_depth=0, **kwargs):
+        self.start_depth = start_depth
+        super().__init__(**kwargs)
+
     def visit_Expression(self, o, **kwargs):
-        return ResolveAssociateMapper()(o)
+        return ResolveAssociateMapper(start_depth=self.start_depth)(o)
 
     def visit_Associate(self, o, **kwargs):
         """
         Replaces an :any:`Associate` node with its transformed body
         """
-        return self.visit(o.body, **kwargs)
+
+        # Establish traversal depth in kwargs
+        depth = kwargs.get('depth', 1)
+
+        # First head-recurse, so that all associate blocks beneath are resolved
+        with dict_override(kwargs, {'depth': depth + 1}):
+            body = self.visit(o.body, **kwargs)
+
+        if depth <= self.start_depth:
+            return o.clone(body=body)
+
+        return body
 
     def visit_CallStatement(self, o, **kwargs):
         arguments = self.visit(o.arguments, **kwargs)
