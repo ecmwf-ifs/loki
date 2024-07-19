@@ -26,7 +26,8 @@ from loki.transformations.parallel import (
 )
 from loki.transformations.remove_code import RemoveCodeTransformation
 from loki.transformations.sanitise import (
-    SequenceAssociationTransformation, SubstituteExpressionTransformation
+    SequenceAssociationTransformation, SubstituteExpressionTransformation,
+    do_merge_associates, do_resolve_associates
 )
 
 
@@ -68,10 +69,12 @@ def cli():
               help='Path to build directory for source generation.')
 @click.option('--remove-openmp/--no-remove-openmp', default=True,
               help='Flag to replace OpenMP loop annotations with Loki pragmas.')
+@click.option('--sanitize-assoc/--no-sanitize-assoc', default=True,
+              help='Flag to trigger ASSOCIATE block sanitisation.')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during processing')
-def inline(source, build, remove_openmp, log_level):
+def inline(source, build, remove_openmp, sanitize_assoc, log_level):
     """
     Inlines EC_PHYS and CALLPAR into EC_PHYS_DRV to expose the parallel loop.
     """
@@ -142,6 +145,16 @@ def inline(source, build, remove_openmp, log_level):
                 field_group_types=field_group_types,
                 shared_variables=shared_variables
             )
+
+    if sanitize_assoc:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Merged associate blocks in {s:.2f}s'):
+            # First move all associatesion up to the outermost
+            do_merge_associates(ec_phys_fc, max_parents=2)
+
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Resolved associate blocks in {s:.2f}s'):
+            # Then resolve all remaining inner associations
+            do_resolve_associates(ec_phys_fc, start_depth=1)
+
 
     # Change subroutine name
     ec_phys_fc.name = 'EC_PHYS_FC'
