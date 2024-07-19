@@ -44,33 +44,43 @@ def remove_unused_drhook_import(routine):
 
 class DrHookTransformation(Transformation):
     """
-    Re-write or remove the DrHook label markers in transformed
-    kernel routines
+    Re-write or remove the DrHook label markers either by appending a
+    suffix string or by applying an explicit mapping.
+
+    In addition, calls to DR_HOOK can also be removed, including their
+    enclosing inline-conditional.
 
     Parameters
     ----------
+    suffix : str
+        String suffix to append to DrHook labels
+    rename : dict of str, optional
+        Dict with explicit label rename mappings
     remove : bool
-        Remove calls to ``DR_HOOK``
-    mode : str
-        Transformation mode to insert into DrHook labels
+        Flag to explicitly remove calls to ``DR_HOOK``
+    kernel_only : boolean
+        Only apply to subroutines marked as "kernel"; default: ``False``
     """
-    def __init__(self, remove=False, mode=None, **kwargs):
+
+    recurse_to_internal_procedures = True
+
+    def __init__(
+            self, suffix=None, rename=None, remove=False, kernel_only=True
+    ):
+        self.suffix = suffix
+        self.rename = rename
         self.remove = remove
-        self.mode = mode
-        super().__init__(**kwargs)
+        self.kernel_only = kernel_only
 
     def transform_subroutine(self, routine, **kwargs):
         """
         Apply transformation to subroutine object
         """
-        role = kwargs['item'].role
+        role = kwargs.get('role')
 
         # Leave DR_HOOK annotations in driver routine
-        if role == 'driver':
+        if self.kernel_only and role == 'driver':
             return
-
-        for r in routine.members:
-            self.transform_subroutine(r, **kwargs)
 
         mapper = {}
         for call in FindNodes(CallStatement).visit(routine.body):
@@ -79,9 +89,17 @@ class DrHookTransformation(Transformation):
                 if self.remove:
                     mapper[call] = None
                 else:
-                    new_label = f'{call.arguments[0].value.upper()}_{str(self.mode).upper()}'
-                    new_args = (Literal(value=new_label),) + call.arguments[1:]
-                    mapper[call] = call.clone(arguments=new_args)
+                    label = call.arguments[0].value
+                    if self.rename and label in self.rename:
+                        # Replace explicitly mapped label directly
+                        new_args = (Literal(value=self.rename[label]),) + call.arguments[1:]
+                        mapper[call] = call.clone(arguments=new_args)
+
+                    elif self.suffix:
+                        # Otherwise append a given suffix
+                        new_label = f'{label}_{self.suffix}'
+                        new_args = (Literal(value=new_label),) + call.arguments[1:]
+                        mapper[call] = call.clone(arguments=new_args)
 
         if self.remove:
             for cond in FindNodes(Conditional).visit(routine.body):
@@ -90,6 +108,6 @@ class DrHookTransformation(Transformation):
 
         routine.body = Transformer(mapper).visit(routine.body)
 
-        #Get rid of unused import and variable
+        # Get rid of unused import and variable
         if self.remove:
             remove_unused_drhook_import(routine)

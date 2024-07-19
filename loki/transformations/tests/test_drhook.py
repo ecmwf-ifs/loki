@@ -132,7 +132,7 @@ def test_dr_hook_transformation(frontend, config, source, tmp_path):
     """Test DrHook transformation for a renamed Subroutine"""
     scheduler_config = SchedulerConfig.from_dict(config)
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend, xmods=[tmp_path])
-    scheduler.process(transformation=DrHookTransformation(mode='you_up'))
+    scheduler.process(transformation=DrHookTransformation(suffix='you_up'))
 
     for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
         drhook_calls = [
@@ -165,7 +165,7 @@ def test_dr_hook_transformation_remove(frontend, config, source, tmp_path):
     """Test DrHook transformation in remove mode"""
     scheduler_config = SchedulerConfig.from_dict(config)
     scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend, xmods=[tmp_path])
-    scheduler.process(transformation=DrHookTransformation(mode='you_up', remove=True))
+    scheduler.process(transformation=DrHookTransformation(suffix='you_up', remove=True))
 
     for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
         drhook_calls = [
@@ -197,3 +197,40 @@ def test_dr_hook_transformation_remove(frontend, config, source, tmp_path):
             assert not drhook_calls
             assert not drhook_imports
             assert 'zhook_handle' not in item.ir.variables
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'Incomplete source tree impossible with OMNI')]
+))
+def test_dr_hook_transformation_rename(frontend, config, source):
+    """Test DrHook transformation in remove mode"""
+    scheduler_config = SchedulerConfig.from_dict(config)
+    scheduler = Scheduler(paths=source, config=scheduler_config, frontend=frontend)
+    scheduler.process(
+        transformation=DrHookTransformation(rename={
+            'rick_astley': 'my_man_dave',
+            'never_gonna_run_around': 'see_ya_later',
+        }, kernel_only=False)
+    )
+
+    for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
+        drhook_calls = [
+            call for call in FindNodes(CallStatement).visit(item.ir.ir)
+            if call.name == 'dr_hook'
+        ]
+        if item.local_name == 'rick_astley':
+            assert drhook_calls[0].arguments[0] == 'my_man_dave'
+            assert drhook_calls[1].arguments[0] == 'my_man_dave'
+
+        if item.local_name == 'never_gonna_give':
+            assert drhook_calls[0].arguments[0] == 'never_gonna_give'
+            assert drhook_calls[1].arguments[0] == 'never_gonna_give'
+
+            assert len(item.ir.members) == 1
+            inner = item.ir.members[0]
+            inner_calls = [
+                call for call in FindNodes(CallStatement).visit(inner.ir)
+                if call.name == 'dr_hook'
+            ]
+            assert inner_calls[0].arguments[0] == 'see_ya_later'
+            assert inner_calls[1].arguments[0] == 'see_ya_later'
