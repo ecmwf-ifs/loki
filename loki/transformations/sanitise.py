@@ -14,7 +14,9 @@ code easier.
 
 from loki.batch import Transformation
 from loki.expression import FindVariables, SubstituteExpressions, Array, RangeIndex
-from loki.ir import CallStatement, FindNodes, Transformer, NestedTransformer
+from loki.ir import (
+    nodes as ir, CallStatement, FindNodes, Transformer, NestedTransformer
+)
 from loki.tools import as_tuple, dict_override, CaseInsensitiveDict
 from loki.types import BasicType
 
@@ -22,7 +24,7 @@ from loki.transformations.utilities import recursive_expression_map_update
 
 
 __all__ = [
-    'SanitiseTransformation', 'resolve_associates',
+    'SanitiseTransformation', 'resolve_associates', 'merge_associates',
     'ResolveAssociatesTransformer', 'transform_sequence_association',
     'transform_sequence_association_append_map'
 ]
@@ -138,6 +140,82 @@ class ResolveAssociatesTransformer(NestedTransformer):
         # Return the original object unchanged and let the tuple injection mechanism take care
         # of replacing it by its body - otherwise we would end up with nested tuples
         return o
+
+
+def merge_associates(routine, max_parents=None):
+    """
+    Moves associate mappings in :any:`Associate` within a
+    :any:`Subroutine` to the outermost parent scope.
+
+    Please see :any:`MergeAssociatesTransformer` for mode details.
+
+    Note
+    ----
+    This method can be combined with :any:`resolve_associates` to
+    create a more unified look-and-feel for nested ASSOCIATE blocks.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine for which to resolve all associate blocks.
+    max_parents : int, optional
+        Maximum number of parent symbols for valid selector to have.
+    """
+    transformer = MergeAssociatesTransformer(max_parents=max_parents)
+    routine.body = transformer.visit(routine.body)
+
+
+class MergeAssociatesTransformer(NestedTransformer):
+    """
+    :any:`NestedTransformer` that moves associate mappings in
+    :any:`Associate` to parent nodes.
+
+    If a selector expression depends on a symbol from a parent
+    :any:`Associate` exists, it does not get moved.
+
+    Additionally, a maximum parent-depth can be specified for the
+    selector to prevent overly long symbols to be moved up.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine for which to resolve all associate blocks.
+    max_parents : int, optional
+        Maximum number of parent symbols for valid selector to have.
+    """
+
+    def __init__(self, max_parents=None, **kwargs):
+        self.max_parents = max_parents
+        super().__init__(**kwargs)
+
+    def visit_Associate(self, o, **kwargs):
+        body = self.visit(o.body, **kwargs)
+
+        if not o.parent or not isinstance(o.parent, ir.Associate):
+            return o._rebuild(body=body)
+
+        # Find all associate mapping that can be moved up
+        to_move = tuple(
+            (expr, name) for expr, name in o.associations
+            if not expr.scope == o.parent
+        )
+
+        if self.max_parents:
+            # Optionally filter by depth of symbol-parentage
+            to_move = tuple(
+                (expr, name) for expr, name in to_move
+                if not len(expr.parents) > self.max_parents
+            )
+
+        # Move up to parent ...
+        o.parent._update(associations=o.parent.associations + to_move)
+
+        # ... and remove from this associate node
+        new_assocs = tuple(
+            (expr, name) for expr, name in o.associations
+            if not (expr, name) in to_move
+        )
+        return o._rebuild(body=body, associations=new_assocs)
 
 
 def check_if_scalar_syntax(arg, dummy):

@@ -14,8 +14,8 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import Assignment, Associate, CallStatement, Conditional
 
 from loki.transformations.sanitise import (
-    resolve_associates, transform_sequence_association,
-    SanitiseTransformation
+    resolve_associates, merge_associates,
+    transform_sequence_association, SanitiseTransformation
 )
 
 
@@ -198,6 +198,56 @@ end subroutine transform_associates_nested_conditional
     assert assign.rhs.type.dtype == BasicType.DEFERRED
     assert assign.rhs.scope == routine
     assert assign.rhs.parent.scope == routine
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_merge_associates_nested(frontend):
+    """
+    Test association merging for nested mappings.
+    """
+    fcode = """
+subroutine merge_associates_simple(base)
+  use some_module, only: some_type
+  implicit none
+
+  type(some_type), intent(inout) :: base
+  integer :: i
+  real :: local_var
+
+  associate(a => base%a)
+  associate(b => base%other%symbol, c => a%more)
+  associate(d => base%other%symbol%really%deep)
+    do i=1, 5
+      call another_routine(i, n=b(c)%n)
+
+      d(i) = 42.0
+    end do
+  end associate
+  end associate
+  end associate
+end subroutine merge_associates_simple
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assocs = FindNodes(Associate).visit(routine.body)
+    assert len(assocs) == 3
+    assert len(assocs[0].associations) == 1
+    assert len(assocs[1].associations) == 2
+    assert len(assocs[2].associations) == 1
+
+    # Move associate mapping around
+    merge_associates(routine, max_parents=2)
+
+    assocs = FindNodes(Associate).visit(routine.body)
+    assert len(assocs) == 3
+    assert len(assocs[0].associations) == 2
+    assert assocs[0].associations[0] == ('base%a', 'a')
+    assert assocs[0].associations[1] == ('base%other%symbol', 'b')
+    assert len(assocs[1].associations) == 1
+    assert assocs[1].associations[0] == ('a%more', 'c')
+    assert len(assocs[2].associations) == 1
+    assert assocs[2].associations[0] == ('base%other%symbol%really%deep', 'd')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
