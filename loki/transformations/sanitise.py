@@ -15,7 +15,7 @@ code easier.
 from loki.batch import Transformation
 from loki.expression import FindVariables, SubstituteExpressions, Array, RangeIndex
 from loki.ir import CallStatement, FindNodes, Transformer, NestedTransformer
-from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.tools import as_tuple, dict_override, CaseInsensitiveDict
 from loki.types import BasicType
 
 from loki.transformations.utilities import recursive_expression_map_update
@@ -60,16 +60,22 @@ class SanitiseTransformation(Transformation):
             transform_sequence_association(routine)
 
 
-def resolve_associates(routine):
+def resolve_associates(routine, start_depth=1):
     """
     Resolve :any:`Associate` mappings in the body of a given routine.
+
+    Optionally, partial resolution of only inner :any:`Associate`
+    mappings is supported when a ``start_depth`` is specified.
 
     Parameters
     ----------
     routine : :any:`Subroutine`
         The subroutine for which to resolve all associate blocks.
+    start_depth : int, optional
+        Starting depth for partial resolution of :any:`Associate`
     """
-    routine.body = ResolveAssociatesTransformer().visit(routine.body)
+    transformer = ResolveAssociatesTransformer(start_depth=start_depth)
+    routine.body = transformer.visit(routine.body)
 
     # Ensure that all symbols have the appropriate scope attached.
     # This is needed, as the parent of a symbol might have changed,
@@ -84,11 +90,30 @@ class ResolveAssociatesTransformer(NestedTransformer):
     This will replace each :any:`Associate` node with its own body,
     where all `identifier` symbols have been replaced with the
     corresponding `selector` expression defined in ``associations``.
+
+    Optionally, partial resolution of only inner :any:`Associate`
+    mappings is supported when a ``start_depth`` is specified.
+
+    Parameters
+    ----------
+    start_depth : int, optional
+        Starting depth for partial resolution of :any:`Associate`
     """
 
+    def __init__(self, start_depth=0, **kwargs):
+        self.start_depth = start_depth
+        super().__init__(**kwargs)
+
     def visit_Associate(self, o, **kwargs):
+        # Establish traversal depth in kwargs
+        depth = kwargs.get('depth', 1)
+
         # First head-recurse, so that all associate blocks beneath are resolved
-        body = self.visit(o.body, **kwargs)
+        with dict_override(kwargs, {'depth': depth + 1}):
+            body = self.visit(o.body, **kwargs)
+
+        if depth <= self.start_depth:
+            return o.clone(body=body)
 
         # Create an inverse association map to look up replacements
         invert_assoc = CaseInsensitiveDict({v.name: k for k, v in o.associations})
