@@ -234,6 +234,11 @@ def inline(source, build, remove_openmp):
         }
     )
 
+    # Before inlining, remove DR_HOOK calls from the inner routines
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Removed inner DR_HOOK calls in {s:.2f}s'):
+        DrHookTransformation(kernel_only=False, remove=True).apply(ec_phys, role='driver')
+        DrHookTransformation(kernel_only=False, remove=True).apply(callpar, role='driver')
+
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Inlined EC_PHYS in {s:.2f}s'):
         # First, get the outermost call
         ecphys_calls = [
