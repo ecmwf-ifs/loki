@@ -207,8 +207,12 @@ class MergeAssociatesTransformer(NestedTransformer):
                 if not len(expr.parents) > self.max_parents
             )
 
-        # Move up to parent ...
-        o.parent._update(associations=o.parent.associations + to_move)
+        # Move up to parent (make sure we remove duplicates)...
+        parent_assoc = tuple(
+            (expr, name) for expr, name in to_move
+            if (expr, name) not in o.parent.associations
+        )
+        o.parent._update(associations=o.parent.associations + parent_assoc)
 
         # ... and remove from this associate node
         new_assocs = tuple(

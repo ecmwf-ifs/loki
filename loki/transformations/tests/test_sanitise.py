@@ -216,7 +216,8 @@ subroutine merge_associates_simple(base)
 
   associate(a => base%a)
   associate(b => base%other%symbol, c => a%more)
-  associate(d => base%other%symbol%really%deep)
+  associate(d => base%other%symbol%really%deep, &
+   &        a => base%a)
     do i=1, 5
       call another_routine(i, n=b(c)%n)
 
@@ -234,7 +235,7 @@ end subroutine merge_associates_simple
     assert len(assocs) == 3
     assert len(assocs[0].associations) == 1
     assert len(assocs[1].associations) == 2
-    assert len(assocs[2].associations) == 1
+    assert len(assocs[2].associations) == 2
 
     # Move associate mapping around
     merge_associates(routine, max_parents=2)
