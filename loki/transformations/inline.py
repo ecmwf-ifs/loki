@@ -11,7 +11,6 @@ Collection of utility routines to perform code-level force-inlining.
 
 """
 from collections import defaultdict, ChainMap
-from pymbolic.primitives import Expression
 
 from loki.batch import Transformation
 from loki.ir import (
@@ -359,53 +358,9 @@ def inline_elemental_functions(routine):
             import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)
 
-
-def recursive_inline_expression_map_update(expr_map, max_iterations=10):
-    """
-    Utility function to apply a inline substitution map for expressions to itself
-
-    Same logic used as in  :func:`recursive_expression_map_update`.
-                    
-    Parameters      
-    ----------      
-    expr_map : dict     
-        The inline substitution map that should be updated
-    max_iterations : int
-        Maximum number of iterations, corresponds to the maximum level of
-        nesting that can be replaced.
-    """
-    def apply_to_init_arg(name, arg, expr, mapper):
-        # Helper utility to apply the mapper only to expression arguments and
-        # retain the scope while rebuilding the node
-        if isinstance(arg, (tuple, Expression)):
-            return mapper(arg)
-        if name == 'scope':
-            return expr.scope
-        return arg
-
-    for _ in range(max_iterations):
-        # We update the expression map by applying it to the children of each replacement
-        # node, thus making sure node replacements are also applied to nested attributes,
-        # e.g. call arguments or array subscripts etc.
-        mapper = InlineSubstitutionMapper(expr_map) # SubstituteExpressionsMapper(expr_map)
-        prev_map, expr_map = expr_map, {
-            expr: type(replacement)(**{
-                name: apply_to_init_arg(name, arg, expr, mapper)
-                for name, arg in zip(replacement.init_arg_names, replacement.__getinitargs__())
-            })
-            for expr, replacement in expr_map.items()
-        }
-
-        # Check for early termination opportunities
-        if prev_map == expr_map:
-            break
-
-    return expr_map
-
-
 def inline_statement_functions(routine):
     """
-    Replaces `InlineCall` expression to statement functions with the
+    Replaces :any:`InlineCall` expression to statement functions with the
     called statement functions rhs.
     """
     # Keep track of removed symbols
@@ -414,34 +369,29 @@ def inline_statement_functions(routine):
     stmt_func_decls = FindNodes(StatementFunction).visit(routine.spec)
     exprmap = {}
     for call in FindInlineCalls().visit(routine.body):
-        if call.procedure_type is BasicType.DEFERRED:
+        proc_type = call.procedure_type
+        if proc_type is BasicType.DEFERRED:
             continue
-        if call.procedure_type.is_function and isinstance(call.routine, StatementFunction):
+        if proc_type.is_function and isinstance(call.routine, StatementFunction):
             exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
             removed_functions.add(call.routine)
     # Apply the map to itself to handle nested statement function calls
-    exprmap = recursive_inline_expression_map_update(exprmap, max_iterations=10)
+    exprmap = recursive_expression_map_update(exprmap, max_iterations=10, mapper_cls=InlineSubstitutionMapper)
     # Apply expression-level substitution to routine
     routine.body = SubstituteExpressions(exprmap).visit(routine.body)
 
-    # collect all the arguments of the statement functions
-    stmt_arguments = set()
-    stmt_func_map = {}
-    for stmt_func_decl in stmt_func_decls:
-        for arg in stmt_func_decl.arguments:
-            stmt_arguments.add(arg)
-        stmt_func_map[stmt_func_decl] = None
-    # remove the statement function declarations
-    routine.spec = Transformer(stmt_func_map).visit(routine.spec)
-
-    # remove the declarations of the statement function arguments
-    decls = FindNodes(VariableDeclaration).visit(routine.spec)
-    decls = tuple(d for d in decls if any(isinstance(s, sym.ProcedureSymbol) or s in stmt_arguments for s in d.symbols))
-    decl_map = {}
-    for decl in decls:
-        decl_map[decl] = None
-    routine.spec = Transformer(decl_map).visit(routine.spec)
-
+    # remove statement function declarations as well as statement function argument(s) declarations
+    vars_to_remove = {stmt_func.variable.name.lower() for stmt_func in stmt_func_decls}
+    vars_to_remove |= {arg.name.lower() for stmt_func in stmt_func_decls for arg in stmt_func.arguments}
+    spec_map = {stmt_func: None for stmt_func in stmt_func_decls}
+    for decl in routine.declarations:
+        if any(var in vars_to_remove for var in decl.symbols):
+            symbols = tuple(var for var in decl.symbols if var not in vars_to_remove)
+            if symbols:
+                decl._update(symbols=symbols)
+            else:
+                spec_map[decl] = None
+    routine.spec = Transformer(spec_map).visit(routine.spec)
 
 def map_call_to_procedure_body(call, caller):
     """
