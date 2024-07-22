@@ -19,7 +19,7 @@ from loki.transformations.array_indexing import (
     promote_variables, demote_variables, normalize_range_indexing,
     invert_array_indices, flatten_arrays,
     normalize_array_shape_and_access, shift_to_zero_indexing,
-    resolve_vector_notation
+    resolve_vector_notation, LowerConstantArrayIndices
 )
 from loki.transformations.transpile import FortranCTransformation
 
@@ -720,6 +720,145 @@ end module kernel_mod
     assert (b_flattened == b_ref.flatten(order='F')).all()
 
     builder.clean()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('recurse_to_kernels', (False, True))
+@pytest.mark.parametrize('inline_external_only', (False, True))
+def test_lower_constant_array_indices(frontend, recurse_to_kernels, inline_external_only):
+
+    fcode_driver = """
+subroutine driver(nlon,nlev,nb,var)
+  use kernel_mod, only: kernel
+  implicit none
+  integer, parameter :: param_1 = 1
+  integer, parameter :: param_2 = 2
+  integer, parameter :: param_3 = 5
+  integer, intent(in) :: nlon,nlev,nb
+  real, intent(inout) :: var(nlon,nlev,param_3,nb)
+  integer :: ibl
+  integer :: offset
+  integer :: some_val
+  integer :: loop_start, loop_end
+  loop_start = 2
+  loop_end = nb
+  some_val = 0
+  offset = 1
+  !$omp test
+  do ibl=loop_start, loop_end
+    call kernel(nlon,nlev,var(:,:,param_1,ibl), var(:,:,param_2:param_3,ibl), offset, loop_start, loop_end)
+    call kernel(nlon,nlev,var(:,:,param_1,ibl), var(:,:,param_2:param_3,ibl), offset, loop_start, loop_end)
+  enddo
+end subroutine driver
+"""
+
+    fcode_kernel = """
+module kernel_mod
+implicit none
+contains
+subroutine kernel(nlon,nlev,var,another_var,icend,lstart,lend)
+  use compute_mod, only: compute
+  implicit none
+  integer, intent(in) :: nlon,nlev,icend,lstart,lend
+  real, intent(inout) :: var(nlon,nlev)
+  real, intent(inout) :: another_var(nlon,nlev,4)
+  integer :: jk, jl, jt
+  var(:,:) = 0.
+  do jk = 1,nlev
+    do jl = 1, nlon
+      var(jl, jk) = 0.
+      do jt= 1,4
+        another_var(jl, jk, jt) = 0.0
+      end do
+    end do
+  end do
+  call compute(nlon,nlev,var)
+  call compute(nlon,nlev,var)
+end subroutine kernel
+end module kernel_mod
+"""
+
+    fcode_nested_kernel = """
+module compute_mod
+implicit none
+contains
+subroutine compute(nlon,nlev,var)
+  implicit none
+  integer, intent(in) :: nlon,nlev
+  real, intent(inout) :: var(nlon,nlev)
+  var(:,:) = 0.
+end subroutine compute
+end module compute_mod
+"""
+
+    # recurse_to_kernels = True
+    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend)
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
+
+    kwargs = {'recurse_to_kernels': recurse_to_kernels, 'inline_external_only': inline_external_only}
+    LowerConstantArrayIndices(**kwargs).apply(driver, role='driver', targets=('kernel',))
+    LowerConstantArrayIndices(**kwargs).apply(kernel_mod['kernel'], role='kernel', targets=('compute',))
+    LowerConstantArrayIndices(**kwargs).apply(nested_kernel_mod['compute'], role='kernel')
+
+    # driver
+    kernel_calls = FindNodes(CallStatement).visit(driver.body)
+    for kernel_call in kernel_calls:
+        if inline_external_only and frontend != OMNI:
+            assert kernel_call.arguments[2].dimensions == (':', ':', 'param_1', 'ibl')
+            assert kernel_call.arguments[3].dimensions == (':', ':', 'param_2:param_3', 'ibl')
+        else:
+            assert kernel_call.arguments[2].dimensions == (':', ':', ':', 'ibl')
+            assert kernel_call.arguments[3].dimensions == (':', ':', ':', 'ibl')
+    # kernel
+    kernel_vars = kernel_mod['kernel'].variable_map
+    if inline_external_only and frontend != OMNI:
+        assert kernel_vars['var'].shape == ('nlon', 'nlev')
+        assert kernel_vars['var'].dimensions == ('nlon', 'nlev')
+        assert kernel_vars['another_var'].shape == ('nlon', 'nlev', 4)
+        assert kernel_vars['another_var'].dimensions == ('nlon', 'nlev', 4)
+    else:
+        assert kernel_vars['var'].shape == ('nlon', 'nlev', 5)
+        assert kernel_vars['var'].dimensions == ('nlon', 'nlev', 5)
+        assert kernel_vars['another_var'].shape == ('nlon', 'nlev', 5)
+        assert kernel_vars['another_var'].dimensions == ('nlon', 'nlev', 5)
+    if inline_external_only and frontend != OMNI:
+        for var in FindVariables().visit(kernel_mod['kernel'].body):
+            if var.name.lower() == 'var' and not any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions):
+                assert var.dimensions == ('jl', 'jk')
+            if var.name.lower() == 'another_var' and not any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions):
+                assert tuple(str(dim) for dim in var.dimensions) == ('jl', 'jk', 'jt')
+    else:
+        for var in FindVariables().visit(kernel_mod['kernel'].body):
+            if var.name.lower() == 'var' and not any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions):
+                assert var.dimensions == ('jl', 'jk', 1)
+            if var.name.lower() == 'another_var' and not any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions):
+                assert tuple(str(dim) for dim in var.dimensions) == ('jl', 'jk', 'jt + 2 + -1')
+    compute_calls = FindNodes(CallStatement).visit(kernel_mod['kernel'].body)
+    for compute_call in compute_calls:
+        for arg in compute_call.arguments:
+            if arg.name.lower() == 'var':
+                if inline_external_only and frontend != OMNI:
+                    assert arg.dimensions == (':', ':')
+                elif recurse_to_kernels:
+                    assert arg.dimensions == (':', ':', ':')
+                else:
+                    assert arg.dimensions == (':', ':', '1')
+    # nested kernel
+    nested_kernel_var = nested_kernel_mod['compute'].variable_map['var']
+    if recurse_to_kernels and (not inline_external_only or frontend == OMNI):
+        assert nested_kernel_var.shape == ('nlon', 'nlev', 5)
+        assert nested_kernel_var.dimensions == ('nlon', 'nlev', 5)
+        for var in FindVariables().visit(nested_kernel_mod['compute'].body):
+            if var.name.lower() == 'var':
+                assert var.dimensions == (':', ':', 1)
+    else:
+        assert nested_kernel_var.shape == ('nlon', 'nlev')
+        assert nested_kernel_var.dimensions == ('nlon', 'nlev')
+        for var in FindVariables().visit(nested_kernel_mod['compute'].body):
+            if var.name.lower() == 'var':
+                assert var.dimensions == (':', ':')
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_promote_resolve_vector_notation(tmp_path, frontend):

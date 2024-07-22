@@ -25,7 +25,9 @@ from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
 from loki.transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
-from loki.transformations.array_indexing import normalize_range_indexing
+from loki.transformations.array_indexing import (
+        normalize_range_indexing, LowerConstantArrayIndices
+)
 from loki.transformations.build_system import (
     DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
 )
@@ -318,6 +320,9 @@ def convert(
                 trim_vector_sections=trim_vector_sections,
             )
         scheduler.process( pipeline )
+
+    if 'cuf' in mode:
+        scheduler.process( LowerConstantArrayIndices() )
 
     if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
         # These transformations requires complex constructor arguments,
