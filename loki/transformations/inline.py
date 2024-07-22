@@ -198,7 +198,6 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         # if it is an inline call to a Statement Function
         if isinstance(expr.routine, StatementFunction):
             function = expr.routine
-            v_result = expr.routine.variable
             # Substitute all arguments through the elemental body
             arg_map = dict(expr.arg_iter())
             fbody = SubstituteExpressions(arg_map).visit(function.rhs)
