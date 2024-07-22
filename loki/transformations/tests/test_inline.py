@@ -723,7 +723,7 @@ subroutine stmt_func(arr, ret)
     real, intent(inout) :: ret(:)
     real :: ret2
     real, parameter :: rtt = 1.0
-    {stmt_decls_code if stmt_decls else ''}
+    {stmt_decls_code if stmt_decls else '#include "fcttre.func.h"'}
 
     ret = foeew(arr) 
     ret2 = foedelta(3.0)
@@ -1180,6 +1180,9 @@ subroutine test_inline_pragma(a, b)
   real(kind=8), intent(inout) :: a(3), b(3)
   integer, parameter :: n = 3
   integer :: i
+  real :: stmt_arg
+  real :: some_stmt_func
+  some_stmt_func ( stmt_arg ) = stmt_arg + 3.1415
 
 #include "add_one_and_two.intfb.h"
 
@@ -1193,6 +1196,8 @@ subroutine test_inline_pragma(a, b)
     call add_one_and_two(b(i))
   end do
 
+  a(1) = some_stmt_func(a(2))
+
 end subroutine test_inline_pragma
 """
     module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
@@ -1201,7 +1206,8 @@ end subroutine test_inline_pragma
     routine.enrich(inner)
 
     trafo = InlineTransformation(
-        inline_constants=True, external_only=True, inline_elementals=True
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_stmt_funcs=True
     )
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
@@ -1222,11 +1228,12 @@ end subroutine test_inline_pragma
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 0
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 4
+    assert len(assigns) == 5
     assert assigns[0].lhs == 'a(i)' and assigns[0].rhs == 'a(i) + 1.0'
     assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
     assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
     assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
+    assert assigns[4].lhs == 'a(1)' and assigns[4].rhs == 'a(2) + 3.1415'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
