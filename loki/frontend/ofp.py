@@ -778,6 +778,8 @@ class OFP2IR(GenericVisitor):
                 return self.visit(o.find('module-nature'), **kwargs)
             if o.find('enum-def-stmt') is not None:
                 return self.create_enum(o, **kwargs)
+            if o.find('cray-pointer-stmt') is not None:
+                return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
             raise ValueError('Unsupported declaration')
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)

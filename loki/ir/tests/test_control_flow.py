@@ -677,3 +677,25 @@ end subroutine forall_construct
     assert regenerated_code[8].strip() == "c(i, j) = c(i, j + 2) + c(i, j - 2) + c(i + 2, j) + c(i - 2, j)"
     assert regenerated_code[9].strip() == "d(i, j) = c(i, j)"
     assert regenerated_code[10].strip() == "END FORALL"
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'No support for Cray Pointers')]
+))
+def test_cray_pointers(frontend):
+    fcode = """
+SUBROUTINE SUBROUTINE_WITH_CRAY_POINTER (KLON,KLEV,POOL)
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: KLON, KLEV
+REAL, INTENT(INOUT) :: POOL(:)
+REAL, DIMENSION(KLON,KLEV) :: ZQ
+POINTER(IP_ZQ, ZQ)
+IP_ZQ = LOC(POOL)
+END SUBROUTINE
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    intrinsics = FindNodes(ir.Intrinsic).visit(routine.spec)
+    assert len(intrinsics) == 2
+    assert 'IMPLICIT NONE' in intrinsics[0].text
+    assert 'POINTER(IP_ZQ, ZQ)' in intrinsics[1].text
+    assert 'POINTER(IP_ZQ, ZQ)' in routine.to_fortran()
