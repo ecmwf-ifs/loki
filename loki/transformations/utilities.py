@@ -468,7 +468,7 @@ def replace_selected_kind(routine):
             routine.spec.prepend(imprt)
 
 
-def recursive_expression_map_update(expr_map, max_iterations=10):
+def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=SubstituteExpressionsMapper):
     """
     Utility function to apply a substitution map for expressions to itself
 
@@ -490,6 +490,8 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
     max_iterations : int
         Maximum number of iterations, corresponds to the maximum level of
         nesting that can be replaced.
+    mapper_cls: :any:`SubstituteExpressionsMapper`
+       The underlying mapper to be used (default: :any:`SubstituteExpressionsMapper`).
     """
     def apply_to_init_arg(name, arg, expr, mapper):
         # Helper utility to apply the mapper only to expression arguments and
@@ -504,7 +506,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
         # We update the expression map by applying it to the children of each replacement
         # node, thus making sure node replacements are also applied to nested attributes,
         # e.g. call arguments or array subscripts etc.
-        mapper = SubstituteExpressionsMapper(expr_map)
+        mapper = mapper_cls(expr_map)
         prev_map, expr_map = expr_map, {
             expr: type(replacement)(**{
                 name: apply_to_init_arg(name, arg, expr, mapper)
