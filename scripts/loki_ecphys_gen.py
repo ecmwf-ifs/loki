@@ -142,6 +142,29 @@ def add_openmp_pragmas(routine, global_variables={}, field_group_types={}):
                             )
 
 
+def remove_block_loops(routine):
+    """
+    Remove any outer block :any:`Loop` from a given :any:`Subroutine.
+    """
+
+    class RemoveBlockLoopTransformer(Transformer):
+        """
+        :any:`Transformer` to remove driver-level block loops.
+        """
+
+        def visit_Loop(self, loop, **kwargs):
+            if not loop.variable == 'JKGLO':
+                return loop
+
+            to_remove = tuple(
+                a for a in FindNodes(ir.Assignment).visit(loop.body)
+                if a.lhs in ['ICST', 'ICEND', 'IBL']
+            )
+            return tuple(n for n in loop.body if n not in to_remove)
+
+    routine.body = RemoveBlockLoopTransformer().visit(routine.body)
+
+
 @click.group()
 def cli():
     pass
@@ -270,10 +293,12 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
               help='Path to search for initial input sources.')
 @click.option('--build', '-b', '--out', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
+@click.option('--remove-block-loop/--no-remove-block-loop', default=True,
+              help='Flag to replace OpenMP loop annotations with Loki pragmas.')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during processing')
-def parallel(source, build, log_level):
+def parallel(source, build, remove_block_loop, log_level):
     """
     Generate parallel regions with OpenMP and OpenACC dispatch.
     """
@@ -287,6 +312,11 @@ def parallel(source, build, log_level):
 
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
+
+    if remove_block_loop:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
+            # First, strip the outer block loop
+            remove_block_loops(ec_phys_parallel)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
