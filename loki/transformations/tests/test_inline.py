@@ -1144,7 +1144,8 @@ end module inline_declarations
 @pytest.mark.parametrize('frontend', available_frontends(
     (OFP, 'Prefix/elemental support not implemented'))
 )
-def test_inline_transformation(frontend, tmp_path):
+@pytest.mark.parametrize('pass_as_kwarg', (False, True))
+def test_inline_transformation(tmp_path, frontend, pass_as_kwarg):
     """Test combining recursive inlining via :any:`InliningTransformation`."""
 
     fcode_module = """
@@ -1174,7 +1175,7 @@ contains
 end subroutine add_one_and_two
 """
 
-    fcode = """
+    fcode = f"""
 subroutine test_inline_pragma(a, b)
   implicit none
   real(kind=8), intent(inout) :: a(3), b(3)
@@ -1188,15 +1189,15 @@ subroutine test_inline_pragma(a, b)
 
   do i=1, n
     !$loki inline
-    call add_one_and_two(a(i))
+    call add_one_and_two({'a=' if pass_as_kwarg else ''}a(i))
   end do
 
   do i=1, n
     !$loki inline
-    call add_one_and_two(b(i))
+    call add_one_and_two({'a=' if pass_as_kwarg else ''}b(i))
   end do
 
-  a(1) = some_stmt_func(a(2))
+  a(1) = some_stmt_func({'stmt_arg=' if pass_as_kwarg else ''}a(2))
 
 end subroutine test_inline_pragma
 """

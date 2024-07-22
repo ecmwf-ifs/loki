@@ -200,7 +200,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
             function = expr.routine
             v_result = expr.routine.variable
             # Substitute all arguments through the elemental body
-            arg_map = dict(zip(function.arguments, expr.parameters))
+            arg_map = dict(expr.arg_iter())
             fbody = SubstituteExpressions(arg_map).visit(function.rhs)
             return fbody
 
@@ -208,7 +208,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         v_result = [v for v in function.variables if v == function.name][0]
 
         # Substitute all arguments through the elemental body
-        arg_map = dict(zip(function.arguments, expr.parameters))
+        arg_map = dict(expr.arg_iter())
         fbody = SubstituteExpressions(arg_map).visit(function.body)
 
         # Extract the RHS of the final result variable assignment
