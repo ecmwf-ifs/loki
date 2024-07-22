@@ -13,16 +13,19 @@ from collections import defaultdict
 from itertools import count
 import operator as op
 
+from loki.batch import Transformation, ProcedureItem
 from loki.logging import info
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
-    symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions
+    symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions,
+    is_constant
 )
 from loki.ir import (
-    Assignment, Loop, VariableDeclaration, FindNodes, Transformer
+    Assignment, Loop, VariableDeclaration, FindNodes, Transformer, nodes as ir
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType
+from loki.transformations.inline import inline_constant_parameters
 
 
 __all__ = [
@@ -30,7 +33,8 @@ __all__ = [
     'resolve_vector_notation', 'normalize_range_indexing',
     'promote_variables', 'promote_nonmatching_variables',
     'promotion_dimensions_from_loop_nest', 'demote_variables',
-    'flatten_arrays', 'normalize_array_shape_and_access'
+    'flatten_arrays', 'normalize_array_shape_and_access',
+    'LowerConstantArrayIndices'
 ]
 
 
@@ -603,3 +607,173 @@ def flatten_arrays(routine, order='F', start_index=1):
     routine.variables = [v.clone(dimensions=as_tuple(sym.Product(v.shape)),
                                  type=v.type.clone(shape=as_tuple(sym.Product(v.shape))))
                          if isinstance(v, sym.Array) else v for v in routine.variables]
+
+class LowerConstantArrayIndices(Transformation):
+    """
+    A transformation to pass/lower constant array indices down the call tree. 
+
+    For example, the following code:
+
+    .. code-block:: fortran
+
+      subroutine driver(...)
+        real, intent(inout) :: var(nlon,nlev,5,nb)
+        do ibl=1,10
+          call kernel(var(:, :, 1, ibl), var(:, :, 2:5, ibl))
+        end do
+      end subroutine driver
+
+      subroutine kernel(var1, var2)
+        real, intent(inout) :: var1(nlon, nlev)
+        real, intent(inout) :: var2(nlon, nlev, 4)
+        var1(:, :) = ...
+        do jk=1,nlev
+          do jl=1,nlon
+            var1(jl, jk) = ...
+            do jt=1,4
+              var2(jl, jk, jt) = ...
+            enddo
+          enddo
+        enddo
+      end subroutine kernel
+
+    is transformed to:
+
+    .. code-block:: fortran
+
+      subroutine driver(...)
+        real, intent(inout) :: var(nlon,nlev,5,nb)
+        do ibl=1,10
+          call kernel(var(:, :, :, ibl), var(:, :, :, ibl))
+        end do
+      end subroutine driver
+
+      subroutine kernel(var1, var2)
+        real, intent(inout) :: var1(nlon, nlev, 5)
+        real, intent(inout) :: var2(nlon, nlev, 5)
+        var1(:, :, 1) = ...
+        do jk=1,nlev
+          do jl=1,nlon
+            var1(jl, jk, 1) = ...
+            do jt=1,4
+              var2(jl, jk, jt + 2 + -1) = ...
+            enddo
+          enddo
+        enddo
+      end subroutine kernel
+
+    Parameters
+    ----------
+    recurse_to_kernels: bool
+        Recurse to kernels, thus lower constant array indices below the driver level for nested
+        kernel calls (default: `True`).
+    inline_external_only: bool
+        Inline only external constant expressions or all of them (default: `False`)
+    """
+
+    # This trafo only operates on procedures
+    item_filter = (ProcedureItem,)
+
+    def __init__(self, recurse_to_kernels=True, inline_external_only=False):
+        self.recurse_to_kernels = recurse_to_kernels
+        self.inline_external_only = inline_external_only
+
+    @staticmethod
+    def explicit_dimensions(routine):
+        """
+        Make dimensions of arrays explicit within :any:`Subroutine` ``routine``.
+        E.g., convert two-dimensional array ``arr2d`` to ``arr2d(:,:)`` or
+        ``arr3d`` to ``arr3d(:,:,:)``.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to check
+        """
+        arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
+        array_map = {}
+        for array in arrays:
+            if not array.dimensions:
+                new_dimensions = (sym.RangeIndex((None, None)),) * len(array.shape)
+                array_map[array] = array.clone(dimensions=new_dimensions)
+        routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
+    @staticmethod
+    def is_constant_dim(dim):
+        """
+        Check whether dimension dim is constant, thus, either a constant
+        value or a constant range index.
+
+        Parameters
+        ----------
+        dim: :py:class:`pymbolic.primitives.Expression`
+        """
+        if is_constant(dim):
+            return True
+        if isinstance(dim, sym.RangeIndex)\
+                and all(child is not None and is_constant(child) for child in dim.children[:-1]):
+            return True
+        return False
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+        if role == 'driver' or self.recurse_to_kernels:
+            inline_constant_parameters(routine, external_only=self.inline_external_only)
+            self.process(routine, targets)
+
+    def process(self, routine, targets):
+        dispatched_routines = ()
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if str(call.name).lower() not in targets:
+                continue
+            # make array dimensions explicit
+            self.explicit_dimensions(call.routine)
+            routine_vmap = {}
+            updated_call_args = {}
+            introduce_index = {}
+            introduce_offset = {}
+            # collect and iterate over relevant arguments (being arrays)
+            relevant_arguments = [arg for arg in call.arg_iter() if isinstance(arg[1], sym.Array)]
+            for routine_arg, call_arg in relevant_arguments:
+                # check for constant dimensions
+                insert_dims = tuple((i, dim) for i, dim in enumerate(call_arg.dimensions) if self.is_constant_dim(dim))
+                if insert_dims:
+                    for insert_dim in insert_dims:
+                        new_dims = list(call_arg.dimensions)
+                        new_dims[insert_dim[0]] = sym.RangeIndex((None, None))
+                        updated_call_args[call_arg.name] = call_arg.clone(dimensions=as_tuple(new_dims))
+                        if call.routine not in dispatched_routines:
+                            new_dims = list(routine_arg.dimensions)
+                            # dimension is a constant RangeIndex, e.g., '1:3'
+                            if isinstance(insert_dim[1], sym.RangeIndex):
+                                introduce_offset[routine_arg.name] = (insert_dim[0], insert_dim[1].children[0])
+                                new_dims[insert_dim[0]] = call_arg.shape[insert_dim[0]]
+                            # dimension is a constant literal, e.g., '1'
+                            else:
+                                introduce_index[routine_arg.name] = (insert_dim[0], insert_dim[1])
+                                new_dims.insert(insert_dim[0], call_arg.shape[insert_dim[0]])
+                            routine_arg_new_type = routine_arg.type.clone(shape=as_tuple(new_dims))
+                            routine_vmap[routine_arg] = routine_arg.clone(type=routine_arg_new_type,
+                                    dimensions=as_tuple(new_dims))
+            # apply changes to call.routine (if this routine has not yet been processed)
+            if call.routine not in dispatched_routines:
+                call.routine.spec = SubstituteExpressions(routine_vmap).visit(call.routine.spec)
+                vmap = {}
+                for var in FindVariables(unique=False).visit(call.routine.body):
+                    if var.name in introduce_index and var.dimensions is not None and var.dimensions:
+                        var_dim = list(var.dimensions)
+                        var_dim.insert(introduce_index[var.name][0], introduce_index[var.name][1])
+                        vmap[var] = var.clone(dimensions=as_tuple(var_dim))
+                    if var.name in introduce_offset and var.dimensions is not None and var.dimensions:
+                        var_dim = list(var.dimensions)
+                        var_dim[introduce_offset[var.name][0]] += introduce_offset[var.name][1] - 1
+                        vmap[var] = var.clone(dimensions=as_tuple(var_dim))
+                call.routine.body = SubstituteExpressions(vmap).visit(call.routine.body)
+            # update the call itself
+            new_args = tuple(updated_call_args[arg.name] if not isinstance(arg, sym._Literal)\
+                    and arg.name in updated_call_args else arg for arg in call.arguments)
+            new_kwargs = ((kwarg[0], updated_call_args[kwarg[1].name]) if not isinstance(kwarg[1], sym._Literal)\
+                    and kwarg[1].name in updated_call_args else kwarg for kwarg in call.kwarguments)
+            call._update(arguments=new_args, kwarguments=new_kwargs)
+            dispatched_routines += (call.routine,)
