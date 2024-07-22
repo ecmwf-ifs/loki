@@ -194,6 +194,29 @@ def add_openmp_pragmas(routine, global_variables={}, field_group_types={}):
                             )
 
 
+def remove_block_loops(routine, field_group_types={}):
+    """
+
+    """
+
+    class RemoveBlockLoopTransformer(Transformer):
+        """
+        :any:`Transformer` to remove driver-level block loops.
+        """
+
+        def visit_Loop(self, loop, **kwargs):
+            if not loop.variable == 'JKGLO':
+                return loop
+
+            to_remove = tuple(
+                a for a in FindNodes(ir.Assignment).visit(loop.body)
+                if a.lhs in ['ICST', 'ICEND', 'IBL']
+            )
+            return tuple(n for n in loop.body if n not in to_remove)
+
+    routine.body = RemoveBlockLoopTransformer().visit(routine.body)
+
+
 @click.group()
 def cli():
     pass
@@ -331,6 +354,10 @@ def parallel(source, build):
 
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
+
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
+        # First, strip the outer block loop
+        remove_block_loops(ec_phys_parallel)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
