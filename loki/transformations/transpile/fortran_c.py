@@ -205,10 +205,22 @@ class FortranCTransformation(Transformation):
                             routine.spec.prepend(new_import)
                             # Mark current import for removal
                             removal_map[i] = None
+            import_removal_map = {}
+            for im in FindNodes(Import).visit(routine.ir):
+                print(f"FortranC - import: {im} | {im.module}")
+                if im.c_import or im.f_import:
+                    if im.module is not None and im.module.lower().replace('.intfb.h', '') in targets:
+                        import_removal_map[im] = None
+                        modname = f'{im.module.upper().replace(".INTFB.H", "")}_FC_MOD'
+                        new_symbol = Variable(name=f'{im.module.upper().replace(".INTFB.H", "")}_FC', scope=routine)
+                        new_import = Import(module=modname, c_import=False, symbols=(new_symbol,))
+                        routine.spec.prepend(new_import)
 
             # Apply any scheduled interface removals to spec
             if removal_map:
                 routine.spec = Transformer(removal_map).visit(routine.spec)
+            if import_removal_map:
+                routine.spec = Transformer(import_removal_map).visit(routine.spec)
             return
 
         for arg in routine.arguments:

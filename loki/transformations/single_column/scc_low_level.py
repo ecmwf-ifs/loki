@@ -20,7 +20,8 @@ from loki.transformations.single_column.scc_cuf import (
 )
 from loki.transformations.block_index_transformations import (
         InjectBlockIndexTransformation,
-        LowerBlockIndexTransformation, LowerBlockLoopTransformation
+        LowerBlockIndexTransformation, LowerBlockLoopTransformation,
+        LowerConstantArrayIndex
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
@@ -439,6 +440,7 @@ SCCLowLevelHoist = partial(
         DerivedTypeArgumentsTransformation,
         ArgumentArrayShapeAnalysis,
         ExplicitArgumentArrayShapeTransformation,
+        LowerConstantArrayIndex,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
