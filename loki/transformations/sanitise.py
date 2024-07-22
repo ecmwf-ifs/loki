@@ -133,13 +133,7 @@ class ResolveAssociatesTransformer(NestedTransformer):
 
         # Apply the expression substitution map to itself to handle nested expressions
         vmap = recursive_expression_map_update(vmap)
-
-        # Mark the associate block for replacement with its body, with all expressions replaced
-        self.mapper[o] = SubstituteExpressions(vmap).visit(body)
-
-        # Return the original object unchanged and let the tuple injection mechanism take care
-        # of replacing it by its body - otherwise we would end up with nested tuples
-        return o
+        return SubstituteExpressions(vmap).visit(body)
 
 
 def merge_associates(routine, max_parents=None):
