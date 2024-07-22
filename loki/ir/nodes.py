@@ -15,7 +15,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from functools import partial
 from itertools import chain
-from typing import Any, Tuple, Union
+from typing import Any, Tuple, Union, Optional
 
 from pymbolic.primitives import Expression
 
@@ -79,8 +79,8 @@ class Node:
 
     """
 
-    source: Union[Source, str] = None
-    label: str = None
+    source: Optional[Union[Source, str]] = None
+    label: Optional[str] = None
 
     _traversable = []
 
@@ -437,11 +437,11 @@ class _LoopBase():
     variable: Expression
     bounds: Expression
     body: Tuple[Node, ...]
-    pragma: Tuple[Node, ...] = None
-    pragma_post: Tuple[Node, ...] = None
-    loop_label: Any = None
-    name: str = None
-    has_end_do: bool = True
+    pragma: Optional[Tuple[Node, ...]] = None
+    pragma_post: Optional[Tuple[Node, ...]] = None
+    loop_label: Optional[Any] = None
+    name: Optional[str] = None
+    has_end_do: Optional[bool] = True
 
 
 @dataclass_strict(frozen=True)
@@ -498,13 +498,13 @@ class Loop(InternalNode, _LoopBase):
 class _WhileLoopBase():
     """ Type definitions for :any:`WhileLoop` node type. """
 
-    condition: Union[Expression, None]
+    condition: Optional[Expression]
     body: Tuple[Node, ...]
-    pragma: Node = None
-    pragma_post: Node = None
-    loop_label: Any = None
-    name: str = None
-    has_end_do: bool = True
+    pragma: Optional[Node] = None
+    pragma_post: Optional[Node] = None
+    loop_label: Optional[Any] = None
+    name: Optional[str] = None
+    has_end_do: Optional[bool] = True
 
 
 @dataclass_strict(frozen=True)
@@ -561,10 +561,10 @@ class _ConditionalBase():
 
     condition: Expression
     body: Tuple[Node, ...]
-    else_body: Tuple[Node, ...] = None
+    else_body: Optional[Tuple[Node, ...]] = None
     inline: bool = False
     has_elseif: bool = False
-    name: str = None
+    name: Optional[str] = None
 
 
 @dataclass_strict(frozen=True)
@@ -669,7 +669,7 @@ class _InterfaceBase():
 
     body: Tuple[Any, ...]
     abstract: bool = False
-    spec: Union[Expression, str] = None
+    spec: Optional[Union[Expression, str]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -738,7 +738,7 @@ class _AssignmentBase():
     lhs: Expression
     rhs: Expression
     ptr: bool = False
-    comment: Node = None
+    comment: Optional[Node] = None
 
 
 @dataclass_strict(frozen=True)
@@ -776,10 +776,10 @@ class Assignment(LeafNode, _AssignmentBase):
 class _ConditionalAssignmentBase():
     """ Type definitions for :any:`ConditionalAssignment` node type. """
 
-    lhs: Expression = None
-    condition: Expression = None
-    rhs: Expression = None
-    else_rhs: Expression = None
+    lhs: Optional[Expression] = None
+    condition: Optional[Expression] = None
+    rhs: Optional[Expression] = None
+    else_rhs: Optional[Expression] = None
 
 
 @dataclass_strict(frozen=True)
@@ -821,11 +821,11 @@ class _CallStatementBase():
     """ Type definitions for :any:`CallStatement` node type. """
 
     name: Expression
-    arguments: Tuple[Expression, ...] = None
-    kwarguments: Tuple[Tuple[str, Expression], ...] = None
-    pragma: Tuple[Node, ...] = None
-    not_active: bool = None
-    chevron: Tuple[Expression, ...] = None
+    arguments: Optional[Tuple[Expression, ...]] = None
+    kwarguments: Optional[Tuple[Tuple[str, Expression], ...]] = None
+    pragma: Optional[Tuple[Node, ...]] = None
+    not_active: Optional[bool] = None
+    chevron: Optional[Tuple[Expression, ...]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -982,8 +982,8 @@ class _AllocationBase():
     """ Type definitions for :any:`Allocation` node type. """
 
     variables: Tuple[Expression, ...]
-    data_source: Expression = None
-    status_var: Expression = None
+    data_source: Optional[Expression] = None
+    status_var: Optional[Expression] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1021,7 +1021,7 @@ class _DeallocationBase():
     """ Type definitions for :any:`Deallocation` node type. """
 
     variables: Tuple[Expression, ...]
-    status_var: Expression = None
+    status_var: Optional[Expression] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1150,7 +1150,7 @@ class _PragmaBase():
     """ Type definitions for :any:`Pragma` node type. """
 
     keyword: str
-    content: str = None
+    content: Optional[str] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1210,13 +1210,13 @@ class PreprocessorDirective(LeafNode, _PreprocessorDirectiveBase):
 class _ImportBase():
     """ Type definitions for :any:`Import` node type. """
 
-    module: Union[str, None]
+    module: Optional[str]
     symbols: Tuple[Expression, ...] = ()
-    nature: str = None
+    nature: Optional[str] = None
     c_import: bool = False
     f_include: bool = False
     f_import: bool = False
-    rename_list: Tuple[Any, ...] = None
+    rename_list: Optional[Tuple[Any, ...]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1274,9 +1274,9 @@ class _VariableDeclarationBase():
     """ Type definitions for :any:`VariableDeclaration` node type. """
 
     symbols: Tuple[Expression, ...]
-    dimensions: Tuple[Expression, ...] = None
-    comment: Node = None
-    pragma: Node = None
+    dimensions: Optional[Tuple[Expression, ...]] = None
+    comment: Optional[Node] = None
+    pragma: Optional[Node] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1325,13 +1325,13 @@ class _ProcedureDeclarationBase():
     """ Type definitions for :any:`ProcedureDeclaration` node type. """
 
     symbols: Tuple[Expression, ...]
-    interface: Union[Expression, DataType] = None
+    interface: Optional[Union[Expression, DataType]] = None
     external: bool = False
     module: bool = False
     generic: bool = False
     final: bool = False
-    comment: Node = None
-    pragma: Tuple[Node, ...] = None
+    comment: Optional[Node] = None
+    pragma: Optional[Tuple[Node, ...]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1471,10 +1471,10 @@ class StatementFunction(LeafNode, _StatementFunctionBase):
 class _TypeDefBase():
     """ Type definitions for :any:`TypeDef` node type. """
 
-    name: str = None
-    body: Tuple[Node, ...] = None
+    name: Optional[str] = None
+    body: Optional[Tuple[Node, ...]] = None
     abstract: bool = False
-    extends: str = None
+    extends: Optional[str] = None
     bind_c: bool = False
     private: bool = False
     public: bool = False
@@ -1624,7 +1624,7 @@ class _MultiConditionalBase():
     values: Tuple[Any, ...]
     bodies: Tuple[Any, ...]
     else_body: Tuple[Node, ...]
-    name: str = None
+    name: Optional[str] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1670,8 +1670,8 @@ class _ForallBase():
 
     named_bounds: Tuple[Tuple[Expression, Expression], ...]
     body: Tuple[Node, ...]
-    mask: Expression = None
-    name: str = None
+    mask: Optional[Expression] = None
+    name: Optional[str] = None
     inline: bool = False
 
 
@@ -1716,7 +1716,7 @@ class _MaskedStatementBase():
 
     conditions: Tuple[Expression, ...]
     bodies: Tuple[Tuple[Node, ...], ...]
-    default: Tuple[Node, ...] = None
+    default: Optional[Tuple[Node, ...]] = None
     inline: bool = False
 
 
