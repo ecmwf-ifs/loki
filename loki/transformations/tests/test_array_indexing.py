@@ -725,7 +725,7 @@ end module kernel_mod
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('recurse_to_kernels', (False, True))
 @pytest.mark.parametrize('inline_external_only', (False, True))
-def test_lower_constant_array_indices(frontend, recurse_to_kernels, inline_external_only):
+def test_lower_constant_array_indices(tmp_path, frontend, recurse_to_kernels, inline_external_only):
 
     fcode_driver = """
 subroutine driver(nlon,nlev,nb,var)
@@ -791,10 +791,9 @@ end subroutine compute
 end module compute_mod
 """
 
-    # recurse_to_kernels = True
-    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend)
-    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
+    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend, xmods=[tmp_path])
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod, xmods=[tmp_path])
 
     kwargs = {'recurse_to_kernels': recurse_to_kernels, 'inline_external_only': inline_external_only}
     LowerConstantArrayIndices(**kwargs).apply(driver, role='driver', targets=('kernel',))
