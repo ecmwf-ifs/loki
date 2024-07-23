@@ -32,7 +32,7 @@ dependencies = [
   "coloredlogs",  # optional for loki-build utility
   "junit_xml",  # optional for JunitXML output in loki-lint
   "codetiming",  # essential for scheduler and sourcefile timings
-  "pydantic<2.0",  # type checking for IR nodes
+  "pydantic",  # type checking for IR nodes
 ]
 
 [project.optional-dependencies]

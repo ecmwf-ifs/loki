@@ -44,7 +44,6 @@ __all__ = [
 
 # Configuration for validation mechanism via pydantic
 dataclass_validation_config  = {
-    'validate_assignment': True,
     'arbitrary_types_allowed': True,
 }
 
