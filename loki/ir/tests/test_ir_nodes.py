@@ -73,6 +73,7 @@ def test_loop(scope, one, i, n, a_i):
     assert isinstance(loop.bounds, Expression)
     assert isinstance(loop.body, tuple)
     assert all(isinstance(n, ir.Node) for n in loop.body)
+    assert loop.children == ( i, bounds, (assign,) )
 
     # Ensure "frozen" status of node objects
     with pytest.raises(FrozenInstanceError) as error:
@@ -82,9 +83,17 @@ def test_loop(scope, one, i, n, a_i):
     with pytest.raises(FrozenInstanceError) as error:
         loop.body = (assign, assign, assign)
 
+    # Test auto-casting of the body to tuple
+    loop = ir.Loop(variable=i, bounds=bounds, body=assign)
+    assert loop.body == (assign,)
+    loop = ir.Loop(variable=i, bounds=bounds, body=( (assign,), ))
+    assert loop.body == (assign,)
+    loop = ir.Loop(variable=i, bounds=bounds, body=( assign, (assign,), assign, None))
+    assert loop.body == (assign, assign, assign)
+
     # Test errors for wrong contructor usage
     with pytest.raises(ValidationError) as error:
-        ir.Loop(variable=i, bounds=bounds, body=assign)
+        ir.Loop(variable=i, bounds=bounds, body=n)
     with pytest.raises(ValidationError) as error:
         ir.Loop(variable=None, bounds=bounds, body=(assign,))
     with pytest.raises(ValidationError) as error:
@@ -108,6 +117,7 @@ def test_conditional(scope, one, i, n, a_i):
     assert all(isinstance(n, ir.Node) for n in cond.body)
     assert isinstance(cond.else_body, tuple) and len(cond.else_body) == 1
     assert all(isinstance(n, ir.Node) for n in cond.else_body)
+    assert cond.children == ( condition, (assign, assign), (assign,) )
 
     with pytest.raises(FrozenInstanceError) as error:
         cond.condition = parse_expr('k == 0', scope=scope)
@@ -116,8 +126,21 @@ def test_conditional(scope, one, i, n, a_i):
     with pytest.raises(FrozenInstanceError) as error:
         cond.else_body = (assign, assign, assign)
 
-    # Test errors for wrong contructor usage
-    with pytest.raises(ValidationError) as error:
-        ir.Conditional(condition=condition, body=assign)
+    # Test auto-casting of the body / else_body to tuple
+    cond = ir.Conditional(condition=condition, body=assign)
+    assert cond.body == (assign,) and cond.else_body == ()
+    cond = ir.Conditional(condition=condition, body=( (assign,), ))
+    assert cond.body == (assign,) and cond.else_body == ()
+    cond = ir.Conditional(condition=condition, body=( assign, (assign,), assign, None))
+    assert cond.body == (assign, assign, assign) and cond.else_body == ()
+
+    cond = ir.Conditional(condition=condition, body=(), else_body=assign)
+    assert cond.body == () and cond.else_body == (assign,)
+    cond = ir.Conditional(condition=condition, body=(), else_body=( (assign,), ))
+    assert cond.body == () and cond.else_body == (assign,)
+    cond = ir.Conditional(
+        condition=condition, body=(), else_body=( assign, (assign,), assign, None)
+    )
+    assert cond.body == () and cond.else_body == (assign, assign, assign)
 
     # TODO: Test inline, name, has_elseif
