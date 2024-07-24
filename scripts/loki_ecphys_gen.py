@@ -25,6 +25,7 @@ from loki.ir import (
     is_loki_pragma
 )
 from loki.tools import as_tuple, flatten
+from loki.types import DerivedType
 
 from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import (
@@ -163,6 +164,63 @@ def remove_block_loops(routine):
             return tuple(n for n in loop.body if n not in to_remove)
 
     routine.body = RemoveBlockLoopTransformer().visit(routine.body)
+
+
+def add_block_loops(routine, field_group_types={}):
+    """
+    Insert IFS-style driver block-loops (NPROMA).
+    """
+
+    def _create_block_loop(body, scope):
+        """
+        Generate block loop object, including indexing preamble
+        """
+        jkglo = scope.get_symbol('JKGLO')
+        icend = scope.get_symbol('ICEND')
+        ibl = scope.get_symbol('IBL')
+
+        ngptot = sym.Scalar('NGPTOT', parent=scope.variable_map['YDGEM'], scope=scope)
+        nproma = sym.Scalar('NPROMA', parent=scope.variable_map['YDDIM'], scope=scope)
+        lrange = sym.LoopRange((sym.Literal(1), ngptot, nproma))
+
+        expr_tail = parse_expr('YDGEM%NGPTOT-JKGLO+1', scope=scope)
+        expr_max = sym.InlineCall(
+            function=sym.ProcedureSymbol('MIN', scope=scope), parameters=(nproma, expr_tail)
+        )
+        preamble = (ir.Assignment(lhs=icend, rhs=expr_max),)
+        preamble += (ir.Assignment(
+            lhs=ibl, rhs=parse_expr('(JKGLO-1)/YDDIM%NPROMA+1', scope=scope)
+        ),)
+
+        return ir.Loop(variable=jkglo, bounds=lrange, body=preamble + body)
+
+    class InsertBlockLoopTransformer(Transformer):
+
+        def visit_PragmaRegion(self, region, **kwargs):
+            """
+            (Re-)insert driver-level block loops into marked parallel region.
+            """
+            if not is_loki_pragma(region.pragma, starts_with='parallel'):
+                return region
+
+            # Filter out private copies of field group objects
+            local_copies = tuple(
+                a for a in FindNodes(ir.Assignment).visit(region.body)
+                if isinstance(a.lhs.type.dtype, DerivedType) and \
+                a.lhs.type.dtype.name in field_group_types
+            )
+            idx = max(
+                region.body.index(a) for a in local_copies
+            ) + 1 if local_copies else 0
+
+            # Create a block loop per marked parallel region
+            scope = kwargs.get('scope')
+            loop = _create_block_loop(body=region.body[idx:], scope=scope)
+            region._update(body=region.body[:idx] + (loop,))
+            return region
+
+    with pragma_regions_attached(routine):
+        routine.body = InsertBlockLoopTransformer().visit(routine.body, scope=routine)
 
 
 @click.group()
@@ -317,6 +375,9 @@ def parallel(source, build, remove_block_loop, log_level):
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
             # First, strip the outer block loop
             remove_block_loops(ec_phys_parallel)
+
+            # The add them back in according to parallel region
+            add_block_loops(ec_phys_parallel, field_group_types=['SURF_AND_MORE_TYPE'])
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
