@@ -11,6 +11,7 @@ Control flow node classes for
 :ref:`internal_representation:Control flow tree`
 """
 
+from abc import abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import partial
@@ -330,6 +331,20 @@ class ScopedNode(Scope):
         symbol_attrs = s.pop('symbol_attrs', None)
         self._update(**s, symbol_attrs=symbol_attrs, rescope_symbols=True)
 
+    @property
+    @abstractmethod
+    def variables(self):
+        """
+        Return the variables defined in this :any:`ScopedNode`.
+        """
+
+    @property
+    def variable_map(self):
+        """
+        Map of variable names to :any:`Variable` objects
+        """
+        return CaseInsensitiveDict((v.name, v) for v in self.variables)
+
     def get_symbol(self, name):
         """
         Returns the symbol for a given name as defined in its declaration.
@@ -342,7 +357,7 @@ class ScopedNode(Scope):
         name : str
             Base name of the symbol to be retrieved
         """
-        return self.get_symbol_scope(name).variable_map.get(name)  # pylint: disable=no-member
+        return self.get_symbol_scope(name).variable_map.get(name)
 
     def Variable(self, **kwargs):
         """
@@ -491,13 +506,6 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
     @property
     def variables(self):
         return tuple(v for _, v in self.associations)
-
-    @property
-    def variable_map(self):
-        """
-        Map of variable names to :any:`Variable` objects
-        """
-        return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
     def __repr__(self):
         if self.associations:
@@ -1646,10 +1654,6 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
     @property
     def variables(self):
         return tuple(flatten([decl.symbols for decl in self.declarations]))
-
-    @property
-    def variable_map(self):
-        return CaseInsensitiveDict((s.name, s) for s in self.variables)
 
     @property
     def imported_symbols(self):
