@@ -319,7 +319,9 @@ class FParser2IR(GenericVisitor):
         """
         Universal routine to capture nodes as plain string in the IR
         """
-        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
+        label = kwargs.get('label')
+        label = str(label) if label else label  # Ensure srting labels
+        return ir.Intrinsic(text=o.tostr(), label=label, source=kwargs.get('source'))
 
     #
     # Base blocks

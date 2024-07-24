@@ -81,7 +81,7 @@ end module transformation_module_cufgen
     call_map = {}
     for call in FindNodes(ir.CallStatement).visit(driver.body):
         if "kernel" in str(call.name):
-            with pytest.raises(AssertionError):
+            with pytest.raises(ValidationError):
                 _ = call.clone(chevron=(sym.IntLiteral(1), sym.IntLiteral(1), sym.IntLiteral(1), sym.IntLiteral(1),
                                         sym.IntLiteral(1)))
             with pytest.raises(ValidationError):
