@@ -675,12 +675,12 @@ class LoopUnrollTransformer(Transformer):
                 acc = [self.visit(a, depth=depth, warn_iterations_length=warn_iterations_length) for a in acc]
 
             return as_tuple(flatten(acc))
-        else:
-            return Loop(
-                variable=o.variable,
-                body=self.visit(o.body, depth=depth, warn_iterations_length=warn_iterations_length),
-                bounds=o.bounds
-                        )
+
+        return Loop(
+            variable=o.variable,
+            body=self.visit(o.body, depth=depth, warn_iterations_length=warn_iterations_length),
+            bounds=o.bounds
+        )
 
 
 def loop_unroll(routine):
@@ -688,7 +688,7 @@ def loop_unroll(routine):
     Search for ``!$loki loop-unroll`` pragmas in loops and unroll them.
 
     The expected pragma syntax is
-    ``!$loki loop-fission [depth(n)]``
+    ``!$loki loop-unroll [depth(n)]``
     where ``depth(n)`` controls the unrolling of nested loops. For instance,
     ``depth(1)`` will only unroll the top most loop of a set of nested loops.
     However, a child nested loop with a more restrictive depth will not be
@@ -734,7 +734,7 @@ def loop_unroll(routine):
                     return as_tuple(flatten([self.visit(a) for a in as_tuple(flatten(unrolled_loop))]))
                 # Loop() is not iterable
                 except TypeError:
-                    return self.visit(unrolled_loop)
+                    return self.visit(unrolled_loop, *args, **kwargs)
             else:
                 return Loop(variable=o.variable, body=self.visit(o.body), bounds=o.bounds)
 
