@@ -625,11 +625,12 @@ class LoopUnrollTransformer(Transformer):
     will not be able to override its parent's depth.
     """
 
-    def __init__(self):
+    def __init__(self, warn_iterations_length=True):
+        self.warn_iterations_length = warn_iterations_length
         super().__init__()
 
     # depth is treated as an option of some depth or none, i.e. unroll all
-    def visit_Loop(self, o, depth=None, warn_iterations_length=True):
+    def visit_Loop(self, o, depth=None):
         """
         Apply this :class:`Transformer` to an IR tree.
 
@@ -639,11 +640,6 @@ class LoopUnrollTransformer(Transformer):
             The node to visit.
         depth : 'Int', optional
             How deep down a loop nest unrolling should be applied.
-        warn_iterations_length : 'Boolean', optional
-            This specifies if warnings should be generated when unrolling
-            loops with a large number of iterations (32). It's mainly to
-            disable warnings when loops are being unrolled for internal
-            transformations and analysis.
         """
 
         # If the step isn't explicitly given, then it's implicitly 1
@@ -659,7 +655,7 @@ class LoopUnrollTransformer(Transformer):
 
             #  int() to truncate any floats - which are not invalid in all specs!
             unroll_range = range(int(start), int(stop) + 1, int(step))
-            if warn_iterations_length and len(unroll_range) > 32:
+            if self.warn_iterations_length and len(unroll_range) > 32:
                 warning(f"Unrolling loop over 32 iterations ({len(unroll_range)}), this may take a long time & "
                         f"provide few performance benefits.")
 
@@ -672,18 +668,18 @@ class LoopUnrollTransformer(Transformer):
                                    ())
 
             if depth is None or depth >= 1:
-                acc = [self.visit(a, depth=depth, warn_iterations_length=warn_iterations_length) for a in acc]
+                acc = [self.visit(a, depth=depth) for a in acc]
 
             return as_tuple(flatten(acc))
 
         return Loop(
             variable=o.variable,
-            body=self.visit(o.body, depth=depth, warn_iterations_length=warn_iterations_length),
+            body=self.visit(o.body, depth=depth),
             bounds=o.bounds
-        )
+                    )
 
 
-def loop_unroll(routine):
+def loop_unroll(routine, warn_iterations_length=True):
     """
     Search for ``!$loki loop-unroll`` pragmas in loops and unroll them.
 
@@ -714,9 +710,18 @@ def loop_unroll(routine):
     ----------
     routine : :any:`Subroutine`
         The subroutine in which loop unrolling is to be applied.
+    warn_iterations_length : 'Boolean', optional
+        This specifies if warnings should be generated when unrolling
+        loops with a large number of iterations (32). It's mainly to
+        disable warnings when loops are being unrolled for internal
+        transformations and analysis.
     """
 
     class PragmaLoopUnrollTransformer(Transformer):
+        def __init__(self, warn_iterations_length=True):
+            self.warn_iterations_length = warn_iterations_length
+            super().__init__()
+
         def visit_Loop(self, o, *args, **kwargs):
             # Check for pragmas
             if is_loki_pragma(o.pragma, starts_with='loop-unroll'):
@@ -727,7 +732,7 @@ def loop_unroll(routine):
                 depth = int(param) if param is not None else None
 
                 # Unroll and recurse
-                unrolled_loop = LoopUnrollTransformer().visit(o, depth=depth)
+                unrolled_loop = LoopUnrollTransformer(self.warn_iterations_length).visit(o, depth=depth)
 
                 # unrolled_loop could be either an unrollable Loop() or a Tuple() of Nodes
                 try:
@@ -735,8 +740,8 @@ def loop_unroll(routine):
                 # Loop() is not iterable
                 except TypeError:
                     return self.visit(unrolled_loop, *args, **kwargs)
-            else:
-                return Loop(variable=o.variable, body=self.visit(o.body), bounds=o.bounds)
+
+            return super().visit_Node(o, *args, **kwargs)
 
     with pragmas_attached(routine, Loop):
-        routine.body = PragmaLoopUnrollTransformer().visit(routine.body)
+        routine.body = PragmaLoopUnrollTransformer(warn_iterations_length=warn_iterations_length).visit(routine.body)
