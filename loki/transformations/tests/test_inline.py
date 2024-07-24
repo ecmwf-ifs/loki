@@ -21,10 +21,12 @@ from loki.batch import Scheduler, SchedulerConfig
 from loki.transformations.inline import (
     inline_elemental_functions, inline_constant_parameters,
     inline_member_procedures, inline_marked_subroutines,
-    InlineTransformation,
+    inline_statement_functions, InlineTransformation,
 )
 from loki.transformations.sanitise import ResolveAssociatesTransformer
 from loki.transformations.utilities import replace_selected_kind
+
+# pylint: disable=too-many-lines
 
 
 @pytest.fixture(name='builder')
@@ -700,6 +702,53 @@ end subroutine acraneb_transt
     assert len(assocs) == 2
 
 
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OFP: "OFP apparently has problems dealing with those Statement Functions",
+          OMNI: "OMNI automatically inlines Statement Functions"}
+))
+@pytest.mark.parametrize('stmt_decls', (True, False))
+def test_inline_statement_functions(frontend, stmt_decls):
+    stmt_decls_code = """
+    real :: PTARE
+    real :: FOEDELTA
+    FOEDELTA ( PTARE ) = PTARE + 1.0
+    real :: FOEEW
+    FOEEW ( PTARE ) = PTARE + FOEDELTA(PTARE)
+    """.strip()
+
+    fcode = f"""
+subroutine stmt_func(arr, ret)
+    implicit none
+    real, intent(in) :: arr(:)
+    real, intent(inout) :: ret(:)
+    real :: ret2
+    real, parameter :: rtt = 1.0
+    {stmt_decls_code if stmt_decls else '#include "fcttre.func.h"'}
+
+    ret = foeew(arr) 
+    ret2 = foedelta(3.0)
+end subroutine stmt_func
+     """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    if stmt_decls:
+        assert FindNodes(ir.StatementFunction).visit(routine.spec)
+    else:
+        assert not FindNodes(ir.StatementFunction).visit(routine.spec)
+    assert FindInlineCalls().visit(routine.body)
+    inline_statement_functions(routine)
+
+    assert not FindNodes(ir.StatementFunction).visit(routine.spec)
+    if stmt_decls:
+        assert not FindInlineCalls().visit(routine.body)
+        assignments = FindNodes(ir.Assignment).visit(routine.body)
+        assert assignments[0].lhs  == 'ret'
+        assert assignments[0].rhs  ==  "arr + arr + 1.0"
+        assert assignments[1].lhs  == 'ret2'
+        assert assignments[1].rhs  ==  "3.0 + 1.0"
+    else:
+        assert FindInlineCalls().visit(routine.body)
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('adjust_imports', [True, False])
 def test_inline_marked_subroutines(frontend, adjust_imports, tmp_path):
@@ -1095,7 +1144,8 @@ end module inline_declarations
 @pytest.mark.parametrize('frontend', available_frontends(
     (OFP, 'Prefix/elemental support not implemented'))
 )
-def test_inline_transformation(frontend, tmp_path):
+@pytest.mark.parametrize('pass_as_kwarg', (False, True))
+def test_inline_transformation(tmp_path, frontend, pass_as_kwarg):
     """Test combining recursive inlining via :any:`InliningTransformation`."""
 
     fcode_module = """
@@ -1125,24 +1175,29 @@ contains
 end subroutine add_one_and_two
 """
 
-    fcode = """
+    fcode = f"""
 subroutine test_inline_pragma(a, b)
   implicit none
   real(kind=8), intent(inout) :: a(3), b(3)
   integer, parameter :: n = 3
   integer :: i
+  real :: stmt_arg
+  real :: some_stmt_func
+  some_stmt_func ( stmt_arg ) = stmt_arg + 3.1415
 
 #include "add_one_and_two.intfb.h"
 
   do i=1, n
     !$loki inline
-    call add_one_and_two(a(i))
+    call add_one_and_two({'a=' if pass_as_kwarg else ''}a(i))
   end do
 
   do i=1, n
     !$loki inline
-    call add_one_and_two(b(i))
+    call add_one_and_two({'a=' if pass_as_kwarg else ''}b(i))
   end do
+
+  a(1) = some_stmt_func({'stmt_arg=' if pass_as_kwarg else ''}a(2))
 
 end subroutine test_inline_pragma
 """
@@ -1152,7 +1207,8 @@ end subroutine test_inline_pragma
     routine.enrich(inner)
 
     trafo = InlineTransformation(
-        inline_constants=True, external_only=True, inline_elementals=True
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_stmt_funcs=True
     )
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
@@ -1173,11 +1229,12 @@ end subroutine test_inline_pragma
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 0
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 4
+    assert len(assigns) == 5
     assert assigns[0].lhs == 'a(i)' and assigns[0].rhs == 'a(i) + 1.0'
     assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
     assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
     assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
+    assert assigns[4].lhs == 'a(1)' and assigns[4].rhs == 'a(2) + 3.1415'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
