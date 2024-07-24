@@ -174,6 +174,9 @@ def test_section(scope, one, i, n, a_n, a_i):
     with pytest.raises(FrozenInstanceError) as error:
         sec.body = (func, func)
 
+    sec = ir.Section((assign, assign))
+    assert sec.body == (assign, assign)
+
     # Test auto-casting of the body to tuple
     sec = ir.Section(body=assign)
     assert sec.body == (assign,)
@@ -181,6 +184,8 @@ def test_section(scope, one, i, n, a_n, a_i):
     assert sec.body == (assign,)
     sec = ir.Section(body=( assign, (assign,), assign, None))
     assert sec.body == (assign, assign, assign)
+    sec = ir.Section((assign, (func,), assign, None))
+    assert sec.body == (assign, func, assign)
 
     # Test prepend/insert/append additions
     sec = ir.Section(body=func)

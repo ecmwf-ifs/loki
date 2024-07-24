@@ -233,7 +233,14 @@ class Node:
 
 
 @dataclass_strict(frozen=True)
-class InternalNode(Node):
+class _InternalNode():
+    """ Type definitions for :any:`InternalNode` node type. """
+
+    body: Tuple[Union[Node, Scope], ...] = ()
+
+
+@dataclass_strict(frozen=True)
+class InternalNode(Node, _InternalNode):
     """
     Internal representation of a control flow node that has a traversable
     `body` property.
@@ -244,16 +251,18 @@ class InternalNode(Node):
         The nodes that make up the body.
     """
 
-    body: Tuple[Union[Node, Scope], ...] = ()
-
     _traversable = ['body']
 
     @model_validator(mode='before')
     @classmethod
     def pre_init(cls, values):
         """ Ensure non-nested tuples for body. """
-        if 'body' in values.kwargs:
+        if values.kwargs and 'body' in values.kwargs:
             values.kwargs['body'] = _sanitize_tuple(values.kwargs['body'])
+        if values.args:
+            # ArgsKwargs are immutable, so we need to force it a little
+            new_args = (_sanitize_tuple(values.args[0]),) + values.args[1:]
+            values = type(values)(args=new_args, kwargs=values.kwargs)
         return values
 
     def __repr__(self):
