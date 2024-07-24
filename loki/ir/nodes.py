@@ -392,7 +392,7 @@ class _AssociateBase():
 
 
 @dataclass_strict(frozen=True)
-class Associate(ScopedNode, Section, _AssociateBase):
+class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-many-ancestors
     """
     Internal representation of a code region in which names are associated
     with expressions or variables.
