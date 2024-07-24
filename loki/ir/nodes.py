@@ -244,7 +244,7 @@ class InternalNode(Node):
         The nodes that make up the body.
     """
 
-    body: Tuple[Node, ...] = ()
+    body: Tuple[Union[Node, Scope], ...] = ()
 
     _traversable = ['body']
 
@@ -327,23 +327,12 @@ class ScopedNode(Scope):
 class _SectionBase():
     """ Type definitions for :any:`Section` node type. """
 
-    # Sections may contain Module / Subroutine objects
-    body: Tuple[Any, ...] = ()
-
 
 @dataclass_strict(frozen=True)
 class Section(InternalNode, _SectionBase):
     """
     Internal representation of a single code region.
     """
-
-    def __post_init__(self):
-        super().__post_init__()
-        assert self.body is None or isinstance(self.body, tuple)
-
-        # Ensure we have no nested tuples in the body
-        if not all(not isinstance(n, tuple) for n in as_tuple(self.body)):
-            self._update(body=as_tuple(flatten(self.body)))
 
     def append(self, node):
         """

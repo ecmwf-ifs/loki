@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from loki.expression import symbols as sym, parse_expr
 from loki.ir import nodes as ir
 from loki.scope import Scope
+from loki.subroutine import Subroutine
 
 
 @pytest.fixture(name='scope')
@@ -35,6 +36,10 @@ def fixture_n(scope):
 @pytest.fixture(name='a_i')
 def fixture_a_i(scope, i):
     return sym.Array('a', dimensions=(i,), scope=scope)
+
+@pytest.fixture(name='a_n')
+def fixture_a_n(scope, n):
+    return sym.Array('a', dimensions=(n,), scope=scope)
 
 
 def test_assignment(scope, a_i):
@@ -144,3 +149,45 @@ def test_conditional(scope, one, i, n, a_i):
     assert cond.body == () and cond.else_body == (assign, assign, assign)
 
     # TODO: Test inline, name, has_elseif
+
+
+def test_section(scope, one, i, n, a_n, a_i):
+    """
+    Test constructors and behaviour of :any:`Section` nodes.
+    """
+    assign = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    decl = ir.VariableDeclaration(symbols=(a_n,))
+    func = Subroutine(
+        name='F', is_function=True, spec=(decl,), body=(assign,)
+    )
+
+    # Test constructor for nodes and subroutine objects
+    sec = ir.Section(body=(assign, assign))
+    assert isinstance(sec.body, tuple) and len(sec.body) == 2
+    assert all(isinstance(n, ir.Node) for n in sec.body)
+    with pytest.raises(FrozenInstanceError) as error:
+        sec.body = (assign, assign)
+
+    sec = ir.Section(body=(func, func))
+    assert isinstance(sec.body, tuple) and len(sec.body) == 2
+    assert all(isinstance(n, Scope) for n in sec.body)
+    with pytest.raises(FrozenInstanceError) as error:
+        sec.body = (func, func)
+
+    # Test auto-casting of the body to tuple
+    sec = ir.Section(body=assign)
+    assert sec.body == (assign,)
+    sec = ir.Section(body=( (assign,), ))
+    assert sec.body == (assign,)
+    sec = ir.Section(body=( assign, (assign,), assign, None))
+    assert sec.body == (assign, assign, assign)
+
+    # Test prepend/insert/append additions
+    sec = ir.Section(body=func)
+    assert sec.body == (func,)
+    sec.prepend(assign)
+    assert sec.body == (assign, func)
+    sec.append((assign, assign))
+    assert sec.body == (assign, func, assign, assign)
+    sec.insert(pos=3, node=func)
+    assert sec.body == (assign, func, assign, func, assign)
