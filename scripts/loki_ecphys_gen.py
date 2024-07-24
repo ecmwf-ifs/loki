@@ -24,7 +24,9 @@ from loki.ir import (
     CallStatement, pragmas_attached, pragma_regions_attached,
     is_loki_pragma
 )
+from loki.scope import SymbolAttributes
 from loki.tools import as_tuple, flatten
+from loki.types import DerivedType, BasicType
 
 from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import (
@@ -83,6 +85,66 @@ def remove_block_loops(routine):
     routine.body = RemoveBlockLoopTransformer().visit(routine.body)
 
 
+def add_block_loops(routine, dimension):
+    """
+    Insert IFS-style driver block-loops (NPROMA).
+    """
+
+    # TODO: The abuse of `Dimension` here includes some back-bending
+    # hackery due to the funcky way in which the block-loop bounds are
+    # done in IFS!
+
+    # Ensure that local integer variables are declared
+    index = parse_expr(dimension.index, routine)
+    upper = parse_expr(dimension.bounds_expressions[1][1], routine)
+    bidx = parse_expr(dimension.index_expressions[1], routine)
+    for v in (index, upper, bidx):
+        if not v in routine.variable_map:
+            routine.variables += (
+                v.clone(type=SymbolAttributes(BasicType.INTEGER, kind='JPIM')),
+            )
+
+    def _create_block_loop(body, scope):
+        """
+        Generate block loop object, including indexing preamble
+        """
+
+        # This is a hack; it's meant to be the upper limit, but we use it as stride!
+        bsize = parse_expr(dimension.bounds_expressions[1][0], scope=scope)
+        size = parse_expr(dimension.size, scope=scope)
+        lrange = sym.LoopRange((sym.Literal(1), size, bsize))
+
+        expr_tail = parse_expr(f'{size}-{index}+1', scope=scope)
+        expr_max = sym.InlineCall(
+            function=sym.ProcedureSymbol('MIN', scope=scope), parameters=(bsize, expr_tail)
+        )
+        preamble = (ir.Assignment(lhs=upper, rhs=expr_max),)
+        preamble += (ir.Assignment(
+            lhs=bidx, rhs=parse_expr(f'({index}-1)/{bsize}+1', scope=scope)
+        ),)
+
+        return ir.Loop(variable=index, bounds=lrange, body=preamble + body)
+
+    class InsertBlockLoopTransformer(Transformer):
+
+        def visit_PragmaRegion(self, region, **kwargs):
+            """
+            (Re-)insert driver-level block loops into marked parallel region.
+            """
+            if not is_loki_pragma(region.pragma, starts_with='parallel'):
+                return region
+
+            scope = kwargs.get('scope')
+
+            loop = _create_block_loop(body=region.body, scope=scope)
+
+            region._update(body=(ir.Comment(''), loop))
+            return region
+
+    with pragma_regions_attached(routine):
+        routine.body = InsertBlockLoopTransformer().visit(routine.body, scope=routine)
+
+
 @click.group()
 def cli():
     pass
@@ -137,7 +199,7 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
         DrHookTransformation(kernel_only=False, remove=True).apply(callpar, role='driver')
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Inlined EC_PHYS in {s:.2f}s'):
-        # First, get the outermost call
+        # Strip the outer block loop
         ecphys_calls = [
             c for c in FindNodes(CallStatement).visit(ec_phys_fc.body) if c.name == 'EC_PHYS'
         ]
@@ -231,10 +293,20 @@ def parallel(source, build, remove_block_loop, log_level):
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
 
+    blocking = Dimension(
+        name='block', index='JKGLO', index_aliases='IBL',
+        size='YDGEM%NGPTOT', aliases='YDDIM%NGPBLKS',
+        bounds=('YDGEM%NGPTOT', 'YDDIM%NPROMA'),
+        bounds_aliases=('ICST', 'ICEND')
+    )
+
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
             # First, strip the outer block loop
             remove_block_loops(ec_phys_parallel)
+
+            # The add them back in according to parallel region
+            add_block_loops(ec_phys_parallel, dimension=blocking)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
