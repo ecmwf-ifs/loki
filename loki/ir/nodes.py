@@ -11,6 +11,7 @@ Control flow node classes for
 :ref:`internal_representation:Control flow tree`
 """
 
+from abc import abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import partial
@@ -328,6 +329,22 @@ class ScopedNode(Scope):
     def __setstate__(self, s):
         symbol_attrs = s.pop('symbol_attrs', None)
         self._update(**s, symbol_attrs=symbol_attrs, rescope_symbols=True)
+
+    @property
+    @abstractmethod
+    def variables(self):
+        """
+        Return the variables defined in this :any:`ScopedNode`.
+        """
+        pass
+
+    @property
+    def variable_map(self):
+        """
+        Map of variable names to :any:`Variable` objects
+        """
+        return CaseInsensitiveDict((v.name, v) for v in self.variables)
+
 
 # Intermediate node types
 
