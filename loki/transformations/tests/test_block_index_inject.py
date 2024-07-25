@@ -10,7 +10,7 @@ import pytest
 
 from loki import (
     Dimension, gettempdir, Scheduler, OMNI, FindNodes, Assignment, FindVariables, CallStatement, Subroutine,
-    Item, available_frontends, Module, ir, get_pragma_parameters, # fgen
+    Item, available_frontends, Module, ir, get_pragma_parameters
 )
 from loki.transformations import (
         BlockViewToFieldViewTransformation, InjectBlockIndexTransformation,
@@ -465,10 +465,11 @@ end module compute_mod
     driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
 
     # lower block index (dimension/shape) as prerequisite for 'InjectBlockIndexTransformation'
+    targets = ('kernel', 'compute')
     LowerBlockIndexTransformation(blocking, recurse_to_kernels=recurse_to_kernels).apply(driver,
-            role='driver', targets=('kernel',))
+            role='driver', targets=targets)
     LowerBlockIndexTransformation(blocking, recurse_to_kernels=recurse_to_kernels).apply(kernel_mod['kernel'],
-            role='kernel', targets=('compute',))
+            role='kernel', targets=targets)
     LowerBlockIndexTransformation(blocking, recurse_to_kernels=recurse_to_kernels).apply(nested_kernel_mod['compute'],
             role='kernel')
 
@@ -502,8 +503,8 @@ end module compute_mod
             assert blocking.size in array.shape
             assert blocking.index not in array.dimensions
 
-    InjectBlockIndexTransformation(blocking).apply(driver, role='driver', targets=('kernel',))
-    InjectBlockIndexTransformation(blocking).apply(kernel_mod['kernel'], role='kernel', targets=('compute',))
+    InjectBlockIndexTransformation(blocking).apply(driver, role='driver', targets=targets)
+    InjectBlockIndexTransformation(blocking).apply(kernel_mod['kernel'], role='kernel', targets=targets)
     InjectBlockIndexTransformation(blocking).apply(nested_kernel_mod['compute'], role='kernel')
 
     arrays = [var for var in FindVariables().visit(kernel_mod['kernel'].body) if isinstance(var, sym.Array)]
@@ -517,8 +518,8 @@ end module compute_mod
     assert any(loop.variable == blocking.index for loop in driver_loops)
     assert not any(loop.variable == blocking.index for loop in kernel_loops)
 
-    LowerBlockLoopTransformation(blocking).apply(driver, role='driver', targets=('kernel',))
-    LowerBlockLoopTransformation(blocking).apply(kernel_mod['kernel'], role='kernel', targets=('compute',))
+    LowerBlockLoopTransformation(blocking).apply(driver, role='driver', targets=targets)
+    LowerBlockLoopTransformation(blocking).apply(kernel_mod['kernel'], role='kernel', targets=targets)
     LowerBlockLoopTransformation(blocking).apply(nested_kernel_mod['compute'], role='kernel')
 
     driver_calls = FindNodes(ir.CallStatement).visit(driver.body)
@@ -642,9 +643,10 @@ end module compute_mod
             role='driver', targets=targets)
     LowerBlockIndexTransformation(blocking, recurse_to_kernels=recurse_to_kernels).apply(kernel_mod['kernel'],
             role='kernel', targets=targets)
-    LowerBlockIndexTransformation(blocking,
-            recurse_to_kernels=recurse_to_kernels).apply(another_kernel_mod['another_kernel'],
-            role='kernel', targets=targets)
+    if 'another_kernel' in targets:
+        LowerBlockIndexTransformation(blocking,
+                recurse_to_kernels=recurse_to_kernels).apply(another_kernel_mod['another_kernel'],
+                role='kernel', targets=targets)
     LowerBlockIndexTransformation(blocking,
             recurse_to_kernels=recurse_to_kernels).apply(nested_kernel_mod['compute'],
             role='kernel')
@@ -687,7 +689,9 @@ end module compute_mod
 
     InjectBlockIndexTransformation(blocking).apply(driver, role='driver', targets=targets)
     InjectBlockIndexTransformation(blocking).apply(kernel_mod['kernel'], role='kernel', targets=targets)
-    InjectBlockIndexTransformation(blocking).apply(another_kernel_mod['another_kernel'], role='kernel', targets=targets)
+    if 'another_kernel' in targets:
+        InjectBlockIndexTransformation(blocking).apply(another_kernel_mod['another_kernel'],
+                role='kernel', targets=targets)
     InjectBlockIndexTransformation(blocking).apply(nested_kernel_mod['compute'], role='kernel')
 
     arrays = [var for var in FindVariables().visit(kernel_mod['kernel'].body) if isinstance(var, sym.Array)]
@@ -711,7 +715,9 @@ end module compute_mod
 
     LowerBlockLoopTransformation(blocking).apply(driver, role='driver', targets=targets)
     LowerBlockLoopTransformation(blocking).apply(kernel_mod['kernel'], role='kernel', targets=targets)
-    LowerBlockLoopTransformation(blocking).apply(another_kernel_mod['another_kernel'], role='kernel', targets=targets)
+    if 'another_kernel' in targets:
+        LowerBlockLoopTransformation(blocking).apply(another_kernel_mod['another_kernel'],
+                role='kernel', targets=targets)
     LowerBlockLoopTransformation(blocking).apply(nested_kernel_mod['compute'], role='kernel')
 
     driver_calls = [call for call in FindNodes(ir.CallStatement).visit(driver.body) if call.pragma is not None]
