@@ -429,7 +429,7 @@ class SCCDemoteTransformation(Transformation):
             to_demote = [v for v in to_demote if not v.name in preserve_arrays]
 
         # Demote all private local variables that do not buffer values between sections
-        if demote_locals:
+        if demote_locals and self.demote_local_arrays:
             variables = tuple(v.name for v in to_demote)
             if variables:
                 demote_variables(routine, variable_names=variables,
