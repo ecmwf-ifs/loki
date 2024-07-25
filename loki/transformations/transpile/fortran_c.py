@@ -201,7 +201,7 @@ class FortranCTransformation(Transformation):
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
             # Generate C source file from Loki IR
-            # c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
+            # TODO: double-check whether this is called in real life and why this is not called by the tests ...
             for successor in successors:
                 if self.language == 'c':
                     c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
@@ -221,16 +221,14 @@ class FortranCTransformation(Transformation):
             assignments2remove = ['griddim', 'blockdim']
             assignment_map = {assignment: None for assignment in assignments
                     if assignment.lhs.name.lower() in assignments2remove}
-            # == block_dim.index.lower() or assignment.lhs.name.lower() in [_.lower() for _ in horizontal.bounds]}
             c_kernel.body = Transformer(assignment_map).visit(c_kernel.body)
 
             if depth > 1:
                 c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
             Sourcefile.to_file(source=self.codegen(c_kernel), path=self.c_path)
-            self.c_path = (path/c_kernel.name.lower()).with_suffix('.h')
-            Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=self.c_path)
-            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+            header_path = (path/c_kernel.name.lower()).with_suffix('.h')
+            Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=header_path)
 
     def c_struct_typedef(self, derived):
         """
@@ -328,7 +326,6 @@ class FortranCTransformation(Transformation):
                     arg_map[arg] = arg.clone(dimensions=new_dims, type=arg.type.clone(target=True))
             routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
 
-            # use_device_addr = []
             call_arguments = []
             for arg in routine.arguments:
                 if isinstance(arg, Array):
@@ -526,10 +523,6 @@ class FortranCTransformation(Transformation):
         header_module.spec = spec
         header_module.rescope_symbols()
         return header_module
-
-    def generate_c_kernel_header(self, c_kernel_header):
-        c_kernel_header.body = None
-
 
     @staticmethod
     def apply_de_reference(routine):

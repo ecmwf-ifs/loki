@@ -346,27 +346,27 @@ def convert(
     #     # These transformations requires complex constructor arguments,
     #     # so we use the file-based transformation configuration.
     #     scheduler.process( transformation=scheduler.config.transformations[mode] )
-    if mode in ['cuf-hoist']:
+    if mode == 'cuf-hoist':
         pipeline = SCCLowLevelCufHoist(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim,
                 dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True)
         scheduler.process( pipeline )
     
-    if mode in ['cuf-parametrise']:
+    if mode == 'cuf-parametrise':
         dic2p = {'NLEV': 137}
         pipeline = SCCLowLevelCufParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
                 transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim,
                 dim_vars=(vertical.size,), as_kwarguments=True, dic2p=dic2p, remove_vector_section=True)
         scheduler.process( pipeline )
 
-    if mode in ['cuda-hoist']:
+    if mode == 'cuda-hoist':
         pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
                 dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True)
         scheduler.process( pipeline )
 
 
-    if mode in ['cuda-parametrise']:
+    if mode == 'cuda-parametrise':
         dic2p = {'NLEV': 137}
         pipeline = SCCLowLevelParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
                 transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
@@ -375,7 +375,7 @@ def convert(
 
     mode = mode.replace('-', '_')  # Sanitize mode string
     if mode in ['c', 'cuda_parametrise', 'cuda_hoist']:
-        if mode in ['c']:
+        if mode == 'c':
             f2c_transformation = FortranCTransformation(path=build)
         elif mode in ['cuda_parametrise', 'cuda_hoist']:
             f2c_transformation = FortranCTransformation(path=build, language='cuda', use_c_ptr=True)
