@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki.expression import Array
-from loki.types import BasicType, DerivedType
+from loki.types import BasicType
 from loki.backend.cgen import CCodegen, CCodeMapper, IntrinsicTypeC
 
 __all__ = ['cppgen', 'CppCodegen', 'CppCodeMapper', 'IntrinsicTypeCpp']
@@ -17,12 +17,12 @@ class IntrinsicTypeCpp(IntrinsicTypeC):
     Mapping Fortran type to corresponding C++ type.
     """
 
-    def c_intrinsic_type(self, _type, *args, **kwargs):
+    def get_str_from_symbol_attr(self, _type, *args, **kwargs):
         if _type.dtype == BasicType.INTEGER:
             if _type.parameter:
                 return 'const int'
             return 'int'
-        return super().c_intrinsic_type(_type, *args, **kwargs)
+        return super().get_str_from_symbol_attr(_type, *args, **kwargs)
 
 cpp_intrinsic_type = IntrinsicTypeCpp()
 
@@ -40,36 +40,17 @@ class CppCodegen(CCodegen):
     """
     Tree visitor to generate standardized C++ code from IR.
     """
-    standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
 
     def __init__(self, depth=0, indent='  ', linewidth=90, **kwargs):
-        symgen = kwargs.get('symgen', CppCodeMapper(cpp_intrinsic_type))
-        line_cont = kwargs.get('line_cont', '\n{}  '.format)
+        symgen = kwargs.pop('symgen', CppCodeMapper(cpp_intrinsic_type))
 
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=line_cont, symgen=symgen)
+                         symgen=symgen, **kwargs)
 
-    def _subroutine_header(self, o, **kwargs):
-        header = super()._subroutine_header(o, **kwargs)
-        return header
-
-    def _subroutine_arguments(self, o, **kwargs):
-        var_keywords = []
-        pass_by = []
-        for a in o.arguments:
-            if isinstance(a, Array) > 0 and a.type.intent.lower() == "in":
-                var_keywords += ['const ']
-            else:
-                var_keywords += ['']
-            if isinstance(a, Array) > 0:
-                pass_by += ['* restrict ']
-            elif isinstance(a.type.dtype, DerivedType):
-                pass_by += ['*']
-            elif a.type.pointer:
-                pass_by += ['*']
-            else:
-                pass_by += ['']
-        return pass_by, var_keywords
+    def _subroutine_argument_keyword(self, a):
+        if isinstance(a, Array) and a.type.intent.lower() == "in":
+            return 'const '
+        return ''
 
     def _subroutine_declaration(self, o, **kwargs):
         opt_extern = kwargs.get('extern', False)
