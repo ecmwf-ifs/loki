@@ -336,7 +336,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_nested(frontend, horizontal, blocking):
+def test_scc_nested(frontend, horizontal, blocking):
     """
     Test the correct handling of nested vector-level routines in SCC.
     """
@@ -486,7 +486,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_outer_loop(frontend, horizontal, blocking):
+def test_scc_outer_loop(frontend, horizontal, blocking):
     """
     Test the correct handling of an outer loop that breaks scoping.
     """
@@ -578,7 +578,7 @@ def test_single_column_coalesced_outer_loop(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_variable_demotion(frontend, horizontal):
+def test_scc_variable_demotion(frontend, horizontal):
     """
     Test the correct demotion of an outer loop that breaks scoping.
     """
@@ -628,7 +628,7 @@ def test_single_column_coalesced_variable_demotion(frontend, horizontal):
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP,
                          'OFP fails to parse multiconditional with embedded call.')]))
-def test_single_column_coalesced_multicond(frontend, horizontal, blocking):
+def test_scc_multicond(frontend, horizontal, blocking):
     """
     Test if horizontal loops in multiconditionals with CallStatements are
     correctly transformed.
@@ -690,7 +690,7 @@ def test_single_column_coalesced_multicond(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_multiple_acc_pragmas(frontend, horizontal, blocking):
+def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
     """
     Test that both '!$acc data' and '!$acc parallel loop gang' pragmas are created at the
     driver layer.
@@ -796,7 +796,7 @@ def test_scc_base_routine_seq_pragma(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_vector_reduction(frontend, horizontal, blocking):
+def test_scc_vector_reduction(frontend, horizontal, blocking):
     """
     Test for the insertion of OpenACC vector reduction directives.
     """
@@ -844,7 +844,7 @@ def test_single_column_coalesced_vector_reduction(frontend, horizontal, blocking
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_single_column_coalesced_demotion_parameter(frontend, horizontal, tmp_path):
+def test_scc_demotion_parameter(frontend, horizontal, tmp_path):
     """
     Test that temporary arrays with compile-time constants are marked for demotion.
     """
@@ -965,7 +965,7 @@ end subroutine kernel
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('inline_internals', [False, True])
 @pytest.mark.parametrize('resolve_sequence_association', [False, True])
-def test_single_column_coalesced_inline_and_sequence_association(
+def test_scc_inline_and_sequence_association(
         frontend, horizontal, inline_internals, resolve_sequence_association
 ):
     """
