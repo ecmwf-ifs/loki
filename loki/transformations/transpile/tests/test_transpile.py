@@ -1313,13 +1313,11 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
     f2c_transformation = FortranCTransformation(path=tmp_path, language='cuda', use_c_ptr=True)
     scheduler.process(transformation=f2c_transformation)
 
-    # f_driver = remove_whitespace_linebreaks(fgen(scheduler["driver_mod#driver"].ir))
     fc_kernel = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_fc.F90'))
     c_kernel = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c.c'))
     c_kernel_header = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c.h'))
     c_kernel_launch = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c_launch.h'))
     c_device = remove_whitespace_linebreaks(read_file(tmp_path/'device_c.c'))
-    # c_device_header = remove_whitespace_linebreaks(read_file(tmp_path/'device_c.h'))
     c_elemental_device = remove_whitespace_linebreaks(read_file(tmp_path/'elemental_device_c.c'))
 
     calls = FindNodes(ir.CallStatement).visit(scheduler["driver_mod#driver"].ir.body)
@@ -1330,7 +1328,7 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
         assert 'removed_loop' in call.pragma[0].content
     # kernel_fc.F90
     assert '!$acchost_datause_device(q,t,z)' in fc_kernel
-    assert 'kernel_iso_c(start,nlon,c_loc(q),c_loc(t),c_loc(z),nb,tot,iend)' in fc_kernel
+    assert 'kernel_iso_c(start,iend,nlon,c_loc(q),c_loc(t),c_loc(z),nb,tot)' in fc_kernel
     assert 'bind(c,name="kernel_c_launch")' in fc_kernel
     assert 'useiso_c_binding' in fc_kernel
     # kernel_c.c
@@ -1358,12 +1356,9 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
     assert '#include<cuda.h>' in c_device
     assert '#include<cuda_runtime.h>' in c_device
     assert '#include"device_c.h"' in c_device
-    # assert '__device__voiddevice_c' in c_device # TODO
-    # elemental_device_c.c
     assert '#include<cuda.h>' in c_elemental_device
     assert '#include<cuda_runtime.h>' in c_elemental_device
     assert '#include"elemental_device_c.h"' in c_elemental_device
-    # assert '__device__voidelemental_device_c' in c_elemental_device # TODO
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, blocking):
@@ -1385,13 +1380,11 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
     f2c_transformation = FortranCTransformation(path=tmp_path, language='cuda', use_c_ptr=True)
     scheduler.process(transformation=f2c_transformation)
 
-    # f_driver = remove_whitespace_linebreaks(fgen(scheduler["driver_mod#driver"].ir))
     fc_kernel = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_fc.F90'))
     c_kernel = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c.c'))
     c_kernel_header = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c.h'))
     c_kernel_launch = remove_whitespace_linebreaks(read_file(tmp_path/'kernel_c_launch.h'))
     c_device = remove_whitespace_linebreaks(read_file(tmp_path/'device_c.c'))
-    # c_device_header = remove_whitespace_linebreaks(read_file(tmp_path/'device_c.h'))
     c_elemental_device = remove_whitespace_linebreaks(read_file(tmp_path/'elemental_device_c.c'))
 
     calls = FindNodes(ir.CallStatement).visit(scheduler["driver_mod#driver"].ir.body)
@@ -1402,8 +1395,8 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
         assert 'removed_loop' in call.pragma[0].content
     # kernel_fc.F90
     assert '!$acchost_datause_device(q,t,z,local_z,device_local_x)' in fc_kernel
-    assert 'kernel_iso_c(start,nlon,nz,c_loc(q),c_loc(t),c_loc(z)' in fc_kernel
-    assert 'c_loc(z),nb,tot,iend,c_loc(local_z),c_loc(device_local_x))' in fc_kernel
+    assert 'kernel_iso_c(start,iend,nlon,nz,c_loc(q),c_loc(t),c_loc(z)' in fc_kernel
+    assert 'c_loc(z),nb,tot,c_loc(local_z),c_loc(device_local_x))' in fc_kernel
     assert 'bind(c,name="kernel_c_launch")' in fc_kernel
     assert 'useiso_c_binding' in fc_kernel
     # kernel_c.c
@@ -1431,9 +1424,7 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
     assert '#include<cuda.h>' in c_device
     assert '#include<cuda_runtime.h>' in c_device
     assert '#include"device_c.h"' in c_device
-    # assert '__device__voiddevice_c' in c_device # TODO
     # elemental_device_c.c
     assert '#include<cuda.h>' in c_elemental_device
     assert '#include<cuda_runtime.h>' in c_elemental_device
     assert '#include"elemental_device_c.h"' in c_elemental_device
-    # assert '__device__voidelemental_device_c' in c_elemental_device # TODO

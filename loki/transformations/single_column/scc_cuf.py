@@ -9,6 +9,7 @@
 Single-Column-Coalesced CUDA Fortran (SCC-CUF) transformation.
 """
 
+from loki.logging import info
 from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, FindVariables, SubstituteExpressions
@@ -96,7 +97,7 @@ class HoistTemporaryArraysPragmaOffloadTransformation(HoistVariablesTransformati
         routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
 
-def remove_pragmas(routine):
+def remove_non_loki_pragmas(routine):
     """
     Remove all pragmas.
 
@@ -184,7 +185,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         self.transformation_type = transformation_type
         # `parametrise` : parametrising the array dimensions
         # `hoist`: host side hoisting
-        print(f"self.transformation_type: '{self.transformation_type}'")
+        info(f"self.transformation_type: '{self.transformation_type}'")
         assert self.transformation_type in ['parametrise', 'hoist']
         self.transformation_description = {'parametrise': 'parametrised array dimensions of local arrays',
                                            'hoist': 'host side hoisted local arrays'}
@@ -204,7 +205,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         else:
             depth = depths[item]
 
-        remove_pragmas(routine)
+        remove_non_loki_pragmas(routine)
         single_variable_declaration(routine=routine, group_by_shape=True)
         device_subroutine_prefix(routine, depth)
 
@@ -580,7 +581,7 @@ class SccLowLevelDataOffload(Transformation):
         role = kwargs.get('role')
         targets = kwargs.get('targets', None)
 
-        remove_pragmas(routine)
+        remove_non_loki_pragmas(routine)
         single_variable_declaration(routine=routine, group_by_shape=True)
 
         if self.mode == 'cuf':
@@ -603,10 +604,6 @@ class SccLowLevelDataOffload(Transformation):
         routine: :any:`Subroutine`
             The subroutine (driver) to process
         """
-
-        # # istat: status of CUDA runtime function (e.g. for cudaDeviceSynchronize(), cudaMalloc(), cudaFree(), ...)
-        # i_type = SymbolAttributes(types.BasicType.INTEGER)
-        # routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="istat", type=i_type),)))
 
         self.derived_type_variables = self.device_derived_types(
             routine=routine, derived_types=self.derived_types, targets=targets
@@ -809,7 +806,6 @@ class SccLowLevelDataOffload(Transformation):
             routine.spec.append(ir.Comment(''))
             routine.spec.append(ir.Comment('! Device arrays'))
             for array in relevant_arrays:
-                # vshape = [sym.RangeIndex((None, None))] * len(array.shape)
                 vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
                 vdimensions = [sym.RangeIndex((None, None))] * len(array.shape)
                 var = array.clone(name=f"{array.name}_d", type=vtype, dimensions=as_tuple(vdimensions))
@@ -874,7 +870,6 @@ class SccLowLevelDataOffload(Transformation):
                 arguments = []
                 for arg in call.arguments:
                     if arg in relevant_arrays:
-                        # vtype = arg.type.clone(device=True, allocatable=True, shape=None, intent=None)
                         vtype = arg.type.clone(device=True, allocatable=True, intent=None)
                         arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=()))
                     else:

@@ -56,6 +56,19 @@ class InlineTransformation(Transformation):
             inline_elemental_functions(routine)
 
 
+SCCLowLevelCuf = partial(
+    Pipeline, classes=(
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorTransformation,
+        LowerBlockIndexTransformation,
+        InjectBlockIndexTransformation,
+        LowerBlockLoopTransformation,
+        SccLowLevelLaunchConfiguration,
+        SccLowLevelDataOffload,
+    )
+)
 """
 The basic Single Column Coalesced low-level GPU via CUDA-Fortran (SCC-CUF).
 
@@ -121,7 +134,8 @@ mode: str
     - `CUDA` - CUDA C
     - `HIP` - HIP
 """
-SCCLowLevelCuf = partial(
+
+SCCLowLevelCufParametrise = partial(
     Pipeline, classes=(
         SCCBaseTransformation,
         SCCDevectorTransformation,
@@ -132,9 +146,9 @@ SCCLowLevelCuf = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
+        ParametriseTransformation
     )
 )
-
 """
 The Single Column Coalesced low-level GPU via CUDA-Fortran (SCC-CUF)
 handling temporaries via parametrisation.
@@ -179,7 +193,8 @@ mode: str
 dic2p: dict
     Dictionary of variable names and corresponding values to be parametrised.
 """
-SCCLowLevelCufParametrise = partial(
+
+SCCLowLevelCufHoist = partial(
     Pipeline, classes=(
         SCCBaseTransformation,
         SCCDevectorTransformation,
@@ -190,10 +205,10 @@ SCCLowLevelCufParametrise = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-        ParametriseTransformation
+        HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysDeviceAllocatableTransformation
     )
 )
-
 """
 The Single Column Coalesced low-level GPU via CUDA-Fortran (SCC-CUF)
 handling temporaries via hoisting.
@@ -237,8 +252,13 @@ mode: str
     - `CUDA` - CUDA C
     - `HIP` - HIP
 """
-SCCLowLevelCufHoist = partial(
+
+SCCLowLevelParametrise = partial(
     Pipeline, classes=(
+        InlineTransformation,
+        GlobalVariableAnalysis,
+        GlobalVarHoistTransformation,
+        DerivedTypeArgumentsTransformation,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -248,11 +268,9 @@ SCCLowLevelCufHoist = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-        HoistTemporaryArraysAnalysis,
-        HoistTemporaryArraysDeviceAllocatableTransformation
+        ParametriseTransformation
     )
 )
-
 """
 The Single Column Coalesced low-level GPU via low-level C-style
 kernel language (CUDA, HIP, ...) handling temporaries via parametrisation.
@@ -330,7 +348,8 @@ mode: str
 dic2p: dict
     Dictionary of variable names and corresponding values to be parametrised.
 """
-SCCLowLevelParametrise = partial(
+
+SCCLowLevelHoist = partial(
     Pipeline, classes=(
         InlineTransformation,
         GlobalVariableAnalysis,
@@ -345,10 +364,10 @@ SCCLowLevelParametrise = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-        ParametriseTransformation
+        HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysPragmaOffloadTransformation
     )
 )
-
 """
 The Single Column Coalesced low-level GPU via low-level C-style
 kernel language (CUDA, HIP, ...) handling temporaries via parametrisation.
@@ -426,22 +445,3 @@ mode: str
     - `CUDA` - CUDA C
     - `HIP` - HIP
 """
-SCCLowLevelHoist = partial(
-    Pipeline, classes=(
-        InlineTransformation,
-        GlobalVariableAnalysis,
-        GlobalVarHoistTransformation,
-        DerivedTypeArgumentsTransformation,
-        SCCBaseTransformation,
-        SCCDevectorTransformation,
-        SCCDemoteTransformation,
-        SCCRevectorTransformation,
-        LowerBlockIndexTransformation,
-        InjectBlockIndexTransformation,
-        LowerBlockLoopTransformation,
-        SccLowLevelLaunchConfiguration,
-        SccLowLevelDataOffload,
-      HoistTemporaryArraysAnalysis,
-        HoistTemporaryArraysPragmaOffloadTransformation
-    )
-)
