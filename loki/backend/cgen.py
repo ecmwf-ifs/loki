@@ -25,15 +25,13 @@ class IntrinsicTypeC:
     """
     Mapping Fortran type to corresponding C type.
     """
-    # pylint: disable=abstract-method, unused-argument
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    # pylint: disable=unused-argument
 
     def __call__(self, _type, *args, **kwargs):
-        return self.c_intrinsic_type(_type, *args, **kwargs)
+        return self.get_str_from_symbol_attr(_type, *args, **kwargs)
 
-    def c_intrinsic_type(self, _type, *args, **kwargs):
+    def get_str_from_symbol_attr(self, _type, *args, **kwargs):
         if _type.dtype == BasicType.LOGICAL:
             return 'int'
         if _type.dtype == BasicType.INTEGER:
@@ -52,11 +50,12 @@ class CCodeMapper(LokiStringifyMapper):
     A :class:`StringifyMapper`-derived visitor for Pymbolic expression trees that converts an
     expression to a string adhering to standardized C.
     """
+
     # pylint: disable=abstract-method, unused-argument
 
-    def __init__(self, c_intrinsic_type, *args, **kwargs):
+    def __init__(self, intrinsic_type_mapper, *args, **kwargs):
         super().__init__()
-        self.c_intrinsic_type = c_intrinsic_type
+        self.intrinsic_type_mapper = intrinsic_type_mapper
 
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
@@ -64,13 +63,13 @@ class CCodeMapper(LokiStringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.REAL, kind=expr.kind)
-            return f'({self.c_intrinsic_type(_type)}) {str(expr.value)}'
+            return f'({self.intrinsic_type_mapper(_type)}) {str(expr.value)}'
         return str(expr.value)
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
-            return f'({self.c_intrinsic_type(_type)}) {str(expr.value)}'
+            return f'({self.intrinsic_type_mapper(_type)}) {str(expr.value)}'
         return str(expr.value)
 
     def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
@@ -82,11 +81,10 @@ class CCodeMapper(LokiStringifyMapper):
             self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
             PREC_CALL, PREC_NONE)
         return self.parenthesize_if_needed(
-            self.format('(%s) %s', self.c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
+            self.format('(%s) %s', self.intrinsic_type_mapper(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
         if expr.parent is not None:
-            # parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
             parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs)
             return self.format('%s.%s', parent, expr.basename)
         return self.format('%s', expr.name)
@@ -99,7 +97,6 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
         name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
-        # TODO: why is this necessary?
         if expr.aggregate.type is not None:
             if expr.aggregate.type.pointer and name_str.startswith('*'):
                 # Strip the pointer '*' because subscript dereference
@@ -186,36 +183,35 @@ class CCodegen(Stringifier):
         header += [self.visit(spec_imports, **kwargs)]
         return header
 
-    def _subroutine_arguments(self, o, **kwargs):
-        """
-        Helper function/routine arguments for :func:`~loki.backend.CCodegen.visit_Subroutine`.
-        """
-        var_keywords = []
-        pass_by = []
-        for a in o.arguments:
-            var_keywords += ['']
-            if isinstance(a, Array) > 0:
-                pass_by += ['* restrict ']
-            elif isinstance(a.type.dtype, DerivedType):
-                pass_by += ['*']
-            elif a.type.pointer:
-                pass_by += ['*']
-            else:
-                pass_by += ['']
-        return pass_by, var_keywords
+    def _subroutine_argument_keyword(self, a):
+        return ''
+
+    def _subroutine_argument_pass_by(self, a):
+        if isinstance(a, Array):
+            return '* restrict '
+        if isinstance(a.type.dtype, DerivedType):
+            return '*'
+        if a.type.pointer:
+            return '*'
+        return ''
 
     def _subroutine_declaration(self, o, **kwargs):
         """
         Helper function/function declaration part for :func:`~loki.backend.CCodegen.visit_Subroutine`.
         """
-        pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
-        arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name}'
-                     for a, p, k in zip(o.arguments, pass_by, var_keywords)]
+        # pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
+        # arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name}'
+        #              for a, p, k in zip(o.arguments, pass_by, var_keywords)]
+        arguments = [
+            (f'{self._subroutine_argument_keyword(a)}{self.visit(a.type, **kwargs)} '
+            f'{self._subroutine_argument_pass_by(a)}{a.name}')
+            for a in o.arguments
+        ]
         opt_header = kwargs.get('header', False)
         end = ' {' if not opt_header else ';'
         # check whether to return something and define function return type accordingly
         if o.is_function:
-            return_type = c_intrinsic_type(o.return_type)
+            return_type = self.symgen.intrinsic_type_mapper(o.return_type)
         else:
             return_type = 'void'
         declaration = [self.format_line(f'{return_type} ', o.name, '(', self.join_items(arguments), ')', end)]
@@ -227,7 +223,6 @@ class CCodegen(Stringifier):
         """
         self.depth += 1
 
-        # body = ['{']
         # ...and generate the spec without imports and argument declarations
         body = [self.visit(o.spec, skip_imports=True, skip_argument_declarations=True, **kwargs)]
 
@@ -240,7 +235,6 @@ class CCodegen(Stringifier):
 
         # Close everything off
         self.depth -= 1
-        # footer = [self.format_line('}')]
         return body
 
     def _subroutine_footer(self, o, **kwargs):
@@ -297,8 +291,9 @@ class CCodegen(Stringifier):
         """
         Format comments.
         """
-        # TODO: why is o.text AND o.source None?
-        text = o.text or (o.source.string if o.source else '')
+        text = o.text
+        if text is None and o.source:
+            text = o.source.string
         text = str(text).lstrip().replace('!', '//', 1)
         return self.format_line(text, no_wrap=True)
 
@@ -357,9 +352,7 @@ class CCodegen(Stringifier):
         control = 'for ({var} = {start}; {var} {crit} {end}; {var} += {incr})'.format(
             var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
             end=self.visit(o.bounds.stop, **kwargs),
-            # TODO: !!! pymbolic/primitives.py", line 664, in __gt__ raise TypeError("expressions don't have an order")
             crit='<=' if not o.bounds.step or symbolic_op(o.bounds.step, gt, Literal(0)) else '>=',
-            # crit='<=',
             incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
         header = self.format_line(control, ' {')
         footer = self.format_line('}')
@@ -445,7 +438,7 @@ class CCodegen(Stringifier):
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):
             return f'struct {o.dtype.name}'
-        return self.symgen.c_intrinsic_type(o)
+        return self.symgen.intrinsic_type_mapper(o)
 
     def visit_TypeDef(self, o, **kwargs):
         """

@@ -1039,6 +1039,57 @@ end subroutine transpile_call_driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('codegen', (cgen, cppgen, cudagen))
+@pytest.mark.parametrize('header', (False, True))
+@pytest.mark.parametrize('guards', (False, True))
+@pytest.mark.parametrize('extern', (False, True))
+@pytest.mark.parametrize('guard_name', (None, 'random_guard_name'))
+def test_transpile_simple_routine(tmp_path, frontend, codegen, guards, guard_name,
+        header, extern):
+    """
+    Test correct transpilation of functions in C transpilation with a focus
+    on code-gen options.
+    """
+
+    fcode = """
+subroutine add(a, b, result)
+    real, intent(in) :: a, b
+    real, intent(out) :: result
+
+    result = a + b
+end subroutine add
+""".strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=tmp_path)
+
+    c_routine = codegen(routine, guards=guards, guard_name=guard_name,
+            header=header, extern=extern)
+    if extern and codegen in (cppgen, cudagen):
+        assert 'extern "C"' in c_routine
+    else:
+        assert 'extern "C"' not in c_routine
+    if header:
+        assert 'void add(double a, double b, double result);' in c_routine
+    else:
+        assert 'void add(double a, double b, double result) {' in c_routine
+    if guards:
+        if guard_name is None:
+            assert '#ifndef ADD_H' in c_routine
+            assert '#define ADD_H' in c_routine
+            assert '#endif' in c_routine
+        else:
+            assert '#ifndef random_guard_name' in c_routine
+            assert '#define random_guard_name' in c_routine
+            assert '#endif' in c_routine
+    else:
+        assert '#ifndef' not in c_routine
+        assert '#define' not in c_routine
+        assert '#endif' not in c_routine
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('f_type', ['integer', 'real'])
 @pytest.mark.parametrize('codegen', (cgen, cppgen, cudagen))
 def test_transpile_inline_functions(tmp_path, frontend, f_type, codegen):

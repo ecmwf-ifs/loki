@@ -4,7 +4,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.types import DerivedType
 from loki.backend.cppgen import CppCodegen, CppCodeMapper, IntrinsicTypeCpp
 from loki.ir import Import, FindNodes
 from loki.expression import Array
@@ -40,11 +39,9 @@ class CudaCodegen(CppCodegen):
             'math.h', 'cuda.h', 'cuda_runtime.h']
 
     def __init__(self, depth=0, indent='  ', linewidth=90, **kwargs):
-        symgen = kwargs.get('symgen', CudaCodeMapper(cuda_intrinsic_type))
-        line_cont = kwargs.get('line_cont', '\n{}  '.format)
-
+        symgen = kwargs.pop('symgen', CudaCodeMapper(cuda_intrinsic_type))
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=line_cont, symgen=symgen)
+                         symgen=symgen, **kwargs)
 
     def _subroutine_header(self, o, **kwargs):
         opt_header = kwargs.get('header', False)
@@ -65,28 +62,17 @@ class CudaCodegen(CppCodegen):
                 header += [self.format_line('#include "', o.name, '_launch.h', '"')]
         return header
 
-    def _subroutine_arguments(self, o, **kwargs):
-        var_keywords = []
-        pass_by = []
-        for a in o.arguments:
-            if isinstance(a, Array) > 0 and a.type.intent.lower() == "in":
-                var_keywords += ['const ']
-            else:
-                var_keywords += ['']
-            if isinstance(a, Array) > 0:
-                pass_by += ['* __restrict__ ']
-            elif isinstance(a.type.dtype, DerivedType):
-                pass_by += ['*']
-            elif a.type.pointer:
-                pass_by += ['*']
-            else:
-                pass_by += ['']
-        return pass_by, var_keywords
+    def _subroutine_argument_pass_by(self, a):
+        if isinstance(a, Array):
+            return '* __restrict__ '
+        return super()._subroutine_argument_pass_by(a)
 
     def _subroutine_declaration(self, o, **kwargs):
-        pass_by, var_keywords = self._subroutine_arguments(o, **kwargs)
-        arguments = [f'{k}{self.visit(a.type, **kwargs)} {p}{a.name}'
-                     for a, p, k in zip(o.arguments, pass_by, var_keywords)]
+        arguments = [
+            (f'{self._subroutine_argument_keyword(a)}{self.visit(a.type, **kwargs)} '
+            f'{self._subroutine_argument_pass_by(a)}{a.name}')
+            for a in o.arguments
+        ]
         opt_header = kwargs.get('header', False)
         end = ' {' if not opt_header else ';'
         prefix = ''
@@ -115,7 +101,6 @@ class CudaCodegen(CppCodegen):
             body += [self.format_line(f'return {o.result_name.lower()};')]
         # Close everything off
         self.depth -= 1
-        # footer = [self.format_line('}')]
         return body
 
     def _subroutine_footer(self, o, **kwargs):
@@ -127,7 +112,8 @@ class CudaCodegen(CppCodegen):
 
     def visit_CallStatement(self, o, **kwargs):
         args = self.visit_all(o.arguments, **kwargs)
-        assert not o.kwarguments
+        if o.kwarguments:
+            raise RuntimeError(f'Keyword arguments in call to {o.name} not supported in CUDA code.')
         chevron = f'<<<{",".join([str(elem) for elem in o.chevron])}>>>' if o.chevron is not None else ''
         return self.format_line(str(o.name), chevron, '(', self.join_items(args), ');')
 
