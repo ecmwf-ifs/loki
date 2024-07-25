@@ -47,7 +47,7 @@ def fixture_bundle_create(here, local_loki_bundle):
 
 @pytest.mark.usefixtures('bundle_create')
 @pytest.mark.skipif(not HAVE_FP, reason="FP needed for ECWAM parsing")
-@pytest.mark.parametrize('mode', ['idem', 'idem-stack', 'scc', 'scc-stack'])
+@pytest.mark.parametrize('mode', ['idem', 'idem-stack', 'scc', 'scc-stack', 'scc-hoist'])
 def test_ecwam(here, mode, tmp_path):
     build_dir = tmp_path/'build'
     build_cmd = [
@@ -68,7 +68,7 @@ def test_ecwam(here, mode, tmp_path):
     # Raise stack limit
     resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
     env = os.environ.copy()
-    env.update({'OMP_STACKSIZE': '2G', 'NVCOMPILER_ACC_CUDA_HEAPSIZE': '2G'})
+    env.update({'OMP_STACKSIZE': '2G', 'NVCOMPILER_ACC_CUDA_HEAPSIZE': '2G', 'DEV_ALLOC_SIZE': '2147483648'})
 
     # create rundir
     rundir = build_dir/'wamrun_48'
