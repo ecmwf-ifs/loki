@@ -253,7 +253,7 @@ class CaseInsensitiveDict(OrderedDict):
 
 class CaseInsensitiveDefaultDict(defaultdict):
     """
-    DefaultDict that ignores the casing of string keys.
+    Variant of :any:`collections.defaultdict` that ignores the casing of string keys.
     """
     def __setitem__(self, key, value):
         super().__setitem__(key.lower(), value)
