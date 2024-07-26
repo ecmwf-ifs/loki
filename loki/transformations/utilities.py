@@ -31,7 +31,8 @@ __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'rename_variables',
     'sanitise_imports', 'replace_selected_kind',
     'single_variable_declaration', 'recursive_expression_map_update',
-    'get_integer_variable', 'get_loop_bounds', 'find_driver_loops'
+    'get_integer_variable', 'get_loop_bounds', 'find_driver_loops',
+    'get_local_arrays'
 ]
 
 
@@ -621,3 +622,28 @@ def find_driver_loops(routine, targets):
         loops = FindNodes(ir.Loop).visit(loop.body)
         nested_driver_loops.extend(loops)
     return driver_loops
+
+
+def get_local_arrays(routine, section, unique=True):
+    """
+    Collect all local temporary array symbols in a given section.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to find local arrays.
+    section : :any:`Section` or tuple of :any:`Node`
+        The section or list of nodes to scan for local temporary
+        symbols.
+    unique : bool, optional
+        Flag whether to return unique instances of each symbol;
+        default: ``False``
+    """
+    arg_names = tuple(a.name for a in routine.arguments)
+    variables = FindVariables(unique=unique).visit(section)
+
+    # Filter all variables by argument name to get local arrays
+    arrays = [v for v in variables if isinstance(v, sym.Array)]
+    arrays = [v for v in arrays if v.name not in arg_names]
+
+    return arrays
