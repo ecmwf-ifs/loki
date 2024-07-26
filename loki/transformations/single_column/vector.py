@@ -22,7 +22,7 @@ from loki.types import BasicType
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.utilities import (
-    get_integer_variable, get_loop_bounds
+    get_integer_variable, get_loop_bounds, find_driver_loops
 )
 
 
@@ -229,7 +229,7 @@ class SCCDevectorTransformation(Transformation):
         """
 
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-            driver_loops = SCCBaseTransformation.find_driver_loops(routine=routine, targets=targets)
+            driver_loops = find_driver_loops(routine=routine, targets=targets)
 
         # remove vector loops
         driver_loop_map = {}

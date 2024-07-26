@@ -18,8 +18,8 @@ from loki.expression import (
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
 from loki.ir import (
-    Import, TypeDef, VariableDeclaration, StatementFunction,
-    Transformer, FindNodes
+    nodes as ir, Import, TypeDef, VariableDeclaration,
+    StatementFunction, Transformer, FindNodes
 )
 from loki.module import Module
 from loki.subroutine import Subroutine
@@ -31,7 +31,7 @@ __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'rename_variables',
     'sanitise_imports', 'replace_selected_kind',
     'single_variable_declaration', 'recursive_expression_map_update',
-    'get_integer_variable', 'get_loop_bounds'
+    'get_integer_variable', 'get_loop_bounds', 'find_driver_loops'
 ]
 
 
@@ -568,3 +568,56 @@ def get_loop_bounds(routine, dimension):
             )
 
     return bounds
+
+
+def is_driver_loop(loop, targets):
+    """
+    Test/check whether a given loop is a *driver loop*.
+
+    Parameters
+    ----------
+    loop : :any: `Loop`
+        The loop to test if it is a *driver loop*.
+    targets : list or string
+        List of subroutines that are to be considered as part of
+        the transformation call tree.
+    """
+    if loop.pragma:
+        for pragma in loop.pragma:
+            if pragma.keyword.lower() == "loki" and pragma.content.lower() == "driver-loop":
+                return True
+    for call in FindNodes(ir.CallStatement).visit(loop.body):
+        if call.name in targets:
+            return True
+    return False
+
+
+def find_driver_loops(routine, targets):
+    """
+    Find and return all driver loops of a given `routine`.
+
+    A *driver loop* is specified either by a call to a routine within
+    `targets` or by the pragma `!$loki driver-loop`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to find the driver loops.
+    targets : list or string
+        List of subroutines that are to be considered as part of
+        the transformation call tree.
+    """
+
+    driver_loops = []
+    nested_driver_loops = []
+    for loop in FindNodes(ir.Loop).visit(routine.body):
+        if loop in nested_driver_loops:
+            continue
+
+        if not is_driver_loop(loop, targets):
+            continue
+
+        driver_loops.append(loop)
+        loops = FindNodes(ir.Loop).visit(loop.body)
+        nested_driver_loops.extend(loops)
+    return driver_loops

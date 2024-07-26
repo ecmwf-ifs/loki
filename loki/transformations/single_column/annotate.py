@@ -20,6 +20,7 @@ from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import DerivedType
 
 from loki.transformations.single_column.base import SCCBaseTransformation
+from loki.transformations.utilities import find_driver_loops
 
 
 __all__ = ['SCCAnnotateTransformation']
@@ -239,7 +240,7 @@ class SCCAnnotateTransformation(Transformation):
                 break
 
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-            driver_loops = SCCBaseTransformation.find_driver_loops(routine=routine, targets=targets)
+            driver_loops = find_driver_loops(routine=routine, targets=targets)
             for loop in driver_loops:
                 loops = FindNodes(ir.Loop).visit(loop.body)
                 kernel_loops = [l for l in loops if l.variable == self.horizontal.index]

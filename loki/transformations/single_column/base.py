@@ -167,58 +167,6 @@ class SCCBaseTransformation(Transformation):
         if mapper and loop_variable not in routine.variables:
             routine.variables += as_tuple(loop_variable)
 
-    @staticmethod
-    def is_driver_loop(loop, targets):
-        """
-        Test/check whether a given loop is a *driver loop*.
-
-        Parameters
-        ----------
-        loop : :any: `Loop`
-            The loop to test if it is a *driver loop*.
-        targets : list or string
-            List of subroutines that are to be considered as part of
-            the transformation call tree.
-        """
-        if loop.pragma:
-            for pragma in loop.pragma:
-                if pragma.keyword.lower() == "loki" and pragma.content.lower() == "driver-loop":
-                    return True
-        for call in FindNodes(ir.CallStatement).visit(loop.body):
-            if call.name in targets:
-                return True
-        return False
-
-    @classmethod
-    def find_driver_loops(cls, routine, targets):
-        """
-        Find and return all driver loops of a given `routine`.
-
-        A *driver loop* is specified either by a call to a routine within
-        `targets` or by the pragma `!$loki driver-loop`.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            The subroutine in which to find the driver loops.
-        targets : list or string
-            List of subroutines that are to be considered as part of
-            the transformation call tree.
-        """
-
-        driver_loops = []
-        nested_driver_loops = []
-        for loop in FindNodes(ir.Loop).visit(routine.body):
-            if loop in nested_driver_loops:
-                continue
-
-            if not cls.is_driver_loop(loop, targets):
-                continue
-
-            driver_loops.append(loop)
-            loops = FindNodes(ir.Loop).visit(loop.body)
-            nested_driver_loops.extend(loops)
-        return driver_loops
 
     def transform_subroutine(self, routine, **kwargs):
         """
