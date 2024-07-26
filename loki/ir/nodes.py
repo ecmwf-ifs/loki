@@ -20,6 +20,7 @@ from typing import Any, Tuple, Union, Optional
 from pymbolic.primitives import Expression
 
 from pydantic.dataclasses import dataclass as dataclass_validated
+from pydantic import model_validator
 
 from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
@@ -49,6 +50,14 @@ dataclass_validation_config  = {
 
 # Using this decorator, we can force strict validation
 dataclass_strict = partial(dataclass_validated, config=dataclass_validation_config)
+
+
+def _sanitize_tuple(t):
+    """
+    Small helper method to ensure non-nested tuples without ``None``.
+    """
+    return tuple(n for n in flatten(as_tuple(t)) if n is not None)
+
 
 # Abstract base classes
 
@@ -224,7 +233,14 @@ class Node:
 
 
 @dataclass_strict(frozen=True)
-class InternalNode(Node):
+class _InternalNode():
+    """ Type definitions for :any:`InternalNode` node type. """
+
+    body: Tuple[Union[Node, Scope], ...] = ()
+
+
+@dataclass_strict(frozen=True)
+class InternalNode(Node, _InternalNode):
     """
     Internal representation of a control flow node that has a traversable
     `body` property.
@@ -235,14 +251,19 @@ class InternalNode(Node):
         The nodes that make up the body.
     """
 
-    # Certain Node types may contain Module / Subroutine objects
-    body: Tuple[Any, ...] = None
-
     _traversable = ['body']
 
-    def __post_init__(self):
-        super().__post_init__()
-        assert self.body is None or isinstance(self.body, tuple)
+    @model_validator(mode='before')
+    @classmethod
+    def pre_init(cls, values):
+        """ Ensure non-nested tuples for body. """
+        if values.kwargs and 'body' in values.kwargs:
+            values.kwargs['body'] = _sanitize_tuple(values.kwargs['body'])
+        if values.args:
+            # ArgsKwargs are immutable, so we need to force it a little
+            new_args = (_sanitize_tuple(values.args[0]),) + values.args[1:]
+            values = type(values)(args=new_args, kwargs=values.kwargs)
+        return values
 
     def __repr__(self):
         raise NotImplementedError
@@ -315,23 +336,12 @@ class ScopedNode(Scope):
 class _SectionBase():
     """ Type definitions for :any:`Section` node type. """
 
-    # Sections may contain Module / Subroutine objects
-    body: Tuple[Any, ...] = ()
-
 
 @dataclass_strict(frozen=True)
 class Section(InternalNode, _SectionBase):
     """
     Internal representation of a single code region.
     """
-
-    def __post_init__(self):
-        super().__post_init__()
-        assert self.body is None or isinstance(self.body, tuple)
-
-        # Ensure we have no nested tuples in the body
-        if not all(not isinstance(n, tuple) for n in as_tuple(self.body)):
-            self._update(body=as_tuple(flatten(self.body)))
 
     def append(self, node):
         """
@@ -382,7 +392,7 @@ class _AssociateBase():
 
 
 @dataclass_strict(frozen=True)
-class Associate(ScopedNode, Section, _AssociateBase):
+class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-many-ancestors
     """
     Internal representation of a code region in which names are associated
     with expressions or variables.
@@ -560,7 +570,7 @@ class _ConditionalBase():
 
     condition: Expression
     body: Tuple[Node, ...]
-    else_body: Optional[Tuple[Node, ...]] = None
+    else_body: Optional[Tuple[Node, ...]] = ()
     inline: bool = False
     has_elseif: bool = False
     name: Optional[str] = None
@@ -596,13 +606,18 @@ class Conditional(InternalNode, _ConditionalBase):
 
     _traversable = ['condition', 'body', 'else_body']
 
+    @model_validator(mode='before')
+    @classmethod
+    def pre_init(cls, values):
+        values = super().pre_init(values)
+        # Ensure non-nested tuples for else_body
+        if 'else_body' in values.kwargs:
+            values.kwargs['else_body'] = _sanitize_tuple(values.kwargs['else_body'])
+        return values
+
     def __post_init__(self):
         super().__post_init__()
         assert self.condition is not None
-
-        if self.body is not None:
-            assert isinstance(self.body, tuple)
-            assert all(isinstance(c, Node) for c in self.body)  # pylint: disable=not-an-iterable
 
         if self.has_elseif:
             assert len(self.else_body) == 1
