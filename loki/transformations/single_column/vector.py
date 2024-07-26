@@ -20,10 +20,9 @@ from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 
 from loki.transformations.array_indexing import demote_variables
-from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.utilities import (
     get_integer_variable, get_loop_bounds, find_driver_loops,
-    get_local_arrays
+    get_local_arrays, check_routine_pragmas
 )
 
 
@@ -98,7 +97,7 @@ class SCCDevectorTransformation(Transformation):
             # check if calls have been enriched
             if not call.routine is BasicType.DEFERRED:
                 # check if called routine is marked as sequential
-                if SCCBaseTransformation.check_routine_pragmas(routine=call.routine, directive=None):
+                if check_routine_pragmas(routine=call.routine, directive=None):
                     continue
 
             if call in section:

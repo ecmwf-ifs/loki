@@ -15,7 +15,7 @@ from loki.tools import as_tuple
 
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.utilities import (
-    get_integer_variable, get_loop_bounds
+    get_integer_variable, get_loop_bounds, check_routine_pragmas
 )
 
 
@@ -43,46 +43,6 @@ class SCCBaseTransformation(Transformation):
 
         assert directive in [None, 'openacc']
         self.directive = directive
-
-    @classmethod
-    def check_routine_pragmas(cls, routine, directive):
-        """
-        Check if routine is marked as sequential or has already been processed.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to perform checks on.
-        directive: string or None
-            Directives flavour to use for parallelism annotations; either
-            ``'openacc'`` or ``None``.
-        """
-
-        pragmas = FindNodes(ir.Pragma).visit(routine.ir)
-        routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
-        routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
-
-        seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
-        if seq_pragmas:
-            loki_seq_pragmas = [r for r in routine_pragmas if 'loki' == r.keyword.lower()]
-            if loki_seq_pragmas:
-                if directive == 'openacc':
-                    # Mark routine as acc seq
-                    mapper = {seq_pragmas[0]: None}
-                    routine.spec = Transformer(mapper).visit(routine.spec)
-                    routine.body = Transformer(mapper).visit(routine.body)
-
-                    # Append the acc pragma to routine.spec, regardless of where the corresponding
-                    # loki pragma is found
-                    routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
-            return True
-
-        vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
-        if vec_pragmas:
-            if directive == 'openacc':
-                return True
-
-        return False
 
     @classmethod
     def resolve_masked_stmts(cls, routine, loop_variable):
@@ -198,7 +158,7 @@ class SCCBaseTransformation(Transformation):
         """
 
         # Bail if routine is marked as sequential or routine has already been processed
-        if self.check_routine_pragmas(routine, self.directive):
+        if check_routine_pragmas(routine, self.directive):
             return
 
         # check for horizontal loop bounds in subroutine symbol table

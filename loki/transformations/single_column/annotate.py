@@ -19,9 +19,8 @@ from loki.logging import info
 from loki.tools import as_tuple, flatten
 from loki.types import DerivedType
 
-from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.utilities import (
-    find_driver_loops, get_local_arrays
+    find_driver_loops, get_local_arrays, check_routine_pragmas
 )
 
 
@@ -207,7 +206,7 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         # Bail if routine is marked as sequential
-        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
+        if check_routine_pragmas(routine, self.directive):
             return
 
         if self.directive == 'openacc':

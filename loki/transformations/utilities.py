@@ -32,7 +32,7 @@ __all__ = [
     'sanitise_imports', 'replace_selected_kind',
     'single_variable_declaration', 'recursive_expression_map_update',
     'get_integer_variable', 'get_loop_bounds', 'find_driver_loops',
-    'get_local_arrays'
+    'get_local_arrays', 'check_routine_pragmas'
 ]
 
 
@@ -647,3 +647,43 @@ def get_local_arrays(routine, section, unique=True):
     arrays = [v for v in arrays if v.name not in arg_names]
 
     return arrays
+
+
+def check_routine_pragmas(routine, directive):
+    """
+    Check if routine is marked as sequential or has already been processed.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        Subroutine to perform checks on.
+    directive: string or None
+        Directives flavour to use for parallelism annotations; either
+        ``'openacc'`` or ``None``.
+    """
+
+    pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+    routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
+    routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
+
+    seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
+    if seq_pragmas:
+        loki_seq_pragmas = [r for r in routine_pragmas if 'loki' == r.keyword.lower()]
+        if loki_seq_pragmas:
+            if directive == 'openacc':
+                # Mark routine as acc seq
+                mapper = {seq_pragmas[0]: None}
+                routine.spec = Transformer(mapper).visit(routine.spec)
+                routine.body = Transformer(mapper).visit(routine.body)
+
+                # Append the acc pragma to routine.spec, regardless of where the corresponding
+                # loki pragma is found
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
+        return True
+
+    vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
+    if vec_pragmas:
+        if directive == 'openacc':
+            return True
+
+    return False
