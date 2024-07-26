@@ -356,11 +356,14 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
         # Update procedure bindings by specifying NOPASS attribute
         for arg in arguments_map:
-            for decl in arg.type.dtype.typedef.declarations:
-                if isinstance(decl, ProcedureDeclaration) and not decl.generic:
-                    for proc in decl.symbols:
-                        if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
-                            proc.type = proc.type.clone(pass_attr=False)
+            try:
+                for decl in arg.type.dtype.typedef.declarations:
+                    if isinstance(decl, ProcedureDeclaration) and not decl.generic:
+                        for proc in decl.symbols:
+                            if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
+                                proc.type = proc.type.clone(pass_attr=False)
+            except Exception as e:
+                print(f"e: {e}\n  arg: {arg} within routine: {routine}")
 
         trafo_data['expansion_map'] = expansion_map
         return trafo_data

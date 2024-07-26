@@ -350,6 +350,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
                         call.routine.symbol_attrs.update({horizontal_index.name:\
                                 call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
                     additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in'), scope=call.routine),)
+                print(f"scc_cuf kernel_cuf - routine: {routine} - call: {call}")
                 if horizontal_index.name not in call.arg_map:
                     additional_kwargs += ((horizontal_index.name, horizontal_index.clone(scope=routine)),)
 
@@ -682,14 +683,18 @@ class SccLowLevelDataOffload(Transformation):
             The subroutine (kernel/device subroutine) to process
         """
 
-        self.kernel_cuf(
-            routine, self.horizontal, self.block_dim, self.transformation_type,
-            derived_type_variables=self.derived_type_variables, depth=depth
-        )
+        try:
+            self.kernel_cuf(
+                routine, self.horizontal, self.block_dim, self.transformation_type,
+                derived_type_variables=self.derived_type_variables, depth=depth
+            )
+        except Exception as e:
+            print(f"e: {e} for routine: {routine}")
 
     def kernel_cuf(self, routine, horizontal, block_dim, transformation_type,
                derived_type_variables, depth):
 
+        print(f"SccLowLevelDataOffload kernel_cuf: {routine}\n  variable_map: {routine.variable_map}")
         relevant_local_arrays = []
         var_map = {}
         for var in routine.variables:

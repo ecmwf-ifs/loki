@@ -241,9 +241,13 @@ class FortranCTransformation(Transformation):
             module.spec = Section(body=(Import(module='iso_c_binding'),))
 
             # Generate C source file from Loki IR
-            c_kernel = self.generate_c_kernel(routine, targets=targets)
-            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-            Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
+            try:
+                c_kernel = self.generate_c_kernel(routine, targets=targets)
+                self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+                Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
+            except Exception as e:
+                print(f"e: {e} | routine: {routine} generate_c_kernel ...")
+                return
 
             # Generate C source file from Loki IR
             # c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
