@@ -9,7 +9,7 @@ from pathlib import Path
 from collections import OrderedDict
 
 from loki.backend import cgen, fgen, cudagen
-from loki.batch import Transformation, ProcedureItem
+from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, Variable, InlineCall, RangeIndex, Scalar, Array,
     ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
@@ -201,14 +201,8 @@ class FortranCTransformation(Transformation):
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
             # Generate C source file from Loki IR
-            # TODO: double-check whether this is called in real life and why this is not called by the tests ...
             for successor in successors:
-                if self.language == 'c':
-                    c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
-                else:
-                    # TODO: should include .h file, however problem compiling/running multiple compilation units ...
-                    if not isinstance(successor, ProcedureItem):
-                        c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
+                c_kernel.spec.prepend(Import(module=f'{successor.ir.name.lower()}_c.h', c_import=True))
 
             if depth == 1:
                 if self.language != 'c':
