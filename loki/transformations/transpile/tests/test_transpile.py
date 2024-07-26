@@ -1333,6 +1333,8 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
     assert '#include<cuda_runtime.h>' in c_kernel
     assert '#include"kernel_c.h"' in c_kernel
     assert '#include"kernel_c_launch.h"' in c_kernel
+    assert 'include"elemental_device_c.h"' in c_kernel
+    assert 'include"device_c.h"' in c_kernel
     assert '__global__voidkernel_c' in c_kernel
     assert 'jl=threadidx.x;' in c_kernel
     assert 'b=blockidx.x;' in c_kernel
@@ -1401,6 +1403,8 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
     assert '#include<cuda_runtime.h>' in c_kernel
     assert '#include"kernel_c.h"' in c_kernel
     assert '#include"kernel_c_launch.h"' in c_kernel
+    assert '#include"elemental_device_c.h"' in c_kernel
+    assert '#include"device_c.h"' in c_kernel
     assert '__global__voidkernel_c' in c_kernel
     assert 'jl=threadidx.x;' in c_kernel
     assert 'b=blockidx.x;' in c_kernel
