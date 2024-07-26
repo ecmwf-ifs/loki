@@ -12,10 +12,9 @@ from loki.expression import (
 from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.logging import debug
 from loki.tools import as_tuple
-from loki.types import SymbolAttributes, BasicType
-
 
 from loki.transformations.sanitise import resolve_associates
+from loki.transformations.utilities import get_integer_variable
 
 
 __all__ = ['SCCBaseTransformation']
@@ -108,23 +107,6 @@ class SCCBaseTransformation(Transformation):
                 raise RuntimeError(f'No horizontol {name} variable matching {_bounds[0]} found in {routine.name}')
 
         return bounds
-
-    @classmethod
-    def get_integer_variable(cls, routine, name):
-        """
-        Find a local variable in the routine, or create an integer-typed one.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            The subroutine in which to find the variable
-        name : string
-            Name of the variable to find the in the routine.
-        """
-        if not (v_index := routine.symbol_map.get(name, None)):
-            dtype = SymbolAttributes(BasicType.INTEGER)
-            v_index = sym.Variable(name=name, type=dtype, scope=routine)
-        return v_index
 
     @classmethod
     def resolve_masked_stmts(cls, routine, loop_variable):
@@ -299,7 +281,7 @@ class SCCBaseTransformation(Transformation):
         bounds = self.get_horizontal_loop_bounds(routine, self.horizontal)
 
         # Find the iteration index variable for the specified horizontal
-        v_index = self.get_integer_variable(routine, name=self.horizontal.index)
+        v_index = get_integer_variable(routine, name=self.horizontal.index)
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls

@@ -21,6 +21,7 @@ from loki.types import BasicType
 
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.single_column.base import SCCBaseTransformation
+from loki.transformations.utilities import get_integer_variable
 
 
 __all__ = [
@@ -283,7 +284,7 @@ class SCCRevectorTransformation(Transformation):
         v_end = routine.resolve_typebound_var(bounds[1], variable_map)
 
         # Create a single loop around the horizontal from a given body
-        index = SCCBaseTransformation.get_integer_variable(routine, horizontal.index)
+        index = get_integer_variable(routine, horizontal.index)
         bounds = sym.LoopRange((v_start, v_end))
 
         # Ensure we clone all body nodes, to avoid recursion issues

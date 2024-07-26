@@ -29,7 +29,8 @@ from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'rename_variables', 'sanitise_imports',
-    'replace_selected_kind', 'single_variable_declaration', 'recursive_expression_map_update'
+    'replace_selected_kind', 'single_variable_declaration', 'recursive_expression_map_update',
+    'get_integer_variable'
 ]
 
 
@@ -520,3 +521,20 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
             break
 
     return expr_map
+
+
+def get_integer_variable(routine, name):
+    """
+    Find a local variable in the routine, or create an integer-typed one.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to find the variable
+    name : string
+        Name of the variable to find the in the routine.
+    """
+    if not (v_index := routine.symbol_map.get(name, None)):
+        dtype = SymbolAttributes(BasicType.INTEGER)
+        v_index = sym.Variable(name=name, type=dtype, scope=routine)
+    return v_index

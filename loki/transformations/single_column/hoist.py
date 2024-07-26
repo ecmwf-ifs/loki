@@ -9,7 +9,7 @@ from loki.expression import symbols as sym
 from loki.ir import nodes as ir
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
-from loki.transformations.single_column.base import SCCBaseTransformation
+from loki.transformations.utilities import get_integer_variable
 
 
 __all__ = ['SCCHoistTemporaryArraysTransformation']
@@ -55,7 +55,7 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
                 'for array argument hoisting.'
             )
 
-        block_var = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size)
+        block_var = get_integer_variable(routine, self.block_dim.size)
         routine.variables += tuple(
             v.clone(
                 dimensions=v.dimensions + (block_var,),
@@ -95,7 +95,7 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
                 '[Loki] SingleColumnCoalescedTransform: No blocking dimension found '
                 'for array argument hoisting.'
             )
-        idx_var = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.index)
+        idx_var = get_integer_variable(routine, self.block_dim.index)
         if self.as_kwarguments:
             new_kwargs = tuple(
                 (a.name, v.clone(dimensions=tuple(sym.RangeIndex((None, None))
