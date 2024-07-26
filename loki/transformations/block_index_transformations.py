@@ -13,7 +13,7 @@ from loki.types import SymbolAttributes, BasicType
 from loki.expression import Variable, Array, RangeIndex, FindVariables, SubstituteExpressions
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.utilities import (
-    recursive_expression_map_update, get_integer_variable
+    recursive_expression_map_update, get_integer_variable, get_loop_bounds
 )
 from loki.transformations.single_column.base import SCCBaseTransformation
 
@@ -241,7 +241,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         if SCCBaseTransformation.check_routine_pragmas(routine, directive=None):
             return
 
-        bounds = SCCBaseTransformation.get_horizontal_loop_bounds(routine, self.horizontal)
+        bounds = get_loop_bounds(routine, self.horizontal)
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
         # for kernels we process the entire body

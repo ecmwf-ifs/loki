@@ -28,9 +28,10 @@ from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
 
 
 __all__ = [
-    'convert_to_lower_case', 'replace_intrinsics', 'rename_variables', 'sanitise_imports',
-    'replace_selected_kind', 'single_variable_declaration', 'recursive_expression_map_update',
-    'get_integer_variable'
+    'convert_to_lower_case', 'replace_intrinsics', 'rename_variables',
+    'sanitise_imports', 'replace_selected_kind',
+    'single_variable_declaration', 'recursive_expression_map_update',
+    'get_integer_variable', 'get_loop_bounds'
 ]
 
 
@@ -538,3 +539,32 @@ def get_integer_variable(routine, name):
         dtype = SymbolAttributes(BasicType.INTEGER)
         v_index = sym.Variable(name=name, type=dtype, scope=routine)
     return v_index
+
+
+def get_loop_bounds(routine, dimension):
+    """
+    Check loop bounds for a particular :any:`Dimension` in a
+    :any:`Subroutine`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        Subroutine to perform checks on.
+    dimension : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions
+        used to define the data dimension and iteration space.
+    """
+
+    bounds = ()
+    variables = routine.variables
+    for name, _bounds in zip(['start', 'end'], dimension.bounds_expressions):
+        for bound in _bounds:
+            if bound.split('%', maxsplit=1)[0] in variables:
+                bounds += (bound,)
+                break
+        else:
+            raise RuntimeError(
+                f'No {name} variable matching {_bounds[0]} found in {routine.name}'
+            )
+
+    return bounds

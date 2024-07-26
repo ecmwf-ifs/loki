@@ -14,7 +14,9 @@ from loki.logging import debug
 from loki.tools import as_tuple
 
 from loki.transformations.sanitise import resolve_associates
-from loki.transformations.utilities import get_integer_variable
+from loki.transformations.utilities import (
+    get_integer_variable, get_loop_bounds
+)
 
 
 __all__ = ['SCCBaseTransformation']
@@ -81,32 +83,6 @@ class SCCBaseTransformation(Transformation):
                 return True
 
         return False
-
-    @classmethod
-    def get_horizontal_loop_bounds(cls, routine, horizontal):
-        """
-        Check for horizontal loop bounds in a :any:`Subroutine`.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to perform checks on.
-        horizontal : :any:`Dimension`
-            :any:`Dimension` object describing the variable conventions used in code
-            to define the horizontal data dimension and iteration space.
-        """
-
-        bounds = ()
-        variables = routine.variables
-        for name, _bounds in zip(['start', 'end'], horizontal.bounds_expressions):
-            for bound in _bounds:
-                if bound.split('%', maxsplit=1)[0] in variables:
-                    bounds += (bound,)
-                    break
-            else:
-                raise RuntimeError(f'No horizontol {name} variable matching {_bounds[0]} found in {routine.name}')
-
-        return bounds
 
     @classmethod
     def resolve_masked_stmts(cls, routine, loop_variable):
@@ -278,7 +254,7 @@ class SCCBaseTransformation(Transformation):
             return
 
         # check for horizontal loop bounds in subroutine symbol table
-        bounds = self.get_horizontal_loop_bounds(routine, self.horizontal)
+        bounds = get_loop_bounds(routine, dimension=self.horizontal)
 
         # Find the iteration index variable for the specified horizontal
         v_index = get_integer_variable(routine, name=self.horizontal.index)

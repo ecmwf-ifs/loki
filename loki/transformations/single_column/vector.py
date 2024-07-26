@@ -21,7 +21,9 @@ from loki.types import BasicType
 
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.single_column.base import SCCBaseTransformation
-from loki.transformations.utilities import get_integer_variable
+from loki.transformations.utilities import (
+    get_integer_variable, get_loop_bounds
+)
 
 
 __all__ = [
@@ -278,7 +280,7 @@ class SCCRevectorTransformation(Transformation):
         """
 
         variable_map = routine.variable_map
-        bounds = SCCBaseTransformation.get_horizontal_loop_bounds(routine, horizontal)
+        bounds = get_loop_bounds(routine, dimension=horizontal)
 
         v_start = routine.resolve_typebound_var(bounds[0], variable_map)
         v_end = routine.resolve_typebound_var(bounds[1], variable_map)

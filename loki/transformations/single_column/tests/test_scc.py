@@ -18,7 +18,8 @@ from loki.ir import (
 )
 
 from loki.transformations import (
-    DataOffloadTransformation, SanitiseTransformation, InlineTransformation
+    DataOffloadTransformation, SanitiseTransformation,
+    InlineTransformation, get_loop_bounds
 )
 from loki.transformations.single_column import (
     SCCBaseTransformation, SCCDevectorTransformation,
@@ -948,11 +949,11 @@ end subroutine kernel
     transform = SCCBaseTransformation(horizontal=horizontal_bounds_aliases)
     transform.apply(alias, role='kernel')
 
-    bounds = SCCBaseTransformation.get_horizontal_loop_bounds(routine, horizontal_bounds_aliases)
+    bounds = get_loop_bounds(routine, dimension=horizontal_bounds_aliases)
     assert bounds[0] == 'start'
     assert bounds[1] == 'end'
 
-    bounds = SCCBaseTransformation.get_horizontal_loop_bounds(alias, horizontal_bounds_aliases)
+    bounds = get_loop_bounds(alias, dimension=horizontal_bounds_aliases)
     assert bounds[0] == 'bnds%start'
     assert bounds[1] == 'bnds%end'
 
