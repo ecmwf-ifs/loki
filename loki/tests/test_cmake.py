@@ -34,6 +34,17 @@ def check_cmake():
 
 pytest.mark.skipif(not check_cmake(), reason='CMake not available')
 
+@pytest.fixture(scope='module', name='tmp_dir')
+def fixture_tmp_dir():
+    """Return a test module lifetime tmp directory"""
+    tmp_dir = gettempdir()/'test_cmake'
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir()
+    yield tmp_dir
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
@@ -54,7 +65,7 @@ def fixture_srcdir(here):
 
 
 @pytest.fixture(scope='module', name='config')
-def fixture_config(here):
+def fixture_config(tmp_dir):
     """
     Write default configuration as a temporary file and return
     the file path
@@ -65,52 +76,52 @@ def fixture_config(here):
             'driverB': {'role': 'driver'},
         }
     }
-    filepath = here/'test_cmake_loki.config'
+    filepath = tmp_dir/'test_cmake_loki.config'
     filepath.write_text(toml.dumps(default_config))
     yield filepath
     filepath.unlink()
 
 
 @pytest.fixture(scope='module', name='ecbuild')
-def fixture_ecbuild():
+def fixture_ecbuild(tmp_dir):
     """
-    Download and install ecbuild
+    Download ecbuild
     """
-    srcdir = gettempdir()/'ecbuild_tmp'
-    if srcdir.exists():
-        shutil.rmtree(srcdir)
-    ecbuilddir = gettempdir()/'ecbuild'
+    # srcdir = tmp_dir/'ecbuild_tmp'
+    # if srcdir.exists():
+    #     shutil.rmtree(srcdir)
+    ecbuilddir = tmp_dir/'ecbuild'
     if ecbuilddir.exists():
         shutil.rmtree(ecbuilddir)
 
-    execute(['git', 'clone', 'https://github.com/ecmwf/ecbuild.git', str(srcdir)])
-    (srcdir/'bootstrap').mkdir()
-    execute(['cmake', '..'], cwd=srcdir/'bootstrap')
-    execute(['cmake', '--install', '.', '--prefix', str(ecbuilddir)], cwd=srcdir/'bootstrap')
+    execute(['git', 'clone', 'https://github.com/ecmwf/ecbuild.git', str(ecbuilddir)])
+    # (srcdir/'bootstrap').mkdir()
+    # execute(['cmake', '..'], cwd=srcdir/'bootstrap')
+    # execute(['cmake', '--install', '.', '--prefix', str(ecbuilddir)], cwd=srcdir/'bootstrap')
 
-    shutil.rmtree(srcdir)
+    # shutil.rmtree(srcdir)
     yield ecbuilddir
     shutil.rmtree(ecbuilddir)
 
 
 @pytest.fixture(scope='module', name='loki_install', params=[True, False])
-def fixture_loki_install(here, ecbuild, silent, request):
+def fixture_loki_install(here, tmp_dir, ecbuild, silent, request):
     """
     Install Loki using CMake into an install directory
     """
-    builddir = gettempdir()/'loki_bootstrap'
+    builddir = tmp_dir/'loki_bootstrap'
     if builddir.exists():
         shutil.rmtree(builddir)
     builddir.mkdir()
-    cmd = [f'{ecbuild}/bin/ecbuild', str(here.parent.parent), '-DENABLE_CLAW=OFF']
+    cmd = ['cmake', '-DENABLE_CLAW=OFF', f'-DCMAKE_MODULE_PATH={ecbuild}/cmake', str(here.parent.parent)]
     if request.param:
         cmd += ['-DENABLE_EDITABLE=ON']
     else:
         cmd += ['-DENABLE_EDITABLE=OFF']
-                
+
     execute(cmd, silent=silent, cwd=builddir)
 
-    lokidir = gettempdir()/'loki'
+    lokidir = tmp_dir/'loki'
     if lokidir.exists():
         shutil.rmtree(lokidir)
     execute(
@@ -126,11 +137,11 @@ def fixture_loki_install(here, ecbuild, silent, request):
 
 
 @contextmanager
-def clean_builddir(name):
+def clean_builddir(builddir):
     """
-    Create a build directory in the temp directory
+    Clean the build directory in the temp directory
     """
-    builddir = gettempdir()/str(name)
+    builddir = Path(builddir)
     if builddir.exists():
         shutil.rmtree(builddir)
     builddir.mkdir()
@@ -180,7 +191,7 @@ loki_transform_plan(
     (srcdir/'loki').unlink()
 
 
-def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild, silent):
+def test_cmake_plan(srcdir, tmp_dir, config, cmake_project, loki_install, ecbuild, silent):
     """
     Test the `loki_transform_plan` CMake function with a single task
     graph spanning two projects
@@ -195,7 +206,7 @@ def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild, silent
     assert cmake_project.exists()
 
     for loki_root in loki_install:
-        with clean_builddir('test_cmake_plan') as builddir:
+        with clean_builddir(tmp_dir/'test_cmake_plan') as builddir:
             execute(
                 [f'{ecbuild}/bin/ecbuild', str(srcdir), f'-Dloki_ROOT={loki_root}'],
                 cwd=builddir, silent=silent

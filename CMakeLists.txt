@@ -34,8 +34,9 @@
 # Version 3.12 required to use FindPython
 # Version 3.15 officially required to use Python3_FIND_VIRTUALENV (not working on 3.15.3,
 # though, and use 3.17 for conda support anyway)
-cmake_minimum_required( VERSION 3.17 FATAL_ERROR )
-find_package( ecbuild 3.4 REQUIRED HINTS ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../ecbuild )
+# Version 3.19 for support of find_package version range and file(CHMOD)
+cmake_minimum_required( VERSION 3.19 FATAL_ERROR )
+find_package( ecbuild 3.7 REQUIRED )
 
 # Specify project and configuration options
 project( loki LANGUAGES NONE )
@@ -100,7 +101,8 @@ if( NOT HAVE_NO_INSTALL )
     # Setup Python virtual environment
     include( python_venv )
     set( loki_VENV_PATH ${CMAKE_CURRENT_BINARY_DIR}/loki_env )
-    setup_python_venv( ${loki_VENV_PATH} )
+    set( PYTHON_VERSION 3.8...<3.12 )
+    setup_python_venv( ${loki_VENV_PATH} ${PYTHON_VERSION} )
     install( DIRECTORY ${loki_VENV_PATH} DESTINATION . USE_SOURCE_PERMISSIONS )
 
     # Enable Pytest tests as ecbuild/ctest targets
@@ -171,13 +173,13 @@ if( NOT HAVE_NO_INSTALL )
     # We install Loki at configure time (for now), since bulk-transformation planning
     # requires configure time execution to allow injection with CMake targets.
 
-    message( STATUS "Install Loki in virtual environment" )
+    ecbuild_info( "Install Loki in virtual environment" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
-    message( STATUS "Install Loki in virtual environment - done" )
+    ecbuild_info( "Install Loki in virtual environment - done" )
 
-    message( STATUS "Install Loki lint_rules in virtual environment" )
+    ecbuild_info( "Install Loki lint_rules in virtual environment" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules )
-    message( STATUS "Install Loki lint_rules in virtual environment - done" )
+    ecbuild_info( "Install Loki lint_rules in virtual environment - done" )
 
     # Make the shebang in Python scripts use relative paths
     list(

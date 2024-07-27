@@ -22,6 +22,7 @@
 # -------
 #
 # :VENV_PATH: The path to the virtual environment
+# :PYTHON_VERSION: Permissible Python versions for find_package
 #
 # Output variables
 # ----------------
@@ -33,7 +34,7 @@
 #
 ##############################################################################
 
-function( find_python_venv VENV_PATH )
+function( find_python_venv VENV_PATH PYTHON_VERSION )
 
     # Update the environment with VIRTUAL_ENV variable (mimic the activate script)
     set( ENV{VIRTUAL_ENV} ${VENV_PATH} )
@@ -49,7 +50,7 @@ function( find_python_venv VENV_PATH )
     set( Python3_ROOT_DIR "${VENV_PATH}" )
 
     # Launch a new search
-    find_package( Python3 COMPONENTS Interpreter Development REQUIRED )
+    find_package( Python3 ${PYTHON_VERSION} COMPONENTS Interpreter Development REQUIRED )
 
     # Find the binary directory of the virtual environment
     execute_process(
@@ -83,25 +84,36 @@ endfunction()
 # -------
 #
 # :VENV_PATH: The path to use for the virtual environment
+# :PYTHON_VERSION: Permissible Python versions for find_package
 #
 ##############################################################################
 
-function( create_python_venv VENV_PATH )
+function( create_python_venv VENV_PATH PYTHON_VERSION )
 
     # Discover only system install Python 3
     set( Python3_FIND_VIRTUALENV STANDARD )
-    find_package( Python3 COMPONENTS Interpreter REQUIRED )
+    find_package( Python3 ${PYTHON_VERSION} COMPONENTS Interpreter REQUIRED )
+
+    # Ensure the activate script is writable in case the venv exists already
+    if( EXISTS "${VENV_PATH}/bin/activate" )
+        file( CHMOD "${VENV_PATH}/bin/activate" FILE_PERMISSIONS OWNER_READ OWNER_WRITE )
+    endif()
 
     # Create a loki virtualenv
-    message( STATUS "Create Python virtual environment ${VENV_PATH}" )
+    ecbuild_info( "Create Python virtual environment ${VENV_PATH}" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m venv --copies "${VENV_PATH}" )
 
     # Make the virtualenv portable by automatically deducing the VIRTUAL_ENV path from
     # the 'activate' script's location in the filesystem
-    execute_process(
-        COMMAND
-            sed -i "s/^VIRTUAL_ENV=\".*\"$/VIRTUAL_ENV=\"$(cd \"$(dirname \"$(dirname \"\${BASH_SOURCE[0]}\" )\")\" \\&\\& pwd)\"/" "${VENV_PATH}/bin/activate"
+    file( READ "${VENV_PATH}/bin/activate" FILE_CONTENT )
+    string(
+        REGEX REPLACE
+            "\nVIRTUAL_ENV=\".*\"\nexport VIRTUAL_ENV"
+            "\nVIRTUAL_ENV=\"$(readlink -f \"$(dirname \"$(dirname \"\${BASH_SOURCE[0]}\")\")\")\"\nexport VIRTUAL_ENV"
+        FILE_CONTENT
+        "${FILE_CONTENT}"
     )
+    file( WRITE "${VENV_PATH}/bin/activate" "${FILE_CONTENT}" )
 
 endfunction()
 
@@ -121,6 +133,7 @@ endfunction()
 # -------
 #
 # :VENV_PATH: The path to use for the virtual environment
+# :PYTHON_VERSION: Permissible Python versions for find_package
 #
 # Output variables
 # ----------------
@@ -132,13 +145,13 @@ endfunction()
 #
 ##############################################################################
 
-macro( setup_python_venv VENV_PATH )
+macro( setup_python_venv VENV_PATH PYTHON_VERSION )
 
     # Create the virtual environment
-    create_python_venv( ${VENV_PATH} )
+    create_python_venv( ${VENV_PATH} ${PYTHON_VERSION} )
 
     # Discover Python in the virtual environment and set-up variables
-    find_python_venv( ${VENV_PATH} )
+    find_python_venv( ${VENV_PATH} ${PYTHON_VERSION} )
 
 endmacro()
 
@@ -171,11 +184,15 @@ function( update_python_shebang )
         # '''
 
         ecbuild_debug( "Update shebang for ${_exe}" )
-
-        execute_process(
-            COMMAND
-                sed -i "1s/^.*$/#\\!\\/bin\\/sh\\n\\\"true\\\" '''\\\\'\\nexec \\\"$(dirname \\\"$(readlink -f \\\"\\$0\\\")\\\")\\\"\\/python \\\"\\$0\\\" \\\"\\$@\\\"\\n'''/" ${_exe}
+        file( READ "${_exe}" FILE_CONTENT )
+        string(
+            REGEX REPLACE
+                "#!/.*\n#"
+                "#!/bin/sh\n\"true\" '''\\\\'\nexec \"$(dirname \"$(readlink -f \"\$0\")\")/python\" \"\$0\" \"\$@\"\n'''\n#"
+            FILE_CONTENT
+            "${FILE_CONTENT}"
         )
+        file( WRITE "${_exe}" "${FILE_CONTENT}" )
 
     endforeach()
 
