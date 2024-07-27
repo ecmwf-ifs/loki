@@ -19,14 +19,19 @@ do this automatically.
 ## Requirements
 
 - Python 3.8+ with virtualenv and pip
-- For OpenFortranParser/OMNI+CLAW:
-  - JDK 1.8+ with ant (can be installed using the install script or ecbuild)
-  - libxml2 (with headers)
-- For graphical output from the scheduler: graphviz
+- For graphical output of Scheduler dependency graphs: graphviz
 
-## Installation via `pip install`
+### Optional requirements
 
-The easiest way to obtain a useable installation of Loki with the fparser frontend:
+The following is required to use the Open Fortran Parser (OFP) or OMNI frontend or the CLAW compiler:
+
+- JDK 1.8+ with ant (can be installed using the install script or ecbuild)
+- libxml2 (with headers)
+
+## Installation without prior download
+
+The easiest way to obtain a useable installation of Loki with the fparser frontend does not
+require downloading the source code. Simply run the following commands:
 
 ```bash
 python3 -m venv loki_env  # Create a virtual environment
@@ -35,17 +40,50 @@ source loki_env/bin/activate  # Activate the virtual environment
 # Installation of the Loki core library
 pip install "loki @ git+https://github.com/ecmwf-ifs/loki.git"
 
-# Optional: Installation of additional transformations
-pip install "transformations @ git+https://github.com/ecmwf-ifs/loki.git#subdirectory=transformations"
-
-# Optional: Installation of rules for the use as a linter
+# Optional: Installation of IFS lint rules for the use as a linter
 pip install "lint_rules @ git+https://github.com/ecmwf-ifs/loki.git#subdirectory=lint_rules"
 ```
 
 This makes the Python package available and installs the scripts `loki-transform.py` and `loki-lint.py` on the PATH.
 
 
-## Installation using install script
+## Installation from source
+
+After downloading the source code, e.g., via
+
+```bash
+git clone https://github.com/ecmwf-ifs/loki.git
+```
+
+enter the created source directory and choose one of the following installation methods.
+
+### Installation with pip
+
+This yields an installation that uses the fparser frontend and is suitable for
+development of transformations and working with the example notebooks:
+
+```bash
+python3 -m venv loki_env  # Create a virtual environment
+source loki_env/bin/activate  # Activate the virtual environment
+
+# Installation of the Loki core library
+# Optional:
+#   * Add `-e` to obtain an editable install that allows modifying the
+#     source files without having to re-install the package
+#   * Enable the following options by providing them as a comma-separated
+#     list in square brackets behind the `.`:
+#     * tests    - allows running the Loki test suite
+#     * examples - installs dependencies to run the example notebooks
+#     * docs     - installs dependencies required to generate the Sphinx documentation
+#     * dace     - installs DaCe
+pip install .
+
+# Optional: Installation of IFS lint rules for the use as a linter
+#           (again optionally with `-e` for an editable install)
+pip install ./lint_rules
+```
+
+### Installation using install script
 
 The provided `install` script can be used to install Loki with selected
 dependencies inside a local virtual environment `loki_env`. This is the
@@ -85,7 +123,7 @@ will install only the Fparser2 frontend.
 After completion, this script writes a `loki-activate` file that can be sourced
 to bring up the virtual environment and set paths for the external dependencies.
 
-### Examples:
+#### Examples:
 
 The default command on ECMWF's Atos HPC facility for a full stack installation is
 
@@ -105,7 +143,7 @@ To update the installation (e.g., to add JDK), the existing virtual environment 
 ./install --with-claw --with-jdk --with-ant --use-venv=loki_env --with-ofp
 ```
 
-## Installation using CMake/ecbuild
+### Installation using CMake/ecbuild
 
 Loki and dependencies (excluding OpenFortranParser) can be installed using
 [ecbuild](https://github.com/ecmwf/ecbuild) (a set of CMake macros and a wrapper
@@ -167,6 +205,40 @@ need to take care of PATH handling on the user side. See the [CLOUDSC
 dwarf](https://github.com/ecmwf-ifs/dwarf-p-cloudsc) for an example how this can
 be used.
 
+## Installation on MacOS
+
+Although tailored to the Linux environment commonly found on HPC systems, Loki
+can also be installed on MacOS.
+
+This requires installing some additional dependencies using
+[Brew](https://brew.sh) to allow running the Loki test suite:
+
+
+```bash
+# Install dependencies with brew
+brew install gcc@13 graphviz python@3.11
+
+# Install Loki using the install script
+# NB: we explicitly select Python 3.11 (in case a newer version is the default)
+#     by adding it in first place to the search path
+PATH="$(brew --prefix)/opt/python@3.11/libexec/bin:$PATH" \
+  CC=gcc-13 CXX=g++-13 FC=gfortran-13 \
+  ./install --with-examples --with-tests --with-dace
+
+# Amend the Loki environment with correct compiler variables
+echo "export PATH=$(brew --prefix)/opt/python@3.11/libexec/bin:$(brew --prefix)/bin:${PATH}" | cat - loki-activate > loki-activate.tmp
+mv loki-activate.tmp loki-activate
+echo "export CC=gcc-13" >> loki-activate
+echo "export CXX=g++-13" >> loki-activate
+echo "export FC=gfortran-13" >> loki-activate
+echo "export F90=gfortran-13" >> loki-activate
+echo "export LD=gfortran-13" >> loki-activate
+
+# Activate the virtual environment to run the tests
+source loki-activate
+pytest --pyargs loki
+```
+
 ## Installation as part of an ecbundle bundle
 
 Loki being installable by CMake/ecbuild makes it easy to integrate with
@@ -217,7 +289,6 @@ that has support for editable installs using `pyproject.toml`.
 ```bash
 pushd loki
 pip install -e .[tests,examples]
-pip install -e ./transformations
 pip install -e ./lint_rules
 popd
 ```
