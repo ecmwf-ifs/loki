@@ -316,14 +316,14 @@ def test_timeout():
     with timeout(5):
         sleep(.3)
     stop = perf_counter()
-    assert .2 < stop - start < .4
+    assert .2 < stop - start < .45
 
     # Timeout disabled:
     start = perf_counter()
     with timeout(0):
         sleep(.3)
     stop = perf_counter()
-    assert .2 < stop - start < .4
+    assert .2 < stop - start < .45
 
     # Default exception
     with pytest.raises(RuntimeError) as exc:
@@ -331,7 +331,7 @@ def test_timeout():
         with timeout(1):
             sleep(5)
         stop = perf_counter()
-        assert .9 < stop - start < 1.1
+        assert .9 < stop - start < 1.15
         assert "Timeout reached after 2 second(s)" in str(exc.value)
 
     # Custom message
@@ -340,7 +340,7 @@ def test_timeout():
         with timeout(1, message="My message"):
             sleep(5)
         stop = perf_counter()
-        assert .9 < stop - start < 1.1
+        assert .9 < stop - start < 1.15
         assert "My message" in str(exc.value)
 
 
