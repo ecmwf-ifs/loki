@@ -87,19 +87,10 @@ def fixture_ecbuild(tmp_dir):
     """
     Download ecbuild
     """
-    # srcdir = tmp_dir/'ecbuild_tmp'
-    # if srcdir.exists():
-    #     shutil.rmtree(srcdir)
     ecbuilddir = tmp_dir/'ecbuild'
     if ecbuilddir.exists():
         shutil.rmtree(ecbuilddir)
-
     execute(['git', 'clone', 'https://github.com/ecmwf/ecbuild.git', str(ecbuilddir)])
-    # (srcdir/'bootstrap').mkdir()
-    # execute(['cmake', '..'], cwd=srcdir/'bootstrap')
-    # execute(['cmake', '--install', '.', '--prefix', str(ecbuilddir)], cwd=srcdir/'bootstrap')
-
-    # shutil.rmtree(srcdir)
     yield ecbuilddir
     shutil.rmtree(ecbuilddir)
 

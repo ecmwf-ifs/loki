@@ -77,7 +77,7 @@ jobs:
             export CC=gcc-13 CXX=g++-13 FC=gfortran-13
             ./install --with-examples --with-tests --with-dace
             echo "export PATH=$(brew --prefix)/opt/python@3.11/libexec/bin:$(brew --prefix)/bin:${PATH}" | cat - loki-activate > loki-activate.tmp
-mv loki-activate.tmp loki-activate
+            mv loki-activate.tmp loki-activate
             echo "export CC=gcc-13" >> loki-activate
             echo "export CXX=g++-13" >> loki-activate
             echo "export FC=gfortran-13" >> loki-activate
