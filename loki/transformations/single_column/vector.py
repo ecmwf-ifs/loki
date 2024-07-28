@@ -249,7 +249,7 @@ class SCCDevectorTransformation(Transformation):
         routine.body = Transformer(driver_loop_map).visit(routine.body)
 
 
-def wrap_vector_section(section, routine, horizontal):
+def wrap_vector_section(section, routine, horizontal, insert_pragma=True):
     """
     Wrap a section of nodes in a vector-level loop across the horizontal.
 
@@ -261,6 +261,8 @@ def wrap_vector_section(section, routine, horizontal):
         The subroutine in the vector loops should be removed.
     horizontal: :any:`Dimension`
         The dimension specifying the horizontal vector dimension
+    insert_pragma: bool, optional
+        Adds a ``!$loki vector`` pragma around the created loop
     """
     bounds = get_loop_bounds(routine, dimension=horizontal)
 
@@ -269,7 +271,11 @@ def wrap_vector_section(section, routine, horizontal):
     bounds = sym.LoopRange(bounds)
 
     # Ensure we clone all body nodes, to avoid recursion issues
-    vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
+    body = Transformer().visit(section)
+
+    # Add a marker pragma for later annotations
+    pragma = (ir.Pragma('loki', content='loop vector'),) if insert_pragma else None
+    vector_loop = ir.Loop(variable=index, bounds=bounds, body=body, pragma=pragma)
 
     # Add a comment before and after the pragma-annotated loop to ensure
     # we do not overlap with neighbouring pragmas

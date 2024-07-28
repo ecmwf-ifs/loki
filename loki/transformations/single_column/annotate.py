@@ -51,7 +51,7 @@ class SCCAnnotateTransformation(Transformation):
         self.block_dim = block_dim
 
     @classmethod
-    def kernel_annotate_vector_loops_openacc(cls, routine, horizontal):
+    def kernel_annotate_vector_loops_openacc(cls, routine):
         """
         Insert ``!$acc loop vector`` annotations around horizontal vector
         loops, including the necessary private variable declarations.
@@ -60,8 +60,6 @@ class SCCAnnotateTransformation(Transformation):
         ----------
         routine : :any:`Subroutine`
             The subroutine in the vector loops should be removed.
-        horizontal: :any:`Dimension`
-            The dimension object specifying the horizontal vector dimension
         """
 
         # Find any local arrays that need explicitly privatization
@@ -87,21 +85,19 @@ class SCCAnnotateTransformation(Transformation):
                         loops = FindNodes(ir.Loop).visit(region)
                         assert len(loops) == 1
                         pragma = ir.Pragma(keyword='acc', content=f'loop vector {reduction_clause[0]}')
-                        mapper[loops[0]] = loops[0].clone(pragma=(pragma,))
-                        mapper[region.pragma] = None
-                        mapper[region.pragma_post] = None
+                        # Update loop and region in place to remove marker pragmas
+                        loops[0]._update(pragma=(pragma,))
+                        region._update(pragma=None, pragma_post=None)
 
         with pragmas_attached(routine, ir.Loop):
             for loop in FindNodes(ir.Loop).visit(routine.body):
-                if loop.variable == horizontal.index and not loop in mapper:
+                if is_loki_pragma(loop.pragma, starts_with='loop vector'):
                     # Construct pragma and wrap entire body in vector loop
                     private_arrs = ', '.join(v.name for v in private_arrays)
                     pragma = ()
                     private_clause = '' if not private_arrays else f' private({private_arrs})'
                     pragma = ir.Pragma(keyword='acc', content=f'loop vector{private_clause}')
-                    mapper[loop] = loop.clone(pragma=(pragma,))
-
-            routine.body = Transformer(mapper).visit(routine.body)
+                    loop._update(pragma=(pragma,))
 
     @classmethod
     def kernel_annotate_sequential_loops_openacc(cls, routine, horizontal, block_dim=None, ignore=()):
@@ -162,7 +158,7 @@ class SCCAnnotateTransformation(Transformation):
     def insert_annotations(cls, routine, horizontal):
 
         # Mark all parallel vector loops as `!$acc loop vector`
-        cls.kernel_annotate_vector_loops_openacc(routine, horizontal)
+        cls.kernel_annotate_vector_loops_openacc(routine)
 
         # Mark all non-parallel loops as `!$acc loop seq`
         cls.kernel_annotate_sequential_loops_openacc(routine, horizontal)

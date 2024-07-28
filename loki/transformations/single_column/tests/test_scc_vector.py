@@ -11,7 +11,7 @@ from loki import Subroutine, Sourcefile, Dimension, fgen
 from loki.frontend import available_frontends
 from loki.ir import (
     FindNodes, Assignment, CallStatement, Conditional, Comment, Loop,
-    Pragma, Section
+    Pragma, Section, pragmas_attached, is_loki_pragma
 )
 from loki.transformations.single_column import (
     SCCDevectorTransformation, SCCRevectorTransformation, SCCVectorPipeline
@@ -102,13 +102,18 @@ def test_scc_revector_transformation(frontend, horizontal):
 
     # Ensure we have two nested loops in the kernel
     # (the hoisted horizontal and the native vertical)
-    kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 2
-    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
-    assert kernel_loops[0].variable == 'jl'
-    assert kernel_loops[0].bounds == 'start:end'
-    assert kernel_loops[1].variable == 'jk'
-    assert kernel_loops[1].bounds == '2:nz'
+    with pragmas_attached(kernel, node_type=Loop):
+        kernel_loops = FindNodes(Loop).visit(kernel.body)
+        assert len(kernel_loops) == 2
+        assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+        assert kernel_loops[0].variable == 'jl'
+        assert kernel_loops[0].bounds == 'start:end'
+        assert kernel_loops[1].variable == 'jk'
+        assert kernel_loops[1].bounds == '2:nz'
+
+        # Check internal loop pragma annotations
+        assert kernel_loops[0].pragma
+        assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
@@ -204,13 +209,18 @@ END SUBROUTINE compute_column
 
     # Ensure we have two nested loops in the kernel
     # (the hoisted horizontal and the native vertical)
-    kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 2
-    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
-    assert kernel_loops[0].variable == 'jl'
-    assert kernel_loops[0].bounds == 'bnds%start:bnds%end'
-    assert kernel_loops[1].variable == 'jk'
-    assert kernel_loops[1].bounds == '2:nz'
+    with pragmas_attached(kernel, node_type=Loop):
+        kernel_loops = FindNodes(Loop).visit(kernel.body)
+        assert len(kernel_loops) == 2
+        assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+        assert kernel_loops[0].variable == 'jl'
+        assert kernel_loops[0].bounds == 'bnds%start:bnds%end'
+        assert kernel_loops[1].variable == 'jk'
+        assert kernel_loops[1].bounds == '2:nz'
+
+        # Check internal loop pragma annotations
+        assert kernel_loops[0].pragma
+        assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
