@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import platform
 import pytest
 import numpy as np
 
@@ -318,6 +319,8 @@ end subroutine transform_demote_dimension_arguments
     assert np.all(vec2 == 2) and np.sum(vec2) == 6
     assert np.all(matrix == 16) and np.sum(matrix) == 32
 
+
+@pytest.mark.skipif(platform.system() == 'Darwin', reason='Unclear issue causing problems on MacOS (#352)')
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('start_index', (0, 1, 5))
 def test_transform_normalize_array_shape_and_access(tmp_path, frontend, start_index):

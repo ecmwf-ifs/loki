@@ -597,8 +597,8 @@ end module test_access_spec_mod
 
     # Check module properties
     assert module.default_access_spec is None
-    assert module.public_access_spec is ()
-    assert module.private_access_spec is ()
+    assert isinstance(module.public_access_spec, tuple) and not module.public_access_spec
+    assert isinstance(module.private_access_spec, tuple) and not module.private_access_spec
 
     # Check backend output
     code = module.to_fortran().upper()

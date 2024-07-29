@@ -28,7 +28,7 @@ set( LOKI_EXECUTABLES @LOKI_EXECUTABLES@ )
 if( NOT ${loki_HAVE_NO_INSTALL} )
     # Detect the installed virtual environment
     include( python_venv )
-    find_python_venv( ${loki_VENV_PATH} )
+    find_python_venv( ${loki_VENV_PATH} @PYTHON_VERSION@ )
 endif()
 
 # Discover Loki executables and make available as CMake targets
