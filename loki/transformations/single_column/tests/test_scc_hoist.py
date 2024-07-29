@@ -34,14 +34,6 @@ def fixture_horizontal():
         bounds=('start', 'end'), aliases=('nproma',)
     )
 
-@pytest.fixture(scope='module', name='horizontal_bounds_aliases')
-def fixture_horizontal_bounds_aliases():
-    return Dimension(
-        name='horizontal_bounds_aliases', size='nlon', index='jl',
-        bounds=('start', 'end'), aliases=('nproma',),
-        bounds_aliases=('bnds%start', 'bnds%end')
-    )
-
 @pytest.fixture(scope='module', name='vertical')
 def fixture_vertical():
     return Dimension(name='vertical', size='nz', index='jk', aliases=('nlev',))

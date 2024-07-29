@@ -42,11 +42,6 @@ def fixture_horizontal_bounds_aliases():
         bounds_aliases=('bnds%start', 'bnds%end')
     )
 
-@pytest.fixture(scope='module', name='vertical')
-def fixture_vertical():
-    return Dimension(name='vertical', size='nz', index='jk', aliases=('nlev',))
-
-
 @pytest.fixture(scope='module', name='blocking')
 def fixture_blocking():
     return Dimension(name='blocking', size='nb', index='b')
