@@ -24,7 +24,8 @@ from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.parallel import (
     remove_openmp_regions, add_openmp_regions,
-    remove_block_loops, add_block_loops
+    remove_block_loops, add_block_loops,
+    remove_field_api_view_updates, add_field_api_view_updates
 )
 from loki.transformations.remove_code import RemoveCodeTransformation
 from loki.transformations.sanitise import (
@@ -35,13 +36,16 @@ from loki.transformations.sanitise import (
 
 # List of types that we know to be FIELD API groups
 field_group_types = [
-    'FIELD_VARIABLES', 'DIMENSION_TYPE', 'STATE_TYPE',
+    'FIELD_VARIABLES', 'STATE_TYPE', 'MODEL_STATE_TYPE',
     'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
     'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
-    # 'SURF_AND_MORE_TYPE', 'MODEL_STATE_TYPE',
+    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY'
 ]
+
+fgroup_dimension = ['DIMENSION_TYPE']
+fgroup_firstprivates = ['SURF_AND_MORE_TYPE']
 
 # List of variables that we know to have global scope
 shared_variables = [
@@ -144,9 +148,10 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
     if not remove_openmp:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-wrote OpenMP regions in {s:.2f}s'):
             # Re-insert OpenMP parallel regions after inlining
+            fgtypes = field_group_types + fgroup_dimension + fgroup_firstprivates
             add_openmp_regions(
                 routine=ec_phys_fc, dimension=blocking,
-                field_group_types=field_group_types,
+                field_group_types=fgtypes,
                 shared_variables=shared_variables
             )
 
@@ -218,17 +223,27 @@ def parallel(source, build, remove_block_loop, log_level):
 
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
-            # Strip the outer block loop
+            # Strip the outer block loop and FIELD-API boilerplate
             remove_block_loops(ec_phys_parallel, dimension=blocking)
+
+            remove_field_api_view_updates(
+                ec_phys_parallel, dim_object='IDIMS',
+                field_group_types=field_group_types+fgroup_firstprivates
+            )
 
             # The add them back in according to parallel region
             add_block_loops(ec_phys_parallel, dimension=blocking)
+
+            add_field_api_view_updates(
+                ec_phys_parallel, dim_object='IDIMS', dimension=blocking,
+                field_group_types=field_group_types+fgroup_firstprivates
+            )
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
         add_openmp_regions(
             routine=ec_phys_parallel,
-            field_group_types=field_group_types,
+            field_group_types=field_group_types + fgroup_dimension,
             global_variables=global_variables
         )
 
