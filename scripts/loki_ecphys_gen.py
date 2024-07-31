@@ -21,14 +21,15 @@ from loki import (
 )
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
-    symbols as sym, parse_expr, SubstituteExpressions
+    symbols as sym, parse_expr, SubstituteExpressions, FindVariables
 )
 from loki.ir import (
     nodes as ir, FindNodes, pragmas_attached, pragma_regions_attached,
     is_loki_pragma
 )
+from loki.logging import warning
 from loki.tools import as_tuple, flatten
-from loki.types import BasicType, DerivedType
+from loki.types import BasicType, DerivedType, ProcedureType
 
 from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import (
@@ -42,13 +43,15 @@ from loki.transformations.build_system import ModuleWrapTransformation
 
 # List of types that we know to be FIELD API groups
 field_group_types = [
-    'FIELD_VARIABLES', 'DIMENSION_TYPE', 'STATE_TYPE',
+    'FIELD_VARIABLES', 'STATE_TYPE',
     'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
     'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
-    # 'SURF_AND_MORE_TYPE', 'MODEL_STATE_TYPE',
 ]
+
+fgroup_dimension = ['DIMENSION_TYPE']
+fgroup_firstprivates = ['SURF_AND_MORE_TYPE']
 
 # List of variables that we know to have global scope
 global_variables = [
@@ -59,6 +62,13 @@ global_variables = [
     'ZCONVCTY', 'YDDIMV', 'YDPHY2',
     'PHYS_MWAVE', 'ZSPPTGFIX', 'ZSURF_SERIAL'
 ]
+
+
+def get_symbol(name, scope):
+    """
+
+    """
+    return scope.get_symbol_scope(name).variable_map.get(name)
 
 
 def substitute_spec_symbols(mapping, routine):
@@ -214,7 +224,39 @@ def remove_block_loops(routine, field_group_types={}):
             )
             return tuple(n for n in loop.body if n not in to_remove)
 
+    class RemoveFieldAPITransformer(Transformer):
+
+        def visit_CallStatement(self, call, **kwargs):
+
+            if 'UPDATE_VIEW' in str(call.name):
+                if not call.name.parent:
+                    warning(f'[Loki::ControlFlow] Removing {call.name} call without parent!')
+                if not str(call.name.parent.type.dtype) in field_group_types:
+                    warning(f'[Loki::ControlFlow] Removing {call.name} call, but not in field group types!')
+
+                return None
+
+            if 'IDIMS%UPDATE' == str(call.name):
+                return None
+
+            return call
+
+        def visit_Assignment(self, assign, **kwargs):
+            if assign.lhs.type.dtype in field_group_types:
+                warning(f'[Loki::ControlFlow] Found LHS field group assign: {assign}')
+            return assign
+
+        def visit_Loop(self, loop, **kwargs):
+            loop = self.visit_Node(loop, **kwargs)
+            return loop if loop.body else None
+
+        def visit_Conditional(self, cond, **kwargs):
+            cond = super().visit_Node(cond, **kwargs)
+            return cond if cond.body else None
+
     routine.body = RemoveBlockLoopTransformer().visit(routine.body)
+
+    routine.body = RemoveFieldAPITransformer().visit(routine.body)
 
 
 def add_block_loops(routine, field_group_types={}):
@@ -226,12 +268,12 @@ def add_block_loops(routine, field_group_types={}):
         """
         Generate block loop object, including indexing preamble
         """
-        jkglo = scope.get_symbol_scope('JKGLO').variable_map['JKGLO']
-        icend = scope.get_symbol_scope('ICEND').variable_map['ICEND']
-        ibl = scope.get_symbol_scope('IBL').variable_map['IBL']
+        jkglo = get_symbol('JKGLO', scope)
+        icend = get_symbol('ICEND', scope)
+        ibl = get_symbol('IBL', scope)
 
-        ngptot = sym.Scalar('NGPTOT', parent=scope.variable_map['YDGEM'], scope=scope)
-        nproma = sym.Scalar('NPROMA', parent=scope.variable_map['YDDIM'], scope=scope)
+        ngptot = sym.Scalar('NGPTOT', parent=get_symbol('YDGEM', scope), scope=scope)
+        nproma = sym.Scalar('NPROMA', parent=get_symbol('YDDIM', scope), scope=scope)
         lrange = sym.LoopRange((sym.Literal(1), ngptot, nproma))
 
         expr_tail = parse_expr('YDGEM%NGPTOT-JKGLO+1', scope=scope)
@@ -244,6 +286,28 @@ def add_block_loops(routine, field_group_types={}):
         ),)
 
         return ir.Loop(variable=jkglo, bounds=lrange, body=preamble + body)
+
+    def _create_dim_update(scope):
+        jkglo = get_symbol('JKGLO', scope)
+        icend = get_symbol('ICEND', scope)
+        ibl = get_symbol('IBL', scope)
+        idims = get_symbol('IDIMS', scope)
+        csym = sym.ProcedureSymbol(name='UPDATE', parent=idims, scope=idims.scope)
+        return ir.CallStatement(name=csym, arguments=(ibl, icend, jkglo), kwarguments=())
+
+    def _create_view_updates(section, scope):
+        ibl = get_symbol('IBL', scope)
+        fgroup_vars = tuple(
+            v for v in FindVariables(unique=True).visit(section)
+            if str(v.type.dtype) in field_group_types
+        )
+        calls = ()
+        for fgvar in fgroup_vars:
+            fgsym =  get_symbol(fgvar.name, scope)
+            csym = sym.ProcedureSymbol(name='UDPATE_VIEW', parent=fgsym, scope=fgsym.scope)
+            calls += (ir.CallStatement(name=csym,arguments=(ibl,), kwarguments=()),)
+
+        return calls
 
     class InsertBlockLoopTransformer(Transformer):
 
@@ -258,7 +322,7 @@ def add_block_loops(routine, field_group_types={}):
             local_copies = tuple(
                 a for a in FindNodes(ir.Assignment).visit(region.body)
                 if isinstance(a.lhs.type.dtype, DerivedType) and \
-                a.lhs.type.dtype.name in field_group_types
+                a.lhs.type.dtype.name in fgroup_firstprivates
             )
             idx = max(
                 region.body.index(a) for a in local_copies
@@ -266,8 +330,19 @@ def add_block_loops(routine, field_group_types={}):
 
             # Create a block loop per marked parallel region
             scope = kwargs.get('scope')
-            loop = _create_block_loop(body=region.body[idx:], scope=scope)
-            region._update(body=region.body[:idx] + (loop,))
+            body = region.body[idx:]
+
+            # Prepend FIELD API boilerplate
+            preamble = (
+                ir.Comment(''), ir.Comment('! Set up thread-local view pointers')
+            )
+            preamble += (_create_dim_update(scope),)
+            preamble += _create_view_updates(body, scope)
+
+            loop = _create_block_loop(body=preamble + body, scope=scope)
+            region._update(
+                body=region.body[:idx] + (ir.Comment(''), loop)
+            )
             return region
 
     with pragma_regions_attached(routine):
@@ -351,9 +426,10 @@ def inline(source, build, remove_openmp, sanitize_assoc):
     if not remove_openmp:
         # Re-insert OpenMP parallel regions after inlining
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated OpenMP regions in {s:.2f}s'):
+            fgtypes = field_group_types + fgroup_dimension + fgroup_firstprivates
             add_openmp_pragmas(
                 routine=ec_phys_fc,
-                field_group_types=field_group_types,
+                field_group_types=fgtypes,
                 global_variables=global_variables
             )
 
@@ -414,10 +490,14 @@ def parallel(source, build):
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
         # First, strip the outer block loop
-        remove_block_loops(ec_phys_parallel)
+        remove_block_loops(
+            ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
+        )
 
         # The add them back in according to parallel region
-        add_block_loops(ec_phys_parallel, field_group_types=['SURF_AND_MORE_TYPE'])
+        add_block_loops(
+            ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
+        )
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
