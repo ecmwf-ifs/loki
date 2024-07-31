@@ -20,10 +20,11 @@ from loki import config as loki_config, Sourcefile, info
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import symbols as sym, parse_expr
 from loki.ir import (
-    nodes as ir, FindNodes, SubstituteStringExpressions, Transformer,
-    CallStatement, pragmas_attached, pragma_regions_attached,
-    is_loki_pragma
+    nodes as ir, FindNodes, FindVariables,
+    SubstituteStringExpressions, Transformer, CallStatement,
+    pragmas_attached, pragma_regions_attached, is_loki_pragma
 )
+from loki.logging import warning
 from loki.scope import SymbolAttributes
 from loki.tools import as_tuple, flatten
 from loki.types import DerivedType, BasicType
@@ -43,13 +44,16 @@ from loki.transformations.parallel import (
 
 # List of types that we know to be FIELD API groups
 field_group_types = [
-    'FIELD_VARIABLES', 'DIMENSION_TYPE', 'STATE_TYPE',
+    'FIELD_VARIABLES', 'STATE_TYPE', 'MODEL_STATE_TYPE',
     'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
     'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
-    # 'SURF_AND_MORE_TYPE', 'MODEL_STATE_TYPE',
+    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY'
 ]
+
+fgroup_dimension = ['DIMENSION_TYPE']
+fgroup_firstprivates = ['SURF_AND_MORE_TYPE']
 
 # List of variables that we know to have global scope
 global_variables = [
@@ -83,6 +87,102 @@ def remove_block_loops(routine):
             return tuple(n for n in loop.body if n not in to_remove)
 
     routine.body = RemoveBlockLoopTransformer().visit(routine.body)
+
+
+def remove_field_api_view_updates(routine, field_group_types):
+    """
+    Remove FIELD API boilerplate calls for view updates
+    """
+
+    class RemoveFieldAPITransformer(Transformer):
+
+        def visit_CallStatement(self, call, **kwargs):
+
+            if 'UPDATE_VIEW' in str(call.name):
+                if not call.name.parent:
+                    warning(f'[Loki::ControlFlow] Removing {call.name} call without parent!')
+                if not str(call.name.parent.type.dtype) in field_group_types:
+                    warning(f'[Loki::ControlFlow] Removing {call.name} call, but not in field group types!')
+
+                return None
+
+            if 'IDIMS%UPDATE' == str(call.name):
+                return None
+
+            return call
+
+        def visit_Assignment(self, assign, **kwargs):
+            if assign.lhs.type.dtype in field_group_types:
+                warning(f'[Loki::ControlFlow] Found LHS field group assign: {assign}')
+            return assign
+
+        def visit_Loop(self, loop, **kwargs):
+            loop = self.visit_Node(loop, **kwargs)
+            return loop if loop.body else None
+
+        def visit_Conditional(self, cond, **kwargs):
+            cond = super().visit_Node(cond, **kwargs)
+            return cond if cond.body else None
+
+    routine.body = RemoveFieldAPITransformer().visit(routine.body)
+
+
+def add_field_api_view_updates(routine, dimension, field_group_types):
+    """
+    Add FIELD API boilerplate calls for view updates
+    """
+
+    def _create_dim_update(scope):
+        index = parse_expr(dimension.index, scope)
+        upper = parse_expr(dimension.bounds_expressions[1][1], scope)
+        bindex = parse_expr(dimension.index_expressions[1], scope)
+        idims = scope.get_symbol('IDIMS')
+        csym = sym.ProcedureSymbol(name='UPDATE', parent=idims, scope=idims.scope)
+        return ir.CallStatement(name=csym, arguments=(bindex, upper, index), kwarguments=())
+
+    def _create_view_updates(section, scope):
+        bindex = parse_expr(dimension.index_expressions[1], scope)
+
+        fgroup_vars = sorted(tuple(
+            v for v in FindVariables(unique=True).visit(section)
+            if str(v.type.dtype) in field_group_types
+        ), key=lambda v: str(v))
+        calls = ()
+        for fgvar in fgroup_vars:
+            fgsym = scope.get_symbol(fgvar.name)
+            csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgsym, scope=fgsym.scope)
+            calls += (ir.CallStatement(name=csym, arguments=(bindex,), kwarguments=()),)
+
+        return calls
+
+    class InsertFieldAPIViewsTransformer(Transformer):
+        """ Injects FIELD-API view updates into block loops """
+
+        def visit_Loop(self, loop, **kwargs):
+            if not loop.variable == 'JKGLO':
+                return loop
+
+            scope = kwargs.get('scope')
+
+            # Find the loop-setup assignments
+            _loop_symbols = ('JKGLO', 'IBL', 'ICST', 'ICEND')
+            loop_setup = tuple(
+                a for a in FindNodes(ir.Assignment).visit(loop.body)
+                if a.lhs in _loop_symbols
+            )
+            idx = max(loop.body.index(a) for a in loop_setup) + 1
+
+            # Prepend FIELD API boilerplate
+            preamble = (
+                ir.Comment(''), ir.Comment('! Set up thread-local view pointers')
+            )
+            preamble += (_create_dim_update(scope),)
+            preamble += _create_view_updates(loop.body, scope)
+
+            loop._update(body=loop.body[:idx] + preamble + loop.body[idx:])
+            return loop
+
+    routine.body = InsertFieldAPIViewsTransformer().visit(routine.body, scope=routine)
 
 
 def add_block_loops(routine, dimension):
@@ -225,9 +325,10 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
     if not remove_openmp:
         # Re-insert OpenMP parallel regions after inlining
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated OpenMP regions in {s:.2f}s'):
+            fgtypes = field_group_types + fgroup_dimension + fgroup_firstprivates
             add_openmp_pragmas(
                 routine=ec_phys_fc,
-                field_group_types=field_group_types,
+                field_group_types=fgtypes,
                 global_variables=global_variables
             )
 
@@ -302,17 +403,26 @@ def parallel(source, build, remove_block_loop, log_level):
 
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
-            # First, strip the outer block loop
+            # Strip the outer block loop and FIELD-API boilerplate
             remove_block_loops(ec_phys_parallel)
+
+            remove_field_api_view_updates(
+                ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
+            )
 
             # The add them back in according to parallel region
             add_block_loops(ec_phys_parallel, dimension=blocking)
+
+            add_field_api_view_updates(
+                ec_phys_parallel, dimension=blocking,
+                field_group_types=field_group_types+fgroup_firstprivates
+            )
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
         add_openmp_pragmas(
             routine=ec_phys_parallel,
-            field_group_types=field_group_types,
+            field_group_types=field_group_types + fgroup_dimension,
             global_variables=global_variables
         )
 
