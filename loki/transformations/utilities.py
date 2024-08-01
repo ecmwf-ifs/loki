@@ -557,11 +557,11 @@ def get_loop_bounds(routine, dimension):
     """
 
     bounds = ()
-    variables = routine.variables
+    variable_map = routine.variable_map
     for name, _bounds in zip(['start', 'end'], dimension.bounds_expressions):
         for bound in _bounds:
-            if bound.split('%', maxsplit=1)[0] in variables:
-                bounds += (bound,)
+            if bound.split('%', maxsplit=1)[0] in variable_map:
+                bounds += (routine.resolve_typebound_var(bound, variable_map),)
                 break
         else:
             raise RuntimeError(

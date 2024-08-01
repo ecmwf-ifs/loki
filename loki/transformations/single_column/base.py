@@ -99,15 +99,6 @@ class SCCBaseTransformation(Transformation):
         bounds_str = f'{bounds[0]}:{bounds[1]}'
 
         variable_map = routine.variable_map
-        try:
-            bounds_v = (routine.resolve_typebound_var(bounds[0], variable_map),
-                        routine.resolve_typebound_var(bounds[1], variable_map))
-        except KeyError:
-            debug(
-                'SCCBaseTransformation.resolve_vector_dimension: '
-                f'Dimension bound {bounds[0]} or {bounds[1]} not found in {routine.name}.'
-            )
-            return
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
@@ -116,7 +107,7 @@ class SCCBaseTransformation(Transformation):
             if ranges:
                 exprmap = {r: loop_variable for r in ranges}
                 loop = ir.Loop(
-                    variable=loop_variable, bounds=sym.LoopRange(bounds_v),
+                    variable=loop_variable, bounds=sym.LoopRange(bounds),
                     body=as_tuple(SubstituteExpressions(exprmap).visit(stmt))
                 )
                 mapper[stmt] = loop
