@@ -471,11 +471,11 @@ subroutine test_get_local_arrays(n, start, end, arr)
   tmp = 2.0
 
   do i=start, end
-    local(i) = tmp * arr(i)
+    local(i) = tmp * ARR(i)
   end do
 
   do i=start, end
-    arr(ji) = tmp * local(i)
+    ARR(ji) = tmp * local(i)
   end do
 end subroutine test_get_local_arrays
 """
