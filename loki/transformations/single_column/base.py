@@ -10,7 +10,6 @@ from loki.expression import (
     symbols as sym, FindExpressions, SubstituteExpressions
 )
 from loki.ir import nodes as ir, FindNodes, Transformer
-from loki.logging import debug
 from loki.tools import as_tuple
 
 from loki.transformations.sanitise import resolve_associates
@@ -97,8 +96,6 @@ class SCCBaseTransformation(Transformation):
         """
 
         bounds_str = f'{bounds[0]}:{bounds[1]}'
-
-        variable_map = routine.variable_map
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):

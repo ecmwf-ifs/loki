@@ -359,7 +359,7 @@ end subroutine test_get_integer_variable
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilites_get_loop_bounds(frontend):
+def test_transform_utilites_get_loop_bounds(frontend, tmp_path):
     """ Test :any:`get_loop_bounds` utility. """
 
     fcode = """
@@ -386,7 +386,8 @@ subroutine test_get_loop_bounds(dim, n, start, end, arr)
 end subroutine test_get_loop_bounds
 end module test_get_loop_bounds_mod
 """
-    routine = Module.from_source(fcode, frontend=frontend)['test_get_loop_bounds']
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = module['test_get_loop_bounds']
 
     x = Dimension(name='x', size='n', index='i', bounds=('start', 'end'))
     y = Dimension(name='y', size='n', index='i', bounds=('a', 'b'))
@@ -495,7 +496,7 @@ end subroutine test_get_local_arrays
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilites_check_routine_pragmas(frontend):
+def test_transform_utilites_check_routine_pragmas(frontend, tmp_path):
     """ Test :any:`check_routine_pragmas` utility. """
 
     fcode = """
@@ -523,7 +524,7 @@ contains
 
 end module test_check_routine_pragmas_mod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # TODO: This utility needs some serious clean-up, so we're just testing
     # the bare basics here and promise to do better next time ;)

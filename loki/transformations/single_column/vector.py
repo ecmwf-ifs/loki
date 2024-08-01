@@ -278,8 +278,6 @@ class SCCRevectorTransformation(Transformation):
         horizontal: :any:`Dimension`
             The dimension specifying the horizontal vector dimension
         """
-
-        variable_map = routine.variable_map
         bounds = get_loop_bounds(routine, dimension=horizontal)
 
         # Create a single loop around the horizontal from a given body
