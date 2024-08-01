@@ -16,10 +16,12 @@ from loki.ir import (
     pragma_regions_attached, is_loki_pragma
 )
 from loki.logging import info
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.tools import as_tuple, flatten
 from loki.types import DerivedType
 
-from loki.transformations.single_column.base import SCCBaseTransformation
+from loki.transformations.utilities import (
+    find_driver_loops, get_local_arrays, check_routine_pragmas
+)
 
 
 __all__ = ['SCCAnnotateTransformation']
@@ -63,11 +65,11 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         # Find any local arrays that need explicitly privatization
-        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-        private_arrays = [v for v in routine.variables if not v.name in argument_map]
-        private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
-        private_arrays = [v for v in private_arrays
-                          if all(is_dimension_constant(d) for d in v.shape)]
+        private_arrays = get_local_arrays(routine, section=routine.spec)
+        private_arrays = [
+            v for v in private_arrays
+            if all(is_dimension_constant(d) for d in v.shape)
+        ]
 
         if private_arrays:
             # Log private arrays in vector regions, as these can impact performance
@@ -204,7 +206,7 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         # Bail if routine is marked as sequential
-        if SCCBaseTransformation.check_routine_pragmas(routine, self.directive):
+        if check_routine_pragmas(routine, self.directive):
             return
 
         if self.directive == 'openacc':
@@ -239,7 +241,7 @@ class SCCAnnotateTransformation(Transformation):
                 break
 
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-            driver_loops = SCCBaseTransformation.find_driver_loops(routine=routine, targets=targets)
+            driver_loops = find_driver_loops(routine=routine, targets=targets)
             for loop in driver_loops:
                 loops = FindNodes(ir.Loop).visit(loop.body)
                 kernel_loops = [l for l in loops if l.variable == self.horizontal.index]
