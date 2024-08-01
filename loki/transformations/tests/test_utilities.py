@@ -7,16 +7,19 @@
 
 import pytest
 
-from loki import (
-    Module, Subroutine, FindNodes, VariableDeclaration, FindVariables,
-    SubstituteExpressions, fgen, FindInlineCalls
+from loki import Module, Subroutine, Dimension, fgen
+from loki.expression import (
+    symbols as sym, FindVariables, FindInlineCalls, SubstituteExpressions
 )
-from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes, pragmas_attached
+from loki.types import BasicType
 
 from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update,
-    convert_to_lower_case, replace_intrinsics, rename_variables
+    convert_to_lower_case, replace_intrinsics, rename_variables,
+    get_integer_variable, get_loop_bounds, is_driver_loop,
+    find_driver_loops, get_local_arrays, check_routine_pragmas
 )
 
 
@@ -39,7 +42,7 @@ end subroutine foo
     routine = Subroutine.from_source(fcode, frontend=frontend)
     single_variable_declaration(routine=routine, variables=('y', 'i1', 'i3', 'r1', 'r2', 'r3', 'r4'))
 
-    declarations = FindNodes(VariableDeclaration).visit(routine.spec)
+    declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assert declarations[0].symbols == ('a',)
     assert [smbl.name for smbl in declarations[1].symbols] == ['x']
     assert [smbl.name for smbl in declarations[2].symbols] == ['y']
@@ -72,7 +75,7 @@ end subroutine foo
     routine = Subroutine.from_source(fcode, frontend=frontend)
     single_variable_declaration(routine=routine)
 
-    declarations = FindNodes(VariableDeclaration).visit(routine.spec)
+    declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assert len(declarations) == 15
     for decl in declarations:
         assert len(decl.symbols) == 1
@@ -81,7 +84,7 @@ end subroutine foo
     routine = Subroutine.from_source(fcode, frontend=frontend)
     single_variable_declaration(routine=routine, group_by_shape=True)
 
-    declarations = FindNodes(VariableDeclaration).visit(routine.spec)
+    declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assert len(declarations) == 8
     for decl in declarations:
         types = [smbl.type for smbl in decl.symbols]
@@ -96,7 +99,7 @@ end subroutine foo
     routine = Subroutine.from_source(fcode, frontend=frontend)
     single_variable_declaration(routine=routine, variables=('x2', 'r3'), group_by_shape=True)
 
-    declarations = FindNodes(VariableDeclaration).visit(routine.spec)
+    declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assert len(declarations) == 10
     assert declarations[5].symbols == ('r3',)
     assert [smbl.name for smbl in declarations[8].symbols] == ['x2']
@@ -324,3 +327,206 @@ end subroutine rename_variables_extended
     assert 'klon' not in routine_symbol_attrs_name
     assert 'arg_tt' in routine_symbol_attrs_name
     assert 'tt' not in routine_symbol_attrs_name
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilites_get_integer_variable(frontend):
+    """ Test :any:`get_integer_variable` utility. """
+
+    fcode = """
+subroutine test_get_integer_variable(n)
+  integer, intent(inout) :: n
+  integer(kind=4) :: i
+
+  n = n + 2 * i
+end subroutine test_get_integer_variable
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    n = get_integer_variable(routine, 'n')
+    assert isinstance(n, sym.Scalar)
+    assert n.type.dtype == BasicType.INTEGER
+    assert n.type.intent == 'inout'
+
+    i = get_integer_variable(routine, 'I')
+    assert isinstance(i, sym.Scalar)
+    assert i.type.dtype == BasicType.INTEGER
+    assert i.type.kind == '4'
+
+    k = get_integer_variable(routine, 'k')
+    assert isinstance(k, sym.Scalar)
+    assert k.type.dtype == BasicType.INTEGER
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilites_get_loop_bounds(frontend):
+    """ Test :any:`get_loop_bounds` utility. """
+
+    fcode = """
+module test_get_loop_bounds_mod
+implicit none
+type my_dim
+  integer(kind=8) :: a, b
+end type my_dim
+contains
+
+subroutine test_get_loop_bounds(dim, n, start, end, arr)
+  type(my_dim), intent(in) :: dim
+  integer, intent(in) :: n, start, end
+  real, intent(inout) :: arr(n)
+  integer :: i, j
+
+  do i=start, end
+    arr(i) = 2. * arr(i)
+  end do
+
+  do j=dim%a, dim%b
+    arr(j) = 2. * arr(j)
+  end do
+end subroutine test_get_loop_bounds
+end module test_get_loop_bounds_mod
+"""
+    routine = Module.from_source(fcode, frontend=frontend)['test_get_loop_bounds']
+
+    x = Dimension(name='x', size='n', index='i', bounds=('start', 'end'))
+    y = Dimension(name='y', size='n', index='i', bounds=('a', 'b'))
+    z = Dimension(name='y', size='n', index='i', bounds=('dim%a', 'dim%b'))
+
+    start, end = get_loop_bounds(routine, x)
+    assert isinstance(start, sym.Scalar)
+    assert start.type.dtype == BasicType.INTEGER
+    assert start.type.intent == 'in'
+    assert isinstance(end, sym.Scalar)
+    assert end.type.dtype == BasicType.INTEGER
+    assert end.type.intent == 'in'
+
+    with pytest.raises(RuntimeError):
+        _, _ = get_loop_bounds(routine, y)
+
+    # Test type-bound symbol resolution
+    start, end = get_loop_bounds(routine, z)
+    assert isinstance(start, sym.Scalar)
+    assert start.type.dtype == BasicType.INTEGER
+    assert start.type.kind == '8'
+    assert isinstance(end, sym.Scalar)
+    assert end.type.dtype == BasicType.INTEGER
+    assert end.type.kind == '8'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilites_find_driver_loops(frontend):
+    """ Test :any:`find_driver_loops` utility. """
+
+    fcode = """
+subroutine test_find_driver_loops(n, start, end, arr)
+  integer, intent(in) :: n, start, end
+  real, intent(inout) :: arr(n)
+  integer :: i, j
+
+  !$loki driver-loop
+  do i=start, end
+    arr(i) = 2. * arr(i)
+  end do
+
+  do j=start, end
+    arr(j) = 2. * arr(j)
+  end do
+
+  do i=start, end
+    call make_mine_a_double(arr(i))
+  end do
+end subroutine test_find_driver_loops
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    with pragmas_attached(routine, node_type=ir.Loop):
+        # Test is_driver_loop utility
+        loops = FindNodes(ir.Loop).visit(routine.body)
+        assert len(loops) == 3
+        assert is_driver_loop(loops[0], targets=())
+        assert not is_driver_loop(loops[1], targets=())
+        assert not is_driver_loop(loops[2], targets=())
+        assert is_driver_loop(loops[2], targets=('make_mine_a_double', ))
+
+        # Test find_driver_loopd utility
+        driver_loops = find_driver_loops(routine.body, targets=('make_mine_a_double',))
+        assert len(driver_loops) == 2
+        assert driver_loops[0].variable == 'i'
+        assert isinstance(driver_loops[0].body[0], ir.Assignment)
+        assert driver_loops[1].variable == 'i'
+        assert isinstance(driver_loops[1].body[0], ir.CallStatement)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilites_get_local_arrays(frontend):
+    """ Test :any:`get_local_arrays` utility. """
+
+    fcode = """
+subroutine test_get_local_arrays(n, start, end, arr)
+  integer, intent(in) :: n, start, end
+  real, intent(inout) :: arr(n)
+  real :: local(n), tmp
+  integer :: i
+
+  tmp = 2.0
+
+  do i=start, end
+    local(i) = tmp * arr(i)
+  end do
+
+  do i=start, end
+    arr(ji) = tmp * local(i)
+  end do
+end subroutine test_get_local_arrays
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    locals = get_local_arrays(routine, routine.body, unique=True)
+    assert len(locals) == 1
+    assert locals[0] == 'local(i)'
+
+    locals = get_local_arrays(routine, routine.body, unique=False)
+    assert len(locals) == 2
+    assert all(l == 'local(i)' for l in locals)
+
+    locals = get_local_arrays(routine, routine.body.body[-1:], unique=False)
+    assert len(locals) == 1
+    assert locals[0] == 'local(i)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilites_check_routine_pragmas(frontend):
+    """ Test :any:`check_routine_pragmas` utility. """
+
+    fcode = """
+module test_check_routine_pragmas_mod
+implicit none
+contains
+
+  subroutine test_acc_seq(i)
+    integer, intent(inout) :: i
+!$acc routine seq
+    i = i + 1
+  end subroutine test_acc_seq
+
+  subroutine test_loki_seq(i)
+    integer, intent(inout) :: i
+!$loki routine seq
+    i = i + 1
+  end subroutine test_loki_seq
+
+  subroutine test_acc_vec(i)
+    integer, intent(inout) :: i
+!$acc routine vector
+    i = i + 1
+  end subroutine test_acc_vec
+
+end module test_check_routine_pragmas_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # TODO: This utility needs some serious clean-up, so we're just testing
+    # the bare basics here and promise to do better next time ;)
+    assert check_routine_pragmas(module['test_acc_seq'], directive=None)
+    assert check_routine_pragmas(module['test_loki_seq'], directive=None)
+    assert check_routine_pragmas(module['test_acc_vec'], directive='openacc')
