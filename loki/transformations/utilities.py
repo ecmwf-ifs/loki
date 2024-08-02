@@ -643,7 +643,7 @@ def get_local_arrays(routine, section, unique=True):
     variables = FindVariables(unique=unique).visit(section)
 
     # Filter all variables by argument name to get local arrays
-    arrays = [v for v in variables if isinstance(v, sym.Array)]
+    arrays = [v for v in variables if isinstance(v, sym.Array) and not v.parent]
     arrays = [v for v in arrays if str(v.name).lower() not in arg_names]
 
     return arrays

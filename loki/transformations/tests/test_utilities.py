@@ -459,13 +459,21 @@ end subroutine test_find_driver_loops
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilites_get_local_arrays(frontend):
+def test_transform_utilites_get_local_arrays(frontend, tmp_path):
     """ Test :any:`get_local_arrays` utility. """
 
     fcode = """
-subroutine test_get_local_arrays(n, start, end, arr)
+module test_get_local_arrays_mod
+implicit none
+type my_dim
+  integer :: a(2)
+end type my_dim
+contains
+
+subroutine test_get_local_arrays(n, dims, start, end, arr)
   integer, intent(in) :: n, start, end
-  real, intent(inout) :: arr(n)
+  type(my_dim), intent(in) :: dims
+  real, intent(inout) :: arr(dims%a(2))
   real :: local(n), tmp
   integer :: i
 
@@ -479,8 +487,10 @@ subroutine test_get_local_arrays(n, start, end, arr)
     ARR(ji) = tmp * local(i)
   end do
 end subroutine test_get_local_arrays
+end module test_get_local_arrays_mod
 """
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = module['test_get_local_arrays']
 
     locals = get_local_arrays(routine, routine.body, unique=True)
     assert len(locals) == 1
@@ -493,6 +503,11 @@ end subroutine test_get_local_arrays
     locals = get_local_arrays(routine, routine.body.body[-1:], unique=False)
     assert len(locals) == 1
     assert locals[0] == 'local(i)'
+
+    # Test for component arrays on arguments in spec
+    locals = get_local_arrays(routine, routine.spec, unique=True)
+    assert len(locals) == 1
+    assert locals[0] == 'local(1:n)' if frontend == OMNI else 'local(n)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
