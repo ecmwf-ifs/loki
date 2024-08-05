@@ -208,7 +208,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
             depth = depths[item]
 
         remove_non_loki_pragmas(routine)
-        single_variable_declaration(routine=routine, group_by_shape=True)
+        single_variable_declaration(routine=routine)
         device_subroutine_prefix(routine, depth)
 
         if self.mode == 'cuf':
