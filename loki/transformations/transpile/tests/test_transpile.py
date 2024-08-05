@@ -1325,7 +1325,7 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
         assert 'removed_loop' in call.pragma[0].content
     # kernel_fc.F90
     assert '!$acchost_datause_device(q,t,z)' in fc_kernel
-    assert 'kernel_iso_c(start,iend,nlon,c_loc(q),c_loc(t),c_loc(z),nb,tot)' in fc_kernel
+    assert 'kernel_iso_c(start,nlon,c_loc(q),c_loc(t),c_loc(z),nb,tot,iend)' in fc_kernel
     assert 'bind(c,name="kernel_c_launch")' in fc_kernel
     assert 'useiso_c_binding' in fc_kernel
     # kernel_c.c
@@ -1394,8 +1394,8 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
         assert 'removed_loop' in call.pragma[0].content
     # kernel_fc.F90
     assert '!$acchost_datause_device(q,t,z,local_z,device_local_x)' in fc_kernel
-    assert 'kernel_iso_c(start,iend,nlon,nz,c_loc(q),c_loc(t),c_loc(z)' in fc_kernel
-    assert 'c_loc(z),nb,tot,c_loc(local_z),c_loc(device_local_x))' in fc_kernel
+    assert 'kernel_iso_c(start,nlon,nz,c_loc(q),c_loc(t),c_loc(z)' in fc_kernel
+    assert 'c_loc(z),nb,tot,iend,c_loc(local_z),c_loc(device_local_x))' in fc_kernel
     assert 'bind(c,name="kernel_c_launch")' in fc_kernel
     assert 'useiso_c_binding' in fc_kernel
     # kernel_c.c

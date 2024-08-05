@@ -167,6 +167,10 @@ class SCCBaseTransformation(Transformation):
         if check_routine_pragmas(routine, self.directive):
             return
 
+        # Bail if routine is elemental
+        if self.is_elemental(routine):
+            return
+
         # check for horizontal loop bounds in subroutine symbol table
         bounds = get_loop_bounds(routine, dimension=self.horizontal)
 
