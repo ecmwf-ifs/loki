@@ -650,11 +650,15 @@ class LowerBlockLoopTransformation(Transformation):
         routine.variables += (routine.variable_map[var.name].clone(scope=routine,
             type=routine.variable_map[var.name].type.clone(intent=None)),)
 
-    def local_var(self, call, var):
-        if var.name in call.routine.arguments:
-            self.arg_to_local_var(call.routine, var)
-        else:
-            call.routine.variables += (var.clone(scope=call.routine),)
+    def local_var(self, call, variables):
+        inv_call_arg_map = {v: k for k, v in call.arg_map.items()}
+        call_routine_variables = call.routine.variables
+        for var in variables:
+            if var in inv_call_arg_map:
+                self.arg_to_local_var(call.routine, inv_call_arg_map[var])
+            else:
+                if var not in call_routine_variables:
+                    call.routine.variables += (var.clone(scope=call.routine),)
 
     @staticmethod
     def remove_openmp_pragmas(routine):
@@ -668,17 +672,27 @@ class LowerBlockLoopTransformation(Transformation):
                     lower({loop.bounds.lower}) upper({loop.bounds.upper}) \
                     step({loop.bounds.step if loop.bounds.step else 1})")
 
+    def update_call_signature(self, call, loop, loop_defined_symbols, additional_kwargs):
+        ignore_symbols = [loop.variable.name.lower()] +\
+            [symbol.name.lower() for symbol in loop_defined_symbols]
+        _arguments = tuple(arg for arg in call.arguments\
+                if not (hasattr(arg, 'name') and arg.name.lower() in ignore_symbols))
+        _kwarguments = tuple(kwarg for kwarg in call.kwarguments \
+                if kwarg[1].name.lower() not in ignore_symbols) + as_tuple(additional_kwargs.items())
+        call_pragmas = (self.generate_pragma(loop),)
+        call._update(arguments=_arguments, kwarguments=_kwarguments,
+                pragma=(call.pragma if call.pragma else ()) + call_pragmas)
+
     def process_driver(self, routine, targets):
         # find block loops
         loops = FindNodes(ir.Loop).visit(routine.body)
         loops = [loop for loop in loops if loop.variable == self.block_dim.index
                 or loop.variable in self.block_dim._index_aliases]
         driver_loop_map = {}
-        to_local_var = {}
         processed_routines = ()
         calls = ()
+        additional_kwargs = {}
         for loop in loops:
-            # lower_loop = False
             target_calls = [call for call in FindNodes(ir.CallStatement).visit(loop.body)
                     if str(call.name).lower() in targets]
             target_calls = [call for call in target_calls if call.routine is not BasicType.DEFERRED]
@@ -687,8 +701,10 @@ class LowerBlockLoopTransformation(Transformation):
             calls += tuple(target_calls)
             driver_loop_map[loop] = loop.body
             defined_symbols_loop = [assign.lhs for assign in FindNodes(ir.Assignment).visit(loop.body)]
-
             for call in target_calls:
+                if call.routine.name in processed_routines:
+                    self.update_call_signature(call, loop, defined_symbols_loop, additional_kwargs[call.routine.name])
+                    continue
                 # 1. Create a copy of the loop with all other call statements removed
                 other_calls = {c: None for c in FindNodes(ir.CallStatement).visit(loop) if c is not call}
                 loop_to_lower = Transformer(other_calls).visit(loop)
@@ -706,32 +722,21 @@ class LowerBlockLoopTransformation(Transformation):
                     if var.name.lower() != loop.variable and var.name.lower() not in call_routine_variables
                     and var not in call_arg_map and isinstance(var, sym.Scalar) and var not in defined_symbols_loop
                 ]
-                additional_kwargs = {var.name: var for var in loop_variables}
+                additional_kwargs[call.routine.name] = {var.name: var for var in loop_variables}
 
                 # 4. Inject the loop body into the called routine
-                if call.routine.name not in processed_routines:
-                    call.routine.arguments += tuple(additional_kwargs.values())
-                    routine_body = Transformer({c: c.routine.body for c in\
-                            FindNodes(ir.CallStatement).visit(loop_to_lower)}).visit(loop_to_lower)
-                    routine_body = AttachScopes().visit(routine_body, scope=call.routine)
-                    call.routine.body = ir.Section(body=as_tuple(routine_body))
+                # if call.routine.name not in processed_routines:
+                call.routine.arguments += tuple(additional_kwargs[call.routine.name].values())
+                routine_body = Transformer({c: c.routine.body for c in\
+                    FindNodes(ir.CallStatement).visit(loop_to_lower)}).visit(loop_to_lower)
+                routine_body = AttachScopes().visit(routine_body, scope=call.routine)
+                call.routine.body = ir.Section(body=as_tuple(routine_body))
 
                 # 5. Update the call on the caller side
-                call_arg_iter = list(call.arg_iter())
-                ignore_symbols = [loop.variable.name.lower()] +\
-                        [symbol.name.lower() for symbol in defined_symbols_loop]
-                _arguments = tuple(arg for i_arg, arg in enumerate(call.arguments)
-                        if call_arg_iter[i_arg][0].name.lower() not in ignore_symbols)
-                _kwarguments = tuple(kwarg for kwarg in call.kwarguments if kwarg[0].lower() not in ignore_symbols)
-                call._update(arguments=_arguments, kwarguments=_kwarguments+as_tuple(additional_kwargs.items()))
-                call_pragmas = (self.generate_pragma(loop),)
-                call._update(pragma=(call.pragma if call.pragma else ()) + call_pragmas)
                 processed_routines += (call.routine.name,)
-                to_local_var[call.routine.name] = defined_symbols_loop + [loop.variable]
+                self.local_var(call, defined_symbols_loop + [loop.variable])
+                self.update_call_signature(call, loop, defined_symbols_loop, additional_kwargs[call.routine.name])
             driver_loop_map[loop] = loop.body
         routine.body = Transformer(driver_loop_map).visit(routine.body)
-        for call in calls:
-            for var in to_local_var[call.routine.name]:
-                self.local_var(call, var)
         # TODO: remove
         self.remove_openmp_pragmas(routine)
