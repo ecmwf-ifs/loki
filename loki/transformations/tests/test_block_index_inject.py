@@ -462,7 +462,7 @@ end module compute_mod
 
     nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend, xmods=[tmp_path])
     kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod, xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod, xmods=[tmp_path])
 
     # lower block index (dimension/shape) as prerequisite for 'InjectBlockIndexTransformation'
     targets = ('kernel', 'compute')
@@ -637,7 +637,8 @@ end module compute_mod
     nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend, xmods=[tmp_path])
     kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod, xmods=[tmp_path])
     another_kernel_mod = Module.from_source(fcode_another_kernel, frontend=frontend, xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=(kernel_mod, another_kernel_mod))
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=(kernel_mod, another_kernel_mod),
+            xmods=[tmp_path])
 
     LowerBlockIndexTransformation(blocking, recurse_to_kernels=recurse_to_kernels).apply(driver,
             role='driver', targets=targets)

@@ -164,7 +164,7 @@ def check_subroutine_elemental_device(routine):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_cuf_simple(frontend, horizontal, vertical, blocking):
+def test_scc_cuf_simple(frontend, horizontal, vertical, blocking, tmp_path):
 
     fcode_driver = """
   SUBROUTINE driver(nlon, nz, nb, tot, q, t, z)
@@ -217,8 +217,8 @@ contains
   END SUBROUTINE kernel
 end module kernel_mod
 """
-    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod, xmods=[tmp_path])
     kernel = kernel_mod['kernel']
 
     cuf_transform = SCCLowLevelCuf(
