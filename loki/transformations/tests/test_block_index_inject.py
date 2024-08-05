@@ -398,7 +398,7 @@ end subroutine kernel
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_dim_arg', (False, True))
 @pytest.mark.parametrize('recurse_to_kernels', (False, True))
-def test_simple_lower_loop(blocking, frontend, block_dim_arg, recurse_to_kernels):
+def test_simple_lower_loop(blocking, frontend, block_dim_arg, recurse_to_kernels, tmp_path):
 
     fcode_driver = f"""
 subroutine driver(nlon,nlev,nb,var)
@@ -460,8 +460,8 @@ end subroutine compute
 end module compute_mod
 """
 
-    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend)
-    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod)
+    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend, xmods=[tmp_path])
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod, xmods=[tmp_path])
     driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod)
 
     # lower block index (dimension/shape) as prerequisite for 'InjectBlockIndexTransformation'
@@ -546,7 +546,7 @@ end module compute_mod
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('recurse_to_kernels', (False, True))
 @pytest.mark.parametrize('targets', (('kernel', 'another_kernel', 'compute'), ('kernel', 'compute')))
-def test_lower_loop(blocking, frontend, recurse_to_kernels, targets):
+def test_lower_loop(blocking, frontend, recurse_to_kernels, targets, tmp_path):
 
     fcode_driver = """
 subroutine driver(nlon,nlev,nb,var)
@@ -634,9 +634,9 @@ end subroutine compute
 end module compute_mod
 """
 
-    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend)
-    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod)
-    another_kernel_mod = Module.from_source(fcode_another_kernel, frontend=frontend)
+    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend, xmods=[tmp_path])
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod, xmods=[tmp_path])
+    another_kernel_mod = Module.from_source(fcode_another_kernel, frontend=frontend, xmods=[tmp_path])
     driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=(kernel_mod, another_kernel_mod))
 
     LowerBlockIndexTransformation(blocking, recurse_to_kernels=recurse_to_kernels).apply(driver,
