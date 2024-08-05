@@ -666,7 +666,8 @@ end module kernel_mod
         assert all(len(arr.shape) == 1 for arr in arrays)
 
     kernel_module = Module.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path],
+            definitions=kernel_module)
     kernel = kernel_module.subroutines[0]
 
     # check for a(:,:) and b(:,:) if "explicit_dimensions"
@@ -1098,8 +1099,9 @@ def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
         b = 3*np.ones(shape=(nlon,nlev,), order='F', dtype=np.int32)
         return a, b
 
-    kernel_module = Module.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    kernel_module = Module.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path],
+            definitions=[kernel_module])
     kernel = kernel_module.subroutines[0]
 
     # compile and test reference
