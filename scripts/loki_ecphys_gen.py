@@ -473,7 +473,9 @@ def inline(source, build, remove_openmp, sanitize_assoc):
               help='Path to search for initial input sources.')
 @click.option('--build', '-b', '--out', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
-def parallel(source, build):
+@click.option('--remove-block-loop/--no-remove-block-loop', default=True,
+              help='Flag to replace OpenMP loop annotations with Loki pragmas.')
+def parallel(source, build, remove_block_loop):
     """
     Generate parallel regions with OpenMP and OpenACC dispatch.
     """
@@ -486,16 +488,17 @@ def parallel(source, build):
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
 
-    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
-        # First, strip the outer block loop
-        remove_block_loops(
-            ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
-        )
+    if remove_block_loop:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
+            # First, strip the outer block loop
+            remove_block_loops(
+                ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
+            )
 
-        # The add them back in according to parallel region
-        add_block_loops(
-            ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
-        )
+            # The add them back in according to parallel region
+            add_block_loops(
+                ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
+            )
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
