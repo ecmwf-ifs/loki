@@ -100,33 +100,23 @@ class SCCAnnotateTransformation(Transformation):
                     loop._update(pragma=(pragma,))
 
     @classmethod
-    def kernel_annotate_sequential_loops_openacc(cls, routine, horizontal, block_dim=None, ignore=()):
+    def kernel_annotate_sequential_loops_openacc(cls, routine):
         """
-        Insert ``!$acc loop seq`` annotations around all loops that
-        are not horizontal vector loops.
+        Insert ``!$acc loop seq`` annotations for all loops previously
+        marked with ``!$loki loop seq``.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             The subroutine in which to annotate sequential loops
-        horizontal: :any:`Dimension`
-            The dimension object specifying the horizontal vector dimension
-        block_dim: :any: `Dimension`
-            The dimension object specifying the blocking dimension
-        ignore: list or tuple
-            Loops to be ignored for annotation
         """
-        block_dim_index = None if block_dim is None else block_dim.index
         with pragmas_attached(routine, ir.Loop):
-
             for loop in FindNodes(ir.Loop).visit(routine.body):
-                # Skip loops explicitly marked with `!$loki/claw nodep`
-                if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
+                if not is_loki_pragma(loop.pragma, starts_with='loop seq'):
                     continue
 
-                if loop.variable != horizontal.index and loop.variable != block_dim_index and loop not in ignore:
-                    # Perform pragma addition in place to avoid nested loop replacements
-                    loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
+                # Replace internal `!$loki loop seq`` pragam with `!$acc` equivalent
+                loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
 
                 # Warn if we detect vector insisde sequential loop nesting
                 nested_loops = FindNodes(ir.Loop).visit(loop.body)
@@ -161,7 +151,7 @@ class SCCAnnotateTransformation(Transformation):
         cls.kernel_annotate_vector_loops_openacc(routine)
 
         # Mark all non-parallel loops as `!$acc loop seq`
-        cls.kernel_annotate_sequential_loops_openacc(routine, horizontal)
+        cls.kernel_annotate_sequential_loops_openacc(routine)
 
         # Wrap the routine body in `!$acc data present` markers
         # to ensure device-resident data is used for array and struct arguments.
@@ -249,8 +239,7 @@ class SCCAnnotateTransformation(Transformation):
 
             if self.directive == 'openacc':
                 # Mark all non-parallel loops as `!$acc loop seq`
-                self.kernel_annotate_sequential_loops_openacc(routine, self.horizontal, self.block_dim,
-                                                              ignore=driver_loops)
+                self.kernel_annotate_sequential_loops_openacc(routine)
 
         # Remove the vector section wrappers
         # These have been inserted by SCCDevectorTransformation
