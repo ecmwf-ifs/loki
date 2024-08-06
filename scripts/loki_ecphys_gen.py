@@ -43,7 +43,7 @@ from loki.transformations.build_system import ModuleWrapTransformation
 
 # List of types that we know to be FIELD API groups
 field_group_types = [
-    'FIELD_VARIABLES', 'STATE_TYPE',
+    'FIELD_VARIABLES', 'STATE_TYPE', 'MODEL_STATE_TYPE',
     'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
     'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
@@ -506,7 +506,7 @@ def parallel(source, build, remove_block_loop):
         # Add OpenMP pragmas around marked loops
         add_openmp_pragmas(
             routine=ec_phys_parallel,
-            field_group_types=field_group_types,
+            field_group_types=field_group_types + fgroup_dimension,
             global_variables=global_variables
         )
 
