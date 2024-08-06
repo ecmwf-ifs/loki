@@ -114,6 +114,8 @@ def test_scc_revector_transformation(frontend, horizontal):
         # Check internal loop pragma annotations
         assert kernel_loops[0].pragma
         assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
+        assert kernel_loops[1].pragma
+        assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
@@ -221,6 +223,8 @@ END SUBROUTINE compute_column
         # Check internal loop pragma annotations
         assert kernel_loops[0].pragma
         assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
+        assert kernel_loops[1].pragma
+        assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)

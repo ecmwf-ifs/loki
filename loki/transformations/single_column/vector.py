@@ -297,21 +297,90 @@ class SCCRevectorTransformation(Transformation):
     def __init__(self, horizontal):
         self.horizontal = horizontal
 
-    def transform_subroutine(self, routine, **kwargs):
+    def revector_section(self, routine, section):
         """
-        Apply SCCRevector utilities to a :any:`Subroutine`.
-        It wraps all thread-parallel sections within
-        a horizontal loop. The markers placed by :any:`SCCDevectorTransformation` are removed
+        Wrap all thread-parallel :any:`Section` objects within a given
+        code section in a horizontal loop and mark interior loops as
+        ``!$loki loop seq``.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
+        section : tuple of :any:`Node`
+            Code section in which to replace vector-parallel
+            :any:`Section` objects.
         """
-        mapper = {s.body: wrap_vector_section(s.body, routine, self.horizontal)
-                  for s in FindNodes(ir.Section).visit(routine.body)
-                  if s.label == 'vector_section'}
-        routine.body = NestedTransformer(mapper).visit(routine.body)
+        # Wrap all thread-parallel sections into horizontal thread loops
+        mapper = {
+            s.body: wrap_vector_section(s.body, routine, self.horizontal)
+            for s in FindNodes(ir.Section).visit(section)
+            if s.label == 'vector_section'
+        }
+        return NestedTransformer(mapper).visit(section)
+
+    def mark_seq_loops(self, section):
+        """
+        Mark interior sequential loops in a thread-parallel section
+        with ``!$loki loop seq`` for later annotation.
+
+        This utility requires loop-pragmas to be attached via
+        :any:`pragmas_attached`. It also updates loops in-place.
+
+        Parameters
+        ----------
+        section : tuple of :any:`Node`
+            Code section in which to mark "seq loops".
+        """
+        for loop in FindNodes(ir.Loop).visit(section):
+
+            # Skip loops explicitly marked with `!$loki/claw nodep`
+            if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
+                continue
+
+            # Mark loop as sequential with `!$loki loop seq`
+            if loop.variable != self.horizontal.index:
+                loop._update(pragma=(ir.Pragma(keyword='loki', content='loop seq'),))
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Wrap vector-parallel sections in vector :any:`Loop` objects.
+
+        This wraps all thread-parallel sections within "kernel"
+        routines or within the parallel loops in "driver" routines.
+
+        The markers placed by :any:`SCCDevectorTransformation` are removed
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : str
+            Must be either ``"kernel"`` or ``"driver"``
+        targets : tuple or str
+            Tuple of target routine names for determining "driver" loops
+        """
+        role = kwargs['role']
+        targets = kwargs.get('targets', ())
+
+        if role == 'kernel':
+            # Revector all marked vector sections within the kernel body
+            routine.body = self.revector_section(routine, routine.body)
+
+            # Mark sequential loops inside vector sections
+            with pragmas_attached(routine, ir.Loop):
+                self.mark_seq_loops(routine.body)
+
+        if role == 'driver':
+            with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                driver_loops = find_driver_loops(routine=routine, targets=targets)
+
+                for loop in driver_loops:
+                    # Revector all marked sections within the driver loop body
+                    loop._update(body=self.revector_section(routine, loop.body))
+
+                    # Mark sequential loops inside vector sections
+                    self.mark_seq_loops(loop.body)
 
 
 class SCCDemoteTransformation(Transformation):
