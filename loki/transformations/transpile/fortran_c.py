@@ -442,8 +442,7 @@ class FortranCTransformation(Transformation):
             else:
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
-                # TODO: arg.type.intent is not None, shouldn't be necessary
-                value = isinstance(arg, Scalar) and arg.type.intent is not None and arg.type.intent.lower() == 'in'
+                value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
                 kind = self.iso_c_intrinsic_kind(arg.type, intf_routine, is_array=isinstance(arg, Array))
                 if self.use_c_ptr:
                     if isinstance(arg, Array):
@@ -526,8 +525,7 @@ class FortranCTransformation(Transformation):
         """
         to_be_dereferenced = []
         for arg in routine.arguments:
-            # TODO: arg.type.intent is not None shouldn't be necessary
-            if arg.type.intent is not None and not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 to_be_dereferenced.append(arg.name.lower())
 
         routine.body = DeReferenceTrafo(to_be_dereferenced).visit(routine.body)
@@ -562,7 +560,6 @@ class FortranCTransformation(Transformation):
             inline_elemental_functions(kernel)
 
         # Create declarations for module variables
-        # TODO: can't just comment that ...
         if self.language == 'c':
             module_variables = {
                 im.module.lower(): [
@@ -612,8 +609,7 @@ class FortranCTransformation(Transformation):
         # Force pointer on reference-passed arguments (and lower case type names for derived types)
         for arg in kernel.arguments:
 
-            # TODO: arg.type.intent is not None, shouldn't be necessary
-            if arg.type.intent is not None and not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 _type = arg.type.clone(pointer=True)
                 if isinstance(arg.type.dtype, DerivedType):
                     # Lower case type names for derived types
