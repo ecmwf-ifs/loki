@@ -258,9 +258,9 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 if str(call.name).lower() in as_tuple(targets):
                     new_args = ()
                     if upper.name not in call.routine.arguments:
-                        new_args += (upper,)
+                        new_args += (upper.clone(type=upper.type.clone(intent='in'), scope=call.routine),)
                     if step.name not in call.routine.arguments:
-                        new_args += (step,)
+                        new_args += (step.clone(type=step.type.clone(intent='in'), scope=call.routine),)
                     new_kwargs = tuple((_.name, _) for _ in new_args)
                     if new_args:
                         call.routine.arguments = list(call.routine.arguments) + list(new_args)
@@ -640,10 +640,8 @@ class SccLowLevelDataOffload(Transformation):
         var_map = {}
         for var in routine.variables:
             if var in routine.arguments:
-                # if isinstance(var, sym.Scalar) and var.name != block_dim.size and var not in derived_type_variables:
-                # TODO: var.type.intent is not None shouldn't be necessary ...
                 if isinstance(var, sym.Scalar) and var not in derived_type_variables\
-                        and var.type.intent is not None and var.type.intent.lower() == 'in':
+                        and var.type.intent.lower() == 'in':
                     var_map[var] = var.clone(type=var.type.clone(value=True))
             else:
                 if isinstance(var, sym.Array):
