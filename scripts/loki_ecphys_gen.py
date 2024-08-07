@@ -295,15 +295,30 @@ def add_block_loops(routine, field_group_types={}):
 
     def _create_view_updates(section, scope):
         ibl = get_symbol('IBL', scope)
-        fgroup_vars = tuple(
+        j2d = get_symbol('J2D', scope)
+        ydsppt = get_symbol('YDSPPT', scope)
+        fgroup_vars = sorted(tuple(
             v for v in FindVariables(unique=True).visit(section)
             if str(v.type.dtype) in field_group_types
-        )
+        ), key=lambda v: str(v))
         calls = ()
         for fgvar in fgroup_vars:
             fgsym =  get_symbol(fgvar.name, scope)
-            csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgsym, scope=fgsym.scope)
-            calls += (ir.CallStatement(name=csym, arguments=(ibl,), kwarguments=()),)
+            if isinstance(fgvar, sym.Array):
+                # Hacky solution for the TENDENCY_PHY corner case; inject a loop
+                if not fgvar.dimensions == (j2d,):
+                    continue
+
+                csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgvar, scope=fgsym.scope)
+                call = (ir.CallStatement(name=csym, arguments=(ibl,), kwarguments=()),)
+                bounds = sym.LoopRange(
+                    (sym.Literal(1), sym.Variable(name='N2D', parent=ydsppt, scope=scope))
+                )
+                calls += (ir.Loop(variable=j2d, bounds=bounds, body=(call,)),)
+
+            else:
+                csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgsym, scope=fgsym.scope)
+                calls += (ir.CallStatement(name=csym, arguments=(ibl,), kwarguments=()),)
 
         return calls
 
