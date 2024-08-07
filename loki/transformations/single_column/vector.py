@@ -314,11 +314,11 @@ class SCCRevectorTransformation(Transformation):
         """
         # Wrap all thread-parallel sections into horizontal thread loops
         mapper = {
-            s.body: wrap_vector_section(s.body, routine, self.horizontal)
+            s: wrap_vector_section(s.body, routine, self.horizontal)
             for s in FindNodes(ir.Section).visit(section)
             if s.label == 'vector_section'
         }
-        return NestedTransformer(mapper).visit(section)
+        return Transformer(mapper).visit(section)
 
     def mark_seq_loops(self, section):
         """
