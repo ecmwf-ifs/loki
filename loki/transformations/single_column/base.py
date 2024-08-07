@@ -7,7 +7,7 @@
 
 from loki.batch import Transformation
 from loki.expression import (
-    symbols as sym, FindExpressions, SubstituteExpressions
+    symbols as sym, FindExpressions, SubstituteExpressions,
 )
 from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.tools import as_tuple
@@ -42,6 +42,24 @@ class SCCBaseTransformation(Transformation):
 
         assert directive in [None, 'openacc']
         self.directive = directive
+
+    # TODO: correct "definition" of a pure/elemental routine (take e.g. loki serial into account ...)
+    @staticmethod
+    def is_elemental(routine):
+        """
+        Check whether :any:`Subroutine` ``routine`` is an elemental routine.
+        Need for distinguishing elemental and non-elemental function to transform
+        those in a different way.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to check whether elemental
+        """
+        for prefix in routine.prefix:
+            if prefix.lower() == 'elemental':
+                return True
+        return False
 
     @classmethod
     def resolve_masked_stmts(cls, routine, loop_variable):
@@ -147,6 +165,10 @@ class SCCBaseTransformation(Transformation):
 
         # Bail if routine is marked as sequential or routine has already been processed
         if check_routine_pragmas(routine, self.directive):
+            return
+
+        # Bail if routine is elemental
+        if self.is_elemental(routine):
             return
 
         # check for horizontal loop bounds in subroutine symbol table

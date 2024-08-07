@@ -16,22 +16,78 @@ import operator as op
 from loki.logging import info
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
-    symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions
+    symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions,
 )
 from loki.ir import (
-    Assignment, Loop, VariableDeclaration, FindNodes, Transformer
+    Assignment, Loop, VariableDeclaration, FindNodes, Transformer,
+    CallStatement
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType
 
 
 __all__ = [
+    'remove_explicit_array_dimensions', 'add_explicit_array_dimensions',
     'shift_to_zero_indexing', 'invert_array_indices',
     'resolve_vector_notation', 'normalize_range_indexing',
     'promote_variables', 'promote_nonmatching_variables',
     'promotion_dimensions_from_loop_nest', 'demote_variables',
     'flatten_arrays', 'normalize_array_shape_and_access'
 ]
+
+def remove_explicit_array_dimensions(routine, calls_only=False):
+    """
+    Remove colon notation from array dimensions within :any:`Subroutine` ``routine``.
+    E.g., convert two-dimensional array ``arr2d(:,:)`` to ``arr2d`` or
+    ``arr3d(:,:,:)`` to ``arr3d``, but NOT e.g., ``arr(1,:,:)``.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine to check
+    """
+    if calls_only:
+        calls = FindNodes(CallStatement).visit(routine.body)
+        for call in calls:
+            arguments = ()
+            for arg in call.arguments:
+                if isinstance(arg, sym.Array):
+                    if all(dim == sym.RangeIndex((None, None)) for dim in arg.dimensions):
+                        new_dimensions = None
+                        arguments += (arg.clone(dimensions=new_dimensions),)
+                    else:
+                        arguments += (arg,)
+                else:
+                    arguments += (arg,)
+            call._update(arguments=arguments)
+    else:
+        arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
+        array_map = {}
+        for array in arrays:
+            if all(dim == sym.RangeIndex((None, None)) for dim in array.dimensions):
+                new_dimensions = None
+                array_map[array] = array.clone(dimensions=new_dimensions)
+        routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
+
+def add_explicit_array_dimensions(routine):
+    """
+    Make dimensions of arrays explicit within :any:`Subroutine` ``routine``.
+    E.g., convert two-dimensional array ``arr2d`` to ``arr2d(:,:)`` or
+    ``arr3d`` to ``arr3d(:,:,:)``.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine to check
+    """
+    arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
+    array_map = {}
+    for array in arrays:
+        if not array.dimensions:
+            new_dimensions = (sym.RangeIndex((None, None)),) * len(array.shape)
+            array_map[array] = array.clone(dimensions=new_dimensions)
+    routine.body = SubstituteExpressions(array_map).visit(routine.body)
 
 
 def shift_to_zero_indexing(routine, ignore=None):
