@@ -13,7 +13,7 @@ from loki.expression import (
 )
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragmas_attached,
-    pragma_regions_attached, is_loki_pragma
+    pragma_regions_attached, is_loki_pragma, get_pragma_parameters
 )
 from loki.logging import info
 from loki.tools import as_tuple, flatten
@@ -211,29 +211,16 @@ class SCCAnnotateTransformation(Transformation):
             the transformation call tree.
         """
 
-        # For the thread block size, find the horizontal size variable that is available in
-        # the driver
-        num_threads = None
-        symbol_map = routine.symbol_map
-        for size_expr in self.horizontal.size_expressions:
-            if size_expr in symbol_map:
-                num_threads = size_expr
-                break
+        # Mark all parallel vector loops as `!$acc loop vector`
+        self.kernel_annotate_vector_loops_openacc(routine)
+
+        # Mark all non-parallel loops as `!$acc loop seq`
+        self.kernel_annotate_sequential_loops_openacc(routine)
 
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
             driver_loops = find_driver_loops(routine=routine, targets=targets)
             for loop in driver_loops:
-                loops = FindNodes(ir.Loop).visit(loop.body)
-                kernel_loops = [l for l in loops if l.variable == self.horizontal.index]
-                if kernel_loops:
-                    assert not loop == kernel_loops[0]
-                self.annotate_driver(
-                    self.directive, loop, kernel_loops, self.block_dim, num_threads
-                )
-
-            if self.directive == 'openacc':
-                # Mark all non-parallel loops as `!$acc loop seq`
-                self.kernel_annotate_sequential_loops_openacc(routine)
+                self.annotate_driver(self.directive, loop, self.block_dim)
 
     @classmethod
     def device_alloc_column_locals(cls, routine, column_locals):
@@ -257,7 +244,7 @@ class SCCAnnotateTransformation(Transformation):
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
     @classmethod
-    def annotate_driver(cls, directive, driver_loop, kernel_loops, block_dim, num_threads):
+    def annotate_driver(cls, directive, driver_loop, block_dim):
         """
         Annotate driver block loop with ``'openacc'`` pragmas.
 
@@ -273,8 +260,6 @@ class SCCAnnotateTransformation(Transformation):
         block_dim : :any:`Dimension`
             Optional ``Dimension`` object to define the blocking dimension
             to detect hoisted temporary arrays and excempt them from marking.
-        num_threads : str
-            The size expression that determines the number of threads per thread block
         """
 
         # Mark driver loop as "gang parallel".
@@ -289,25 +274,21 @@ class SCCAnnotateTransformation(Transformation):
             arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
             private_arrays = ', '.join(set(v.name for v in arrays))
             private_clause = '' if not private_arrays else f' private({private_arrays})'
-            vector_length_clause = '' if not num_threads else f' vector_length({num_threads})'
 
-            # Annotate vector loops with OpenACC pragmas
-            if kernel_loops:
-                for loop in as_tuple(kernel_loops):
-                    loop._update(pragma=(ir.Pragma(keyword='acc', content='loop vector'),))
+            for pragma in as_tuple(driver_loop.pragma):
+                if is_loki_pragma(pragma, starts_with='loop driver'):
+                    # Replace `!$loki loop driver` pragma with OpenACC equivalent
+                    params = get_pragma_parameters(driver_loop.pragma, starts_with='loop driver')
+                    vlength = params.get('vector_length')
+                    vlength_clause = f' vector_length({vlength})' if vlength else ''
 
-            if driver_loop.pragma is None or (len(driver_loop.pragma) == 1 and
-                                              driver_loop.pragma[0].keyword.lower() == "loki" and
-                                              driver_loop.pragma[0].content.lower() == "driver-loop"):
-                p_content = f'parallel loop gang{private_clause}{vector_length_clause}'
-                driver_loop._update(pragma=(ir.Pragma(keyword='acc', content=p_content),))
-                driver_loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),))
+                    content = f'parallel loop gang{private_clause}{vlength_clause}'
+                    pragma_new = ir.Pragma(keyword='acc', content=content)
+                    pragma_post = ir.Pragma(keyword='acc', content='end parallel loop')
 
-            # add acc parallel loop gang if the only existing pragma is acc data
-            elif len(driver_loop.pragma) == 1:
-                if (driver_loop.pragma[0].keyword == 'acc' and
-                    driver_loop.pragma[0].content.lower().lstrip().startswith('data ')):
-                    p_content = f'parallel loop gang{private_clause}{vector_length_clause}'
-                    driver_loop._update(pragma=(driver_loop.pragma[0], ir.Pragma(keyword='acc', content=p_content)))
-                    driver_loop._update(pragma_post=(ir.Pragma(keyword='acc', content='end parallel loop'),
-                                              driver_loop.pragma_post[0]))
+                    # Replace existing loki pragma and add post-pragma
+                    loop_pragmas = tuple(p for p in as_tuple(driver_loop.pragma) if p is not pragma)
+                    driver_loop._update(
+                        pragma=loop_pragmas + (pragma_new,),
+                        pragma_post=(pragma_post,) + as_tuple(driver_loop.pragma_post)
+                    )
