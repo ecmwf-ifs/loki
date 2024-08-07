@@ -343,6 +343,29 @@ class SCCRevectorTransformation(Transformation):
             if loop.variable != self.horizontal.index:
                 loop._update(pragma=(ir.Pragma(keyword='loki', content='loop seq'),))
 
+    def mark_driver_loop(self, routine, loop):
+        """
+        Add ``!$loki loop driver`` pragmas to outer block loops and
+        add ``vector-length(size)`` clause for later annotations.
+
+        This method assumes that pragmas have been attached via
+        :any:`pragmas_attached`.
+        """
+        # Find a horizontal size variable to mark vector_length
+        symbol_map = routine.symbol_map
+        sizes = tuple(
+            symbol_map.get(size) for size in self.horizontal.size_expressions
+            if size in symbol_map
+        )
+        vector_length = f' vector_length({sizes[0]})' if sizes else ''
+
+        # Replace existing `!$loki loop driver markers, but leave all others
+        pragma = ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
+        loop_pragmas = tuple(
+            p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
+        )
+        loop._update(pragma=loop_pragmas + (pragma,))
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Wrap vector-parallel sections in vector :any:`Loop` objects.
@@ -373,7 +396,7 @@ class SCCRevectorTransformation(Transformation):
                 self.mark_seq_loops(routine.body)
 
         if role == 'driver':
-            with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+            with pragmas_attached(routine, ir.Loop):
                 driver_loops = find_driver_loops(routine=routine, targets=targets)
 
                 for loop in driver_loops:
@@ -383,13 +406,8 @@ class SCCRevectorTransformation(Transformation):
                     # Mark sequential loops inside vector sections
                     self.mark_seq_loops(loop.body)
 
-        if self.remove_vector_section:
-            # Remove the vector section wrappers
-            # These have been inserted by SCCDevectorTransformation
-            section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body)
-                    if s.label == 'vector_section'}
-            if section_mapper:
-                routine.body = Transformer(section_mapper).visit(routine.body)
+                    # Mark outer driver loops
+                    self.mark_driver_loop(routine, loop)
 
 
 class SCCDemoteTransformation(Transformation):

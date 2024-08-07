@@ -96,7 +96,7 @@ def test_scc_revector_transformation(frontend, horizontal):
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
     for transform in scc_transform:
-        transform.apply(driver, role='driver')
+        transform.apply(driver, role='driver', targets=('compute_column',))
         transform.apply(kernel, role='kernel')
 
     # Ensure we have two nested loops in the kernel
@@ -126,11 +126,15 @@ def test_scc_revector_transformation(frontend, horizontal):
     sections = FindNodes(ir.Section).visit(kernel.body)
     assert all(not s.label for s in sections)
 
-    # Ensure driver remains unaffected
-    driver_loops = FindNodes(ir.Loop).visit(driver.body)
-    assert len(driver_loops) == 1
-    assert driver_loops[0].variable == 'b'
-    assert driver_loops[0].bounds == '1:nb'
+    # Ensure driver remains unaffected and is marked
+    with pragmas_attached(driver, node_type=ir.Loop):
+        driver_loops = FindNodes(ir.Loop).visit(driver.body)
+        assert len(driver_loops) == 1
+        assert driver_loops[0].variable == 'b'
+        assert driver_loops[0].bounds == '1:nb'
+        assert driver_loops[0].pragma and len(driver_loops[0].pragma) == 1
+        assert is_loki_pragma(driver_loops[0].pragma[0], starts_with='loop driver')
+        assert 'vector_length(nlon)' in driver_loops[0].pragma[0].content
 
     kernel_calls = FindNodes(ir.CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
@@ -209,7 +213,7 @@ END SUBROUTINE compute_column
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal_bounds_aliases),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal_bounds_aliases),)
     for transform in scc_transform:
-        transform.apply(driver, role='driver')
+        transform.apply(driver, role='driver', targets=('compute_column',))
         transform.apply(kernel, role='kernel')
 
     # Ensure we have two nested loops in the kernel
@@ -239,11 +243,15 @@ END SUBROUTINE compute_column
     sections = FindNodes(ir.Section).visit(kernel.body)
     assert all(not s.label for s in sections)
 
-    # Ensure driver remains unaffected
-    driver_loops = FindNodes(ir.Loop).visit(driver.body)
-    assert len(driver_loops) == 1
-    assert driver_loops[0].variable == 'b'
-    assert driver_loops[0].bounds == '1:nb'
+    # Ensure driver remains unaffected and is marked
+    with pragmas_attached(driver, node_type=ir.Loop):
+        driver_loops = FindNodes(ir.Loop).visit(driver.body)
+        assert len(driver_loops) == 1
+        assert driver_loops[0].variable == 'b'
+        assert driver_loops[0].bounds == '1:nb'
+        assert driver_loops[0].pragma and len(driver_loops[0].pragma) == 1
+        assert is_loki_pragma(driver_loops[0].pragma[0], starts_with='loop driver')
+        assert 'vector_length(nlon)' in driver_loops[0].pragma[0].content
 
     kernel_calls = FindNodes(ir.CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1

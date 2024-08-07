@@ -19,7 +19,7 @@ from loki.expression import (
 )
 from loki.ir import (
     nodes as ir, Import, TypeDef, VariableDeclaration,
-    StatementFunction, Transformer, FindNodes
+    StatementFunction, Transformer, FindNodes, is_loki_pragma
 )
 from loki.module import Module
 from loki.subroutine import Subroutine
@@ -585,7 +585,8 @@ def is_driver_loop(loop, targets):
     """
     if loop.pragma:
         for pragma in loop.pragma:
-            if pragma.keyword.lower() == "loki" and pragma.content.lower() == "driver-loop":
+            if is_loki_pragma(pragma, starts_with='driver-loop') or \
+               is_loki_pragma(pragma, starts_with='loop driver'):
                 return True
     for call in FindNodes(ir.CallStatement).visit(loop.body):
         if call.name in targets:
