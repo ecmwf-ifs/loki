@@ -198,12 +198,6 @@ class SCCAnnotateTransformation(Transformation):
         if self.directive == 'openacc':
             self.insert_annotations(routine, self.horizontal)
 
-        # Remove the vector section wrappers
-        # These have been inserted by SCCDevectorTransformation
-        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
-        if section_mapper:
-            routine.body = Transformer(section_mapper).visit(routine.body)
-
     def process_driver(self, routine, targets=None):
         """
         Apply the relevant ``'openacc'`` annotations to the driver loop.
@@ -240,12 +234,6 @@ class SCCAnnotateTransformation(Transformation):
             if self.directive == 'openacc':
                 # Mark all non-parallel loops as `!$acc loop seq`
                 self.kernel_annotate_sequential_loops_openacc(routine)
-
-        # Remove the vector section wrappers
-        # These have been inserted by SCCDevectorTransformation
-        section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'vector_section'}
-        if section_mapper:
-            routine.body = Transformer(section_mapper).visit(routine.body)
 
     @classmethod
     def device_alloc_column_locals(cls, routine, column_locals):

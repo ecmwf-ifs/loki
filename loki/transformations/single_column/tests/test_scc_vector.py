@@ -122,6 +122,10 @@ def test_scc_revector_transformation(frontend, horizontal):
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
+    # Ensure that vector-section labels have been removed
+    sections = FindNodes(ir.Section).visit(kernel.body)
+    assert all(not s.label for s in sections)
+
     # Ensure driver remains unaffected
     driver_loops = FindNodes(ir.Loop).visit(driver.body)
     assert len(driver_loops) == 1
@@ -230,6 +234,10 @@ END SUBROUTINE compute_column
     assert fgen(assigns[1]).lower() == 't(jl, jk) = c*jk'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
+
+    # Ensure that vector-section labels have been removed
+    sections = FindNodes(ir.Section).visit(kernel.body)
+    assert all(not s.label for s in sections)
 
     # Ensure driver remains unaffected
     driver_loops = FindNodes(ir.Loop).visit(driver.body)
@@ -364,8 +372,10 @@ def test_scc_vector_inlined_call(frontend, horizontal):
     for transform in scc_transform:
         transform.apply(routine, role='kernel', targets=['some_kernel', 'some_inlined_kernel'])
 
-    # Check loki pragma has been removed
-    assert not FindNodes(ir.Pragma).visit(routine.body)
+    # Check only `!$loki loop vector` pragma has been inserted
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
+    assert len(pragmas) == 1
+    assert is_loki_pragma(pragmas[0], starts_with='loop vector')
 
     # Check that 'some_inlined_kernel' remains within vector-parallel region
     loops = FindNodes(ir.Loop).visit(routine.body)
