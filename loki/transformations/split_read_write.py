@@ -7,14 +7,79 @@
 
 
 from loki.batch import Transformation, ProcedureItem
-from loki.expression import FindVariables, Array, SubstituteExpressions
-from loki.tools import as_tuple, flatten
+from loki.expression import Array, SubstituteExpressions
+from loki.tools import as_tuple
 from loki.ir import (
-    pragma_regions_attached, is_loki_pragma, nodes as ir, FindNodes,
-    Transformer, FindScopes
+    pragma_regions_attached, is_loki_pragma, nodes as ir, FindNodes, Transformer
 )
 
 __all__ = ['SplitReadWriteTransformation']
+
+class SplitReadWriteWalk(Transformer):
+    """
+    A :any:`Transformer` class to traverse the IR, in-place replace read-write
+    assignments with reads, and build a transformer map for the corresponding writes.
+    """
+
+    def __init__(self, dimensions, variable_map, count=-1, **kwargs):
+        self.write_map = {}
+        self.temp_count = count
+        self.lhs_var_map = {}
+        self.dimensions = dimensions
+        self.tmp_vars = []
+
+        # parent subroutine variable_map
+        self.variable_map = variable_map
+
+        kwargs['inplace'] = True
+        super().__init__(**kwargs)
+
+    def visit_Loop(self, o, **kwargs):
+
+        dim = [d for d in self.dimensions if d.index == o.variable]
+        dim_nest = kwargs.pop('dim_nest', [])
+        return super().visit_Node(o, dim_nest=dim_nest + dim, **kwargs)
+
+    def visit_Assignment(self, o, **kwargs):
+
+        dim_nest = kwargs.pop('dim_nest', [])
+        write = None
+
+        # filter out non read-write assignments and scalars
+        if isinstance(o.lhs, Array) and o.lhs.name in o.rhs:
+
+            rhs = SubstituteExpressions(self.lhs_var_map).visit(o.rhs)
+            if not o.lhs in self.lhs_var_map:
+                _dims = []
+                _shape = []
+
+                # determine shape of temporary declaration and assignment
+                for s in o.lhs.type.shape:
+                    if (dim := [dim for dim in self.dimensions
+                                if s in dim.size_expressions]):
+                        if dim[0] in dim_nest:
+                            _shape += [self.variable_map[dim[0].size]]
+                            _dims += [self.variable_map[dim[0].index]]
+
+                # define var to store temporary assignment
+                self.temp_count += 1
+                _type = o.lhs.type.clone(shape=as_tuple(_shape), intent=None)
+                tmp_var = o.lhs.clone(name=f'loki_temp_{self.temp_count}',
+                                      dimensions=as_tuple(_dims), type=_type)
+                self.lhs_var_map[o.lhs] = tmp_var
+                self.tmp_vars += [tmp_var,]
+
+                write = as_tuple(ir.Assignment(lhs=o.lhs, rhs=tmp_var))
+
+            o._update(lhs=self.lhs_var_map[o.lhs], rhs=rhs)
+
+        self.write_map[o] = write
+        return o
+
+    def visit_LeafNode(self, o, **kwargs):
+        # remove all other leaf nodes from second copy of region
+        self.write_map[o] = None
+        return super().visit_Node(o, **kwargs)
 
 class SplitReadWriteTransformation(Transformation):
     """
@@ -24,12 +89,12 @@ class SplitReadWriteTransformation(Transformation):
 
     .. code-block:: fortran
 
-        !$loki split read-write
+        !$loki split-read-write
         do jlon=1,nproma
            var(jlon, n1) = var(jlon, n1) + 1.
            var(jlon, n2) = var(jlon, n2) + 1.
         enddo
-        !$loki end split read-write
+        !$loki end split-read-write
 
     In the above example, there is no guarantee that ``n1`` and ``n2`` do not in fact point to the same location.
     Therefore the load and store instructions for ``var`` have to be executed in order.
@@ -40,7 +105,7 @@ class SplitReadWriteTransformation(Transformation):
 
     .. code-block:: fortran
 
-        !$loki split read-write
+        !$loki split-read-write
         do jlon=1,nproma
            loki_temp_0(jlon) = var(jlon, n1) + 1.
            loki_temp_1(jlon) = var(jlon, n2) + 1.
@@ -50,94 +115,37 @@ class SplitReadWriteTransformation(Transformation):
            var(jlon, n1) = loki_temp_0(jlon)
            var(jlon, n2) = loki_temp_1(jlon)
         enddo
-        !$loki end split read-write
+        !$loki end split-read-write
     """
 
     item_filter = (ProcedureItem,)
 
     def __init__(self, dimensions):
-        self.dimensions = dimensions
+        self.dimensions = as_tuple(dimensions)
 
     def transform_subroutine(self, routine, **kwargs):
 
-        # initialise working vars, lists and maps
-        temp_vars = []
-        region_map = {}
-        temp_counter = 0
-
         # cache variable_map for fast lookup later
         variable_map = routine.variable_map
+        temp_counter = -1
+        tmp_vars = []
 
         # find split read-write pragmas
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
-                if is_loki_pragma(region.pragma, starts_with='split read-write'):
+                if is_loki_pragma(region.pragma, starts_with='split-read-write'):
 
-                    # find assignments inside pragma region
-                    assigns = FindNodes(ir.Assignment).visit(region.body)
+                    transformer = SplitReadWriteWalk(self.dimensions, variable_map, count=temp_counter)
+                    transformer.visit(region.body)
 
-                    # filter-out non read-write assignments
-                    assigns = [a for a in assigns if a.lhs in FindVariables().visit(a.rhs)]
+                    temp_counter += (transformer.temp_count + 1)
+                    tmp_vars += transformer.tmp_vars
 
-                    # filter-out scalars
-                    assigns = [a for a in assigns if isinstance(a.lhs, Array)]
-
-                    # delete all leafnodes in second copy of region
-                    assign_read_map = {}
-                    assign_write_map = {leaf: None for leaf in FindNodes(ir.LeafNode).visit(region.body)}
-
-                    lhs_var_map = {}
-                    lhs_vars = set(a.lhs for a in assigns)
-                    lhs_var_read_map = {var: False for var in lhs_vars}
-                    temp_counter_map = {var: count + temp_counter for count, var in enumerate(lhs_vars)}
-                    temp_counter += len(temp_counter_map)
-
-                    for assign in assigns:
-
-                        # determine all ancestor loops of assignment
-                        parent_loop_dims = []
-                        ancestors = flatten(FindScopes(assign).visit(region.body))
-                        for a in ancestors:
-                            if isinstance(a, ir.Loop):
-                                dim = [dim for dim in self.dimensions if a.variable.name.lower() == dim.index.lower()]
-                                assert dim
-                                parent_loop_dims += [dim[0]]
-
-                        # determine shape of temporary declaration and assignment
-                        _shape = []
-                        _dims = []
-                        for s in assign.lhs.type.shape:
-                            if (dim := [dim for dim in self.dimensions if s in dim.size_expressions]):
-                                if dim[0] in parent_loop_dims:
-                                    _shape += [variable_map[dim[0].size]]
-                                    _dims += [variable_map[dim[0].index]]
-
-                        # define vars to store temporary assignment
-                        _type = assign.lhs.type.clone(shape=as_tuple(_shape), intent=None)
-                        temp_vars += [assign.lhs.clone(name=f'loki_temp_{temp_counter_map[assign.lhs]}',
-                                                       dimensions=as_tuple(_dims), type=_type),]
-
-                        # split reads and writes
-                        rhs = SubstituteExpressions(lhs_var_map).visit(assign.rhs)
-                        if not lhs_var_read_map[assign.lhs]:
-                            lhs_var_map.update({assign.lhs: temp_vars[-1]})
-                            lhs_var_read_map[assign.lhs] = True
-
-                            new_write = ir.Assignment(lhs=assign.lhs, rhs=temp_vars[-1])
-                            assign_write_map[assign] = as_tuple(new_write)
-
-                        new_read = ir.Assignment(lhs=temp_vars[-1], rhs=rhs)
-                        assign_read_map[assign] = as_tuple(new_read)
-
-                    # create two copies of the pragma region, the second containing
-                    # only the newly split writes
-                    new_reads = Transformer(assign_read_map).visit(region.body)
-                    new_writes = Transformer(assign_write_map).visit(region.body)
-                    region_map[region.body] = (new_reads, new_writes)
+                    if transformer.write_map:
+                        new_writes = Transformer(transformer.write_map).visit(region.body)
+                        region.append(new_writes)
 
         # add declarations for temporaries
-        if temp_vars:
-            temp_vars = set(var.clone(dimensions=var.type.shape) for var in temp_vars)
-            routine.variables += as_tuple(temp_vars)
-
-        routine.body = Transformer(region_map).visit(routine.body)
+        if tmp_vars:
+            tmp_vars = set(var.clone(dimensions=var.type.shape) for var in tmp_vars)
+            routine.variables += as_tuple(tmp_vars)

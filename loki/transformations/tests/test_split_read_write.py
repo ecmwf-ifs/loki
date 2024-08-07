@@ -37,7 +37,7 @@ subroutine kernel(nlon, nz, start, end, n1, n2, n3, var0, var1, var2, nfre)
   real, intent(inout) :: var0(nlon,nfre,6), var1(nlon, nz, 6), var2(nlon,nz)
   integer :: jl, jk, m
 
-  !$loki split read-write
+  !$loki split-read-write
   do jk = 1,nz
     do jl = start,end
        var1(jl, jk, n1) = var1(jl, jk, n1) + 1.
@@ -46,16 +46,49 @@ subroutine kernel(nlon, nz, start, end, n1, n2, n3, var0, var1, var2, nfre)
        var2(jl, jk    ) = 0.
     end do
   end do
-  !$loki end split read-write
+  print *, "a leaf node that shouldn't be copied"
+  !$loki end split-read-write
+
+  !.....should be transformed to........
+  !!$loki split-read-write
+  !  do jk=1,nz
+  !    do jl=start,end
+  !      loki_temp_0(jl, jk) = var1(jl, jk, n1) + 1.
+  !      loki_temp_0(jl, jk) = loki_temp_0(jl, jk)*2.
+  !      loki_temp_1(jl, jk) = var1(jl, jk, n2) + loki_temp_0(jl, jk)
+  !      var2(jl, jk) = 0.
+  !    end do
+  !  end do
+  !  print *, 'a leaf node that shouldn''t be copied'
+  !  do jk=1,nz
+  !    do jl=start,end
+  !      var1(jl, jk, n1) = loki_temp_0(jl, jk)
+  !      var1(jl, jk, n2) = loki_temp_1(jl, jk)
+  !    end do
+  !  end do
+  !!$loki end split-read-write
 
   do m = 1,nfre
-  !$loki split read-write
+  !$loki split-read-write
      if( m < nfre/2 )then
         do jl = start,end
            var0(jl, m, n3) = var0(jl, m, n3) + 1.
         end do
      endif
-  !$loki end split read-write
+  !$loki end split-read-write
+  !.....should be transformed to........
+  !!$loki split-read-write
+  !  if (m < nfre / 2) then
+  !   do jl=start,end
+  !     loki_temp_2(jl) = var0(jl, m, n3) + 1.
+  !   end do
+  !  end if
+  !  if (m < nfre / 2) then
+  !    do jl=start,end
+  !      var0(jl, m, n3) = loki_temp_2(jl)
+  !    end do
+  !  end if
+  !!$loki end split-read-write
   end do
 
 end subroutine kernel
@@ -71,7 +104,7 @@ end subroutine kernel
 
         #=========== check first pragma region ==============#
         region = pragma_regions[0]
-        assert is_loki_pragma(region.pragma, starts_with='split read-write')
+        assert is_loki_pragma(region.pragma, starts_with='split-read-write')
 
         # check that temporaries were declared
         assert 'loki_temp_0(nlon,nz)' in routine.variables
@@ -88,6 +121,9 @@ end subroutine kernel
         # check simple assignment is only in first copy of region
         assert 'var2(jl,jk)' in FindVariables().visit(outer_loops[0])
         assert not 'var2(jl,jk)' in FindVariables().visit(outer_loops[1])
+
+        # check print statement is only present in first copy of region
+        assert len(FindNodes(ir.Intrinsic).visit(region)) == 1
 
         # check correctness of split reads
         assigns = FindNodes(ir.Assignment).visit(outer_loops[0].body)
@@ -109,7 +145,7 @@ end subroutine kernel
 
         #=========== check second pragma region ==============#
         region = pragma_regions[1]
-        assert is_loki_pragma(region.pragma, starts_with='split read-write')
+        assert is_loki_pragma(region.pragma, starts_with='split-read-write')
 
         conds = FindNodes(ir.Conditional).visit(region.body)
         assert len(conds) == 2
