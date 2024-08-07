@@ -186,7 +186,9 @@ def convert(
         mode = mode.replace('-', '_')  # Sanitize mode string
 
         # Write out all modified source files into the build directory
-        file_write_trafo = FileWriteTransformation(builddir=build, mode=mode)
+        file_write_trafo = scheduler.config.transformations.get('FileWriteTransformation', None)
+        if not file_write_trafo:
+            file_write_trafo = FileWriteTransformation(builddir=build, mode=mode)
         scheduler.process(transformation=file_write_trafo)
 
         return
