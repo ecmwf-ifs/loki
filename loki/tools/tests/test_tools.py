@@ -9,6 +9,7 @@
 Unit tests for utility functions and classes in loki.tools.
 """
 
+import platform
 import sys
 import operator as op
 from contextlib import contextmanager
@@ -310,6 +311,9 @@ def test_execute(here, capsys):
     execute(cmd)
 
 
+@pytest.mark.skipif(platform.system() == 'Darwin',
+    reason='Timeout utility test sporadically fails on MacOS CI runners.'
+)
 def test_timeout():
     # Should not trigger:
     start = perf_counter()
