@@ -19,7 +19,7 @@ from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update,
     convert_to_lower_case, replace_intrinsics, rename_variables,
     get_integer_variable, get_loop_bounds, is_driver_loop,
-    find_driver_loops, get_local_arrays, check_routine_pragmas
+    find_driver_loops, get_local_arrays, check_routine_sequential
 )
 
 
@@ -511,11 +511,11 @@ end module test_get_local_arrays_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilites_check_routine_pragmas(frontend, tmp_path):
-    """ Test :any:`check_routine_pragmas` utility. """
+def test_transform_utilites_check_routine_sequential(frontend, tmp_path):
+    """ Test :any:`check_routine_sequential` utility. """
 
     fcode = """
-module test_check_routine_pragmas_mod
+module test_check_routine_sequential_mod
 implicit none
 contains
 
@@ -537,12 +537,10 @@ contains
     i = i + 1
   end subroutine test_acc_vec
 
-end module test_check_routine_pragmas_mod
+end module test_check_routine_sequential_mod
 """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    # TODO: This utility needs some serious clean-up, so we're just testing
-    # the bare basics here and promise to do better next time ;)
-    assert check_routine_pragmas(module['test_acc_seq'], directive=None)
-    assert check_routine_pragmas(module['test_loki_seq'], directive=None)
-    assert check_routine_pragmas(module['test_acc_vec'], directive='openacc')
+    assert not check_routine_sequential(module['test_acc_seq'])
+    assert check_routine_sequential(module['test_loki_seq'])
+    assert not check_routine_sequential(module['test_acc_vec'])

@@ -14,7 +14,7 @@ from loki.tools import as_tuple
 
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.utilities import (
-    get_integer_variable, get_loop_bounds, check_routine_pragmas
+    get_integer_variable, get_loop_bounds, check_routine_sequential
 )
 
 
@@ -146,7 +146,7 @@ class SCCBaseTransformation(Transformation):
         """
 
         # Bail if routine is marked as sequential or routine has already been processed
-        if check_routine_pragmas(routine, self.directive):
+        if check_routine_sequential(routine):
             return
 
         # check for horizontal loop bounds in subroutine symbol table
