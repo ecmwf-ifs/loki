@@ -706,7 +706,9 @@ end subroutine acraneb_transt
     assert len(assocs) == 2
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
 def test_inline_member_routines_with_optionals(frontend):
     """
     Ensure that internal routines with optional arguments get
