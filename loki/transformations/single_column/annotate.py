@@ -10,8 +10,8 @@ from loki.expression import (
     symbols as sym, FindVariables, is_dimension_constant
 )
 from loki.ir import (
-    nodes as ir, FindNodes, Transformer, pragmas_attached,
-    is_loki_pragma, get_pragma_parameters
+    nodes as ir, FindNodes, pragmas_attached, is_loki_pragma,
+    get_pragma_parameters
 )
 from loki.logging import info
 from loki.tools import as_tuple, flatten
@@ -32,9 +32,6 @@ class SCCAnnotateTransformation(Transformation):
 
     Parameters
     ----------
-    horizontal : :any:`Dimension`
-        :any:`Dimension` object describing the variable conventions used in code
-        to define the horizontal data dimension and iteration space.
     block_dim : :any:`Dimension`
         Optional ``Dimension`` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
@@ -43,16 +40,14 @@ class SCCAnnotateTransformation(Transformation):
         ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, directive, block_dim):
-        self.horizontal = horizontal
+    def __init__(self, directive, block_dim):
         self.directive = directive
         self.block_dim = block_dim
 
-    @classmethod
-    def kernel_annotate_vector_loops_openacc(cls, routine):
+    def annotate_vector_loops(self, routine):
         """
-        Insert ``!$acc loop vector`` annotations around horizontal vector
-        loops, including the necessary private variable declarations.
+        Insert ``!$acc loop vector`` for previously marked loops,
+        including addition of the necessary private variable declarations.
 
         Parameters
         ----------
@@ -88,8 +83,7 @@ class SCCAnnotateTransformation(Transformation):
                         private_clause = '' if not private_arrays else f' private({private_arrs})'
                         pragma._update(keyword='acc', content=f'loop vector{private_clause}')
 
-    @classmethod
-    def kernel_annotate_sequential_loops_openacc(cls, routine):
+    def annotate_sequential_loops(self, routine):
         """
         Insert ``!$acc loop seq`` annotations for all loops previously
         marked with ``!$loki loop seq``.
@@ -113,8 +107,7 @@ class SCCAnnotateTransformation(Transformation):
                 if any('loop vector' in pragma.content for pragma in loop_pragmas):
                     info(f'[Loki-SCC::Annotate] Detected vector loop in sequential loop in {routine.name}')
 
-    @classmethod
-    def kernel_annotate_subroutine_present_openacc(cls, routine):
+    def annotate_kernel_routine(self, routine):
         """
         Insert ``!$acc routine seq/vector`` directives and wrap
         subroutine body in ``!$acc data present`` directives.
@@ -139,22 +132,20 @@ class SCCAnnotateTransformation(Transformation):
         # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
         routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
 
-    @classmethod
-    def insert_annotations(cls, routine, horizontal):
-
-        # Mark all parallel vector loops as `!$acc loop vector`
-        cls.kernel_annotate_vector_loops_openacc(routine)
-
-        # Mark all non-parallel loops as `!$acc loop seq`
-        cls.kernel_annotate_sequential_loops_openacc(routine)
-
-        # Wrap the routine body in `!$acc data present` markers
-        # to ensure device-resident data is used for array and struct arguments.
-        cls.kernel_annotate_subroutine_present_openacc(routine)
-
     def transform_subroutine(self, routine, **kwargs):
         """
-        Apply SCCAnnotate utilities to a :any:`Subroutine`.
+        Apply OpenACC annotations according to ``!$loki`` placeholder
+        directives.
+
+        This routine effectively converts neutral ``!$loki loop`` and
+        ``!$loki routine`` annotations into the corresponding
+        ``!$acc`` equivalent directives. It also adds ``!$acc data
+        present`` clauses around kernel routine bodies and adds
+        ``private`` clauses to loop annotations.
+
+        If the ``directive`` provided is not ``openacc``, no change is
+        applied. In the future, we aim to support ``OpenMP``
+        equivalent directives here.
 
         Parameters
         ----------
@@ -167,54 +158,39 @@ class SCCAnnotateTransformation(Transformation):
         role = kwargs['role']
         targets = as_tuple(kwargs.get('targets'))
 
+        if not self.directive == 'openacc':
+            return
+
         if role == 'kernel':
-            self.process_kernel(routine)
+            # Bail if this routine has been processed before
+            for p in FindNodes(ir.Pragma).visit(routine.ir):
+                # Check if `!$acc routine` has already been added
+                if p.keyword.lower() == 'acc' and 'routine' in p.content.lower():
+                    return
+
+            # Mark all parallel vector loops as `!$acc loop vector`
+            self.annotate_vector_loops(routine)
+
+            # Mark all non-parallel loops as `!$acc loop seq`
+            self.annotate_sequential_loops(routine)
+
+            # Wrap the routine body in `!$acc data present` markers to
+            # ensure all arguments are device-resident.
+            self.annotate_kernel_routine(routine)
+
+
         if role == 'driver':
-            self.process_driver(routine, targets=targets)
+            # Mark all parallel vector loops as `!$acc loop vector`
+            self.annotate_vector_loops(routine)
 
-    def process_kernel(self, routine):
-        """
-        Applies the SCCAnnotate utilities to a "kernel". This consists of inserting the relevant
-        ``'openacc'`` annotations at the :any:`Loop` and :any:`Subroutine` level.
+            # Mark all non-parallel loops as `!$acc loop seq`
+            self.annotate_sequential_loops(routine)
 
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        """
+            with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                driver_loops = find_driver_loops(routine=routine, targets=targets)
+                for loop in driver_loops:
+                    self.annotate_driver_loop(loop)
 
-        # Bail if this routine has been processed before
-        for p in FindNodes(ir.Pragma).visit(routine.ir):
-            # Check if `!$acc routine` has already been added
-            if p.keyword.lower() == 'acc' and 'routine' in p.content.lower():
-                return
-
-        if self.directive == 'openacc':
-            self.insert_annotations(routine, self.horizontal)
-
-    def process_driver(self, routine, targets=None):
-        """
-        Apply the relevant ``'openacc'`` annotations to the driver loop.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        targets : list or string
-            List of subroutines that are to be considered as part of
-            the transformation call tree.
-        """
-
-        # Mark all parallel vector loops as `!$acc loop vector`
-        self.kernel_annotate_vector_loops_openacc(routine)
-
-        # Mark all non-parallel loops as `!$acc loop seq`
-        self.kernel_annotate_sequential_loops_openacc(routine)
-
-        with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-            driver_loops = find_driver_loops(routine=routine, targets=targets)
-            for loop in driver_loops:
-                self.annotate_driver(self.directive, loop, self.block_dim)
 
     @classmethod
     def device_alloc_column_locals(cls, routine, column_locals):
@@ -237,42 +213,33 @@ class SCCAnnotateTransformation(Transformation):
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
-    @classmethod
-    def annotate_driver(cls, directive, driver_loop, block_dim):
+    def annotate_driver_loop(self, loop):
         """
         Annotate driver block loop with ``'openacc'`` pragmas.
 
         Parameters
         ----------
-        directive : string or None
-            Directives flavour to use for parallelism annotations; either
-            ``'openacc'`` or ``None``.
-        driver_loop : :any:`Loop`
-            Driver ``Loop`` to wrap in ``'opencc'`` pragmas.
-        kernel_loops : list of :any:`Loop`
-            Vector ``Loop`` to wrap in ``'opencc'`` pragmas if hoisting is enabled.
-        block_dim : :any:`Dimension`
-            Optional ``Dimension`` object to define the blocking dimension
-            to detect hoisted temporary arrays and excempt them from marking.
+        loop : :any:`Loop`
+            Driver :any:`Loop` to wrap in ``'opencc'`` pragmas.
         """
 
         # Mark driver loop as "gang parallel".
-        if directive == 'openacc':
-            arrays = FindVariables(unique=True).visit(driver_loop)
+        if self.directive == 'openacc':
+            arrays = FindVariables(unique=True).visit(loop)
             arrays = [v for v in arrays if isinstance(v, sym.Array)]
             arrays = [v for v in arrays if not v.type.intent]
             arrays = [v for v in arrays if not v.type.pointer]
 
             # Filter out arrays that are explicitly allocated with block dimension
-            sizes = block_dim.size_expressions
+            sizes = self.block_dim.size_expressions
             arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
             private_arrays = ', '.join(set(v.name for v in arrays))
             private_clause = '' if not private_arrays else f' private({private_arrays})'
 
-            for pragma in as_tuple(driver_loop.pragma):
+            for pragma in as_tuple(loop.pragma):
                 if is_loki_pragma(pragma, starts_with='loop driver'):
                     # Replace `!$loki loop driver` pragma with OpenACC equivalent
-                    params = get_pragma_parameters(driver_loop.pragma, starts_with='loop driver')
+                    params = get_pragma_parameters(loop.pragma, starts_with='loop driver')
                     vlength = params.get('vector_length')
                     vlength_clause = f' vector_length({vlength})' if vlength else ''
 
@@ -281,8 +248,8 @@ class SCCAnnotateTransformation(Transformation):
                     pragma_post = ir.Pragma(keyword='acc', content='end parallel loop')
 
                     # Replace existing loki pragma and add post-pragma
-                    loop_pragmas = tuple(p for p in as_tuple(driver_loop.pragma) if p is not pragma)
-                    driver_loop._update(
+                    loop_pragmas = tuple(p for p in as_tuple(loop.pragma) if p is not pragma)
+                    loop._update(
                         pragma=loop_pragmas + (pragma_new,),
-                        pragma_post=(pragma_post,) + as_tuple(driver_loop.pragma_post)
+                        pragma_post=(pragma_post,) + as_tuple(loop.pragma_post)
                     )

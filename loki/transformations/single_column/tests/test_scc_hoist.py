@@ -261,9 +261,7 @@ END MODULE kernel_mod
     transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
     transformation += (SCCDemoteTransformation(horizontal=horizontal),)
     transformation += (SCCRevectorTransformation(horizontal=horizontal),)
-    transformation += (SCCAnnotateTransformation(
-        horizontal=horizontal, directive='openacc', block_dim=blocking,
-    ),)
+    transformation += (SCCAnnotateTransformation(directive='openacc', block_dim=blocking),)
     for transform in transformation:
         scheduler.process(transformation=transform)
 
