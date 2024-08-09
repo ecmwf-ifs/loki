@@ -5,15 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import re
-
 from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, FindVariables, is_dimension_constant
 )
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragmas_attached,
-    pragma_regions_attached, is_loki_pragma, get_pragma_parameters
+    is_loki_pragma, get_pragma_parameters
 )
 from loki.logging import info
 from loki.tools import as_tuple, flatten
@@ -76,28 +74,19 @@ class SCCAnnotateTransformation(Transformation):
                 f'{[a.name for a in private_arrays]}'
             )
 
-        mapper = {}
-        with pragma_regions_attached(routine):
-            for region in FindNodes(ir.PragmaRegion).visit(routine.body):
-                if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
-                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
-
-                        loops = FindNodes(ir.Loop).visit(region)
-                        assert len(loops) == 1
-                        pragma = ir.Pragma(keyword='acc', content=f'loop vector {reduction_clause[0]}')
-                        # Update loop and region in place to remove marker pragmas
-                        loops[0]._update(pragma=(pragma,))
-                        region._update(pragma=None, pragma_post=None)
-
         with pragmas_attached(routine, ir.Loop):
             for loop in FindNodes(ir.Loop).visit(routine.body):
-                if is_loki_pragma(loop.pragma, starts_with='loop vector'):
-                    # Construct pragma and wrap entire body in vector loop
-                    private_arrs = ', '.join(v.name for v in private_arrays)
-                    pragma = ()
-                    private_clause = '' if not private_arrays else f' private({private_arrs})'
-                    pragma = ir.Pragma(keyword='acc', content=f'loop vector{private_clause}')
-                    loop._update(pragma=(pragma,))
+                for pragma in as_tuple(loop.pragma):
+                    if is_loki_pragma(pragma, starts_with='loop vector reduction'):
+                        # Turn reduction pragmas into `!$acc` equivalent
+                        pragma._update(keyword='acc')
+                        continue
+
+                    if is_loki_pragma(pragma, starts_with='loop vector'):
+                        # Turn general vector pragmas into `!$acc` and add private clause
+                        private_arrs = ', '.join(v.name for v in private_arrays)
+                        private_clause = '' if not private_arrays else f' private({private_arrs})'
+                        pragma._update(keyword='acc', content=f'loop vector{private_clause}')
 
     @classmethod
     def kernel_annotate_sequential_loops_openacc(cls, routine):
