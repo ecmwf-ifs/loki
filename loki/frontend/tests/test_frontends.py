@@ -14,6 +14,7 @@ language features.
 
 # pylint: disable=too-many-lines
 
+import platform
 from pathlib import Path
 from time import perf_counter
 import numpy as np
@@ -946,6 +947,9 @@ END SUBROUTINE SOME_ROUTINE
     assert directives[1].text == '#endif'
 
 
+@pytest.mark.skipif(platform.system() == 'Darwin',
+    reason='Timeout utility test sporadically fails on MacOS CI runners.'
+)
 @pytest.mark.usefixtures('reset_regex_frontend_timeout')
 def test_regex_timeout():
     """
