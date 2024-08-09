@@ -733,7 +733,6 @@ subroutine test_inline(ydxfu, klon)
     real(kind=8)         ,intent(in)    ,optional  :: pvmax(1:klon)
     real(kind=8)         ,intent(in)    ,optional  :: psmin
     real(kind=8)         ,intent(in)    ,optional  :: psmax
-    type(toto), intent(in), optional :: dfmin
     
     if (present (psmin)) x = psmin
     if (present (psmax)) x = psmax
