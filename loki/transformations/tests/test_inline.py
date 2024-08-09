@@ -717,8 +717,7 @@ def test_inline_member_routines_with_optionals(frontend):
 subroutine test_inline(ydxfu, klon)
   implicit none
 
-  integer(kind=4), intent(in) :: klon, klev, kidia, kfdia, ktdia
-
+  integer(kind=4), intent(in) :: klon
   type(txfu)              ,intent(inout)            :: ydxfu
   type(mf_phys_out_type)  ,intent(in)               :: ydmf_phys_out
  
