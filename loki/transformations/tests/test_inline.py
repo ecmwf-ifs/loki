@@ -714,7 +714,11 @@ def test_inline_member_routines_with_optionals(frontend):
     evaluated for all variables types)
     """
     fcode = """
-subroutine test_inline(ydxfu, klon)
+subroutine test_inline(klon, ydxfu, ydmf_phys_out)
+
+  use yomxfu                  , only : txfu
+  use mf_phys_type_mod        , only : mf_phys_out_type
+
   implicit none
 
   integer(kind=4), intent(in) :: klon
