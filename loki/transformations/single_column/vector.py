@@ -24,7 +24,7 @@ from loki.types import BasicType
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.utilities import (
     get_integer_variable, get_loop_bounds, find_driver_loops,
-    get_local_arrays, check_routine_pragmas
+    get_local_arrays, check_routine_sequential
 )
 
 
@@ -99,7 +99,7 @@ class SCCDevectorTransformation(Transformation):
             # check if calls have been enriched
             if not call.routine is BasicType.DEFERRED:
                 # check if called routine is marked as sequential
-                if check_routine_pragmas(routine=call.routine, directive=None):
+                if check_routine_sequential(routine=call.routine):
                     continue
 
             if call in section:
@@ -414,6 +414,10 @@ class SCCRevectorTransformation(Transformation):
         targets = kwargs.get('targets', ())
 
         if role == 'kernel':
+            # Skip if kernel is marked as `!$loki routine seq`
+            if check_routine_sequential(routine):
+                return
+
             # Revector all marked vector sections within the kernel body
             routine.body = self.revector_section(routine, routine.body)
 
@@ -423,6 +427,9 @@ class SCCRevectorTransformation(Transformation):
 
                 # Mark sequential loops inside vector sections
                 self.mark_seq_loops(routine.body)
+
+            # Mark subroutine as vector parallel for later annotation
+            routine.spec.append(ir.Pragma(keyword='loki', content='routine vector'))
 
         if role == 'driver':
             with pragmas_attached(routine, ir.Loop):
