@@ -415,7 +415,7 @@ def map_call_to_procedure_body(call, caller):
         check for check in FindInlineCalls().visit(callee.body) if check.function == 'PRESENT'
     )
     present_map = {
-        check: sym.Literal('.true.') if check.arguments[0] in [arg.name for arg in call.arg_map] 
+        check: sym.Literal('.true.') if check.arguments[0] in [arg.name for arg in call.arg_map]
                                      else sym.Literal('.false.')
         for check in present_checks
     }
