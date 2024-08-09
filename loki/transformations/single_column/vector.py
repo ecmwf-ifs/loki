@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import re
+
 from more_itertools import split_at
 
 from loki.analyse import dataflow_analysis_attached
@@ -14,7 +16,7 @@ from loki.expression import (
 )
 from loki.ir import (
     nodes as ir, FindNodes, FindScopes, Transformer,
-    NestedTransformer, is_loki_pragma, pragmas_attached
+    NestedTransformer, is_loki_pragma, pragmas_attached, pragma_regions_attached
 )
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
@@ -319,6 +321,31 @@ class SCCRevectorTransformation(Transformation):
         }
         return Transformer(mapper).visit(section)
 
+    def mark_vector_reductions(self, routine, section):
+        """
+        Mark vector-reduction loops in marked vector-reduction
+        regions.
+
+        If a region explicitly marked with
+        ``!$loki vector-reduction(<reduction clause>)``/
+        ``!$loki end vector-reduction`` is encountered, we replace
+        existing ``!$loki loop vector`` loop pragmas and add the
+        reduction keyword and clause. These will be turned into
+        OpenACC equivalents by :any:`SCCAnnotate`.
+        """
+        with pragma_regions_attached(routine):
+            for region in FindNodes(ir.PragmaRegion).visit(section):
+                if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
+                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
+
+                        loops = FindNodes(ir.Loop).visit(region)
+                        assert len(loops) == 1
+                        pragma = ir.Pragma(keyword='loki', content=f'loop vector {reduction_clause[0]}')
+                        # Update loop and region in place to remove marker pragmas
+                        loops[0]._update(pragma=(pragma,))
+                        region._update(pragma=None, pragma_post=None)
+
+
     def mark_seq_loops(self, section):
         """
         Mark interior sequential loops in a thread-parallel section
@@ -390,8 +417,11 @@ class SCCRevectorTransformation(Transformation):
             # Revector all marked vector sections within the kernel body
             routine.body = self.revector_section(routine, routine.body)
 
-            # Mark sequential loops inside vector sections
             with pragmas_attached(routine, ir.Loop):
+                # Check for explicitly labelled vector-reduction regions
+                self.mark_vector_reductions(routine, routine.body)
+
+                # Mark sequential loops inside vector sections
                 self.mark_seq_loops(routine.body)
 
         if role == 'driver':
@@ -401,6 +431,9 @@ class SCCRevectorTransformation(Transformation):
                 for loop in driver_loops:
                     # Revector all marked sections within the driver loop body
                     loop._update(body=self.revector_section(routine, loop.body))
+
+                    # Check for explicitly labelled vector-reduction regions
+                    self.mark_vector_reductions(routine, loop.body)
 
                     # Mark sequential loops inside vector sections
                     self.mark_seq_loops(loop.body)
