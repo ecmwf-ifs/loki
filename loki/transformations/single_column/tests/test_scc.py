@@ -298,8 +298,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking):
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal,
-                                                directive='openacc', block_dim=blocking),)
+    scc_transform += (SCCAnnotateTransformation(directive='openacc', block_dim=blocking),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=['compute_column'])
         transform.apply(kernel, role='kernel')
@@ -407,9 +406,7 @@ def test_scc_nested(frontend, horizontal, blocking):
     scc_pipeline.apply(inner_kernel, role='kernel')
 
     # Apply annotate twice to test bailing out mechanism
-    scc_annotate = SCCAnnotateTransformation(
-        horizontal=horizontal, directive='openacc', block_dim=blocking
-    )
+    scc_annotate = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
     scc_annotate.apply(driver, role='driver', targets=['compute_column'])
     scc_annotate.apply(outer_kernel, role='kernel', targets=['compute_q'])
     scc_annotate.apply(inner_kernel, role='kernel')
@@ -782,12 +779,8 @@ def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
     assert pragmas[0].keyword == 'loki'
     assert pragmas[0].content == 'routine seq'
 
-    transformation = SCCAnnotateTransformation(
-        horizontal=horizontal, directive='openacc', block_dim=blocking
-    )
-    transformation.transform_subroutine(
-        routine, role='kernel', targets=['some_kernel',]
-    )
+    transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
+    transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.spec)
     assert len(pragmas) == 1
