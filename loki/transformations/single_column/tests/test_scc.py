@@ -753,9 +753,10 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_base_routine_seq_pragma(frontend, horizontal):
+def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
     """
-    Test that `!$loki routine seq` pragmas are replaced correctly by `!$acc routine seq` pragmas.
+    Test that `!$loki routine seq` pragmas are replaced correctly by
+    `!$acc routine seq` pragmas.
     """
 
     fcode = """
@@ -781,14 +782,17 @@ def test_scc_base_routine_seq_pragma(frontend, horizontal):
     assert pragmas[0].keyword == 'loki'
     assert pragmas[0].content == 'routine seq'
 
-    transformation = SCCBaseTransformation(horizontal=horizontal, directive='openacc')
-    transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
+    transformation = SCCAnnotateTransformation(
+        horizontal=horizontal, directive='openacc', block_dim=blocking
+    )
+    transformation.transform_subroutine(
+        routine, role='kernel', targets=['some_kernel',]
+    )
 
     pragmas = FindNodes(Pragma).visit(routine.spec)
     assert len(pragmas) == 1
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine seq'
-
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

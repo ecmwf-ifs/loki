@@ -21,7 +21,7 @@ from loki.logging import warning
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.utilities import (
     recursive_expression_map_update, get_integer_variable,
-    get_loop_bounds, check_routine_pragmas
+    get_loop_bounds, check_routine_sequential
 )
 from loki.transformations.single_column.base import SCCBaseTransformation
 
@@ -246,8 +246,8 @@ class BlockViewToFieldViewTransformation(Transformation):
         v_index = get_integer_variable(routine, name=self.horizontal.index)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
 
-        # Bail if routine is marked as sequential or routine has already been processed
-        if check_routine_pragmas(routine, directive=None):
+        # Bail if routine is marked as sequential
+        if check_routine_sequential(routine):
             return
 
         bounds = get_loop_bounds(routine, self.horizontal)

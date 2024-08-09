@@ -18,7 +18,7 @@ from loki.tools import as_tuple, flatten
 from loki.types import DerivedType
 
 from loki.transformations.utilities import (
-    find_driver_loops, get_local_arrays, check_routine_pragmas
+    find_driver_loops, get_local_arrays
 )
 
 
@@ -116,13 +116,19 @@ class SCCAnnotateTransformation(Transformation):
     @classmethod
     def kernel_annotate_subroutine_present_openacc(cls, routine):
         """
-        Insert ``!$acc data present`` annotations around the body of a subroutine.
+        Insert ``!$acc routine seq/vector`` directives and wrap
+        subroutine body in ``!$acc data present`` directives.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             The subroutine to which annotations will be added
         """
+
+        # Update `!$loki routine seq/vector` pragmas with `!$acc`
+        for pragma in FindNodes(ir.Pragma).visit(routine.ir):
+            if is_loki_pragma(pragma, starts_with='routine'):
+                pragma._update(keyword='acc')
 
         # Get the names of all array and derived type arguments
         args = [a for a in routine.arguments if isinstance(a, sym.Array)]
@@ -145,9 +151,6 @@ class SCCAnnotateTransformation(Transformation):
         # Wrap the routine body in `!$acc data present` markers
         # to ensure device-resident data is used for array and struct arguments.
         cls.kernel_annotate_subroutine_present_openacc(routine)
-
-        # Mark routine as `!$acc routine vector` to make it device-callable
-        routine.spec.append(ir.Pragma(keyword='acc', content='routine vector'))
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -180,9 +183,11 @@ class SCCAnnotateTransformation(Transformation):
             Subroutine to apply this transformation to.
         """
 
-        # Bail if routine is marked as sequential
-        if check_routine_pragmas(routine, self.directive):
-            return
+        # Bail if this routine has been processed before
+        for p in FindNodes(ir.Pragma).visit(routine.ir):
+            # Check if `!$acc routine` has already been added
+            if p.keyword.lower() == 'acc' and 'routine' in p.content.lower():
+                return
 
         if self.directive == 'openacc':
             self.insert_annotations(routine, self.horizontal)
