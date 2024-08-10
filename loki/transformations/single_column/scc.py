@@ -17,12 +17,14 @@ from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTransformation
 from loki.transformations.single_column.vector import (
-    SCCDevectorTransformation, SCCDemoteTransformation, SCCRevectorTransformation
+    SCCDevectorTransformation, SCCDemoteTransformation,
+    SCCRevectorTransformation, SCCRevectorOuterTransformation
 )
 
 
 __all__ = [
-    'SCCVectorPipeline', 'SCCHoistPipeline', 'SCCStackPipeline', 'SCCRawStackPipeline'
+    'SCCVectorPipeline', 'SCCHoistPipeline', 'SCCStackPipeline',
+    'SCCRawStackPipeline', 'SCCSeqPipeline',
 ]
 
 
@@ -219,5 +221,64 @@ SCCRawStackPipeline = partial(
         SCCRevectorTransformation,
         SCCAnnotateTransformation,
         TemporariesRawStackTransformation
+    )
+)
+
+
+"""
+Alternative Single Column Coalesced (SCC) transformation that
+retains sequential kernels and vectorises calls and remaining
+vector-sections in the driver.
+
+This tranformation will convert kernels with innermost vectorisation
+along a common horizontal dimension to a GPU-friendly loop-layout by
+stripping the horizontal dimension from all called kernel routines
+and demoting local array variables. The resulting kernel
+is marked as "routine seq", and a vector loop is inserted around the
+outermost call to a kernel call tree.
+
+The outer "driver" loop over blocks is used as the secondary dimension
+of parallelism, where the outher data indexing dimension
+(``block_dim``) is resolved in the first call to a "kernel"
+routine. This is equivalent to a so-called "gang-vector" parallisation
+scheme. The outer gang loop can also be marked with an explicit
+vector-length attribute to force warp-alignment for individual blocks.
+
+This :any:`Pipeline` applies the following :any:`Transformation`
+classes in sequence:
+1. :any:`SCCBaseTransformation` - Ensure utility variables and resolve
+   problematic code constructs.
+2. :any:`SCCDevectorTransformation` - Remove horizontal vector loops.
+3. :any:`SCCDemoteTransformation` - Demote local temporary array
+   variables where appropriate.
+4. :any:`SCCRevectorTransformation` - Re-insert the vecotr loops outermost,
+   according to identified vector sections.
+5. :any:`SCCAnnotateTransformation` - Annotate loops according to
+   programming model (``directive``).
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+"""
+SCCSeqPipeline = partial(
+    Pipeline, classes=(
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorOuterTransformation,
+        SCCAnnotateTransformation
     )
 )
