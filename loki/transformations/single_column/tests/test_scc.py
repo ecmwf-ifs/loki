@@ -295,13 +295,11 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking):
     driver.enrich(kernel)  # Attach kernel source to driver call
 
     # Test OpenACC annotations on non-hoisted version
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(directive='openacc', block_dim=blocking),)
-    for transform in scc_transform:
-        transform.apply(driver, role='driver', targets=['compute_column'])
-        transform.apply(kernel, role='kernel')
+    pipeline = SCCVectorPipeline(
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
+    )
+    pipeline.apply(driver, role='driver', targets=['compute_column'])
+    pipeline.apply(kernel, role='kernel')
 
     # Ensure routine is anntoated at vector level
     pragmas = FindNodes(Pragma).visit(kernel.ir)
@@ -821,7 +819,6 @@ def test_scc_vector_reduction(frontend, horizontal, blocking):
     with pragma_regions_attached(routine):
         region = FindNodes(PragmaRegion).visit(routine.body)
         assert is_loki_pragma(region[0].pragma, starts_with = 'vector-reduction')
-
 
     scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
 
