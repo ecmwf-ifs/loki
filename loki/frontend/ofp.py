@@ -208,6 +208,27 @@ class OFP2IR(GenericVisitor):
         body = as_tuple(self.visit(o.find('body'), **kwargs))
         # Store full lines with loop body for easy replacement
         source = extract_source(o.attrib, self._raw_source, full_lines=True)
+
+        if o.attrib.get('type') == 'forall':
+            named_bounds = ()
+            for var in o.findall('header/index-variables/index-variable'):
+                # forall range
+                variable = sym.Variable(name=var.attrib['name'])
+                lower = self.visit(var.find('lower-bound'), **kwargs)
+                upper = self.visit(var.find('upper-bound'), **kwargs)
+                bounds = sym.RangeIndex((lower, upper))
+                named_bounds += ((variable, bounds),)
+
+                # mask
+                if (operation := o.find('header/operation')) is not None:
+                    mask = self.visit(operation, **kwargs)
+                else:
+                    mask = None
+                forall_stmt = o.find('forall-stmt')
+                inline = forall_stmt.attrib['line_begin'] == forall_stmt.attrib['line_end']
+            return ir.Forall(name=None, named_bounds=named_bounds, body=body,
+                             mask=mask, inline=inline, source=source)
+
         # Extract loop label if any
         loop_label = o.find('do-stmt').attrib['digitString'] or None
         construct_name = o.find('do-stmt').attrib['id'] or None
@@ -757,6 +778,8 @@ class OFP2IR(GenericVisitor):
                 return self.visit(o.find('module-nature'), **kwargs)
             if o.find('enum-def-stmt') is not None:
                 return self.create_enum(o, **kwargs)
+            if o.find('cray-pointer-stmt') is not None:
+                return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
             raise ValueError('Unsupported declaration')
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)

@@ -12,7 +12,10 @@ from loki.tools import as_tuple
 from loki.types import SymbolAttributes, BasicType
 from loki.expression import Variable, Array, RangeIndex, FindVariables, SubstituteExpressions
 from loki.transformations.sanitise import resolve_associates
-from loki.transformations.utilities import recursive_expression_map_update
+from loki.transformations.utilities import (
+    recursive_expression_map_update, get_integer_variable,
+    get_loop_bounds, check_routine_pragmas
+)
 from loki.transformations.single_column.base import SCCBaseTransformation
 
 __all__ = ['BlockViewToFieldViewTransformation', 'InjectBlockIndexTransformation']
@@ -41,14 +44,14 @@ class BlockViewToFieldViewTransformation(Transformation):
         enddo
 
     As the rank of ``my_struct%p_field`` is one greater than that of ``my_struct%p``, we would need to also apply
-    the :any:`InjectBlockIndexTransformation` to obtain semantically correct code: 
+    the :any:`InjectBlockIndexTransformation` to obtain semantically correct code:
 
     .. code-block:: fortran
 
         do jlon=1,nproma
           mystruct%p_field(jlon,:,ibl) = 0.
         enddo
-    
+
     Specific arrays in individual routines can also be marked for exclusion from this transformation by assigning
     them to the `exclude_arrays` list in the :any:`SchedulerConfig`.
 
@@ -232,14 +235,14 @@ class BlockViewToFieldViewTransformation(Transformation):
 
         # Sanitize the subroutine
         resolve_associates(routine)
-        v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
+        v_index = get_integer_variable(routine, name=self.horizontal.index)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
 
         # Bail if routine is marked as sequential or routine has already been processed
-        if SCCBaseTransformation.check_routine_pragmas(routine, directive=None):
+        if check_routine_pragmas(routine, directive=None):
             return
 
-        bounds = SCCBaseTransformation.get_horizontal_loop_bounds(routine, self.horizontal)
+        bounds = get_loop_bounds(routine, self.horizontal)
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
         # for kernels we process the entire body
@@ -372,13 +375,14 @@ class InjectBlockIndexTransformation(Transformation):
     def process_body(self, body, block_index, targets, exclude_arrays):
         # The logic for callstatement args differs from other variables in the body,
         # so we build a list to filter
-        call_args = [a for call in FindNodes(ir.CallStatement).visit(body) for a in call.arg_map.values()]
+        call_args = []
 
         # First get rank mismatched call statement args
         vmap = {}
         for call in FindNodes(ir.CallStatement).visit(body):
             if call.name in targets:
                 for dummy, arg in call.arg_map.items():
+                    call_args += [arg]
                     arg_rank = self.get_call_arg_rank(arg)
                     dummy_rank = len(getattr(dummy, 'shape', ()))
                     if arg_rank - 1 == dummy_rank:

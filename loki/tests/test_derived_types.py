@@ -9,7 +9,6 @@
 from sys import getrecursionlimit
 from inspect import stack
 
-from pathlib import Path
 import re
 import pytest
 import numpy as np
@@ -25,19 +24,14 @@ from loki.build import jit_compile, jit_compile_lib, clean_test, Obj
 from loki.frontend import available_frontends, OMNI, OFP
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
-@pytest.fixture(scope='module', name='builder')
-def fixture_builder(here):
-    yield Builder(source_dirs=here, build_dir=here/'build')
+@pytest.fixture(name='builder')
+def fixture_builder(tmp_path):
+    yield Builder(source_dirs=tmp_path, build_dir=tmp_path)
     Obj.clear_cache()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_simple_loops(here, frontend):
+def test_simple_loops(tmp_path, frontend):
     """
     Test simple vector/matrix arithmetic with a derived type
     """
@@ -69,7 +63,7 @@ contains
   end subroutine simple_loops
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['simple_loops']
 
     # Ensure type info is attached correctly
@@ -82,7 +76,7 @@ end module
     assert item_vars[4].name == 'item%matrix' and item_vars[4].shape == (3, 3)
     assert item_vars[5].name == 'item%scalar' and item_vars[5].type.shape is None
 
-    filepath = here/(f'derived_types_simple_loops_{frontend}.f90')
+    filepath = tmp_path/(f'derived_types_simple_loops_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.explicit()
@@ -96,7 +90,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_explicit(here, frontend):
+def test_array_indexing_explicit(tmp_path, frontend):
     """
     Test simple vector/matrix arithmetic with a derived type
     """
@@ -123,8 +117,8 @@ contains
   end subroutine array_indexing_explicit
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/(f'derived_types_array_indexing_explicit_{frontend}.f90')
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    filepath = tmp_path/(f'derived_types_array_indexing_explicit_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.explicit()
@@ -136,7 +130,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_deferred(here, frontend):
+def test_array_indexing_deferred(tmp_path, frontend):
     """
     Test simple vector/matrix arithmetic with a derived type
     with dynamically allocated arrays.
@@ -177,8 +171,8 @@ contains
   end subroutine array_indexing_deferred
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/(f'derived_types_array_indexing_deferred_{frontend}.f90')
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    filepath = tmp_path/(f'derived_types_array_indexing_deferred_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.deferred()
@@ -192,7 +186,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_nested(here, frontend):
+def test_array_indexing_nested(tmp_path, frontend):
     """
     Test simple vector/matrix arithmetic with a nested derived type
     """
@@ -226,8 +220,8 @@ contains
   end subroutine array_indexing_nested
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/(f'derived_types_array_indexing_nested_{frontend}.f90')
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    filepath = tmp_path/(f'derived_types_array_indexing_nested_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.nested()
@@ -242,7 +236,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_deferred_array(here, frontend):
+def test_deferred_array(tmp_path, frontend):
     """
     Test simple vector/matrix with an array of derived types
     """
@@ -304,8 +298,8 @@ contains
   end subroutine deferred_array
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/(f'derived_types_deferred_array_{frontend}.f90')
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    filepath = tmp_path/(f'derived_types_deferred_array_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.deferred()
@@ -319,7 +313,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_caller(here, frontend):
+def test_derived_type_caller(tmp_path, frontend):
     """
     Test a simple call to another routine specifying a derived type as argument
     """
@@ -360,8 +354,8 @@ contains
 
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/(f'derived_types_derived_type_caller_{frontend}.f90')
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    filepath = tmp_path/(f'derived_types_derived_type_caller_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     # Test the generated identity
@@ -377,7 +371,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_case_sensitivity(here, frontend):
+def test_case_sensitivity(tmp_path, frontend):
     """
     Some abuse of the case agnostic behaviour of Fortran
     """
@@ -403,8 +397,8 @@ contains
   end subroutine check_case
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/(f'derived_types_case_sensitivity_{frontend}.f90')
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    filepath = tmp_path/(f'derived_types_case_sensitivity_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.case_sensitive()
@@ -421,7 +415,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_bind_c(frontend):
+def test_derived_type_bind_c(frontend, tmp_path):
     # Example code from F2008, Note 15.13
     fcode = """
 module derived_type_bind_c
@@ -438,14 +432,14 @@ module derived_type_bind_c
 end module derived_type_bind_c
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     myftype = module.typedef_map['myftype']
     assert myftype.bind_c is True
     assert ', BIND(C)' in fgen(myftype)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_inheritance(frontend):
+def test_derived_type_inheritance(frontend, tmp_path):
     fcode = """
 module derived_type_private_mod
     implicit none
@@ -474,7 +468,7 @@ contains
 end module derived_type_private_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     base_type = module.typedef_map['base_type']
     some_type = module.typedef_map['some_type']
@@ -495,7 +489,7 @@ end module derived_type_private_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_private(frontend):
+def test_derived_type_private(frontend, tmp_path):
     fcode = """
 module derived_type_private_mod
     implicit none
@@ -506,7 +500,7 @@ module derived_type_private_mod
 end module derived_type_private_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     priv_type = module.typedef_map['priv_type']
     assert priv_type.private is True
@@ -515,7 +509,7 @@ end module derived_type_private_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_public(frontend):
+def test_derived_type_public(frontend, tmp_path):
     fcode = """
 module derived_type_public_mod
     implicit none
@@ -526,7 +520,7 @@ module derived_type_public_mod
 end module derived_type_public_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     pub_type = module.typedef_map['pub_type']
     assert pub_type.public is True
@@ -535,7 +529,7 @@ end module derived_type_public_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_private_comp(frontend):
+def test_derived_type_private_comp(frontend, tmp_path):
     fcode = """
 module derived_type_private_comp_mod
     implicit none
@@ -569,7 +563,7 @@ contains
 end module derived_type_private_comp_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     some_private_comp_type = module.typedef_map['some_private_comp_type']
     type_bound_proc_type = module.typedef_map['type_bound_proc_type']
@@ -596,7 +590,7 @@ end module derived_type_private_comp_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_procedure_designator(frontend):
+def test_derived_type_procedure_designator(frontend, tmp_path):
     mcode = """
 module derived_type_procedure_designator_mod
   implicit none
@@ -643,14 +637,14 @@ subroutine derived_type_procedure_designator(val)
 end subroutine derived_type_procedure_designator
     """.strip()
 
-    module = Module.from_source(mcode, frontend=frontend)
+    module = Module.from_source(mcode, frontend=frontend, xmods=[tmp_path])
     assert 'some_type' in module.typedef_map
     assert 'other_type' in module.typedef_map
     assert 'some_type' in module.symbol_attrs
     assert 'other_type' in module.symbol_attrs
 
     # First, with external definitions (generates xmod for OMNI)
-    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=[module])
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=[module], xmods=[tmp_path])
 
     for name in ('some_type', 'other_type'):
         assert name in routine.symbol_attrs
@@ -696,7 +690,7 @@ end subroutine derived_type_procedure_designator
     # TODO: verify correct type association of calls to type-bound procedures
 
     # Next, without external definitions
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     assert 'some_type' not in routine.symbol_attrs
     assert 'other_type' not in routine.symbol_attrs
     assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
@@ -706,7 +700,7 @@ end subroutine derived_type_procedure_designator
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_bind_attrs(frontend):
+def test_derived_type_bind_attrs(frontend, tmp_path):
     """
     Test attribute representation in type-bound procedures
     """
@@ -740,7 +734,7 @@ contains
 end module derived_types_bind_attrs_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     some_type = module.typedef_map['some_type']
 
@@ -777,7 +771,7 @@ end module derived_types_bind_attrs_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_bind_deferred(frontend):
+def test_derived_type_bind_deferred(frontend, tmp_path):
     # Example from https://www.ibm.com/docs/en/xffbg/121.141?topic=types-abstract-deferred-bindings-fortran-2003
     fcode = """
 module derived_type_bind_deferred_mod
@@ -796,7 +790,7 @@ END INTERFACE
 end module derived_type_bind_deferred_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     file_handle = module.typedef_map['file_handle']
     assert len(file_handle.body) == 2
@@ -813,7 +807,7 @@ end module derived_type_bind_deferred_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_final_generic(frontend):
+def test_derived_type_final_generic(frontend, tmp_path):
     """
     Test derived types with generic and final bindings
     """
@@ -869,7 +863,7 @@ contains
 end module derived_type_final_generic_mod
     """.strip()
 
-    mod = Module.from_source(fcode, frontend=frontend)
+    mod = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     hdf5_file = mod.typedef_map['hdf5_file']
     proc_decls = FindNodes(ProcedureDeclaration).visit(hdf5_file.body)
     assert len(proc_decls) == 5
@@ -897,7 +891,7 @@ end module derived_type_final_generic_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_clone(frontend):
+def test_derived_type_clone(frontend, tmp_path):
     """
     Test cloning of derived types
     """
@@ -911,7 +905,7 @@ module derived_types_clone_mod
   end type explicit
 end module
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     explicit = module.typedef_map['explicit']
     other = explicit.clone(name='other')
@@ -926,7 +920,7 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_linked_list(frontend):
+def test_derived_type_linked_list(frontend, tmp_path):
     """
     Test correct initialization of derived type members that create a circular
     dependency
@@ -962,7 +956,7 @@ contains
 end module derived_type_linked_list
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Test correct instantiation and association of module-level variables
     for name in ('beg', 'cur'):
@@ -1003,7 +997,7 @@ end module derived_type_linked_list
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_nested_procedure_call(frontend):
+def test_derived_type_nested_procedure_call(frontend, tmp_path):
     """
     Test correct representation of inline calls and call statements for
     type-bound procedures in nested derived types.
@@ -1045,7 +1039,7 @@ contains
 end module derived_type_nested_proc_call_mod
     """.strip()
 
-    mod = Module.from_source(fcode, frontend=frontend)
+    mod = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     assignment = FindNodes(Assignment).visit(mod['exists'].body)
     assert len(assignment) == 1
@@ -1065,7 +1059,7 @@ end module derived_type_nested_proc_call_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_sequence(frontend):
+def test_derived_type_sequence(frontend, tmp_path):
     """
     Verify derived types with ``SEQUENCE`` stmt work as expected
     """
@@ -1082,16 +1076,19 @@ module derived_type_sequence
 end module derived_type_sequence
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     numeric_seq = module.typedef_map['numeric_seq']
     assert 'SEQUENCE' in fgen(numeric_seq)
 
 
-@pytest.fixture(scope='module', name='shadowed_typedef_symbols_fcode')
-def fixture_shadowed_typedef_symbols_fcode(here, builder):
+@pytest.fixture(name='shadowed_typedef_symbols_fcode')
+def fixture_shadowed_typedef_symbols_fcode(tmp_path, builder):
+    # Use a bespoke module name to avoid name clashes
+    module_name = f'rad_rand_numb_{tmp_path.name[-4:]}'
+
     # Excerpt from ecrad's radiation_random_numbers.F90
-    fcode = """
-module radiation_random_numbers
+    fcode = f"""
+module {module_name}
 
   implicit none
 
@@ -1136,15 +1133,15 @@ contains
     maxstreams = rng%nmaxstreams
   end subroutine rng_init
 
-end module radiation_random_numbers
+end module {module_name}
     """.strip()
 
     # Verify that this code behaves as expected
-    ref_path = here/'radiation_random_numbers.F90'
+    ref_path = tmp_path/'radiation_random_numbers.F90'
     ref_path.write_text(fcode)
 
-    ref_lib = jit_compile_lib([ref_path], path=here, name='radiation_random_numbers', builder=builder)
-    ref_mod = ref_lib.radiation_random_numbers
+    ref_lib = jit_compile_lib([ref_path], path=tmp_path, name=module_name, builder=builder)
+    ref_mod = getattr(ref_lib, module_name)
     ref_default_shape, ref_default_maxstreams = ref_mod.rng_default()
     ref_init_shape, ref_init_maxstreams = ref_mod.rng_init()
 
@@ -1159,12 +1156,12 @@ end module radiation_random_numbers
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_rescope_symbols_shadowed(here, shadowed_typedef_symbols_fcode, frontend):
+def test_derived_type_rescope_symbols_shadowed(tmp_path, shadowed_typedef_symbols_fcode, frontend):
     """
     Test the rescoping of symbols with shadowed symbols in a typedef.
     """
     # Parse into Loki IR
-    module = Module.from_source(shadowed_typedef_symbols_fcode, frontend=frontend)
+    module = Module.from_source(shadowed_typedef_symbols_fcode, frontend=frontend, xmods=[tmp_path])
     mod_var = module.variable_map['nmaxstreams']
     assert mod_var.scope is module
 
@@ -1197,7 +1194,7 @@ def test_derived_type_rescope_symbols_shadowed(here, shadowed_typedef_symbols_fc
         assert isinstance(tdef_var.type.initial, Scalar)
 
         # Test the outcome works as expected
-        filepath = here/f'{module.name}_{frontend}.F90'
+        filepath = tmp_path/f'{module.name}_{frontend}.F90'
         mod = jit_compile(module, filepath=filepath, objname=module.name)
 
         default_shape, default_maxstreams = mod.rng_default()
@@ -1214,7 +1211,7 @@ def test_derived_type_rescope_symbols_shadowed(here, shadowed_typedef_symbols_fc
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[
     (OFP, 'OFP cannot parse the Fortran')
 ]))
-def test_derived_types_character_array_subscript(frontend):
+def test_derived_types_character_array_subscript(frontend, tmp_path):
     fcode = """
 module derived_type_char_arr_mod
     implicit none
@@ -1241,7 +1238,7 @@ contains
 end module derived_type_char_arr_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     conditionals = FindNodes(Conditional).visit(module['some_routine'].body)
     assert all(isinstance(c.condition.left, StringSubscript) for c in conditionals)
     assert [fgen(c.condition.left) for c in conditionals] == [
@@ -1250,7 +1247,7 @@ end module derived_type_char_arr_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_types_nested_subscript(frontend):
+def test_derived_types_nested_subscript(frontend, tmp_path):
     fcode = """
 module derived_types_nested_subscript
     implicit none
@@ -1287,7 +1284,7 @@ contains
 end module derived_types_nested_subscript
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     calls = FindNodes(CallStatement).visit(module['driver'].body)
     assert len(calls) == 1
     assert str(calls[0].name) == 'outers(i)%inner(j)%some_routine'
@@ -1295,7 +1292,7 @@ end module derived_types_nested_subscript
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_types_nested_type(frontend):
+def test_derived_types_nested_type(frontend, tmp_path):
     fcode_module = """
 module some_mod
     implicit none
@@ -1338,8 +1335,8 @@ subroutine driver
 end subroutine driver
     """.strip()
 
-    module = Module.from_source(fcode_module, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[module])
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[module], xmods=[tmp_path])
 
     other_routine = module['other_routine']
     call = other_routine.body.body[0]
@@ -1378,7 +1375,7 @@ end subroutine driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_types_abstract_deferred_procedure(frontend):
+def test_derived_types_abstract_deferred_procedure(frontend, tmp_path):
     fcode = """
 module some_mod
     implicit none
@@ -1403,7 +1400,7 @@ module some_mod
     end interface
 end module some_mod
     """.strip()
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     typedef = module['abstract_type']
     assert typedef.abstract is True
     assert typedef.variables == ('some_proc', 'other_proc')
@@ -1420,7 +1417,7 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_derived_type_symbol_inheritance(frontend):
+def test_derived_type_symbol_inheritance(frontend, tmp_path):
     fcode = """
 module some_mod
 implicit none
@@ -1483,7 +1480,7 @@ end subroutine do_something_else
 end module some_mod
 """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     base_type = module['base_type']
     extended_type = module['extended_type']

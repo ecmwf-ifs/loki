@@ -55,7 +55,7 @@ def fixture_reset_regex_frontend_timeout():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_check_alloc_opts(here, frontend):
+def test_check_alloc_opts(tmp_path, frontend):
     """
     Test the use of SOURCE and STAT in allocate
     """
@@ -107,7 +107,7 @@ end module alloc_mod
     """.strip()
 
     # Parse the source and validate the IR
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     allocations = FindNodes(ir.Allocation).visit(module['check_alloc_source'].body)
     assert len(allocations) == 2
@@ -129,7 +129,7 @@ end module alloc_mod
     assert module.to_fortran().lower().count(', stat=stat') == 2
 
     # Generate Fortran and test it
-    filepath = here/(f'frontends_check_alloc_{frontend}.f90')
+    filepath = tmp_path/(f'frontends_check_alloc_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='alloc_mod')
 
     item = mod.explicit()
@@ -150,7 +150,7 @@ end module alloc_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_associates(here, frontend):
+def test_associates(tmp_path, frontend):
     """Test the use of associate to access and modify other items"""
 
     fcode = """
@@ -208,7 +208,7 @@ contains
 end module
 """
     # Test the internals
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['associates']
     variables = FindVariables().visit(routine.body)
     if frontend == OMNI:
@@ -227,7 +227,7 @@ end module
                 assert var.scope is routine
 
     # Test the generated module
-    filepath = here/(f'derived_types_associates_{frontend}.f90')
+    filepath = tmp_path/(f'derived_types_associates_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.explicit()
@@ -277,7 +277,7 @@ END SUBROUTINE
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_associates_expr(here, frontend):
+def test_associates_expr(tmp_path, frontend):
     """Verify that associates with expressions are supported"""
     fcode = """
 subroutine associates_expr(in, out)
@@ -306,7 +306,7 @@ end subroutine associates_expr
     assert variables['b'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
     assert variables['b'].type.shape == ('3',)
 
-    filepath = here/(f'associates_expr_{frontend}.f90')
+    filepath = tmp_path/(f'associates_expr_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     a = np.array([1, 2, 3], dtype='i')
     b = np.zeros(3, dtype='i')
@@ -316,7 +316,7 @@ end subroutine associates_expr
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_enum(here, frontend):
+def test_enum(tmp_path, frontend):
     """Verify that enums are represented correctly"""
     # F2008, Note 4.67
     fcode = """
@@ -359,7 +359,7 @@ end subroutine test_enum
         assert f'! Comment {i}' in code
 
     # Check fgen produces valid code and runs
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     out = function()
     assert out == 23
@@ -370,7 +370,7 @@ end subroutine test_enum
     xfail=[(OFP, 'OFP fails to parse parameterized types')]
 ))
 @pytest.mark.usefixtures('reset_frontend_mode')
-def test_frontend_strict_mode(frontend):
+def test_frontend_strict_mode(frontend, tmp_path):
     """
     Verify that frontends fail on unsupported features if strict mode is enabled
     """
@@ -387,10 +387,10 @@ end module frontend_strict_mode
     """
     config['frontend-strict-mode'] = True
     with pytest.raises(NotImplementedError):
-        _ = Module.from_source(fcode, frontend=frontend)
+        Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     config['frontend-strict-mode'] = False
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     assert 'matrix' in module.symbol_attrs
     assert 'matrix' in module.typedef_map
 
@@ -1403,7 +1403,7 @@ end module preproc_in_contains
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_frontend_pragma_vs_comment(frontend):
+def test_frontend_pragma_vs_comment(frontend, tmp_path):
     """
     Make sure pragmas and comments are identified correctly
     """
@@ -1423,7 +1423,7 @@ module frontend_pragma_vs_comment
 end module frontend_pragma_vs_comment
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     pragmas = FindNodes(ir.Pragma).visit(module.ir)
     comments = FindNodes(ir.Comment).visit(module.ir)
     assert len(pragmas) == 2
@@ -1622,7 +1622,7 @@ END SUBROUTINE DOT_PROD_SP_2D
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for prefix implemented')]))
-def test_regex_prefix(frontend):
+def test_regex_prefix(frontend, tmp_path):
     fcode = """
 module some_mod
     implicit none
@@ -1647,7 +1647,7 @@ end module some_mod
     source = Sourcefile.from_source(fcode, frontend=REGEX)
     assert source['f_elem'].prefix == ('pure elemental real',)
     assert source['fib'].prefix == ('pure recursive integer',)
-    source.make_complete(frontend=frontend)
+    source.make_complete(frontend=frontend, xmods=[tmp_path])
     assert tuple(p.lower() for p in source['f_elem'].prefix) == ('pure', 'elemental')
     assert tuple(p.lower() for p in source['fib'].prefix) == ('pure', 'recursive')
 
@@ -2025,7 +2025,7 @@ end subroutine routine_variables_dimensions
     assert isinstance(routine.variable_map['v6'].shape[2], sym.Quotient)
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_import_of_private_symbols(here, frontend):
+def test_import_of_private_symbols(tmp_path, frontend):
     """
     Verify that only public symbols are imported from other modules.
     """
@@ -2055,9 +2055,11 @@ contains
 end module mod_main
     """
 
-    mod_private = Module.from_source(code_mod_private, frontend=frontend)
-    mod_public = Module.from_source(code_mod_public, frontend=frontend)
-    mod_main = Module.from_source(code_mod_main, frontend=frontend, definitions=[mod_private, mod_public])
+    mod_private = Module.from_source(code_mod_private, frontend=frontend, xmods=[tmp_path])
+    mod_public = Module.from_source(code_mod_public, frontend=frontend, xmods=[tmp_path])
+    mod_main = Module.from_source(
+        code_mod_main, frontend=frontend, definitions=[mod_private, mod_public], xmods=[tmp_path]
+    )
     var = mod_main.subroutines[0].body.body[0].rhs
     # Check if this is really our symbol
     assert var.name == "var"

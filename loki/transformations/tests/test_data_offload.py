@@ -539,7 +539,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_global_var_import(here, config, frontend):
+def test_transformation_global_var_import(here, config, frontend, tmp_path):
     """
     Test the generation of offload instructions of global variable imports.
     """
@@ -547,7 +547,7 @@ def test_transformation_global_var_import(here, config, frontend):
         'driver': {'role': 'driver'}
     }
 
-    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend, xmods=[tmp_path])
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarOffloadTransformation())
 
@@ -603,7 +603,7 @@ def test_transformation_global_var_import(here, config, frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_global_var_import_derived_type(here, config, frontend):
+def test_transformation_global_var_import_derived_type(here, config, frontend, tmp_path):
     """
     Test the generation of offload instructions of derived-type global variable imports.
     """
@@ -613,7 +613,7 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
         'driver_derived_type': {'role': 'driver'}
     }
 
-    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend, xmods=[tmp_path])
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarOffloadTransformation())
 
@@ -665,7 +665,7 @@ def test_transformation_global_var_import_derived_type(here, config, frontend):
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('hoist_parameters', (False, True))
 @pytest.mark.parametrize('ignore_modules', (None, ('moduleb',)))
-def test_transformation_global_var_hoist(here, config, frontend, hoist_parameters, ignore_modules):
+def test_transformation_global_var_hoist(here, config, frontend, hoist_parameters, ignore_modules, tmp_path):
     """
     Test hoisting of global variable imports.
     """
@@ -674,7 +674,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
         'driver': {'role': 'driver'}
     }
 
-    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend, xmods=[tmp_path])
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters,
         ignore_modules=ignore_modules))
@@ -767,7 +767,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('hoist_parameters', (False, True))
-def test_transformation_global_var_derived_type_hoist(here, config, frontend, hoist_parameters):
+def test_transformation_global_var_derived_type_hoist(here, config, frontend, hoist_parameters, tmp_path):
     """
     Test hoisting of derived-type global variable imports.
     """
@@ -777,7 +777,7 @@ def test_transformation_global_var_derived_type_hoist(here, config, frontend, ho
         'driver_derived_type': {'role': 'driver'}
     }
 
-    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend)
+    scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend, xmods=[tmp_path])
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters))
 

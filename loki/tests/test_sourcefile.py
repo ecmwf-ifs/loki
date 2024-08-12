@@ -25,14 +25,14 @@ def fixture_here():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sourcefile_properties(here, frontend):
+def test_sourcefile_properties(here, frontend, tmp_path):
     """
     Test that all subroutines and functions are discovered
     and exposed via `subroutines` and `all_subroutines` properties.
     """
     # pylint: disable=no-member
     filepath = here/'sources/sourcefile.f90'
-    source = Sourcefile.from_file(filepath, frontend=frontend)
+    source = Sourcefile.from_file(filepath, frontend=frontend, xmods=[tmp_path])
     assert len(source.subroutines) == 3
     assert len(source.all_subroutines) == 5
 
@@ -50,7 +50,7 @@ def test_sourcefile_properties(here, frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sourcefile_from_source(frontend):
+def test_sourcefile_from_source(frontend, tmp_path):
     """
     Test the `from_source` constructor for `Sourcefile` objects.
     """
@@ -93,7 +93,7 @@ function function_d(d)
   d = 6
 end function function_d
 """.strip()
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     assert len(source.subroutines) == 3
     assert len(source.all_subroutines) == 5
 
@@ -194,7 +194,7 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for statement functions')]))
-def test_sourcefile_cpp_stmt_func(here, frontend):
+def test_sourcefile_cpp_stmt_func(here, frontend, tmp_path):
     """
     Test the correct identification of statement functions
     after inlining by preprocessor.
@@ -202,7 +202,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
     sourcepath = here/'sources'
     filepath = sourcepath/'sourcefile_cpp_stmt_func.F90'
 
-    source = Sourcefile.from_file(filepath, includes=sourcepath, preprocess=True, frontend=frontend)
+    source = Sourcefile.from_file(filepath, includes=sourcepath, preprocess=True, frontend=frontend, xmods=[tmp_path])
     module = source['cpp_stmt_func_mod']
     module.name += f'_{frontend!s}'
 
@@ -220,7 +220,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
             assert decl.source is not None
 
     # Generate code and compile
-    filepath = here/f'{module.name}.f90'
+    filepath = tmp_path/f'{module.name}.f90'
     mod = jit_compile(source, filepath=filepath, objname=module.name)
 
     # Verify it produces correct results
@@ -234,7 +234,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sourcefile_lazy_construction(frontend):
+def test_sourcefile_lazy_construction(frontend, tmp_path):
     """
     Test delayed ("lazy") parsing of sourcefile content
     """
@@ -291,7 +291,7 @@ end function function_d
 
     # Trigger the full parse
     try:
-        source.make_complete(frontend=frontend)
+        source.make_complete(frontend=frontend, xmods=[tmp_path])
     except CalledProcessError as ex:
         if frontend == OMNI and ex.returncode == -11:
             pytest.xfail('F_Front segfault is a known issue on some platforms')

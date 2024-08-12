@@ -10,12 +10,12 @@ from loki.expression import (
     symbols as sym, FindExpressions, SubstituteExpressions
 )
 from loki.ir import nodes as ir, FindNodes, Transformer
-from loki.logging import debug
 from loki.tools import as_tuple
-from loki.types import SymbolAttributes, BasicType
-
 
 from loki.transformations.sanitise import resolve_associates
+from loki.transformations.utilities import (
+    get_integer_variable, get_loop_bounds, check_routine_pragmas
+)
 
 
 __all__ = ['SCCBaseTransformation']
@@ -42,89 +42,6 @@ class SCCBaseTransformation(Transformation):
 
         assert directive in [None, 'openacc']
         self.directive = directive
-
-    @classmethod
-    def check_routine_pragmas(cls, routine, directive):
-        """
-        Check if routine is marked as sequential or has already been processed.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to perform checks on.
-        directive: string or None
-            Directives flavour to use for parallelism annotations; either
-            ``'openacc'`` or ``None``.
-        """
-
-        pragmas = FindNodes(ir.Pragma).visit(routine.ir)
-        routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
-        routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
-
-        seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
-        if seq_pragmas:
-            loki_seq_pragmas = [r for r in routine_pragmas if 'loki' == r.keyword.lower()]
-            if loki_seq_pragmas:
-                if directive == 'openacc':
-                    # Mark routine as acc seq
-                    mapper = {seq_pragmas[0]: None}
-                    routine.spec = Transformer(mapper).visit(routine.spec)
-                    routine.body = Transformer(mapper).visit(routine.body)
-
-                    # Append the acc pragma to routine.spec, regardless of where the corresponding
-                    # loki pragma is found
-                    routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
-            return True
-
-        vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
-        if vec_pragmas:
-            if directive == 'openacc':
-                return True
-
-        return False
-
-    @classmethod
-    def get_horizontal_loop_bounds(cls, routine, horizontal):
-        """
-        Check for horizontal loop bounds in a :any:`Subroutine`.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to perform checks on.
-        horizontal : :any:`Dimension`
-            :any:`Dimension` object describing the variable conventions used in code
-            to define the horizontal data dimension and iteration space.
-        """
-
-        bounds = ()
-        variables = routine.variables
-        for name, _bounds in zip(['start', 'end'], horizontal.bounds_expressions):
-            for bound in _bounds:
-                if bound.split('%', maxsplit=1)[0] in variables:
-                    bounds += (bound,)
-                    break
-            else:
-                raise RuntimeError(f'No horizontol {name} variable matching {_bounds[0]} found in {routine.name}')
-
-        return bounds
-
-    @classmethod
-    def get_integer_variable(cls, routine, name):
-        """
-        Find a local variable in the routine, or create an integer-typed one.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            The subroutine in which to find the variable
-        name : string
-            Name of the variable to find the in the routine.
-        """
-        if not (v_index := routine.symbol_map.get(name, None)):
-            dtype = SymbolAttributes(BasicType.INTEGER)
-            v_index = sym.Variable(name=name, type=dtype, scope=routine)
-        return v_index
 
     @classmethod
     def resolve_masked_stmts(cls, routine, loop_variable):
@@ -180,17 +97,6 @@ class SCCBaseTransformation(Transformation):
 
         bounds_str = f'{bounds[0]}:{bounds[1]}'
 
-        variable_map = routine.variable_map
-        try:
-            bounds_v = (routine.resolve_typebound_var(bounds[0], variable_map),
-                        routine.resolve_typebound_var(bounds[1], variable_map))
-        except KeyError:
-            debug(
-                'SCCBaseTransformation.resolve_vector_dimension: '
-                f'Dimension bound {bounds[0]} or {bounds[1]} not found in {routine.name}.'
-            )
-            return
-
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
             ranges = [e for e in FindExpressions().visit(stmt)
@@ -198,7 +104,7 @@ class SCCBaseTransformation(Transformation):
             if ranges:
                 exprmap = {r: loop_variable for r in ranges}
                 loop = ir.Loop(
-                    variable=loop_variable, bounds=sym.LoopRange(bounds_v),
+                    variable=loop_variable, bounds=sym.LoopRange(bounds),
                     body=as_tuple(SubstituteExpressions(exprmap).visit(stmt))
                 )
                 mapper[stmt] = loop
@@ -209,58 +115,6 @@ class SCCBaseTransformation(Transformation):
         if mapper and loop_variable not in routine.variables:
             routine.variables += as_tuple(loop_variable)
 
-    @staticmethod
-    def is_driver_loop(loop, targets):
-        """
-        Test/check whether a given loop is a *driver loop*.
-
-        Parameters
-        ----------
-        loop : :any: `Loop`
-            The loop to test if it is a *driver loop*.
-        targets : list or string
-            List of subroutines that are to be considered as part of
-            the transformation call tree.
-        """
-        if loop.pragma:
-            for pragma in loop.pragma:
-                if pragma.keyword.lower() == "loki" and pragma.content.lower() == "driver-loop":
-                    return True
-        for call in FindNodes(ir.CallStatement).visit(loop.body):
-            if call.name in targets:
-                return True
-        return False
-
-    @classmethod
-    def find_driver_loops(cls, routine, targets):
-        """
-        Find and return all driver loops of a given `routine`.
-
-        A *driver loop* is specified either by a call to a routine within
-        `targets` or by the pragma `!$loki driver-loop`.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            The subroutine in which to find the driver loops.
-        targets : list or string
-            List of subroutines that are to be considered as part of
-            the transformation call tree.
-        """
-
-        driver_loops = []
-        nested_driver_loops = []
-        for loop in FindNodes(ir.Loop).visit(routine.body):
-            if loop in nested_driver_loops:
-                continue
-
-            if not cls.is_driver_loop(loop, targets):
-                continue
-
-            driver_loops.append(loop)
-            loops = FindNodes(ir.Loop).visit(loop.body)
-            nested_driver_loops.extend(loops)
-        return driver_loops
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -292,14 +146,14 @@ class SCCBaseTransformation(Transformation):
         """
 
         # Bail if routine is marked as sequential or routine has already been processed
-        if self.check_routine_pragmas(routine, self.directive):
+        if check_routine_pragmas(routine, self.directive):
             return
 
         # check for horizontal loop bounds in subroutine symbol table
-        bounds = self.get_horizontal_loop_bounds(routine, self.horizontal)
+        bounds = get_loop_bounds(routine, dimension=self.horizontal)
 
         # Find the iteration index variable for the specified horizontal
-        v_index = self.get_integer_variable(routine, name=self.horizontal.index)
+        v_index = get_integer_variable(routine, name=self.horizontal.index)
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls

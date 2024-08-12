@@ -19,16 +19,11 @@ from loki.frontend import available_frontends, OFP, OMNI
 from loki.transformations.transpile import FortranPythonTransformation
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
-def load_module(here, module):
+def load_module(tmp_path, module):
     """
     A helper routine that loads the given module from the current path.
     """
-    modpath = str(Path(here).absolute())
+    modpath = str(Path(tmp_path).absolute())
     if modpath not in sys.path:
         sys.path.insert(0, modpath)
     if module in sys.modules:
@@ -45,7 +40,7 @@ def load_module(here, module):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pygen_simple_loops(here, frontend):
+def test_pygen_simple_loops(tmp_path, frontend):
     """
     A simple test routine to test Python transpilation of loops
     """
@@ -75,7 +70,7 @@ end subroutine pygen_simple_loops
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'pygen_simple_loops_{frontend}.f90')
+    filepath = tmp_path/(f'pygen_simple_loops_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_simple_loops')
 
     n, m = 3, 4
@@ -94,8 +89,8 @@ end subroutine pygen_simple_loops
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation(suffix='_py')
-    f2p.apply(source=routine, path=here)
-    mod = load_module(here, f2p.mod_name)
+    f2p.apply(source=routine, path=tmp_path)
+    mod = load_module(tmp_path, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
     n, m = 3, 4
@@ -114,7 +109,7 @@ end subroutine pygen_simple_loops
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pygen_arguments(here, frontend):
+def test_pygen_arguments(tmp_path, frontend):
     """
     Test the correct exchange of arguments with varying intents
     """
@@ -163,7 +158,7 @@ end subroutine pygen_arguments
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'pygen_arguments_{frontend}.f90')
+    filepath = tmp_path/(f'pygen_arguments_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_arguments')
     a, b, c = function(n, array, array_io, a_io, b_io, c_io)
 
@@ -177,8 +172,8 @@ end subroutine pygen_arguments
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation(suffix='_py')
-    f2p.apply(source=routine, path=here)
-    mod = load_module(here, f2p.mod_name)
+    f2p.apply(source=routine, path=tmp_path)
+    mod = load_module(tmp_path, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
     array = np.zeros(shape=(n,), order='F')
@@ -205,7 +200,7 @@ end subroutine pygen_arguments
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pygen_vectorization(here, frontend):
+def test_pygen_vectorization(tmp_path, frontend):
     """
     Tests vector-notation conversion and local multi-dimensional arrays.
     """
@@ -231,7 +226,7 @@ end subroutine pygen_vectorization
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'pygen_vectorization_{frontend}.f90')
+    filepath = tmp_path/(f'pygen_vectorization_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_vectorization')
 
     n, m = 3, 4
@@ -248,8 +243,8 @@ end subroutine pygen_vectorization
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation(suffix='_py')
-    f2p.apply(source=routine, path=here)
-    mod = load_module(here, f2p.mod_name)
+    f2p.apply(source=routine, path=tmp_path)
+    mod = load_module(tmp_path, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
     # Test the transpiled Python kernel
@@ -267,7 +262,7 @@ end subroutine pygen_vectorization
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pygen_intrinsics(here, frontend):
+def test_pygen_intrinsics(tmp_path, frontend):
     """
     A simple test routine to test supported intrinsic functions
     """
@@ -292,7 +287,7 @@ end subroutine pygen_intrinsics
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'pygen_intrinsics_{frontend}.f90')
+    filepath = tmp_path/(f'pygen_intrinsics_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_intrinsics')
 
     # Test the reference solution
@@ -308,8 +303,8 @@ end subroutine pygen_intrinsics
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation(suffix='_py')
-    f2p.apply(source=routine, path=here)
-    mod = load_module(here, f2p.mod_name)
+    f2p.apply(source=routine, path=tmp_path)
+    mod = load_module(tmp_path, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
     vmin, vmax, vabs, vmin_nested, vmax_nested, vexp, vsqrt, vsign = func(v1, v2, v3, v4)
@@ -323,7 +318,7 @@ end subroutine pygen_intrinsics
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pygen_loop_indices(here, frontend):
+def test_pygen_loop_indices(tmp_path, frontend):
     """
     Test to ensure loop indexing translates correctly
     """
@@ -355,7 +350,7 @@ end subroutine pygen_loop_indices
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'pygen_loop_indices_{frontend}.f90')
+    filepath = tmp_path/(f'pygen_loop_indices_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_loop_indices')
 
     # Test the reference solution
@@ -378,8 +373,8 @@ end subroutine pygen_loop_indices
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation(suffix='_py')
-    f2p.apply(source=routine, path=here)
-    mod = load_module(here, f2p.mod_name)
+    f2p.apply(source=routine, path=tmp_path)
+    mod = load_module(tmp_path, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
     mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
@@ -398,7 +393,7 @@ end subroutine pygen_loop_indices
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pygen_logical_statements(here, frontend):
+def test_pygen_logical_statements(tmp_path, frontend):
     """
     A simple test routine to test logical statements
     """
@@ -420,7 +415,7 @@ end subroutine pygen_logical_statements
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'pygen_logical_statements_{frontend}.f90')
+    filepath = tmp_path/(f'pygen_logical_statements_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_logical_statements')
 
     # Test the reference solution
@@ -439,8 +434,8 @@ end subroutine pygen_logical_statements
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation(suffix='_py')
-    f2p.apply(source=routine, path=here)
-    mod = load_module(here, f2p.mod_name)
+    f2p.apply(source=routine, path=tmp_path)
+    mod = load_module(tmp_path, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
     for v1 in range(2):
@@ -458,7 +453,7 @@ end subroutine pygen_logical_statements
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'OFP cannot handle stmt functions')]))
-def test_pygen_downcasing(here, frontend):
+def test_pygen_downcasing(tmp_path, frontend):
     """
     A simple test routine to test the conversion to lower case.
     """
@@ -487,7 +482,7 @@ end subroutine pygen_downcasing
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'pygen_downcasing_{frontend}.f90')
+    filepath = tmp_path/(f'pygen_downcasing_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_downcasing')
 
     n = 3
@@ -501,8 +496,8 @@ end subroutine pygen_downcasing
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation(suffix='_py')
-    f2p.apply(source=routine, path=here)
-    mod = load_module(here, f2p.mod_name)
+    f2p.apply(source=routine, path=tmp_path)
+    mod = load_module(tmp_path, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
     assert pygen(routine).islower()
@@ -517,7 +512,7 @@ end subroutine pygen_downcasing
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI strictly needs type definitions')])
 )
-def test_pygen_derived_type_members(here, frontend):
+def test_pygen_derived_type_members(tmp_path, frontend):
     """
     A simple test to check derived type member usage.
     """
@@ -549,8 +544,8 @@ end subroutine pygen_derived_type_members
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation(suffix='_py')
-    f2p.apply(source=routine, path=here)
-    mod = load_module(here, f2p.mod_name)
+    f2p.apply(source=routine, path=tmp_path)
+    mod = load_module(tmp_path, f2p.mod_name)
     func = getattr(mod, f2p.mod_name)
 
     n = 3

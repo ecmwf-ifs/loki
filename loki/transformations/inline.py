@@ -15,7 +15,8 @@ from collections import defaultdict, ChainMap
 from loki.batch import Transformation
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
-    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface
+    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface,
+    StatementFunction
 )
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
@@ -36,7 +37,8 @@ from loki.transformations.utilities import (
 __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
     'inline_internal_procedures', 'inline_member_procedures',
-    'inline_marked_subroutines', 'InlineTransformation'
+    'inline_marked_subroutines', 'InlineTransformation',
+    'inline_statement_functions'
 ]
 
 
@@ -54,6 +56,10 @@ class InlineTransformation(Transformation):
         Replaces :any:`InlineCall` expression to elemental functions
         with the called function's body (see :any:`inline_elemental_functions`);
         default: True.
+    inline_stmt_funcs: bool
+        Replaces  :any:`InlineCall` expression to statement functions
+        with the corresponding rhs of the statement function if
+        the statement function declaration is available; default: False.
     inline_internals : bool
         Inline internal procedure (see :any:`inline_internal_procedures`);
         default: False.
@@ -84,13 +90,14 @@ class InlineTransformation(Transformation):
 
     def __init__(
             self, inline_constants=False, inline_elementals=True,
-            inline_internals=False, inline_marked=True,
-            remove_dead_code=True, allowed_aliases=None,
-            adjust_imports=True, external_only=True,
-            resolve_sequence_association=False
+            inline_stmt_funcs=False, inline_internals=False,
+            inline_marked=True, remove_dead_code=True,
+            allowed_aliases=None, adjust_imports=True,
+            external_only=True, resolve_sequence_association=False
     ):
         self.inline_constants = inline_constants
         self.inline_elementals = inline_elementals
+        self.inline_stmt_funcs = inline_stmt_funcs
         self.inline_internals = inline_internals
         self.inline_marked = inline_marked
         self.remove_dead_code = remove_dead_code
@@ -120,6 +127,10 @@ class InlineTransformation(Transformation):
         # Inline elemental functions
         if self.inline_elementals:
             inline_elemental_functions(routine)
+
+        # Inline Statement Functions
+        if self.inline_stmt_funcs:
+            inline_statement_functions(routine)
 
         # Inline internal (contained) procedures
         if self.inline_internals:
@@ -184,11 +195,19 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
             # We still need to recurse and ensure re-scoping
             return super().map_inline_call(expr, *args, **kwargs)
 
+        # if it is an inline call to a Statement Function
+        if isinstance(expr.routine, StatementFunction):
+            function = expr.routine
+            # Substitute all arguments through the elemental body
+            arg_map = dict(expr.arg_iter())
+            fbody = SubstituteExpressions(arg_map).visit(function.rhs)
+            return fbody
+
         function = expr.procedure_type.procedure
         v_result = [v for v in function.variables if v == function.name][0]
 
         # Substitute all arguments through the elemental body
-        arg_map = dict(zip(function.arguments, expr.parameters))
+        arg_map = dict(expr.arg_iter())
         fbody = SubstituteExpressions(arg_map).visit(function.body)
 
         # Extract the RHS of the final result variable assignment
@@ -338,6 +357,40 @@ def inline_elemental_functions(routine):
             import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)
 
+def inline_statement_functions(routine):
+    """
+    Replaces :any:`InlineCall` expression to statement functions with the
+    called statement functions rhs.
+    """
+    # Keep track of removed symbols
+    removed_functions = set()
+
+    stmt_func_decls = FindNodes(StatementFunction).visit(routine.spec)
+    exprmap = {}
+    for call in FindInlineCalls().visit(routine.body):
+        proc_type = call.procedure_type
+        if proc_type is BasicType.DEFERRED:
+            continue
+        if proc_type.is_function and isinstance(call.routine, StatementFunction):
+            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
+            removed_functions.add(call.routine)
+    # Apply the map to itself to handle nested statement function calls
+    exprmap = recursive_expression_map_update(exprmap, max_iterations=10, mapper_cls=InlineSubstitutionMapper)
+    # Apply expression-level substitution to routine
+    routine.body = SubstituteExpressions(exprmap).visit(routine.body)
+
+    # remove statement function declarations as well as statement function argument(s) declarations
+    vars_to_remove = {stmt_func.variable.name.lower() for stmt_func in stmt_func_decls}
+    vars_to_remove |= {arg.name.lower() for stmt_func in stmt_func_decls for arg in stmt_func.arguments}
+    spec_map = {stmt_func: None for stmt_func in stmt_func_decls}
+    for decl in routine.declarations:
+        if any(var in vars_to_remove for var in decl.symbols):
+            symbols = tuple(var for var in decl.symbols if var not in vars_to_remove)
+            if symbols:
+                decl._update(symbols=symbols)
+            else:
+                spec_map[decl] = None
+    routine.spec = Transformer(spec_map).visit(routine.spec)
 
 def map_call_to_procedure_body(call, caller):
     """

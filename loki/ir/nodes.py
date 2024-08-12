@@ -15,11 +15,12 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from functools import partial
 from itertools import chain
-from typing import Any, Tuple, Union
+from typing import Any, Tuple, Union, Optional
 
 from pymbolic.primitives import Expression
 
 from pydantic.dataclasses import dataclass as dataclass_validated
+from pydantic import model_validator
 
 from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
@@ -38,18 +39,25 @@ __all__ = [
     'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
-    'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
+    'StatementFunction', 'TypeDef', 'MultiConditional', 'Forall', 'MaskedStatement',
     'Intrinsic', 'Enumeration', 'RawSource',
 ]
 
 # Configuration for validation mechanism via pydantic
 dataclass_validation_config  = {
-    'validate_assignment': True,
     'arbitrary_types_allowed': True,
 }
 
 # Using this decorator, we can force strict validation
 dataclass_strict = partial(dataclass_validated, config=dataclass_validation_config)
+
+
+def _sanitize_tuple(t):
+    """
+    Small helper method to ensure non-nested tuples without ``None``.
+    """
+    return tuple(n for n in flatten(as_tuple(t)) if n is not None)
+
 
 # Abstract base classes
 
@@ -79,8 +87,8 @@ class Node:
 
     """
 
-    source: Union[Source, str] = None
-    label: str = None
+    source: Optional[Union[Source, str]] = None
+    label: Optional[str] = None
 
     _traversable = []
 
@@ -225,7 +233,14 @@ class Node:
 
 
 @dataclass_strict(frozen=True)
-class InternalNode(Node):
+class _InternalNode():
+    """ Type definitions for :any:`InternalNode` node type. """
+
+    body: Tuple[Union[Node, Scope], ...] = ()
+
+
+@dataclass_strict(frozen=True)
+class InternalNode(Node, _InternalNode):
     """
     Internal representation of a control flow node that has a traversable
     `body` property.
@@ -236,14 +251,19 @@ class InternalNode(Node):
         The nodes that make up the body.
     """
 
-    # Certain Node types may contain Module / Subroutine objects
-    body: Tuple[Any, ...] = None
-
     _traversable = ['body']
 
-    def __post_init__(self):
-        super().__post_init__()
-        assert self.body is None or isinstance(self.body, tuple)
+    @model_validator(mode='before')
+    @classmethod
+    def pre_init(cls, values):
+        """ Ensure non-nested tuples for body. """
+        if values.kwargs and 'body' in values.kwargs:
+            values.kwargs['body'] = _sanitize_tuple(values.kwargs['body'])
+        if values.args:
+            # ArgsKwargs are immutable, so we need to force it a little
+            new_args = (_sanitize_tuple(values.args[0]),) + values.args[1:]
+            values = type(values)(args=new_args, kwargs=values.kwargs)
+        return values
 
     def __repr__(self):
         raise NotImplementedError
@@ -316,23 +336,12 @@ class ScopedNode(Scope):
 class _SectionBase():
     """ Type definitions for :any:`Section` node type. """
 
-    # Sections may contain Module / Subroutine objects
-    body: Tuple[Any, ...] = ()
-
 
 @dataclass_strict(frozen=True)
 class Section(InternalNode, _SectionBase):
     """
     Internal representation of a single code region.
     """
-
-    def __post_init__(self):
-        super().__post_init__()
-        assert self.body is None or isinstance(self.body, tuple)
-
-        # Ensure we have no nested tuples in the body
-        if not all(not isinstance(n, tuple) for n in as_tuple(self.body)):
-            self._update(body=as_tuple(flatten(self.body)))
 
     def append(self, node):
         """
@@ -383,7 +392,7 @@ class _AssociateBase():
 
 
 @dataclass_strict(frozen=True)
-class Associate(ScopedNode, Section, _AssociateBase):
+class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-many-ancestors
     """
     Internal representation of a code region in which names are associated
     with expressions or variables.
@@ -437,11 +446,11 @@ class _LoopBase():
     variable: Expression
     bounds: Expression
     body: Tuple[Node, ...]
-    pragma: Tuple[Node, ...] = None
-    pragma_post: Tuple[Node, ...] = None
-    loop_label: Any = None
-    name: str = None
-    has_end_do: bool = True
+    pragma: Optional[Tuple[Node, ...]] = None
+    pragma_post: Optional[Tuple[Node, ...]] = None
+    loop_label: Optional[Any] = None
+    name: Optional[str] = None
+    has_end_do: Optional[bool] = True
 
 
 @dataclass_strict(frozen=True)
@@ -498,13 +507,13 @@ class Loop(InternalNode, _LoopBase):
 class _WhileLoopBase():
     """ Type definitions for :any:`WhileLoop` node type. """
 
-    condition: Union[Expression, None]
+    condition: Optional[Expression]
     body: Tuple[Node, ...]
-    pragma: Node = None
-    pragma_post: Node = None
-    loop_label: Any = None
-    name: str = None
-    has_end_do: bool = True
+    pragma: Optional[Node] = None
+    pragma_post: Optional[Node] = None
+    loop_label: Optional[Any] = None
+    name: Optional[str] = None
+    has_end_do: Optional[bool] = True
 
 
 @dataclass_strict(frozen=True)
@@ -561,10 +570,10 @@ class _ConditionalBase():
 
     condition: Expression
     body: Tuple[Node, ...]
-    else_body: Tuple[Node, ...] = None
+    else_body: Optional[Tuple[Node, ...]] = ()
     inline: bool = False
     has_elseif: bool = False
-    name: str = None
+    name: Optional[str] = None
 
 
 @dataclass_strict(frozen=True)
@@ -597,13 +606,18 @@ class Conditional(InternalNode, _ConditionalBase):
 
     _traversable = ['condition', 'body', 'else_body']
 
+    @model_validator(mode='before')
+    @classmethod
+    def pre_init(cls, values):
+        values = super().pre_init(values)
+        # Ensure non-nested tuples for else_body
+        if 'else_body' in values.kwargs:
+            values.kwargs['else_body'] = _sanitize_tuple(values.kwargs['else_body'])
+        return values
+
     def __post_init__(self):
         super().__post_init__()
         assert self.condition is not None
-
-        if self.body is not None:
-            assert isinstance(self.body, tuple)
-            assert all(isinstance(c, Node) for c in self.body)  # pylint: disable=not-an-iterable
 
         if self.has_elseif:
             assert len(self.else_body) == 1
@@ -669,7 +683,7 @@ class _InterfaceBase():
 
     body: Tuple[Any, ...]
     abstract: bool = False
-    spec: Union[Expression, str] = None
+    spec: Optional[Union[Expression, str]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -738,7 +752,7 @@ class _AssignmentBase():
     lhs: Expression
     rhs: Expression
     ptr: bool = False
-    comment: Node = None
+    comment: Optional[Node] = None
 
 
 @dataclass_strict(frozen=True)
@@ -776,10 +790,10 @@ class Assignment(LeafNode, _AssignmentBase):
 class _ConditionalAssignmentBase():
     """ Type definitions for :any:`ConditionalAssignment` node type. """
 
-    lhs: Expression = None
-    condition: Expression = None
-    rhs: Expression = None
-    else_rhs: Expression = None
+    lhs: Optional[Expression] = None
+    condition: Optional[Expression] = None
+    rhs: Optional[Expression] = None
+    else_rhs: Optional[Expression] = None
 
 
 @dataclass_strict(frozen=True)
@@ -821,11 +835,11 @@ class _CallStatementBase():
     """ Type definitions for :any:`CallStatement` node type. """
 
     name: Expression
-    arguments: Tuple[Expression, ...] = None
-    kwarguments: Tuple[Tuple[str, Expression], ...] = None
-    pragma: Tuple[Node, ...] = None
-    not_active: bool = None
-    chevron: Tuple[Expression, ...] = None
+    arguments: Optional[Tuple[Expression, ...]] = None
+    kwarguments: Optional[Tuple[Tuple[str, Expression], ...]] = None
+    pragma: Optional[Tuple[Node, ...]] = None
+    not_active: Optional[bool] = None
+    chevron: Optional[Tuple[Expression, ...]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -982,8 +996,8 @@ class _AllocationBase():
     """ Type definitions for :any:`Allocation` node type. """
 
     variables: Tuple[Expression, ...]
-    data_source: Expression = None
-    status_var: Expression = None
+    data_source: Optional[Expression] = None
+    status_var: Optional[Expression] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1021,7 +1035,7 @@ class _DeallocationBase():
     """ Type definitions for :any:`Deallocation` node type. """
 
     variables: Tuple[Expression, ...]
-    status_var: Expression = None
+    status_var: Optional[Expression] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1150,7 +1164,7 @@ class _PragmaBase():
     """ Type definitions for :any:`Pragma` node type. """
 
     keyword: str
-    content: str = None
+    content: Optional[str] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1210,13 +1224,13 @@ class PreprocessorDirective(LeafNode, _PreprocessorDirectiveBase):
 class _ImportBase():
     """ Type definitions for :any:`Import` node type. """
 
-    module: Union[str, None]
+    module: Optional[str]
     symbols: Tuple[Expression, ...] = ()
-    nature: str = None
+    nature: Optional[str] = None
     c_import: bool = False
     f_include: bool = False
     f_import: bool = False
-    rename_list: Tuple[Any, ...] = None
+    rename_list: Optional[Tuple[Any, ...]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1274,9 +1288,9 @@ class _VariableDeclarationBase():
     """ Type definitions for :any:`VariableDeclaration` node type. """
 
     symbols: Tuple[Expression, ...]
-    dimensions: Tuple[Expression, ...] = None
-    comment: Node = None
-    pragma: Node = None
+    dimensions: Optional[Tuple[Expression, ...]] = None
+    comment: Optional[Node] = None
+    pragma: Optional[Node] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1325,13 +1339,13 @@ class _ProcedureDeclarationBase():
     """ Type definitions for :any:`ProcedureDeclaration` node type. """
 
     symbols: Tuple[Expression, ...]
-    interface: Union[Expression, DataType] = None
+    interface: Optional[Union[Expression, DataType]] = None
     external: bool = False
     module: bool = False
     generic: bool = False
     final: bool = False
-    comment: Node = None
-    pragma: Tuple[Node, ...] = None
+    comment: Optional[Node] = None
+    pragma: Optional[Tuple[Node, ...]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1471,10 +1485,10 @@ class StatementFunction(LeafNode, _StatementFunctionBase):
 class _TypeDefBase():
     """ Type definitions for :any:`TypeDef` node type. """
 
-    name: str = None
-    body: Tuple[Node, ...] = None
+    name: Optional[str] = None
+    body: Optional[Tuple[Node, ...]] = None
     abstract: bool = False
-    extends: str = None
+    extends: Optional[str] = None
     bind_c: bool = False
     private: bool = False
     public: bool = False
@@ -1624,7 +1638,7 @@ class _MultiConditionalBase():
     values: Tuple[Any, ...]
     bodies: Tuple[Any, ...]
     else_body: Tuple[Node, ...]
-    name: str = None
+    name: Optional[str] = None
 
 
 @dataclass_strict(frozen=True)
@@ -1665,12 +1679,58 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
 
 
 @dataclass_strict(frozen=True)
+class _ForallBase():
+    """ Type definition for :any:`Forall` node type. """
+
+    named_bounds: Tuple[Tuple[Expression, Expression], ...]
+    body: Tuple[Node, ...]
+    mask: Optional[Expression] = None
+    name: Optional[str] = None
+    inline: bool = False
+
+
+@dataclass_strict(frozen=True)
+class Forall(InternalNode, _ForallBase):
+    """
+    Internal representation of a FORALL statement or construct.
+
+    Parameters
+    ----------
+    named_bounds : tuple of pairs (<variable>, <range>) of type :any:`pymbolic.primitives.Expression`
+        The collection of named variables with bounds (ranges).
+    body : tuple of :any:`Node`
+        The collection of assignment statements, nested FORALLs, and/or comments.
+    mask : :any:`pymbolic.primitives.Expression`, optional
+        The condition that define the mask.
+    name : str, optional
+        The name of the multi-line FORALL construct in the original source.
+    inline : bool, optional
+        Flag to indicate a single-line FORALL statement.
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+    _traversable = ['named_bounds', 'mask', 'body']
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_iterable(self.named_bounds) and all(isinstance(c, tuple) for c in self.named_bounds), \
+            "FORALL named bounds must be tuples of <variable, range>"
+        assert is_iterable(self.body), "FORALL body must be iterable"
+        if self.inline:
+            assert len(self.body) == 1, "FORALL statement must contain exactly one assignment"
+            assert self.name is None, "FORALL statement cannot have a name label"
+
+    def __repr__(self):
+        return f"Forall:: {', '.join([e[0].name for e in self.named_bounds])}"
+
+
+@dataclass_strict(frozen=True)
 class _MaskedStatementBase():
     """ Type definitions for :any:`MaskedStatement` node type. """
 
     conditions: Tuple[Expression, ...]
     bodies: Tuple[Tuple[Node, ...], ...]
-    default: Tuple[Node, ...] = None
+    default: Optional[Tuple[Node, ...]] = None
     inline: bool = False
 
 

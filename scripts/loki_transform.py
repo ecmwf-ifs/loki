@@ -202,7 +202,7 @@ def convert(
 
     # Re-write DR_HOOK labels for non-GPU paths
     if 'scc' not in mode:
-        scheduler.process( DrHookTransformation(mode=mode, remove=False) )
+        scheduler.process( DrHookTransformation(suffix=mode, remove=False) )
 
     # Perform general source removal of unwanted calls or code regions
     # (do not perfrom Dead Code Elimination yet, inlining will do this.)

@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
 import pytest
 import numpy as np
 
@@ -22,25 +21,22 @@ from loki.batch import Scheduler, SchedulerConfig
 from loki.transformations.inline import (
     inline_elemental_functions, inline_constant_parameters,
     inline_member_procedures, inline_marked_subroutines,
-    InlineTransformation,
+    inline_statement_functions, InlineTransformation,
 )
 from loki.transformations.sanitise import ResolveAssociatesTransformer
 from loki.transformations.utilities import replace_selected_kind
 
-
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
+# pylint: disable=too-many-lines
 
 
-@pytest.fixture(scope='module', name='builder')
-def fixture_builder(here):
-    yield Builder(source_dirs=here, build_dir=here/'build')
+@pytest.fixture(name='builder')
+def fixture_builder(tmp_path):
+    yield Builder(source_dirs=tmp_path, build_dir=tmp_path)
     Obj.clear_cache()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_inline_elemental_functions(here, builder, frontend):
+def test_transform_inline_elemental_functions(tmp_path, builder, frontend):
     """
     Test correct inlining of elemental functions.
     """
@@ -71,20 +67,20 @@ subroutine transform_inline_elemental_functions(v1, v2, v3)
 end subroutine transform_inline_elemental_functions
 """
     # Generate reference code, compile run and verify
-    module = Module.from_source(fcode_module, frontend=frontend)
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{routine.name}_{frontend}'
-    reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
+    reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
 
     v2, v3 = reference.transform_inline_elemental_functions(11.)
     assert v2 == 66.
     assert v3 == 666.
 
-    (here/f'{module.name}.f90').unlink()
-    (here/f'{routine.name}.f90').unlink()
+    (tmp_path/f'{module.name}.f90').unlink()
+    (tmp_path/f'{routine.name}.f90').unlink()
 
     # Now inline elemental functions
-    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend, xmods=[tmp_path])
     inline_elemental_functions(routine)
 
     # Make sure there are no more inline calls in the routine body
@@ -95,18 +91,18 @@ end subroutine transform_inline_elemental_functions
 
     # Hack: rename routine to use a different filename in the build
     routine.name = f'{routine.name}_'
-    kernel = jit_compile_lib([routine], path=here, name=routine.name, builder=builder)
+    kernel = jit_compile_lib([routine], path=tmp_path, name=routine.name, builder=builder)
 
     v2, v3 = kernel.transform_inline_elemental_functions_(11.)
     assert v2 == 66.
     assert v3 == 666.
 
     builder.clean()
-    (here/f'{routine.name}.f90').unlink()
+    (tmp_path/f'{routine.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_inline_constant_parameters(here, builder, frontend):
+def test_transform_inline_constant_parameters(tmp_path, builder, frontend):
     """
     Test correct inlining of constant parameters.
     """
@@ -138,19 +134,19 @@ contains
 end module inline_const_param_mod
 """
     # Generate reference code, compile run and verify
-    param_module = Module.from_source(fcode_module, frontend=frontend)
-    module = Module.from_source(fcode, frontend=frontend)
+    param_module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{module.name}_{ frontend}'
-    reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
+    reference = jit_compile_lib([module, param_module], path=tmp_path, name=refname, builder=builder)
 
     v2, v3 = reference.inline_const_param_mod.inline_const_param(10)
     assert v2 == 8
     assert v3 == 2
-    (here/f'{module.name}.f90').unlink()
-    (here/f'{param_module.name}.f90').unlink()
+    (tmp_path/f'{module.name}.f90').unlink()
+    (tmp_path/f'{param_module.name}.f90').unlink()
 
     # Now transform with supplied elementals but without module
-    module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
+    module = Module.from_source(fcode, definitions=param_module, frontend=frontend, xmods=[tmp_path])
     assert len(FindNodes(ir.Import).visit(module['inline_const_param'].spec)) == 1
     for routine in module.subroutines:
         inline_constant_parameters(routine, external_only=True)
@@ -158,17 +154,17 @@ end module inline_const_param_mod
 
     # Hack: rename module to use a different filename in the build
     module.name = f'{module.name}_'
-    obj = jit_compile_lib([module], path=here, name=f'{module.name}_{frontend}', builder=builder)
+    obj = jit_compile_lib([module], path=tmp_path, name=f'{module.name}_{frontend}', builder=builder)
 
     v2, v3 = obj.inline_const_param_mod_.inline_const_param(10)
     assert v2 == 8
     assert v3 == 2
 
-    (here/f'{module.name}.f90').unlink()
+    (tmp_path/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_inline_constant_parameters_kind(here, builder, frontend):
+def test_transform_inline_constant_parameters_kind(tmp_path, builder, frontend):
     """
     Test correct inlining of constant parameters for kind symbols.
     """
@@ -192,18 +188,18 @@ contains
 end module inline_const_param_kind_mod
 """
     # Generate reference code, compile run and verify
-    param_module = Module.from_source(fcode_module, frontend=frontend)
-    module = Module.from_source(fcode, frontend=frontend)
+    param_module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{module.name}_{frontend}'
-    reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
+    reference = jit_compile_lib([module, param_module], path=tmp_path, name=refname, builder=builder)
 
     v1 = reference.inline_const_param_kind_mod.inline_const_param_kind()
     assert v1 == 5.
-    (here/f'{module.name}.f90').unlink()
-    (here/f'{param_module.name}.f90').unlink()
+    (tmp_path/f'{module.name}.f90').unlink()
+    (tmp_path/f'{param_module.name}.f90').unlink()
 
     # Now transform with supplied elementals but without module
-    module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
+    module = Module.from_source(fcode, definitions=param_module, frontend=frontend, xmods=[tmp_path])
     assert len(FindNodes(ir.Import).visit(module['inline_const_param_kind'].spec)) == 1
     for routine in module.subroutines:
         inline_constant_parameters(routine, external_only=True)
@@ -211,16 +207,16 @@ end module inline_const_param_kind_mod
 
     # Hack: rename module to use a different filename in the build
     module.name = f'{module.name}_'
-    obj = jit_compile_lib([module], path=here, name=f'{module.name}_{frontend}', builder=builder)
+    obj = jit_compile_lib([module], path=tmp_path, name=f'{module.name}_{frontend}', builder=builder)
 
     v1 = obj.inline_const_param_kind_mod_.inline_const_param_kind()
     assert v1 == 5.
 
-    (here/f'{module.name}.f90').unlink()
+    (tmp_path/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_inline_constant_parameters_replace_kind(here, builder, frontend):
+def test_transform_inline_constant_parameters_replace_kind(tmp_path, builder, frontend):
     """
     Test correct inlining of constant parameters for kind symbols.
     """
@@ -245,19 +241,19 @@ contains
 end module inline_param_repl_kind_mod
 """
     # Generate reference code, compile run and verify
-    param_module = Module.from_source(fcode_module, frontend=frontend)
-    module = Module.from_source(fcode, frontend=frontend)
+    param_module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{module.name}_{frontend}'
-    reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
+    reference = jit_compile_lib([module, param_module], path=tmp_path, name=refname, builder=builder)
     func = getattr(getattr(reference, module.name), module.subroutines[0].name)
 
     v1 = func()
     assert v1 == 6.
-    (here/f'{module.name}.f90').unlink()
-    (here/f'{param_module.name}.f90').unlink()
+    (tmp_path/f'{module.name}.f90').unlink()
+    (tmp_path/f'{param_module.name}.f90').unlink()
 
     # Now transform with supplied elementals but without module
-    module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
+    module = Module.from_source(fcode, definitions=param_module, frontend=frontend, xmods=[tmp_path])
     imports = FindNodes(ir.Import).visit(module.subroutines[0].spec)
     assert len(imports) == 1 and imports[0].module.lower() == param_module.name.lower()
     for routine in module.subroutines:
@@ -268,13 +264,13 @@ end module inline_param_repl_kind_mod
 
     # Hack: rename module to use a different filename in the build
     module.name = f'{module.name}_'
-    obj = jit_compile_lib([module], path=here, name=f'{module.name}_{frontend}', builder=builder)
+    obj = jit_compile_lib([module], path=tmp_path, name=f'{module.name}_{frontend}', builder=builder)
 
     func = getattr(getattr(obj, module.name), module.subroutines[0].name)
     v1 = func()
     assert v1 == 6.
 
-    (here/f'{module.name}.f90').unlink()
+    (tmp_path/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -302,7 +298,7 @@ end subroutine kernel
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_member_routines(here, frontend):
+def test_inline_member_routines(tmp_path, frontend):
     """
     Test inlining of member subroutines.
     """
@@ -341,7 +337,7 @@ end subroutine member_routines
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    filepath = here/(f'ref_transform_inline_member_routines_{frontend}.f90')
+    filepath = tmp_path/(f'ref_transform_inline_member_routines_{frontend}.f90')
     reference = jit_compile(routine, filepath=filepath, objname='member_routines')
 
     a = np.array([1., 2., 3.], order='F')
@@ -360,7 +356,7 @@ end subroutine member_routines
     assert 'n' in routine.variables
 
     # An verify compiled behaviour
-    filepath = here/(f'transform_inline_member_routines_{frontend}.f90')
+    filepath = tmp_path/(f'transform_inline_member_routines_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='member_routines')
 
     a = np.array([1., 2., 3.], order='F')
@@ -642,7 +638,7 @@ end subroutine member_routines_sequence_assoc
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Expect to fail here due to use of sequence association
+    # Expect to fail tmp_path due to use of sequence association
     with pytest.raises(RuntimeError):
         inline_member_procedures(routine=routine)
 
@@ -763,10 +759,57 @@ end subroutine test_inline
     assert conds[3].condition == 'False'
 
 
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OFP: "OFP apparently has problems dealing with those Statement Functions",
+          OMNI: "OMNI automatically inlines Statement Functions"}
+))
+@pytest.mark.parametrize('stmt_decls', (True, False))
+def test_inline_statement_functions(frontend, stmt_decls):
+    stmt_decls_code = """
+    real :: PTARE
+    real :: FOEDELTA
+    FOEDELTA ( PTARE ) = PTARE + 1.0
+    real :: FOEEW
+    FOEEW ( PTARE ) = PTARE + FOEDELTA(PTARE)
+    """.strip()
+
+    fcode = f"""
+subroutine stmt_func(arr, ret)
+    implicit none
+    real, intent(in) :: arr(:)
+    real, intent(inout) :: ret(:)
+    real :: ret2
+    real, parameter :: rtt = 1.0
+    {stmt_decls_code if stmt_decls else '#include "fcttre.func.h"'}
+
+    ret = foeew(arr) 
+    ret2 = foedelta(3.0)
+end subroutine stmt_func
+     """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    if stmt_decls:
+        assert FindNodes(ir.StatementFunction).visit(routine.spec)
+    else:
+        assert not FindNodes(ir.StatementFunction).visit(routine.spec)
+    assert FindInlineCalls().visit(routine.body)
+    inline_statement_functions(routine)
+
+    assert not FindNodes(ir.StatementFunction).visit(routine.spec)
+    if stmt_decls:
+        assert not FindInlineCalls().visit(routine.body)
+        assignments = FindNodes(ir.Assignment).visit(routine.body)
+        assert assignments[0].lhs  == 'ret'
+        assert assignments[0].rhs  ==  "arr + arr + 1.0"
+        assert assignments[1].lhs  == 'ret2'
+        assert assignments[1].rhs  ==  "3.0 + 1.0"
+    else:
+        assert FindInlineCalls().visit(routine.body)
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('adjust_imports', [True, False])
-def test_inline_marked_subroutines(frontend, adjust_imports):
+def test_inline_marked_subroutines(frontend, adjust_imports, tmp_path):
     """ Test subroutine inlining via marker pragmas. """
 
     fcode_driver = """
@@ -822,8 +865,8 @@ contains
   end subroutine add_a_to_b
 end module util_mod
 """
-    module = Module.from_source(fcode_module, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
     driver.enrich(module)
 
     calls = FindNodes(ir.CallStatement).visit(driver.body)
@@ -865,7 +908,7 @@ end module util_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_marked_subroutines_with_interfaces(frontend):
+def test_inline_marked_subroutines_with_interfaces(frontend, tmp_path):
     """ Test inlining of subroutines with explicit interfaces via marker pragmas. """
 
     fcode_driver = """
@@ -936,8 +979,8 @@ contains
 end module util_mod
 """
 
-    module = Module.from_source(fcode_module, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
     driver.enrich(module.subroutines)
 
     calls = FindNodes(ir.CallStatement).visit(driver.body)
@@ -969,7 +1012,7 @@ end module util_mod
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('adjust_imports', [True, False])
-def test_inline_marked_routine_with_optionals(frontend, adjust_imports):
+def test_inline_marked_routine_with_optionals(frontend, adjust_imports, tmp_path):
     """ Test subroutine inlining via marker pragmas with omitted optionals. """
 
     fcode_driver = """
@@ -1010,8 +1053,8 @@ contains
   end subroutine add_one
 end module util_mod
 """
-    module = Module.from_source(fcode_module, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
     driver.enrich(module)
 
     calls = FindNodes(ir.CallStatement).visit(driver.body)
@@ -1109,7 +1152,7 @@ end subroutine dave
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_marked_subroutines_declarations(frontend):
+def test_inline_marked_subroutines_declarations(frontend, tmp_path):
     """Test symbol propagation to hoisted declaration when inlining."""
     fcode = """
 module inline_declarations
@@ -1142,7 +1185,7 @@ module inline_declarations
   end subroutine inner
 end module inline_declarations
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     outer = module['outer']
 
     inline_marked_subroutines(routine=outer, adjust_imports=True)
@@ -1159,7 +1202,8 @@ end module inline_declarations
 @pytest.mark.parametrize('frontend', available_frontends(
     (OFP, 'Prefix/elemental support not implemented'))
 )
-def test_inline_transformation(frontend):
+@pytest.mark.parametrize('pass_as_kwarg', (False, True))
+def test_inline_transformation(tmp_path, frontend, pass_as_kwarg):
     """Test combining recursive inlining via :any:`InliningTransformation`."""
 
     fcode_module = """
@@ -1189,34 +1233,40 @@ contains
 end subroutine add_one_and_two
 """
 
-    fcode = """
+    fcode = f"""
 subroutine test_inline_pragma(a, b)
   implicit none
   real(kind=8), intent(inout) :: a(3), b(3)
   integer, parameter :: n = 3
   integer :: i
+  real :: stmt_arg
+  real :: some_stmt_func
+  some_stmt_func ( stmt_arg ) = stmt_arg + 3.1415
 
 #include "add_one_and_two.intfb.h"
 
   do i=1, n
     !$loki inline
-    call add_one_and_two(a(i))
+    call add_one_and_two({'a=' if pass_as_kwarg else ''}a(i))
   end do
 
   do i=1, n
     !$loki inline
-    call add_one_and_two(b(i))
+    call add_one_and_two({'a=' if pass_as_kwarg else ''}b(i))
   end do
+
+  a(1) = some_stmt_func({'stmt_arg=' if pass_as_kwarg else ''}a(2))
 
 end subroutine test_inline_pragma
 """
-    module = Module.from_source(fcode_module, frontend=frontend)
-    inner = Subroutine.from_source(fcode_inner, definitions=module, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    inner = Subroutine.from_source(fcode_inner, definitions=module, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine.enrich(inner)
 
     trafo = InlineTransformation(
-        inline_constants=True, external_only=True, inline_elementals=True
+        inline_constants=True, external_only=True, inline_elementals=True,
+        inline_stmt_funcs=True
     )
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
@@ -1237,15 +1287,16 @@ end subroutine test_inline_pragma
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 0
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 4
+    assert len(assigns) == 5
     assert assigns[0].lhs == 'a(i)' and assigns[0].rhs == 'a(i) + 1.0'
     assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
     assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
     assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
+    assert assigns[4].lhs == 'a(1)' and assigns[4].rhs == 'a(2) + 3.1415'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_transformation_local_seq_assoc(frontend):
+def test_inline_transformation_local_seq_assoc(frontend, tmp_path):
     fcode = """
 module somemod
     implicit none
@@ -1269,7 +1320,7 @@ module somemod
       real :: y
       x = 10.0
 
-      call inner(y, x(1, 1)) ! Sequence association here for member routine.
+      call inner(y, x(1, 1)) ! Sequence association tmp_path for member routine.
 
       !$loki inline
       call plusone(y, x(3, 3)) ! Marked for inlining.
@@ -1290,7 +1341,7 @@ end module somemod
 """
     # Test case that nothing happens if `resolve_sequence_association=True`
     # but inlining "marked" and "internals" is disabled.
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
         inline_marked=False, inline_internals=False, resolve_sequence_association=True
@@ -1306,7 +1357,7 @@ end module somemod
     # `resolve_sequence_association=True`
     # `inline_marked=True`,
     # `inline_internals=False`
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
         inline_marked=True, inline_internals=False, resolve_sequence_association=True
@@ -1319,7 +1370,7 @@ end module somemod
     assert 'minusone_second' in callnames
 
     # Test case that a crash occurs if sequence association is not enabled even if it is needed.
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
         inline_marked=True, inline_internals=True, resolve_sequence_association=False
@@ -1330,7 +1381,7 @@ end module somemod
     callnames = [call.name for call in FindNodes(ir.CallStatement).visit(outer.body)]
 
     # Test case that sequence association is run and corresponding call inlined, avoiding crash.
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
         inline_marked=False, inline_internals=True, resolve_sequence_association=True
@@ -1343,7 +1394,7 @@ end module somemod
     assert 'minusone_second' in callnames
 
     # Test case that everything is enabled.
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
         inline_marked=True, inline_internals=True, resolve_sequence_association=True
@@ -1357,7 +1408,7 @@ end module somemod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_transformation_local_seq_assoc_crash_marked_no_seq_assoc(frontend):
+def test_inline_transformation_local_seq_assoc_crash_marked_no_seq_assoc(frontend, tmp_path):
     # Test case that a crash occurs if marked routine with sequence association is
     # attempted to inline without sequence association enabled.
     fcode = """
@@ -1378,12 +1429,12 @@ module somemod
       x = 10.0
 
       !$loki inline
-      call inner(y, x(1, 1)) ! Sequence association here for marked routine.
+      call inner(y, x(1, 1)) ! Sequence association tmp_path for marked routine.
     end subroutine outer
 
 end module somemod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
         inline_marked=True, inline_internals=False, resolve_sequence_association=False
@@ -1393,7 +1444,7 @@ end module somemod
         trafo.apply(outer)
 
     # Test case that crash is avoided by activating sequence association.
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
         inline_marked=True, inline_internals=False, resolve_sequence_association=True
@@ -1403,7 +1454,7 @@ end module somemod
     assert len(FindNodes(ir.CallStatement).visit(outer.body)) == 0
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_transformation_local_seq_assoc_crash_value_err_no_source(frontend):
+def test_inline_transformation_local_seq_assoc_crash_value_err_no_source(frontend, tmp_path):
     # Testing that ValueError is thrown if sequence association is requested with inlining,
     # but source code behind call is missing (not enough type information).
     fcode = """
@@ -1417,12 +1468,12 @@ module somemod
       x = 10.0
 
       !$loki inline
-      call inner(y, x(1, 1)) ! Sequence association here for marked routine.
+      call inner(y, x(1, 1)) ! Sequence association tmp_path for marked routine.
     end subroutine outer
 
 end module somemod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InlineTransformation(
         inline_constants=True, external_only=True, inline_elementals=True,
         inline_marked=True, inline_internals=False, resolve_sequence_association=True
@@ -1433,7 +1484,7 @@ end module somemod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_transformation_adjust_imports(frontend):
+def test_inline_transformation_adjust_imports(frontend, tmp_path):
     fcode_module = """
 module bnds_module
   integer :: m
@@ -1497,12 +1548,12 @@ end subroutine test_inline_another_inner
 end module test_inline_another_mod
     """
 
-    _ = Module.from_source(fcode_another, frontend=frontend)
-    _ = Module.from_source(fcode_module, frontend=frontend)
-    inner = Module.from_source(fcode_inner, frontend=frontend)
-    another_inner = Module.from_source(fcode_another_inner, frontend=frontend)
+    _ = Module.from_source(fcode_another, frontend=frontend, xmods=[tmp_path])
+    _ = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    inner = Module.from_source(fcode_inner, frontend=frontend, xmods=[tmp_path])
+    another_inner = Module.from_source(fcode_another_inner, frontend=frontend, xmods=[tmp_path])
     outer = Subroutine.from_source(
-        fcode_outer, definitions=(inner, another_inner), frontend=frontend
+        fcode_outer, definitions=(inner, another_inner), frontend=frontend, xmods=[tmp_path]
     )
 
     trafo = InlineTransformation(
@@ -1583,7 +1634,10 @@ end module innermost_mod
         }
     }
 
-    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
 
     def _get_successors(item):
         return scheduler.sgraph.successors(scheduler[item])

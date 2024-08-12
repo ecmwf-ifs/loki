@@ -14,7 +14,7 @@ from loki import (
     ProcedureDeclaration, BasicType, CaseInsensitiveDict,
 )
 from loki.expression import Scalar, Array, FindVariables, FindInlineCalls
-from loki.frontend import available_frontends, OMNI, OFP
+from loki.frontend import available_frontends, OMNI
 from loki.ir import FindNodes, CallStatement
 
 from loki.transformations.transform_derived_types import (
@@ -52,7 +52,7 @@ def fixture_config():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_analysis(frontend):
+def test_transform_derived_type_arguments_analysis(frontend, tmp_path):
     fcode = f"""
 module transform_derived_type_arguments_mod
 
@@ -86,7 +86,7 @@ contains
 end module transform_derived_type_arguments_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     item = ProcedureItem(name='transform_derived_type_arguments_mod#kernel', source=source)
     source['kernel'].apply(DerivedTypeArgumentsTransformation(), role='kernel', item=item)
 
@@ -110,7 +110,7 @@ end module transform_derived_type_arguments_mod
 
 @pytest.mark.parametrize('all_derived_types', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_expansion_trivial_derived_type(frontend, all_derived_types):
+def test_transform_derived_type_arguments_expansion_trivial_derived_type(frontend, all_derived_types, tmp_path):
     fcode = """
 module transform_derived_type_arguments_mod
 
@@ -153,7 +153,7 @@ contains
 end module transform_derived_type_arguments_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     call_tree = [
         ProcedureItem(name='transform_derived_type_arguments_mod#caller', source=source, config={'role': 'driver'}),
@@ -189,12 +189,13 @@ end module transform_derived_type_arguments_mod
 
 @pytest.mark.parametrize('all_derived_types', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_expansion_trivial_derived_type_scheduler(frontend, all_derived_types,
-        config, here):
+def test_transform_derived_type_arguments_expansion_trivial_derived_type_scheduler(
+        frontend, all_derived_types, config, here, tmp_path
+):
 
     proj = here / 'sources/projDerivedTypes'
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path])
 
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation(all_derived_types=all_derived_types)
@@ -226,7 +227,7 @@ def test_transform_derived_type_arguments_expansion_trivial_derived_type_schedul
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_expansion(frontend):
+def test_transform_derived_type_arguments_expansion(frontend, tmp_path):
     fcode = f"""
 module transform_derived_type_arguments_mod
 
@@ -307,7 +308,7 @@ contains
 end module transform_derived_type_arguments_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     call_tree = [
         ProcedureItem(name='transform_derived_type_arguments_mod#caller', source=source, config={'role': 'driver'}),
@@ -343,7 +344,7 @@ end module transform_derived_type_arguments_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_inline_call(frontend):
+def test_transform_derived_type_arguments_inline_call(frontend, tmp_path):
     """
     Verify correct expansion of inline calls to functions
     """
@@ -377,8 +378,10 @@ subroutine driver(arr, n, s, t)
 end subroutine driver
     """.strip()
 
-    source_my_mod = Sourcefile.from_source(fcode_my_mod, frontend=frontend)
-    source_driver = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=source_my_mod.definitions)
+    source_my_mod = Sourcefile.from_source(fcode_my_mod, frontend=frontend, xmods=[tmp_path])
+    source_driver = Sourcefile.from_source(
+        fcode_driver, frontend=frontend, definitions=source_my_mod.definitions, xmods=[tmp_path]
+    )
 
     kernel = ProcedureItem('my_mod#kernel', config={'role': 'kernel'}, source=source_my_mod)
     driver = ProcedureItem('#driver', config={'role': 'driver'}, source=source_driver)
@@ -400,7 +403,7 @@ end subroutine driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_multilevel(frontend):
+def test_transform_derived_type_arguments_multilevel(frontend, tmp_path):
     """
     Verify correct behaviour of the derived type argument flattening when
     used in multi-level call trees. There it is mandatory to traverse the tree from
@@ -445,7 +448,7 @@ contains
 end module transform_derived_type_arguments_multilevel
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     orig_args = {
         'caller': ('n', 'obj'),
@@ -494,7 +497,7 @@ end module transform_derived_type_arguments_multilevel
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_expansion_nested(frontend):
+def test_transform_derived_type_arguments_expansion_nested(frontend, tmp_path):
     fcode_header = f"""
 module header_mod
     implicit none
@@ -663,11 +666,16 @@ subroutine caller(z)
 end subroutine caller
     """.strip()
 
-    header = Sourcefile.from_source(fcode_header, frontend=frontend)
-    bucket = Sourcefile.from_source(fcode_bucket, frontend=frontend, definitions=header.definitions)
-    layer = Sourcefile.from_source(fcode_layer, frontend=frontend, definitions=header.definitions + bucket.definitions)
-    source = Sourcefile.from_source(fcode_caller, frontend=frontend,
-                                    definitions=header.definitions + bucket.definitions + layer.definitions)
+    header = Sourcefile.from_source(fcode_header, frontend=frontend, xmods=[tmp_path])
+    bucket = Sourcefile.from_source(fcode_bucket, frontend=frontend, definitions=header.definitions, xmods=[tmp_path])
+    layer = Sourcefile.from_source(
+        fcode_layer, frontend=frontend,
+        definitions=header.definitions + bucket.definitions, xmods=[tmp_path]
+    )
+    source = Sourcefile.from_source(
+        fcode_caller, frontend=frontend, xmods=[tmp_path],
+        definitions=header.definitions + bucket.definitions + layer.definitions
+    )
 
     items = {
         'caller': ProcedureItem(
@@ -811,7 +819,7 @@ end subroutine caller
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_typebound_proc(frontend):
+def test_transform_derived_type_arguments_typebound_proc(frontend, tmp_path):
     fcode = f"""
 module transform_derived_type_arguments_mod
 
@@ -875,11 +883,13 @@ subroutine driver(some, result)
 end subroutine driver
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     kernel_a = ProcedureItem(name='transform_derived_type_arguments_mod#kernel_a', source=source)
     kernel = ProcedureItem(name='transform_derived_type_arguments_mod#kernel', source=source)
     reduce = ProcedureItem(name='transform_derived_type_arguments_mod#reduce', source=source)
-    source_driver = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=source.definitions)
+    source_driver = Sourcefile.from_source(
+        fcode_driver, frontend=frontend, definitions=source.definitions, xmods=[tmp_path]
+    )
     driver = ProcedureItem(name='#driver', source=source_driver)
 
     # Check procedure bindings before the transformation
@@ -944,7 +954,7 @@ end subroutine driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_import_rename(frontend):
+def test_transform_derived_type_arguments_import_rename(frontend, tmp_path):
     fcode1 = """
 module some_mod
     implicit none
@@ -966,8 +976,8 @@ subroutine some_routine(t)
 end subroutine some_routine
     """.strip()
 
-    source1 = Sourcefile.from_source(fcode1, frontend=frontend)
-    source2 = Sourcefile.from_source(fcode2, frontend=frontend, definitions=source1.definitions)
+    source1 = Sourcefile.from_source(fcode1, frontend=frontend, xmods=[tmp_path])
+    source2 = Sourcefile.from_source(fcode2, frontend=frontend, definitions=source1.definitions, xmods=[tmp_path])
 
     callee = ProcedureItem(name='some_mod#some_routine', source=source1)
     caller = ProcedureItem(name='#some_routine', source=source2)
@@ -992,7 +1002,7 @@ end subroutine some_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_optional_named_arg(frontend):
+def test_transform_derived_type_arguments_optional_named_arg(frontend, tmp_path):
     fcode = """
 module some_mod
     implicit none
@@ -1024,7 +1034,7 @@ contains
     end subroutine caller
 end module some_mod
     """.strip()
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     callee = ProcedureItem(name='some_mod#callee', source=source)
     caller = ProcedureItem(name='some_mod#caller', source=source)
@@ -1049,7 +1059,7 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_recursive(frontend):
+def test_transform_derived_type_arguments_recursive(frontend, tmp_path):
     fcode = """
 module some_mod
     implicit none
@@ -1113,7 +1123,7 @@ contains
     end subroutine caller
 end module some_mod
     """.strip()
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     callee = ProcedureItem(name='some_mod#callee', source=source)
     caller = ProcedureItem(name='some_mod#caller', source=source)
@@ -1169,7 +1179,7 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_renamed_calls(frontend):
+def test_transform_derived_type_arguments_renamed_calls(frontend, tmp_path):
     fcode_header = """
 module header_mod
     implicit none
@@ -1213,11 +1223,16 @@ subroutine caller(t)
 end subroutine caller
     """.strip()
 
-    source_header = Sourcefile.from_source(fcode_header, frontend=frontend)
-    source_some = Sourcefile.from_source(fcode_some, frontend=frontend, definitions=source_header.definitions)
-    source_other = Sourcefile.from_source(fcode_other, frontend=frontend, definitions=source_header.definitions)
+    source_header = Sourcefile.from_source(fcode_header, frontend=frontend, xmods=[tmp_path])
+    source_some = Sourcefile.from_source(
+        fcode_some, frontend=frontend,
+        definitions=source_header.definitions, xmods=[tmp_path]
+    )
+    source_other = Sourcefile.from_source(
+        fcode_other, frontend=frontend, definitions=source_header.definitions, xmods=[tmp_path]
+    )
     source_caller = Sourcefile.from_source(
-        fcode_caller, frontend=frontend,
+        fcode_caller, frontend=frontend, xmods=[tmp_path],
         definitions=source_header.definitions + source_some.definitions + source_other.definitions
     )
 
@@ -1239,7 +1254,7 @@ end subroutine caller
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_associate_intent(frontend):
+def test_transform_derived_type_arguments_associate_intent(frontend, tmp_path):
     fcode = """
 module some_mod
     implicit none
@@ -1255,7 +1270,7 @@ contains
     end subroutine some_routine
 end module some_mod
     """.strip()
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     variables = FindVariables().visit(source['some_routine'].body)
     assert variables == {'arr(:)', 'arr', 't%arr', 't'}
@@ -1279,7 +1294,7 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_derived_type_arguments_non_array(frontend):
+def test_transform_derived_type_arguments_non_array(frontend, tmp_path):
     fcode = """
 module some_mod
     implicit none
@@ -1303,7 +1318,7 @@ contains
     end subroutine kernel
 end module some_mod
     """.strip()
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     transformation = DerivedTypeArgumentsTransformation()
     source['kernel'].apply(transformation, role='kernel')
@@ -1443,7 +1458,7 @@ end subroutine driver
     (tmp_path/'driver.F90').write_text(fcode4)
 
     scheduler = Scheduler(
-        paths=[tmp_path], config=config, seed_routines=['driver'], frontend=frontend
+        paths=[tmp_path], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path]
     )
 
     transformation = TypeboundProcedureCallTransformation(duplicate_typebound_kernels=duplicate)

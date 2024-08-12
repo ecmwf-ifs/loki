@@ -21,7 +21,7 @@ def fixture_here():
 
 
 @pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
-def test_interface_spec(frontend):
+def test_interface_spec(frontend, tmp_path):
     """
     Test basic functionality of interface representation
     """
@@ -37,7 +37,7 @@ end module interface_spec_mod
     """.strip()
 
     # Parse the source and find the interface
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     interfaces = FindNodes(Interface).visit(module.spec)
     assert len(interfaces) == 1
     interface = interfaces[0]
@@ -62,7 +62,7 @@ end module interface_spec_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
-def test_interface_module_integration(frontend):
+def test_interface_module_integration(frontend, tmp_path):
     """
     Test correct integration of interfaces into modules
     """
@@ -78,7 +78,7 @@ end module interface_module_integration_mod
     """.strip()
 
     # Parse the source and find the interface
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     assert len(module.interfaces) == 1
     interface = module.interfaces[0]
     assert isinstance(interface, Interface)
@@ -144,7 +144,7 @@ end subroutine interface_subroutine_integration
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_interface_import(frontend):
+def test_interface_import(frontend, tmp_path):
     """
     Test correct representation of ``IMPORT`` statements in interfaces
     """
@@ -174,7 +174,7 @@ end module interface_import_mod
     """.strip()
 
     # Parse the source and find the interface
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     interface = module['process'].interface_map['monitor']
 
     # Find the import statement and test its properties
@@ -188,7 +188,7 @@ end module interface_import_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
-def test_interface_multiple_routines(frontend):
+def test_interface_multiple_routines(frontend, tmp_path):
     """
     Test interfaces with multiple subroutine/function declarations
     in the interface block
@@ -214,7 +214,7 @@ end module interface_multiple_routines_mod
     """.strip()
 
     # Parse the source and find the interface
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     if frontend == OMNI:
         # OMNI has to do things differently, of course, and splits the interface
@@ -247,7 +247,7 @@ end module interface_multiple_routines_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
-def test_interface_generic_spec(frontend):
+def test_interface_generic_spec(frontend, tmp_path):
     """
     Test interfaces with a generic identifier
     """
@@ -269,7 +269,7 @@ module interface_generic_spec_mod
 end module interface_generic_spec_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     if frontend == OMNI:
         # FANTASTIC... OMNI helps us to a treat and separates the subroutine interfaces
@@ -297,7 +297,7 @@ end module interface_generic_spec_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
-def test_interface_operator_module_procedure(frontend):
+def test_interface_operator_module_procedure(frontend, tmp_path):
     """
     Test interfaces that declare generic operators and refer to module procedures
     """
@@ -363,7 +363,7 @@ END FUNCTION EQUIV_SPEC
 END MODULE SPECTRAL_FIELDS_MOD
     """.strip()
 
-    mod = Module.from_source(fcode, frontend=frontend)
+    mod = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     assert len(mod.interfaces) == 2
 
     assign_intf = mod.interface_map['assignment(=)']
@@ -417,7 +417,7 @@ module use_spectral_fields_mod
 end module use_spectral_fields_mod
     """.strip()
 
-    other_mod = Module.from_source(other_code, frontend=frontend, definitions=[mod])
+    other_mod = Module.from_source(other_code, frontend=frontend, definitions=[mod], xmods=[tmp_path])
     assert set(other_mod.symbols) == {'assignment(=)', 'operator(.eqv.)'}
     assert other_mod.imported_symbols == ('assignment(=)', 'operator(.eqv.)')
 
@@ -442,7 +442,7 @@ end module use_spectral_fields_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
-def test_interface_procedure_pointer(frontend):
+def test_interface_procedure_pointer(frontend, tmp_path):
     fcode = """
 module my_interface_mod
 implicit none
@@ -462,7 +462,7 @@ END INTERFACE
 end module my_interface_mod
     """.strip()
 
-    mod = Module.from_source(fcode, frontend=frontend)
+    mod = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     intf_sim_func = mod.interface_map['sim_func']
     assert intf_sim_func.abstract

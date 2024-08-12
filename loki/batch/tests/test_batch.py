@@ -249,7 +249,7 @@ def test_file_item2(testdir):
     )
 
     # Files don't have dependencies (direct dependencies, anyway)
-    assert item.dependencies is ()
+    assert isinstance(item.dependencies, tuple) and not item.dependencies
 
 
 def test_file_item3(testdir):
@@ -371,7 +371,7 @@ def test_procedure_item1(testdir):
     assert item == '#comp1'
     assert str(item) == 'loki.batch.ProcedureItem<#comp1>'
     assert item.ir is item.source['comp1']
-    assert item.definitions is ()
+    assert isinstance(item.definitions, tuple) and not item.definitions
 
     assert not item.create_definition_items(item_factory=ItemFactory())
 
@@ -421,7 +421,7 @@ def test_procedure_item2(testdir):
     item = get_item(ProcedureItem, proj/'source/comp2.f90', '#comp2', RegexParserClass.ProgramUnitClass)
     assert item.name == '#comp2'
     assert item.ir is item.source['comp2']
-    assert item.definitions is ()
+    assert isinstance(item.definitions, tuple) and not item.definitions
 
     item_factory = ItemFactory()
     assert not item.create_definition_items(item_factory=item_factory)
@@ -816,7 +816,7 @@ def test_procedure_binding_item1(testdir):
     assert item.name == 't_mod#t%proc'
     assert str(item) == 'loki.batch.ProcedureBindingItem<t_mod#t%proc>'
     assert item.ir is item.source['t'].variable_map['proc']
-    assert item.definitions is ()
+    assert isinstance(item.definitions, tuple) and not item.definitions
     assert not item.create_definition_items(item_factory=ItemFactory())
     assert item.dependencies == as_tuple(item.source['t_proc'])
 
@@ -838,7 +838,7 @@ def test_procedure_binding_item2(testdir, default_config):
     item = get_item(ProcedureBindingItem, proj/'module/t_mod.F90', 't_mod#t%no%way', parser_classes)
     assert item.name == 't_mod#t%no%way'
     assert isinstance(item.ir, Scalar)
-    assert item.definitions is ()
+    assert isinstance(item.definitions, tuple) and not item.definitions
     assert not item.create_definition_items(item_factory=ItemFactory())
     assert item.dependencies == ('no%way',)
 
@@ -879,7 +879,7 @@ def test_procedure_binding_item3(testdir):
     item = get_item(ProcedureBindingItem, proj/'module/t_mod.F90', 't_mod#t%yay%proc', parser_classes)
     assert item.name == 't_mod#t%yay%proc'
     assert isinstance(item.ir, Scalar)
-    assert item.definitions is ()
+    assert isinstance(item.definitions, tuple) and not item.definitions
     assert not item.create_definition_items(item_factory=ItemFactory())
     assert item.dependencies == ('yay%proc',)
 

@@ -22,7 +22,9 @@ from loki.transformations.hoist_variables import HoistVariablesTransformation
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.vector import SCCDevectorTransformation
-from loki.transformations.utilities import single_variable_declaration
+from loki.transformations.utilities import (
+    single_variable_declaration, get_integer_variable
+)
 
 
 __all__ = [
@@ -745,7 +747,7 @@ class SccCufTransformation(Transformation):
             The subroutines depth
         """
 
-        v_index = SCCBaseTransformation.get_integer_variable(routine, name=self.horizontal.index)
+        v_index = get_integer_variable(routine, name=self.horizontal.index)
         resolve_associates(routine)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)

@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 from collections import defaultdict
-from pathlib import Path
 import math
 import sys
 import pytest
@@ -36,13 +35,8 @@ from loki.tools import (
 # pylint: disable=too-many-lines
 
 
-@pytest.fixture(scope='module', name='here')
-def fixture_here():
-    return Path(__file__).parent
-
-
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_arithmetic(here, frontend):
+def test_arithmetic(tmp_path, frontend):
     """
     Test simple floating point arithmetic expressions (+,-,*,/,**).
     """
@@ -56,7 +50,7 @@ subroutine arithmetic_expr(v1, v2, v3, v4, v5, v6)
   v6 = (v1 ** v2) - (v3 / v4)
 end subroutine arithmetic_expr
 """
-    filepath = here/(f'expression_arithmetic_{frontend}.f90')
+    filepath = tmp_path/(f'expression_arithmetic_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='arithmetic_expr')
 
@@ -66,7 +60,7 @@ end subroutine arithmetic_expr
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_math_intrinsics(here, frontend):
+def test_math_intrinsics(tmp_path, frontend):
     """
     Test supported math intrinsic functions (min, max, exp, abs, sqrt, log)
     """
@@ -84,7 +78,7 @@ subroutine math_intrinsics(v1, v2, vmin, vmax, vabs, vexp, vsqrt, vlog)
   vlog = log(v1 + v2)
 end subroutine math_intrinsics
 """
-    filepath = here/(f'expression_math_intrinsics_{frontend}.f90')
+    filepath = tmp_path/(f'expression_math_intrinsics_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
 
@@ -95,7 +89,7 @@ end subroutine math_intrinsics
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_logicals(here, frontend):
+def test_logicals(tmp_path, frontend):
     """
     Test logical expressions (and, or, not, tru, false, equal, not nequal).
     """
@@ -116,7 +110,7 @@ subroutine logicals(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, v
   vneq = 3 /= 4
 end subroutine logicals
 """
-    filepath = here/(f'expression_logicals_{frontend}.f90')
+    filepath = tmp_path/(f'expression_logicals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='logicals')
 
@@ -127,7 +121,7 @@ end subroutine logicals
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_literals(here, frontend):
+def test_literals(tmp_path, frontend):
     """
     Test simple literal values.
     """
@@ -146,7 +140,7 @@ subroutine literals(v1, v2, v3, v4, v5, v6)
   v6 = int(3.5)
 end subroutine literals
 """
-    filepath = here/(f'expression_literals_{frontend}.f90')
+    filepath = tmp_path/(f'expression_literals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='literals')
 
@@ -173,7 +167,7 @@ end subroutine literals
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_boz_literals(here, frontend):
+def test_boz_literals(tmp_path, frontend):
     """
     Test boz literal values.
     """
@@ -189,7 +183,7 @@ subroutine boz_literals(n1, n2, n3, n4, n5, n6)
   n6 = int(z"babe")
 end subroutine boz_literals
 """
-    filepath = here/(f'expression_boz_literals_{frontend}.f90')
+    filepath = tmp_path/(f'expression_boz_literals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='boz_literals')
 
@@ -217,7 +211,7 @@ end subroutine boz_literals
 @pytest.mark.parametrize('frontend', available_frontends(
     skip={OFP: "Not implemented because too stupid in OFP parse tree"})
 )
-def test_complex_literals(here, frontend):
+def test_complex_literals(tmp_path, frontend):
     """
     Test complex literal values.
     """
@@ -230,7 +224,7 @@ subroutine complex_literals(c1, c2, c3)
   c3 = (21_2, 4._8)
 end subroutine complex_literals
 """
-    filepath = here/(f'expression_complex_literals_{frontend}.f90')
+    filepath = tmp_path/(f'expression_complex_literals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='complex_literals')
 
@@ -241,7 +235,7 @@ end subroutine complex_literals
     # In addition to value testing, let's make sure that we created the correct expression types
     stmts = FindNodes(ir.Assignment).visit(routine.body)
     assert isinstance(stmts[0].rhs, sym.IntrinsicLiteral) and stmts[0].rhs.value == '(1.0, -1.0)'
-    # Note: Here, for inconsistency, FP converts the exponential letter 'e' to lower case...
+    # Note: tmp_path, for inconsistency, FP converts the exponential letter 'e' to lower case...
     assert isinstance(stmts[1].rhs, sym.IntrinsicLiteral) and stmts[1].rhs.value.lower() == '(3, 2e8)'
     assert isinstance(stmts[2].rhs, sym.IntrinsicLiteral)
     try:
@@ -253,7 +247,7 @@ end subroutine complex_literals
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_casts(here, frontend):
+def test_casts(tmp_path, frontend):
     """
     Test data type casting expressions.
     """
@@ -268,7 +262,7 @@ subroutine casts(v1, v2, v3, v4, v5)
   v5 = real(v1, kind=jprb) * max(v2, v3)  ! Cast as part of expression
 end subroutine casts
 """
-    filepath = here/(f'expression_casts_{frontend}.f90')
+    filepath = tmp_path/(f'expression_casts_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='casts')
 
@@ -278,7 +272,7 @@ end subroutine casts
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_logical_array(here, frontend):
+def test_logical_array(tmp_path, frontend):
     """
     Test logical arrays for masking.
     """
@@ -306,7 +300,7 @@ subroutine logical_array(dim, arr, out)
   end do
 end subroutine logical_array
 """
-    filepath = here/(f'expression_logical_array_{frontend}.f90')
+    filepath = tmp_path/(f'expression_logical_array_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='logical_array')
 
@@ -319,7 +313,7 @@ end subroutine logical_array
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OFP, 'Not implemented')]
 ))
-def test_array_constructor(here, frontend):
+def test_array_constructor(tmp_path, frontend):
     """
     Test various array constructor formats
     """
@@ -346,7 +340,7 @@ subroutine array_constructor(dim, zarr1, zarr2, narr1, narr2, narr3, narr4, narr
 end subroutine array_constructor
     """.strip()
 
-    filepath = here/f'array_constructor_{frontend}.f90'
+    filepath = tmp_path/f'array_constructor_{frontend}.f90'
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='array_constructor')
 
@@ -520,7 +514,7 @@ end subroutine strings
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_very_long_statement(here, frontend):
+def test_very_long_statement(tmp_path, frontend):
     """
     Test a long statement with line breaks.
     """
@@ -534,7 +528,7 @@ subroutine very_long_statement(scalar, res)
         - 9) + 10 - 8 + 7 - 6 + 5 - 4 + 3 - 2 + 1
 end subroutine very_long_statement
 """
-    filepath = here/(f'expression_very_long_statement_{frontend}.f90')
+    filepath = tmp_path/(f'expression_very_long_statement_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='very_long_statement')
 
@@ -582,7 +576,7 @@ end subroutine output_intrinsics
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_nested_call_inline_call(here, frontend):
+def test_nested_call_inline_call(tmp_path, frontend):
     """
     The purpose of this test is to highlight the differences between calls in expression
     (such as `InlineCall`, `Cast`) and call nodes in the IR.
@@ -620,7 +614,7 @@ subroutine nested_call_inline_call(v1, v2, v3)
   call very_long_statement(int(v2), v3)
 end subroutine nested_call_inline_call
 """
-    filepath = here/(f'expression_nested_call_inline_call_{frontend}.f90')
+    filepath = tmp_path/(f'expression_nested_call_inline_call_{frontend}.f90')
     routine = Sourcefile.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='nested_call_inline_call')
 
@@ -631,7 +625,7 @@ end subroutine nested_call_inline_call
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_no_arg_inline_call(frontend):
+def test_no_arg_inline_call(frontend, tmp_path):
     """
     Make sure that no-argument function calls are recognized as such,
     especially when their implementation is unknown.
@@ -664,8 +658,8 @@ end subroutine my_routine
         assert isinstance(assignment.rhs, sym.InlineCall)
         assert isinstance(assignment.rhs.function, sym.DeferredTypeSymbol)
 
-    module = Module.from_source(fcode_mod, frontend=frontend)
-    routine = Subroutine.from_source(fcode_routine, frontend=frontend, definitions=module)
+    module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode_routine, frontend=frontend, definitions=module, xmods=[tmp_path])
     assert isinstance(routine.symbol_attrs['my_func'].dtype, ProcedureType)
     assignment = FindNodes(ir.Assignment).visit(routine.body)[0]
     assert assignment.lhs == 'var'
@@ -674,7 +668,7 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_inline_call_derived_type_arguments(frontend):
+def test_inline_call_derived_type_arguments(frontend, tmp_path):
     """
     Check that derived type arguments are correctly represented in
     function calls that include keyword parameters.
@@ -718,7 +712,7 @@ contains
     end function some_func
 end module inline_call_mod
     """.strip()
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     some_func = module['some_func']
     inline_calls = FindInlineCalls().visit(some_func.body)
     assert len(inline_calls) == 4
@@ -728,7 +722,7 @@ end module inline_call_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_character_concat(here, frontend):
+def test_character_concat(tmp_path, frontend):
     """
     Concatenation operator ``//``
     """
@@ -743,7 +737,7 @@ subroutine character_concat(string)
   string = trim(string) // "!"
 end subroutine character_concat
 """
-    filepath = here/(f'expression_character_concat_{frontend}.f90')
+    filepath = tmp_path/(f'expression_character_concat_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='character_concat')
 
@@ -753,7 +747,7 @@ end subroutine character_concat
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_masked_statements(here, frontend):
+def test_masked_statements(tmp_path, frontend):
     """
     Masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
     """
@@ -780,7 +774,7 @@ subroutine expression_masked_statements(length, vec1, vec2, vec3)
 end subroutine expression_masked_statements
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Reference solution
@@ -805,7 +799,7 @@ end subroutine expression_masked_statements
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[
     (OFP, 'Current implementation does not handle nested where constructs')
 ]))
-def test_masked_statements_nested(here, frontend):
+def test_masked_statements_nested(tmp_path, frontend):
     """
     Nested masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
     """
@@ -831,7 +825,7 @@ subroutine expression_nested_masked_statements(length, vec1)
 end subroutine expression_nested_masked_statements
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/(f'{routine.name}_{frontend}.f90')
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Reference solution
@@ -850,7 +844,7 @@ end subroutine expression_nested_masked_statements
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[
     (OMNI, 'Not implemented'), (FP, 'Not implemented')
 ]))
-def test_data_declaration(here, frontend):
+def test_data_declaration(tmp_path, frontend):
     """
     Variable initialization with DATA statements
     """
@@ -872,7 +866,7 @@ subroutine data_declaration(data_out)
   data_out(1:3,1) = data3
 end subroutine data_declaration
 """
-    filepath = here/(f'expression_data_declaration_{frontend}.f90')
+    filepath = tmp_path/(f'expression_data_declaration_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='data_declaration')
 
@@ -885,7 +879,7 @@ end subroutine data_declaration
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pointer_nullify(here, frontend):
+def test_pointer_nullify(tmp_path, frontend):
     """
     POINTERS and their nullification via '=> NULL()'
     """
@@ -903,7 +897,7 @@ subroutine pointer_nullify()
   charp => NULL()
 end subroutine pointer_nullify
 """
-    filepath = here/(f'expression_pointer_nullify_{frontend}.f90')
+    filepath = tmp_path/(f'expression_pointer_nullify_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     assert np.all(v.type.pointer for v in routine.variables)
@@ -921,7 +915,7 @@ end subroutine pointer_nullify
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_parameter_stmt(here, frontend):
+def test_parameter_stmt(tmp_path, frontend):
     """
     PARAMETER(...) statement
     """
@@ -936,7 +930,7 @@ subroutine parameter_stmt(out1)
   out1 = param
 end subroutine parameter_stmt
 """
-    filepath = here/(f'expression_parameter_stmt_{frontend}.f90')
+    filepath = tmp_path/(f'expression_parameter_stmt_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='parameter_stmt')
 
@@ -1400,7 +1394,7 @@ end subroutine some_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_variable_in_dimensions(frontend):
+def test_variable_in_dimensions(frontend, tmp_path):
     """
     Check correct handling of cases where the variable appears in the
     dimensions expression of the same variable (i.e. do not cause
@@ -1426,7 +1420,7 @@ contains
 end module some_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['some_routine']
     assert 'levels%data' in routine.symbol_attrs
     shape = routine.symbol_attrs['levels%data'].shape
@@ -1481,7 +1475,7 @@ def test_expression_container_matching():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_expression_finder_retrieval_function(frontend):
+def test_expression_finder_retrieval_function(frontend, tmp_path):
     """
     Verify that expression finder visitors work as intended and remain
     functional if re-used
@@ -1502,7 +1496,7 @@ contains
 end module some_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     expected_ts = {'var', 'some_func'}
     expected_vars = ('var',)
@@ -1595,10 +1589,8 @@ def test_typebound_resolution(expr):
     assert var.scope == scope
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip={OMNI: "OMNI fails on missing module"}
-))
-def test_typebound_resolution_type_info(frontend):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_typebound_resolution_type_info(frontend, tmp_path):
     fcode = """
 module typebound_resolution_type_info_mod
     use some_mod, only: tt
@@ -1624,7 +1616,11 @@ contains
 end module typebound_resolution_type_info_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    if frontend == OMNI:
+        dummy_mod = "module some_mod\ntype tt\nend type\nend module"
+        Module.from_source(dummy_mod, frontend=frontend, xmods=[tmp_path])
+
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     sub = module['sub']
     var_c = sub.variable_map['var_c']
@@ -1689,7 +1685,7 @@ def convert_to_case(_str, mode='upper'):
 
 @pytest.mark.parametrize('case', ('upper', 'lower', 'random'))
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_expression_parser(frontend, case):
+def test_expression_parser(frontend, case, tmp_path):
     fcode = """
 subroutine some_routine()
   implicit none
@@ -1715,7 +1711,7 @@ end module external_mod
         return str(_parsed).lower().replace(' ', '')
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    module = Module.from_source(fcode_mod, frontend=frontend)
+    module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
 
     parsed = parse_expr(convert_to_case('a + b', mode=case))
     assert isinstance(parsed, sym.Sum)

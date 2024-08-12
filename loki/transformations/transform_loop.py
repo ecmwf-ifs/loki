@@ -9,6 +9,7 @@
 Collection of utility routines that provide loop transformations.
 
 """
+import functools
 from collections import defaultdict
 import operator as op
 import numpy as np
@@ -19,7 +20,8 @@ from loki.analyse import (
 )
 from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
-    simplify, is_constant, symbolic_op, parse_expr
+    simplify, is_constant, symbolic_op, parse_expr, IntLiteral,
+    FloatLiteral
 )
 from loki.ir import (
     Loop, Conditional, Comment, Pragma, FindNodes, Transformer,
@@ -36,7 +38,7 @@ from loki.transformations.array_indexing import (
 )
 
 
-__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission']
+__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'loop_unroll']
 
 
 from loki.analyse.util_polyhedron import Polyhedron
@@ -608,3 +610,138 @@ def loop_fission(routine, promote=True, warn_loop_carries=True):
                             f'for variables: {", ".join(str(v) for v in broken_loop_carries)}')
 
     promote_nonmatching_variables(routine, promotion_vars_dims, promotion_vars_index)
+
+
+class LoopUnrollTransformer(Transformer):
+    """
+    Transformer that unrolls loops or loop nests at
+    ``!$loki loop-unroll`` pragmas.
+
+    For loops to be unrolled, they must have literal bounds and step.
+    If not, then they are simply ignored.
+
+    This works also for nested loops with individually different unroll
+    annotations. However, a child nested loop with a more restrictive depth
+    will not be able to override its parent's depth.
+    """
+
+    def __init__(self, warn_iterations_length=True):
+        self.warn_iterations_length = warn_iterations_length
+        super().__init__()
+
+    # depth is treated as an option of some depth or none, i.e. unroll all
+    def visit_Loop(self, o, depth=None):
+        """
+        Apply this :class:`Transformer` to an IR tree.
+
+        Parameters
+        ----------
+        o : :any:`Node`
+            The node to visit.
+        depth : 'Int', optional
+            How deep down a loop nest unrolling should be applied.
+        """
+
+        # If the step isn't explicitly given, then it's implicitly 1
+        step = o.bounds.step if o.bounds.step is not None else IntLiteral(1)
+        start, stop = o.bounds.start, o.bounds.stop
+
+        depth = depth - 1 if depth is not None else None
+
+        # Only unroll if we have all literal bounds and step
+        if isinstance(start, (IntLiteral, FloatLiteral)) and\
+                isinstance(stop, (IntLiteral, FloatLiteral)) and\
+                isinstance(step, (IntLiteral, FloatLiteral)):
+
+            #  int() to truncate any floats - which are not invalid in all specs!
+            unroll_range = range(int(start), int(stop) + 1, int(step))
+            if self.warn_iterations_length and len(unroll_range) > 32:
+                warning(f"Unrolling loop over 32 iterations ({len(unroll_range)}), this may take a long time & "
+                        f"provide few performance benefits.")
+
+            acc = functools.reduce(op.add,
+                                   [
+                                       # Create a copy of the loop body for every value of the iterator
+                                       SubstituteExpressions({o.variable: sym.IntLiteral(i)}).visit(o.body)
+                                       for i in unroll_range
+                                   ],
+                                   ())
+
+            if depth is None or depth >= 1:
+                acc = [self.visit(a, depth=depth) for a in acc]
+
+            return as_tuple(flatten(acc))
+
+        return Loop(
+            variable=o.variable,
+            body=self.visit(o.body, depth=depth),
+            bounds=o.bounds
+                    )
+
+
+def loop_unroll(routine, warn_iterations_length=True):
+    """
+    Search for ``!$loki loop-unroll`` pragmas in loops and unroll them.
+
+    The expected pragma syntax is
+    ``!$loki loop-unroll [depth(n)]``
+    where ``depth(n)`` controls the unrolling of nested loops. For instance,
+    ``depth(1)`` will only unroll the top most loop of a set of nested loops.
+    However, a child nested loop with a more restrictive depth will not be
+    able to override its parent's depth. If ``depth(n)`` is not specified,
+    then all loops nested under a parent with this pragma will be unrolled.
+    E.g. The code sample below will only unroll A and B, but not C:
+
+    ! Loop A
+    !$loki loop-unroll depth(1)
+    DO a = 1, 10
+        ! Loop B
+        !$loki loop-unroll
+        DO b = 1, 10
+            ...
+        END DO
+        ! Loop C - will not be unrolled
+        DO c = 1, 10
+            ...
+        END DO
+    END DO
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which loop unrolling is to be applied.
+    warn_iterations_length : 'Boolean', optional
+        This specifies if warnings should be generated when unrolling
+        loops with a large number of iterations (32). It's mainly to
+        disable warnings when loops are being unrolled for internal
+        transformations and analysis.
+    """
+
+    class PragmaLoopUnrollTransformer(Transformer):
+        def __init__(self, warn_iterations_length=True):
+            self.warn_iterations_length = warn_iterations_length
+            super().__init__()
+
+        def visit_Loop(self, o, *args, **kwargs):
+            # Check for pragmas
+            if is_loki_pragma(o.pragma, starts_with='loop-unroll'):
+                parameters = get_pragma_parameters(o.pragma, starts_with='loop-unroll')
+
+                # Get the depth
+                param = parameters.get('depth', None)
+                depth = int(param) if param is not None else None
+
+                # Unroll and recurse
+                unrolled_loop = LoopUnrollTransformer(self.warn_iterations_length).visit(o, depth=depth)
+
+                # unrolled_loop could be either an unrollable Loop() or a Tuple() of Nodes
+                try:
+                    return as_tuple(flatten([self.visit(a) for a in as_tuple(flatten(unrolled_loop))]))
+                # Loop() is not iterable
+                except TypeError:
+                    return self.visit(unrolled_loop, *args, **kwargs)
+
+            return super().visit_Node(o, *args, **kwargs)
+
+    with pragmas_attached(routine, Loop):
+        routine.body = PragmaLoopUnrollTransformer(warn_iterations_length=warn_iterations_length).visit(routine.body)

@@ -250,32 +250,32 @@ def test_transpile_derived_type(tmp_path, builder, frontend, use_c_ptr):
 
     fcode_type = """
 module transpile_type_mod
-  use iso_fortran_env, only: real32, real64
-  implicit none
+    use iso_fortran_env, only: real32, real64
+    implicit none
 
-  type my_struct
-     integer :: a
-     real(kind=real32) :: b
-     real(kind=real64) :: c
-  end type my_struct
+    type my_struct
+        integer :: a
+        real(kind=real32) :: b
+        real(kind=real64) :: c
+    end type my_struct
 end module transpile_type_mod
-"""
+    """.strip()
 
     fcode_routine = """
 subroutine transp_der_type(a_struct)
-  use transpile_type_mod, only: my_struct
-  implicit none
-  type(my_struct), intent(inout) :: a_struct
+    use transpile_type_mod, only: my_struct
+    implicit none
+    type(my_struct), intent(inout) :: a_struct
 
-  a_struct%a = a_struct%a + 4
-  a_struct%b = a_struct%b + 5.
-  a_struct%c = a_struct%c + 6.
+    a_struct%a = a_struct%a + 4
+    a_struct%b = a_struct%b + 5.
+    a_struct%c = a_struct%c + 6.
 end subroutine transp_der_type
-"""
+    """.strip()
     builder.clean()
 
-    module = Module.from_source(fcode_type, frontend=frontend)
-    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
+    module = Module.from_source(fcode_type, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
 
@@ -322,34 +322,34 @@ def test_transpile_associates(tmp_path, builder, frontend, use_c_ptr):
 
     fcode_type = """
 module assoc_type_mod
-  use iso_fortran_env, only: real32, real64
-  implicit none
+    use iso_fortran_env, only: real32, real64
+    implicit none
 
-  type my_struct
-     integer :: a
-     real(kind=real32) :: b
-     real(kind=real64) :: c
-  end type my_struct
+    type my_struct
+        integer :: a
+        real(kind=real32) :: b
+        real(kind=real64) :: c
+    end type my_struct
 end module assoc_type_mod
-"""
+    """.strip()
 
     fcode_routine = """
 subroutine transp_assoc(a_struct)
-  use assoc_type_mod, only: my_struct
-  implicit none
-  type(my_struct), intent(inout) :: a_struct
+    use assoc_type_mod, only: my_struct
+    implicit none
+    type(my_struct), intent(inout) :: a_struct
 
-  associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
-   & a_struct_c=>a_struct%c)
-  a_struct%a = a_struct_a + 4.
-  a_struct_b = a_struct%b + 5.
-  a_struct_c = a_struct_a + a_struct%b + a_struct_c
-  end associate
+    associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
+            & a_struct_c=>a_struct%c)
+        a_struct%a = a_struct_a + 4.
+        a_struct_b = a_struct%b + 5.
+        a_struct_c = a_struct_a + a_struct%b + a_struct_c
+    end associate
 end subroutine transp_assoc
-"""
+    """.strip()
 
-    module = Module.from_source(fcode_type, frontend=frontend)
-    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
+    module = Module.from_source(fcode_type, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
 
@@ -427,34 +427,34 @@ def test_transpile_module_variables(tmp_path, builder, frontend, use_c_ptr):
 
     fcode_type = """
 module mod_var_type_mod
-  use iso_fortran_env, only: real32, real64
-  implicit none
+    use iso_fortran_env, only: real32, real64
+    implicit none
 
-  save
+    save
 
-  integer :: PARAM1
-  real(kind=real32) :: param2
-  real(kind=real64) :: param3
+    integer :: PARAM1
+    real(kind=real32) :: param2
+    real(kind=real64) :: param3
 end module mod_var_type_mod
-"""
+    """.strip()
 
     fcode_routine = """
 subroutine transp_mod_var(a, b, c)
-  use iso_fortran_env, only: real32, real64
-  use mod_var_type_mod, only: PARAM1, param2, param3
+    use iso_fortran_env, only: real32, real64
+    use mod_var_type_mod, only: PARAM1, param2, param3
 
-  integer, intent(out) :: a
-  real(kind=real32), intent(out) :: b
-  real(kind=real64), intent(out) :: c
+    integer, intent(out) :: a
+    real(kind=real32), intent(out) :: b
+    real(kind=real64), intent(out) :: c
 
-  a = 1 + PARAM1  ! Ensure downcasing is done right
-  b = 1. + param2
-  c = 1. + param3
+    a = 1 + PARAM1  ! Ensure downcasing is done right
+    b = 1. + param2
+    c = 1. + param3
 end subroutine transp_mod_var
-"""
+    """.strip()
 
-    module = Module.from_source(fcode_type, frontend=frontend)
-    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
+    module = Module.from_source(fcode_type, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
 
@@ -818,8 +818,8 @@ subroutine inline_elemental(v1, v2, v3)
 end subroutine inline_elemental
 """
     # Generate reference code, compile run and verify
-    module = Module.from_source(fcode_module, frontend=frontend)
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
 
@@ -831,7 +831,7 @@ end subroutine inline_elemental
     (tmp_path/f'{routine.name}.f90').unlink()
 
     # Now transpile with supplied elementals but without module
-    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend, xmods=[tmp_path])
 
     f2c = FortranCTransformation(inline_elementals=True, use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
@@ -893,8 +893,8 @@ subroutine inline_elementals_rec(v1, v2, v3)
 end subroutine inline_elementals_rec
 """
     # Generate reference code, compile run and verify
-    module = Module.from_source(fcode_module, frontend=frontend)
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     refname = f'ref_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
 
@@ -906,7 +906,7 @@ end subroutine inline_elementals_rec
     (tmp_path/f'{routine.name}.f90').unlink()
 
     # Now transpile with supplied elementals but without module
-    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend, xmods=[tmp_path])
 
     f2c = FortranCTransformation(inline_elementals=True, use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
@@ -1009,8 +1009,8 @@ subroutine transpile_call_driver(a)
     call transpile_call_kernel(a, b, arr2(1, 1), arr1, len)
 end subroutine transpile_call_driver
 """
-    module = Module.from_source(fcode_module, frontend=frontend)
-    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module)
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module, xmods=[tmp_path])
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr, path=tmp_path)
     f2c.apply(source=module.subroutine_map['transpile_call_kernel'], path=tmp_path, role='kernel')
     ccode_kernel = f2c.c_path.read_text().replace(' ', '').replace('\n', '')

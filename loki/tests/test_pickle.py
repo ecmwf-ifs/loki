@@ -111,7 +111,7 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pickle_module(frontend):
+def test_pickle_module(frontend, tmp_path):
     """
     Ensure that serialisation/deserialisation via pickling works as expected.
     """
@@ -124,7 +124,7 @@ module my_type_mod
 
 end module my_type_mod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Ensure equivalence after pickle-cyle
     assert module.symbol_attrs == loads(dumps(module.symbol_attrs))
@@ -134,7 +134,7 @@ end module my_type_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pickle_module_with_typedef(frontend):
+def test_pickle_module_with_typedef(frontend, tmp_path):
     """
     Ensure that a type definition in a module is pickle-safe.
     """
@@ -151,7 +151,7 @@ module my_type_mod
 
 end module my_type_mod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Replicate the TypeDef individually
     typedef = module['a_type']
@@ -235,7 +235,7 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pickle_module_with_routines(frontend):
+def test_pickle_module_with_routines(frontend, tmp_path):
     """
     Ensure that :any:`Module` object with cross-calling subroutines
     pickle cleanly, including the procedure type symbols.
@@ -262,7 +262,7 @@ module my_module
   end subroutine other_routine
 end module my_module
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # First, replicate the scope individually, ...
     scope_new = Scope()
@@ -290,13 +290,13 @@ end module my_module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_pickle_scheduler_item(here, frontend):
+def test_pickle_scheduler_item(here, frontend, tmp_path):
     """
     Test that :any:`Item` objects are picklable, so that we may use
     them with parallel processes.
     """
     filepath = here/'sources/sourcefile_item.f90'
-    source = Sourcefile.from_file(filename=filepath, frontend=frontend)
+    source = Sourcefile.from_file(filename=filepath, frontend=frontend, xmods=[tmp_path])
     item_a = Item(name='#routine_a', source=source)
 
     # Check the individual routines and modules in the parsed source file

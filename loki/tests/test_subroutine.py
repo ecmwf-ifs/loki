@@ -35,7 +35,7 @@ def fixture_header_path(here):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_simple(here, frontend):
+def test_routine_simple(tmp_path, frontend):
     """
     A simple standard looking routine to test argument declarations.
     """
@@ -68,7 +68,7 @@ end subroutine routine_simple
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])  # OMNI
 
     # Generate code, compile and load
-    filepath = here/(f'routine_simple_{frontend}.f90')
+    filepath = tmp_path/(f'routine_simple_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_simple')
 
     # Test the generated identity results
@@ -83,7 +83,7 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_arguments(here, frontend):
+def test_routine_arguments(tmp_path, frontend):
     """
     A set of test to test internalisation and handling of arguments.
     """
@@ -124,7 +124,7 @@ end subroutine routine_arguments
                             ['x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filepath = here/(f'routine_arguments_{frontend}.f90')
+    filepath = tmp_path/(f'routine_arguments_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_arguments')
 
     # Test results of the generated and compiled code
@@ -139,7 +139,7 @@ end subroutine routine_arguments
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_arguments_multiline(here, frontend):
+def test_routine_arguments_multiline(tmp_path, frontend):
     """
     Test argument declarations with comments interjectected between dummies.
     """
@@ -170,7 +170,7 @@ end subroutine routine_arguments_multiline
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filepath = here/(f'routine_arguments_multiline_{frontend}.f90')
+    filepath = tmp_path/(f'routine_arguments_multiline_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_arguments_multiline')
 
     # Test results of the generated and compiled code
@@ -276,7 +276,7 @@ integer, intent(in) :: c
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_variables_local(here, frontend):
+def test_routine_variables_local(tmp_path, frontend):
     """
     Test local variables and types
     """
@@ -309,7 +309,7 @@ end subroutine routine_variables_local
         ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filepath = here/(f'routine_variables_local_{frontend}.f90')
+    filepath = tmp_path/(f'routine_variables_local_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_variables_local')
 
     # Test results of the generated and compiled code
@@ -474,7 +474,7 @@ end subroutine routine_variables_find
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     vars_all = FindVariables(unique=False).visit(routine.body)
-    # Note, we are not counting declarations here
+    # Note, we are not counting declarations tmp_path
     assert sum(1 for s in vars_all if str(s) == 'i') == 6
     assert sum(1 for s in vars_all if str(s) == 'j') == 3
     assert sum(1 for s in vars_all if str(s) == 'matrix(i, j)') == 1
@@ -540,7 +540,7 @@ end subroutine routine_dim_shapes
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_variables_shape_propagation(header_path, frontend):
+def test_routine_variables_shape_propagation(tmp_path, header_path, frontend):
     """
     Test for the correct identification and forward propagation of variable shapes
     from the subroutine declaration.
@@ -564,7 +564,7 @@ end subroutine routine_shape
 
     # Check shapes on the internalized variable and argument lists
     # x, y, = routine.arguments[0], routine.arguments[1]
-    # TODO: The string comparison here is due to the fact that shapes are actually
+    # TODO: The string comparison tmp_path is due to the fact that shapes are actually
     # `RangeIndex(upper=Scalar)` objects, instead of the raw dimension variables.
     # This needs some more thorough conceptualisation of dimensions and indices!
     assert fexprgen(routine.arguments[3].shape) in ['(x,)', '(1:x,)']
@@ -603,8 +603,8 @@ subroutine routine_typedefs_simple(item)
 
 end subroutine routine_typedefs_simple
 """
-    header = Sourcefile.from_file(header_path, frontend=frontend)['header']
-    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
+    header = Sourcefile.from_file(header_path, frontend=frontend, xmods=[tmp_path])['header']
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header, xmods=[tmp_path])
 
     # Verify that all derived type variables have shape info
     variables = FindVariables().visit(routine.body)
@@ -649,7 +649,7 @@ end subroutine routine_variables_dimensions
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_type_propagation(header_path, frontend):
+def test_routine_type_propagation(header_path, frontend, tmp_path):
     """
     Test for the forward propagation of derived-type information from
     a standalone module to a foreign subroutine via the :param typedef:
@@ -723,8 +723,8 @@ subroutine routine_typedefs_simple(item)
 
 end subroutine routine_typedefs_simple
 """
-    header = Sourcefile.from_file(header_path, frontend=frontend)['header']
-    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
+    header = Sourcefile.from_file(header_path, frontend=frontend, xmods=[tmp_path])['header']
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header, xmods=[tmp_path])
 
     # Check that external typedefs have been propagated to kernel variables
     # First check that the declared parent variable has the correct type
@@ -746,7 +746,7 @@ end subroutine routine_typedefs_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_call_arrays(header_path, frontend):
+def test_routine_call_arrays(header_path, frontend, tmp_path):
     """
     Test that arrays passed down a subroutine call are treated as arrays.
     """
@@ -766,8 +766,8 @@ subroutine routine_call_caller(x, y, vector, matrix, item)
 
 end subroutine routine_call_caller
 """
-    header = Sourcefile.from_file(header_path, frontend=frontend)['header']
-    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
+    header = Sourcefile.from_file(header_path, frontend=frontend, xmods=[tmp_path])['header']
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header, xmods=[tmp_path])
     call = FindNodes(ir.CallStatement).visit(routine.body)[0]
 
     assert str(call.arguments[0]) == 'x'
@@ -848,7 +848,7 @@ end subroutine routine_call_args_kwargs
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_convert_endian(here, frontend):
+def test_convert_endian(tmp_path, frontend):
     pre = """
 SUBROUTINE ROUTINE_CONVERT_ENDIAN()
   INTEGER :: IUNIT
@@ -866,7 +866,7 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
 """
     fcode = pre + body + post
 
-    filepath = here/(f'routine_convert_endian_{frontend}.f90')
+    filepath = tmp_path/(f'routine_convert_endian_{frontend}.f90')
     Sourcefile.to_file(fcode, filepath)
     routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_convert_endian']
 
@@ -881,7 +881,7 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_open_newunit(here, frontend):
+def test_open_newunit(tmp_path, frontend):
     pre = """
 SUBROUTINE ROUTINE_OPEN_NEWUNIT()
   INTEGER :: IUNIT
@@ -900,7 +900,7 @@ END SUBROUTINE ROUTINE_OPEN_NEWUNIT
 """
     fcode = pre + body + post
 
-    filepath = here/(f'routine_open_newunit_{frontend}.f90')
+    filepath = tmp_path/(f'routine_open_newunit_{frontend}.f90')
     Sourcefile.to_file(fcode, filepath)
     routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_open_newunit']
 
@@ -929,7 +929,7 @@ end subroutine routine_empty_spec
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_member_procedures(here, frontend):
+def test_member_procedures(tmp_path, frontend):
     """
     Test member subroutine and function
     """
@@ -990,7 +990,7 @@ end subroutine routine_member_procedures
     assert routine.get_symbol_scope('in2') is routine
 
     # Generate code, compile and load
-    filepath = here/(f'routine_member_procedures_{frontend}.f90')
+    filepath = tmp_path/(f'routine_member_procedures_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_member_procedures')
 
     # Test results of the generated and compiled code
@@ -1126,7 +1126,7 @@ end subroutine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_external_stmt(here, frontend):
+def test_external_stmt(tmp_path, frontend):
     """
     Tests procedures passed as dummy arguments and declared as EXTERNAL.
     """
@@ -1230,12 +1230,12 @@ end subroutine routine_call_external_stmt
                 assert v.type.dtype.return_type.compare(SymbolAttributes(BasicType.INTEGER))
 
     # Generate code, compile and load
-    extpath = here/(f'subroutine_routine_external_{frontend}.f90')
+    extpath = tmp_path/(f'subroutine_routine_external_{frontend}.f90')
     with extpath.open('w') as f:
         f.write(fcode_external)
-    filepath = here/(f'subroutine_routine_external_stmt_{frontend}.f90')
+    filepath = tmp_path/(f'subroutine_routine_external_stmt_{frontend}.f90')
     source.path = filepath
-    lib = jit_compile_lib([source, extpath], path=here, name='subroutine_external')
+    lib = jit_compile_lib([source, extpath], path=tmp_path, name='subroutine_external')
     function = lib.routine_call_external_stmt
 
     outvar = function(7)
@@ -1244,7 +1244,7 @@ end subroutine routine_call_external_stmt
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_subroutine_interface(here, frontend):
+def test_subroutine_interface(tmp_path, frontend, header_path):
     """
     Test auto-generation of an interface block for a given subroutine.
     """
@@ -1261,7 +1261,11 @@ subroutine test_subroutine_interface (in1, in2, in3, out1, out2)
   out2 = out1 + 2.
 end subroutine
 """
-    routine = Subroutine.from_source(fcode, xmods=[here/'sources/xmod'], frontend=frontend)
+    if frontend == OMNI:
+        # Generate xmod
+        Sourcefile.from_file(header_path, frontend=frontend, xmods=[tmp_path])
+
+    routine = Subroutine.from_source(fcode, xmods=[tmp_path], frontend=frontend)
 
     if frontend == OMNI:
         assert fgen(routine.interface).strip() == """
@@ -1494,7 +1498,7 @@ end subroutine test_subroutine_rescope_clone
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for statement functions')]))
-def test_subroutine_stmt_func(here, frontend):
+def test_subroutine_stmt_func(tmp_path, frontend):
     """
     Test the correct identification of statement functions
     """
@@ -1538,7 +1542,7 @@ end subroutine subroutine_stmt_func
             assert stmt_func_decls[var].source is not None
 
     # Make sure this produces the correct result
-    filepath = here/f'{routine.name}.f90'
+    filepath = tmp_path/f'{routine.name}.f90'
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     assert function(3) == 14
     clean_test(filepath)
@@ -1603,7 +1607,7 @@ end function f_elem
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_subroutine_suffix(frontend):
+def test_subroutine_suffix(frontend, tmp_path):
     """
     Test that subroutine suffixes are supported and correctly reproduced
     """
@@ -1645,7 +1649,7 @@ contains
     end function out_of_physical_bounds
 end module subroutine_suffix_mod
     """.strip()
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     check_value = module.interface_map['check_value'].body[0]
     assert check_value.is_function
@@ -1759,7 +1763,7 @@ def test_subroutine_lazy_arguments_incomplete1(frontend):
     The rationale for this test is that for dummy argument lists with interleaved comments and line
     breaks, matching is non-trivial and, since we don't currently need the argument list
     in the incomplete REGEX-parsed IR, we accept that this information is incomplete initially.
-    Here, we make sure this information is captured correctly after completing the full frontend
+    tmp_path, we make sure this information is captured correctly after completing the full frontend
     parse.
     """
     fcode = """
@@ -1803,7 +1807,7 @@ def test_subroutine_lazy_arguments_incomplete2(frontend):
     The rationale for this test is that for dummy argument lists with interleaved comments and line
     breaks, matching is non-trivial and, since we don't currently need the argument list
     in the incomplete REGEX-parsed IR, we accept that this information is not available initially.
-    Here, we make sure this information is captured correctly after completing the full frontend
+    tmp_path, we make sure this information is captured correctly after completing the full frontend
     parse.
     """
     fcode = """
@@ -1895,7 +1899,7 @@ def test_subroutine_lazy_prefix(frontend):
 
     The rationale for this test is that we don't currently need these attributes
     in the incomplete REGEX-parsed IR and we accept that this information is incomplete initially.
-    Here, we make sure this information is captured correctly after completing the full frontend
+    tmp_path, we make sure this information is captured correctly after completing the full frontend
     parse.
     """
     fcode = """

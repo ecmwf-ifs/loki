@@ -18,8 +18,8 @@ from loki.expression import (
     ExpressionRetriever, TypedSymbol, MetaSymbol
 )
 from loki.ir import (
-    Import, TypeDef, VariableDeclaration, StatementFunction,
-    Transformer, FindNodes
+    nodes as ir, Import, TypeDef, VariableDeclaration,
+    StatementFunction, Transformer, FindNodes
 )
 from loki.module import Module
 from loki.subroutine import Subroutine
@@ -28,8 +28,11 @@ from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
 
 
 __all__ = [
-    'convert_to_lower_case', 'replace_intrinsics', 'rename_variables', 'sanitise_imports',
-    'replace_selected_kind', 'single_variable_declaration', 'recursive_expression_map_update'
+    'convert_to_lower_case', 'replace_intrinsics', 'rename_variables',
+    'sanitise_imports', 'replace_selected_kind',
+    'single_variable_declaration', 'recursive_expression_map_update',
+    'get_integer_variable', 'get_loop_bounds', 'find_driver_loops',
+    'get_local_arrays', 'check_routine_pragmas'
 ]
 
 
@@ -468,7 +471,7 @@ def replace_selected_kind(routine):
             routine.spec.prepend(imprt)
 
 
-def recursive_expression_map_update(expr_map, max_iterations=10):
+def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=SubstituteExpressionsMapper):
     """
     Utility function to apply a substitution map for expressions to itself
 
@@ -490,6 +493,8 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
     max_iterations : int
         Maximum number of iterations, corresponds to the maximum level of
         nesting that can be replaced.
+    mapper_cls: :any:`SubstituteExpressionsMapper`
+       The underlying mapper to be used (default: :any:`SubstituteExpressionsMapper`).
     """
     def apply_to_init_arg(name, arg, expr, mapper):
         # Helper utility to apply the mapper only to expression arguments and
@@ -504,7 +509,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
         # We update the expression map by applying it to the children of each replacement
         # node, thus making sure node replacements are also applied to nested attributes,
         # e.g. call arguments or array subscripts etc.
-        mapper = SubstituteExpressionsMapper(expr_map)
+        mapper = mapper_cls(expr_map)
         prev_map, expr_map = expr_map, {
             expr: type(replacement)(**{
                 name: apply_to_init_arg(name, arg, expr, mapper)
@@ -518,3 +523,167 @@ def recursive_expression_map_update(expr_map, max_iterations=10):
             break
 
     return expr_map
+
+
+def get_integer_variable(routine, name):
+    """
+    Find a local variable in the routine, or create an integer-typed one.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to find the variable
+    name : string
+        Name of the variable to find the in the routine.
+    """
+    if not (v_index := routine.symbol_map.get(name, None)):
+        dtype = SymbolAttributes(BasicType.INTEGER)
+        v_index = sym.Variable(name=name, type=dtype, scope=routine)
+    return v_index
+
+
+def get_loop_bounds(routine, dimension):
+    """
+    Check loop bounds for a particular :any:`Dimension` in a
+    :any:`Subroutine`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        Subroutine to perform checks on.
+    dimension : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions
+        used to define the data dimension and iteration space.
+    """
+
+    bounds = ()
+    variable_map = routine.variable_map
+    for name, _bounds in zip(['start', 'end'], dimension.bounds_expressions):
+        for bound in _bounds:
+            if bound.split('%', maxsplit=1)[0] in variable_map:
+                bounds += (routine.resolve_typebound_var(bound, variable_map),)
+                break
+        else:
+            raise RuntimeError(
+                f'No {name} variable matching {_bounds[0]} found in {routine.name}'
+            )
+
+    return bounds
+
+
+def is_driver_loop(loop, targets):
+    """
+    Test/check whether a given loop is a *driver loop*.
+
+    Parameters
+    ----------
+    loop : :any: `Loop`
+        The loop to test if it is a *driver loop*.
+    targets : list or string
+        List of subroutines that are to be considered as part of
+        the transformation call tree.
+    """
+    if loop.pragma:
+        for pragma in loop.pragma:
+            if pragma.keyword.lower() == "loki" and pragma.content.lower() == "driver-loop":
+                return True
+    for call in FindNodes(ir.CallStatement).visit(loop.body):
+        if call.name in targets:
+            return True
+    return False
+
+
+def find_driver_loops(routine, targets):
+    """
+    Find and return all driver loops of a given `routine`.
+
+    A *driver loop* is specified either by a call to a routine within
+    `targets` or by the pragma `!$loki driver-loop`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to find the driver loops.
+    targets : list or string
+        List of subroutines that are to be considered as part of
+        the transformation call tree.
+    """
+
+    driver_loops = []
+    nested_driver_loops = []
+    for loop in FindNodes(ir.Loop).visit(routine.body):
+        if loop in nested_driver_loops:
+            continue
+
+        if not is_driver_loop(loop, targets):
+            continue
+
+        driver_loops.append(loop)
+        loops = FindNodes(ir.Loop).visit(loop.body)
+        nested_driver_loops.extend(loops)
+    return driver_loops
+
+
+def get_local_arrays(routine, section, unique=True):
+    """
+    Collect all local temporary array symbols in a given section.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to find local arrays.
+    section : :any:`Section` or tuple of :any:`Node`
+        The section or list of nodes to scan for local temporary
+        symbols.
+    unique : bool, optional
+        Flag whether to return unique instances of each symbol;
+        default: ``False``
+    """
+    arg_names = tuple(a.lower() for a in routine._dummies)
+    variables = FindVariables(unique=unique).visit(section)
+
+    # Filter all variables by argument name to get local arrays
+    arrays = [v for v in variables if isinstance(v, sym.Array) and not v.parent]
+    arrays = [v for v in arrays if str(v.name).lower() not in arg_names]
+
+    return arrays
+
+
+def check_routine_pragmas(routine, directive):
+    """
+    Check if routine is marked as sequential or has already been processed.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        Subroutine to perform checks on.
+    directive: string or None
+        Directives flavour to use for parallelism annotations; either
+        ``'openacc'`` or ``None``.
+    """
+
+    pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+    routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
+    routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
+
+    seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
+    if seq_pragmas:
+        loki_seq_pragmas = [r for r in routine_pragmas if 'loki' == r.keyword.lower()]
+        if loki_seq_pragmas:
+            if directive == 'openacc':
+                # Mark routine as acc seq
+                mapper = {seq_pragmas[0]: None}
+                routine.spec = Transformer(mapper).visit(routine.spec)
+                routine.body = Transformer(mapper).visit(routine.body)
+
+                # Append the acc pragma to routine.spec, regardless of where the corresponding
+                # loki pragma is found
+                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
+        return True
+
+    vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
+    if vec_pragmas:
+        if directive == 'openacc':
+            return True
+
+    return False

@@ -18,7 +18,7 @@ from loki.frontend import available_frontends
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_ipa_call_statement_arg_iter(frontend):
+def test_ipa_call_statement_arg_iter(frontend, tmp_path):
     """
     Test that :any:`CallStatement.arg_iter` works as expected
     """
@@ -45,8 +45,11 @@ contains
 end module some_mod
     """.strip()
 
-    callee_source = Sourcefile.from_source(fcode_callee, frontend=frontend)
-    caller_source = Sourcefile.from_source(fcode_caller, frontend=frontend, definitions=callee_source.definitions)
+    callee_source = Sourcefile.from_source(fcode_callee, frontend=frontend, xmods=[tmp_path])
+    caller_source = Sourcefile.from_source(
+        fcode_caller, frontend=frontend, xmods=[tmp_path],
+        definitions=callee_source.definitions
+    )
 
     callee = callee_source['callee']
     caller = caller_source['caller']
@@ -64,7 +67,7 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_ipa_call_statement_arg_iter_optional(frontend):
+def test_ipa_call_statement_arg_iter_optional(frontend, tmp_path):
     """
     Test that :any:`CallStatement.arg_iter` works as expected with optional arguments
     """
@@ -94,8 +97,11 @@ contains
 end module some_mod
     """.strip()
 
-    callee_source = Sourcefile.from_source(fcode_callee, frontend=frontend)
-    caller_source = Sourcefile.from_source(fcode_caller, frontend=frontend, definitions=callee_source.definitions)
+    callee_source = Sourcefile.from_source(fcode_callee, frontend=frontend, xmods=[tmp_path])
+    caller_source = Sourcefile.from_source(
+        fcode_caller, frontend=frontend, xmods=[tmp_path],
+        definitions=callee_source.definitions
+    )
 
     callee = callee_source['callee']
     caller = caller_source['caller']
@@ -122,7 +128,7 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_ipa_inline_call_arg_iter(frontend):
+def test_ipa_inline_call_arg_iter(frontend, tmp_path):
     """
     Test that :any:`InlineCall.arg_iter` works as expected
     """
@@ -150,8 +156,11 @@ contains
 end module some_mod
     """.strip()
 
-    callee_source = Sourcefile.from_source(fcode_callee, frontend=frontend)
-    caller_source = Sourcefile.from_source(fcode_caller, frontend=frontend, definitions=callee_source.definitions)
+    callee_source = Sourcefile.from_source(fcode_callee, frontend=frontend, xmods=[tmp_path])
+    caller_source = Sourcefile.from_source(
+        fcode_caller, frontend=frontend, xmods=[tmp_path],
+        definitions=callee_source.definitions
+    )
 
     callee = callee_source['callee']
     caller = caller_source['caller']
@@ -169,7 +178,7 @@ end module some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_ipa_inline_call_arg_iter_optional(frontend):
+def test_ipa_inline_call_arg_iter_optional(frontend, tmp_path):
     """
     Test that :any:`InlineCall.arg_iter` works as expected
     """
@@ -200,8 +209,11 @@ contains
 end module some_mod
     """.strip()
 
-    callee_source = Sourcefile.from_source(fcode_callee, frontend=frontend)
-    caller_source = Sourcefile.from_source(fcode_caller, frontend=frontend, definitions=callee_source.definitions)
+    callee_source = Sourcefile.from_source(fcode_callee, frontend=frontend, xmods=[tmp_path])
+    caller_source = Sourcefile.from_source(
+        fcode_caller, frontend=frontend, xmods=[tmp_path],
+        definitions=callee_source.definitions
+    )
 
     callee = callee_source['callee']
     caller = caller_source['caller']

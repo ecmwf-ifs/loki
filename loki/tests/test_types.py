@@ -163,7 +163,7 @@ end module types
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_type_derived_type(frontend):
+def test_type_derived_type(frontend, tmp_path):
     """
     Test the detection of known derived type definitions.
     """
@@ -186,7 +186,7 @@ module test_type_derived_type_mod
   end subroutine test_type_derived_type
 end module test_type_derived_type_mod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['test_type_derived_type']
 
     a, b, c = routine.variables
@@ -429,7 +429,7 @@ end subroutine routine_contiguous
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_type_procedure_pointer_declaration(frontend):
+def test_type_procedure_pointer_declaration(frontend, tmp_path):
     # Example code from F2008 standard, Note 12.15
     fcode = """
 MODULE some_mod
@@ -469,7 +469,7 @@ PROCEDURE (REAL) :: PSI
 END MODULE some_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # FIXME: Because of our broken way of capturing function return types this gets the wrong
     #        variable type currently...
@@ -542,7 +542,7 @@ END MODULE some_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_type_attach_scope_kind(frontend):
+def test_type_attach_scope_kind(frontend, tmp_path):
     """
     Validate scopes for nested variables (such as initial values for kind parameters
     that are shadowed in a nested scope) are assigned to the right scope
@@ -569,7 +569,7 @@ end subroutine phys_kernel_LU_SOLVER_COMPACT
 end module phys_mod
     """.strip()
 
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['phys_kernel_lu_solver_compact']
     assert routine.variable_map['temp_out'].scope is routine
     assert module.variable_map['dp'].scope is module

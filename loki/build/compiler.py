@@ -7,9 +7,10 @@
 
 from importlib import import_module, reload
 import os
-import re
-import sys
 from pathlib import Path
+import re
+import shutil
+import sys
 
 from loki.logging import info, debug
 from loki.tools import execute, as_tuple, delete
@@ -19,6 +20,19 @@ __all__ = [
     'clean', 'compile', 'compile_and_load', '_default_compiler',
     'Compiler', 'get_compiler_from_env', 'GNUCompiler', 'NvidiaCompiler'
 ]
+
+
+def _which(cmd):
+    """
+    Convenience wrapper around :any:`shutil.which` that adds the binary
+    directory of the Python interpreter to the search path
+
+    This is useful when called from a script that is installed
+    in a virtual environment without having explicitly enabled that environment.
+    In that case, utilities like f90wrap may be installed inside the virtual
+    environment but the binary dir will not be part of the search path.
+    """
+    return shutil.which(cmd, path=f'{os.environ["PATH"]}:{Path(sys.executable).parent}')
 
 
 def compile(filename, include_dirs=None, compiler=None, cwd=None):
@@ -216,7 +230,7 @@ class Compiler:
         """
         Generate arguments for the ``f90wrap`` utility invocation line.
         """
-        args = ['f90wrap']
+        args = [_which('f90wrap')]
         args += ['-m', str(modname)]
         if kind_map is not None:
             args += ['-k', str(kind_map)]
@@ -238,7 +252,7 @@ class Compiler:
         lib_dirs = lib_dirs or []
         incl_dirs = incl_dirs or []
 
-        args = ['f2py-f90wrap', '-c']
+        args = [_which('f2py-f90wrap'), '-c']
         args += [f'--fcompiler={self.f2py_fcompiler_type}']
         args += [f'--f77exec={self.fc}']
         args += [f'--f90exec={self.f90}']
