@@ -19,6 +19,16 @@ class SplitReadWriteWalk(Transformer):
     """
     A :any:`Transformer` class to traverse the IR, in-place replace read-write
     assignments with reads, and build a transformer map for the corresponding writes.
+
+    Parameters
+    ----------
+    dimensions : list
+       A list of :any:`Dimension` objects corresponding to all :any:`Loop`s in the ``!$loki split-read-write`` region.
+    variable_map : dict
+       The variable_map of the parent :any:`Subroutine`.
+    count : int
+       A running count of the newly created temporaries in the parent :any:`Subroutine` so that
+       temporaries created by previous ``!$loki split-read-write`` regions are not redefined.
     """
 
     def __init__(self, dimensions, variable_map, count=-1, **kwargs):
@@ -116,6 +126,11 @@ class SplitReadWriteTransformation(Transformation):
            var(jlon, n2) = loki_temp_1(jlon)
         enddo
         !$loki end split-read-write
+
+    Parameters
+    ----------
+    dimensions : list
+       A list of :any:`Dimension` objects corresponding to all :any:`Loop`s in the ``!$loki split-read-write`` region.
     """
 
     item_filter = (ProcedureItem,)
