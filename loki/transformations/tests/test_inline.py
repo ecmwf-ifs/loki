@@ -703,6 +703,63 @@ end subroutine acraneb_transt
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_inline_member_routines_with_optionals(frontend):
+    """
+    Ensure that internal routines with optional arguments get
+    inlined as expected (esp. present instrinsics are correctly 
+    evaluated for all variables types)
+    """
+    fcode = """
+subroutine test_inline(klon, ydxfu, ydmf_phys_out)
+
+  use yomxfu                  , only : txfu
+  use mf_phys_type_mod        , only : mf_phys_out_type
+
+  implicit none
+
+  integer(kind=4), intent(in) :: klon
+  type(txfu)              ,intent(inout)            :: ydxfu
+  type(mf_phys_out_type)  ,intent(in)               :: ydmf_phys_out
+ 
+  call member_rout (ydxfu%visicld, pvmin=ydmf_phys_out%visicld, psmax=1.0_8)
+
+  contains
+
+  subroutine member_rout (x, pvmin, pvmax, psmin, psmax)
+    
+    real(kind=8)         ,intent(inout)            :: x(1:klon)
+    real(kind=8)         ,intent(in)    ,optional  :: pvmin(1:klon)
+    real(kind=8)         ,intent(in)    ,optional  :: pvmax(1:klon)
+    real(kind=8)         ,intent(in)    ,optional  :: psmin
+    real(kind=8)         ,intent(in)    ,optional  :: psmax
+    
+    if (present (psmin)) x = psmin
+    if (present (psmax)) x = psmax
+    if (present (pvmin)) x = minval(pvmin(:))
+    if (present (pvmax)) x = maxval(pvmax(:))
+    
+  end subroutine member_rout 
+    
+end subroutine test_inline
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    inline_member_procedures(routine=routine)
+
+    assert not routine.members
+
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds) == 4
+    assert conds[0].condition == 'False'
+    assert conds[1].condition == 'True'
+    assert conds[2].condition == 'True'
+    assert conds[3].condition == 'False'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
     skip={OFP: "OFP apparently has problems dealing with those Statement Functions",
           OMNI: "OMNI automatically inlines Statement Functions"}
 ))
@@ -748,6 +805,7 @@ end subroutine stmt_func
         assert assignments[1].rhs  ==  "3.0 + 1.0"
     else:
         assert FindInlineCalls().visit(routine.body)
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('adjust_imports', [True, False])
