@@ -325,6 +325,65 @@ def wrap_vector_section(section, routine, horizontal, insert_pragma=True):
     return (ir.Comment(''), vector_loop, ir.Comment(''))
 
 
+def mark_seq_loops(section, horizontal):
+    """
+    Mark interior sequential loops in a thread-parallel section
+    with ``!$loki loop seq`` for later annotation.
+
+    This utility requires loop-pragmas to be attached via
+    :any:`pragmas_attached`. It also updates loops in-place.
+
+    Parameters
+    ----------
+    section : tuple of :any:`Node`
+        Code section in which to mark "seq loops".
+    horizontal: :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    """
+    for loop in FindNodes(ir.Loop).visit(section):
+
+        # Skip loops explicitly marked with `!$loki/claw nodep`
+        if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
+            continue
+
+        # Mark loop as sequential with `!$loki loop seq`
+        if loop.variable != horizontal.index:
+            loop._update(pragma=(ir.Pragma(keyword='loki', content='loop seq'),))
+
+
+def mark_driver_loop(routine, loop, horizontal):
+    """
+    Add ``!$loki loop driver`` pragmas to outer block loops and
+    add ``vector-length(size)`` clause for later annotations.
+
+    This method assumes that pragmas have been attached via
+    :any:`pragmas_attached`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    loop : :any:`Loop`
+        The loop that will be marked as ``!$loki loop driver``.
+    horizontal: :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    """
+    # Find a horizontal size variable to mark vector_length
+    symbol_map = routine.symbol_map
+    sizes = tuple(
+        symbol_map.get(size) for size in horizontal.size_expressions
+        if size in symbol_map
+    )
+    vector_length = f' vector_length({sizes[0]})' if sizes else ''
+
+    # Replace existing `!$loki loop driver markers, but leave all others
+    pragma = ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
+    loop_pragmas = tuple(
+        p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
+    )
+    loop._update(pragma=loop_pragmas + (pragma,))
+
+
 class SCCRevectorTransformation(Transformation):
     """
     A transformation to wrap thread-parallel IR sections within a horizontal loop.
@@ -387,52 +446,6 @@ class SCCRevectorTransformation(Transformation):
                         region._update(pragma=None, pragma_post=None)
 
 
-    def mark_seq_loops(self, section):
-        """
-        Mark interior sequential loops in a thread-parallel section
-        with ``!$loki loop seq`` for later annotation.
-
-        This utility requires loop-pragmas to be attached via
-        :any:`pragmas_attached`. It also updates loops in-place.
-
-        Parameters
-        ----------
-        section : tuple of :any:`Node`
-            Code section in which to mark "seq loops".
-        """
-        for loop in FindNodes(ir.Loop).visit(section):
-
-            # Skip loops explicitly marked with `!$loki/claw nodep`
-            if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
-                continue
-
-            # Mark loop as sequential with `!$loki loop seq`
-            if loop.variable != self.horizontal.index:
-                loop._update(pragma=(ir.Pragma(keyword='loki', content='loop seq'),))
-
-    def mark_driver_loop(self, routine, loop):
-        """
-        Add ``!$loki loop driver`` pragmas to outer block loops and
-        add ``vector-length(size)`` clause for later annotations.
-
-        This method assumes that pragmas have been attached via
-        :any:`pragmas_attached`.
-        """
-        # Find a horizontal size variable to mark vector_length
-        symbol_map = routine.symbol_map
-        sizes = tuple(
-            symbol_map.get(size) for size in self.horizontal.size_expressions
-            if size in symbol_map
-        )
-        vector_length = f' vector_length({sizes[0]})' if sizes else ''
-
-        # Replace existing `!$loki loop driver markers, but leave all others
-        pragma = ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
-        loop_pragmas = tuple(
-            p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
-        )
-        loop._update(pragma=loop_pragmas + (pragma,))
-
     def transform_subroutine(self, routine, **kwargs):
         """
         Wrap vector-parallel sections in vector :any:`Loop` objects.
@@ -467,7 +480,7 @@ class SCCRevectorTransformation(Transformation):
                 self.mark_vector_reductions(routine, routine.body)
 
                 # Mark sequential loops inside vector sections
-                self.mark_seq_loops(routine.body)
+                mark_seq_loops(routine.body, horizontal=self.horizontal)
 
             # Mark subroutine as vector parallel for later annotation
             routine.spec.append(ir.Pragma(keyword='loki', content='routine vector'))
@@ -484,10 +497,10 @@ class SCCRevectorTransformation(Transformation):
                     self.mark_vector_reductions(routine, loop.body)
 
                     # Mark sequential loops inside vector sections
-                    self.mark_seq_loops(loop.body)
+                    mark_seq_loops(loop.body, horizontal=self.horizontal)
 
                     # Mark outer driver loops
-                    self.mark_driver_loop(routine, loop)
+                    mark_driver_loop(routine, loop, horizontal=self.horizontal)
 
 
 class SCCRevectorOuterTransformation(Transformation):
