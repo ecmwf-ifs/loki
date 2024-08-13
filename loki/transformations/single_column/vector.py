@@ -542,16 +542,40 @@ class SCCRevectorOuterTransformation(Transformation):
         if role == 'driver':
             self.wrap_driver_loops(routine, targets)
 
-        # Always pass the vector index through the call tree
-        self.add_vector_index_to_calls(
-            routine, targets, add_to_signature=role=='kernel'
-        )
+            # Always pass the vector index through the call tree
+            self.add_vector_index_to_calls(
+                routine, targets, add_to_signature=False
+            )
+
+            with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                driver_loops = find_driver_loops(routine=routine, targets=targets)
+
+            for loop in driver_loops:
+                # Mark outer driver loops
+                mark_driver_loop(routine, loop, horizontal=self.horizontal)
+
+                # Remove previous vectorisation labels
+                for sec in FindNodes(ir.Section).visit(loop.body):
+                    if sec.label == 'vector_section':
+                        sec._update(label=None)
+
+                # Mark sequential loops inside vector vector loops
+                mark_seq_loops(loop.body, horizontal=self.horizontal)
+
 
         if role == 'kernel':
+            # Always pass the vector index through the call tree
+            self.add_vector_index_to_calls(
+                routine, targets, add_to_signature=True
+            )
+
             # Remove previous vectorisation labels
             for sec in FindNodes(ir.Section).visit(routine.body):
                 if sec.label == 'vector_section':
                     sec._update(label=None)
+
+            # Mark subroutine as sequential for later annotation
+            routine.spec.append(ir.Pragma(keyword='loki', content='routine seq'))
 
     def wrap_driver_loops(self, routine, targets):
         """
