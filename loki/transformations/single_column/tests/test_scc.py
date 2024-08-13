@@ -24,7 +24,7 @@ from loki.transformations import (
 from loki.transformations.single_column import (
     SCCBaseTransformation, SCCDevectorTransformation,
     SCCDemoteTransformation, SCCRevectorTransformation,
-    SCCAnnotateTransformation, SCCVectorPipeline
+    SCCAnnotateTransformation, SCCVectorPipeline, SCCSeqPipeline
 )
 
 
@@ -1038,3 +1038,117 @@ def test_scc_inline_and_sequence_association(
 
         assign = FindNodes(Assignment).visit(loop.body)[0]
         assert fgen(assign).lower() == 'work(jl) = 1.'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_seq_annotate_openacc(frontend, horizontal, blocking):
+    """
+    Test the correct addition of OpenACC pragmas for the :any:`SCCSeqPipeline`.
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nproma, nlev, nz, q, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    INTEGER, INTENT(IN)   :: nproma, nlev  ! Aliases of horizontal and vertical sizes
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    do b=1, nb
+      call compute_column(start, end, nlon, nproma, nz, q(:,:,b))
+
+      do jk = 2, nz
+        do jl = start, end
+          q(jl, jk, b) = q(jl, jk-1, b) + 42.0
+        end do
+      end do
+    end do
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nproma, nlev, nz, q)
+    INTEGER, INTENT(IN) :: start, end   ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz     ! Size of the horizontal and vertical
+    INTEGER, INTENT(IN) :: nproma, nlev ! Aliases of horizontal and vertical sizes
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: t(nlon,nz)
+    REAL :: a(nlon)
+    REAL :: d(nproma)
+    REAL :: e(nlev)
+    REAL :: b(nlon,psize)
+    INTEGER, PARAMETER :: psize = 3
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = start, end
+        t(jl, jk) = c * jk
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = START, END
+      a(jl) = Q(JL, 1)
+      b(jl, 1) = Q(JL, 2)
+      b(jl, 2) = Q(JL, 3)
+      b(jl, 3) = a(jl) * (b(jl, 1) + b(jl, 2))
+
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich(kernel)  # Attach kernel source to driver call
+
+    # Test OpenACC annotations on non-hoisted version
+    pipeline = SCCSeqPipeline(
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
+    )
+    pipeline.apply(driver, role='driver', targets=['compute_column'])
+    pipeline.apply(kernel, role='kernel')
+
+    # Ensure routine is anntoated at seq level
+    pragmas = FindNodes(Pragma).visit(kernel.ir)
+    assert len(pragmas) == 3
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[0].content == 'routine seq'
+    assert pragmas[1].keyword == 'acc'
+    assert pragmas[1].content == 'data present(q)'
+    assert pragmas[-1].keyword == 'acc'
+    assert pragmas[-1].content == 'end data'
+
+    # Ensure vector index is handed down and arrays were demoted
+    assert 'jl' in kernel.arguments
+    assert isinstance(kernel.variable_map['jl'], Scalar)
+    assert isinstance(kernel.variable_map['t'], Array)
+    assert kernel.variable_map['t'].dimensions == ('nlon', 'nz')
+    assert isinstance(kernel.variable_map['a'], Scalar)
+    assert isinstance(kernel.variable_map['d'], Scalar)
+    assert isinstance(kernel.variable_map['e'], Array)
+    assert kernel.variable_map['e'].dimensions == ('nlev',)
+    assert isinstance(kernel.variable_map['b'], Array)
+    assert kernel.variable_map['b'].shape == ((3,) if frontend is OMNI else ('psize',))
+
+    # Ensure driver is anntoated correctly
+    # Ensure a single outer parallel loop in driver
+    with pragmas_attached(driver, Loop):
+        loops = FindNodes(Loop).visit(driver.body)
+        assert len(loops) == 3
+        assert loops[0].pragma[0].keyword == 'acc'
+        assert loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
+        assert loops[1] in loops[0].body
+        assert loops[1].pragma[0].keyword == 'acc'
+        assert loops[1].pragma[0].content == 'loop vector'
+        assert loops[2] in loops[1].body
+        assert loops[2].pragma[0].keyword == 'acc'
+        assert loops[2].pragma[0].content == 'loop seq'
+
+    # Check that JL vector index is passed down via kwarguments
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 1
+    assert calls[0].kwarguments == (('jl', 'jl'),)
