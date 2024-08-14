@@ -45,11 +45,12 @@ field_group_types = [
     'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
-    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY'
+    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY', 'ECPHYS_OPTS_TYPE'
 ]
 
 fgroup_dimension = ['DIMENSION_TYPE']
 fgroup_firstprivates = ['SURF_AND_MORE_TYPE']
+lcopies_firstprivates = {'ZSURF': 'ZSURF_SERIAL'}
 
 # List of variables that we know to have global scope
 global_variables = [
@@ -353,8 +354,18 @@ def add_block_loops(routine, field_group_types={}):
             preamble += _create_view_updates(body, scope)
 
             loop = _create_block_loop(body=preamble + body, scope=scope)
+
+            # Add firstprivate copies before the loop
+            lcopies = ()
+            lvars = FindVariables(unique=True).visit(region.body)
+            for lcl, gbl in lcopies_firstprivates.items():
+                lhs = get_symbol(lcl, scope)
+                rhs = get_symbol(gbl, scope)
+                if lhs in lvars:
+                    lcopies += (ir.Assignment(lhs=lhs, rhs=rhs),)
+
             region._update(
-                body=region.body[:idx] + (ir.Comment(''), loop)
+                body=lcopies + (ir.Comment(''), loop)
             )
             return region
 
