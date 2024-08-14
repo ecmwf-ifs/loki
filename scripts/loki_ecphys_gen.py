@@ -36,7 +36,10 @@ from loki.transformations.sanitise import (
 from loki.transformations.remove_code import do_remove_marked_regions
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.build_system import ModuleWrapTransformation
-from loki.transformations.parallel import remove_openmp_regions
+from loki.transformations.parallel import (
+    remove_openmp_regions, remove_explicit_firstprivatisation,
+    create_explicit_firstprivatisation
+)
 
 
 # List of types that we know to be FIELD API groups
@@ -46,11 +49,12 @@ field_group_types = [
     'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
-    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY'
+    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY', 'ECPHYS_OPTS_TYPE'
 ]
 
 fgroup_dimension = ['DIMENSION_TYPE']
 fgroup_firstprivates = ['SURF_AND_MORE_TYPE']
+lcopies_firstprivates = {'ZSURF': 'ZSURFACE'}
 
 # List of variables that we know to have global scope
 global_variables = [
@@ -295,6 +299,7 @@ def add_block_loops(routine):
         return ir.Loop(variable=jkglo, bounds=lrange, body=preamble + body)
 
     class InsertBlockLoopTransformer(Transformer):
+        """ Creates a block loop per marked parallel region """
 
         def visit_PragmaRegion(self, region, **kwargs):
             """
@@ -303,17 +308,6 @@ def add_block_loops(routine):
             if not is_loki_pragma(region.pragma, starts_with='parallel'):
                 return region
 
-            # Filter out private copies of field group objects
-            local_copies = tuple(
-                a for a in FindNodes(ir.Assignment).visit(region.body)
-                if isinstance(a.lhs.type.dtype, DerivedType) and \
-                a.lhs.type.dtype.name in fgroup_firstprivates
-            )
-            idx = max(
-                region.body.index(a) for a in local_copies
-            ) + 1 if local_copies else 0
-
-            # Create a block loop per marked parallel region
             scope = kwargs.get('scope')
 
             loop = _create_block_loop(body=region.body, scope=scope)
@@ -476,6 +470,11 @@ def parallel(source, build, remove_block_loop, log_level):
 
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
+            # Remove explicit firstprivatisation
+            remove_explicit_firstprivatisation(
+                ec_phys_parallel.body, fprivate_map=lcopies_firstprivates, routine=ec_phys_parallel
+            )
+
             # Strip the outer block loop and FIELD-API boilerplate
             remove_block_loops(ec_phys_parallel)
 
@@ -489,6 +488,9 @@ def parallel(source, build, remove_block_loop, log_level):
             add_field_api_view_updates(
                 ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
             )
+
+            # Re-insert explicit firstprivate copies
+            create_explicit_firstprivatisation(ec_phys_parallel, fprivate_map=lcopies_firstprivates)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
