@@ -18,6 +18,11 @@ from codetiming import Timer
 
 from loki import config as loki_config, Sourcefile, Dimension, info
 from loki.batch import Scheduler, Pipeline
+from loki.expression import symbols as sym
+from loki.ir import (
+    nodes as ir, FindNodes, FindVariables, SubstituteExpressions,
+    Transformer
+)
 
 from loki.transformations.build_system import ModuleWrapTransformation
 from loki.transformations.drhook import DrHookTransformation
@@ -65,6 +70,71 @@ blocking = Dimension(
     lower=('1', 'ICST'), upper=('YDGEM%NGPTOT', 'ICEND'),
     step='YDDIM%NPROMA', size='YDDIM%NGPBLKS',
 )
+
+
+def remove_redundant_declarations(routine):
+    """
+    Removes all local symbol declarations that are not being used in
+    the routine body.
+    """
+    used_symbols = FindVariables(unique=True).visit(routine.body)
+    # used_symbols |= {v.parents for v in used_symbols}
+    used_symbols = tuple(v.name for v in used_symbols)
+
+    decl_map = {}
+    for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
+        # Filter out routine arguments; we don't want to change the signature
+        if any(s.name.lower() in routine._dummies for s in decl.symbols):
+            continue
+
+        # Filter out variables that are not used in the routine body
+        symbols = tuple(s for s in decl.symbols if s.name in used_symbols)
+        if symbols == decl.symbols:
+            continue
+
+        # Remove if no symbols are used, otherwise strip unused ones
+        decl_map[decl] = decl.clone(symbols=symbols) if symbols else None
+    routine.spec = Transformer(decl_map).visit(routine.spec)
+
+
+def promote_temporary_arrays(routine, horizontal, blocking):
+    """
+    Promote remaining block-scoped local temporary arrays to full size.
+    """
+    block_size = routine.resolve_typebound_var(blocking.size)
+    block_idx = routine.resolve_typebound_var(blocking.index)
+
+    arrays_to_promote = tuple(
+        v.name for v in routine.variables
+        if isinstance(v, sym.Array) and \
+        not v.name in routine._dummies and \
+        v.shape[0] == horizontal.size and \
+        not v.shape[-1] == blocking.size
+    )
+
+    for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
+        if not any(s.name in arrays_to_promote for s in decl.symbols):
+            continue
+
+        symbols = tuple(
+            s.clone(dimensions=s.dimensions+(block_size,)) if s.name in arrays_to_promote else s
+            for s in decl.symbols
+        )
+        decl._update(symbols=symbols)
+
+    vmap = {}
+    for var in FindVariables(unique=False).visit(routine.body):
+        if var.name not in arrays_to_promote:
+            continue
+        if var.shape and block_size in var.shape:
+            continue
+
+        if var.dimensions:
+            new_dims = var.dimensions + (block_idx,)
+        else:
+            new_dims = tuple(sym.Range((None, None)) for _ in var.shape) + (block_idx,)
+        vmap[var] = var.clone(dimensions=new_dims)
+    routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
 @click.group()
@@ -205,10 +275,12 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
               help='Path to build directory for source generation.')
 @click.option('--remove-block-loop/--no-remove-block-loop', default=True,
               help='Flag to replace OpenMP loop annotations with Loki pragmas.')
+@click.option('--promote-local-arrays/--no-promote-local-arrays', default=True,
+              help='Flag to promote local block-scope arrays to full size')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during processing')
-def parallel(source, build, remove_block_loop, log_level):
+def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
     """
     Generate parallel regions with OpenMP and OpenACC dispatch.
     """
@@ -248,6 +320,17 @@ def parallel(source, build, remove_block_loop, log_level):
 
             # Re-insert explicit firstprivate copies
             create_explicit_firstprivatisation(ec_phys_parallel, fprivate_map=lcopies_firstprivates)
+
+    if promote_local_arrays:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Promoted local arrays in {s:.2f}s'):
+            # Bit of a hack, but easier that way
+            remove_redundant_declarations(routine=ec_phys_parallel)
+
+            promote_temporary_arrays(
+                routine=ec_phys_parallel,
+                horizontal=Dimension(name='horizontal', index='JL', size='YDGEOMETRY%YRDIM%NPROMA'),
+                blocking=Dimension(name='blocking', index='IBL', size='YDGEOMETRY%YRDIM%NGPBLKS'),
+            )
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
