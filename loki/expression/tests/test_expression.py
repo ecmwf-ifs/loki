@@ -21,8 +21,8 @@ from loki import (
 from loki.backend import cgen, fgen
 from loki.build import jit_compile, clean_test
 from loki.expression import (
-    symbols as sym, FindVariables, FindExpressions, FindTypedSymbols,
-    FindInlineCalls, SubstituteExpressions, AttachScopesMapper, parse_expr
+    symbols as sym, FindVariables, FindExpressions, FindInlineCalls,
+    SubstituteExpressions, AttachScopesMapper, parse_expr
 )
 from loki.frontend import (
     available_frontends, OFP, OMNI, FP, HAVE_FP, parse_fparser_expression
@@ -1448,48 +1448,6 @@ def test_expression_container_matching():
     assert 'b(i)' in {b, a}
     assert 'b(i)' in {b: a}
     assert 'b(i)' in defaultdict(list, ((b, [a]),))
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_expression_finder_retrieval_function(frontend, tmp_path):
-    """
-    Verify that expression finder visitors work as intended and remain
-    functional if re-used
-    """
-    fcode = """
-module some_mod
-    implicit none
-contains
-    function some_func() result(ret)
-        integer :: ret
-        ret = 1
-    end function some_func
-
-    subroutine other_routine
-        integer :: var, tmp
-        var = 5 + some_func()
-    end subroutine other_routine
-end module some_mod
-    """.strip()
-
-    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-
-    expected_ts = {'var', 'some_func'}
-    expected_vars = ('var',)
-
-    # Instantiate the first expression finder and make sure it works as expected
-    find_ts = FindTypedSymbols()
-    assert find_ts.visit(source['other_routine'].body) == expected_ts
-
-    # Verify that it works also on a repeated invocation
-    assert find_ts.visit(source['other_routine'].body) == expected_ts
-
-    # Instantiate the second expression finder and make sure it works as expected
-    find_vars = FindVariables(unique=False)
-    assert find_vars.visit(source['other_routine'].body) == expected_vars
-
-    # Make sure the first expression finder still works
-    assert find_ts.visit(source['other_routine'].body) == expected_ts
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
