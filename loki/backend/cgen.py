@@ -145,6 +145,10 @@ class CCodeMapper(LokiStringifyMapper):
     def map_c_dereference(self, expr, enclosing_prec, *args, **kwargs):
         return self.format(' (*%s)', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
 
+    def map_inline_call(self, expr, enclosing_prec, *args, **kwargs):
+        if expr.function.name.lower() == 'mod':
+            return f'(({expr.parameters[0]})%({expr.parameters[1]}))'
+        return super().map_inline_call(expr, enclosing_prec, *args, **kwargs)
 
 class CCodegen(Stringifier):
     """

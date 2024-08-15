@@ -487,16 +487,16 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 step = SCCBaseTransformation.get_integer_variable(routine, parameters['step'])
                 # print(f"SCC_CUF routine: {routine} NoException | step: {step} | parameters['step']: {parameters['step']} ({type(parameters['step'])})")
             except Exception as e:
-                # print(f"SCC_CUF routine: {routine} Exception: {e} | self.horizontal.size_expressions: {self.horizontal.size_expressions}")
+                print(f"SCC_CUF routine: {routine} Exception: {e} | self.horizontal.size_expressions: {self.horizontal.size_expressions}")
                 # step = sym.IntLiteral(1)
                 for size_expr in self.horizontal.size_expressions:
                     if size_expr in routine.symbol_map:
                         num_threads = routine.symbol_map[size_expr]
                         break
-            if num_threads is None:
-                step = sym.IntLiteral(1)
-            else:
-                step = num_threads
+            # if num_threads is None:
+            #     step = sym.IntLiteral(1)
+            # else:
+            #     step = num_threads
             # print(f"routine: {routine} | scc_cuf - num_threads: {num_threads} | step: {parameters['step']}")
 
             if self.mode == 'cuf':
@@ -668,9 +668,9 @@ class SccLowLevelDataOffload(Transformation):
         # i_type = SymbolAttributes(types.BasicType.INTEGER)
         # routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="istat", type=i_type),)))
 
-        self.derived_type_variables = self.device_derived_types(
-            routine=routine, derived_types=self.derived_types, targets=targets
-        )
+        # self.derived_type_variables = self.device_derived_types(
+        #     routine=routine, derived_types=self.derived_types, targets=targets
+        # )
         # create variables needed for the device execution, especially generate device versions of arrays
         self.driver_device_variables(routine=routine, targets=targets)
 
@@ -815,7 +815,7 @@ class SccLowLevelDataOffload(Transformation):
             inargs = ()
             inoutargs = ()
             outargs = ()
-
+            print(f"driver_device_variables - routine: {routine}")
             # insert_index = routine.body.body.index(calls[-1])
             # insert_index = None
             for call in calls:
@@ -824,6 +824,7 @@ class SccLowLevelDataOffload(Transformation):
                     #     f'in {str(call.name).lower()}')
                     continue
                 for param, arg in call.arg_iter():
+                    print(f"  param: {param} | arg: {arg}")
                     if isinstance(param, sym.Array) and param.type.intent.lower() == 'in':
                         inargs += (str(arg.name).lower(),)
                     if isinstance(param, sym.Array) and param.type.intent.lower() == 'inout':

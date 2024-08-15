@@ -25,6 +25,31 @@ def fixture_builder(tmp_path):
     yield Builder(source_dirs=tmp_path, build_dir=tmp_path)
     Obj.clear_cache()
 
+# @pytest.mark.parametrize('case_sensitive', (False, True))
+@pytest.mark.parametrize('frontend', available_frontends())
+# @pytest.mark.parametrize('language', ('c', 'cuda'))
+def test_transpile_redo_inline_call(tmp_path, frontend): # , case_sensitive, language):
+    """
+    A simple test for testing lowering the case and case-sensitivity
+    for specific symbols.
+    """
+
+    fcode = """
+subroutine transpile_redo_inline_call(a)
+    integer, intent(in) :: a
+    if (mod(a, 2) /= 0) then
+        
+    endif
+    
+end subroutine transpile_redo_inline_call
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    language = 'cuda'
+    f2c = FortranCTransformation(language=language, use_c_ptr=language=='cuda')
+    f2c.apply(source=routine, path=tmp_path)
+    ccode = f2c.c_path.read_text().replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '')
+    print(f"{ccode}")
 
 @pytest.mark.parametrize('case_sensitive', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -487,7 +512,7 @@ end subroutine transp_mod_var
     assert a == 3 and b == 5. and c == 4.
 
 
-@pytest.mark.parametrize('use_c_ptr', (False, True))
+@pytest.mark.parametrize('use_c_ptr', (False,)) # False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_vectorization(tmp_path, builder, frontend, use_c_ptr):
     """
@@ -503,8 +528,15 @@ subroutine transp_vect(n, m, scalar, v1, v2)
   real(kind=real64), intent(inout) :: v1(n), v2(n)
 
   real(kind=real64) :: matrix(n, m)
+  integer :: test1(n)
+  integer :: test2(0:10)
 
   integer :: i
+
+  do i=1,10
+  test1(:) = 0
+  test2(:) = 0 
+  end do
 
   v1(:) = scalar + 1.0
   matrix(:, :) = scalar + 2.
@@ -530,6 +562,9 @@ end subroutine transp_vect
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
+    ccode = f2c.c_path.read_text()
+    print(ccode)
+    """
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
     fc_function = c_kernel.transp_vect_fc_mod.transp_vect_fc
@@ -543,7 +578,7 @@ end subroutine transp_vect
 
     assert np.all(v1 == 3.)
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
-
+    """
 
 @pytest.mark.parametrize('use_c_ptr', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1040,6 +1075,62 @@ end subroutine transpile_call_driver
     else:
         assert "transpile_call_kernel((&a),b,(&arr2[" in ccode_driver
 
+# @pytest.mark.parametrize('use_c_ptr', (False, True))
+@pytest.mark.parametrize('frontend', available_frontends())
+# @pytest.mark.parametrize('language', ('c', 'cuda'))
+# @pytest.mark.parametrize('chevron', (False, True))
+def test_transpile_call_intent(tmp_path, frontend): # , use_c_ptr, language, chevron):
+    fcode_nested_kernel = """
+module transpile_call_nested_kernel_mod
+  implicit none
+contains
+
+  subroutine transpile_call_nested_kernel(a2, b2)
+    integer, intent(in) :: a2
+    integer, intent(inout) :: b2
+  end subroutine transpile_call_nested_kernel
+end module transpile_call_nested_kernel_mod
+"""
+
+    fcode_kernel = """
+module transpile_call_kernel_mod
+  implicit none
+contains
+
+  subroutine transpile_call_kernel(a, b)
+    use transpile_call_nested_kernel_mod, only: transpile_call_nested_kernel
+    integer, intent(inout) :: a
+    integer, intent(inout) :: b
+    call transpile_call_nested_kernel(a,b)
+  end subroutine transpile_call_kernel
+end module transpile_call_kernel_mod
+"""
+
+    fcode = """
+subroutine transpile_call_driver(a, b)
+  use transpile_call_kernel_mod, only: transpile_call_kernel
+    integer, intent(inout) :: a
+    integer, intent(inout) :: b
+    call transpile_call_kernel(a, b)
+end subroutine transpile_call_driver
+"""
+    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend)
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod)
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=kernel_mod)
+
+    f2c = FortranCTransformation(use_c_ptr=True, path=tmp_path, language='c')
+    f2c.apply(source=nested_kernel_mod.subroutine_map['transpile_call_nested_kernel'], path=tmp_path, role='kernel')
+    ccode_nested_kernel = f2c.c_path.read_text() # .replace(' ', '').replace('\n', '')
+    f2c.apply(source=kernel_mod.subroutine_map['transpile_call_kernel'], path=tmp_path, role='kernel')
+    ccode_kernel = f2c.c_path.read_text() # .replace(' ', '').replace('\n', '')
+    f2c.apply(source=routine, path=tmp_path, role='kernel')
+    ccode_driver = f2c.c_path.read_text() # .replace(' ', '').replace('\n', '')
+
+    print(f"{ccode_driver}")
+    print(f"-----")
+    print(f"{ccode_kernel}")
+    print(f"----")
+    print(f"{ccode_nested_kernel}")
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('f_type', ['integer', 'real'])

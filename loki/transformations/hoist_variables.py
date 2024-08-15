@@ -88,7 +88,8 @@ from loki.expression import (
     SubstituteExpressions, is_dimension_constant
 )
 from loki.ir import (
-    CallStatement, Allocation, Deallocation, Transformer, FindNodes, Comment, Import
+    CallStatement, Allocation, Deallocation, Transformer, FindNodes, Comment, Import,
+    Assignment
 )
 from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict, flatten
 
@@ -242,7 +243,8 @@ class HoistVariablesTransformation(Transformation):
                                f'the correct key.')
 
         if role == 'driver':
-            self.driver_variable_declaration(routine, item.trafo_data[self._key]["to_hoist"])
+            to_hoist = self.driver_variable_declaration_dim_mapping(routine, item.trafo_data[self._key]["to_hoist"])
+            self.driver_variable_declaration(routine, to_hoist)
         else:
             # We build the list of temporaries that are hoisted to the calling routine
             # Because this requires adding an intent, we need to make sure they are not
@@ -301,6 +303,29 @@ class HoistVariablesTransformation(Transformation):
             )))
 
         routine.body = Transformer(call_map).visit(routine.body)
+
+    def driver_variable_declaration_dim_mapping(self, routine, variables):
+        """
+        **Override**: Define the variable declaration (and possibly
+        allocation, de-allocation, ...)  for each variable to be
+        hoisted.
+
+        Declares hoisted variables with a re-scope.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The subroutine to add the variable declaration to.
+        variables : tuple of :any:`Variable`
+            The tuple of variables to be declared.
+        """
+        # routine.variables += tuple(v.rescope(routine) for v in variables)
+        dim_map = {}
+        assignments = FindNodes(Assignment).visit(routine.body)
+        for assignment in assignments:
+            dim_map[assignment.lhs] = assignment.rhs
+        variables = [var.clone(dimensions=SubstituteExpressions(dim_map).visit(var.dimensions)) if isinstance(var, sym.Array) else var for var in variables]
+        return variables
 
     def driver_variable_declaration(self, routine, variables):
         """

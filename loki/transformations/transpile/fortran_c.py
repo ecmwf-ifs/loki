@@ -46,8 +46,10 @@ __all__ = ['FortranCTransformation']
 
 class SubstituteExpressionsMapperTest(SubstituteExpressionsMapper):
 
-    def map_inline_call(self, expr, *args, **kwargs):
-        return expr
+    # def map_inline_call(self, expr, *args, **kwargs):
+    #   return expr
+    pass
+
 
 class DeReferenceTrafo(Transformer):
     """
@@ -88,14 +90,29 @@ class DeReferenceTrafo(Transformer):
             return o
         call_arg_map = dict((v,k) for k,v in o.arg_map.items())
         for arg in o.arguments:
+            print(f"visit_CallStatement - arg {arg} | call_arg_map[arg]: {call_arg_map[arg]}")
             if not self.is_dereference(arg) and (isinstance(call_arg_map[arg], Array)\
                     or call_arg_map[arg].type.intent.lower() != 'in'):
+                print(f"  0")
                 new_args += (Reference(arg.clone()),)
             else:
+                print(f"  1")
                 if isinstance(arg, Scalar) and call_arg_map[arg].type.intent is not None and call_arg_map[arg].type.intent.lower() != 'in':
-                    new_args += (Reference(arg.clone()),)
+                    print(f"    0")
+                    if hasattr(arg.type, 'intent') and arg.type.intent is not None and arg.type.intent.lower() != 'in':
+                        new_args += (arg,)
+                    else:
+                        new_args += (Reference(arg.clone()),)
                 else:
-                    new_args += (arg,)
+                    print(f"    1")
+                    if not isinstance(arg, (sym._Literal, sym.Array)) and hasattr(arg.type, 'intent') and arg.type.intent is not None and arg.type.intent.lower() != 'in' and call_arg_map[arg].type.intent.lower() == 'in':
+                        print(f"        0")
+                        if hasattr(arg.type, 'intent'):
+                            print(f"        hasattr(arg.type) intent: {arg.type.intent.lower()} | call_arg_map: {call_arg_map[arg]} with intent {call_arg_map[arg].type.intent.lower()}")
+                        new_args += (Dereference(arg.clone()),)
+                    else:
+                        print(f"        1")
+                        new_args += (arg,)
         o._update(arguments=new_args)
         return o
 
@@ -241,34 +258,24 @@ class FortranCTransformation(Transformation):
             module.spec = Section(body=(Import(module='iso_c_binding'),))
 
             # Generate C source file from Loki IR
-            try:
+            if str(routine.name).lower() in ['gwdrag', 'cuascn']:
                 c_kernel = self.generate_c_kernel(routine, targets=targets)
                 self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
                 Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
-            except Exception as e:
-                print(f"e: {e} | routine: {routine} generate_c_kernel ...")
-                return
+            else:
+                try:
+                    c_kernel = self.generate_c_kernel(routine, targets=targets)
+                    self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+                    Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
+                except Exception as e:
+                    print(f"e: {e} | routine: {routine} generate_c_kernel ...")
+                    return
 
             # Generate C source file from Loki IR
-            # c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             intfs = FindNodes(Interface).visit(routine.spec)
             for successor in successors:
-                # if self.language == 'c':
-                #     c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
-                # else:
-                #     # TODO: should include .h file, however problem compiling/running multiple compilation units ...
-                #     if not isinstance(successor, ProcedureItem):
-                #         c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.c', c_import=True))
-                # if isinstance(successor, ProcedureItem) or successor.routine is None:
-                #     continue
-                # try:
-                #     c_kernel.spec.prepend(Import(module=f'{successor.routine.name.lower()}_c.h', c_import=True))
-                # except Exception as e:
-                #     print(f"exception: {e} - routine: {routine} , successor: {successor}")
                 if successor.ir is None:
                     continue
-                # print(f"successor: {successor} | ir {successor.ir} type {type(successor.ir)}")
-                print(f"routine {routine} add c import for successor: {successor.ir.name} | item.name: {item.name} vs. {successor.name} | interfaces: {intfs}")
                 c_kernel.spec.prepend(Import(module=f'{successor.ir.name.lower()}_c.h', c_import=True))
 
             if depth == 1:
