@@ -35,6 +35,7 @@ from loki.transformations.data_offload import (
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
+from loki.transformations.idempotence import IdemTransformation
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
@@ -45,16 +46,6 @@ from loki.transformations.single_column import (
     HoistTemporaryArraysDeviceAllocatableTransformation,
 )
 from loki.transformations.transpile import FortranCTransformation
-
-
-class IdemTransformation(Transformation):
-    """
-    A custom transformation pipeline that primarily does nothing,
-    allowing us to test simple parse-unparse cycles.
-    """
-
-    def transform_subroutine(self, routine, **kwargs):
-        pass
 
 
 @click.group()
