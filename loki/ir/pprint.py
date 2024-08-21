@@ -150,7 +150,8 @@ class Stringifier(Visitor):
                  required to observe the line width limit.
         :rtype: str
         """
-        if not no_indent:
+        # print(f"items: {items}")
+        if not no_indent and items != ('',):
             items = [self.indent, *items]
         if no_wrap:
             # Simply concatenate items and append the comment
