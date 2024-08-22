@@ -119,15 +119,15 @@ def resolve_vector_notation(routine):
                     # Create new index variable
                     vtype = SymbolAttributes(BasicType.INTEGER)
                     ivar = sym.Variable(name=f'{ivar_basename}_{i}', type=vtype, scope=routine)
-                    shape_index_map[s] = ivar
+                    shape_index_map[(i, s)] = ivar
                     index_range_map[ivar] = s
 
                     if ivar not in vdims:
                         vdims.append(ivar)
 
             # Add index variable to range replacement
-            new_dims = as_tuple(shape_index_map.get(s, d)
-                                for d, s in zip(v.dimensions, as_tuple(v.shape)))
+            new_dims = as_tuple(shape_index_map.get((i, s), d)
+                                for i, d, s in zip(count(), v.dimensions, as_tuple(v.shape)))
             vmap[v] = v.clone(dimensions=new_dims)
 
         index_vars.update(list(vdims))
