@@ -19,7 +19,6 @@ from loki.ir import (
     Assignment
 )
 
-from loki.transformations.array_indexing import normalize_range_indexing
 from loki.transformations.transform_loop import (
     loop_interchange, loop_fusion, loop_fission, loop_unroll
 )
@@ -964,7 +963,6 @@ subroutine transform_loop_fission_nested_promote(a, b, n)
 end subroutine transform_loop_fission_nested_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 

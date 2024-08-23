@@ -7,7 +7,7 @@
 
 import pytest
 
-from loki import Dimension, normalize_range_indexing
+from loki import Dimension
 from loki.batch import Scheduler, SchedulerConfig, SFilter, ProcedureItem
 from loki.expression import (
     FindVariables, FindInlineCalls, InlineCall, simplify
@@ -256,10 +256,6 @@ end module kernel_mod
         paths=[tmp_path], config=SchedulerConfig.from_dict(config),
         frontend=frontend, xmods=[tmp_path]
     )
-
-    if frontend == OMNI:
-        for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
-            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(
         block_dim=block_dim, check_bounds=check_bounds,
@@ -602,9 +598,6 @@ end module kernel_mod
         paths=[tmp_path], config=SchedulerConfig.from_dict(config),
         frontend=frontend, xmods=[tmp_path]
     )
-    if frontend == OMNI:
-        for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
-            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(
         block_dim=block_dim, directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs
@@ -902,9 +895,6 @@ end module kernel_mod
         paths=[tmp_path], config=SchedulerConfig.from_dict(config),
         frontend=frontend, xmods=[tmp_path]
     )
-    if frontend == OMNI:
-        for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
-            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive,
             cray_ptr_loc_rhs=cray_ptr_loc_rhs)
@@ -1150,9 +1140,6 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
     scheduler = Scheduler(
         paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
     )
-    if frontend == OMNI:
-        for item in SFilter(scheduler.sgraph, item_filter=ProcedureItem):
-            normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
@@ -1325,11 +1312,6 @@ end module kernel_mod
         paths=[tmp_path], config=SchedulerConfig.from_dict(config),
         frontend=frontend, xmods=[tmp_path]
     )
-
-    if frontend == OMNI:
-        for item in scheduler.items:
-            if isinstance(item, ProcedureItem):
-                normalize_range_indexing(item.ir)
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim_alt,
             cray_ptr_loc_rhs=cray_ptr_loc_rhs)

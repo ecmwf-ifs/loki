@@ -16,7 +16,6 @@ from loki.build import jit_compile, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 
-from loki.transformations.array_indexing import normalize_range_indexing
 from loki.transformations.transform_region import (
     region_hoist, region_to_call
 )
@@ -556,7 +555,6 @@ subroutine reg_to_call_arr(a, b, n)
 end subroutine reg_to_call_arr
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine)
 
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
@@ -646,7 +644,6 @@ end module reg_to_call_imps_mod
 """
     ext_module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     module = Module.from_source(fcode, frontend=frontend, definitions=ext_module, xmods=[tmp_path])
-    normalize_range_indexing(module.subroutines[0])
     refname = f'ref_{module.name}_{frontend}'
     reference = jit_compile_lib([module, ext_module], path=tmp_path, name=refname, builder=builder)
     function = getattr(getattr(reference, module.name), module.subroutines[0].name)

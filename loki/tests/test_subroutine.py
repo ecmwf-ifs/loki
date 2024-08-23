@@ -15,8 +15,7 @@ from loki import (
     Array, Scalar, Variable,
     SymbolAttributes, StringLiteral, fgen, fexprgen,
     VariableDeclaration, Transformer, FindTypedSymbols,
-    ProcedureSymbol, StatementFunction,
-    normalize_range_indexing, DeferredTypeSymbol
+    ProcedureSymbol, StatementFunction, DeferredTypeSymbol
 )
 from loki.build import jit_compile, jit_compile_lib, clean_test
 from loki.frontend import available_frontends, OFP, OMNI, REGEX
@@ -1787,8 +1786,6 @@ end subroutine my_routine
     assert all(isinstance(arg, DeferredTypeSymbol) for arg in routine.arguments)
 
     routine.make_complete(frontend=frontend)
-    if frontend == OMNI:
-        normalize_range_indexing(routine)
     assert not routine._incomplete
     assert routine.arguments == ('n', 'a(n)', 'b(n)', 'd(n)')
     assert routine.argnames == ['n', 'a', 'b', 'd']
@@ -1879,8 +1876,6 @@ END SUBROUTINE CLOUDSC
     assert all(isinstance(arg, DeferredTypeSymbol) for arg in routine.arguments)
 
     routine.make_complete(frontend=frontend)
-    if frontend == OMNI:
-        normalize_range_indexing(routine)
     assert not routine._incomplete
     assert routine.arguments == argnames_with_dim
     assert [arg.upper() for arg in routine.argnames] == [arg.upper() for arg in argnames]

@@ -13,8 +13,7 @@ import pytest
 import numpy as np
 
 from loki import (
-    Scheduler, SchedulerConfig, is_iterable,
-    normalize_range_indexing, FindInlineCalls
+    Scheduler, SchedulerConfig, is_iterable, FindInlineCalls
 )
 from loki.build import jit_compile_lib, Builder
 from loki.frontend import available_frontends, OMNI
@@ -636,11 +635,6 @@ end subroutine another_kernel
     scheduler = Scheduler(
         paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
     )
-
-    if frontend == OMNI:
-        for item in scheduler.items:
-            normalize_range_indexing(item.ir)
-
     scheduler.process(transformation=HoistTemporaryArraysAnalysis(dim_vars=('klev',)))
     scheduler.process(transformation=HoistTemporaryArraysTransformationAllocatable())
 

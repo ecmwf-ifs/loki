@@ -15,7 +15,6 @@ import loki.expression.symbols as sym
 from loki.frontend import available_frontends, OFP
 import loki.ir as ir
 
-from loki.transformations.array_indexing import normalize_range_indexing
 from loki.transformations.transpile import FortranCTransformation
 
 
@@ -98,7 +97,6 @@ end subroutine simple_loops
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine) # Fix OMNI nonsense
     filepath = tmp_path/(f'simple_loops{"_c_ptr" if use_c_ptr else ""}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='simple_loops')
 
@@ -197,7 +195,6 @@ end subroutine transpile_arguments
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine) # Fix OMNI nonsense
     filepath = tmp_path/(f'transpile_arguments{"_c_ptr" if use_c_ptr else ""}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='transpile_arguments')
     a, b, c = function(n, array, array_io, a_io, b_io, c_io)
