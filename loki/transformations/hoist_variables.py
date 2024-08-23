@@ -213,7 +213,7 @@ class HoistVariablesTransformation(Transformation):
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, as_kwarguments=False, remap_dimensions=False):
+    def __init__(self, as_kwarguments=False, remap_dimensions=True):
         self.as_kwarguments = as_kwarguments
         self.remap_dimensions = remap_dimensions
 
@@ -343,10 +343,16 @@ class HoistVariablesTransformation(Transformation):
         variables : tuple of :any:`Variable`
             The tuple of variables for remapping.
         """
-        dim_map = {}
-        assignments = FindNodes(Assignment).visit(routine.body)
-        for assignment in assignments:
-            dim_map[assignment.lhs] = assignment.rhs
+        dim_vars = [
+            dim_var
+            for var in variables if isinstance(var, sym.Array)
+            for dim_var in FindVariables().visit(var.dimensions)
+        ]
+        dim_map = {
+            assignment.lhs: assignment.rhs
+            for assignment in FindNodes(Assignment).visit(routine.body)
+            if assignment.lhs in dim_vars
+        }
         variables = [var.clone(dimensions=SubstituteExpressions(dim_map).visit(var.dimensions))
                 if isinstance(var, sym.Array) else var for var in variables]
         return variables
