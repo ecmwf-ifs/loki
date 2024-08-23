@@ -25,9 +25,7 @@ from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
 from loki.transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
-from loki.transformations.array_indexing import (
-        normalize_range_indexing, LowerConstantArrayIndices
-)
+from loki.transformations.array_indexing import LowerConstantArrayIndices
 from loki.transformations.build_system import (
     DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
 )
@@ -242,15 +240,6 @@ def convert(
         )
         scheduler.process(offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
-
-    if frontend == Frontend.OMNI and mode in ['idem-stack', 'scc-stack']:
-        # To make the pool allocator size derivation work correctly, we need
-        # to normalize the 1:end-style index ranges that OMNI introduces
-        class NormalizeRangeIndexingTransformation(Transformation):
-            def transform_subroutine(self, routine, **kwargs):
-                normalize_range_indexing(routine)
-
-        scheduler.process( NormalizeRangeIndexingTransformation() )
 
     if global_var_offload:
         scheduler.process(transformation=GlobalVariableAnalysis())
