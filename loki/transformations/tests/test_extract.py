@@ -559,8 +559,9 @@ def test_extract_contained_procedures_basic_scalar_function(frontend):
     call = list(FindInlineCalls().visit(outer.body))[0]
     assert 'x' in call.kw_parameters
 
-@pytest.mark.parametrize('frontend',
-                         available_frontends(xfail=(OFP, "ofp fails for unknown reason, likely frontend issue")))
+@pytest.mark.parametrize(
+    'frontend', available_frontends(skip=(OFP, "ofp fails for unknown reason, likely frontend issue"))
+)
 def test_extract_contained_procedures_basic_scalar_function_both(frontend):
     """
     Basic test for scalars highlighting that the outer and inner procedure may be functions.
