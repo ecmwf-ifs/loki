@@ -62,9 +62,7 @@ end subroutine routine_simple
     assert routine.docstring[0].text == '! This is the docstring'
     assert routine.definitions == ()
 
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
-                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])  # OMNI
+    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
 
     # Generate code, compile and load
     filepath = tmp_path/(f'routine_simple_{frontend}.f90')
@@ -113,14 +111,11 @@ end subroutine routine_arguments
 """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars in (['jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)',
-                             'i', 'j', 'local_vector(x)', 'local_matrix(x, y)'],
-                            ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)',
-                             'i', 'j', 'local_vector(1:x)', 'local_matrix(1:x, 1:y)'])
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'vector(x)', 'matrix(x, y)'],
-                            ['x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)'])
+    assert routine.variables == (
+        'jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)',
+        'i', 'j', 'local_vector(x)', 'local_matrix(x, y)'
+    )
+    assert routine.arguments == ('x', 'y', 'vector(x)', 'matrix(x, y)')
 
     # Generate code, compile and load
     filepath = tmp_path/(f'routine_arguments_{frontend}.f90')
@@ -164,9 +159,7 @@ end subroutine routine_arguments_multiline
 
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
-                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
+    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
 
     # Generate code, compile and load
     filepath = tmp_path/(f'routine_arguments_multiline_{frontend}.f90')
@@ -201,9 +194,7 @@ subroutine routine_arguments_order(x, y, scalar, vector, matrix)
 end subroutine routine_arguments_order
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
-                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
+    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -220,9 +211,7 @@ subroutine routine_arguments_add_remove(x, y, scalar, vector, matrix)
 end subroutine routine_arguments_add_remove
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
-                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
+    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
 
     # Create a new set of variables and add to local routine variables
     x = routine.variables[1]  # That's the symbol for variable 'x'
@@ -236,7 +225,6 @@ end subroutine routine_arguments_add_remove
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args in (
         ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)', 'a', 'b(x)', 'c'],
-        ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)', 'a', 'b(x)', 'c', ]
     )
     if frontend == OMNI:
         assert fgen(routine.spec).lower() == """
@@ -245,8 +233,8 @@ integer, parameter :: jprb = selected_real_kind(13, 300)
 integer, intent(in) :: x
 integer, intent(in) :: y
 real(kind=selected_real_kind(13, 300)), intent(in) :: scalar
-real(kind=selected_real_kind(13, 300)), intent(inout) :: vector(1:x)
-real(kind=selected_real_kind(13, 300)), intent(inout) :: matrix(1:x, 1:y)
+real(kind=selected_real_kind(13, 300)), intent(inout) :: vector(x)
+real(kind=selected_real_kind(13, 300)), intent(inout) :: matrix(x, y)
 real(kind=selected_real_kind(13, 300)), intent(in) :: a
 real(kind=selected_real_kind(13, 300)), intent(in) :: b(x)
 integer, intent(in) :: c
@@ -264,13 +252,12 @@ integer, intent(in) :: c
 
     # Remove a select number of arguments
     routine.arguments = [arg for arg in routine.arguments if 'x' not in str(arg)]
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['y', 'scalar', 'a', 'c', ]
+    assert routine.arguments == ('y', 'scalar', 'a', 'c' )
 
     # Check that removed args still exist as variables
     routine_vars = [str(arg) for arg in routine.variables]
-    assert 'vector(x)' in routine_vars or 'vector(1:x)' in routine_vars
-    assert 'matrix(x, y)' in routine_vars or 'matrix(1:x, 1:y)' in routine_vars
+    assert 'vector(x)' in routine_vars
+    assert 'matrix(x, y)' in routine_vars
     assert 'b(x)' in routine_vars
 
 
@@ -302,10 +289,9 @@ end subroutine routine_variables_local
 
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars in (
-        ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x, y)'],
-        ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x, 1:y)'])
+    assert routine.variables == (
+        'jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x, y)'
+    )
 
     # Generate code, compile and load
     filepath = tmp_path/(f'routine_variables_local_{frontend}.f90')
@@ -357,16 +343,12 @@ end subroutine routine_simple_caching
 
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode_real, frontend=frontend)
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
-                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
+    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
     assert routine.arguments[2].type.dtype == BasicType.REAL
     assert routine.arguments[3].type.dtype == BasicType.REAL
 
     routine = Subroutine.from_source(fcode_int, frontend=frontend)
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(y)', 'matrix(x, y)'],
-                            ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x, 1:y)'])
+    assert routine.arguments == ('x', 'y', 'scalar', 'vector(y)', 'matrix(x, y)')
     # Ensure that the types in the second routine have been picked up
     assert routine.arguments[2].type.dtype == BasicType.INTEGER
     assert routine.arguments[3].type.dtype == BasicType.INTEGER
@@ -387,11 +369,7 @@ subroutine routine_variables_add_remove(x, y, maximum, vector)
 end subroutine routine_variables_add_remove
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars in (
-        ['jprb', 'x', 'y', 'maximum', 'vector(x)', 'matrix(x, y)'],
-        ['jprb', 'x', 'y', 'maximum', 'vector(1:x)', 'matrix(1:x, 1:y)']
-    )
+    assert routine.variables == ('jprb', 'x', 'y', 'maximum', 'vector(x)', 'matrix(x, y)')
 
     # Create a new set of variables and add to local routine variables
     x = routine.variable_map['x']  # That's the symbol for variable 'x'
@@ -411,8 +389,8 @@ integer, parameter :: jprb = selected_real_kind(13, 300)
 integer, intent(in) :: x
 integer, intent(in) :: y
 real(kind=selected_real_kind(13, 300)), intent(out) :: maximum
-real(kind=selected_real_kind(13, 300)), intent(inout) :: vector(1:x)
-real(kind=selected_real_kind(13, 300)) :: matrix(1:x, 1:y)
+real(kind=selected_real_kind(13, 300)), intent(inout) :: vector(x)
+real(kind=selected_real_kind(13, 300)) :: matrix(x, y)
 real(kind=jprb) :: a
 real(kind=jprb) :: b(x)
 integer :: c
@@ -433,16 +411,11 @@ integer :: c
     # Now remove the `maximum` variable and make sure it's gone
     routine.variables = [v for v in routine.variables if v.name != 'maximum']
     assert 'maximum' not in fgen(routine.spec).lower()
-    routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars in (
-        ['jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)', 'a', 'b(x)', 'c'],
-        ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)', 'a', 'b(x)', 'c']
+    assert routine.variables == (
+        'jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)', 'a', 'b(x)', 'c'
     )
     # Ensure `maximum` has been removed from arguments, but they are otherwise unharmed
-    assert [str(arg) for arg in routine.arguments] in (
-        ['x', 'y', 'vector(x)'],
-        ['x', 'y', 'vector(1:x)']
-    )
+    assert routine.arguments == ('x', 'y', 'vector(x)')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -505,7 +478,7 @@ subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
   ! Simple variable assignments with non-trivial sizes and indices
   integer, parameter :: jprb = selected_real_kind(13,300)
   real(kind=jprb), allocatable, intent(out) :: v3(:)
-  real(kind=jprb), intent(out) :: v4(v1,v2), v5(1:v1,v2-1)
+  real(kind=jprb), intent(out) :: v4(v1,v2), v5(0:v1,v2-1)
   integer, intent(in) :: v1, v2
 
   allocate(v3(v1))
@@ -517,14 +490,11 @@ end subroutine routine_dim_shapes
 """
     # TODO: Need a named subroutine lookup
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_args = [fexprgen(arg) for arg in routine.arguments]
-    assert routine_args in (['v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(1:v1, v2 - 1)'],
-                            ['v1', 'v2', 'v3(:)', 'v4(1:v1, 1:v2)', 'v5(1:v1, 1:v2 - 1)'])
+    assert routine.arguments == ('v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(0:v1, v2 - 1)')
 
     # Make sure variable/argument shapes on the routine work
     shapes = [fexprgen(v.shape) for v in routine.arguments if isinstance(v, Array)]
-    assert shapes in (['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'],
-                      ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
+    assert shapes == ['(v1,)', '(v1, v2)', '(0:v1, v2 - 1)']
 
     # Ensure that all spec variables (including dimension symbols) are scoped correctly
     spec_vars = [v for v in FindVariables(unique=False).visit(routine.spec) if v.name.lower() != 'selected_real_kind']
@@ -534,8 +504,7 @@ end subroutine routine_dim_shapes
     # Ensure shapes of body variables are ok
     b_shapes = [fexprgen(v.shape) for v in FindVariables(unique=False).visit(routine.body)
                 if isinstance(v, Array)]
-    assert b_shapes in (['(v1,)', '(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'],
-                        ['(v1,)', '(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
+    assert b_shapes == ['(v1,)', '(v1,)', '(v1, v2)', '(0:v1, v2 - 1)']
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -566,16 +535,16 @@ end subroutine routine_shape
     # TODO: The string comparison tmp_path is due to the fact that shapes are actually
     # `RangeIndex(upper=Scalar)` objects, instead of the raw dimension variables.
     # This needs some more thorough conceptualisation of dimensions and indices!
-    assert fexprgen(routine.arguments[3].shape) in ['(x,)', '(1:x,)']
-    assert fexprgen(routine.arguments[4].shape) in ['(x, y)', '(1:x, 1:y)']
+    assert fexprgen(routine.arguments[3].shape) == '(x,)'
+    assert fexprgen(routine.arguments[4].shape) == '(x, y)'
 
     # Verify that all variable instances have type and shape information
     variables = FindVariables().visit(routine.body)
     assert all(v.shape is not None for v in variables if isinstance(v, Array))
 
     vmap = {v.name: v for v in variables}
-    assert fexprgen(vmap['vector'].shape) in ['(x,)', '(1:x,)']
-    assert fexprgen(vmap['matrix'].shape) in ['(x, y)', '(1:x, 1:y)']
+    assert fexprgen(vmap['vector'].shape) == '(x,)'
+    assert fexprgen(vmap['matrix'].shape) == '(x, y)'
 
     # Parse kernel with external typedefs to test shape inferred from
     # external derived type definition
@@ -611,8 +580,8 @@ end subroutine routine_typedefs_simple
 
     # Verify shape info from imported derived type is propagated
     vmap = {v.name: v for v in variables}
-    assert fexprgen(vmap['item%vector'].shape) in ['(3,)', '(1:3,)']
-    assert fexprgen(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
+    assert fexprgen(vmap['item%vector'].shape) == '(3,)'
+    assert fexprgen(vmap['item%matrix'].shape) == '(3, 3)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
@@ -781,8 +750,8 @@ end subroutine routine_call_caller
     assert isinstance(call.arguments[3], Array)
     assert isinstance(call.arguments[4], Array)
 
-    assert fexprgen(call.arguments[2].shape) in ['(x,)', '(1:x,)']
-    assert fexprgen(call.arguments[3].shape) in ['(x, y)', '(1:x, 1:y)']
+    assert fexprgen(call.arguments[2].shape) == '(x,)'
+    assert fexprgen(call.arguments[3].shape) == '(x, y)'
 #    assert fexprgen(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
 
     assert fgen(call) == 'CALL routine_call_callee(x, y, vector, matrix, item%matrix)'
@@ -1274,7 +1243,7 @@ INTERFACE
     IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1
     INTEGER, INTENT(IN) :: in2
-    REAL(KIND=selected_real_kind(13, 300)), INTENT(IN) :: in3(1:in1, 1:in2)
+    REAL(KIND=selected_real_kind(13, 300)), INTENT(IN) :: in3(in1, in2)
     REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out1
     REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out2
   END SUBROUTINE test_subroutine_interface
@@ -1792,7 +1761,6 @@ end subroutine my_routine
     assert routine._dummies == ('n', 'a', 'b', 'd')
     assert isinstance(routine.arguments[0], Scalar)
     assert all(isinstance(arg, Array) for arg in routine.arguments[1:])
-
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

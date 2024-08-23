@@ -325,10 +325,7 @@ end module transform_derived_type_arguments_mod
         'm', 'n', 't_io%a', 't_io%b', 't_in(i)%a', 't_in(i)%b',
         't_out(i)%a', 't_out(i)%b'
     )
-    if frontend == OMNI:
-        kernel_args = ('m', 'n', 'p_a(1:n)', 'p_b(1:m, 1:n)', 'q_a(:)', 'q_b(:, :)', 'r_a(:)', 'r_b(:, :)')
-    else:
-        kernel_args = ('m', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(:)', 'Q_b(:, :)', 'R_a(:)', 'R_b(:, :)')
+    kernel_args = ('m', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(:)', 'Q_b(:, :)', 'R_a(:)', 'R_b(:, :)')
 
     call = FindNodes(CallStatement).visit(source['caller'].ir)[0]
     assert call.name == 'kernel'
@@ -755,14 +752,9 @@ end subroutine caller
     )
 
     # Check arguments of kernel
-    if frontend == OMNI:
-        assert items['kernel'].ir.arguments == (
-            'm', 'n', 'p_a(1:n)', 'p_b(1:m, 1:n)', 'q_a(:)', 'q_b(:, :)', 'r_a(:)', 'r_b(:, :)', 'c'
-        )
-    else:
-        assert items['kernel'].ir.arguments == (
-            'm', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(:)', 'Q_b(:, :)', 'R_a(:)', 'R_b(:, :)', 'c'
-        )
+    assert items['kernel'].ir.arguments == (
+        'm', 'n', 'P_a(n)', 'P_b(m, n)', 'Q_a(:)', 'Q_b(:, :)', 'R_a(:)', 'R_b(:, :)', 'c'
+    )
 
     # Check call arguments in layer
     calls = FindNodes(CallStatement).visit(items['layer'].ir.ir)
@@ -776,16 +768,10 @@ end subroutine caller
     )
 
     # Check arguments of layer
-    if frontend == OMNI:
-        assert items['layer'].ir.arguments == (
-            'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(1:5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)', 'q_constants(:)',
-            'r_a_a(:)', 'r_a_b(:, :)', 'r_b(:)'
-        )
-    else:
-        assert items['layer'].ir.arguments == (
-            'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)', 'q_constants(:)',
-            'r_a_a(:)', 'r_a_b(:, :)', 'r_b(:)'
-        )
+    assert items['layer'].ir.arguments == (
+        'm', 'n', 'p_a_a(:)', 'p_a_b(:, :)', 'p_b(5)', 'q_a_a(:)', 'q_a_b(:, :)', 'q_b(:)', 'q_constants(:)',
+        'r_a_a(:)', 'r_a_b(:, :)', 'r_b(:)'
+    )
 
     # Check imports
     assert 'constants_type' in items['layer'].ir.imported_symbols

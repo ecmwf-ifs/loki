@@ -212,12 +212,9 @@ end module
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['associates']
     variables = FindVariables().visit(routine.body)
-    if frontend == OMNI:
-        assert all(v.shape == ('1:3',)
-                   for v in variables if v.name in ['vector', 'vector2'])
-    else:
-        assert all(v.shape == ('3',)
-                   for v in variables if v.name in ['vector', 'vector2'])
+    assert all(
+        v.shape == ('3',) for v in variables if v.name in ['vector', 'vector2']
+    )
 
     for assoc in FindNodes(ir.Associate).visit(routine.body):
         for var in FindVariables().visit(assoc.body):

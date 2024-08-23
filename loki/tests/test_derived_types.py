@@ -1173,12 +1173,8 @@ def test_derived_type_rescope_symbols_shadowed(tmp_path, shadowed_typedef_symbol
     assert istate in ('istate(nmaxstreams)', 'istate(1:nmaxstreams)')
     assert istate.scope is rng_type
 
-    if frontend == OMNI:
-        assert istate.dimensions[0] == '1:nmaxstreams'
-        assert istate.dimensions[0].stop.scope
-    else:
-        assert istate.dimensions[0] == 'nmaxstreams'
-        assert istate.dimensions[0].scope
+    assert istate.dimensions[0] == 'nmaxstreams'
+    assert istate.dimensions[0].scope
 
     # FIXME: Use of NMaxStreams from parent scope is in the wrong scope (LOKI-52)
     #assert istate.dimensions[0].scope is module

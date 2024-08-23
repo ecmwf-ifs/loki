@@ -15,7 +15,7 @@ import numpy as np
 from loki import Scheduler, fgen
 from loki.build import jit_compile
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.parametrise import ParametriseTransformation
@@ -279,56 +279,30 @@ def test_parametrise_simple_replace_by_value(tmp_path, testdir, frontend, config
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    if frontend == OMNI:
-        routine_spec_str = fgen(scheduler['parametrise#driver'].ir.spec)
-        assert f'c(1:{a}, 1:{b})' in routine_spec_str
-        assert f'd(1:{b})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#another_driver'].ir.spec)
-        assert f'c(1:{a}, 1:{b})' in routine_spec_str
-        assert f'x(1:{a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#kernel1'].ir.spec)
-        assert f'c(1:{a}, 1:{b})' in routine_spec_str
-        assert f'x(1:{a})' in routine_spec_str
-        assert f'y(1:{a}, 1:{b})' in routine_spec_str
-        assert f'k1_tmp(1:{a}, 1:{b})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#kernel2'].ir.spec)
-        assert f'd(1:{b})' in routine_spec_str
-        assert f'x(1:{a})' in routine_spec_str
-        assert f'k2_tmp(1:{a}, 1:{a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#device1'].ir.spec)
-        assert f'd(1:{b})' in routine_spec_str
-        assert f'x(1:{a})' in routine_spec_str
-        assert f'y(1:{a}, 1:{a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#device2'].ir.spec)
-        assert f'd(1:{b})' in routine_spec_str
-        assert f'x(1:{a})' in routine_spec_str
-        assert f'z(1:{b})' in routine_spec_str
-        assert f'd2_tmp(1:{b})' in routine_spec_str
-    else:
-        routine_spec_str = fgen(scheduler['parametrise#driver'].ir.spec)
-        assert f'c({a}, {b})' in routine_spec_str
-        assert f'd({b})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#another_driver'].ir.spec)
-        assert f'c({a}, {b})' in routine_spec_str
-        assert f'x({a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#kernel1'].ir.spec)
-        assert f'c({a}, {b})' in routine_spec_str
-        assert f'x({a})' in routine_spec_str
-        assert f'y({a}, {b})' in routine_spec_str
-        assert f'k1_tmp({a}, {b})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#kernel2'].ir.spec)
-        assert f'd({b})' in routine_spec_str
-        assert f'x({a})' in routine_spec_str
-        assert f'k2_tmp({a}, {a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#device1'].ir.spec)
-        assert f'd({b})' in routine_spec_str
-        assert f'x({a})' in routine_spec_str
-        assert f'y({a}, {a})' in routine_spec_str
-        routine_spec_str = fgen(scheduler['parametrise#device2'].ir.spec)
-        assert f'd({b})' in routine_spec_str
-        assert f'x({a})' in routine_spec_str
-        assert f'z({b})' in routine_spec_str
-        assert f'd2_tmp({b})' in routine_spec_str
+    routine_spec_str = fgen(scheduler['parametrise#driver'].ir.spec)
+    assert f'c({a}, {b})' in routine_spec_str
+    assert f'd({b})' in routine_spec_str
+    routine_spec_str = fgen(scheduler['parametrise#another_driver'].ir.spec)
+    assert f'c({a}, {b})' in routine_spec_str
+    assert f'x({a})' in routine_spec_str
+    routine_spec_str = fgen(scheduler['parametrise#kernel1'].ir.spec)
+    assert f'c({a}, {b})' in routine_spec_str
+    assert f'x({a})' in routine_spec_str
+    assert f'y({a}, {b})' in routine_spec_str
+    assert f'k1_tmp({a}, {b})' in routine_spec_str
+    routine_spec_str = fgen(scheduler['parametrise#kernel2'].ir.spec)
+    assert f'd({b})' in routine_spec_str
+    assert f'x({a})' in routine_spec_str
+    assert f'k2_tmp({a}, {a})' in routine_spec_str
+    routine_spec_str = fgen(scheduler['parametrise#device1'].ir.spec)
+    assert f'd({b})' in routine_spec_str
+    assert f'x({a})' in routine_spec_str
+    assert f'y({a}, {a})' in routine_spec_str
+    routine_spec_str = fgen(scheduler['parametrise#device2'].ir.spec)
+    assert f'd({b})' in routine_spec_str
+    assert f'x({a})' in routine_spec_str
+    assert f'z({b})' in routine_spec_str
+    assert f'd2_tmp({b})' in routine_spec_str
 
     compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b)
 

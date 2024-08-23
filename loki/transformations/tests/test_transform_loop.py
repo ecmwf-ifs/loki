@@ -1275,10 +1275,7 @@ end subroutine transform_loop_fission_promote_array
     assert len(loops) == 3
     assert all(loop.bounds.start == '1' for loop in loops)
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
-    if frontend == OMNI:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
-    else:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
+    assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
@@ -1331,11 +1328,8 @@ end subroutine transform_loop_fission_promote_multiple
     assert len(loops) == 3
     assert all(loop.bounds.start == '1' for loop in loops)
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
-    if frontend == OMNI:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
-    else:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
-    assert [str(d) for d in routine.variable_map['tmp'].shape] == ['klev']
+    assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
+    assert routine.variable_map['tmp'].shape == ('klev',)
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
@@ -1402,12 +1396,8 @@ end subroutine transform_loop_fission_multiple_promote
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 4
     assert sum(loop.bounds.stop == 'klon' for loop in loops) == 2
     assert sum(loop.bounds.stop == 'nclv' for loop in loops) == 2
-    if frontend == OMNI:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
-        assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['1:klon', '1:nclv', 'klev']
-    else:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
-        assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['klon', 'nclv', 'klev']
+    assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
+    assert routine.variable_map['zqxn'].shape == ('klon', 'nclv', 'klev')
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
@@ -1463,11 +1453,8 @@ end subroutine transform_loop_fission_promote_read_after_write
     assert len(loops) == 3
     assert all(loop.bounds.start == '1' for loop in loops)
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
-    if frontend == OMNI:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
-    else:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
-    assert [str(d) for d in routine.variable_map['tmp'].shape] == ['klev']
+    assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
+    assert routine.variable_map['tmp'].shape == ('klev',)
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
@@ -1535,12 +1522,8 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 4
     assert sum(loop.bounds.stop == 'klon' for loop in loops) == 2
     assert sum(loop.bounds.stop == 'nclv' for loop in loops) == 2
-    if frontend == OMNI:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
-        assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['1:nclv', '1:klon', 'klev']
-    else:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
-        assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['nclv', 'klon', 'klev']
+    assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
+    assert routine.variable_map['zqxn'].shape == ('nclv', 'klon', 'klev')
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
@@ -1607,10 +1590,7 @@ end subroutine transform_loop_fusion_fission
     assert all(loop.bounds.start == '1' for loop in loops)
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
     assert sum(loop.bounds.stop == 'klon' for loop in loops) == 2
-    if frontend == OMNI:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
-    else:
-        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
+    assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)

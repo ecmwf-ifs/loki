@@ -1191,9 +1191,9 @@ end module inline_declarations
     inline_marked_subroutines(routine=outer, adjust_imports=True)
 
     # Check that all declarations are using the ``bnds`` symbol
-    assert outer.symbols[0] == 'a(1:bnds%end)' if frontend == OMNI else 'a(bnds%end)'
-    assert outer.symbols[2] == 'b(1:bnds%end)' if frontend == OMNI else 'b(bnds%end)'
-    assert outer.symbols[3] == 'd(1:bnds%end)' if frontend == OMNI else 'd(bnds%end)'
+    assert outer.symbols[0] == 'a(bnds%end)'
+    assert outer.symbols[2] == 'b(bnds%end)'
+    assert outer.symbols[3] == 'd(bnds%end)'
     assert all(
         a.shape == ('bnds%end',) for a in outer.symbols if isinstance(a, sym.Array)
     )

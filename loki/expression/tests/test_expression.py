@@ -473,11 +473,11 @@ end subroutine index_ranges
     # OMNI will insert implicit lower=1 into shape declarations,
     # we simply have to live with it... :(
     assert str(vmap['v4']) == 'v4(dim)' or str(vmap['v4']) == 'v4(1:dim)'
-    assert str(vmap['v5']) == 'v5(1:dim)'
+    assert str(vmap['v5']) == 'v5(1:dim)' or str(vmap['v5']) == 'v5(dim)'
 
     vmap_body = {v.name: v for v in FindVariables().visit(routine.body)}
     assert str(vmap_body['v1']) == 'v1(::2)'
-    assert str(vmap_body['v2']) == 'v2(1:dim)'
+    assert str(vmap_body['v2']) == 'v2(dim)' or str(vmap_body['v2']) == 'v2(1:dim)'
     assert str(vmap_body['v3']) == 'v3(0:4:2)'
     assert str(vmap_body['v5']) == 'v5(:)'
 
@@ -1853,13 +1853,8 @@ end module external_mod
     assert isinstance(parsed, sym.Array)
     assert all(isinstance(_parsed,  sym.Scalar) for _parsed in parsed.dimensions)
     assert all(_parsed.scope == routine for _parsed in parsed.dimensions)
-    if frontend == OMNI:
-        assert all(isinstance(_parsed,  sym.RangeIndex) for _parsed in parsed.shape)
-        assert all(isinstance(_parsed.upper,  sym.Scalar) for _parsed in parsed.shape)
-        assert all(_parsed.upper.scope == routine for _parsed in parsed.shape)
-    else:
-        assert all(isinstance(_parsed,  sym.Scalar) for _parsed in parsed.shape)
-        assert all(_parsed.scope == routine for _parsed in parsed.shape)
+    assert all(isinstance(_parsed,  sym.Scalar) for _parsed in parsed.shape)
+    assert all(_parsed.scope == routine for _parsed in parsed.shape)
     assert to_str(parsed) == 'arr(i1,i2,i3)'
 
     parsed = parse_expr(convert_to_case('my_func(i1)', mode=case), scope=routine)

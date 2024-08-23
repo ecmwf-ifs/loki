@@ -882,8 +882,7 @@ def test_scc_demotion_parameter(frontend, horizontal, tmp_path):
 
     assert len(routine.symbol_map['work'].shape) == 2
     if frontend == OMNI:
-        assert routine.symbol_map['work'].shape == (RangeIndex(children=(IntLiteral(1), IntLiteral(36))),
-                                                    IntLiteral(2))
+        assert routine.symbol_map['work'].shape == (IntLiteral(36), IntLiteral(2))
     else:
         assert routine.symbol_map['work'].shape == ('nang_param', IntLiteral(2))
 
