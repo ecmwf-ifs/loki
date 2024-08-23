@@ -10,8 +10,9 @@ from loki.batch import Transformation
 
 class IdemTransformation(Transformation):
     """
-    A custom transformation pipeline that primarily does nothing,
-    allowing us to test simple parse-unparse cycles.
+    A custom transformation that does absolutely nothing!
+
+    This can be used to test simple parse-unparse cycles.
     """
 
     def transform_subroutine(self, routine, **kwargs):
