@@ -16,10 +16,10 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import FindNodes, CallStatement, Loop
 
 from loki.transformations.array_indexing import (
-    promote_variables, demote_variables, normalize_range_indexing,
-    invert_array_indices, flatten_arrays,
-    normalize_array_shape_and_access, shift_to_zero_indexing,
-    resolve_vector_notation, LowerConstantArrayIndices
+    promote_variables, demote_variables, invert_array_indices,
+    flatten_arrays, normalize_array_shape_and_access,
+    shift_to_zero_indexing, resolve_vector_notation,
+    LowerConstantArrayIndices
 )
 from loki.transformations.transpile import FortranCTransformation
 
@@ -103,7 +103,6 @@ subroutine transform_promote_variables(scalar, vector, n)
 end subroutine transform_promote_variables
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine) # Fix OMNI nonsense
 
     # Test the original implementation
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -197,7 +196,6 @@ subroutine transform_demote_variables(scalar, vector, matrix, n, m)
 end subroutine transform_demote_variables
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine) # Fix OMNI nonsense
 
     # Test the original implementation
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -273,7 +271,6 @@ subroutine transform_demote_dimension_arguments(vec1, vec2, matrix, n, m)
 end subroutine transform_demote_dimension_arguments
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine) # Fix OMNI nonsense
 
     # Test the original implementation
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -409,10 +406,8 @@ def test_transform_normalize_array_shape_and_access(tmp_path, frontend, start_in
     l3 = 4
     l4 = 5
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    for routine in module.routines:
-        normalize_range_indexing(routine) # Fix OMNI nonsense
     filepath = tmp_path/(f'norm_arr_shape_access_{frontend}.f90')
-    # compile and test "original" module/function
+    # compile and test "original" module/function
     mod = jit_compile(module, filepath=filepath, objname='norm_arr_shape_access_mod')
     function = getattr(mod, 'norm_arr_shape_access')
     orig_x1, orig_x2, orig_x3, orig_x4, orig_assumed_x1 = init_arguments(l1, l2, l3, l4)
@@ -505,7 +500,6 @@ def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     l4 = 5
     # Test the original implementation
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    normalize_range_indexing(routine) # Fix OMNI nonsense
     filepath = tmp_path/(f'{routine.name}_{start_index}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     orig_x1, orig_x2, orig_x3, orig_x4 = init_arguments(l1, l2, l3, l4)
@@ -515,7 +509,6 @@ def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     # Test flattening order='F'
     f_routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_array_shape_and_access(f_routine)
-    normalize_range_indexing(f_routine) # Fix OMNI nonsense
     flatten_arrays(routine=f_routine, order='F', start_index=1)
     filepath = tmp_path/(f'{f_routine.name}_{start_index}_flattened_F_{frontend}.f90')
     function = jit_compile(f_routine, filepath=filepath, objname=routine.name)
@@ -532,7 +525,6 @@ def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     # Test flattening order='C'
     c_routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_array_shape_and_access(c_routine)
-    normalize_range_indexing(c_routine) # Fix OMNI nonsense
     invert_array_indices(c_routine)
     flatten_arrays(routine=c_routine, order='C', start_index=1)
     filepath = tmp_path/(f'{c_routine.name}_{start_index}_flattened_C_{frontend}.f90')
@@ -695,9 +687,6 @@ end module kernel_mod
     a_ref, b_ref = init_arguments(nlon, nlev)
     ref_function(nlon, nlev, a_ref, b_ref)
     builder.clean()
-
-    normalize_range_indexing(driver)
-    normalize_range_indexing(kernel)
 
     # flatten all the arrays in the kernel and driver
     flatten_arrays(routine=kernel, order='F', start_index=1)
