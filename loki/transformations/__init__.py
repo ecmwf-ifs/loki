@@ -19,6 +19,7 @@ from loki.transformations.data_offload import * # noqa
 from loki.transformations.drhook import * # noqa
 from loki.transformations.extract import * # noqa
 from loki.transformations.hoist_variables import * # noqa
+from loki.transformations.idempotence import * # noqa
 from loki.transformations.inline import * # noqa
 from loki.transformations.parametrise import * # noqa
 from loki.transformations.raw_stack_allocator import * # noqa

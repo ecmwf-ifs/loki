@@ -275,7 +275,7 @@ class TransformationConfig:
         self.module = module
         self.classname = classname or self.name
         self.path = path
-        self.options = dict(options)
+        self.options = dict(options) if options else {}
 
     def resolve_dimensions(self, dimensions):
         """

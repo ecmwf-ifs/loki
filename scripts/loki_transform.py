@@ -35,6 +35,7 @@ from loki.transformations.data_offload import (
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
+from loki.transformations.idempotence import IdemTransformation
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
@@ -47,16 +48,6 @@ from loki.transformations.single_column import (
 from loki.transformations.transpile import FortranCTransformation
 
 
-class IdemTransformation(Transformation):
-    """
-    A custom transformation pipeline that primarily does nothing,
-    allowing us to test simple parse-unparse cycles.
-    """
-
-    def transform_subroutine(self, routine, **kwargs):
-        pass
-
-
 @click.group()
 @click.option('--debug/--no-debug', default=False, show_default=True,
               help=('Enable / disable debug mode. This automatically attaches '
@@ -67,11 +58,7 @@ def cli(debug):
 
 
 @cli.command()
-@click.option('--mode', '-m', default='idem',
-              type=click.Choice(
-                  ['idem', "c", 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-                   'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack']
-              ),
+@click.option('--mode', '-m', default='idem', type=click.STRING,
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
@@ -192,6 +179,12 @@ def convert(
         scheduler.process(transformation=file_write_trafo)
 
         return
+
+    # If we do not use a custom pipeline, it should be one of the internally supported ones
+    assert mode in [
+        'idem', 'c', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
+        'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack'
+    ]
 
     # Pull dimension definition from configuration
     horizontal = scheduler.config.dimensions.get('horizontal', None)

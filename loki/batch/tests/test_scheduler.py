@@ -2378,6 +2378,10 @@ def test_transformation_config(config):
                 'module_suffix': '_roll',
                 'replace_ignore_items': False,
             }
+        },
+        # Instantiate IdemTransformation entry without options
+        'IdemTransformation': {
+            'module': 'loki.transformations',
         }
     }
     cfg = SchedulerConfig.from_dict(my_config)
