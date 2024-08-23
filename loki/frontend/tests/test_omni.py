@@ -40,13 +40,13 @@ end module omni_derived_type_mod
 
     assert len(module.typedefs) == 3
     explicit_symbols = FindVariables(unique=False).visit(module['explicit'].body)
-    assert explicit_symbols == ('scalar', 'vector(1:3)', 'matrix(1:3, 1:3)')
+    assert explicit_symbols == ('scalar', 'vector(3)', 'matrix(3, 3)')
 
     deferred_symbols = FindVariables(unique=False).visit(module['deferred'].body)
     assert deferred_symbols == ('scalar', 'vector(:)', 'matrix(:, :)')
 
     ranged_symbols = FindVariables(unique=False).visit(module['ranged'].body)
-    assert ranged_symbols == ('scalar', 'vector(1:3)', 'matrix(0:3, 0:3)')
+    assert ranged_symbols == ('scalar', 'vector(3)', 'matrix(0:3, 0:3)')
 
 
 @pytest.mark.skipif(not HAVE_OMNI, reason='Test tequires OMNI frontend.')
@@ -72,10 +72,10 @@ end subroutine omni_array_indexing
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assert len(decls) == 5
     assert decls[0].symbols == ('n',)
-    assert decls[1].symbols == ('a(1:3)',)
-    assert decls[2].symbols == ('b(1:n)',)
-    assert decls[3].symbols == ('c(1:n, 1:n)',)
-    assert decls[4].symbols == ('d(1:n, 0:n)',)
+    assert decls[1].symbols == ('a(3)',)
+    assert decls[2].symbols == ('b(n)',)
+    assert decls[3].symbols == ('c(n, n)',)
+    assert decls[4].symbols == ('d(n, 0:n)',)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 4

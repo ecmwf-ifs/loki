@@ -11,6 +11,9 @@ import codecs
 from codetiming import Timer
 from more_itertools import split_after
 
+from loki.expression import (
+    symbols as sym, SubstituteExpressionsMapper, ExpressionRetriever
+)
 from loki.ir import (
     NestedTransformer, FindNodes, PatternFinder, Transformer,
     Assignment, Comment, CommentBlock, VariableDeclaration,
@@ -267,6 +270,35 @@ class CombineMultilinePragmasTransformer(Transformer):
         return tuple(i for i in visited if i is not None and as_tuple(i))
 
 
+class RangeIndexTransformer(Transformer):
+    """
+    :any:`Transformer` that replaces ``arr(1:n)`` notations with
+    ``arr(n)`` in :any:`VariableDeclaration`.
+    """
+
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (sym.Array)))
+
+    @staticmethod
+    def is_one_index(dim):
+        return isinstance(dim, sym.RangeIndex) and dim.lower == 1 and dim.step is None
+
+    def visit_VariableDeclaration(self, o, **kwargs):  # pylint: disable=unused-argument
+        """
+        Gets all :any:`Array` symbols and adjusts dimension and shape.
+        """
+        vmap = {}
+        for v in self.retriever.retrieve(o.symbols):
+            dimensions = tuple(d.upper if self.is_one_index(d) else d for d in v.dimensions)
+            _type = v.type
+            if v.shape:
+                shape = tuple(d.upper if self.is_one_index(d) else d for d in v.shape)
+                _type = v.type.clone(shape=shape)
+            vmap[v] = v.clone(dimensions=dimensions, type=_type)
+
+        mapper = SubstituteExpressionsMapper(vmap, invalidate_source=self.invalidate_source)
+        return o.clone(symbols=mapper(o.symbols, recurse_to_declaration_attributes=True))
+
+
 @Timer(logger=perf, text=lambda s: f'[Loki::Frontend] Executed sanitize_ir in {s:.2f}s')
 def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
     """
@@ -302,6 +334,10 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
     # Perform some minor sanitation tasks
     _ir = InlineCommentTransformer(inplace=True, invalidate_source=False).visit(_ir)
     _ir = ClusterCommentTransformer(inplace=True, invalidate_source=False).visit(_ir)
+
+    if frontend == OMNI:
+        # Revert OMNI's array dimension expansion from `a(n)` => `arr(1:n)`
+        _ir = RangeIndexTransformer(invalidate_source=False).visit(_ir)
 
     if frontend in (OMNI, OFP):
         _ir = inline_labels(_ir)
