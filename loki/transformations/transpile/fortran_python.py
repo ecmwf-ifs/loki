@@ -16,7 +16,7 @@ from loki.ir import nodes as ir, FindNodes, Transformer, pragmas_attached
 from loki.sourcefile import Sourcefile
 
 from loki.transformations.array_indexing import (
-    shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
+    shift_to_zero_indexing, invert_array_indices
 )
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.utilities import (
@@ -72,7 +72,6 @@ class FortranPythonTransformation(Transformation):
         resolve_associates(routine)
 
         # Do some vector and indexing transformations
-        normalize_range_indexing(routine)
         if self.with_dace or self.invert_indices:
             invert_array_indices(routine)
         shift_to_zero_indexing(routine)

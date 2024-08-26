@@ -379,10 +379,10 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
 
     # Validate the analysis trafo_data
 
-    # OMNI handles array indices and parameters differently
+    # OMNI handles array indices and parameters differently
     if frontend == OMNI:
-        nfld_dim = '1:3'
-        nval_dim = '1:5'
+        nfld_dim = '3'
+        nval_dim = '5'
         nfld_data = set()
         nval_data = set()
     else:
@@ -449,10 +449,10 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
         'driver': {'role': 'driver'}
     }
 
-    # OMNI handles array indices and parameters differently
+    # OMNI handles array indices and parameters differently
     if frontend == OMNI:
-        nfld_dim = '1:3'
-        nval_dim = '1:5'
+        nfld_dim = '3'
+        nval_dim = '5'
     else:
         nfld_dim = 'nfld'
         nval_dim = 'nval'

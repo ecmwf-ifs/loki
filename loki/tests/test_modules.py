@@ -90,7 +90,7 @@ end module a_module
     pt_ext = routine.variables[0]
 
     # OMNI resolves explicit shape parameters in the frontend parser
-    exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
+    exptected_array_shape = '(2, 3)' if frontend == OMNI else '(x, y)'
 
     # Check that the `array` variable in the `ext` type is found and
     # has correct type and shape info
@@ -187,7 +187,7 @@ end module a_module
     assert isinstance(module['other_routine'].symbol_attrs['pt'].dtype.typedef, TypeDef)
 
     # OMNI resolves explicit shape parameters in the frontend parser
-    exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
+    exptected_array_shape = '(2, 3)' if frontend == OMNI else '(x, y)'
 
     # Check that the `array` variable in the `ext` type is found and
     # has correct type and shape info
@@ -234,7 +234,7 @@ module type_mod
 end module type_mod
 """
     # OMNI resolves explicit shape parameters in the frontend parser
-    exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
+    exptected_array_shape = '(2, 3)' if frontend == OMNI else '(x, y)'
 
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     parent = module.typedef_map['parent_type']

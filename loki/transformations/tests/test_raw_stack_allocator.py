@@ -16,7 +16,6 @@ from loki.ir import FindNodes, CallStatement, Assignment, Pragma
 from loki.sourcefile import Sourcefile
 from loki.types import BasicType
 
-from loki.transformations.array_indexing import normalize_range_indexing
 from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
 
 
@@ -263,11 +262,6 @@ end module kernel3_mod
 
     scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend,
                           definitions=definitions, xmods=[tmp_path])
-
-    if frontend == OMNI:
-        for item in scheduler.items:
-            if isinstance(item, ProcedureItem):
-                normalize_range_indexing(item.ir)
 
     transformation = TemporariesRawStackTransformation(block_dim=block_dim, horizontal=horizontal, directive=directive)
     scheduler.process(transformation=transformation)

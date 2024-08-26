@@ -507,7 +507,7 @@ end module test_get_local_arrays_mod
     # Test for component arrays on arguments in spec
     locals = get_local_arrays(routine, routine.spec, unique=True)
     assert len(locals) == 1
-    assert locals[0] == 'local(1:n)' if frontend == OMNI else 'local(n)'
+    assert locals[0] == 'local(n)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

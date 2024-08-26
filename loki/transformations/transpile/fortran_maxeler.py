@@ -25,7 +25,7 @@ from loki.tools import as_tuple, flatten
 
 from loki.transformations.array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
-    resolve_vector_notation, normalize_range_indexing
+    resolve_vector_notation
 )
 from loki.transformations.utilities import replace_intrinsics
 from loki.types import SymbolAttributes, BasicType, DerivedType
@@ -191,7 +191,6 @@ class FortranMaxTransformation(Transformation):
 
         # Some vector notation sanitation
         resolve_vector_notation(max_kernel)
-        normalize_range_indexing(max_kernel)
 
         # Remove dataflow loops
         loop_map = {}
