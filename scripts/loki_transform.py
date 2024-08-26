@@ -223,7 +223,7 @@ def convert(
         inline_trafo = InlineTransformation(
             inline_internals=inline_members, inline_marked=inline_marked,
             remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
-            resolve_sequence_association=resolve_sequence_association_inlined_calls 
+            resolve_sequence_association=resolve_sequence_association_inlined_calls
         )
     scheduler.process(transformation=inline_trafo)
 
@@ -253,7 +253,7 @@ def convert(
     if mode == 'idem-stack':
         pipeline = Pipeline(
             classes=(IdemTransformation, TemporariesPoolAllocatorTransformation),
-            block_dim=block_dim, directive='openmp', check_bounds=True
+            block_dim=block_dim, horizontal=horizontal, directive='openmp', check_bounds=True
         )
         scheduler.process( pipeline )
 
