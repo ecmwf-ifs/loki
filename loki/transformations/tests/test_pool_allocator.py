@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Dimension
-from loki.batch import Scheduler, SchedulerConfig, SFilter, ProcedureItem
+from loki.batch import Scheduler, SchedulerConfig
 from loki.expression import (
     FindVariables, FindInlineCalls, InlineCall, simplify
 )
@@ -25,6 +25,9 @@ from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransfor
 def fixture_block_dim():
     return Dimension(name='block_dim', size='nb', index='b')
 
+@pytest.fixture(scope='module', name='horizontal')
+def fixture_horizontal():
+    return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'), aliases=('klon', 'columns'))
 
 @pytest.fixture(scope='module', name='block_dim_alt')
 def fixture_block_dim_alt():
@@ -39,10 +42,18 @@ def remove_redundant_substrings(text, kind_real=None):
     text = text.replace(f'*max(c_sizeof(real(1,kind={kind_real})),8)', '')
     text = text.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)*', '')
     text = text.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)', '')
+    text = text.replace(f'/c_sizeof(real(1,kind={kind_real}))', '')
+    text = text.replace(f'*c_sizeof(real(1,kind={kind_real}))', '')
+    text = text.replace(f'c_sizeof(real(1,kind={kind_real}))*', '')
+    text = text.replace(f'c_sizeof(real(1,kind={kind_real}))', '')
     text = text.replace('/max(c_sizeof(real(1,kind=jprb)),8)', '')
     text = text.replace('*max(c_sizeof(real(1,kind=jprb)),8)', '')
     text = text.replace('max(c_sizeof(real(1,kind=jprb)),8)*', '')
     text = text.replace('max(c_sizeof(real(1,kind=jprb)),8)', '')
+    text = text.replace('/c_sizeof(real(1,kind=jprb))', '')
+    text = text.replace('*c_sizeof(real(1,kind=jprb))', '')
+    text = text.replace('c_sizeof(real(1,kind=jprb))*', '')
+    text = text.replace('c_sizeof(real(1,kind=jprb))', '')
     return text
 
 def check_stack_created_in_driver(
@@ -89,19 +100,19 @@ def check_stack_created_in_driver(
                         assignments[1].rhs == 'ylstack_l + istsz')
             else:
                 assert assignments[1].lhs == 'ylstack_u' and (
-                        assignments[1].rhs == f'ylstack_l + istsz * max(c_sizeof(real(1, kind={kind_real})), 8)')
+                        assignments[1].rhs == f'ylstack_l + istsz * c_sizeof(real(1, kind={kind_real}))')
         else:
             if cray_ptr_loc_rhs:
                 assert assignments[1].lhs == 'ylstack_u' and (
                         assignments[1].rhs == 'ylstack_l + istsz')
             else:
                 assert assignments[1].lhs == 'ylstack_u' and (
-                        assignments[1].rhs == f'ylstack_l + max(c_sizeof(real(1, kind={kind_real})), 8)*istsz')
+                        assignments[1].rhs == f'ylstack_l + c_sizeof(real(1, kind={kind_real}))*istsz')
 
             if cray_ptr_loc_rhs:
                 expected_rhs = 'ylstack_l + istsz'
             else:
-                expected_rhs = f'ylstack_l + max(c_sizeof(real(1, kind={kind_real})), 8)*istsz'
+                expected_rhs = f'ylstack_l + c_sizeof(real(1, kind={kind_real}))*istsz'
             assert assignments[1].lhs == 'ylstack_u' and assignments[1].rhs == expected_rhs
 
     # Check that stack assignment happens before kernel call
@@ -114,7 +125,7 @@ def check_stack_created_in_driver(
 @pytest.mark.parametrize('nclv_param', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, block_dim, check_bounds,
-                                    nclv_param, cray_ptr_loc_rhs):
+                                    nclv_param, cray_ptr_loc_rhs, horizontal):
     fcode_iso_c_binding = "use, intrinsic :: iso_c_binding, only: c_sizeof"
     fcode_nclv_param = 'integer, parameter :: nclv = 2'
     if frontend == OMNI:
@@ -135,7 +146,7 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
             integer(kind=8) :: ylstack_l
             integer(kind=8) :: ylstack_u
 
-            {'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)' if nclv_param else 'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+2*max(c_sizeof(real(1,kind=jprb)), 8)/max(c_sizeof(real(1,kind=jprb)), 8)'}
+            {'istsz = 3*nlon+nlon*nz' if nclv_param else 'istsz = 3*nlon+nlon*nz+2*max(c_sizeof(real(1,kind=jprb)), 8)/c_sizeof(real(1,kind=jprb))'}
             ALLOCATE(ZSTACK(ISTSZ, nb))
             """
     else:
@@ -156,7 +167,7 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
             integer(kind=8) :: ylstack_l
             {'integer(kind=8) :: ylstack_u' if check_bounds else ''}
 
-            {'istsz = max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nclv*nlon/max(c_sizeof(real(1,kind=jprb)), 8)' if nclv_param else 'istsz = 3*max(c_sizeof(real(1,kind=jprb)), 8)*nlon/max(c_sizeof(real(1,kind=jprb)), 8)+max(c_sizeof(real(1,kind=jprb)), 8)*nlon*nz/max(c_sizeof(real(1,kind=jprb)), 8)+2*max(c_sizeof(real(1,kind=jprb)), 8)/max(c_sizeof(real(1,kind=jprb)), 8)'}
+            {'istsz = nlon+nlon*nz+nclv*nlon' if nclv_param else 'istsz = 3*nlon+nlon*nz+2*max(c_sizeof(real(1,kind=jprb)), 8)/c_sizeof(real(1,kind=jprb))'}
             ALLOCATE(ZSTACK(ISTSZ, nb))
             """
     if cray_ptr_loc_rhs:
@@ -167,7 +178,7 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
     else:
         fcode_stack_assign = """
             ylstack_l = loc(zstack(1, b))
-            ylstack_u = ylstack_l + max(c_sizeof(real(1, kind=jprb)), 8) * istsz
+            ylstack_u = ylstack_l + c_sizeof(real(1, kind=jprb)) * istsz
         """
     fcode_stack_dealloc = "DEALLOCATE(ZSTACK)"
 
@@ -258,7 +269,7 @@ end module kernel_mod
     )
 
     transformation = TemporariesPoolAllocatorTransformation(
-        block_dim=block_dim, check_bounds=check_bounds,
+        block_dim=block_dim, horizontal=horizontal, check_bounds=check_bounds,
         cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
     scheduler.process(transformation=transformation)
@@ -275,64 +286,59 @@ end module kernel_mod
     if nclv_param:
         if frontend == OMNI:
             trafo_data_compare = (
-                f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * klon + '
-                f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon'
+                f'3 * c_sizeof(real(1, kind={kind_real})) * klon + '
+                f'c_sizeof(real(1, kind={kind_real})) * klev * klon'
             )
 
             if generate_driver_stack:
                 stack_size = (
-                    f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / '
-                    f'max(c_sizeof(real(1, kind=jprb)), 8) '
-                    f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
-                    f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                    f'3 * c_sizeof(real(1, kind={kind_real})) * nlon / '
+                    'c_sizeof(real(1, kind=jprb)) '
+                    f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / '
+                    'c_sizeof(real(1, kind=jprb))'
                 )
             else:
-                stack_size = (
-                    f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / '
-                    f'max(c_sizeof(real(1, kind={kind_real})), 8) '
-                    f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
-                    f'max(c_sizeof(real(1, kind={kind_real})), 8)'
-                )
+                stack_size = '3 * nlon + nlon * nz'
         else:
             trafo_data_compare = (
-                f'max(c_sizeof(real(1, kind={kind_real})), 8) * klon + '
-                f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon '
-                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * klon * nclv'
+                f'c_sizeof(real(1, kind={kind_real})) * klon + '
+                f'c_sizeof(real(1, kind={kind_real})) * klev * klon '
+                f'+ c_sizeof(real(1, kind={kind_real})) * klon * nclv'
             )
 
-            stack_size = (
-                f'max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / max(c_sizeof(real(1, kind=jprb)), 8)'
-                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
-                f'max(c_sizeof(real(1, kind=jprb)), 8)'
-                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nclv * nlon / '
-                f'max(c_sizeof(real(1, kind=jprb)), 8)'
-            )
+            if generate_driver_stack:
+                stack_size = (
+                    f'c_sizeof(real(1, kind={kind_real})) * nlon / c_sizeof(real(1, kind=jprb))'
+                    f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / '
+                    'c_sizeof(real(1, kind=jprb))'
+                    f'+ c_sizeof(real(1, kind={kind_real})) * nclv * nlon / '
+                    'c_sizeof(real(1, kind=jprb))'
+                )
+            else:
+                stack_size = 'nlon + nlon * nz + nclv * nlon'
 
     else:
         trafo_data_compare = (
-            f'max(c_sizeof(real(1, kind={kind_real})), 8) * klon + '
-            f'max(c_sizeof(real(1, kind={kind_real})), 8) * klev * klon '
+            f'c_sizeof(real(1, kind={kind_real})) * klon + '
+            f'c_sizeof(real(1, kind={kind_real})) * klev * klon '
             f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nclv '
-            f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * klon * nclv'
+            f'+ c_sizeof(real(1, kind={kind_real})) * klon * nclv'
         )
 
         if generate_driver_stack:
             stack_size = (
-                f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / '
-                f'max(c_sizeof(real(1, kind=jprb)), 8)'
-                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
-                f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                f'3 * c_sizeof(real(1, kind={kind_real})) * nlon / '
+                f'c_sizeof(real(1, kind=jprb))'
+                f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / '
+                f'c_sizeof(real(1, kind=jprb))'
                 f'+ 2 * max(c_sizeof(real(1, kind={kind_real})), 8) / '
-                f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                'c_sizeof(real(1, kind=jprb))'
             )
         else:
             stack_size = (
-                f'3 * max(c_sizeof(real(1, kind={kind_real})), 8) * nlon / '
-                f'max(c_sizeof(real(1, kind={kind_real})), 8)'
-                f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nlon * nz / '
-                f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+                '3 * nlon + nlon * nz '
                 f'+ 2 * max(c_sizeof(real(1, kind={kind_real})), 8) / '
-                f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+                f'c_sizeof(real(1, kind={kind_real}))'
             )
 
     trafo_data_compare = trafo_data_compare.replace(' ', '')
@@ -340,6 +346,7 @@ end module kernel_mod
     if cray_ptr_loc_rhs:
         kind_real = kind_real.replace(' ', '')
         trafo_data_compare = trafo_data_compare.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)*', '')
+        trafo_data_compare = trafo_data_compare.replace(f'c_sizeof(real(1,kind={kind_real}))*', '')
         stack_size = remove_redundant_substrings(stack_size, kind_real)
         if stack_size[-2:] == "+2":
             # This is a little hacky but unless we start to properly assemble the size expression
@@ -421,6 +428,7 @@ end module kernel_mod
                     assign_idx[f'tmp{tmp_index}_ptr_assign'] = idx
         elif assign.lhs == 'ylstack_l' and 'ylstack_l' in assign.rhs and 'c_sizeof' in assign.rhs:
             _size = str(assign.rhs).lower().replace(f'*max(c_sizeof(real(1, kind={kind_real})), 8)', '')
+            _size = _size.replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
             _size = _size.replace('ylstack_l + ', '')
 
             # Stack increment for tmp1, tmp2, tmp5 (and tmp3, tmp4 if no alloc_dims provided)
@@ -461,7 +469,7 @@ end module kernel_mod
 @pytest.mark.parametrize('stack_insert_pragma', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_sequence(tmp_path, frontend, block_dim, directive,
-                                                    stack_insert_pragma, cray_ptr_loc_rhs):
+                                                    stack_insert_pragma, cray_ptr_loc_rhs, horizontal):
     if directive == 'openmp':
         driver_loop_pragma1 = '!$omp parallel default(shared) private(b) firstprivate(a)\n    !$omp do'
         driver_end_loop_pragma1 = '!$omp end do\n    !$omp end parallel'
@@ -600,7 +608,7 @@ end module kernel_mod
     )
 
     transformation = TemporariesPoolAllocatorTransformation(
-        block_dim=block_dim, directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs
+        block_dim=block_dim, horizontal=horizontal, directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
     scheduler.process(transformation=transformation)
     kernel_item = scheduler['kernel_mod#kernel']
@@ -616,8 +624,8 @@ end module kernel_mod
         kind_int = 'jpim'
         kind_log = 'jplm'
 
-    tsize_real = f'max(c_sizeof(real(1, kind={kind_real})), 8)'
-    tsize_int = f'max(c_sizeof(int(1, kind={kind_int})), 8)'
+    tsize_real = f'c_sizeof(real(1, kind={kind_real}))'
+    tsize_int = f'c_sizeof(int(1, kind={kind_int}))'
     tsize_log = f'max(c_sizeof(logical(true, kind={kind_log})), 8)'
 
     assert transformation._key in kernel_item.trafo_data
@@ -672,7 +680,7 @@ end module kernel_mod
     stack_size = f'max({tsize_real}*nlon + {tsize_real}*nlon*nz + '
     stack_size += f'2*{tsize_int}*nlon + {tsize_log}*nz,'
     stack_size += f'3*{tsize_real}*nlon*nz + {tsize_real}*nlon)/' \
-                  f'max(c_sizeof(real(1, kind=jprb)), 8)'
+                  'c_sizeof(real(1, kind=jprb))'
     if cray_ptr_loc_rhs:
         stack_size = 'max(3*nlon + nlon*nz + nz, 3*nlon*nz + nlon)'
 
@@ -725,8 +733,8 @@ end module kernel_mod
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
-            _size = str(ass.rhs).lower().replace(f'*max(c_sizeof(real(1, kind={kind_real})), 8)', '')
-            _size = _size.replace(f'*max(c_sizeof(int(1, kind={kind_int})), 8)', '')
+            _size = str(ass.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
+            _size = _size.replace(f'*c_sizeof(int(1, kind={kind_int}))', '')
             _size = _size.replace(f'*max(c_sizeof(logical(.true., kind={kind_log})), 8)', '')
             _size = _size.replace('ylstack_l + ', '')
 
@@ -776,7 +784,8 @@ end module kernel_mod
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs):
+def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs,
+                                                  horizontal):
     if directive == 'openmp':
         driver_pragma = '!$omp PARALLEL do PRIVATE(b)'
         driver_end_pragma = '!$omp end parallel do'
@@ -896,8 +905,8 @@ end module kernel_mod
         frontend=frontend, xmods=[tmp_path]
     )
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, directive=directive,
-            cray_ptr_loc_rhs=cray_ptr_loc_rhs)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, horizontal=horizontal,
+                                                            directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
@@ -912,8 +921,8 @@ end module kernel_mod
         kind_int = 'jpim'
         kind_log = 'jplm'
 
-    tsize_real = f'max(c_sizeof(real(1, kind={kind_real})), 8)'
-    tsize_int = f'max(c_sizeof(int(1, kind={kind_int})), 8)'
+    tsize_real = f'c_sizeof(real(1, kind={kind_real}))'
+    tsize_int = f'c_sizeof(int(1, kind={kind_int}))'
     tsize_log = f'max(c_sizeof(logical(true, kind={kind_log})), 8)'
 
     assert transformation._key in kernel_item.trafo_data
@@ -956,10 +965,10 @@ end module kernel_mod
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
     assert calls[0].kwarguments == expected_kwarguments
 
-    stack_size = f'{tsize_real}*nlon/max(c_sizeof(real(1, kind=jwrb)), 8) +'
-    stack_size += f'4*{tsize_real}*nlon*nz/max(c_sizeof(real(1, kind=jwrb)), 8) +'
-    stack_size += f'2*{tsize_int}*nlon/max(c_sizeof(real(1, kind=jwrb)), 8) +'
-    stack_size += f'{tsize_log}*nz/max(c_sizeof(real(1, kind=jwrb)), 8)'
+    stack_size = f'{tsize_real}*nlon/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += f'4*{tsize_real}*nlon*nz/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += f'2*{tsize_int}*nlon/c_sizeof(real(1, kind=jwrb)) +'
+    stack_size += f'{tsize_log}*nz/c_sizeof(real(1, kind=jwrb))'
     if cray_ptr_loc_rhs:
         stack_size = '3*nlon + 4*nlon*nz + nz'
     check_stack_created_in_driver(
@@ -1027,8 +1036,8 @@ end module kernel_mod
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
-            _size = str(ass.rhs).lower().replace(f'*max(c_sizeof(real(1, kind={kind_real})), 8)', '')
-            _size = _size.replace(f'*max(c_sizeof(int(1, kind={kind_int})), 8)', '')
+            _size = str(ass.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
+            _size = _size.replace(f'*c_sizeof(int(1, kind={kind_int}))', '')
             _size = _size.replace(f'*max(c_sizeof(logical(.true., kind={kind_log})), 8)', '')
             _size = _size.replace('ylstack_l + ', '')
 
@@ -1077,7 +1086,7 @@ end module kernel_mod
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, cray_ptr_loc_rhs):
+def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, cray_ptr_loc_rhs, horizontal):
     fcode = """
     module kernel_mod
       type point
@@ -1141,7 +1150,8 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
         paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
     )
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, horizontal=horizontal,
+                                                            cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
     item = scheduler['kernel_mod#kernel']
     kernel = item.ir
@@ -1183,7 +1193,7 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_args_vs_kwargs(tmp_path, frontend, block_dim_alt, cray_ptr_loc_rhs):
+def test_pool_allocator_args_vs_kwargs(tmp_path, frontend, block_dim_alt, cray_ptr_loc_rhs, horizontal):
     fcode_parkind_mod = """
 module parkind1
 implicit none
@@ -1313,8 +1323,8 @@ end module kernel_mod
         frontend=frontend, xmods=[tmp_path]
     )
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim_alt,
-            cray_ptr_loc_rhs=cray_ptr_loc_rhs)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim_alt, horizontal=horizontal,
+                                                            cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
 
     kernel = scheduler['kernel_mod#kernel'].ir
