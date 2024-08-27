@@ -10,7 +10,7 @@ import pytest
 from loki import Sourcefile, Subroutine
 from loki.expression import (
     symbols as sym, parse_expr, FindVariables, FindTypedSymbols,
-    SubstituteExpressions
+    SubstituteExpressions, SubstituteStringExpressions
 )
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
@@ -165,6 +165,53 @@ end subroutine test_routine
         d: a,
     }
     routine.body = SubstituteExpressions(expr_map).visit(routine.body)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert loops[0].bounds == '1:n-1'
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert assigns[0].lhs == 'c(i)' and assigns[0].rhs == 'b(i+1) + d'
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert calls[0].arguments == ('n - 1', 'd', 'c(1:2)')
+    assert calls[0].kwarguments == (('a2', 'a'),)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_substitute_string_expressions(frontend):
+    """ Test symbol replacement with symbol string mappping. """
+
+    fcode = """
+subroutine test_routine(n, a, b)
+  integer, intent(in) :: n
+  real(kind=8), intent(inout) :: a, b(n)
+  real(kind=8) :: c(n)
+  integer :: i
+
+  associate(d => a)
+  do i=1, n
+    c(i) = b(i) + a
+  end do
+
+  call another_routine(n, a, c(:), a2=d)
+
+  end associate
+end subroutine test_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assoc = FindNodes(ir.Associate).visit(routine.body)[0]
+    assert calls[0].arguments == ('n', 'a', 'c(:)')
+    assert calls[0].kwarguments == (('a2', 'd'),)
+
+    expr_map = {
+        'n': 'n - 1',
+        'b(i)': 'b(i+1)',
+        'c(:)': 'c(1:2)',
+        'a': 'd',
+        'd': 'a',
+    }
+    # Note that we need to use the associate block here, as it defines 'd'
+    routine.body = SubstituteStringExpressions(expr_map, scope=assoc).visit(routine.body)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
     assert loops[0].bounds == '1:n-1'

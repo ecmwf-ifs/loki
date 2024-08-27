@@ -24,8 +24,9 @@ from loki.expression.symbols import (
 )
 
 __all__ = [
-    'FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls',
-    'FindLiterals', 'SubstituteExpressions', 'ExpressionFinder', 'AttachScopes'
+    'FindExpressions', 'FindVariables', 'FindTypedSymbols',
+    'FindInlineCalls', 'FindLiterals', 'SubstituteExpressions',
+    'SubstituteStringExpressions', 'ExpressionFinder', 'AttachScopes'
 ]
 
 
@@ -257,6 +258,34 @@ class SubstituteExpressions(Transformer):
 
     visit_VariableDeclaration = visit_Import
     visit_ProcedureDeclaration = visit_Import
+
+
+class SubstituteStringExpressions(SubstituteExpressions):
+    """
+    Extension to :any:`SubstituteExpressions` that allows symbol
+    substitution of pure string mappings via :any:`parse_expr`.
+
+    In addition to the input string mapping this requires a :any:`Scope`
+    (eg. :any:`Subroutine` or :any:`Module`) to parse the respective strings.
+
+    Parameters
+    ----------
+    expr_map : dict
+        String-to-string mapping of expressions to apply to the expression tree.
+    scope : :any:`Scope`
+        The scope to which symbol names inside the expression belong
+    invalidate_source : bool, optional
+        By default the :attr:`source` property of nodes is discarded
+        when rebuilding the node, setting this to `False` allows to
+        retain that information
+    """
+    def __init__(self, str_map, scope, invalidate_source=True):
+        from loki.expression.parser import parse_expr  # pylint: disable=import-outside-toplevel,cyclic-import
+        expr_map = {
+            parse_expr(k, scope=scope): parse_expr(v, scope=scope)
+            for k, v in str_map.items()
+        }
+        super().__init__(expr_map=expr_map, invalidate_source=invalidate_source)
 
 
 class AttachScopes(Visitor):
