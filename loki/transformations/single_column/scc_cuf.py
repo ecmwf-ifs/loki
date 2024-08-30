@@ -187,7 +187,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         self.transformation_type = transformation_type
         # `parametrise` : parametrising the array dimensions
         # `hoist`: host side hoisting
-        info(f"self.transformation_type: '{self.transformation_type}'")
+        info(f"[SccLowLevelLaunchConfiguration] Applying transformation type: '{self.transformation_type}'")
         assert self.transformation_type in ['parametrise', 'hoist']
         self.transformation_description = {'parametrise': 'parametrised array dimensions of local arrays',
                                            'hoist': 'host side hoisted local arrays'}
@@ -689,9 +689,6 @@ class SccLowLevelDataOffload(Transformation):
         targets : tuple of str
             Tuple of subroutine call names that are processed in this traversal
         """
-        # used_members = [v for v in FindVariables().visit(routine.ir) if v.parent]
-        # variables = [v for v in used_members if v.parent.type.dtype.name.upper() in derived_types]
-
         _variables = list(FindVariables().visit(routine.ir))
         variables = []
         for var in _variables:

@@ -42,7 +42,6 @@ class IntrinsicTypeC:
             return 'double'
         raise ValueError(str(_type))
 
-# pylint: disable=redefined-outer-name
 c_intrinsic_type = IntrinsicTypeC()
 
 class CCodeMapper(LokiStringifyMapper):

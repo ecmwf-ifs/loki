@@ -14,6 +14,7 @@ from loki.expression import (
         Variable, Array, RangeIndex, FindVariables, SubstituteExpressions,
         symbols as sym, AttachScopes
 )
+from loki.logging import warning
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.utilities import (
     recursive_expression_map_update, get_integer_variable,
@@ -522,6 +523,10 @@ class LowerBlockIndexTransformation(Transformation):
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if str(call.name).lower() not in targets:
                 continue
+            if call.routine is BasicType.DEFERRED:
+                warning(f'[LowerBlockIndexTransformation] Not processing routine ' \
+                        '{call.name}. Call statement not enriched')
+                continue
             call_arg_map = dict((v,k) for k,v in call.arg_map.items())
             call_block_dim_size = call_arg_map.get(block_dim_size, block_dim_size)
             new_args = tuple(var for var in [block_dim_index, block_dim_size] if var not in call_arg_map)
@@ -725,7 +730,6 @@ class LowerBlockLoopTransformation(Transformation):
                 additional_kwargs[call.routine.name] = {var.name: var for var in loop_variables}
 
                 # 4. Inject the loop body into the called routine
-                # if call.routine.name not in processed_routines:
                 call.routine.arguments += tuple(additional_kwargs[call.routine.name].values())
                 routine_body = Transformer({c: c.routine.body for c in\
                     FindNodes(ir.CallStatement).visit(loop_to_lower)}).visit(loop_to_lower)

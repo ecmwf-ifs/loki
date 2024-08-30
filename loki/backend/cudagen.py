@@ -79,7 +79,7 @@ class CudaCodegen(CppCodegen):
         if o.prefix and "global" in o.prefix[0].lower():
             prefix = '__global__ '
         if o.is_function:
-            return_type = cuda_intrinsic_type(o.return_type)
+            return_type = self.symgen.intrinsic_type_mapper(o.return_type)
         else:
             return_type = 'void'
         opt_extern = kwargs.get('extern', False)
