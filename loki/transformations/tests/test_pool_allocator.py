@@ -784,8 +784,7 @@ end module kernel_mod
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs,
-                                                  horizontal):
+def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs):
     if directive == 'openmp':
         driver_pragma = '!$omp PARALLEL do PRIVATE(b)'
         driver_end_pragma = '!$omp end parallel do'
@@ -905,7 +904,7 @@ end module kernel_mod
         frontend=frontend, xmods=[tmp_path]
     )
 
-    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, horizontal=horizontal,
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim,
                                                             directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
     kernel_item = scheduler['kernel_mod#kernel']
@@ -921,8 +920,8 @@ end module kernel_mod
         kind_int = 'jpim'
         kind_log = 'jplm'
 
-    tsize_real = f'c_sizeof(real(1, kind={kind_real}))'
-    tsize_int = f'c_sizeof(int(1, kind={kind_int}))'
+    tsize_real = f'max(c_sizeof(real(1, kind={kind_real})), 8)'
+    tsize_int = f'max(c_sizeof(int(1, kind={kind_int})), 8)'
     tsize_log = f'max(c_sizeof(logical(true, kind={kind_log})), 8)'
 
     assert transformation._key in kernel_item.trafo_data
@@ -1036,8 +1035,8 @@ end module kernel_mod
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
-            _size = str(ass.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
-            _size = _size.replace(f'*c_sizeof(int(1, kind={kind_int}))', '')
+            _size = str(ass.rhs).lower().replace(f'*max(c_sizeof(real(1, kind={kind_real})), 8)', '')
+            _size = _size.replace(f'*max(c_sizeof(int(1, kind={kind_int})), 8)', '')
             _size = _size.replace(f'*max(c_sizeof(logical(.true., kind={kind_log})), 8)', '')
             _size = _size.replace('ylstack_l + ', '')
 

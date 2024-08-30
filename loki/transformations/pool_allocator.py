@@ -192,7 +192,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     process_ignored_items = True
 
     def __init__(
-            self, horizontal, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
+            self, block_dim, horizontal=None, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
             stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
             local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
             check_bounds=True, cray_ptr_loc_rhs=False
@@ -623,7 +623,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             dim = Product((dim, _dim))
         arr_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                             parameters=as_tuple(self._get_c_sizeof_arg(arr)))
-        if not any(s in dim for s in self.horizontal.size_expressions):
+
+        # If the array size is not a multiple of NPROMA, then we pad the allocation to avoid
+        # potential alignment issues on device
+        if not self.horizontal or not any(s in dim for s in self.horizontal.size_expressions):
             arr_type_bytes = InlineCall(function=Variable(name='MAX'),
                         parameters=(arr_type_bytes, Literal(8)), kw_parameters=())
         if self.cray_ptr_loc_rhs:
