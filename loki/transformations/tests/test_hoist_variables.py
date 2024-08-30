@@ -732,10 +732,6 @@ end module kernel_mod
         paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
     )
 
-    if frontend == OMNI:
-        for item in scheduler.items:
-            normalize_range_indexing(item.ir)
-
     scheduler.process(transformation=HoistTemporaryArraysAnalysis())
     scheduler.process(transformation=HoistVariablesTransformation(remap_dimensions=remap_dimensions))
 
