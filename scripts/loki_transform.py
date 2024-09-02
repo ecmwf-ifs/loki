@@ -189,7 +189,8 @@ def convert(
     # If we do not use a custom pipeline, it should be one of the internally supported ones
     assert mode in [
         'idem', 'c', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack',
-        'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack'
+        'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack',
+        'idem-lower', 'idem-lower-loop', 'cuda-parametrise', 'cuda-hoist'
     ]
 
     # Pull dimension definition from configuration
@@ -269,7 +270,6 @@ def convert(
             classes=(IdemTransformation,
                 LowerBlockIndexTransformation,
                 InjectBlockIndexTransformation,),
-                # LowerBlockLoopTransformation),
             block_dim=block_dim, directive='openmp', check_bounds=True,
             horizontal=horizontal, vertical=vertical,
         )
@@ -339,38 +339,45 @@ def convert(
             )
         scheduler.process( pipeline )
 
-    # if 'cuf' in mode:
-    #     scheduler.process( LowerConstantArrayIndices() )
-    # 
-    # if mode in ['cuf-parametrise', 'cuf-hoist', 'cuf-dynamic']:
-    #     # These transformations requires complex constructor arguments,
-    #     # so we use the file-based transformation configuration.
-    #     scheduler.process( transformation=scheduler.config.transformations[mode] )
     if mode == 'cuf-hoist':
-        pipeline = SCCLowLevelCufHoist(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+        pipeline = scheduler.config.transformations.get('cuf-hoist', None)
+        if not pipeline:
+            pipeline = SCCLowLevelCufHoist(horizontal=horizontal, vertical=vertical, directive=directive,
+                trim_vector_sections=trim_vector_sections,
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim,
                 dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True)
         scheduler.process( pipeline )
     
     if mode == 'cuf-parametrise':
-        dic2p = {'NLEV': 137}
-        pipeline = SCCLowLevelCufParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+        pipeline = scheduler.config.transformations.get('cuf-parametrise', None)
+        if not pipeline:
+            dic2p = {'NLEV': 137}
+            pipeline = SCCLowLevelCufParametrise(horizontal=horizontal, vertical=vertical, directive=directive,
+                trim_vector_sections=trim_vector_sections,
                 transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim,
                 dim_vars=(vertical.size,), as_kwarguments=True, dic2p=dic2p, remove_vector_section=True)
         scheduler.process( pipeline )
 
     if mode == 'cuda-hoist':
-        pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+        pipeline = scheduler.config.transformations.get('cuda-hoist', None)
+        if not pipeline:
+            pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive=directive,
+                trim_vector_sections=trim_vector_sections,
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
-                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True)
+                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True,
+                ignore_modules=['parkind1'], all_derived_types=True)
         scheduler.process( pipeline )
 
 
     if mode == 'cuda-parametrise':
-        dic2p = {'NLEV': 137}
-        pipeline = SCCLowLevelParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+        pipeline = pipeline = scheduler.config.transformations.get('scc-raw-stack', None)
+        if not pipeline:
+            dic2p = {'NLEV': 137}
+            pipeline = SCCLowLevelParametrise(horizontal=horizontal, vertical=vertical, directive=directive,
+                trim_vector_sections=trim_vector_sections,
                 transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
-                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True, dic2p=dic2p)
+                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True,
+                ignore_modules=['parkind1'], all_derived_types=True, dic2p=dic2p)
         scheduler.process( pipeline )
 
     mode = mode.replace('-', '_')  # Sanitize mode string
