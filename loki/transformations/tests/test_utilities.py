@@ -462,6 +462,13 @@ end subroutine test_find_driver_loops
 def test_transform_utilites_get_local_arrays(frontend, tmp_path):
     """ Test :any:`get_local_arrays` utility. """
 
+    fcode_mod = """
+module global_var_mod
+    integer, parameter :: arr_size = 20
+    real :: myarray(arr_size)
+end module global_var_mod
+"""
+
     fcode = """
 module test_get_local_arrays_mod
 implicit none
@@ -471,6 +478,7 @@ end type my_dim
 contains
 
 subroutine test_get_local_arrays(n, dims, start, end, arr)
+  use global_var_mod, only: myarray
   integer, intent(in) :: n, start, end
   type(my_dim), intent(in) :: dims
   real, intent(inout) :: arr(dims%a(2))
@@ -489,7 +497,8 @@ subroutine test_get_local_arrays(n, dims, start, end, arr)
 end subroutine test_get_local_arrays
 end module test_get_local_arrays_mod
 """
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    global_mod = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path], definitions=(global_mod,))
     routine = module['test_get_local_arrays']
 
     locals = get_local_arrays(routine, routine.body, unique=True)

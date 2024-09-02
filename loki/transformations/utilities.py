@@ -639,12 +639,14 @@ def get_local_arrays(routine, section, unique=True):
         Flag whether to return unique instances of each symbol;
         default: ``False``
     """
+    imported_symbols = routine.imported_symbols
     arg_names = tuple(a.lower() for a in routine._dummies)
     variables = FindVariables(unique=unique).visit(section)
 
     # Filter all variables by argument name to get local arrays
     arrays = [v for v in variables if isinstance(v, sym.Array) and not v.parent]
     arrays = [v for v in arrays if str(v.name).lower() not in arg_names]
+    arrays = [v for v in arrays if v.name not in imported_symbols]
 
     return arrays
 
