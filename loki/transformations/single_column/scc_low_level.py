@@ -16,12 +16,13 @@ from loki.transformations.single_column.vector import (
 from loki.transformations.single_column.scc_cuf import (
     HoistTemporaryArraysDeviceAllocatableTransformation,
     HoistTemporaryArraysPragmaOffloadTransformation,
-    SccLowLevelDataOffload, SccLowLevelLaunchConfiguration
+    SccLowLevelDataOffload, SccLowLevelLaunchConfiguration,
+    HoistTemporaryArraysPragmaOffloadTransformation2,
 )
 from loki.transformations.block_index_transformations import (
         InjectBlockIndexTransformation,
         LowerBlockIndexTransformation, LowerBlockLoopTransformation,
-        LowerConstantArrayIndex
+        LowerConstantArrayIndex, LowerBlockIndexTrafo2
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
@@ -57,9 +58,19 @@ class InlineTransformation(Transformation):
         if role == 'kernel':
 
             SCCBaseTransformation.explicit_dimensions(routine)
-            # inline_constant_parameters(routine, external_only=True)
+            inline_constant_parameters(routine, external_only=True)
             inline_elemental_functions(routine)
 
+class DemotePrivateLocalsTrafo(Transformation):
+
+    def __init__(self, horizontal, vertical):
+        self.horizontal = horizontal
+        self.vertical = vertical
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+        if role == 'kernel':
+            SccLowLevelLaunchConfiguration.kernel_demote_private_locals(routine, self.horizontal, self.vertical)
 
 """
 The basic Single Column Coalesced low-level GPU via CUDA-Fortran (SCC-CUF).
@@ -431,7 +442,56 @@ mode: str
     - `CUDA` - CUDA C
     - `HIP` - HIP
 """
-SCCLowLevelHoist = partial(
+SCCLowLevelHoist1 = partial(
+    Pipeline, classes=(
+        InlineTransformation,
+        GlobalVariableAnalysis,
+        GlobalVarOffloadTransformation,
+        GlobalVarHoistTransformation,
+        DerivedTypeArgumentsTransformation,
+        ArgumentArrayShapeAnalysis,
+        ExplicitArgumentArrayShapeTransformation,
+        LowerConstantArrayIndex,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorTransformation,
+        # LowerBlockIndexTransformation,
+        # InjectBlockIndexTransformation,
+        LowerBlockIndexTrafo2,
+        LowerBlockLoopTransformation,
+        SccLowLevelLaunchConfiguration,
+        SccLowLevelDataOffload,
+        # # ParametriseArrayDimsTransformation,
+        HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysPragmaOffloadTransformation
+    )
+)
+SCCLowLevelHoist2 = partial(
+    Pipeline, classes=(
+        InlineTransformation,
+        GlobalVariableAnalysis,
+        GlobalVarOffloadTransformation,
+        GlobalVarHoistTransformation,
+        DerivedTypeArgumentsTransformation,
+        ArgumentArrayShapeAnalysis,
+        ExplicitArgumentArrayShapeTransformation,
+        LowerConstantArrayIndex,
+        HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysPragmaOffloadTransformation,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorTransformation,
+        LowerBlockIndexTransformation,
+        InjectBlockIndexTransformation,
+        LowerBlockLoopTransformation,
+        SccLowLevelLaunchConfiguration,
+        SccLowLevelDataOffload,
+        # ParametriseArrayDimsTransformation,
+    )
+)
+SCCLowLevelHoist3 = partial(
     Pipeline, classes=(
         InlineTransformation,
         GlobalVariableAnalysis,
@@ -448,10 +508,69 @@ SCCLowLevelHoist = partial(
         LowerBlockIndexTransformation,
         InjectBlockIndexTransformation,
         LowerBlockLoopTransformation,
+        HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysPragmaOffloadTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
         # ParametriseArrayDimsTransformation,
-        HoistTemporaryArraysAnalysis,
-        HoistTemporaryArraysPragmaOffloadTransformation
     )
 )
+SCCLowLevelHoist4 = partial(
+    Pipeline, classes=(
+        InlineTransformation,
+        GlobalVariableAnalysis,
+        GlobalVarOffloadTransformation,
+        GlobalVarHoistTransformation,
+        DerivedTypeArgumentsTransformation,
+        ArgumentArrayShapeAnalysis,
+        ExplicitArgumentArrayShapeTransformation,
+        LowerConstantArrayIndex,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorTransformation,
+        # LowerBlockIndexTransformation,
+        # InjectBlockIndexTransformation,
+        LowerBlockIndexTrafo2,
+        LowerBlockLoopTransformation,
+        HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysPragmaOffloadTransformation2,
+        SccLowLevelLaunchConfiguration,
+        SccLowLevelDataOffload,
+        # # ParametriseArrayDimsTransformation,
+        # HoistTemporaryArraysAnalysis,
+        # HoistTemporaryArraysPragmaOffloadTransformation
+    )
+)
+SCCLowLevelHoist5 = partial(
+    Pipeline, classes=(
+        InlineTransformation,
+        GlobalVariableAnalysis,
+        GlobalVarOffloadTransformation,
+        GlobalVarHoistTransformation,
+        DerivedTypeArgumentsTransformation,
+        ArgumentArrayShapeAnalysis,
+        ExplicitArgumentArrayShapeTransformation,
+        LowerConstantArrayIndex,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCRevectorTransformation,
+        # LowerBlockIndexTransformation,
+        # InjectBlockIndexTransformation,
+        DemotePrivateLocalsTrafo,
+        HoistTemporaryArraysAnalysis,
+        HoistTemporaryArraysPragmaOffloadTransformation2,
+        # LowerBlockIndexTrafo2,
+        LowerBlockIndexTransformation,
+        InjectBlockIndexTransformation,
+        LowerBlockLoopTransformation,
+        SccLowLevelLaunchConfiguration,
+        SccLowLevelDataOffload,
+        # # # ParametriseArrayDimsTransformation,
+        # # HoistTemporaryArraysAnalysis,
+        # # HoistTemporaryArraysPragmaOffloadTransformation
+    )
+)
+SCCLowLevelHoist = SCCLowLevelHoist5
+# SCCLowLevelHoist = SCCLowLevelHoist1

@@ -20,7 +20,7 @@ from loki.scope import SymbolAttributes
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
 from loki.transformations.single_column.base import SCCBaseTransformation
-from loki.transformations.utilities import single_variable_declaration
+from loki.transformations.utilities import single_variable_declaration, recursive_expression_map_update
 from loki.ir.pragma_utils import get_pragma_parameters
 
 __all__ = [
@@ -28,6 +28,7 @@ __all__ = [
     'HoistTemporaryArraysPragmaOffloadTransformation',
     'SccLowLevelLaunchConfiguration',
     'SccLowLevelDataOffload',
+    'HoistTemporaryArraysPragmaOffloadTransformation2',
 ]
 
 
@@ -94,6 +95,55 @@ class HoistTemporaryArraysPragmaOffloadTransformation(HoistVariablesTransformati
         routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
         routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
+class HoistTemporaryArraysPragmaOffloadTransformation2(HoistVariablesTransformation):
+    """
+    Synthesis part for variable/array hoisting, offload via pragmas e.g., OpenACC.
+    """
+
+    def __init__(self, block_dim, as_kwarguments=False):
+        self.as_kwarguments = as_kwarguments
+        self.block_dim = block_dim
+
+    def driver_variable_declaration(self, routine, variables):
+        """
+        Standard Variable/Array declaration including
+        device offload via pragmas.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to add the variable declaration
+        var: :any:`Variable`
+            The variable to be declared
+        """
+        print(f"driver_variable_declaration called ...")
+        block_dim_size = routine.variable_map[self.block_dim.size]
+        block_dim_index = routine.variable_map[self.block_dim.index]
+        routine.variables += tuple(var.clone(dimensions=var.dimensions + (block_dim_size,), type=var.type.clone(shape=var.shape + (block_dim_size,)), scope=routine) for var in variables)
+        # routine.variables += tuple(var.clone(dimensions=var.dimensions, type=var.type.clone(shape=var.shape), scope=routine) for var in variables)
+        vnames = ', '.join(v.name for v in variables)
+        pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+        pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+
+        # Add comments around standalone pragmas to avoid false attachment
+        routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+        routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+
+    def driver_call_argument_remapping(self, routine, call, variables):
+        # pylint: disable=unused-argument
+        block_dim_index = routine.variable_map[self.block_dim.index]
+        block_dim_size = routine.variable_map[self.block_dim.size]
+        print(f"driver_call_argument_remapping routine {routine} | call {call}")
+        if self.as_kwarguments:
+            new_kwargs = tuple((a.name, v.clone(dimensions=tuple(sym.RangeIndex((None, None)) for _ in v.dimensions) + (block_dim_index,), # (block_dim_index,),
+                type=v.type.clone(shape=v.shape + (block_dim_size,) if block_dim_size not in v.shape else v.shape), scope=routine)) for (a, v) in variables)
+                # type=v.type.clone(shape=v.shape))) for (a, v) in variables)
+            kwarguments = call.kwarguments if call.kwarguments is not None else ()
+            print(f"routine: {routine} | call: {call} | kwarguments: {as_tuple(kwarguments)}")
+            return call.clone(kwarguments=kwarguments + new_kwargs)
+        # new_args = tuple(v.clone(dimensions=None) for v in variables)
+        # print(f"routine: {routine} | call: {call} | new_args: {as_tuple(new_args)}")
+        # return call.clone(arguments=call.arguments + new_args)
 
 def remove_pragmas(routine):
     """
@@ -299,7 +349,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         routine.body = Transformer(loop_map).visit(routine.body)
 
         if depth == 1:
-
+            # print(f"here kernel_cuf ... routine {routine}")
             ## bit hacky ...
             assignments = FindNodes(ir.Assignment).visit(routine.body)
             assignments2remove = [block_dim.index.lower()] + [_.lower() for _ in horizontal.bounds]
@@ -350,15 +400,18 @@ class SccLowLevelLaunchConfiguration(Transformation):
                         call.routine.symbol_attrs.update({horizontal_index.name:\
                                 call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
                     additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in'), scope=call.routine),)
-                print(f"scc_cuf kernel_cuf - routine: {routine} - call: {call}")
-                if horizontal_index.name not in call.arg_map:
+                # print(f"scc_cuf kernel_cuf - routine: {routine} - call: {call}")
+                # if horizontal_index.name not in call.arg_map:
+                if horizontal_index.name not in call.arguments and horizontal_index.name not in [kwarg[0] for kwarg in call.kwarguments]:
                     additional_kwargs += ((horizontal_index.name, horizontal_index.clone(scope=routine)),)
 
                 if block_dim_index.name not in call.routine.arguments:
                     additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in'),
                         scope=call.routine),)
+                if block_dim_index.name not in call.arguments and block_dim_index.name not in [kwarg[0] for kwarg in call.kwarguments]:
                     additional_kwargs += ((block_dim_index.name, block_dim_index.clone(scope=routine)),)
                 if additional_kwargs:
+                    # print(f"adding kwargs to call {call} - {additional_kwargs} (from routine {routine})")
                     call._update(kwarguments=call.kwarguments+additional_kwargs)
                 if additional_args:
                     # print(f"additional_args for call {call} - {additional_args}")
@@ -399,7 +452,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         # dimension and can thus be privatized.
         variables = [v for v in variables if v.shape is not None]
         variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
-        variables = [v for v in variables if not any(horizontal.size in d for d in v.shape)]
+        # variables = [v for v in variables if not any(horizontal.size in d for d in v.shape)]
 
         # Filter out variables that we will pass down the call tree
         calls = FindNodes(ir.CallStatement).visit(routine.body)
@@ -487,7 +540,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 step = SCCBaseTransformation.get_integer_variable(routine, parameters['step'])
                 # print(f"SCC_CUF routine: {routine} NoException | step: {step} | parameters['step']: {parameters['step']} ({type(parameters['step'])})")
             except Exception as e:
-                print(f"SCC_CUF routine: {routine} Exception: {e} | self.horizontal.size_expressions: {self.horizontal.size_expressions}")
+                # print(f"SCC_CUF routine: {routine} Exception: {e} | self.horizontal.size_expressions: {self.horizontal.size_expressions}")
                 # step = sym.IntLiteral(1)
                 for size_expr in self.horizontal.size_expressions:
                     if size_expr in routine.symbol_map:
@@ -694,8 +747,10 @@ class SccLowLevelDataOffload(Transformation):
     def kernel_cuf(self, routine, horizontal, block_dim, transformation_type,
                derived_type_variables, depth):
 
-        print(f"SccLowLevelDataOffload kernel_cuf: {routine}\n  variable_map: {routine.variable_map}")
+        SCCBaseTransformation.explicit_dimensions(routine)
+        # print(f"SccLowLevelDataOffload kernel_cuf: {routine}\n  variable_map: {routine.variable_map}")
         relevant_local_arrays = []
+        relevant_local_array_shapes = []
         var_map = {}
         for var in routine.variables:
             if var in routine.arguments:
@@ -710,10 +765,14 @@ class SccLowLevelDataOffload(Transformation):
                     shape = list(var.shape)
                     if horizontal.size in list(FindVariables().visit(var.dimensions)):
                         if transformation_type == 'hoist':
+                            # print(f"routine {routine} add block_dim dimension to var {var}!")
                             dimensions += [routine.variable_map[block_dim.size]]
                             shape = list(var.shape) + [routine.variable_map[block_dim.size]]
                             vtype = var.type.clone(shape=as_tuple(shape))
-                            relevant_local_arrays.append(var.name)
+                            relevant_local_arrays.append(str(var.name).lower())
+                            relevant_local_array_shapes.append(vtype)
+                            # shape = var.shape
+                            # relevant_local_arrays.append(str(var.name).lower())
                         else:
                             dimensions.remove(horizontal.size)
                             shape.remove(horizontal.size)
@@ -724,18 +783,55 @@ class SccLowLevelDataOffload(Transformation):
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
         var_map = {}
-        arguments_name = [var.name for var in routine.arguments]
+        arguments_name = [str(var.name).lower() for var in routine.arguments]
         for var in FindVariables().visit(routine.body):
-            if var.name not in arguments_name:
+            if str(var.name).lower() not in arguments_name:
                 if transformation_type == 'hoist':
-                    if var.name in relevant_local_arrays:
-                        var_map[var] = var.clone(dimensions=var.dimensions + (routine.variable_map[block_dim.index],))
+                    if str(var.name).lower() in relevant_local_arrays:
+                        var_map[var] = var.clone(dimensions=var.dimensions + (routine.variable_map[block_dim.index],)) #  , type=relevant_local_array_shapes[ivar])
+                        # var_map[var] = var.clone(dimensions=var.dimensions + (1,))
                 else:
-                    if var.name in relevant_local_arrays:
+                    if str(var.name).lower() in relevant_local_arrays:
                         dimensions = list(var.dimensions)
                         var_map[var] = var.clone(dimensions=as_tuple(dimensions[1:]))
 
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
+
+        # TEST
+        """
+        # so we build a list to filter
+        call_args = [a for call in FindNodes(ir.CallStatement).visit(routine.body) for a in call.arg_map.values()]
+
+        # First get rank mismatched call statement args
+        vmap = {}
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if True: #str(call.name).lower() in targets:
+                for dummy, arg in call.arg_map.items():
+                    arg_rank = self.get_call_arg_rank(arg)
+                    dummy_rank = len(getattr(dummy, 'shape', ()))
+                    if arg_rank - 1 == dummy_rank:
+                        dimensions = getattr(arg, 'dimensions', None) or ((RangeIndex((None, None)),) * (arg_rank - 1))
+                        vmap.update({arg: arg.clone(dimensions=dimensions + as_tuple(block_index))})
+
+        # Now get the rest of the variables
+        for var in FindVariables(unique=False).visit(routine.body):
+            if getattr(var, 'dimensions', None) and not var in call_args:
+
+                local_rank = len(var.dimensions)
+                decl_rank = local_rank
+                # we assume here that all derived-type components we wish to transform
+                # have been parsed
+                if getattr(var, 'shape', None):
+                    decl_rank = len(var.shape)
+
+                if local_rank == decl_rank - 1:
+                    dimensions = getattr(var, 'dimensions', None) or ((RangeIndex((None, None)),) * (decl_rank - 1))
+                    vmap.update({var: var.clone(dimensions=dimensions + as_tuple(block_index))})
+
+        vmap = recursive_expression_map_update(vmap)
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
+        """
+        ### END: TEST
 
         # TODO: that should't be necessary, something goes wrong before ...
         if depth == 1:
@@ -815,7 +911,7 @@ class SccLowLevelDataOffload(Transformation):
             inargs = ()
             inoutargs = ()
             outargs = ()
-            print(f"driver_device_variables - routine: {routine}")
+            # print(f"driver_device_variables - routine: {routine}")
             # insert_index = routine.body.body.index(calls[-1])
             # insert_index = None
             for call in calls:
@@ -824,7 +920,7 @@ class SccLowLevelDataOffload(Transformation):
                     #     f'in {str(call.name).lower()}')
                     continue
                 for param, arg in call.arg_iter():
-                    print(f"  param: {param} | arg: {arg}")
+                    # print(f"  param: {param} | arg: {arg}")
                     if isinstance(param, sym.Array) and param.type.intent.lower() == 'in':
                         inargs += (str(arg.name).lower(),)
                     if isinstance(param, sym.Array) and param.type.intent.lower() == 'inout':

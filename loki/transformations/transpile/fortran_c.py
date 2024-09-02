@@ -90,28 +90,28 @@ class DeReferenceTrafo(Transformer):
             return o
         call_arg_map = dict((v,k) for k,v in o.arg_map.items())
         for arg in o.arguments:
-            print(f"visit_CallStatement - arg {arg} | call_arg_map[arg]: {call_arg_map[arg]}")
+            # print(f"visit_CallStatement - arg {arg} | call_arg_map[arg]: {call_arg_map[arg]}")
             if not self.is_dereference(arg) and (isinstance(call_arg_map[arg], Array)\
                     or call_arg_map[arg].type.intent.lower() != 'in'):
-                print(f"  0")
+                # print(f"  0")
                 new_args += (Reference(arg.clone()),)
             else:
-                print(f"  1")
+                # print(f"  1")
                 if isinstance(arg, Scalar) and call_arg_map[arg].type.intent is not None and call_arg_map[arg].type.intent.lower() != 'in':
-                    print(f"    0")
+                    # print(f"    0")
                     if hasattr(arg.type, 'intent') and arg.type.intent is not None and arg.type.intent.lower() != 'in':
                         new_args += (arg,)
                     else:
                         new_args += (Reference(arg.clone()),)
                 else:
-                    print(f"    1")
+                    # print(f"    1")
                     if not isinstance(arg, (sym._Literal, sym.Array)) and hasattr(arg.type, 'intent') and arg.type.intent is not None and arg.type.intent.lower() != 'in' and call_arg_map[arg].type.intent.lower() == 'in':
-                        print(f"        0")
-                        if hasattr(arg.type, 'intent'):
-                            print(f"        hasattr(arg.type) intent: {arg.type.intent.lower()} | call_arg_map: {call_arg_map[arg]} with intent {call_arg_map[arg].type.intent.lower()}")
+                        # print(f"        0")
+                        # if hasattr(arg.type, 'intent'):
+                        #     print(f"        hasattr(arg.type) intent: {arg.type.intent.lower()} | call_arg_map: {call_arg_map[arg]} with intent {call_arg_map[arg].type.intent.lower()}")
                         new_args += (Dereference(arg.clone()),)
                     else:
-                        print(f"        1")
+                        # print(f"        1")
                         new_args += (arg,)
         o._update(arguments=new_args)
         return o
@@ -224,7 +224,7 @@ class FortranCTransformation(Transformation):
                             removal_map[i] = None
             import_removal_map = {}
             for im in FindNodes(Import).visit(routine.ir):
-                print(f"FortranC - import: {im} | {im.module}")
+                # print(f"FortranC - import: {im} | {im.module}")
                 if im.c_import or im.f_import:
                     if im.module is not None and im.module.lower().replace('.intfb.h', '') in targets:
                         import_removal_map[im] = None
@@ -388,6 +388,7 @@ class FortranCTransformation(Transformation):
         arguments = tuple(local_arg_map[a] if a in local_arg_map else Variable(name=a)
                           for a in routine.argnames)
         use_device_addr = []
+        explicit_acc_copy = []
         if self.use_c_ptr:
             arg_map = {}
             for arg in routine.arguments:
@@ -406,6 +407,14 @@ class FortranCTransformation(Transformation):
                         parameters=(new_arg,))
                     call_arguments.append(c_loc)
                     use_device_addr.append(arg.name)
+                elif isinstance(arg, Scalar) and arg.type.intent.lower() != 'in':
+                    new_arg = arg.clone()
+                    c_loc = sym.InlineCall(
+                        function=sym.ProcedureSymbol(name="c_loc", scope=routine),
+                        parameters=(new_arg,))
+                    call_arguments.append(c_loc)
+                    use_device_addr.append(arg.name)
+                    explicit_acc_copy.append(arg.name)
                 elif isinstance(arg.type.dtype, DerivedType):
                     cvar = Variable(name=f'{arg.name}_c', type=ctype, scope=wrapper)
                     call_arguments.append(cvar)
@@ -416,12 +425,12 @@ class FortranCTransformation(Transformation):
 
         wrapper_body = casts_in
         if self.language in ['cuda', 'hip']:
-            wrapper_body += [Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')]
+            wrapper_body += [Pragma(keyword='acc', content=f'data copy({", ".join(explicit_acc_copy)})'), Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')]
         wrapper_body += [
             CallStatement(name=Variable(name=interface.body[0].name), arguments=call_arguments)  # pylint: disable=unsubscriptable-object
         ]
         if self.language in ['cuda', 'hip']:
-            wrapper_body += [Pragma(keyword='acc', content='end host_data')]
+            wrapper_body += [Pragma(keyword='acc', content='end host_data'), Pragma(keyword='acc', content='end data')]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
 
@@ -524,9 +533,9 @@ class FortranCTransformation(Transformation):
                 # Pass by reference for array types
                 # TODO: arg.type.intent is not None, shouldn't be necessary
                 value = isinstance(arg, Scalar) and arg.type.intent is not None and arg.type.intent.lower() == 'in'
-                kind = self.iso_c_intrinsic_kind(arg.type, intf_routine, is_array=isinstance(arg, Array))
+                kind = self.iso_c_intrinsic_kind(arg.type, intf_routine, is_array=isinstance(arg, Array) or (isinstance(arg, Scalar) and arg.type.intent.lower() != 'in'))
                 if self.use_c_ptr:
-                    if isinstance(arg, Array):
+                    if isinstance(arg, Array) or (isinstance(arg, Scalar) and arg.type.intent.lower() != 'in'):
                         ctype = SymbolAttributes(DerivedType(name="c_ptr"), value=True, kind=None)
                     else:
                         ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)

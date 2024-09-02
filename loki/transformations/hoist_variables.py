@@ -237,6 +237,7 @@ class HoistVariablesTransformation(Transformation):
             (successor.local_name, successor) for successor in successors
         )
 
+        print(f"HoistVariablesTransformation ROUTINE {routine}")
         if self._key not in item.trafo_data:
             raise RuntimeError(f'{self.__class__.__name__} requires key "{self._key}" in item.trafo_data!\n'
                                f'Make sure to call HoistVariablesAnalysis (or any derived class) before and to provide '
@@ -254,6 +255,9 @@ class HoistVariablesTransformation(Transformation):
                 for var in item.trafo_data[self._key]['to_hoist']
             )
             single_variable_declaration(routine, variables=[var.clone(dimensions=None) for var in hoisted_temporaries])
+            print(f"routine {routine} += hoisted_temporaries")
+            for hoisted_temporary in hoisted_temporaries:
+                print(f"  hoisted_temporary: {hoisted_temporary} | dims {hoisted_temporary.dimensions} | shape {hoisted_temporary.shape}")
             routine.arguments += hoisted_temporaries
 
         call_map = {}
@@ -372,8 +376,10 @@ class HoistVariablesTransformation(Transformation):
         if self.as_kwarguments:
             new_kwargs = tuple((a.name, v.clone(dimensions=None)) for (a, v) in variables)
             kwarguments = call.kwarguments if call.kwarguments is not None else ()
+            print(f"routine: {routine} | call: {call} | kwarguments: {as_tuple(kwarguments)}")
             return call.clone(kwarguments=kwarguments + new_kwargs)
         new_args = tuple(v.clone(dimensions=None) for v in variables)
+        print(f"routine: {routine} | call: {call} | new_args: {as_tuple(new_args)}")
         return call.clone(arguments=call.arguments + new_args)
 
     def kernel_call_argument_remapping(self, routine, call, variables):
@@ -399,9 +405,11 @@ class HoistVariablesTransformation(Transformation):
         """
         # pylint: disable=unused-argument
         if self.as_kwarguments:
-            new_kwargs = tuple((a.name, v.clone(dimensions=None)) for (a, v) in variables)
+            new_kwargs = tuple((a.name, v.clone(dimensions=None, scope=routine)) for (a, v) in variables)
             kwarguments = call.kwarguments if call.kwarguments is not None else ()
+            print(f"routine: {routine} | call: {call} | kwarguments: {as_tuple(kwarguments)}")
             return call.clone(kwarguments=kwarguments + new_kwargs)
+        print(f"routine: {routine} | call: {call} | new_args: {as_tuple(new_args)}")
         new_args = tuple(v.clone(dimensions=None) for v in variables)
         return call.clone(arguments=call.arguments + new_args)
 

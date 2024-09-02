@@ -14,7 +14,7 @@ from loki import Subroutine, Module, cgen, cppgen, cudagen, FindNodes, Dimension
 from loki.build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
 import loki.expression.symbols as sym
 from loki.frontend import available_frontends, OFP
-from loki import ir
+from loki import ir, fgen
 
 from loki.transformations.array_indexing import normalize_range_indexing
 from loki.transformations.transpile import FortranCTransformation
@@ -35,10 +35,15 @@ def test_transpile_redo_inline_call(tmp_path, frontend): # , case_sensitive, lan
     """
 
     fcode = """
-subroutine transpile_redo_inline_call(a)
+subroutine transpile_redo_inline_call(a, x)
     integer, intent(in) :: a
+    real, intent(in) :: x
     if (mod(a, 2) /= 0) then
-        
+
+    endif
+
+    if (mod(x, 2.0) /= 0.0 then
+
     endif
     
 end subroutine transpile_redo_inline_call
@@ -1332,6 +1337,10 @@ def fixture_config():
 def remove_whitespace_linebreaks(text):
     return text.replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '').lower()
 
+def remove_whitespace_linebreaks_2(text):
+    return text
+    # return text.replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '').lower()
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vertical, blocking):
     """
@@ -1477,3 +1486,39 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
     assert '#include<cuda_runtime.h>' in c_elemental_device
     assert '#include"elemental_device_c.h"' in c_elemental_device
     # assert '__device__voidelemental_device_c' in c_elemental_device # TODO
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_cuda_hoist_extended(tmp_path, here, frontend, config, horizontal, vertical, blocking):
+    """
+    Test SCC-CUF transformation type 0, thus including parametrising (array dimension(s))
+    """
+
+    proj = here / '../../tests/sources/projSccCuf/module'
+
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+
+    cuda_transform = SCCLowLevelHoist(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        transformation_type='parametrise',
+        dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True,
+        use_c_ptr=True, path=here, mode='cuda'
+    )
+    scheduler.process(transformation=cuda_transform)
+    f2c_transformation = FortranCTransformation(path=tmp_path, language='cuda', use_c_ptr=True)
+    scheduler.process(transformation=f2c_transformation)
+
+    f_driver = remove_whitespace_linebreaks_2(fgen(scheduler["driver_mod#driver"].ir))
+    fc_kernel = remove_whitespace_linebreaks_2(read_file(tmp_path/'kernel_fc.F90'))
+    c_kernel = remove_whitespace_linebreaks_2(read_file(tmp_path/'kernel_c.c'))
+    c_kernel_header = remove_whitespace_linebreaks_2(read_file(tmp_path/'kernel_c.h'))
+    c_kernel_launch = remove_whitespace_linebreaks_2(read_file(tmp_path/'kernel_c_launch.h'))
+    c_device = remove_whitespace_linebreaks_2(read_file(tmp_path/'device_c.c'))
+    # c_device_header = remove_whitespace_linebreaks_2(read_file(tmp_path/'device_c.h'))
+    c_elemental_device = remove_whitespace_linebreaks_2(read_file(tmp_path/'elemental_device_c.c'))
+
+    print(f"driver\n----------------")
+    print(f"{f_driver}")
+    print(f"fc_kernel\n----------------")
+    print(f"{fc_kernel}")
+    print(f"kernel\n----------------")
+    print(f"{c_kernel}")

@@ -972,6 +972,9 @@ class CallStatement(LeafNode, _CallStatementBase):
         """
         Convert all kwarguments to arguments and update the call accordingly.
         """
+        print(f"convert_kwargs_to_args: name {self.name} | kwarguments: {self.kwarguments} | {type(self.kwarguments)}")
+        if self.kwarguments is None:
+            self._update(kwarguments=())
         new_kwarguments = self._sort_kwarguments()
         new_args = tuple(arg[1] for arg in new_kwarguments)
         self._update(arguments=self.arguments + new_args, kwarguments=())
