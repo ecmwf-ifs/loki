@@ -14,6 +14,7 @@ current version of the coding standards.
 
 from collections import defaultdict
 import re
+import difflib
 
 try:
     from fparser.two.Fortran2003 import Intrinsic_Name
@@ -22,15 +23,234 @@ except ImportError:
     _intrinsic_fortran_names = ()
 
 from loki import (
-    FindInlineCalls, FindNodes, GenericRule, Module, RuleType
+    FindInlineCalls, FindNodes, GenericRule, Module, RuleType,
+    ExpressionFinder, ExpressionRetriever, FloatLiteral,
+    SubstituteExpressions
 )
-from loki import ir
-
+from loki import ir, fgen
+from loki.frontend.util import read_file
 
 __all__ = [
     'MissingImplicitNoneRule', 'OnlyParameterGlobalVarRule', 'MissingIntfbRule',
+    'MissingKindSpecifierRealLiterals'
 ]
 
+
+class FindFloatLiterals(ExpressionFinder):
+    """
+    A visitor to collects :any:`FloatLiteral` used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (FloatLiteral,)))
+
+class MissingKindSpecifierRealLiterals(GenericRule):
+    """
+    ...
+    """
+
+    type = RuleType.SERIOUS
+    fixable = True
+
+    docs = {
+        'id': 'L0',
+        'title': (
+            'Real Literals must have a kind specifier. '
+        ),
+    }
+
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
+        """
+        ...
+        """
+        literal_nodes = FindFloatLiterals(with_ir_node=True).visit(subroutine.body)
+        for node, literals in literal_nodes:
+            for literal in literals:
+                if literal.kind is None:
+                    rule_report.add(f'Real/Float literal without kind specifier "{literal}"', node)
+
+    @classmethod
+    def fix_subroutinei_test_2(cls, subroutine, rule_report, config, sourcefile=None):
+        """
+        ...
+        """
+        for node, literals in literal_nodes:
+            literal_map = {}
+            for literal in literals:
+                if literal.kind is None and 'e' not in literal.value.lower() and 'd' not in literal.value.lower():
+                    literal_map[literal] = FloatLiteral(value=literal.value, kind='JPRB')
+            if literal_map:
+                # fixed_node = SubstituteExpressions(literal_map).visit(node)
+                # for key in literal_map:
+                #     fixed_node = re.sub(rf'{re.escape()}',
+                #             , content, flags = re.S)
+                indent = int((len(node.source.string) - len(node.source.string.lstrip(' ')))/2)
+                fixed_node_str = fgen(fixed_node, depth=indent)
+                with open (f'loki_lint_{subroutine.name}_new_file_fixed_node_str.F90', 'w') as f:
+                    f.write(fixed_node_str)
+                content_new = re.sub(rf'{re.escape(node.source.string)}',
+                        fixed_node_str, content, flags = re.S)
+                content = content_new
+        with open (f'loki_lint_{subroutine.name}_new_file.F90', 'w') as f:
+            f.write(content_new)
+        diff = difflib.unified_diff(original_content.splitlines(), content_new.splitlines(),
+                f'a/{sourcefile.path}', f'b/{sourcefile.path}', lineterm='')
+        diff_str = '\n'.join(list(diff))
+        # print(f"---{sourcefile.path}------")
+        # print(diff_str)
+        # print(f"--------------------------")
+        with open (f'loki_lint_{subroutine.name}.approach_2.patch', 'w') as f:
+            f.write(diff_str)
+            f.write('\n')
+
+    @classmethod
+    def fix_subroutine_test(cls, subroutine, rule_report, config, sourcefile=None):
+        """
+        ...
+        """
+        # sourcefile = subroutine.source.file
+        print(f"fix_subroutine: subroutine: {subroutine} | subroutine.source: {subroutine.source} | subroutine.source.file: {subroutine.source.file}")
+        original_content = read_file(str(sourcefile.path))
+        content = original_content
+        literals = FindFloatLiterals(with_ir_node=False).visit(subroutine.body)
+        literal_map = {}
+        for literal in literals:
+            if literal.kind is None:
+                literal_map[literal] = FloatLiteral(value=literal.value, kind='JPRB')
+        # content_new = content
+        if literal_map:
+            for key in literal_map:
+                # print(f"replace ")
+                # content_new = re.sub(rf'{re.escape(str(key))}', rf'{re.escape(str(literal_map[key]))}', content, flags = re.S)
+                content_new = re.sub(rf'{re.escape(str(key))}', str(literal_map[key]), content, flags = re.S)
+                content = content_new
+        diff = difflib.unified_diff(original_content.splitlines(), content_new.splitlines(),
+                f'a/{sourcefile.path}', f'b/{sourcefile.path}', lineterm='')
+        diff_str = '\n'.join(list(diff))
+        # print(f"---{sourcefile.path}------")
+        # print(diff_str)
+        # print(f"--------------------------")
+        with open (f'loki_lint_{subroutine.name}.approach_2.patch', 'w') as f:
+            f.write(diff_str)
+            f.write('\n')
+        
+        """
+        for node, literals in literal_nodes:
+            literal_map = {}
+            for literal in literals:
+                if literal.kind is None:
+                    literal_map[literal] = FloatLiteral(value=literal.value, kind='JPRB')
+            if literal_map:
+                # fixed_node = SubstituteExpressions(literal_map).visit(node)
+                # indent = int((len(node.source.string) - len(node.source.string.lstrip(' ')))/2)
+                # fixed_node_str = fgen(fixed_node, depth=indent)
+                # with open (f'loki_lint_{subroutine.name}_new_file_fixed_node_str.F90', 'w') as f:
+                #     f.write(fixed_node_str)
+                # content_new = re.sub(rf'{re.escape(node.source.string)}',
+                #         fixed_node_str, content, flags = re.S)
+                # content = content_new
+        with open (f'loki_lint_{subroutine.name}_new_file.F90', 'w') as f:
+            f.write(content_new)
+        diff = difflib.unified_diff(original_content.splitlines(), content_new.splitlines(),
+                f'a/{sourcefile.path}', f'b/{sourcefile.path}', lineterm='')
+        diff_str = '\n'.join(list(diff))
+        # print(f"---{sourcefile.path}------")
+        # print(diff_str)
+        # print(f"--------------------------")
+        with open (f'loki_lint_{subroutine.name}.approach_2.patch', 'w') as f:
+            f.write(diff_str)
+            f.write('\n')
+        """
+
+    @classmethod
+    def fix_subroutine(cls, subroutine, rule_report, config, sourcefile=None):
+        """
+        ...
+        """
+        # sourcefile = subroutine.source.file
+        print(f"fix_subroutine: subroutine: {subroutine} | subroutine.source: {subroutine.source} | subroutine.source.file: {subroutine.source.file}")
+        original_content = read_file(str(sourcefile.path))
+        content = original_content
+        literal_nodes = FindFloatLiterals(with_ir_node=True).visit(subroutine.body)
+        content_new = None
+        for node, literals in literal_nodes:
+            # print(f"node.source: {node.source.string} | {type(node.source.string)}")
+            literal_map = {}
+            for literal in literals:
+                if literal.kind is None and 'e' not in str(literal.value).lower() and 'd' not in str(literal.value).lower():
+                    literal_map[literal] = FloatLiteral(value=literal.value, kind='JPRB')
+            if literal_map:
+                # fixed_node = SubstituteExpressions(literal_map).visit(node)
+                fixed_node = node.source.string
+                # if hasattr(node, 'comment') and node.comment is not None:
+                #     comment = node.comment
+                #     fixed_node._update(comment=None)
+                # else:
+                #     comment = None 
+                for key in literal_map:
+                    fixed_node = re.sub(rf'{re.escape(str(key))}',
+                        str(literal_map[key]), fixed_node, flags = re.S)
+                # indent = int((len(node.source.string) - len(node.source.string.lstrip(' ')))/2)
+                # fixed_node_str = fgen(fixed_node, depth=indent)
+                # if comment is not None:
+                #     fixed_node._update(comment=comment)
+                fixed_node_str = str(fixed_node)
+                # with open (f'loki_lint_{subroutine.name}_new_file_fixed_node_str.F90', 'w') as f:
+                #     f.write(fixed_node_str)
+                content_new = re.sub(rf'{re.escape(node.source.string)}',
+                        fixed_node_str, content, flags = re.S)
+                content = content_new
+        # with open (f'loki_lint_{subroutine.name}_new_file.F90', 'w') as f:
+        #     f.write(content_new)
+        if content_new is not None:
+            diff = difflib.unified_diff(original_content.splitlines(), content_new.splitlines(),
+                    f'a/{sourcefile.path}', f'b/{sourcefile.path}', lineterm='')
+            diff_str = '\n'.join(list(diff))
+            # print(f"---{sourcefile.path}------")
+            # print(diff_str)
+            # print(f"--------------------------")
+            with open (f'loki_lint_{subroutine.name}.patch', 'w') as f:
+                f.write(diff_str)
+                f.write('\n')
+
+    @classmethod
+    def fix_subroutine_working(cls, subroutine, rule_report, config, sourcefile=None):
+        """
+        ...
+        """
+        # sourcefile = subroutine.source.file
+        print(f"fix_subroutine: subroutine: {subroutine} | subroutine.source: {subroutine.source} | subroutine.source.file: {subroutine.source.file}")
+        original_content = read_file(str(sourcefile.path))
+        content = original_content
+        literal_nodes = FindFloatLiterals(with_ir_node=True).visit(subroutine.body)
+        for node, literals in literal_nodes:
+            # print(f"node.source: {node.source.string} | {type(node.source.string)}")
+            literal_map = {}
+            for literal in literals:
+                if literal.kind is None:
+                    literal_map[literal] = FloatLiteral(value=literal.value, kind='JPRB')
+            if literal_map:
+                fixed_node = SubstituteExpressions(literal_map).visit(node)
+                indent = int((len(node.source.string) - len(node.source.string.lstrip(' ')))/2)
+                fixed_node_str = fgen(fixed_node, depth=indent)
+                with open (f'loki_lint_{subroutine.name}_new_file_fixed_node_str.F90', 'w') as f:
+                    f.write(fixed_node_str)
+                content_new = re.sub(rf'{re.escape(node.source.string)}',
+                        fixed_node_str, content, flags = re.S)
+                content = content_new
+        with open (f'loki_lint_{subroutine.name}_new_file.F90', 'w') as f:
+            f.write(content_new)
+        diff = difflib.unified_diff(original_content.splitlines(), content_new.splitlines(),
+                f'a/{sourcefile.path}', f'b/{sourcefile.path}', lineterm='')
+        diff_str = '\n'.join(list(diff))
+        # print(f"---{sourcefile.path}------")
+        # print(diff_str)
+        # print(f"--------------------------")
+        with open (f'loki_lint_{subroutine.name}.patch', 'w') as f:
+            f.write(diff_str)
+            f.write('\n')
 
 class MissingImplicitNoneRule(GenericRule):
     """

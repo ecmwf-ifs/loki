@@ -23,7 +23,7 @@ import pytest
 from loki import (
     Module, Subroutine, FindVariables, BasicType, config, Sourcefile,
     RawSource, RegexParserClass, ProcedureType, DerivedType,
-    PreprocessorDirective, config_override
+    PreprocessorDirective, config_override, FindLiterals
 )
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
@@ -54,7 +54,23 @@ def fixture_reset_regex_frontend_timeout():
     yield
     config['regex-frontend-timeout'] = original_timeout
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_literals_kind(frontend):
+    """
+    """
 
+    fcode = """
+SUBROUTINE SOME_SUBROUTINE()
+REAL :: A
+A = 0.d0
+END SUBROUTINE
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    literals = FindLiterals().visit(routine.body)
+    # print(f"literals: {literals}")
+    for literal in literals:
+        print(f"literal: '{literal}' | {literal.kind}")
+    
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_check_alloc_opts(tmp_path, frontend):
     """

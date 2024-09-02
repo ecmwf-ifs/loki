@@ -23,7 +23,7 @@ class Fixer:
     """
 
     @classmethod
-    def fix_module(cls, module, reports, config):  # pylint: disable=unused-argument
+    def fix_module(cls, module, reports, config, sourcefile):  # pylint: disable=unused-argument
         """
         Call `fix_module` for all rules and apply the transformations.
         """
@@ -33,14 +33,14 @@ class Fixer:
         return module
 
     @classmethod
-    def fix_subroutine(cls, subroutine, reports, config):
+    def fix_subroutine(cls, subroutine, reports, config, sourcefile):
         """
         Call `fix_subroutine` for all rules and apply the transformations.
         """
         mapper = {}
         for report in reports:
             rule_config = config[report.rule.__name__]
-            mapper.update(report.rule.fix_subroutine(subroutine, report, rule_config) or {})
+            mapper.update(report.rule.fix_subroutine(subroutine, report, rule_config, sourcefile) or {})
 
         if mapper:
             # Apply the changes and invalidate source objects
@@ -87,10 +87,10 @@ class Fixer:
             # Depth-first traversal
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
                 for routine in ast.subroutines:
-                    cls.fix_subroutine(routine, reports, config)
+                    cls.fix_subroutine(routine, reports, config, ast)
             if hasattr(ast, 'modules') and ast.modules is not None:
                 for module in ast.modules:
-                    cls.fix_module(module, reports, config)
+                    cls.fix_module(module, reports, config, ast)
 
             cls.fix_sourcefile(ast, reports, config)
 
@@ -99,18 +99,18 @@ class Fixer:
             # Depth-first traversal
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
                 for routine in ast.subroutines:
-                    cls.fix_subroutine(routine, reports, config)
+                    cls.fix_subroutine(routine, reports, config, ast)
 
-            cls.fix_module(ast, reports, config)
+            cls.fix_module(ast, reports, config, ast)
 
         # Fix on subroutine level
         elif isinstance(ast, Subroutine):
             # Depth-first traversal
             if hasattr(ast, 'members') and ast.members is not None:
                 for routine in ast.members:
-                    cls.fix_subroutine(routine, reports, config)
+                    cls.fix_subroutine(routine, reports, config, ast)
 
-            cls.fix_subroutine(ast, reports, config)
+            cls.fix_subroutine(ast, reports, config, ast)
 
         return ast
 

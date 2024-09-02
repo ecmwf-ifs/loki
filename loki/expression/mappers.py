@@ -173,7 +173,7 @@ class LokiStringifyMapper(StringifyMapper):
         numerator = self.rec_with_force_parens_around(expr.numerator, PREC_PRODUCT, *args, **kwargs)
         kwargs['force_parens_around'] = self.multiplicative_primitives
         denominator = self.rec_with_force_parens_around(expr.denominator, PREC_PRODUCT, *args, **kwargs)
-        return self.parenthesize_if_needed(self.format('%s / %s', numerator, denominator),
+        return self.parenthesize_if_needed(self.format('%s/%s', numerator, denominator),
                                            enclosing_prec, PREC_PRODUCT)
 
     def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
@@ -206,7 +206,7 @@ class LokiStringifyMapper(StringifyMapper):
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
         name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
-        index_str = self.join_rec(', ', expr.index_tuple, PREC_NONE, *args, **kwargs)
+        index_str = self.join_rec(',', expr.index_tuple, PREC_NONE, *args, **kwargs)
         return f'{name_str}({index_str})'
 
     map_string_subscript = map_array_subscript
