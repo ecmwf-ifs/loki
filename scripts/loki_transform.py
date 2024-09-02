@@ -302,7 +302,7 @@ def convert(
     if mode == 'scc-raw-stack':
         pipeline = scheduler.config.transformations.get('scc-raw-stack', None)
         if not pipeline:
-            pipeline = SCCStackPipeline(
+            pipeline = SCCRawStackPipeline(
                 horizontal=horizontal,
                 block_dim=block_dim, directive=directive,
                 check_bounds=False,
