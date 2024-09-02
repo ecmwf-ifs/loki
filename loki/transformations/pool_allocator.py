@@ -74,12 +74,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           REAL, ALLOCATABLE :: ZSTACK(:, :)
           INTEGER(KIND=8) :: YLSTACK_L
           INTEGER(KIND=8) :: YLSTACK_U
-          ISTSZ = (MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)*<array dim1>*<array dim2> + ...) / &
-           & MAX(C_SIZEOF(REAL(1, kind=JPRB)), 8)
+          ISTSZ = (C_SIZEOF(REAL(1, kind=jprb))*<array dim1>*<array dim2> + ...) / &
+           & C_SIZEOF(REAL(1, kind=JPRB))
           ALLOCATE (ZSTACK(ISTSZ, nb))
           DO b=1,nb
             YLSTACK_L = LOC(ZSTACK(1, b))
-            YLSTACK_U = YLSTACK_L + ISTSZ*MAX(C_SIZEOF(REAL(1, kind=JPRB)), 8)
+            YLSTACK_U = YLSTACK_L + ISTSZ*C_SIZEOF(REAL(1, kind=JPRB))
             CALL KERNEL(..., YDSTACK_L=YLSTACK_L, YDSTACK_U=YLSTACK_U)
           END DO
           DEALLOCATE (ZSTACK)
@@ -100,7 +100,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           YLSTACK_L = YLSTACK_L + <array dim1>*<array dim2>*MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)
           IF (YLSTACK_L > YLSTACK_U) STOP
           IP_tmp2 = YLSTACK_L
-          YLSTACK_L = YLSTACK_L + ...*MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)
+          YLSTACK_L = YLSTACK_L + ...*C_SIZEOF(REAL(1, kind=jprb))
           IF (YLSTACK_L > YLSTACK_U) STOP
         END SUBROUTINE KERNEL
 
@@ -192,12 +192,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     process_ignored_items = True
 
     def __init__(
-            self, block_dim, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
+            self, block_dim, horizontal=None, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
             stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
             local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
             check_bounds=True, cray_ptr_loc_rhs=False
     ):
         self.block_dim = block_dim
+        self.horizontal = horizontal
         self.stack_ptr_name = stack_ptr_name
         self.stack_end_name = stack_end_name
         self.stack_size_name = stack_size_name
@@ -399,8 +400,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
             stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(stack_type_bytes))
-            stack_type_bytes = InlineCall(function=Variable(name='MAX'),
-                                          parameters=(stack_type_bytes, Literal(8)), kw_parameters=())
             if self.cray_ptr_loc_rhs:
                 stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
             else:
@@ -624,8 +623,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             dim = Product((dim, _dim))
         arr_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                             parameters=as_tuple(self._get_c_sizeof_arg(arr)))
-        arr_type_bytes = InlineCall(function=Variable(name='MAX'),
-                    parameters=(arr_type_bytes, Literal(8)), kw_parameters=())
+
+        # If the array size is not a multiple of NPROMA, then we pad the allocation to avoid
+        # potential alignment issues on device
+        if not self.horizontal or not any(s in dim for s in self.horizontal.size_expressions):
+            arr_type_bytes = InlineCall(function=Variable(name='MAX'),
+                        parameters=(arr_type_bytes, Literal(8)), kw_parameters=())
         if self.cray_ptr_loc_rhs:
             arr_size = dim
         else:
@@ -851,8 +854,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
                 _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                               parameters=as_tuple(_real_size_bytes))
-                _real_size_bytes = InlineCall(function=Variable(name='MAX'),
-                        parameters=(_real_size_bytes, Literal(8)), kw_parameters=())
                 stack_incr = Assignment(
                     lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
                 )
