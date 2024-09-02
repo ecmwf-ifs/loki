@@ -88,7 +88,8 @@ from loki.expression import (
     SubstituteExpressions, is_dimension_constant
 )
 from loki.ir import (
-    CallStatement, Allocation, Deallocation, Transformer, FindNodes, Comment, Import
+    CallStatement, Allocation, Deallocation, Transformer, FindNodes, Comment, Import,
+    Assignment
 )
 from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict, flatten
 
@@ -204,12 +205,17 @@ class HoistVariablesTransformation(Transformation):
     ----------
     as_kwarguments : boolean
         Whether to pass the hoisted arguments as `args` or `kwargs`.
+    remap_dimensions : boolean
+        Remap dimensions based on variables that are used for initializing
+        other variables that could end up as dimensions for hoisted arrays.
+        Thus, account for possibly uninitialized variables used as dimensions.
     """
 
     _key = 'HoistVariablesTransformation'
 
-    def __init__(self, as_kwarguments=False):
+    def __init__(self, as_kwarguments=False, remap_dimensions=True):
         self.as_kwarguments = as_kwarguments
+        self.remap_dimensions = remap_dimensions
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -242,7 +248,12 @@ class HoistVariablesTransformation(Transformation):
                                f'the correct key.')
 
         if role == 'driver':
-            self.driver_variable_declaration(routine, item.trafo_data[self._key]["to_hoist"])
+            if self.remap_dimensions:
+                to_hoist = self.driver_variable_declaration_dim_remapping(routine,
+                        item.trafo_data[self._key]["to_hoist"])
+            else:
+                to_hoist = item.trafo_data[self._key]["to_hoist"]
+            self.driver_variable_declaration(routine, to_hoist)
         else:
             # We build the list of temporaries that are hoisted to the calling routine
             # Because this requires adding an intent, we need to make sure they are not
@@ -318,6 +329,33 @@ class HoistVariablesTransformation(Transformation):
             The tuple of variables to be declared.
         """
         routine.variables += tuple(v.rescope(routine) for v in variables)
+
+    @staticmethod
+    def driver_variable_declaration_dim_remapping(routine, variables):
+        """
+        Take a list of variables and remap their dimensions for those being
+        arrays to account for possibly uninitialized variables/dimensions. 
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The relevant subroutine.
+        variables : tuple of :any:`Variable`
+            The tuple of variables for remapping.
+        """
+        dim_vars = [
+            dim_var
+            for var in variables if isinstance(var, sym.Array)
+            for dim_var in FindVariables().visit(var.dimensions)
+        ]
+        dim_map = {
+            assignment.lhs: assignment.rhs
+            for assignment in FindNodes(Assignment).visit(routine.body)
+            if assignment.lhs in dim_vars
+        }
+        variables = [var.clone(dimensions=SubstituteExpressions(dim_map).visit(var.dimensions))
+                if isinstance(var, sym.Array) else var for var in variables]
+        return variables
 
     def driver_call_argument_remapping(self, routine, call, variables):
         """

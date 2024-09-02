@@ -672,3 +672,72 @@ end subroutine another_kernel
     imports = FindNodes(ir.Import).visit(scheduler['#driver'].ir.spec)
     assert len(imports) == 2
     assert 'n' in scheduler['#driver'].ir.imported_symbols
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('remap_dimensions', (False, True))
+def test_hoist_dim_mapping(tmp_path, frontend, config, remap_dimensions):
+
+    fcode_driver = """
+subroutine driver(NLON, NB, FIELD1)
+    use kernel_mod, only: kernel
+    implicit none
+    INTEGER, INTENT(IN) :: NLON, NB
+    integer :: b
+    integer, intent(inout) :: field1(nlon, nb)
+    integer :: local_nlon
+    local_nlon = nlon
+    do b=1,nb
+        call KERNEL(local_nlon, field1(:,b))
+    end do
+end subroutine driver
+    """.strip()
+    fcode_kernel = """
+module kernel_mod
+    implicit none
+contains
+    subroutine kernel(klon, field1)
+        implicit none
+        integer, intent(in) :: klon
+        integer, intent(inout) :: field1(klon)
+        integer :: tmp1(klon)
+        integer :: jl
+
+        do jl=1,klon
+            tmp1(jl) = 0
+            field1(jl) = tmp1(jl)
+        end do
+
+    end subroutine kernel
+end module kernel_mod
+    """.strip()
+
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'enable_imports': True
+        },
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
+    }
+
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+    )
+
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis())
+    scheduler.process(transformation=HoistVariablesTransformation(remap_dimensions=remap_dimensions))
+
+    driver_var_map = scheduler['#driver'].ir.variable_map
+    assert 'kernel_tmp1' in driver_var_map
+    if remap_dimensions:
+        assert driver_var_map['kernel_tmp1'].dimensions == ('nlon',)
+    else:
+        assert driver_var_map['kernel_tmp1'].dimensions == ('local_nlon',)
