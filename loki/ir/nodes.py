@@ -329,6 +329,21 @@ class ScopedNode(Scope):
         symbol_attrs = s.pop('symbol_attrs', None)
         self._update(**s, symbol_attrs=symbol_attrs, rescope_symbols=True)
 
+    def get_symbol(self, name):
+        """
+        Returns the symbol for a given name as defined in its declaration.
+
+        The returned symbol might include dimension symbols if it was
+        declared as an array.
+
+        Parameters
+        ----------
+        name : str
+            Base name of the symbol to be retrieved
+        """
+        return self.get_symbol_scope(name).variable_map.get(name)  # pylint: disable=no-member
+
+
 # Intermediate node types
 
 
@@ -430,6 +445,13 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
     @property
     def variables(self):
         return tuple(v for _, v in self.associations)
+
+    @property
+    def variable_map(self):
+        """
+        Map of variable names to :any:`Variable` objects
+        """
+        return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
     def __repr__(self):
         if self.associations:

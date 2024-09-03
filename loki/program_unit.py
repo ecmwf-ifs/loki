@@ -652,6 +652,20 @@ class ProgramUnit(Scope):
             (s.name, s) for s in self.symbols
         )
 
+    def get_symbol(self, name):
+        """
+        Returns the symbol for a given name as defined in its declaration.
+
+        The returned symbol might include dimension symbols if it was
+        declared as an array.
+
+        Parameters
+        ----------
+        name : str
+            Base name of the symbol to be retrieved
+        """
+        return self.get_symbol_scope(name).variable_map.get(name)
+
     @property
     def subroutines(self):
         """
