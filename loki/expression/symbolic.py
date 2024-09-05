@@ -19,7 +19,7 @@ from loki.tools import as_tuple
 
 __all__ = [
     'is_constant', 'symbolic_op', 'simplify', 'accumulate_polynomial_terms', 'Simplification',
-    'SimplifyMapper', 'is_dimension_constant', 'negate', 'ceil_division'
+    'SimplifyMapper', 'is_dimension_constant', 'ceil_division'
 ]
 
 
@@ -613,11 +613,6 @@ def simplify(expr, enabled_simplifications=Simplification.ALL):
     Simplify the given expression by applying selected simplifications.
     """
     return SimplifyMapper(enabled_simplifications=enabled_simplifications)(expr)
-
-
-def negate(i: pmbl.Expression) -> pmbl.Expression:
-    return simplify(sym.Product((sym.IntLiteral(-1), i)),
-                    enabled_simplifications=Simplification.IntegerArithmetic)
 
 
 def ceil_division(iexpr1: pmbl.Expression, iexpr2: pmbl.Expression) -> pmbl.Expression:

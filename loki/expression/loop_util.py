@@ -5,19 +5,31 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-
+from math import floor
 import pymbolic.primitives as pmbl
-from loki.expression import symbols as sym, simplify, Simplification, negate
-
-__all__ = [
-    'iteration_number', 'iteration_index'
-]
-
+from loki.expression import symbols as sym, simplify, Simplification
+from loki.expression.parser import LokiEvaluationMapper
 
 """
 Utility functions that can be used to simplify working with loops and the
 Loki LoopRange object
 """
+
+__all__ = [
+    'get_pyrange', 'iteration_number', 'iteration_index'
+]
+
+
+def get_pyrange(loop_range: sym.LoopRange):
+    """
+    Returns a python range corresponding to a LoopRange of IntLiterals.
+    """
+    LEM = LokiEvaluationMapper()
+    if loop_range.step is None:
+        return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1)
+    return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1, LEM(loop_range.step))
+
+
 
 def iteration_number(iter_idx, loop_range: sym.LoopRange) -> pmbl.Expression:
     """
@@ -34,11 +46,11 @@ def iteration_number(iter_idx, loop_range: sym.LoopRange) -> pmbl.Expression:
     loop_range: :any:`LoopRange`
     """
     if loop_range.step is None:
-        expr = sym.Sum((sym.Sum((iter_idx, negate(loop_range.start))), sym.IntLiteral(1)))
+        expr = sym.Sum((sym.Sum((iter_idx, -loop_range.start)), sym.IntLiteral(1)))
 
     else:
         expr = sym.Sum(
-            (sym.Quotient(sym.Sum((iter_idx, negate(loop_range.start))), loop_range.step),
+            (sym.Quotient(sym.Sum((iter_idx, -loop_range.start)), loop_range.step),
              sym.IntLiteral(1)))
     return simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
 

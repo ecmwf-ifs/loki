@@ -15,7 +15,6 @@ Expression tree node classes for
 from itertools import chain
 import weakref
 from sys import intern
-from math import floor
 import pymbolic.primitives as pmbl
 from pymbolic.mapper.evaluator import UnknownVariableError
 
@@ -23,7 +22,6 @@ from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
 from loki.expression.mappers import ExpressionRetriever
-from loki.expression.symbolic import negate
 from loki.config import config
 
 
@@ -1496,7 +1494,7 @@ class LoopRange(Range):
         if step is None:
             return stop if isinstance(start, IntLiteral) and start.value == 1 else Sum(
                 (stop, negate(start), IntLiteral(1)))
-        return Sum((Quotient(Sum((stop, negate(start))), step), IntLiteral(1)))
+        return Sum((Quotient(Sum((stop, -start)), step), IntLiteral(1)))
 
     @property
     def normalized(self):

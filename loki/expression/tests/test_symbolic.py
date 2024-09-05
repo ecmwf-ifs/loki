@@ -16,7 +16,7 @@ import pymbolic.primitives as pmbl
 
 from loki import Scope, is_dimension_constant, Subroutine
 from loki.expression import symbols as sym, simplify, Simplification, symbolic_op, parse_expr
-from loki.expression import iteration_number, iteration_index
+from loki.expression import iteration_number, iteration_index, get_pyrange
 from loki.expression.parser import LokiEvaluationMapper
 from loki.frontend import available_frontends
 
@@ -249,16 +249,6 @@ def test_is_dimension_constant(frontend):
     assert is_const[4]
     assert not is_const[0]
     assert not is_const[3]
-
-
-def get_pyrange(loop_range):
-    """
-    Returns a python range corresponding to a LoopRange of IntLiterals.
-    """
-    LEM = LokiEvaluationMapper()
-    if loop_range.step is None:
-        return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1)
-    return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1, LEM(loop_range.step))
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
