@@ -22,10 +22,11 @@ from pymbolic.primitives import Expression
 from pydantic.dataclasses import dataclass as dataclass_validated
 from pydantic import model_validator
 
+from loki.expression import Variable
+from loki.frontend.source import Source
 from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
 from loki.types import DataType, BasicType, DerivedType, SymbolAttributes
-from loki.frontend.source import Source
 
 
 __all__ = [
@@ -342,6 +343,26 @@ class ScopedNode(Scope):
             Base name of the symbol to be retrieved
         """
         return self.get_symbol_scope(name).variable_map.get(name)  # pylint: disable=no-member
+
+    def Variable(self, **kwargs):
+        """
+        Factory method for :any:`TypedSymbol` or :any:`MetaSymbol` classes.
+
+        This invokes the :any:`Variable` with this node as the scope.
+
+        Parameters
+        ----------
+        name : str
+            The name of the variable.
+        type : optional
+            The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+        parent : :any:`Scalar` or :any:`Array`, optional
+            The derived type variable this variable belongs to.
+        dimensions : :any:`ArraySubscript`, optional
+            The array subscript expression.
+        """
+        kwargs['scope'] = self
+        return Variable(**kwargs)
 
 
 # Intermediate node types

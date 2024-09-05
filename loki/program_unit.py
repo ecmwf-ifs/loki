@@ -666,6 +666,26 @@ class ProgramUnit(Scope):
         """
         return self.get_symbol_scope(name).variable_map.get(name)
 
+    def Variable(self, **kwargs):
+        """
+        Factory method for :any:`TypedSymbol` or :any:`MetaSymbol` classes.
+
+        This invokes the :any:`Variable` with this node as the scope.
+
+        Parameters
+        ----------
+        name : str
+            The name of the variable.
+        type : optional
+            The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+        parent : :any:`Scalar` or :any:`Array`, optional
+            The derived type variable this variable belongs to.
+        dimensions : :any:`ArraySubscript`, optional
+            The array subscript expression.
+        """
+        kwargs['scope'] = self
+        return Variable(**kwargs)
+
     @property
     def subroutines(self):
         """
