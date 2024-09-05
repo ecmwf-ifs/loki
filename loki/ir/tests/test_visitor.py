@@ -16,12 +16,11 @@ from loki.ir.nodes import (
 from loki.ir import (
     is_parent_of, is_child_of, FindNodes, FindScopes, Transformer,
     NestedTransformer, MaskedTransformer, NestedMaskedTransformer,
-    Stringifier
+    Stringifier, FindVariables, ExpressionFinder,
+    SubstituteExpressions
 )
 from loki.expression import (
-    symbols as sym, FindVariables, ExpressionFinder,
-    ExpressionCallbackMapper, ExpressionRetriever,
-    SubstituteExpressions
+    symbols as sym, ExpressionCallbackMapper, ExpressionRetriever
 )
 
 

@@ -9,13 +9,11 @@ import pytest
 
 from loki import Dimension
 from loki.batch import Scheduler, SchedulerConfig
-from loki.expression import (
-    FindVariables, FindInlineCalls, InlineCall, simplify
-)
+from loki.expression import InlineCall, simplify
 from loki.frontend import available_frontends, OMNI, FP, OFP
 from loki.ir import (
     FindNodes, CallStatement, Assignment, Allocation, Deallocation,
-    Loop, Pragma, get_pragma_parameters
+    Loop, Pragma, get_pragma_parameters, FindVariables, FindInlineCalls
 )
 
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation

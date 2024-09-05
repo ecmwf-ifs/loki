@@ -13,9 +13,11 @@ from loki import (
     Sourcefile, Scheduler, ProcedureItem, as_tuple,
     ProcedureDeclaration, BasicType, CaseInsensitiveDict,
 )
-from loki.expression import Scalar, Array, FindVariables, FindInlineCalls
+from loki.expression import Scalar, Array
 from loki.frontend import available_frontends, OMNI
-from loki.ir import FindNodes, CallStatement
+from loki.ir import (
+    FindNodes, FindVariables, FindInlineCalls, CallStatement
+)
 
 from loki.transformations.transform_derived_types import (
     DerivedTypeArgumentsTransformation,

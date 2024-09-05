@@ -7,9 +7,11 @@
 
 import pytest
 
-from loki.expression import FindVariables
 from loki import Dimension, Subroutine
-from loki.ir import FindNodes, nodes as ir, pragma_regions_attached, is_loki_pragma
+from loki.ir import (
+    nodes as ir, FindNodes, FindVariables, pragma_regions_attached,
+    is_loki_pragma
+)
 from loki.frontend import available_frontends
 from loki.transformations import SplitReadWriteTransformation
 

@@ -9,9 +9,10 @@ import pytest
 
 from loki import Sourcefile
 from loki.batch import Scheduler, SchedulerConfig
-from loki.expression import FindInlineCalls
 from loki.frontend import available_frontends, OMNI, OFP
-from loki.ir import FindNodes, CallStatement, Import, Interface, Intrinsic
+from loki.ir import (
+    FindNodes, CallStatement, Import, Interface, Intrinsic, FindInlineCalls
+)
 
 from loki.transformations import (
     DependencyTransformation, ModuleWrapTransformation

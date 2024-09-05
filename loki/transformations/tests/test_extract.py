@@ -7,9 +7,8 @@
 
 import pytest
 
-from loki.expression import FindInlineCalls
 from loki.frontend import available_frontends, OMNI, OFP
-from loki.ir import CallStatement, Import, FindNodes
+from loki.ir import CallStatement, Import, FindNodes, FindInlineCalls
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 

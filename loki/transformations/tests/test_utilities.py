@@ -8,11 +8,12 @@
 import pytest
 
 from loki import Module, Subroutine, Dimension, fgen
-from loki.expression import (
-    symbols as sym, FindVariables, FindInlineCalls, SubstituteExpressions
-)
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
-from loki.ir import nodes as ir, FindNodes, pragmas_attached
+from loki.ir import (
+    nodes as ir, FindNodes, FindVariables, FindInlineCalls,
+    SubstituteExpressions, pragmas_attached
+)
 from loki.types import BasicType
 
 from loki.transformations.utilities import (
