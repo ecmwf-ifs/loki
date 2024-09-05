@@ -7,7 +7,8 @@
 
 from math import floor
 import pymbolic.primitives as pmbl
-from loki.expression import symbols as sym, simplify, Simplification
+from loki.expression.symbols import LoopRange, IntLiteral, Quotient, Sum, Product
+from loki.expression.symbolic import simplify, Simplification
 from loki.expression.parser import LokiEvaluationMapper
 
 """
@@ -20,7 +21,7 @@ __all__ = [
 ]
 
 
-def get_pyrange(loop_range: sym.LoopRange):
+def get_pyrange(loop_range: LoopRange):
     """
     Returns a python range corresponding to a LoopRange of IntLiterals.
     """
@@ -31,12 +32,12 @@ def get_pyrange(loop_range: sym.LoopRange):
 
 
 
-def iteration_number(iter_idx, loop_range: sym.LoopRange) -> pmbl.Expression:
+def iteration_number(iter_idx, loop_range: LoopRange) -> pmbl.Expression:
     """
     Returns the normalized iteration number of the iteration variable
 
     Given the loop iteration index for an iteration in a loop defined by the
-    :any:´sym.LoopRange´ this method returns the normalized iteration index given by
+    :any:´LoopRange´ this method returns the normalized iteration index given by
     iter_num = (iter_idx - start + step)/step = (iter_idx-start)/step + 1
 
     Parameters
@@ -46,21 +47,21 @@ def iteration_number(iter_idx, loop_range: sym.LoopRange) -> pmbl.Expression:
     loop_range: :any:`LoopRange`
     """
     if loop_range.step is None:
-        expr = sym.Sum((sym.Sum((iter_idx, -loop_range.start)), sym.IntLiteral(1)))
+        expr = Sum((Sum((iter_idx, -loop_range.start)), IntLiteral(1)))
 
     else:
-        expr = sym.Sum(
-            (sym.Quotient(sym.Sum((iter_idx, -loop_range.start)), loop_range.step),
-             sym.IntLiteral(1)))
+        expr = Sum(
+            (Quotient(Sum((iter_idx, -loop_range.start)), loop_range.step),
+             IntLiteral(1)))
     return simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
 
 
-def iteration_index(iter_num, loop_range: sym.LoopRange) -> pmbl.Expression:
+def iteration_index(iter_num, loop_range: LoopRange) -> pmbl.Expression:
     """
     Returns the iteration index of the loop based on the iteration number
 
     Given the normalized iteration number for an iteration in a loop defined by the
-    :any:´sym.LoopRange´ this method returns the iteration index given by
+    :any:´LoopRange´ this method returns the iteration index given by
     iter_idx = (iter_num-1)*step+start
 
     Parameters
@@ -70,9 +71,9 @@ def iteration_index(iter_num, loop_range: sym.LoopRange) -> pmbl.Expression:
     loop_range: :any:`LoopRange`
     """
     if loop_range.step is None:
-        expr = sym.Sum((iter_num, sym.IntLiteral(-1), loop_range.start))
+        expr = Sum((iter_num, IntLiteral(-1), loop_range.start))
 
     else:
-        expr = sym.Sum((sym.Product((sym.Sum((iter_num, sym.IntLiteral(-1))), loop_range.step)),
+        expr = Sum((Product((Sum((iter_num, IntLiteral(-1))), loop_range.step)),
                         loop_range.start))
     return simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)

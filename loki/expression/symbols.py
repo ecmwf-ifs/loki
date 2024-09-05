@@ -1493,7 +1493,7 @@ class LoopRange(Range):
         step = self.step
         if step is None:
             return stop if isinstance(start, IntLiteral) and start.value == 1 else Sum(
-                (stop, negate(start), IntLiteral(1)))
+                (stop, -start, IntLiteral(1)))
         return Sum((Quotient(Sum((stop, -start)), step), IntLiteral(1)))
 
     @property
