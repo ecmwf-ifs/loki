@@ -14,77 +14,7 @@ import numpy as np
 from loki import available_frontends, Subroutine, pragmas_attached, find_driver_loops, Loop, fgen, \
    ir, FindNodes, LoopRange, IntLiteral, jit_compile, clean_test, FindVariables, Array
 from loki.expression.parser import LokiEvaluationMapper
-from loki.transformations.loop_blocking import split_loop, block_loop_arrays, \
-    normalized_loop_range, iteration_number, iteration_index
-
-
-def get_pyrange(loop_range: LoopRange):
-    """
-    Converts a LoopRange of IntLiterals to a python range.
-    """
-    LEM = LokiEvaluationMapper()
-    if loop_range.step is None:
-        return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1)
-    else:
-        return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1, LEM(loop_range.step))
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_normalized_loop_range(tmp_path, frontend):
-    """
-    Tests the num_iterations and normalized_loop_range functions.
-    """
-    for start in range(-10, 11):
-        for stop in range(start + 1, 50 + 1, 4):
-            for step in range(1, stop - start):
-                loop_range = LoopRange((start, stop, step))
-                pyrange = range(start, stop + 1, step)
-
-                normalized_range = normalized_loop_range(loop_range)
-                assert normalized_range.step is None, "LoopRange.step should be None in a normalized range"
-
-                normalized_start = LokiEvaluationMapper()(normalized_range.start)
-                assert normalized_start == 1, "LoopRange.start should be equal to 1 in a normalized range"
-
-                normalized_stop = floor(LokiEvaluationMapper()(normalized_range.stop))
-                assert normalized_stop == len(
-                    pyrange), "LoopRange.stop should be equal to the total number of iterations of the original LoopRange"
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_iteration_number(tmp_path, frontend):
-    for start in range(-10, 11):
-        for stop in range(start + 1, 50, 4):
-            for step in range(1, stop - start):
-                loop_range = LoopRange((start, stop, step))
-                pyrange = range(start, stop + 1, step)
-                normalized_range = get_pyrange(normalized_loop_range(loop_range))
-                assert len(normalized_range) == len(
-                    pyrange), "Length of normalized loop range should equal length of python loop range"
-
-                LEM = LokiEvaluationMapper()
-                assert all(n == LEM(iteration_number(IntLiteral(i), loop_range)) for i, n in
-                           zip(pyrange, normalized_range))
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_iteration_index(tmp_path, frontend):
-    for start in range(-10, 11):
-        for stop in range(start + 1, 50, 4):
-            for step in range(1, stop - start):
-                loop_range = LoopRange((start, stop, step))
-                pyrange = range(start, stop + 1, step)
-                normalized_range = get_pyrange(normalized_loop_range(loop_range))
-                assert len(normalized_range) == len(
-                    pyrange), "Length of normalized loop range should equal length of python loop range"
-
-                LEM = LokiEvaluationMapper()
-                assert all(i == LEM(iteration_index(IntLiteral(n), loop_range)) for i, n in
-                           zip(pyrange, normalized_range))
-
-
-
-
+from loki.transformations.loop_blocking import split_loop, block_loop_arrays
 
 
 """

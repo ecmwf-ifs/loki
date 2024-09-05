@@ -9,11 +9,15 @@
 A selection of tests for symbolic computations using expression tree nodes.
 """
 import operator as op
+from math import floor
+
 import pytest
 import pymbolic.primitives as pmbl
 
 from loki import Scope, is_dimension_constant, Subroutine
 from loki.expression import symbols as sym, simplify, Simplification, symbolic_op, parse_expr
+from loki.expression import iteration_number, iteration_index
+from loki.expression.parser import LokiEvaluationMapper
 from loki.frontend import available_frontends
 
 
@@ -245,3 +249,70 @@ def test_is_dimension_constant(frontend):
     assert is_const[4]
     assert not is_const[0]
     assert not is_const[3]
+
+
+def get_pyrange(loop_range):
+    """
+    Returns a python range corresponding to a LoopRange of IntLiterals.
+    """
+    LEM = LokiEvaluationMapper()
+    if loop_range.step is None:
+        return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1)
+    return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1, LEM(loop_range.step))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_normalized_loop_range(tmp_path, frontend):
+    """
+    Tests the num_iterations and normalized_loop_range functions.
+    """
+    for start in range(-10, 11):
+        for stop in range(start + 1, 50 + 1, 4):
+            for step in range(1, stop - start):
+                loop_range = sym.LoopRange((start, stop, step))
+                pyrange = range(start, stop + 1, step)
+
+                normalized_range = loop_range.normalized
+                assert normalized_range.step is None, "LoopRange.step should be None in a normalized range"
+
+                normalized_start = LokiEvaluationMapper()(normalized_range.start)
+                assert normalized_start == 1, "LoopRange.start should be equal to 1 in a normalized range"
+
+                normalized_stop = floor(LokiEvaluationMapper()(normalized_range.stop))
+                assert normalized_stop == len(
+                    pyrange), "LoopRange.stop should be equal to the total number of iterations of the original LoopRange"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_iteration_number(tmp_path, frontend):
+    for start in range(-10, 11):
+        for stop in range(start + 1, 50, 4):
+            for step in range(1, stop - start):
+                loop_range = sym.LoopRange((start, stop, step))
+                pyrange = range(start, stop + 1, step)
+                normalized_range = get_pyrange(loop_range.normalized)
+                assert len(normalized_range) == len(
+                    pyrange), "Length of normalized loop range should equal length of python loop range"
+
+                LEM = LokiEvaluationMapper()
+                assert all(n == LEM(iteration_number(sym.IntLiteral(i), loop_range)) for i, n in
+                           zip(pyrange, normalized_range))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_iteration_index(tmp_path, frontend):
+    for start in range(-10, 11):
+        for stop in range(start + 1, 50, 4):
+            for step in range(1, stop - start):
+                loop_range = sym.LoopRange((start, stop, step))
+                pyrange = range(start, stop + 1, step)
+                normalized_range = get_pyrange(loop_range.normalized)
+                assert len(normalized_range) == len(
+                    pyrange), "Length of normalized loop range should equal length of python loop range"
+
+                LEM = LokiEvaluationMapper()
+                assert all(i == LEM(iteration_index(sym.IntLiteral(n), loop_range)) for i, n in
+                           zip(pyrange, normalized_range))
+
+
+
