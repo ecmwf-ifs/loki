@@ -6,14 +6,11 @@
 # nor does it submit to any jurisdiction.
 
 
-from math import floor
-
 import pytest
 import numpy as np
 
 from loki import available_frontends, Subroutine, pragmas_attached, find_driver_loops, Loop, fgen, \
-   ir, FindNodes, LoopRange, IntLiteral, jit_compile, clean_test, FindVariables, Array
-from loki.expression.parser import LokiEvaluationMapper
+   ir, FindNodes, jit_compile, clean_test, FindVariables, Array
 from loki.transformations.loop_blocking import split_loop, block_loop_arrays
 
 
@@ -23,16 +20,15 @@ Splitting tests. These tests check that loop
 LOKI_LOOP_SLIT_VAR_ADDITION = 7
 
 @pytest.mark.parametrize('frontend', available_frontends())
-# @pytest.mark.parametrize('block_size', [10, 117, 250])
-# @pytest.mark.parametrize('n', [50, 193, 500, 1200])
-@pytest.mark.parametrize('block_size', [10])
-@pytest.mark.parametrize('n', [50])
+@pytest.mark.parametrize('block_size', [10, 117])
+@pytest.mark.parametrize('n', [50, 1200])
 def test_1d_splitting(tmp_path, frontend, block_size, n):
     """
     Apply loop blocking of simple loops into two loops
     """
     fcode = """
 subroutine test_1d_splitting(a, b, n)
+  implicit none
   integer, intent(in) :: n
   real(kind=8), intent(inout) :: a(n)
   real(kind=8), intent(inout) :: b(n)
@@ -80,6 +76,7 @@ def test_1d_splitting_multi_var(tmp_path, frontend, block_size, n):
     """
     fcode = """
 subroutine test_1d_splitting_multi_var(a, b, n)
+  implicit none
   integer, intent(in) :: n
   real(kind=8), intent(inout) :: a(n)
   real(kind=8), intent(inout) :: b(n)
@@ -126,6 +123,7 @@ end subroutine test_1d_splitting_multi_var
 def test_2d_splitting(tmp_path, frontend, block_size, n):
     fcode = """
     subroutine test_2d_splitting(a, b, n)
+      implicit none
       integer, intent(in) :: n
       real(kind=8), intent(inout) :: a(n)
       real(kind=8), intent(inout) :: b(n,n)
@@ -175,6 +173,7 @@ def test_2d_splitting(tmp_path, frontend, block_size, n):
 def test_3d_splitting(tmp_path, frontend, block_size, n):
     fcode = """
     subroutine test_3d_splitting(a, b, c, n)
+      implicit none
       integer, intent(in) :: n
       real(kind=8), intent(inout) :: a(n)
       real(kind=8), intent(inout) :: b(2,n)
@@ -237,6 +236,7 @@ def test_1d_blocking(tmp_path, frontend, block_size, n):
     """
     fcode = """
 subroutine test_1d_blocking(a, b, n)
+  implicit none
   integer, intent(in) :: n
   real(kind=8), intent(inout) :: a(n)
   real(kind=8), intent(inout) :: b(n)
@@ -295,6 +295,7 @@ def test_1d_blocking_multi_intent(tmp_path, frontend, block_size, n):
     """
     fcode = """
 subroutine test_1d_blocking_multi_intent(a, b, n)
+  implicit none
   integer, intent(in) :: n
   real(kind=8), intent(in) :: a(n)
   real(kind=8), intent(inout) :: b(n)
@@ -352,6 +353,7 @@ end subroutine test_1d_blocking_multi_intent
 def test_2d_blocking(tmp_path, frontend, block_size, n):
     fcode = """
     subroutine test_2d_blocking(a, b, n)
+      implicit none
       integer, intent(in) :: n
       real(kind=8), intent(inout) :: a(n)
       real(kind=8), intent(inout) :: b(n,n)
@@ -411,6 +413,7 @@ def test_2d_blocking(tmp_path, frontend, block_size, n):
 def test_3d_blocking(tmp_path, frontend, block_size, n):
     fcode = """
     subroutine test_3d_blocking(a, b, c, n)
+      implicit none
       integer, intent(in) :: n
       real(kind=8), intent(inout) :: a(n)
       real(kind=8), intent(inout) :: b(2,n)

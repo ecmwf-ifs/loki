@@ -11,6 +11,8 @@ from loki.subroutine import Subroutine
 from loki.expression import symbols as sym, parse_expr, FindVariables, \
     SubstituteExpressions, ceil_division, iteration_index
 
+__all__ = ['split_loop', 'block_loop_arrays']
+
 
 class LoopSplittingVariables:
     """
