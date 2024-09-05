@@ -10,10 +10,12 @@ Collection of dataflow analysis schema routines.
 """
 
 from contextlib import contextmanager
-from loki.expression import FindVariables, Array, FindInlineCalls, ProcedureSymbol, FindTypedSymbols
+from loki.expression import Array, ProcedureSymbol
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
-from loki.ir import Visitor, Transformer
+from loki.ir import (
+    Visitor, Transformer, FindVariables, FindInlineCalls, FindTypedSymbols
+)
 from loki.subroutine import Subroutine
 from loki.tools.util import CaseInsensitiveDict
 

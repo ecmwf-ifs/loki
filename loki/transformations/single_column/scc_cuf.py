@@ -11,10 +11,11 @@ Single-Column-Coalesced CUDA Fortran (SCC-CUF) transformation.
 
 from loki.logging import info
 from loki.batch import Transformation
-from loki.expression import (
-    symbols as sym, FindVariables, SubstituteExpressions
+from loki.expression import symbols as sym
+from loki.ir import (
+    nodes as ir, FindNodes, Transformer, FindVariables,
+    SubstituteExpressions
 )
-from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
 from loki.types import BasicType, DerivedType
 from loki.scope import SymbolAttributes

@@ -11,12 +11,11 @@ from more_itertools import split_at
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
-from loki.expression import (
-    symbols as sym, is_dimension_constant, FindVariables
-)
+from loki.expression import symbols as sym, is_dimension_constant
 from loki.ir import (
-    nodes as ir, FindNodes, FindScopes, Transformer,
-    NestedTransformer, is_loki_pragma, pragmas_attached, pragma_regions_attached
+    nodes as ir, FindNodes, FindScopes, FindVariables, Transformer,
+    NestedTransformer, is_loki_pragma, pragmas_attached,
+    pragma_regions_attached
 )
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType

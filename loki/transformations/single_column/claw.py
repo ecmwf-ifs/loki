@@ -13,13 +13,10 @@ Single Column Abstraction (SCA), as defined by CLAW (Clement et al., 2018)
 from collections import OrderedDict
 
 from loki.batch import Transformation
-from loki.expression import (
-    FindVariables, SubstituteExpressions, Variable,
-    Array, LoopRange, RangeIndex
-)
+from loki.expression import Variable, Array, LoopRange, RangeIndex
 from loki.ir import (
     FindNodes, Transformer, Assignment, CallStatement, Loop, Pragma,
-    VariableDeclaration,
+    VariableDeclaration, FindVariables, SubstituteExpressions
 )
 from loki.logging import warning
 from loki.tools import as_tuple, CaseInsensitiveDict

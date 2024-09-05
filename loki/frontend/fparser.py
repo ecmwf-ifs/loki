@@ -28,13 +28,14 @@ from loki.frontend.util import read_file, FP, sanitize_ir
 from loki import ir
 from loki.ir import (
     GenericVisitor, Transformer, FindNodes, attach_pragmas,
-    process_dimension_pragmas, detach_pragmas, pragmas_attached
+    process_dimension_pragmas, detach_pragmas, pragmas_attached,
+    AttachScopes
 )
 import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedDiv, ParenthesisedPow
 )
-from loki.expression import ExpressionDimensionsMapper, AttachScopes, AttachScopesMapper
+from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
 from loki.logging import debug, perf, info, warning, error
 from loki.tools import (
     as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup, dict_override

@@ -6,10 +6,11 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import Transformation
-from loki.expression import (
-    symbols as sym, FindExpressions, SubstituteExpressions,
+from loki.expression import symbols as sym
+from loki.ir import (
+    nodes as ir, FindNodes, Transformer, FindExpressions,
+    SubstituteExpressions
 )
-from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.tools import as_tuple
 
 from loki.transformations.sanitise import resolve_associates

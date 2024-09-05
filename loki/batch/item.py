@@ -11,10 +11,11 @@ import sys
 from loki.batch.configure import SchedulerConfig, ItemConfig
 from loki.frontend import REGEX, RegexParserClass
 from loki.expression import (
-    TypedSymbol, MetaSymbol, ProcedureSymbol, Variable, FindInlineCalls
+    TypedSymbol, MetaSymbol, ProcedureSymbol, Variable
 )
 from loki.ir import (
-    Import, CallStatement, TypeDef, ProcedureDeclaration, Interface, FindNodes
+    Import, CallStatement, TypeDef, ProcedureDeclaration, Interface,
+    FindNodes, FindInlineCalls
 )
 from loki.logging import warning
 from loki.module import Module

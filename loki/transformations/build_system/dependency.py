@@ -9,8 +9,9 @@ from pathlib import Path
 
 from loki.backend import fgen
 from loki.batch import Transformation
-from loki.expression import FindInlineCalls
-from loki.ir import CallStatement, Import, Interface, FindNodes, Transformer
+from loki.ir import (
+    CallStatement, Import, Interface, FindNodes, FindInlineCalls, Transformer
+)
 from loki.logging import warning
 from loki.module import Module
 from loki.scope import Scope

@@ -7,17 +7,17 @@
 
 from loki.batch import Transformation, ProcedureItem
 from loki.ir import (
-        nodes as ir, FindNodes, Transformer, pragmas_attached,
-        pragma_regions_attached
-)
-from loki.module import Module
-from loki.tools import as_tuple # , CaseInsensitiveDict
-from loki.types import SymbolAttributes, BasicType
-from loki.expression import (
-        Variable, Array, RangeIndex, FindVariables, SubstituteExpressions,
-        symbols as sym, AttachScopes
+    nodes as ir, FindNodes, Transformer, pragmas_attached,
+    pragma_regions_attached, FindVariables, SubstituteExpressions,
+    AttachScopes
 )
 from loki.logging import warning
+from loki.module import Module
+from loki.tools import as_tuple
+from loki.types import SymbolAttributes, BasicType
+from loki.expression import (
+    symbols as sym, Variable, Array, RangeIndex
+)
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.utilities import (
     recursive_expression_map_update, get_integer_variable,

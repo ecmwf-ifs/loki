@@ -17,7 +17,7 @@ from loki.expression.symbols import (
 )
 from loki.expression.symbolic import is_dimension_constant, simplify
 from loki.expression.mappers import DetachScopesMapper
-from loki.expression.expr_visitors import FindVariables, SubstituteExpressions
+from loki.ir.expr_visitors import FindVariables, SubstituteExpressions
 from loki.ir.nodes import Assignment, CallStatement, Pragma
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer

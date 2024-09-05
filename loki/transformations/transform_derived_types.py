@@ -18,11 +18,12 @@ from collections import defaultdict
 
 from loki.batch import Transformation
 from loki.expression import (
-    FindInlineCalls, FindVariables, InlineCall, Variable, RangeIndex,
-    ExpressionRetriever, SubstituteExpressionsMapper, SubstituteExpressions
+    InlineCall, Variable, RangeIndex, ExpressionRetriever,
+    SubstituteExpressionsMapper
 )
 from loki.ir import (
-    FindNodes, Import, CallStatement, ProcedureDeclaration, Transformer
+    Import, CallStatement, ProcedureDeclaration, Transformer,
+    FindNodes, FindInlineCalls, FindVariables, SubstituteExpressions
 )
 from loki.logging import warning, debug
 from loki.module import Module

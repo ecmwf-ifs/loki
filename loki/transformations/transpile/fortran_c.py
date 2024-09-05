@@ -12,13 +12,13 @@ from loki.backend import cgen, fgen, cudagen
 from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, Variable, InlineCall, RangeIndex, Scalar, Array,
-    ProcedureSymbol, SubstituteExpressions, Dereference, Reference,
-    ExpressionRetriever, SubstituteExpressionsMapper,
+    ProcedureSymbol, Dereference, Reference, ExpressionRetriever,
+    SubstituteExpressionsMapper
 )
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement,
     VariableDeclaration, TypeDef, Assignment, Transformer, FindNodes,
-    Pragma, Comment
+    Pragma, Comment, SubstituteExpressions
 )
 from loki.logging import debug
 from loki.module import Module

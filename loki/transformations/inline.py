@@ -16,12 +16,10 @@ from loki.batch import Transformation
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
     Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface,
-    StatementFunction
+    StatementFunction, FindVariables, FindInlineCalls, FindLiterals,
+    SubstituteExpressions
 )
-from loki.expression import (
-    symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, LokiIdentityMapper
-)
+from loki.expression import symbols as sym, LokiIdentityMapper
 from loki.types import BasicType
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import warning, error

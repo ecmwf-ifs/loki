@@ -7,13 +7,10 @@
 
 from typing import List
 import numpy as np
-from loki.ir import Loop
+from loki.ir import Loop, FindVariables
 from loki.expression import (
-    symbols as sym,
-    FindVariables,
-    simplify,
-    is_constant,
-    accumulate_polynomial_terms,
+    symbols as sym, simplify, is_constant,
+    accumulate_polynomial_terms
 )
 from loki.tools import as_tuple
 

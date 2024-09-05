@@ -15,6 +15,7 @@ from loki.ir.nodes import Node
 from loki.ir.visitor import Visitor
 from loki.ir.transformer import Transformer
 from loki.tools import flatten, as_tuple
+from loki.expression.parser import parse_expr
 from loki.expression.mappers import (
     SubstituteExpressionsMapper, ExpressionRetriever, AttachScopesMapper
 )
@@ -280,7 +281,6 @@ class SubstituteStringExpressions(SubstituteExpressions):
         retain that information
     """
     def __init__(self, str_map, scope, invalidate_source=True):
-        from loki.expression.parser import parse_expr  # pylint: disable=import-outside-toplevel,cyclic-import
         expr_map = {
             parse_expr(k, scope=scope): parse_expr(v, scope=scope)
             for k, v in str_map.items()

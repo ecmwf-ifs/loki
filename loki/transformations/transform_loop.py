@@ -19,14 +19,14 @@ from loki.analyse import (
     loop_carried_dependencies
 )
 from loki.expression import (
-    symbols as sym, SubstituteExpressions, FindVariables,
-    simplify, is_constant, symbolic_op, parse_expr, IntLiteral,
-    FloatLiteral
+    symbols as sym, simplify, is_constant, symbolic_op, parse_expr,
+    IntLiteral, FloatLiteral
 )
 from loki.ir import (
     Loop, Conditional, Comment, Pragma, FindNodes, Transformer,
     NestedMaskedTransformer, is_parent_of, is_loki_pragma,
-    get_pragma_parameters, pragmas_attached
+    get_pragma_parameters, pragmas_attached, SubstituteExpressions,
+    FindVariables
 )
 from loki.logging import info, warning
 from loki.tools import (
