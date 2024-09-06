@@ -6,11 +6,18 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import Transformation, ProcedureItem
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import (
+        nodes as ir, FindNodes, Transformer, pragmas_attached,
+        pragma_regions_attached
+)
 from loki.module import Module
-from loki.tools import as_tuple
+from loki.tools import as_tuple # , CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType
-from loki.expression import Variable, Array, RangeIndex, FindVariables, SubstituteExpressions
+from loki.expression import (
+        Variable, Array, RangeIndex, FindVariables, SubstituteExpressions,
+        symbols as sym, AttachScopes
+)
+from loki.logging import warning
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.utilities import (
     recursive_expression_map_update, get_integer_variable,
@@ -18,7 +25,8 @@ from loki.transformations.utilities import (
 )
 from loki.transformations.single_column.base import SCCBaseTransformation
 
-__all__ = ['BlockViewToFieldViewTransformation', 'InjectBlockIndexTransformation']
+__all__ = ['BlockViewToFieldViewTransformation', 'InjectBlockIndexTransformation',
+        'LowerBlockIndexTransformation', 'LowerBlockLoopTransformation']
 
 class BlockViewToFieldViewTransformation(Transformation):
     """
@@ -418,3 +426,329 @@ class InjectBlockIndexTransformation(Transformation):
 
         # for kernels we process the entire subroutine body
         routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays)
+
+
+class LowerBlockIndexTransformation(Transformation):
+    """
+    Transformation to lower the block index via appending the block index 
+    to variable dimensions/shape. However, this only handles variable
+    declarations/definitions. Therefore this transformation must always be followed by
+    the :any:`InjectBlockIndexTransformation`.
+
+    For example, the following code:
+
+    .. code-block:: fortran
+
+        SUBROUTINE driver (nlon, nlev, nb, var)
+            INTEGER, INTENT(IN) :: nlon, nlev, nb
+            REAL, INTENT(INOUT) :: var(nlon, nlev, nb)
+            DO ibl=1,10
+                CALL kernel(nlon, nlev, var(:, :, ibl))
+            END DO
+        END SUBROUTINE driver
+
+        SUBROUTINE kernel (nlon, nlev, var, another_var, icend, lstart, lend)
+            INTEGER, INTENT(IN) :: nlon, nlev
+            REAL, INTENT(INOUT) :: var(nlon, nlev)
+            DO jk=1,nlev
+                DO jl=1,nlon
+                    var(jl, jk) = 0.
+                END DO
+            END DO
+        END SUBROUTINE kernel
+
+    is transformed to:
+
+    .. code-block:: fortran
+
+        SUBROUTINE driver (nlon, nlev, nb, var)
+            INTEGER, INTENT(IN) :: nlon, nlev, nb
+            REAL, INTENT(INOUT) :: var(nlon, nlev, nb)
+            DO ibl=1,10
+                CALL kernel(nlon, nlev, var(:, :, :), ibl=ibl, nb=nb)
+            END DO
+        END SUBROUTINE driver
+
+        SUBROUTINE kernel (nlon, nlev, var, another_var, icend, lstart, lend, ibl, nb)
+            INTEGER, INTENT(IN) :: nlon, nlev, ibl, nb
+            REAL, INTENT(INOUT) :: var(nlon, nlev, nb)
+            DO jk=1,nlev
+                DO jl=1,nlon
+                    var(jl, jk) = 0.
+                END DO
+            END DO
+        END SUBROUTINE kernel
+
+    .. warning::
+
+        The block index is not injected by this transformation. To inject the block index
+        to the promoted arrays call the :any:`InjectBlockIndexTransformation` after
+        this transformation!
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the blocking data dimension and iteration space.
+    recurse_to_kernels : bool, optional
+        Recurse/continue with/to (nested) kernels and lower the block index for those
+        as well (default: `False`).
+    """
+    # This trafo only operates on procedures
+    item_filter = (ProcedureItem,)
+
+    def __init__(self, block_dim, recurse_to_kernels=True):
+        self.block_dim = block_dim
+        self.recurse_to_kernels = recurse_to_kernels
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        role = kwargs['role']
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+        # dispatch driver in any case and recurse to kernels if corresponding flag is set
+        if role == 'driver' or (self.recurse_to_kernels and role == 'kernel'):
+            self.process(routine, targets, role)
+
+    def process(self, routine, targets, role):
+        """
+        This method adds the blocking index and size as arguments (if not already 
+        there yet) for calls and corresponding callees and updates the dimension
+        and shape of arguments for calls and callees.
+
+        .. note::
+            The injection of the block index for promoted arrays is not part of this
+            method (and also not part of this transformation!)
+        """
+        processed_routines = ()
+        variable_map = routine.variable_map
+        block_dim_index = variable_map[self.block_dim.index]
+        block_dim_size = variable_map[self.block_dim.size]
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if str(call.name).lower() not in targets:
+                continue
+            if call.routine is BasicType.DEFERRED:
+                warning('[LowerBlockIndexTransformation] Not processing routine ' \
+                        f'{call.name}. Call statement not enriched')
+                continue
+            call_arg_map = dict((v,k) for k,v in call.arg_map.items())
+            call_block_dim_size = call_arg_map.get(block_dim_size, block_dim_size)
+            new_args = tuple(var for var in [block_dim_index, block_dim_size] if var not in call_arg_map)
+            if new_args:
+                call._update(kwarguments=call.kwarguments+tuple((new_arg.name, new_arg) for new_arg in new_args))
+                if call.routine.name not in processed_routines:
+                    call.routine.arguments += tuple((variable_map[new_arg.name].clone(scope=call.routine,
+                        type=new_arg.type.clone(intent='in')) for new_arg in new_args))
+            # update dimensions and shape
+            var_map = {}
+            call_variable_map = call.routine.variable_map
+            for arg, call_arg in call.arg_iter():
+                if isinstance(arg, Array) and len(call_arg.shape) > len(arg.shape):
+                    call_routine_var = call_variable_map[arg.name]
+                    new_dims = call_routine_var.dimensions + (call_variable_map[call_block_dim_size.name],)
+                    new_shape = call_routine_var.shape + (call_variable_map[call_block_dim_size.name],)
+                    new_type = call_routine_var.type.clone(shape=new_shape)
+                    var_map[call_routine_var] = call_routine_var.clone(dimensions=new_dims, type=new_type)
+            call.routine.spec = SubstituteExpressions(var_map).visit(call.routine.spec)
+            if role == 'driver':
+                _arguments = ()
+                for arg in call.arguments:
+                    if isinstance(arg, sym.Array):
+                        new_dim = tuple(
+                            sym.RangeIndex((None, None)) if str(dim).lower() == self.block_dim.index.lower()
+                            else dim for dim in arg.dimensions
+                        )
+                        _arguments += (arg.clone(dimensions=new_dim),)
+                    else:
+                        _arguments += (arg,)
+                _kwarguments = ()
+                for kwarg_name, kwarg in call.kwarguments:
+                    if isinstance(kwarg, sym.Array):
+                        new_dim = tuple(
+                            sym.RangeIndex((None, None)) if str(dim).lower() == self.block_dim.index.lower()
+                            else dim for dim in kwarg.dimensions
+                        )
+                        _kwarguments += ((kwarg_name, kwarg.clone(dimensions=new_dim)),)
+                    else:
+                        _kwarguments += ((kwarg_name, kwarg),)
+                call._update(arguments=_arguments, kwarguments=_kwarguments)
+            processed_routines += (call.routine.name,)
+
+
+class LowerBlockLoopTransformation(Transformation):
+    """
+    Lower the block loop to calls within this loop. 
+
+    For example, the following code:
+
+    .. code-block:: fortran
+
+        subroutine driver(nblks, ...)
+            ...
+            integer, intent(in) :: nblks
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+
+            do ibl=1,nblks
+                call kernel2(var,...,nblks,ibl)
+            enddo
+            ...
+        end subroutine driver
+
+        subroutine kernel(var, ..., nblks, ibl)
+            ...
+            real :: var(jlon,nlev,nblks)
+
+            do jl=1,...
+                do jk=1,...
+                    var(jk,jl,ibl) = ...
+                end do
+            end do
+        end subroutine kernel
+
+    is transformed to:
+    
+    .. code-block:: fortran
+
+        subroutine driver(nblks, ...)
+            ...
+            integer, intent(in) :: nblks
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+
+            call kernel2(var,..., nblks)
+            ...
+        end subroutine driver
+
+        subroutine kernel(var, ..., nblks)
+            ...
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+            
+            do ibl=1,nblks
+                do jl=1,...
+                    do jk=1,...
+                        var(jk,jl,ibl) = ...
+                    end do
+                end do
+            end do
+        end subroutine kernel
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the blocking data dimension and iteration space.
+    """
+    # This trafo only operates on procedures
+    item_filter = (ProcedureItem,)
+
+    def __init__(self, block_dim):
+        self.block_dim = block_dim
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+        if role == 'driver':
+            self.process_driver(routine, targets)
+
+    @staticmethod
+    def arg_to_local_var(routine, var):
+        new_args = tuple(arg for arg in routine.arguments if arg.name.lower() != var.name.lower())
+        routine.arguments = new_args
+        routine.variables += (routine.variable_map[var.name].clone(scope=routine,
+            type=routine.variable_map[var.name].type.clone(intent=None)),)
+
+    def local_var(self, call, variables):
+        inv_call_arg_map = {v: k for k, v in call.arg_map.items()}
+        call_routine_variables = call.routine.variables
+        for var in variables:
+            if var in inv_call_arg_map:
+                self.arg_to_local_var(call.routine, inv_call_arg_map[var])
+            else:
+                if var not in call_routine_variables:
+                    call.routine.variables += (var.clone(scope=call.routine),)
+
+    @staticmethod
+    def generate_pragma(loop):
+        return ir.Pragma(keyword="loki", content=f"removed_loop var({loop.variable}) \
+                    lower({loop.bounds.lower}) upper({loop.bounds.upper}) \
+                    step({loop.bounds.step if loop.bounds.step else 1})")
+
+    def update_call_signature(self, call, loop, loop_defined_symbols, additional_kwargs):
+        ignore_symbols = [loop.variable.name.lower()] +\
+            [symbol.name.lower() for symbol in loop_defined_symbols]
+        _arguments = tuple(arg for arg in call.arguments\
+                if not (hasattr(arg, 'name') and arg.name.lower() in ignore_symbols))
+        _kwarguments = tuple(kwarg for kwarg in call.kwarguments \
+                if kwarg[1].name.lower() not in ignore_symbols) + as_tuple(additional_kwargs.items())
+        call_pragmas = (self.generate_pragma(loop),)
+        call._update(arguments=_arguments, kwarguments=_kwarguments,
+                pragma=(call.pragma if call.pragma else ()) + call_pragmas)
+
+    def process_driver(self, routine, targets):
+        # find block loops
+        with pragma_regions_attached(routine):
+            with pragmas_attached(routine, ir.Loop):
+                loops = FindNodes(ir.Loop).visit(routine.body)
+                loops = [loop for loop in loops if loop.variable == self.block_dim.index
+                        or loop.variable in self.block_dim._index_aliases]
+
+                # Remove parallel regions around block loops
+                pragma_region_map = {}
+                for pragma_region in FindNodes(ir.PragmaRegion).visit(routine.body):
+                    for loop in loops:
+                        if loop in pragma_region.body:
+                            pragma_region_map[pragma_region] = pragma_region.body
+                routine.body = Transformer(pragma_region_map, inplace=True).visit(routine.body)
+
+                driver_loop_map = {}
+                processed_routines = ()
+                calls = ()
+                additional_kwargs = {}
+                for loop in loops:
+                    target_calls = [call for call in FindNodes(ir.CallStatement).visit(loop.body)
+                            if str(call.name).lower() in targets]
+                    target_calls = [call for call in target_calls if call.routine is not BasicType.DEFERRED]
+                    if not target_calls:
+                        continue
+                    calls += tuple(target_calls)
+                    driver_loop_map[loop] = loop.body
+                    defined_symbols_loop = [assign.lhs for assign in FindNodes(ir.Assignment).visit(loop.body)]
+                    for call in target_calls:
+                        if call.routine.name in processed_routines:
+                            self.update_call_signature(call, loop, defined_symbols_loop,
+                                    additional_kwargs[call.routine.name])
+                            continue
+                        # 1. Create a copy of the loop with all other call statements removed
+                        other_calls = {c: None for c in FindNodes(ir.CallStatement).visit(loop) if c is not call}
+                        loop_to_lower = Transformer(other_calls).visit(loop)
+
+                        # 2. Replace all variables according to the caller-callee argument map
+                        call_arg_map = dict((v, k) for k, v in call.arg_map.items())
+                        loop_to_lower = SubstituteExpressions(call_arg_map).visit(loop_to_lower)
+
+                        # 3. Identify local variables that need to be provided as additional arguments to the call
+                        call_routine_variables = {v.name.lower() for v in FindVariables().visit(call.routine.body)}
+                        call_routine_variables |= {v.name.lower() for v in call.routine.variables}
+                        loop_variables = FindVariables().visit(loop_to_lower.body)
+                        loop_variables = [
+                            v for v in FindVariables().visit(loop_to_lower.body)
+                            if v.name.lower() != loop.variable and v.name.lower() not in call_routine_variables
+                            and v not in call_arg_map and isinstance(v, sym.Scalar) and v not in defined_symbols_loop
+                        ]
+                        additional_kwargs[call.routine.name] = {var.name: var for var in loop_variables}
+
+                        # 4. Inject the loop body into the called routine
+                        call.routine.arguments += tuple(additional_kwargs[call.routine.name].values())
+                        routine_body = Transformer({c: c.routine.body for c in\
+                            FindNodes(ir.CallStatement).visit(loop_to_lower)}).visit(loop_to_lower)
+                        routine_body = AttachScopes().visit(routine_body, scope=call.routine)
+                        call.routine.body = ir.Section(body=as_tuple(routine_body))
+
+                        # 5. Update the call on the caller side
+                        processed_routines += (call.routine.name,)
+                        self.local_var(call, defined_symbols_loop + [loop.variable])
+                        self.update_call_signature(call, loop, defined_symbols_loop,
+                                additional_kwargs[call.routine.name])
+                    driver_loop_map[loop] = loop.body
+                routine.body = Transformer(driver_loop_map).visit(routine.body)

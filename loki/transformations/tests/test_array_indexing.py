@@ -19,7 +19,8 @@ from loki.transformations.array_indexing import (
     promote_variables, demote_variables, invert_array_indices,
     flatten_arrays, normalize_array_shape_and_access,
     shift_to_zero_indexing, resolve_vector_notation,
-    LowerConstantArrayIndices
+    LowerConstantArrayIndices, remove_explicit_array_dimensions,
+    add_explicit_array_dimensions
 )
 from loki.transformations.transpile import FortranCTransformation
 
@@ -665,7 +666,8 @@ end module kernel_mod
         assert all(len(arr.shape) == 1 for arr in arrays)
 
     kernel_module = Module.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path],
+            definitions=kernel_module)
     kernel = kernel_module.subroutines[0]
 
     # check for a(:,:) and b(:,:) if "explicit_dimensions"
@@ -709,7 +711,6 @@ end module kernel_mod
     assert (b_flattened == b_ref.flatten(order='F')).all()
 
     builder.clean()
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('recurse_to_kernels', (False, True))
@@ -1060,3 +1061,89 @@ end subroutine transform_resolve_vector_notation
 
     assert np.all(ret1 == 11)
     assert np.all(ret2 == 42)
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('calls_only', (False, True))
+def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
+    """
+    Test flattening or arrays, meaning converting multi-dimensional
+    arrays to one-dimensional arrays including corresponding
+    index arithmetic (for calls).
+    """
+    fcode_driver = """
+  SUBROUTINE driver_routine(nlon, nlev, a, b)
+    use kernel_mod, only: kernel_routine
+    INTEGER, INTENT(IN)    :: nlon, nlev
+    INTEGER, INTENT(INOUT) :: a(nlon,nlev)
+    INTEGER, INTENT(INOUT)  :: b(nlon,nlev)
+
+    call kernel_routine(nlon, nlev, a, b)
+
+  END SUBROUTINE driver_routine
+    """
+    fcode_kernel = """
+  module kernel_mod
+  IMPLICIT NONE
+  CONTAINS
+  SUBROUTINE kernel_routine(nlon, nlev, a, b)
+    INTEGER, INTENT(IN)    :: nlon, nlev
+    INTEGER, INTENT(INOUT) :: a(nlon,nlev)
+    INTEGER, INTENT(INOUT) :: b(nlon,nlev)
+
+    a = a + b
+  END SUBROUTINE kernel_routine
+  end module kernel_mod
+    """
+    def init_arguments(nlon, nlev):
+        a = 2*np.ones(shape=(nlon,nlev,), order='F', dtype=np.int32)
+        b = 3*np.ones(shape=(nlon,nlev,), order='F', dtype=np.int32)
+        return a, b
+
+    kernel_module = Module.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path],
+            definitions=[kernel_module])
+    kernel = kernel_module.subroutines[0]
+
+    # compile and test reference
+    refname = f'ref_explicit_dims_{driver.name}_{frontend}'
+    reference = jit_compile_lib([kernel_module, driver], path=tmp_path, name=refname, builder=builder)
+    ref_function = reference.driver_routine
+
+    nlon = 10
+    nlev = 12
+    a_ref, b_ref = init_arguments(nlon, nlev)
+    ref_function(nlon, nlev, a_ref, b_ref)
+    builder.clean()
+
+    # add explicit array dimensions
+    add_explicit_array_dimensions(driver)
+    add_explicit_array_dimensions(kernel)
+    kernel_call = FindNodes(CallStatement).visit(driver.body)[0]
+    kernel_call_array_args = [arg for arg in kernel_call.arguments if isinstance(arg, sym.Array)]
+    assert all(len(arg.dimensions) == 2 for arg in kernel_call_array_args)
+
+    # remove explicit array dimensions (possibly only for calls)
+    remove_explicit_array_dimensions(driver, calls_only=calls_only)
+    remove_explicit_array_dimensions(kernel, calls_only=calls_only)
+    kernel_call = FindNodes(CallStatement).visit(driver.body)[0]
+    kernel_call_array_args = [arg for arg in kernel_call.arguments if isinstance(arg, sym.Array)]
+    assert all(not arg.dimensions for arg in kernel_call_array_args)
+    kernel_arrays = FindVariables().visit(kernel.body)
+    if calls_only:
+        assert all(len(arr.dimensions) == 2 for arr in kernel_arrays)
+    else:
+        assert all(not arr.dimensions for arr in kernel_arrays)
+
+    # compile and test the resulting code
+    testname = f'test_explicit_dims_{"calls_only_" if calls_only else ""}_{driver.name}_{frontend}'
+    test = jit_compile_lib([kernel_module, driver], path=tmp_path, name=testname, builder=builder)
+    test_function = test.driver_routine
+
+    a_test, b_test = init_arguments(nlon, nlev)
+    test_function(nlon, nlev, a_test, b_test)
+
+    # check whether reference and flattened variant(s) produce same result
+    assert (a_test == a_ref).all()
+    assert (b_test == b_ref).all()
+
+    builder.clean()
