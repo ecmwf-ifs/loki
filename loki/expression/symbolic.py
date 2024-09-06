@@ -33,7 +33,7 @@ def is_minus_prefix(expr):
     It essentially means that `expr == Product((-1, ...))`.
     """
     if isinstance(expr, sym.Product) and expr.children:
-        return pmbl.is_zero(expr.children[0] + 1)
+        return pmbl.is_zero(expr.children[0]+1)
     return False
 
 
@@ -70,7 +70,7 @@ def is_dimension_constant(d):
             return is_dimension_constant(d.lower) and is_dimension_constant(d.upper)
         return is_dimension_constant(d.upper)
 
-    if isinstance(d, sym.Scalar) and isinstance(d.initial, sym.IntLiteral):
+    if isinstance(d, sym.Scalar) and isinstance(d.initial , sym.IntLiteral):
         return True
 
     return False
@@ -133,7 +133,6 @@ def distribute_product(expr):
     This converts for example `a * (b + c) * (d + e)` to
     `a * b * d + a * c * d + a * b * e + a * c * e`.
     """
-
     def _retval(numerator, denominator):
         if not denominator:
             return numerator
@@ -227,8 +226,7 @@ def distribute_quotient(expr):
             # Prepend children to maintain order of operands
             queue = list(item.children) + queue
         elif isinstance(item, sym.Quotient):
-            done += [distribute_quotient(
-                sym.Quotient(item.numerator, item.denominator * expr.denominator))]
+            done += [distribute_quotient(sym.Quotient(item.numerator, item.denominator * expr.denominator))]
         else:
             # Convert to a quotient
             done += [sym.Quotient(item, expr.denominator)]
@@ -282,7 +280,6 @@ def sum_int_literals(expr):
     """
     Sum up the values of all `IntLiteral` in the sum and return the reduced sum.
     """
-
     def _process(child):
         if isinstance(child, sym.IntLiteral):
             return child.value, None
@@ -317,7 +314,6 @@ def separate_coefficients(expr):
     :returns: the constant coefficient and remaining non-constant sub-expressions.
     :rtype: (int, list)
     """
-
     def _process(child):
         if isinstance(child, (int, np.integer)):
             return child, None
@@ -396,8 +392,7 @@ def div_int_literals(expr):
     elif isinstance(expr.numerator, sym.Product):
         value, remaining_components = separate_coefficients(expr.numerator)
         div = gcd(value, expr.denominator.value)
-        numerator = mul_int_literals(
-            sym.Product((sym.IntLiteral(value / div), *remaining_components)))
+        numerator = mul_int_literals(sym.Product((sym.IntLiteral(value / div), *remaining_components)))
         denominator = sym.IntLiteral(expr.denominator.value / div)
 
     else:
@@ -455,7 +450,6 @@ def collect_coefficients(expr):
     :returns: reduced list of expressions.
     :rtype: list
     """
-
     def _get_coefficient(value):
         if value == 1:
             return []
@@ -522,7 +516,6 @@ class SimplifyMapper(LokiIdentityMapper):
 
     It applies all enabled simplifications from `Simplification` to a expression.
     """
-
     # pylint: disable=abstract-method
 
     def __init__(self, enabled_simplifications=Simplification.ALL, invalidate_source=True):
@@ -547,8 +540,7 @@ class SimplifyMapper(LokiIdentityMapper):
         return expr
 
     def map_product(self, expr, *args, **kwargs):
-        new_expr = sym.Product(
-            as_tuple([self.rec(child, *args, **kwargs) for child in expr.children]))
+        new_expr = sym.Product(as_tuple([self.rec(child, *args, **kwargs) for child in expr.children]))
 
         if self.enabled_simplifications & Simplification.Flatten:
             new_expr = flatten_expr(new_expr)
