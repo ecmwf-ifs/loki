@@ -1,6 +1,7 @@
 # Authors and Contributors
 
 - A. Beggs (ECMWF)
+- J. Ericsson (ECMWF)
 - R. Heilemann Myhre (Met Norway)
 - S. Karppinen (FMI)
 - P. Kiepas (École polytechnique/IPSL)
