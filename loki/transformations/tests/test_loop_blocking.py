@@ -11,7 +11,7 @@ import numpy as np
 
 from loki import available_frontends, Subroutine, pragmas_attached, find_driver_loops, Loop, fgen, \
    ir, FindNodes, jit_compile, clean_test, FindVariables, Array
-from loki.transformations.loop_blocking import split_loop, block_loop_arrays
+from loki.transformations.loop_blocking import split_loop, block_loop_arrays, LoopBlockFieldAPITransformation
 
 
 """
@@ -535,5 +535,5 @@ end subroutine test_1d_field_blocking
         loops = find_driver_loops(routine,
                                   targets=None)
 
-    blocking_transformer = LoopBockFieldAPITransformation()
+    blocking_transformer = LoopBlockFieldAPITransformation()
     blocking_transformer.apply(routine, loop=loops[0])

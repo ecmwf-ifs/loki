@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-
+from loki.batch import Transformation
 from loki.ir import nodes as ir, Transformer
 from loki.subroutine import Subroutine
 from loki.expression import symbols as sym, parse_expr, FindVariables, \
@@ -20,7 +20,7 @@ class LoopSplittingVariables:
     bounds. It also holds the original loop variable of the inner loop.
     """
 
-    def __init__(self, loop_var, splitting_vars):
+    def __init__(self, loop_var: sym.Variable, block_size):
         self._loop_var = loop_var
         # self._splitting_vars = splitting_vars
         self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size",
@@ -245,21 +245,20 @@ def block_loop_arrays(routine: Subroutine, splitting_vars, inner_loop: ir.Loop,
     Transformer(change_map, inplace=True).visit(outer_loop)
 
 
-def get_field_type(a: Array):
+def get_field_type(a: sym.Array):
     """
     Returns the corresponding FIELD API type for an array.
 
-    This transformation is IFS specific and assumes...
+    This transformation is IFS specific and assumes that the
+    type is an array declared with one of the IFS type specifiers, e.g. KIND=JPRB
     """
 
-    # assert len(type_str)==4, "Expected a.type.kind to be of length 4."
-    # type_name = str(len(a.shape))+type_str[2:4]
 
-    field_type = DerivedType(name="type_name")
+    field_type = sym.DerivedType(name="type_name")
     return field_type
 
 
-class LoopBockFieldAPITransformation(Transformation):
+class LoopBlockFieldAPITransformation(Transformation):
     def __init__(self, block_size=40):
         self.inner_loop = None
         self.outer_loop = None
@@ -270,7 +269,7 @@ class LoopBockFieldAPITransformation(Transformation):
         self.splitting_vars, self.inner_loop, self.outer_loop = split_loop(routine, kwargs["loop"],
                                                                            self.block_size)
         for var in FindVariables().visit(self.inner_loop.body):
-            if (isinstance(var, Array)):
+            if (isinstance(var, sym.Array)):
                 print(type(var))
                 print(var.type.kind)
                 print(type(var.type.kind))
