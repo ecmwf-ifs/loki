@@ -32,7 +32,7 @@ import loki.expression.operations as sym_ops
 from loki.expression.expr_visitors import AttachScopes
 from loki.scope import Scope
 
-__all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES']
+__all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES', 'LokiEvaluationMapper']
 
 
 class PymbolicMapper(Mapper):
