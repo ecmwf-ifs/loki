@@ -74,6 +74,7 @@ end module external_mod
     fcode = """
 module test_mod
   use external_mod, only: rick
+  implicit none
 
   type my_type
     real(kind=8) :: never
@@ -129,6 +130,7 @@ def test_substitute_expressions(frontend):
 
     fcode = """
 subroutine test_routine(n, a, b)
+  implicit none
   integer, intent(in) :: n
   real(kind=8), intent(inout) :: a, b(n)
   real(kind=8) :: c(n)
@@ -181,6 +183,7 @@ def test_substitute_string_expressions(frontend):
 
     fcode = """
 subroutine test_routine(n, a, b)
+  implicit none
   integer, intent(in) :: n
   real(kind=8), intent(inout) :: a, b(n)
   real(kind=8) :: c(n)
