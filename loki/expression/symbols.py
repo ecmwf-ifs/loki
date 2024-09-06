@@ -1479,6 +1479,34 @@ class LoopRange(Range):
 
     mapper_method = intern('map_loop_range')
 
+    @property
+    def num_iterations(self) -> pmbl.Expression:
+        """
+        Returns total number of iterations of a loop.
+
+        Given a loop, this returns an expression that computes the total number of
+        iterations of the loop, i.e.
+        (start,stop,step) -> ceil(stop-start/step)
+        """
+        start = self.start
+        stop = self.stop
+        step = self.step
+        if step is None:
+            return stop if isinstance(start, IntLiteral) and start.value == 1 else Sum(
+                (stop, Product((-1, start)), IntLiteral(1)))
+        return Sum((Quotient(Sum((stop, Product((-1, start)))), step), IntLiteral(1)))
+
+    @property
+    def normalized(self):
+        """
+        Returns the normalized :any:`LoopRange` of a given :any:`LoopRange`.
+
+        Returns the normalized :any:`LoopRange` which corresponds to a loop with
+        the same number of iterations but starts at 1 and has stride 1, i.e.
+        (start,stop,step) -> (1,num_iterations,1)
+        """
+        return LoopRange((1, self.num_iterations))
+
 
 class ArraySubscript(StrCompareMixin, pmbl.Subscript):
     """

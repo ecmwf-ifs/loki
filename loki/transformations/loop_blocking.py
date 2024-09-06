@@ -5,81 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pymbolic.primitives import Expression
 
-from loki import Subroutine, ir, Assignment, Sum, Product, Loop, LoopRange, IntLiteral, \
-    Quotient, InlineCall, DeferredTypeSymbol, Transformer, Array, Variable, Scalar, \
-    SubstituteExpressions, FindVariables, parse_expr, RangeIndex, Transformation, DerivedType
+from loki.ir import nodes as ir, Transformer
+from loki.subroutine import Subroutine
+from loki.expression import symbols as sym, parse_expr, FindVariables, \
+    SubstituteExpressions, ceil_division, iteration_index
 
-
-def ceil_division(iexpr1: Expression, iexpr2: Expression) -> Expression:
-    """
-    Returns ceiled division expression of two integer expressions iexpr1/iexpr2.
-    """
-    return Sum(children=(Quotient(numerator=Sum(children=(iexpr1, IntLiteral(-1))),
-                                  denominator=iexpr2), IntLiteral(1)))
-
-
-def negate(i: Expression) -> Expression:
-    return Product((IntLiteral(-1), i))
-
-
-def num_iterations(loop_range: LoopRange) -> Expression:
-    """
-    Returns total number of iterations of a loop.
-
-    Given a loop, this returns an expression that computes the total number of
-    iterations of the loop, i.e.
-    (start,stop,step) -> ceil(stop-start/step)
-    """
-    start = loop_range.start
-    stop = loop_range.stop
-    step = loop_range.step
-    if step is None:
-        return stop if isinstance(start, IntLiteral) and start.value == 1 else Sum(
-            (stop, negate(start), IntLiteral(1)))
-    return Sum((Quotient(Sum((stop, negate(start))), step), IntLiteral(1)))
-
-
-def normalized_loop_range(loop_range: LoopRange) -> LoopRange:
-    """
-    Returns the normalized LoopRange of a given LoopRange.
-
-    Returns the normalized LoopRange which corresponds to a loop with the same
-    number of iterations but starts at 1 and has stride 1, i.e.
-    (start,stop,step) -> (1,num_iter,1)
-    """
-    return LoopRange((1, num_iterations(loop_range)))
-
-
-def iteration_number(iter_idx: Variable, loop_range: LoopRange) -> Expression:
-    """
-    Returns the normalized iteration number of the iteration variable
-
-    Given the loop iteration index for an iteration in a loop defined by the
-    :any:´LoopRange´ this method returns the normalized iteration index given by
-    iter_num = (iter_idx - start + step)/step = (iter_idx-start)/step + 1
-    """
-    if loop_range.step is None:
-        return Sum((Sum((iter_idx, negate(loop_range.start))), IntLiteral(1)))
-
-    return Sum((Quotient(Sum((iter_idx, negate(loop_range.start))), loop_range.step),
-                IntLiteral(1)))
-
-
-def iteration_index(iter_num: Variable, loop_range: LoopRange) -> Expression:
-    """
-    Returns the iteration index of the loop based on the iteration number
-
-    Given the normalized iteration number for an iteration in a loop defined by the
-    :any:´LoopRange´ this method returns the iteration index given by
-    iter_idx = (iter_num-1)*step+start
-    """
-    if loop_range.step is None:
-        return Sum((iter_num, IntLiteral(-1), loop_range.start))
-
-    return Sum(
-        (Product((Sum((iter_num, IntLiteral(-1))), loop_range.step)), loop_range.start))
+__all__ = ['split_loop', 'block_loop_arrays']
 
 
 class LoopSplittingVariables:
@@ -90,7 +22,18 @@ class LoopSplittingVariables:
 
     def __init__(self, loop_var, splitting_vars):
         self._loop_var = loop_var
-        self._splitting_vars = splitting_vars
+        # self._splitting_vars = splitting_vars
+        self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size",
+                                               type=loop_var.type.clone(parameter=True,
+                                                                        initial=sym.IntLiteral(
+                                                                            block_size))),
+                                loop_var.clone(name=loop_var.name + "_loop_num_blocks"),
+                                loop_var.clone(name=loop_var.name + "_loop_block_idx"),
+                                loop_var.clone(name=loop_var.name + "_loop_local"),
+                                loop_var.clone(name=loop_var.name + "_loop_iter_num"),
+                                loop_var.clone(name=loop_var.name + "_loop_block_start"),
+                                loop_var.clone(name=loop_var.name + "_loop_block_end")
+                                )
 
     @property
     def loop_var(self):
@@ -145,80 +88,66 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
     """
 
     # loop splitting variable declarations
-    splitting_vars = LoopSplittingVariables(loop.variable,
-                                            (loop.variable.clone(
-                                                name=loop.variable.name + "_loop_block_size",
-                                                type=loop.variable.type.clone(parameter=True,
-                                                                              initial=IntLiteral(
-                                                                                  block_size))),
-                                             loop.variable.clone(
-                                                 name=loop.variable.name + "_loop_num_blocks"),
-                                             loop.variable.clone(
-                                                 name=loop.variable.name + "_loop_block_idx"),
-                                             loop.variable.clone(
-                                                 name=loop.variable.name + "_loop_local"),
-                                             loop.variable.clone(
-                                                 name=loop.variable.name + "_loop_iter_num"),
-                                             loop.variable.clone(
-                                                 name=loop.variable.name + "_loop_block_start"),
-                                             loop.variable.clone(
-                                                 name=loop.variable.name + "_loop_block_end")))
-
+    splitting_vars = LoopSplittingVariables(loop.variable, block_size)
     routine.variables += splitting_vars.splitting_vars
 
     # block index calculations
     blocking_body = (
-        Assignment(splitting_vars.block_start,
-                   parse_expr(
-                       f"({splitting_vars.block_idx} - 1) * {splitting_vars.block_size} + 1")
-                   ),
-        Assignment(splitting_vars.block_end,
-                   InlineCall(DeferredTypeSymbol('MIN', scope=routine),
-                              parameters=(Product(children=(
-                                  splitting_vars.block_idx, splitting_vars.block_size)),
-                                          loop.bounds.upper))
-                   ))
+        ir.Assignment(splitting_vars.block_start,
+                      parse_expr(
+                          f"({splitting_vars.block_idx} - 1) * {splitting_vars.block_size} + 1",
+                          scope=routine)
+                      ),
+        ir.Assignment(splitting_vars.block_end,
+                      sym.InlineCall(sym.DeferredTypeSymbol('MIN', scope=routine),
+                                     parameters=(sym.Product(children=(
+                                         splitting_vars.block_idx, splitting_vars.block_size)),
+                                                 loop.bounds.upper))
+                      ))
 
     # Outer loop blocking variable assignments
     loop_range = loop.bounds
     block_loop_inits = (
         ir.Assignment(splitting_vars.num_blocks,
-                      ceil_division(num_iterations(loop_range),
+                      ceil_division(loop_range.num_iterations,
                                     splitting_vars.block_size)),
     )
 
     # Inner loop
     iteration_nums = (
-        Assignment(splitting_vars.iter_num,
-                   parse_expr(f"{splitting_vars.block_start}+{splitting_vars.inner_loop_var}-1")),
-        Assignment(loop.variable,
-                   iteration_index(splitting_vars.iter_num, loop_range))
+        ir.Assignment(splitting_vars.iter_num,
+                      parse_expr(
+                          f"{splitting_vars.block_start}+{splitting_vars.inner_loop_var}-1"),
+                      scope=routine),
+        ir.Assignment(loop.variable,
+                      iteration_index(splitting_vars.iter_num, loop_range))
     )
-    inner_loop = Loop(variable=splitting_vars.inner_loop_var, body=iteration_nums + loop.body,
-                      bounds=LoopRange(
-                          (IntLiteral(1), parse_expr(
-                              f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1"))))
+    inner_loop = ir.Loop(variable=splitting_vars.inner_loop_var, body=iteration_nums + loop.body,
+                         bounds=sym.LoopRange(
+                             (sym.IntLiteral(1), parse_expr(
+                                 f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
+                                 scope=routine))))
 
     #  Outer loop bounds + body
-    outer_loop = Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
-                      bounds=LoopRange((IntLiteral(1), splitting_vars.num_blocks)))
+    outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
+                         bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
     change_map = {loop: block_loop_inits + (outer_loop,)}
-    Transformer(change_map, inplace=True).visit(routine.ir)
+    Transformer(change_map, inplace=True).visit(routine.body)
     return splitting_vars, inner_loop, outer_loop
 
 
-def blocked_shape(a: Array, blocking_indices, block_size):
+def blocked_shape(a: sym.Array, blocking_indices, block_size):
     """
     calculates the dimensions for a blocked version of the array.
     """
     shape = tuple(
-        IntLiteral(block_size) if isinstance(dim, Scalar) and any(
+        sym.IntLiteral(block_size) if isinstance(dim, sym.Scalar) and any(
             bidx in dim for bidx in blocking_indices) else dim for dim
         in a.shape)
     return shape
 
 
-def blocked_type(a: Array):
+def blocked_type(a: sym.Array):
     return a.type.clone(intent=None)
 
 
@@ -228,15 +157,18 @@ def replace_indices(dimensions, indices: list, replacement_index):
 
     Parameters
     ----------
-    dimensions: Symbolic representation of dimensions or indices.
-    indices: list of `Variable`s that will be replaced in the new :any:`Dimension` object.
-    replacement_index: :any:`Expression` replacement for the indices changed.
+    dimensions:
+        Symbolic representation of dimensions or indices.
+    indices: list of `Variable`s
+        that will be replaced in the new :any:`Dimension` object.
+    replacement_index: :any:`Expression`
+        replacement for the indices changed.
 
     Returns
     -------
     """
     dims = tuple(
-        replacement_index if isinstance(dim, Scalar) and any(
+        replacement_index if isinstance(dim, sym.Scalar) and any(
             blocking_var in dim for blocking_var in indices) else dim for dim
         in dimensions)
     return dims
@@ -262,13 +194,13 @@ def block_loop_arrays(routine: Subroutine, splitting_vars, inner_loop: ir.Loop,
     outer_loop : :any:`Loop`
         outer loop body after loop splitting
     blocking_indices : tuple or list of str
-            Variable names of the indexes that should be blocked if in array
+           Variable names of the indexes that should be blocked if in array
             expressions.
 
     """
     # Declare Blocked arrays
     arrays = tuple(var for var in FindVariables().visit(inner_loop.body) if
-                   isinstance(var, Array) and any(
+                   isinstance(var, sym.Array) and any(
                        bi in var for bi in blocking_indices))
     name_map = {a.name: a.name + '_block' for a in arrays}
     block_arrays = tuple(
@@ -286,21 +218,24 @@ def block_loop_arrays(routine: Subroutine, splitting_vars, inner_loop: ir.Loop,
     SubstituteExpressions(dict(zip(arrays, block_array_expr)), inplace=True).visit(inner_loop.body)
 
     # memory copies
-    block_range = RangeIndex((splitting_vars.block_start, splitting_vars.block_end))
-    local_range = RangeIndex(
-        (IntLiteral(1),
-         parse_expr(f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1")))
+    block_range = sym.RangeIndex((splitting_vars.block_start, splitting_vars.block_end))
+    local_range = sym.RangeIndex(
+        (sym.IntLiteral(1),
+         parse_expr(f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
+                    scope=routine)))
     # input variables
     in_vars = (a for a in arrays if a.type.intent in ('in', 'inout'))
     copyins = tuple(
-        Assignment(a.clone(name=name_map[a.name],
-                           dimensions=replace_indices(a.dimensions, blocking_indices, local_range)),
-                   a.clone(dimensions=replace_indices(a.dimensions, blocking_indices, block_range)))
+        ir.Assignment(a.clone(name=name_map[a.name],
+                              dimensions=replace_indices(a.dimensions, blocking_indices,
+                                                         local_range)),
+                      a.clone(
+                          dimensions=replace_indices(a.dimensions, blocking_indices, block_range)))
         for a in in_vars)
     # output variables
     out_vars = (a for a in arrays if a.type.intent in ('out', 'inout'))
     copyouts = tuple(
-        Assignment(
+        ir.Assignment(
             a.clone(dimensions=replace_indices(a.dimensions, blocking_indices, block_range)),
             a.clone(name=name_map[a.name],
                     dimensions=replace_indices(a.dimensions, blocking_indices, local_range))

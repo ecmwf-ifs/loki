@@ -8,18 +8,20 @@
 from collections import defaultdict
 import enum
 from functools import reduce
-from math import gcd
+from math import gcd, floor
 import operator as _op
 import numpy as np
 import pymbolic.primitives as pmbl
 
 from loki.expression.mappers import LokiIdentityMapper
+from loki.expression.parser import LokiEvaluationMapper
 import loki.expression.symbols as sym
 from loki.tools import as_tuple
 
 __all__ = [
     'is_constant', 'symbolic_op', 'simplify', 'accumulate_polynomial_terms',
-    'Simplification', 'SimplifyMapper', 'is_dimension_constant'
+    'Simplification', 'SimplifyMapper', 'is_dimension_constant', 'ceil_division',
+    'get_pyrange', 'iteration_number', 'iteration_index'
 ]
 
 
@@ -605,3 +607,71 @@ def simplify(expr, enabled_simplifications=Simplification.ALL):
     Simplify the given expression by applying selected simplifications.
     """
     return SimplifyMapper(enabled_simplifications=enabled_simplifications)(expr)
+
+
+def ceil_division(iexpr1: pmbl.Expression, iexpr2: pmbl.Expression) -> pmbl.Expression:
+    """
+    Returns ceiled division expression of two integer expressions iexpr1/iexpr2.
+    """
+    expr = sym.Sum(children=(sym.Quotient(numerator=sym.Sum(children=(iexpr1, sym.IntLiteral(-1))),
+                                          denominator=iexpr2),
+                             sym.IntLiteral(1)))
+    return simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
+
+
+def get_pyrange(loop_range: sym.LoopRange):
+    """
+    Returns a python range corresponding to a LoopRange of IntLiterals.
+    """
+    LEM = LokiEvaluationMapper()
+    if loop_range.step is None:
+        return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1)
+    return range(LEM(loop_range.start), floor(LEM(loop_range.stop))+1, LEM(loop_range.step))
+
+
+
+def iteration_number(iter_idx, loop_range: sym.LoopRange) -> pmbl.Expression:
+    """
+    Returns the normalized iteration number of the iteration variable
+
+    Given the loop iteration index for an iteration in a loop defined by the
+    :any:´LoopRange´ this method returns the normalized iteration index given by
+    iter_num = (iter_idx - start + step)/step = (iter_idx-start)/step + 1
+
+    Parameters
+    ----------
+    iter_idx : :any:`Variable`, :any:`Expression`, or :any:`IntLiteral`
+        corresponding to a valid iteration index for the parameter `loop_range`
+    loop_range: :any:`LoopRange`
+    """
+    if loop_range.step is None:
+        expr = sym.Sum((sym.Sum((iter_idx, -loop_range.start)), sym.IntLiteral(1)))
+
+    else:
+        expr = sym.Sum(
+            (sym.Quotient(sym.Sum((iter_idx, -loop_range.start)), loop_range.step),
+             sym.IntLiteral(1)))
+    return simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
+
+
+def iteration_index(iter_num, loop_range: sym.LoopRange) -> pmbl.Expression:
+    """
+    Returns the iteration index of the loop based on the iteration number
+
+    Given the normalized iteration number for an iteration in a loop defined by the
+    :any:´LoopRange´ this method returns the iteration index given by
+    iter_idx = (iter_num-1)*step+start
+
+    Parameters
+    ----------
+    iter_num : :any:`Variable`, :any:`Expression`, or :any:`sym.IntLiteral`
+        corresponding to a valid iteration number for the parameter `loop_range`
+    loop_range: :any:`LoopRange`
+    """
+    if loop_range.step is None:
+        expr = sym.Sum((iter_num, sym.IntLiteral(-1), loop_range.start))
+
+    else:
+        expr = sym.Sum((sym.Product((sym.Sum((iter_num, sym.IntLiteral(-1))), loop_range.step)),
+                    loop_range.start))
+    return simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
