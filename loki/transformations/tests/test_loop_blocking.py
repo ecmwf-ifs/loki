@@ -15,7 +15,7 @@ from loki import available_frontends, Subroutine, pragmas_attached, find_driver_
    ir, FindNodes, LoopRange, IntLiteral, jit_compile, clean_test, FindVariables, Array
 from loki.expression.parser import LokiEvaluationMapper
 from loki.transformations.loop_blocking import split_loop, block_loop_arrays, \
-    normalized_loop_range, iteration_number, iteration_index
+    normalized_loop_range, iteration_number, iteration_index, LoopBockFieldAPITransformation
 
 
 def get_pyrange(loop_range: LoopRange):
@@ -289,6 +289,7 @@ def test_3d_splitting(tmp_path, frontend, block_size, n):
 
     clean_test(filepath)
 
+
 """
 --------------------------------------------------------------------------------
 Blocking tests
@@ -536,3 +537,70 @@ def test_3d_blocking(tmp_path, frontend, block_size, n):
 
     clean_test(filepath)
 
+
+"""
+--------------------------------------------------------------------------------
+Field API blocking tests
+
+Tests that variables are correctly blocked, and that blocked loops produce
+the correct output.
+--------------------------------------------------------------------------------
+"""
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('block_size', [117])
+@pytest.mark.parametrize('n', [500])
+def test_1d_field_blocking(tmp_path, frontend, block_size, n):
+    """
+    Apply loop blocking of simple loops into two loops
+    """
+    fcode = """
+subroutine test_1d_field_blocking(a, b, n)
+  INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(6,37)
+  integer, intent(in) :: n
+  real(kind=JPRB), intent(inout) :: a(n)
+  real(kind=JPRB), intent(inout) :: b(n)
+  integer :: i
+  !$loki driver-loop
+  do i=1,n
+    a(i) = real(i)
+  end do
+end subroutine test_1d_field_blocking
+    """
+#     expected_code = """
+# subroutine test_1d_field_blocking(a, b, n)
+#   integer, intent(in) :: n
+#   real(kind=jprb), intent(inout) :: a(n)
+#   real(kind=jprb), intent(inout) :: b(n)
+#   integer :: i
+#
+#   class(field_1rb), pointer :: a_field_block
+#   real(kind=jprb), pointer, contiguous, dimension(:) :: a_block
+#
+#   !$loki driver-loop
+#   do i=1,n
+#
+#     call field_new(a_field_block, data=a(block_start:block_end))
+#     call pt_field_block%get_device_data_rdonly(pt_block)
+#
+#     !$acc data present(pt_block)
+#     DO
+#     a_block(i) = real(i)
+#     end do
+#     !$acc end data
+#     call a_field_block%sync_host_rdwr()
+#     call field_delete(a_field_block)
+#
+#   end do
+# end subroutine test_1d_blocking
+#     """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.ir)
+    with pragmas_attached(routine, Loop):
+        loops = find_driver_loops(routine,
+                                  targets=None)
+
+    blocking_transformer = LoopBockFieldAPITransformation()
+    blocking_transformer.apply(routine, loop=loops[0])

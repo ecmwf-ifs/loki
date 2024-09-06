@@ -9,7 +9,7 @@ from pymbolic.primitives import Expression
 
 from loki import Subroutine, ir, Assignment, Sum, Product, Loop, LoopRange, IntLiteral, \
     Quotient, InlineCall, DeferredTypeSymbol, Transformer, Array, Variable, Scalar, \
-    SubstituteExpressions, FindVariables, parse_expr, RangeIndex
+    SubstituteExpressions, FindVariables, parse_expr, RangeIndex, Transformation, DerivedType
 
 
 def ceil_division(iexpr1: Expression, iexpr2: Expression) -> Expression:
@@ -182,9 +182,9 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
     # Outer loop blocking variable assignments
     loop_range = loop.bounds
     block_loop_inits = (
-                        ir.Assignment(splitting_vars.num_blocks,
-                                      ceil_division(num_iterations(loop_range),
-                                                    splitting_vars.block_size)),
+        ir.Assignment(splitting_vars.num_blocks,
+                      ceil_division(num_iterations(loop_range),
+                                    splitting_vars.block_size)),
     )
 
     # Inner loop
@@ -211,7 +211,7 @@ def blocked_shape(a: Array, blocking_indices, block_size):
     """
     calculates the dimensions for a blocked version of the array.
     """
-    shape=tuple(
+    shape = tuple(
         IntLiteral(block_size) if isinstance(dim, Scalar) and any(
             bidx in dim for bidx in blocking_indices) else dim for dim
         in a.shape)
@@ -308,3 +308,39 @@ def block_loop_arrays(routine: Subroutine, splitting_vars, inner_loop: ir.Loop,
         for a in out_vars)
     change_map = {inner_loop: copyins + (inner_loop,) + copyouts}
     Transformer(change_map, inplace=True).visit(outer_loop)
+
+
+def get_field_type(a: Array):
+    """
+    Returns the corresponding FIELD API type for an array.
+
+    This transformation is IFS specific and assumes...
+    """
+
+    # assert len(type_str)==4, "Expected a.type.kind to be of length 4."
+    # type_name = str(len(a.shape))+type_str[2:4]
+
+    field_type = DerivedType(name="type_name")
+    return field_type
+
+
+class LoopBockFieldAPITransformation(Transformation):
+    def __init__(self, block_size=40):
+        self.inner_loop = None
+        self.outer_loop = None
+        self.splitting_vars = None
+        self.block_size = block_size
+
+    def transform_subroutine(self, routine, **kwargs):
+        self.splitting_vars, self.inner_loop, self.outer_loop = split_loop(routine, kwargs["loop"],
+                                                                           self.block_size)
+        for var in FindVariables().visit(self.inner_loop.body):
+            if (isinstance(var, Array)):
+                print(type(var))
+                print(var.type.kind)
+                print(type(var.type.kind))
+                print(get_field_type(var))
+
+
+class OutlineIFSPARKIND1Transformation(Transformation):
+    pass
