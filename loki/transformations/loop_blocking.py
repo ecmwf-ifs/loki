@@ -24,16 +24,16 @@ class LoopSplittingVariables:
         self._loop_var = loop_var
         # self._splitting_vars = splitting_vars
         self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size",
-                                              type=loop_var.type.clone(parameter=True,
-                                                                       initial=sym.IntLiteral(
-                                                                           block_size))),
-                               loop_var.clone(name=loop_var.name + "_loop_num_blocks"),
-                               loop_var.clone(name=loop_var.name + "_loop_block_idx"),
-                               loop_var.clone(name=loop_var.name + "_loop_local"),
-                               loop_var.clone(name=loop_var.name + "_loop_iter_num"),
-                               loop_var.clone(name=loop_var.name + "_loop_block_start"),
-                               loop_var.clone(name=loop_var.name + "_loop_block_end")
-                               )
+                                               type=loop_var.type.clone(parameter=True,
+                                                                        initial=sym.IntLiteral(
+                                                                            block_size))),
+                                loop_var.clone(name=loop_var.name + "_loop_num_blocks"),
+                                loop_var.clone(name=loop_var.name + "_loop_block_idx"),
+                                loop_var.clone(name=loop_var.name + "_loop_local"),
+                                loop_var.clone(name=loop_var.name + "_loop_iter_num"),
+                                loop_var.clone(name=loop_var.name + "_loop_block_start"),
+                                loop_var.clone(name=loop_var.name + "_loop_block_end")
+                                )
 
     @property
     def loop_var(self):
@@ -95,7 +95,8 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
     blocking_body = (
         ir.Assignment(splitting_vars.block_start,
                       parse_expr(
-                          f"({splitting_vars.block_idx} - 1) * {splitting_vars.block_size} + 1")
+                          f"({splitting_vars.block_idx} - 1) * {splitting_vars.block_size} + 1",
+                          scope=routine)
                       ),
         ir.Assignment(splitting_vars.block_end,
                       sym.InlineCall(sym.DeferredTypeSymbol('MIN', scope=routine),
@@ -116,20 +117,22 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
     iteration_nums = (
         ir.Assignment(splitting_vars.iter_num,
                       parse_expr(
-                          f"{splitting_vars.block_start}+{splitting_vars.inner_loop_var}-1")),
+                          f"{splitting_vars.block_start}+{splitting_vars.inner_loop_var}-1"),
+                      scope=routine),
         ir.Assignment(loop.variable,
                       iteration_index(splitting_vars.iter_num, loop_range))
     )
     inner_loop = ir.Loop(variable=splitting_vars.inner_loop_var, body=iteration_nums + loop.body,
                          bounds=sym.LoopRange(
                              (sym.IntLiteral(1), parse_expr(
-                                 f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1"))))
+                                 f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
+                                 scope=routine))))
 
     #  Outer loop bounds + body
     outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
                          bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
     change_map = {loop: block_loop_inits + (outer_loop,)}
-    Transformer(change_map, inplace=True).visit(routine.ir)
+    Transformer(change_map, inplace=True).visit(routine.body)
     return splitting_vars, inner_loop, outer_loop
 
 
@@ -154,9 +157,12 @@ def replace_indices(dimensions, indices: list, replacement_index):
 
     Parameters
     ----------
-    dimensions: Symbolic representation of dimensions or indices.
-    indices: list of `Variable`s that will be replaced in the new :any:`Dimension` object.
-    replacement_index: :any:`Expression` replacement for the indices changed.
+    dimensions:
+        Symbolic representation of dimensions or indices.
+    indices: list of `Variable`s
+        that will be replaced in the new :any:`Dimension` object.
+    replacement_index: :any:`Expression`
+        replacement for the indices changed.
 
     Returns
     -------
@@ -215,7 +221,8 @@ def block_loop_arrays(routine: Subroutine, splitting_vars, inner_loop: ir.Loop,
     block_range = sym.RangeIndex((splitting_vars.block_start, splitting_vars.block_end))
     local_range = sym.RangeIndex(
         (sym.IntLiteral(1),
-         parse_expr(f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1")))
+         parse_expr(f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
+                    scope=routine)))
     # input variables
     in_vars = (a for a in arrays if a.type.intent in ('in', 'inout'))
     copyins = tuple(

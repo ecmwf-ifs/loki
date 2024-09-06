@@ -468,4 +468,3 @@ def test_3d_blocking(tmp_path, frontend, block_size, n):
     assert np.array_equal(c, c_ref), "c should equal c_ref"
 
     clean_test(filepath)
-

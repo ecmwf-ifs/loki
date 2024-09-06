@@ -8,6 +8,7 @@
 """
 A selection of tests for symbolic computations using expression tree nodes.
 """
+import itertools
 import operator as op
 from math import floor
 
@@ -277,9 +278,9 @@ def test_normalized_loop_range(tmp_path, frontend):
 def test_iteration_number(tmp_path, frontend):
     for start in range(-10, 11):
         for stop in range(start + 1, 50, 4):
-            for step in range(1, stop - start):
+            for step in itertools.chain([None], range(1, stop - start)):
                 loop_range = sym.LoopRange((start, stop, step))
-                pyrange = range(start, stop + 1, step)
+                pyrange = range(start, stop + 1, step) if step is not None else range(start, stop+1)
                 normalized_range = get_pyrange(loop_range.normalized)
                 assert len(normalized_range) == len(
                     pyrange), "Length of normalized loop range should equal length of python loop range"
