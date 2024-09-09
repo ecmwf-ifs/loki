@@ -842,6 +842,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_region['map_temp'] = {}
         map_region['map_derived'] = {}
 
+#        map_region['field_new'] = []
+#        map_region['field_delete'] = []
+        field_new = []
+        field_delete = []
+
         calls = map_routine['not_in_pragma_calls']
 
         call_mapper = {} #mapper for transformation
@@ -856,6 +861,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 map_region['map_derived'] = map_region['map_derived'] | region_map_derived
 #TODO 2 cases : derived type used just outside acdc region : no field, or use in both : field...
 #                map_region['map_derived'][1] = None #no field to add to routine dcl
+                #TODO fix the field_new = map_region[...] .... this is because map_region['field_new'] is init in decl_local_arrays. 
+                #an other part of the code needs this initialization ...
+                field_new+=map_region['field_new']
+                field_delete+=map_region['field_delete']
+
                 new_arguments = []
                 for arg in call.arguments:
                     if not (
@@ -889,6 +899,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 arguments=as_tuple(new_arguments))
                 call_mapper[call] = new_call
         map_region['map_derived'] = [] #pointers on field associated to derived type musn't be added to routine dcl
+
+        map_region['field_new'] = field_new 
+        map_region['field_delete'] = field_delete
+
         self.add_to_map_routine(map_routine, map_region)
         map_routine['call_mapper'] = call_mapper
         #routine.body=Transformer(map_routine['call_mapper']).visit(routine.body)
