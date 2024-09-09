@@ -69,6 +69,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         if item:
             item.trafo_data["create_parallel"] = {}
 
+        routine.name = routine.name + "_PARALLEL" #change name first to have right name further
+
         map_routine = {}
         map_region= {}
         map_routine['map_temp'] = {} 
@@ -103,7 +105,6 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         #sanitise_imports(routine) => bug...
         calls = [call.name.name.lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
-        routine.name = routine.name + "_PARALLEL"
 
         map_imports = {}
         for imp in map_routine["c_imports"].values():
