@@ -762,8 +762,8 @@ def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
 
        integer, intent(in) :: nang
        real, dimension(nang), intent(inout) :: work
-!$loki routine seq
        integer :: k
+!$loki routine seq
 
        do k=1,nang
           work(k) = 1.
@@ -774,7 +774,7 @@ def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    pragmas = FindNodes(Pragma).visit(routine.spec)
+    pragmas = FindNodes(Pragma).visit(routine.ir)
     assert len(pragmas) == 1
     assert pragmas[0].keyword == 'loki'
     assert pragmas[0].content == 'routine seq'
@@ -782,6 +782,7 @@ def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
     transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
     transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
 
+    # Ensure the routine pragma is in the first pragma in the spec
     pragmas = FindNodes(Pragma).visit(routine.spec)
     assert len(pragmas) == 1
     assert pragmas[0].keyword == 'acc'

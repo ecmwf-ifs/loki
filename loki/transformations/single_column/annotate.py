@@ -11,7 +11,7 @@ from loki.expression import (
 )
 from loki.ir import (
     nodes as ir, FindNodes, pragmas_attached, is_loki_pragma,
-    get_pragma_parameters
+    get_pragma_parameters, Transformer
 )
 from loki.logging import info
 from loki.tools import as_tuple, flatten
@@ -119,9 +119,16 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         # Update `!$loki routine seq/vector` pragmas with `!$acc`
+        pragma_map = {}
         for pragma in FindNodes(ir.Pragma).visit(routine.ir):
             if is_loki_pragma(pragma, starts_with='routine'):
-                pragma._update(keyword='acc')
+                # We have to re-insert the pragma here, in case it was
+                # falsely attributed to the body!
+                routine.spec.append(pragma.clone(keyword='acc'))
+                pragma_map[pragma] = None
+        pragma_transformer = Transformer(pragma_map)
+        routine.spec = pragma_transformer.visit(routine.spec)
+        routine.body = pragma_transformer.visit(routine.body)
 
         # Get the names of all array and derived type arguments
         args = [a for a in routine.arguments if isinstance(a, sym.Array)]
