@@ -790,6 +790,43 @@ def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_annotate_empty_data_clause(frontend, horizontal, blocking):
+    """
+    Test that we do not generate empty `!$acc data` clauses.
+    """
+
+    fcode = """
+    subroutine some_kernel(n)
+       implicit none
+       ! Scalars should not show up in `!$acc data` clause
+       integer, intent(inout) :: n
+!$loki routine seq
+       integer :: k
+
+       k = n
+       do k=1, 3
+          n = k + 1.
+       enddo
+    end subroutine some_kernel
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    pragmas = FindNodes(Pragma).visit(routine.ir)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'loki'
+    assert pragmas[0].content == 'routine seq'
+
+    transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
+    transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
+
+    # Ensure the routine pragma is in the first pragma in the spec
+    pragmas = FindNodes(Pragma).visit(routine.ir)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[0].content == 'routine seq'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_vector_reduction(frontend, horizontal, blocking):
     """
     Test for the insertion of OpenACC vector reduction directives.

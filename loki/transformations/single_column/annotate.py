@@ -135,9 +135,10 @@ class SCCAnnotateTransformation(Transformation):
         args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
         argnames = [str(a.name) for a in args]
 
-        routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
-        # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
-        routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
+        if argnames:
+            routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
+            # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
+            routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
 
     def transform_subroutine(self, routine, **kwargs):
         """
