@@ -300,7 +300,7 @@ def convert(
         pipeline = scheduler.config.transformations.get('scc', None)
         if not pipeline:
             pipeline = SCCVectorPipeline(
-                horizontal=horizontal,
+                horizontal=horizontal, vertical=vertical,
                 block_dim=block_dim, directive=directive,
                 trim_vector_sections=trim_vector_sections
             )
@@ -310,7 +310,7 @@ def convert(
         pipeline = scheduler.config.transformations.get('scc-hoist', None)
         if not pipeline:
             pipeline = SCCHoistPipeline(
-                horizontal=horizontal,
+                horizontal=horizontal, vertical=vertical,
                 block_dim=block_dim, directive=directive,
                 dim_vars=(vertical.size,) if vertical else None,
                 trim_vector_sections=trim_vector_sections
@@ -321,7 +321,7 @@ def convert(
         pipeline = scheduler.config.transformations.get('scc-stack', None)
         if not pipeline:
             pipeline = SCCStackPipeline(
-                horizontal=horizontal,
+                horizontal=horizontal, vertical=vertical,
                 block_dim=block_dim, directive=directive,
                 check_bounds=False,
                 trim_vector_sections=trim_vector_sections
