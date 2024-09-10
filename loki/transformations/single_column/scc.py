@@ -19,7 +19,7 @@ from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTran
 from loki.transformations.single_column.vector import (
     SCCDevectorTransformation, SCCDemoteTransformation, SCCRevectorTransformation
 )
-
+from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
 
 __all__ = [
     'SCCVectorPipeline', 'SCCHoistPipeline', 'SCCStackPipeline', 'SCCRawStackPipeline'
@@ -75,6 +75,7 @@ demote_local_arrays : bool
 """
 SCCVectorPipeline = partial(
     Pipeline, classes=(
+        SCCFuseVerticalLoops,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -121,6 +122,7 @@ dim_vars: tuple of str, optional
 """
 SCCHoistPipeline = partial(
     Pipeline, classes=(
+        SCCFuseVerticalLoops,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -166,6 +168,7 @@ check_bounds : bool, optional
 """
 SCCStackPipeline = partial(
     Pipeline, classes=(
+        SCCFuseVerticalLoops,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
