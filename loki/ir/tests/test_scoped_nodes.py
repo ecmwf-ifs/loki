@@ -121,3 +121,78 @@ end module test_scoped_nodes_mod
     assert b_i.dimensions == (i,)
     assert b_i.type.dtype == BasicType.REAL
     assert b_i.type.kind in ('jprb', 8)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scoped_node_parse_expr(frontend, tmp_path):
+    """ Test :any:`Variable` constrcutore on scoped nodes. """
+    fcode = """
+module test_scoped_nodes_mod
+implicit none
+integer, parameter :: jprb = 8
+
+contains
+  subroutine test_scoped_nodes(n, a, b, c)
+    integer, intent(in) :: n
+    real(kind=jprb), intent(inout) :: a(n), b(n), c
+    integer :: i
+
+    a(1) = 42.0_jprb
+
+    associate(d => a)
+    do i=1, n
+      b(i) = a(i) + c
+    end do
+    end associate
+  end subroutine test_scoped_nodes
+end module test_scoped_nodes_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = module['test_scoped_nodes']
+    associate = FindNodes(ir.Associate).visit(routine.body)[0]
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert assigns[0].lhs == 'a(1)'
+    assert assigns[1].rhs == 'a(i) + c'
+
+    # Check that all variables are identified
+    ai_c = routine.parse_expr('a(i)   +   c')
+    assert ai_c == assigns[1].rhs
+    assert isinstance(ai_c, sym.Sum)
+    assert isinstance(ai_c.children[0], sym.Array)
+    assert isinstance(ai_c.children[0].dimensions[0], sym.Scalar)
+    assert isinstance(ai_c.children[1], sym.Scalar)
+    assert ai_c.children[0].scope == routine
+    assert ai_c.children[0].dimensions[0].scope == routine
+    assert ai_c.children[1].scope == routine
+
+    # Check that k is deferred
+    ai_k = routine.parse_expr('a(i) + k')
+    assert isinstance(ai_k, sym.Sum)
+    assert isinstance(ai_k.children[0], sym.Array)
+    assert isinstance(ai_k.children[0].dimensions[0], sym.Scalar)
+    assert isinstance(ai_k.children[1], sym.DeferredTypeSymbol)
+    assert ai_c.children[0].scope == routine
+    assert ai_c.children[0].dimensions[0].scope == routine
+    assert ai_c.children[1].scope == routine
+
+    # Check that all variables are identified
+    ai_c = associate.parse_expr('a(i)   +   c')
+    assert ai_c == assigns[1].rhs
+    assert isinstance(ai_c, sym.Sum)
+    assert isinstance(ai_c.children[0], sym.Array)
+    assert isinstance(ai_c.children[0].dimensions[0], sym.Scalar)
+    assert isinstance(ai_c.children[1], sym.Scalar)
+    assert ai_c.children[0].scope == routine
+    assert ai_c.children[0].dimensions[0].scope == routine
+    assert ai_c.children[1].scope == routine
+
+    # Check that k is deferred
+    ai_k = associate.parse_expr('a(i) + k')
+    assert isinstance(ai_k, sym.Sum)
+    assert isinstance(ai_k.children[0], sym.Array)
+    assert isinstance(ai_k.children[0].dimensions[0], sym.Scalar)
+    assert isinstance(ai_k.children[1], sym.DeferredTypeSymbol)
+    assert ai_c.children[0].scope == routine
+    assert ai_c.children[0].dimensions[0].scope == routine
+    assert ai_c.children[1].scope == routine

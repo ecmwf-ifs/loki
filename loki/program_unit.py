@@ -7,7 +7,7 @@
 
 from abc import abstractmethod
 
-from loki.expression import Variable
+from loki.expression import Variable, parse_expr
 from loki.frontend import (
     Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
@@ -685,6 +685,31 @@ class ProgramUnit(Scope):
         """
         kwargs['scope'] = self
         return Variable(**kwargs)
+
+    def parse_expr(self, expr_str, strict=False, evaluate=False, context=None):
+        """
+        Uses :meth:`parse_expr` to convert expression(s) represented
+        in a string to Loki expression(s)/IR.
+
+        Parameters
+        ----------
+        expr_str : str
+            The expression as a string
+        strict : bool, optional
+            Whether to raise exception for unknown variables/symbols when
+            evaluating an expression (default: `False`)
+        evaluate : bool, optional
+            Whether to evaluate the expression or not (default: `False`)
+        context : dict, optional
+            Symbol context, defining variables/symbols/procedures to help/support
+            evaluating an expression
+
+        Returns
+        -------
+        :any:`Expression`
+            The expression tree corresponding to the expression
+        """
+        return parse_expr(expr_str, scope=self, strict=strict, evaluate=evaluate, context=context)
 
     @property
     def subroutines(self):

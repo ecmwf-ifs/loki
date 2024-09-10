@@ -22,7 +22,7 @@ from pymbolic.primitives import Expression
 from pydantic.dataclasses import dataclass as dataclass_validated
 from pydantic import model_validator
 
-from loki.expression import Variable
+from loki.expression import Variable, parse_expr
 from loki.frontend.source import Source
 from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
@@ -363,6 +363,31 @@ class ScopedNode(Scope):
         """
         kwargs['scope'] = self
         return Variable(**kwargs)
+
+    def parse_expr(self, expr_str, strict=False, evaluate=False, context=None):
+        """
+        Uses :meth:`parse_expr` to convert expression(s) represented
+        in a string to Loki expression(s)/IR.
+
+        Parameters
+        ----------
+        expr_str : str
+            The expression as a string
+        strict : bool, optional
+            Whether to raise exception for unknown variables/symbols when
+            evaluating an expression (default: `False`)
+        evaluate : bool, optional
+            Whether to evaluate the expression or not (default: `False`)
+        context : dict, optional
+            Symbol context, defining variables/symbols/procedures to help/support
+            evaluating an expression
+
+        Returns
+        -------
+        :any:`Expression`
+            The expression tree corresponding to the expression
+        """
+        return parse_expr(expr_str, scope=self, strict=strict, evaluate=evaluate, context=context)
 
 
 # Intermediate node types
