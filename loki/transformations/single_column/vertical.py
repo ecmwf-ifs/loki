@@ -5,8 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from collections import defaultdict
-
 from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, FindVariables,
@@ -19,6 +17,7 @@ from loki.ir import (
 from loki.tools import as_tuple
 from loki.transformations.transform_loop import loop_fusion, loop_interchange
 from loki.transformations.array_indexing import demote_variables
+from loki.logging import info
 
 __all__ = ['SCCFuseVerticalLoops']
 
@@ -54,6 +53,9 @@ class SCCFuseVerticalLoops(Transformation):
         horizontal : :any:`Dimension`
             The dimension specifying the horizontal vector dimension
         """
+        if self.vertical is None:
+            info('[SCCFuseVerticalLoops] is not applied as the vertical dimension is not defined!')
+            return
         role = kwargs['role']
         if role == 'kernel':
             self.process_kernel(routine)
@@ -95,32 +97,24 @@ class SCCFuseVerticalLoops(Transformation):
         Current heuristic: If the candidate is used in more than one vertical loop, assume it is NOT safe
         to demote!
         """
-        fusion_groups = defaultdict(list)
         loop_var_map = {}
         with pragmas_attached(routine, ir.Loop):
-            # Extract all annotated loops and sort them into fusion groups
             for loop in FindNodes(ir.Loop).visit(routine.body):
-                if is_loki_pragma(loop.pragma, starts_with='fused-loop'):
-                    parameters = get_pragma_parameters(loop.pragma, starts_with='fused-loop')
-                    group = parameters.get('group', 'default')
-                    fusion_groups[group] += [(loop, parameters)]
-                else:
-                    if loop.variable.name.lower() == self.vertical.index.lower():
-                        fusion_groups['no-group'] += [(loop, None)]
-            if not fusion_groups:
-                return demote_candidates
-            for group, loop_parameter_lists in fusion_groups.items():
-                loop_list, parameters = zip(*loop_parameter_lists)
-                loop_var_map[group] = ()
-                for loop in loop_list:
-                    loop_var_map[group] += as_tuple(var.name.lower() for var in FindVariables().visit(loop.body)
-                            if isinstance(var, sym.Array))
+                if loop.variable.name.lower() == self.vertical.index.lower():
+                    ignore = False
+                    if is_loki_pragma(loop.pragma, starts_with='fused-loop'):
+                        parameters = get_pragma_parameters(loop.pragma, starts_with='fused-loop')
+                        group = parameters.get('group', 'default')
+                        if group == 'ignore':
+                            ignore = True
+                    if not ignore:
+                        loop_var_map[loop] = as_tuple(var.name.lower() for var in FindVariables().visit(loop.body)
+                                if isinstance(var, sym.Array))
+
         safe_to_demote = ()
         for var in demote_candidates:
             count = 0
-            for group, var_names in loop_var_map.items():
-                if group == 'ignore':
-                    continue
+            for _, var_names in loop_var_map.items():
                 if var in var_names:
                     count += 1
             if count <= 1:
