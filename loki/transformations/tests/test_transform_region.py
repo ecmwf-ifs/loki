@@ -17,7 +17,7 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 
 from loki.transformations.transform_region import (
-    region_hoist, region_to_call
+    region_hoist, extract_marked_subroutines
 )
 
 
@@ -346,23 +346,23 @@ end subroutine transform_region_hoist_promote
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_to_call(tmp_path, frontend):
+def test_extract_marked_subroutines(tmp_path, frontend):
     """
-    A very simple region-to-call test case
+    A very simple :any:`extract_marked_subroutine` test case
     """
     fcode = """
-subroutine reg_to_call(a, b, c)
+subroutine test_extract(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 5
   a = 1
 
-!$loki region-to-call in(a) out(b)
+!$loki extract in(a) out(b)
   b = a
-!$loki end region-to-call
+!$loki end extract
 
   c = a + b
-end subroutine reg_to_call
+end subroutine test_extract
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -376,8 +376,8 @@ end subroutine reg_to_call
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
-    routines = region_to_call(routine)
-    assert len(routines) == 1 and routines[0].name == f'{routine.name}_region_to_call_0'
+    routines = extract_marked_subroutines(routine)
+    assert len(routines) == 1 and routines[0].name == f'{routine.name}_extracted_0'
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
     assert len(FindNodes(Assignment).visit(routines[0].body)) == 1
@@ -395,30 +395,30 @@ end subroutine reg_to_call
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_to_call_multiple(tmp_path, frontend):
+def test_extract_marked_subroutines_multiple(tmp_path, frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
     """
     fcode = """
-subroutine reg_to_call_mult(a, b, c)
+subroutine test_extract_mult(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 1
   a = a + 1
   a = a + 1
-!$loki region-to-call name(oiwjfklsf) inout(a)
+!$loki extract name(oiwjfklsf) inout(a)
   a = a + 1
-!$loki end region-to-call
+!$loki end extract
   a = a + 1
 
-!$loki region-to-call in(a) out(b)
+!$loki extract in(a) out(b)
   b = a
-!$loki end region-to-call
+!$loki end extract
 
-!$loki region-to-call in(a,b) out(c)
+!$loki extract in(a,b) out(c)
   c = a + b
-!$loki end region-to-call
-end subroutine reg_to_call_mult
+!$loki end extract
+end subroutine test_extract_mult
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -432,10 +432,10 @@ end subroutine reg_to_call_mult
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
-    routines = region_to_call(routine)
+    routines = extract_marked_subroutines(routine)
     assert len(routines) == 3
     assert routines[0].name == 'oiwjfklsf'
-    assert all(routines[i].name == f'{routine.name}_region_to_call_{i}' for i in (1,2))
+    assert all(routines[i].name == f'{routine.name}_extracted_{i}' for i in (1,2))
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 4
     assert all(len(FindNodes(Assignment).visit(r.body)) == 1 for r in routines)
@@ -453,32 +453,32 @@ end subroutine reg_to_call_mult
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_to_call_arguments(tmp_path, frontend):
+def test_extract_marked_subroutines_arguments(tmp_path, frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
     and automatic derivation of arguments
     """
     fcode = """
-subroutine reg_to_call_args(a, b, c)
+subroutine test_extract_args(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 1
   a = a + 1
   a = a + 1
-!$loki region-to-call name(func_a)
+!$loki extract name(func_a)
   a = a + 1
-!$loki end region-to-call
+!$loki end extract
   a = a + 1
 
-!$loki region-to-call name(func_b)
+!$loki extract name(func_b)
   b = a
-!$loki end region-to-call
+!$loki end extract
 
 ! partially override arguments
-!$loki region-to-call name(func_c) inout(b)
+!$loki extract name(func_c) inout(b)
   c = a + b
-!$loki end region-to-call
-end subroutine reg_to_call_args
+!$loki end extract
+end subroutine test_extract_args
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -492,7 +492,7 @@ end subroutine reg_to_call_args
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
-    routines = region_to_call(routine)
+    routines = extract_marked_subroutines(routine)
     assert len(routines) == 3
     assert [r.name for r in routines] == ['func_a', 'func_b', 'func_c']
 
@@ -524,35 +524,35 @@ end subroutine reg_to_call_args
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_to_call_arrays(tmp_path, frontend):
+def test_extract_marked_subroutines_arrays(tmp_path, frontend):
     """
     Test hoisting with array variables
     """
     fcode = """
-subroutine reg_to_call_arr(a, b, n)
+subroutine test_extract_arr(a, b, n)
   integer, intent(out) :: a(n), b(n)
   integer, intent(in) :: n
   integer :: j
 
-!$loki region-to-call
+!$loki extract
   do j=1,n
     a(j) = j
   end do
-!$loki end region-to-call
+!$loki end extract
 
-!$loki region-to-call
+!$loki extract
   do j=1,n
     b(j) = j
   end do
-!$loki end region-to-call
+!$loki end extract
 
-!$loki region-to-call
+!$loki extract
   do j=1,n-1
     b(j) = b(j+1) - a(j)
   end do
   b(n) = 1
-!$loki end region-to-call
-end subroutine reg_to_call_arr
+!$loki end extract
+end subroutine test_extract_arr
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
@@ -571,7 +571,7 @@ end subroutine reg_to_call_arr
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
-    routines = region_to_call(routine)
+    routines = extract_marked_subroutines(routine)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 0
     assert len(FindNodes(CallStatement).visit(routine.body)) == 3
@@ -598,49 +598,49 @@ end subroutine reg_to_call_arr
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_to_call_imports(tmp_path, builder, frontend):
+def test_extract_marked_subroutines_imports(tmp_path, builder, frontend):
     """
     Test hoisting with correct treatment of imports
     """
     fcode_module = """
-module region_to_call_mod
+module extract_mod
   implicit none
   integer, parameter :: param = 1
   integer :: arr1(10)
   integer :: arr2(10)
-end module region_to_call_mod
+end module extract_mod
     """.strip()
 
     fcode = """
-module reg_to_call_imps_mod
+module test_extract_imps_mod
   implicit none
 contains
-  subroutine reg_to_call_imps(a, b)
-    use region_to_call_mod, only: param, arr1, arr2
+  subroutine test_extract_imps(a, b)
+    use extract_mod, only: param, arr1, arr2
     integer, intent(out) :: a(10), b(10)
     integer :: j
 
-!$loki region-to-call
+!$loki extract
     do j=1,10
       a(j) = param
     end do
-!$loki end region-to-call
+!$loki end extract
 
-!$loki region-to-call
+!$loki extract
     do j=1,10
       arr1(j) = j+1
     end do
-!$loki end region-to-call
+!$loki end extract
 
     arr2(:) = arr1(:)
 
-!$loki region-to-call
+!$loki extract
     do j=1,10
       b(j) = arr2(j) - a(j)
     end do
-!$loki end region-to-call
-  end subroutine reg_to_call_imps
-end module reg_to_call_imps_mod
+!$loki end extract
+  end subroutine test_extract_imps
+end module test_extract_imps_mod
 """
     ext_module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     module = Module.from_source(fcode, frontend=frontend, definitions=ext_module, xmods=[tmp_path])
@@ -660,7 +660,7 @@ end module reg_to_call_imps_mod
     assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 0
 
     # Apply transformation
-    routines = region_to_call(module.subroutines[0])
+    routines = extract_marked_subroutines(module.subroutines[0])
 
     assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 1
     assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 3
