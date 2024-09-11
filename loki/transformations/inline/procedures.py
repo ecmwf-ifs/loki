@@ -5,27 +5,19 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-"""
-Collection of utility routines to perform code-level force-inlining.
-
-
-"""
 from collections import defaultdict, ChainMap
 
-from loki.batch import Transformation
 from loki.ir import (
-    Import, Comment, Assignment, VariableDeclaration, CallStatement,
-    Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface,
-    StatementFunction, FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions
+    Import, Comment, VariableDeclaration, CallStatement, Transformer,
+    FindNodes, FindVariables, FindInlineCalls, SubstituteExpressions,
+    pragmas_attached, is_loki_pragma, Interface
 )
-from loki.expression import symbols as sym, LokiIdentityMapper
+from loki.expression import symbols as sym
 from loki.types import BasicType
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import warning, error
 from loki.subroutine import Subroutine
 
-from loki.transformations.remove_code import do_remove_dead_code
 from loki.transformations.sanitise import transform_sequence_association_append_map
 from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update
@@ -33,186 +25,11 @@ from loki.transformations.utilities import (
 
 
 __all__ = [
-    'inline_constant_parameters', 'inline_elemental_functions',
     'inline_internal_procedures', 'inline_member_procedures',
-    'inline_marked_subroutines', 'InlineTransformation',
-    'inline_statement_functions'
+    'inline_marked_subroutines',
+    'resolve_sequence_association_for_inlined_calls'
 ]
 
-
-class InlineTransformation(Transformation):
-    """
-    :any:`Transformation` class to apply several types of source inlining
-    when batch-processing large source trees via the :any:`Scheduler`.
-
-    Parameters
-    ----------
-    inline_constants : bool
-        Replace instances of variables with known constant values by
-        :any:`Literal` (see :any:`inline_constant_parameters`); default: False.
-    inline_elementals : bool
-        Replaces :any:`InlineCall` expression to elemental functions
-        with the called function's body (see :any:`inline_elemental_functions`);
-        default: True.
-    inline_stmt_funcs: bool
-        Replaces  :any:`InlineCall` expression to statement functions
-        with the corresponding rhs of the statement function if
-        the statement function declaration is available; default: False.
-    inline_internals : bool
-        Inline internal procedure (see :any:`inline_internal_procedures`);
-        default: False.
-    inline_marked : bool
-        Inline :any:`Subroutine` objects marked by pragma annotations
-        (see :any:`inline_marked_subroutines`); default: True.
-    remove_dead_code : bool
-        Perform dead code elimination, where unreachable branches are
-        trimmed from the code (see :any:`dead_code_elimination`); default: True
-    allowed_aliases : tuple or list of str or :any:`Expression`, optional
-        List of variables that will not be renamed in the parent scope during
-        internal and pragma-driven inlining.
-    adjust_imports : bool
-        Adjust imports by removing the symbol of the inlined routine or adding
-        imports needed by the imported routine (optional, default: True)
-    external_only : bool, optional
-        Do not replace variables declared in the local scope when
-        inlining constants (default: True)
-    resolve_sequence_association: bool
-        Resolve sequence association for routines that contain calls to inline (default: False)
-    """
-
-    # Ensure correct recursive inlining by traversing from the leaves
-    reverse_traversal = True
-
-    # This transformation will potentially change the edges in the callgraph
-    creates_items = False
-
-    def __init__(
-            self, inline_constants=False, inline_elementals=True,
-            inline_stmt_funcs=False, inline_internals=False,
-            inline_marked=True, remove_dead_code=True,
-            allowed_aliases=None, adjust_imports=True,
-            external_only=True, resolve_sequence_association=False
-    ):
-        self.inline_constants = inline_constants
-        self.inline_elementals = inline_elementals
-        self.inline_stmt_funcs = inline_stmt_funcs
-        self.inline_internals = inline_internals
-        self.inline_marked = inline_marked
-        self.remove_dead_code = remove_dead_code
-        self.allowed_aliases = allowed_aliases
-        self.adjust_imports = adjust_imports
-        self.external_only = external_only
-        self.resolve_sequence_association = resolve_sequence_association
-        if self.inline_marked:
-            self.creates_items = True
-
-    def transform_subroutine(self, routine, **kwargs):
-
-        # Resolve sequence association in calls that are about to be inlined.
-        # This step runs only if all of the following hold:
-        # 1) it is requested by the user
-        # 2) inlining of "internals" or "marked" routines is activated
-        # 3) there is an "internal" or "marked" procedure to inline.
-        if self.resolve_sequence_association:
-            resolve_sequence_association_for_inlined_calls(
-                routine, self.inline_internals, self.inline_marked
-            )
-
-        # Replace constant parameter variables with explicit values
-        if self.inline_constants:
-            inline_constant_parameters(routine, external_only=self.external_only)
-
-        # Inline elemental functions
-        if self.inline_elementals:
-            inline_elemental_functions(routine)
-
-        # Inline Statement Functions
-        if self.inline_stmt_funcs:
-            inline_statement_functions(routine)
-
-        # Inline internal (contained) procedures
-        if self.inline_internals:
-            inline_internal_procedures(routine, allowed_aliases=self.allowed_aliases)
-
-        # Inline explicitly pragma-marked subroutines
-        if self.inline_marked:
-            inline_marked_subroutines(
-                routine, allowed_aliases=self.allowed_aliases,
-                adjust_imports=self.adjust_imports
-            )
-
-        # After inlining, attempt to trim unreachable code paths
-        if self.remove_dead_code:
-            do_remove_dead_code(routine)
-
-
-class InlineSubstitutionMapper(LokiIdentityMapper):
-    """
-    An expression mapper that defines symbolic substitution for inlining.
-    """
-
-    def map_algebraic_leaf(self, expr, *args, **kwargs):
-        raise NotImplementedError
-
-    def map_scalar(self, expr, *args, **kwargs):
-        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-
-        scope = kwargs.get('scope') or expr.scope
-        # We're re-scoping an imported symbol
-        if expr.scope != scope:
-            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent)
-        return expr.clone(parent=parent)
-
-    map_deferred_type_symbol = map_scalar
-
-    def map_array(self, expr, *args, **kwargs):
-        if expr.dimensions:
-            dimensions = self.rec(expr.dimensions, *args, **kwargs)
-        else:
-            dimensions = None
-        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-
-        scope = kwargs.get('scope') or expr.scope
-        # We're re-scoping an imported symbol
-        if expr.scope != scope:
-            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent, dimensions=dimensions)
-        return expr.clone(parent=parent, dimensions=dimensions)
-
-    def map_procedure_symbol(self, expr, *args, **kwargs):
-        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-
-        scope = kwargs.get('scope') or expr.scope
-        # We're re-scoping an imported symbol
-        if expr.scope != scope:
-            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent)
-        return expr.clone(parent=parent)
-
-    def map_inline_call(self, expr, *args, **kwargs):
-        if expr.procedure_type is None or expr.procedure_type is BasicType.DEFERRED:
-            # Unkonw inline call, potentially an intrinsic
-            # We still need to recurse and ensure re-scoping
-            return super().map_inline_call(expr, *args, **kwargs)
-
-        # if it is an inline call to a Statement Function
-        if isinstance(expr.routine, StatementFunction):
-            function = expr.routine
-            # Substitute all arguments through the elemental body
-            arg_map = dict(expr.arg_iter())
-            fbody = SubstituteExpressions(arg_map).visit(function.rhs)
-            return fbody
-
-        function = expr.procedure_type.procedure
-        v_result = [v for v in function.variables if v == function.name][0]
-
-        # Substitute all arguments through the elemental body
-        arg_map = dict(expr.arg_iter())
-        fbody = SubstituteExpressions(arg_map).visit(function.body)
-
-        # Extract the RHS of the final result variable assignment
-        stmts = [s for s in FindNodes(Assignment).visit(fbody) if s.lhs == v_result]
-        assert len(stmts) == 1
-        rhs = self.rec(stmts[0].rhs, *args, **kwargs)
-        return rhs
 
 def resolve_sequence_association_for_inlined_calls(routine, inline_internals, inline_marked):
     """
@@ -243,152 +60,6 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
 
-def inline_constant_parameters(routine, external_only=True):
-    """
-    Replace instances of variables with known constant values by `Literals`.
-
-    Notes
-    -----
-    The ``.type.initial`` property is used to derive the replacement
-    value,a which means for symbols imported from external modules,
-    the parent :any:`Module` needs to be supplied in the
-    ``definitions`` to the constructor when creating the
-    :any:`Subroutine`.
-
-    Variables that are replaced are also removed from their
-    corresponding import statements, with empty import statements
-    being removed alltogether.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-         Procedure in which to inline/resolve constant parameters.
-    external_only : bool, optional
-        Do not replace variables declared in the local scope (default: True)
-    """
-    # Find all variable instances in spec and body
-    variables = FindVariables().visit(routine.ir)
-
-    # Filter out variables declared locally
-    if external_only:
-        variables = [v for v in variables if v not in routine.variables]
-
-    def is_inline_parameter(v):
-        return hasattr(v, 'type') and v.type.parameter and v.type.initial
-
-    # Create mapping for variables and imports
-    vmap = {v: v.type.initial for v in variables if is_inline_parameter(v)}
-
-    # Replace kind parameters in variable types
-    for variable in routine.variables:
-        if is_inline_parameter(variable.type.kind):
-            routine.symbol_attrs[variable.name] = variable.type.clone(kind=variable.type.kind.type.initial)
-        if variable.type.initial is not None:
-            # Substitute kind specifier in literals in initializers (I know...)
-            init_map = {literal.kind: literal.kind.type.initial
-                        for literal in FindLiterals().visit(variable.type.initial)
-                        if is_inline_parameter(literal.kind)}
-            if init_map:
-                initial = SubstituteExpressions(init_map).visit(variable.type.initial)
-                routine.symbol_attrs[variable.name] = variable.type.clone(initial=initial)
-
-    # Update imports
-    imprtmap = {}
-    substituted_names = {v.name.lower() for v in vmap}
-    for imprt in FindNodes(Import).visit(routine.spec):
-        if imprt.symbols:
-            symbols = tuple(s for s in imprt.symbols if s.name.lower() not in substituted_names)
-            if not symbols:
-                imprtmap[imprt] = Comment(f'! Loki: parameters from {imprt.module} inlined')
-            elif len(symbols) < len(imprt.symbols):
-                imprtmap[imprt] = imprt.clone(symbols=symbols)
-
-    # Flush mappings through spec and body
-    routine.spec = Transformer(imprtmap).visit(routine.spec)
-    routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
-    routine.body = SubstituteExpressions(vmap).visit(routine.body)
-
-    # Clean up declarations that are about to become defunct
-    decl_map = {
-        decl: None for decl in routine.declarations
-        if all(isinstance(s, sym.IntLiteral) for s in decl.symbols)
-    }
-    routine.spec = Transformer(decl_map).visit(routine.spec)
-
-
-def inline_elemental_functions(routine):
-    """
-    Replaces `InlineCall` expression to elemental functions with the
-    called functions body. This will attempt to resolve the elemental
-    function into a single expression and perform a direct replacement
-    at expression level.
-
-    Note, that `InlineCall.function.type` is used to determine if a
-    function cal be inlined. For functions imported via module use
-    statements. This implies that the module needs to be provided in
-    the `definitions` argument to the original ``Subroutine`` constructor.
-    """
-
-    # Keep track of removed symbols
-    removed_functions = set()
-
-    exprmap = {}
-    for call in FindInlineCalls().visit(routine.body):
-        if call.procedure_type is BasicType.DEFERRED:
-            continue
-
-        if call.procedure_type.is_function and call.procedure_type.is_elemental:
-            # Map each call to its substitutions, as defined by the
-            # recursive inline substitution mapper
-            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
-
-            # Mark function as removed for later cleanup
-            removed_functions.add(call.procedure_type)
-
-    # Apply expression-level substitution to routine
-    routine.body = SubstituteExpressions(exprmap).visit(routine.body)
-
-    # Remove all module imports that have become obsolete now
-    import_map = {}
-    for im in FindNodes(Import).visit(routine.spec):
-        if im.symbols and all(s.type.dtype in removed_functions for s in im.symbols):
-            import_map[im] = None
-    routine.spec = Transformer(import_map).visit(routine.spec)
-
-def inline_statement_functions(routine):
-    """
-    Replaces :any:`InlineCall` expression to statement functions with the
-    called statement functions rhs.
-    """
-    # Keep track of removed symbols
-    removed_functions = set()
-
-    stmt_func_decls = FindNodes(StatementFunction).visit(routine.spec)
-    exprmap = {}
-    for call in FindInlineCalls().visit(routine.body):
-        proc_type = call.procedure_type
-        if proc_type is BasicType.DEFERRED:
-            continue
-        if proc_type.is_function and isinstance(call.routine, StatementFunction):
-            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
-            removed_functions.add(call.routine)
-    # Apply the map to itself to handle nested statement function calls
-    exprmap = recursive_expression_map_update(exprmap, max_iterations=10, mapper_cls=InlineSubstitutionMapper)
-    # Apply expression-level substitution to routine
-    routine.body = SubstituteExpressions(exprmap).visit(routine.body)
-
-    # remove statement function declarations as well as statement function argument(s) declarations
-    vars_to_remove = {stmt_func.variable.name.lower() for stmt_func in stmt_func_decls}
-    vars_to_remove |= {arg.name.lower() for stmt_func in stmt_func_decls for arg in stmt_func.arguments}
-    spec_map = {stmt_func: None for stmt_func in stmt_func_decls}
-    for decl in routine.declarations:
-        if any(var in vars_to_remove for var in decl.symbols):
-            symbols = tuple(var for var in decl.symbols if var not in vars_to_remove)
-            if symbols:
-                decl._update(symbols=symbols)
-            else:
-                spec_map[decl] = None
-    routine.spec = Transformer(spec_map).visit(routine.spec)
 
 def map_call_to_procedure_body(call, caller):
     """
