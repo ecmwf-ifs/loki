@@ -28,7 +28,7 @@ from loki.transformations.array_indexing import (
 )
 
 
-__all__ = ['region_hoist', 'region_to_call']
+__all__ = ['region_hoist', 'extract_marked_subroutines']
 
 
 def region_hoist(routine):
@@ -124,14 +124,14 @@ def region_hoist(routine):
     promote_nonmatching_variables(routine, promotion_vars_dims, promotion_vars_index)
 
 
-def region_to_call(routine):
+def extract_marked_subroutines(routine):
     """
-    Convert regions annotated with ``!$loki region-to-call`` pragmas to subroutine calls.
+    Convert regions annotated with ``!$loki extract`` pragmas to subroutine calls.
 
 
     The pragma syntax for regions to convert to subroutines is
-    ``!$loki region-to-call [name(...)] [in(...)] [out(...)] [inout(...)]``
-    and ``!$loki end region-to-call``.
+    ``!$loki extract [name(...)] [in(...)] [out(...)] [inout(...)]``
+    and ``!$loki end extract``.
 
     A new subroutine is created with the provided name (or an auto-generated default name
     derived from the current subroutine name) and the content of the pragma region as body.
@@ -155,12 +155,12 @@ def region_to_call(routine):
     with pragma_regions_attached(routine):
         with dataflow_analysis_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
-                if not is_loki_pragma(region.pragma, starts_with='region-to-call'):
+                if not is_loki_pragma(region.pragma, starts_with='extract'):
                     continue
 
                 # Name the external routine
-                parameters = get_pragma_parameters(region.pragma, starts_with='region-to-call')
-                name = parameters.get('name', f'{routine.name}_region_to_call_{counter}')
+                parameters = get_pragma_parameters(region.pragma, starts_with='extract')
+                name = parameters.get('name', f'{routine.name}_extracted_{counter}')
                 counter += 1
 
                 # Create the external subroutine containing the routine's imports and the region's body
