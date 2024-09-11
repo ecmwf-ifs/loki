@@ -561,15 +561,24 @@ class ParallelRoutineDispatchTransformation(Transformation):
         new_arg = region_map[arg.name][1]
         dim = len(new_arg.dimensions)
         #dim = len(new_arg.shape)
-        new_dimensions = (sym.RangeIndex((None, None)),) * (dim-1)
+        if isinstance(arg, Array):
+            if len(arg.dimensions)!=0:
+                new_dimensions = arg.dimensions
+            else:
+                new_dimensions = (sym.RangeIndex((None, None)),) * (dim-1)
+        else:
+            new_dimensions = (sym.RangeIndex((None, None)),) * (dim-1)
         new_dimensions += (self.jblk,)
         return new_arg.clone(dimensions=new_dimensions)
 
-    def update_vars(self, routine, var, region_map):
+    def update_vars(self, routine, var, region_map, scc):
         new_var = region_map[var.name][1]
         if isinstance(var.dimensions[0], sym.RangeIndex):
-            jlon = routine.variable_map['JLON'], 
-            new_dimensions = jlon + var.dimensions[1:]
+            if scc:
+                jlon = routine.variable_map['JLON'], 
+                new_dimensions = jlon + var.dimensions[1:]
+            else:
+                new_dimensions = var.dimensions
         else:
             new_dimensions = var.dimensions
         new_dimensions += (self.jblk,)
@@ -594,13 +603,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         for var in var_not_calls:
             if var.name in region_map_temp:
                 if verbose: print(f"var_temp={var}")
-                new_var = self.update_vars(routine, var, region_map_temp)
+                new_var = self.update_vars(routine, var, region_map_temp, scc)
                 if verbose: print(f"new_var_temp={new_var}")
                 var_map[var] = new_var
 #                var._update(name=new_var.name, dimensions=new_var.dimensions)
             elif var.name in region_map_derived:
                 if verbose: print(f"var_derived={var}")
-                new_var = self.update_vars(routine, var, region_map_derived)
+                new_var = self.update_vars(routine, var, region_map_derived, scc)
                 if verbose: print(f"new_var_derived={new_var}")
                 var_map[var] = new_var
       
