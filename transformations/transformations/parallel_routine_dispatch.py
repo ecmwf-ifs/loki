@@ -448,7 +448,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
        
         sync_data = [dr_hook_calls[0]]
 
-        for var in chain(region_map_temp.values(), region_map_derived.values()):
+        var_to_sync = [var for var in chain(region_map_temp.values(), region_map_derived.values())]
+        var_to_sync_sorted = sorted(var_to_sync, key=lambda X: X[1].name)
+
+        for var in var_to_sync_sorted:
             if is_get_data:
                 if not self.is_intent : 
                     intent = "RDWR"
