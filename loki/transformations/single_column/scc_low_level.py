@@ -30,6 +30,7 @@ from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
+from loki.transformations.array_indexing import LowerConstantArrayIndices
 
 __all__ = [
         'SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
@@ -58,6 +59,7 @@ class InlineTransformation(Transformation):
 
 SCCLowLevelCuf = partial(
     Pipeline, classes=(
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -137,6 +139,7 @@ mode: str
 
 SCCLowLevelCufParametrise = partial(
     Pipeline, classes=(
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -196,6 +199,7 @@ dic2p: dict
 
 SCCLowLevelCufHoist = partial(
     Pipeline, classes=(
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -259,6 +263,7 @@ SCCLowLevelParametrise = partial(
         GlobalVariableAnalysis,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -355,6 +360,7 @@ SCCLowLevelHoist = partial(
         GlobalVariableAnalysis,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
