@@ -156,7 +156,7 @@ def extract_internal_procedure(procedure, name):
     # Produce kinds appearing in `vars_to_resolve` or in `inner.spec` that need to be resolved
     # from imports of `procedure`.
     kind_imports_to_add = tuple(v.type.kind for v in vars_to_resolve + inner_spec_vars \
-        if v.type.kind and v.type.kind.scope is procedure)
+        if v.type.kind and hasattr(v.type.kind, 'scope') and v.type.kind.scope is procedure)
 
     # Produce all imports to add.
     # Here the imports are also tidied to only import what is strictly necessary, and with single

@@ -336,7 +336,7 @@ def test_extract_internal_procedures_kind_resolution(frontend):
             contains
             subroutine inner()
                 integer(kind = jpim) :: y
-                integer :: z
+                integer(kind=8) :: z
                 z = y
             end subroutine inner
         end subroutine outer
