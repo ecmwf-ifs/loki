@@ -10,6 +10,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from codetiming import Timer
 
+#from loki.backend.fgen import fgen
 from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
@@ -22,7 +23,8 @@ __all__ = [
     'is_loki_pragma', 'get_pragma_parameters', 'process_dimension_pragmas',
     'attach_pragmas', 'detach_pragmas',
     'pragmas_attached', 'attach_pragma_regions', 'detach_pragma_regions',
-    'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher'
+    'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher',
+    'SubstitutePragmaStrings'
 ]
 
 
@@ -664,3 +666,29 @@ def pragma_regions_attached(module_or_routine):
             module_or_routine.spec = detach_pragma_regions(module_or_routine.spec)
         if hasattr(module_or_routine, 'body'):
             module_or_routine.body = detach_pragma_regions(module_or_routine.body)
+
+
+class SubstitutePragmaStrings(Transformer):
+
+    _sanitise_map = {
+        r'(': r'\(',
+        r')': r'\)'
+    }
+
+    def __init__(self, str_map, **kwargs):
+        super().__init__(inplace=True, **kwargs)
+
+        def _sanitise(k):
+            for _k, _v in self._sanitise_map.items():
+                k = k.replace(_k, _v)
+            return k
+
+        self.str_map = {_sanitise(k): v for k, v in str_map.items()}
+
+    def visit_Pragma(self, o, **kwargs):
+        _content = o.content
+        for k, v in self.str_map.items():
+            _content = re.sub(k, v, _content, flags=re.IGNORECASE)
+
+        o._update(content=_content)
+        return self.visit_Node(o, **kwargs)
