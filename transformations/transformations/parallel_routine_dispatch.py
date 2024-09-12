@@ -636,11 +636,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
         else:
             lcpg_bnds =  map_routine['lcpg_bnds']
             for loop in FindNodes(ir.Loop).visit(region.body):
-                    lower_bound = routine.resolve_typebound_var(f"{lcpg_bnds}%KIDIA")
-                    upper_bound = routine.resolve_typebound_var(f"{lcpg_bnds}%KFDIA")
-                    new_bounds = sym.LoopRange((lower_bound, upper_bound))
-                    new_loop = loop.clone(bounds=new_bounds)
-                    loop_map[loop] = new_loop
+                    if loop.variable.name == "JLON":
+                        lower_bound = routine.resolve_typebound_var(f"{lcpg_bnds}%KIDIA")
+                        upper_bound = routine.resolve_typebound_var(f"{lcpg_bnds}%KFDIA")
+                        new_bounds = sym.LoopRange((lower_bound, upper_bound))
+                        new_loop = loop.clone(bounds=new_bounds)
+                        loop_map[loop] = new_loop
+                    #else:
+                    #    loop_map[loop] = loop
 #         new_region_body=Transformer(loop_map).visit(new_region_body)
 
 
