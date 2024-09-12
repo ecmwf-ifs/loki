@@ -502,22 +502,22 @@ end module test_get_local_arrays_mod
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path], definitions=(global_mod,))
     routine = module['test_get_local_arrays']
 
-    locals = get_local_arrays(routine, routine.body, unique=True)
-    assert len(locals) == 1
-    assert locals[0] == 'local(i)'
+    local_arrs = get_local_arrays(routine, routine.body, unique=True)
+    assert len(local_arrs) == 1
+    assert local_arrs[0] == 'local(i)'
 
-    locals = get_local_arrays(routine, routine.body, unique=False)
-    assert len(locals) == 2
-    assert all(l == 'local(i)' for l in locals)
+    local_arrs = get_local_arrays(routine, routine.body, unique=False)
+    assert len(local_arrs) == 2
+    assert all(l == 'local(i)' for l in local_arrs)
 
-    locals = get_local_arrays(routine, routine.body.body[-1:], unique=False)
-    assert len(locals) == 1
-    assert locals[0] == 'local(i)'
+    local_arrs = get_local_arrays(routine, routine.body.body[-1:], unique=False)
+    assert len(local_arrs) == 1
+    assert local_arrs[0] == 'local(i)'
 
     # Test for component arrays on arguments in spec
-    locals = get_local_arrays(routine, routine.spec, unique=True)
-    assert len(locals) == 1
-    assert locals[0] == 'local(n)'
+    local_arrs = get_local_arrays(routine, routine.spec, unique=True)
+    assert len(local_arrs) == 1
+    assert local_arrs[0] == 'local(n)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
