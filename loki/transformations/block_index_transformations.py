@@ -176,8 +176,9 @@ class BlockViewToFieldViewTransformation(Transformation):
         """
 
         for child in successors:
-            child.ir.enrich(definitions)
-            child.trafo_data.update({key: {'definitions': definitions}})
+            if isinstance(child, ProcedureItem):
+                child.ir.enrich(definitions)
+                child.trafo_data.update({key: {'definitions': definitions}})
 
     def process_driver(self, routine, successors):
 
