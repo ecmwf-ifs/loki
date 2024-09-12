@@ -10,3 +10,4 @@ source-code extraction into standalone :any:`Subroutine` objects.
 """
 
 from loki.transformations.extract.internal import * # noqa
+from loki.transformations.extract.marked import * # noqa
