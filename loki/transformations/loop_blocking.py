@@ -1,15 +1,22 @@
 # (C) Copyright 2018- ECMWF.
-# This software is licensed under the terms of the Apache Licence Version 2.0
-# which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
+# This software is licensed under the terms of the Apache Licence Version 2.0 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from dataclasses import dataclass
+from enum import Enum
+from itertools import chain
+from idlelib.pyparse import trans
+
 from loki.batch import Transformation
-from loki.ir import nodes as ir, Transformer
+from loki.ir import nodes as ir, Transformer, pragmas_attached, FindNodes
 from loki.subroutine import Subroutine
 from loki.expression import symbols as sym, parse_expr, FindVariables, \
     SubstituteExpressions, ceil_division, iteration_index
+from loki.tools import as_tuple
+from loki.transformations.utilities import find_driver_loops
+from loki.analyse import dataflow_analysis_attached, read_after_write_vars
 
 __all__ = ['split_loop', 'block_loop_arrays']
 
@@ -70,6 +77,14 @@ class LoopSplittingVariables:
     @property
     def splitting_vars(self):
         return self._splitting_vars
+
+
+@dataclass
+class LoopSplitInfo:
+    splitting_vars: LoopSplittingVariables
+    inner_loop: ir.Loop
+    outer_loop: ir.Loop
+    # def __init__(self, splitting_vars: LoopSplittingVariables, inner_loop: ir.Loop, outer_loop: ir.Loop):
 
 
 def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
@@ -245,36 +260,189 @@ def block_loop_arrays(routine: Subroutine, splitting_vars, inner_loop: ir.Loop,
     Transformer(change_map, inplace=True).visit(outer_loop)
 
 
-def get_field_type(a: sym.Array):
+def get_field_type(a: sym.Array) -> sym.DerivedType:
     """
     Returns the corresponding FIELD API type for an array.
 
     This transformation is IFS specific and assumes that the
     type is an array declared with one of the IFS type specifiers, e.g. KIND=JPRB
     """
+    type_map = ["jprb",
+                "jpit",
+                "jpis",
+                "jpim",
+                "jpib",
+                "jpia",
+                "jprt",
+                "jprs",
+                "jprm",
+                "jprd",
+                "jplm"]
 
-
-    field_type = sym.DerivedType(name="type_name")
+    type_name = a.type.kind.name
+    assert type_name.lower() in type_map, ('Error array type kind is: '
+                                           f'"{type_name}" which is not a valid IFS type specifier')
+    rank = len(a.shape)
+    field_type = sym.DerivedType(name="field_" + str(rank) + type_name[2:4])
     return field_type
 
 
+def field_new(field_ptr, data, scope):
+    return ir.CallStatement(sym.ProcedureSymbol('FIELD_NEW', scope=scope),
+                            (field_ptr,), (('DATA', data),))
+
+
+def field_delete(field_ptr, scope):
+    return ir.CallStatement(sym.ProcedureSymbol('FIELD_DELETE', scope=scope),
+                            (field_ptr,))
+
+
+class FieldAPITransferType(Enum):
+    READ_ONLY = 1
+    READ_WRITE = 2
+    WRITE_ONLY = 3
+
+
+def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: ir.Scope):
+    assert isinstance(transfer_type, FieldAPITransferType)
+    if transfer_type == FieldAPITransferType.READ_ONLY:
+        suffix = 'RDONLY'
+    if transfer_type == FieldAPITransferType.READ_WRITE:
+        suffix = 'RDWR'
+    if transfer_type == FieldAPITransferType.WRITE_ONLY:
+        suffix = 'WRONLY'
+    procedure_name = 'GET_DEVICE_DATA_' + suffix
+    return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+                            (dev_ptr,))
+
+
+def field_sync_host(field_ptr, scope):
+    procedure_name = 'SYNC_HOST_RDWR'
+    return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), ())
+
+
 class LoopBlockFieldAPITransformation(Transformation):
-    def __init__(self, block_size=40):
-        self.inner_loop = None
-        self.outer_loop = None
-        self.splitting_vars = None
+    def __init__(self, block_size=40, blocking_indices=None):
         self.block_size = block_size
+        self.block_suffix = '_block_ptr'
+        self.field_block_suffix = '_field_block_ptr'
+        self.blocking_indices = ('jbl',) if blocking_indices is None else blocking_indices
+
+    def _field_ptr_from_array(self, a: sym.Array) -> sym.Variable:
+        """
+        Returns a pointer :any:`Variable` pointing to a FIELD with types matching the array.
+        """
+
+        field_ptr_type = sym.SymbolAttributes(get_field_type(a), polymorphic=True, pointer=True,
+                                              intent=None, initial="NULL()")
+        field_ptr = sym.Variable(name=a.name + self.field_block_suffix, type=field_ptr_type)
+        return field_ptr
+
+    def _block_ptr_from_array(self, a: sym.Array) -> sym.Variable:
+        """
+        Returns a contiguous pointer :any:`Variable` with types matching the array a
+        """
+        shape = (sym.RangeIndex((None, None)),) * len(a.shape)
+        block_ptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
+        block_ptr = sym.Variable(name=a.name + self.block_suffix, type=block_ptr_type,
+                                 dimensions=shape)
+        return block_ptr
+
+    def _insert_fields(self, routine, splitting_vars, inner_loop, outer_loop):
+        """
+        Replaces arrays inside the inner loop with FIELD api fields
+
+        This routine declares field object pointers to hold the blocks of the arrays used inside
+        the loop and replaces array variables inside the loop with their blocked counterparts.
+        An array is blocked with the leading dimensions
+
+        """
+
+        # Field API pointer and device pointer variables
+        blocking_arrays = tuple(var for var in FindVariables().visit(inner_loop.body) if
+                                isinstance(var, sym.Array) and any(
+                                    bi in var for bi in self.blocking_indices))
+
+        field_pointers = tuple(self._field_ptr_from_array(a) for a in blocking_arrays)
+        routine.variables += field_pointers
+        block_pointers = tuple(self._block_ptr_from_array(a) for a in blocking_arrays)
+        routine.variables += block_pointers
+
+        field_ptr_map = dict(zip(blocking_arrays, field_pointers))
+        block_ptr_map = dict(zip(blocking_arrays, block_pointers))
+
+        block_range = sym.RangeIndex(
+            (splitting_vars.block_start, splitting_vars.block_end))
+
+        # Field creation/updates
+        field_updates = tuple(field_new(block_ptr_map[a],
+                                        a.clone(dimensions=replace_indices(a.dimensions,
+                                                                           self.blocking_indices,
+                                                                           block_range)),
+                                        routine) for a in blocking_arrays)
+
+        # # memory copies
+        # should be replaced by a proper data flow analysis in the future
+        in_vars = tuple(a for a in blocking_arrays if a.type.intent == 'in')
+        inout_vars = tuple(a for a in blocking_arrays if a.type.intent == 'inout')
+        out_vars = tuple(a for a in blocking_arrays if a.type.intent == 'out')
+
+        # FIELD API host to device transfers
+        host_to_device = tuple(field_get_device_data(field_ptr_map[var], block_ptr_map[var],
+                                                     FieldAPITransferType.READ_ONLY, routine)
+                               for var in in_vars)
+        host_to_device += tuple(field_get_device_data(field_ptr_map[var], block_ptr_map[var],
+                                                 FieldAPITransferType.READ_WRITE, routine)
+                           for var in inout_vars)
+        host_to_device += tuple(field_get_device_data(field_ptr_map[var], block_ptr_map[var],
+                                                 FieldAPITransferType.WRITE_ONLY, routine)
+                           for var in out_vars)
+
+        device_to_host = tuple(
+            field_sync_host(field_ptr_map[var], routine) for var in  chain(inout_vars, out_vars))
+        field_deletes = tuple(field_delete(field_ptr_map[var], routine) for var in blocking_arrays)
+
+        change_map = {inner_loop: field_updates + host_to_device + (
+        inner_loop,)+ device_to_host + field_deletes}
+        Transformer(change_map, inplace=True).visit(outer_loop)
+
+        # Replace arrays in loop with blocked arrays and update idx
+        block_array_expr = (
+            a.clone(name=block_ptr_map[a].name,
+                    dimensions=replace_indices(a.dimensions, self.blocking_indices,
+                                               inner_loop.variable))
+            for a in blocking_arrays
+        )
+        SubstituteExpressions(dict(zip(blocking_arrays, block_array_expr)), inplace=True).visit(
+            inner_loop.body)
 
     def transform_subroutine(self, routine, **kwargs):
-        self.splitting_vars, self.inner_loop, self.outer_loop = split_loop(routine, kwargs["loop"],
-                                                                           self.block_size)
-        for var in FindVariables().visit(self.inner_loop.body):
-            if (isinstance(var, sym.Array)):
-                print(type(var))
-                print(var.type.kind)
-                print(type(var.type.kind))
-                print(get_field_type(var))
+        # self.splitting_vars, self.inner_loop, self.outer_loop = split_loop(routine, kwargs['loop'],
+        #                                                                   self.block_size)
+        role = kwargs['role']
+        targets = as_tuple(kwargs.get('targets'))
+        if role == 'kernel':
+            self.process_kernel(routine)
+        if role == 'driver':
+            self.process_driver(routine, targets)
 
+    def process_kernel(self, routine):
+        pass
 
-class OutlineIFSPARKIND1Transformation(Transformation):
-    pass
+    def process_driver(self, routine, targets=None):
+        with pragmas_attached(routine, ir.Loop):
+            driver_loops = find_driver_loops(routine, targets)
+
+        # filter and split driver loops
+        splitting_loops = self.find_splitting_loops(driver_loops, routine, targets)
+        split_loops = ((split_loop(routine, loop, self.block_size)) for loop in
+                       splitting_loops)
+
+        # insert Field API objects in driver
+        for splitting_vars, inner_loop, outer_loop in split_loops:
+            self._insert_fields(routine, splitting_vars, inner_loop, outer_loop)
+
+    def find_splitting_loops(self, driver_loops, routine, targets):
+        # some logic to filter splitting loops (e.g. if loop splitting variable is used)
+        assert self.block_suffix != self.field_block_suffix, "ASSERT TO PREVENT LSP CODE CHECK WARNINGS"
+        return driver_loops

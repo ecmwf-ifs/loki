@@ -4,20 +4,22 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
-
+from pathlib import Path
 
 import pytest
 import numpy as np
 
-from loki import available_frontends, Subroutine, pragmas_attached, find_driver_loops, Loop, fgen, \
-   ir, FindNodes, jit_compile, clean_test, FindVariables, Array
-from loki.transformations.loop_blocking import split_loop, block_loop_arrays, LoopBlockFieldAPITransformation
-
+from loki import available_frontends, OMNI, Subroutine, pragmas_attached, find_driver_loops, Loop, \
+    fgen, \
+    ir, FindNodes, jit_compile, clean_test, FindVariables, Array, Scheduler
+from loki.transformations.loop_blocking import split_loop, block_loop_arrays, \
+    LoopBlockFieldAPITransformation
 
 """
 Splitting tests. These tests check that loop
 """
 LOKI_LOOP_SLIT_VAR_ADDITION = 7
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_size', [10, 117])
@@ -156,15 +158,14 @@ def test_2d_splitting(tmp_path, frontend, block_size, n):
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     a = np.zeros(n, order='F')
-    b = np.zeros((n,n), order='F')
+    b = np.zeros((n, n), order='F')
     function(a, b, n)
     a_ref = np.linspace(1, n, n)
-    b_ref = np.tile(a_ref, (n,1))
+    b_ref = np.tile(a_ref, (n, 1))
     assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
     assert np.array_equal(b, b_ref), "b should equal b_ref"
 
     clean_test(filepath)
-
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -206,12 +207,12 @@ def test_3d_splitting(tmp_path, frontend, block_size, n):
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     a = np.zeros(n, order='F')
-    b = np.zeros((2,n), order='F')
-    c = np.zeros((2,2,n), order='F')
+    b = np.zeros((2, n), order='F')
+    c = np.zeros((2, 2, n), order='F')
     function(a, b, c, n)
     a_ref = np.linspace(1, n, n)
     b_ref = np.tile(a_ref, (2, 1))
-    c_ref = np.tile(a_ref, (2,2,1))
+    c_ref = np.tile(a_ref, (2, 2, 1))
     assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
     assert np.array_equal(b, b_ref), "b should equal b_ref"
     assert np.array_equal(c, c_ref), "c should equal c_ref"
@@ -227,6 +228,7 @@ Tests that variables are correctly blocked, and that blocked loops produce
 the correct output.
 --------------------------------------------------------------------------------
 """
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_size', [117])
@@ -272,7 +274,7 @@ end subroutine test_1d_blocking
             for idx in blocking_indices:
                 assert idx not in var.dimensions, "The variable should be blocked and the local variable used"
 
-    assert len(routine.variable_map) == num_vars+1, "Expected 1 loop blocking to be added"
+    assert len(routine.variable_map) == num_vars + 1, "Expected 1 loop blocking to be added"
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
@@ -322,18 +324,16 @@ end subroutine test_1d_blocking_multi_intent
     assert len(
         routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
 
-
     num_vars = len(routine.variable_map)
     blocking_indices = ['i']
     block_loop_arrays(routine, splitting_vars, inner_loop, outer_loop, blocking_indices)
 
-    assert len(routine.variable_map) == num_vars+2, "Expected 2 loop blocking to be added"
+    assert len(routine.variable_map) == num_vars + 2, "Expected 2 loop blocking to be added"
     for var in FindVariables().visit(inner_loop.body):
         if isinstance(var, Array):
             for idx in blocking_indices:
                 assert idx not in var.dimensions, "The variable should be blocked and the local variable used"
     block_loop_arrays(routine, splitting_vars, inner_loop, outer_loop, blocking_indices=['i'])
-
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
@@ -341,7 +341,7 @@ end subroutine test_1d_blocking_multi_intent
     a = np.linspace(1, n, n)
     b = np.ones(n, order='F')
     a_ref = np.linspace(1, n, n)
-    b_ref = b + a*a
+    b_ref = b + a * a
     function(a, b, n)
     assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
     assert np.array_equal(b, b_ref), "b should equal to (2, 5, ..., 1 + n^2)"
@@ -397,15 +397,14 @@ def test_2d_blocking(tmp_path, frontend, block_size, n):
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     a = np.zeros(n, order='F')
-    b = np.zeros((n,n), order='F')
+    b = np.zeros((n, n), order='F')
     function(a, b, n)
     a_ref = np.linspace(1, n, n)
-    b_ref = np.tile(a_ref, (n,1))
+    b_ref = np.tile(a_ref, (n, 1))
     assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
     assert np.array_equal(b, b_ref), "b[:,1] should equal a and a_ref"
 
     clean_test(filepath)
-
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -456,14 +455,13 @@ def test_3d_blocking(tmp_path, frontend, block_size, n):
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
-
     a = np.zeros(n, order='F')
-    b = np.zeros((2,n), order='F')
-    c = np.zeros((2,2,n), order='F')
+    b = np.zeros((2, n), order='F')
+    c = np.zeros((2, 2, n), order='F')
     function(a, b, c, n)
     a_ref = np.linspace(1, n, n)
     b_ref = np.tile(a_ref, (2, 1))
-    c_ref = np.tile(a_ref, (2,2,1))
+    c_ref = np.tile(a_ref, (2, 2, 1))
     assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
     assert np.array_equal(b, b_ref), "b should equal b_ref"
     assert np.array_equal(c, c_ref), "c should equal c_ref"
@@ -481,59 +479,63 @@ the correct output.
 """
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, "OMNI inlines type required type definitions")]))
 @pytest.mark.parametrize('block_size', [117])
 @pytest.mark.parametrize('n', [500])
-def test_1d_field_blocking(tmp_path, frontend, block_size, n):
+def test_field_blocking(tmp_path, frontend, block_size, n):
     """
     Apply loop blocking of simple loops into two loops
     """
-    fcode = """
-subroutine test_1d_field_blocking(a, b, n)
-  INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(6,37)
-  integer, intent(in) :: n
-  real(kind=JPRB), intent(inout) :: a(n)
-  real(kind=JPRB), intent(inout) :: b(n)
-  integer :: i
-  !$loki driver-loop
-  do i=1,n
-    a(i) = real(i)
-  end do
-end subroutine test_1d_field_blocking
-    """
-#     expected_code = """
-# subroutine test_1d_field_blocking(a, b, n)
-#   integer, intent(in) :: n
-#   real(kind=jprb), intent(inout) :: a(n)
-#   real(kind=jprb), intent(inout) :: b(n)
-#   integer :: i
-#
-#   class(field_1rb), pointer :: a_field_block
-#   real(kind=jprb), pointer, contiguous, dimension(:) :: a_block
-#
-#   !$loki driver-loop
-#   do i=1,n
-#
-#     call field_new(a_field_block, data=a(block_start:block_end))
-#     call pt_field_block%get_device_data_rdonly(pt_block)
-#
-#     !$acc data present(pt_block)
-#     DO
-#     a_block(i) = real(i)
-#     end do
-#     !$acc end data
-#     call a_field_block%sync_host_rdwr()
-#     call field_delete(a_field_block)
-#
-#   end do
-# end subroutine test_1d_blocking
-#     """
+    project_path = Path(__file__).parent / "sources/projDoubleBlocking"
+    config = {
+        'default': {
+            # 'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'enable_imports': True,
+            'ignore': 'parkind1'
+        },
+        'routines': {
+            'driver_colsum': {'role': 'driver', 'expand': True},
+        #    'kernel_colsum': {'role': 'kernel', 'expand': True}
+        }
+    }
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    loops = FindNodes(ir.Loop).visit(routine.ir)
-    with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
-                                  targets=None)
+    scheduler = Scheduler(paths=[project_path],
+                          config=config,
+                          # config={},
+                          # seed_routines=["driver_colsum"],
+                          frontend=frontend,
+                          xmods=[tmp_path])
+    # scheduler.callgraph("/Users/ecm2953/code/loki/debug_and_trash/callgraph")
+    # print(scheduler.file_graph.items)
+    # print(scheduler.items)
+    driver = scheduler["driver_mod#driver_colsum"]
+    from loki import pprint, fgen
+    print(f"{pprint(driver.ir)}")
 
-    blocking_transformer = LoopBlockFieldAPITransformation()
-    blocking_transformer.apply(routine, loop=loops[0])
+    # loops = FindNodes(Loop).visit(driver.ir.body)
+    # print(loops)
+    # print(f"{pprint(loops[0].body)}")
+    # routines = FindNodes(Subroutine).visit(loops[0])
+    # print("routines:", routines)
+
+
+    blocking_transformation = LoopBlockFieldAPITransformation(blocking_indices=['j'])
+    scheduler.process(transformation=blocking_transformation)
+
+    print(4*'\n' + 'DRIVER CODE AFTER TRANSFORMATIONS')
+    print(f"{pprint(driver.ir)}")
+    print(f"{fgen(driver.ir)}")
+
+    # routine = Subroutine.from_source(fcode, frontend=frontend)
+    # loops = FindNodes(ir.Loop).visit(routine.ir)
+    # with pragmas_attached(routine, Loop):
+    #     loops = find_driver_loops(routine,
+    #                               targets=None)
+
+    # blocking_transformer = LoopBlockFieldAPITransformation()
+    # blocking_transformer.apply(routine, loop=loops[0])
+
