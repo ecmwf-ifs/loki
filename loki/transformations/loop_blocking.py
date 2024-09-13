@@ -328,6 +328,37 @@ class LoopBlockFieldAPITransformation(Transformation):
         self.field_block_suffix = '_field_block_ptr'
         self.blocking_indices = ('jbl',) if blocking_indices is None else blocking_indices
 
+    def transform_subroutine(self, routine, **kwargs):
+        # self.splitting_vars, self.inner_loop, self.outer_loop = split_loop(routine, kwargs['loop'],
+        #                                                                   self.block_size)
+        role = kwargs['role']
+        targets = as_tuple(kwargs.get('targets'))
+        if role == 'kernel':
+            self.process_kernel(routine)
+        if role == 'driver':
+            self.process_driver(routine, targets)
+
+    def process_kernel(self, routine):
+        pass
+
+    def process_driver(self, routine, targets=None):
+        with pragmas_attached(routine, ir.Loop):
+            driver_loops = find_driver_loops(routine, targets)
+
+        # filter and split driver loops
+        splitting_loops = self.find_splitting_loops(driver_loops, routine, targets)
+        split_loops = ((split_loop(routine, loop, self.block_size)) for loop in
+                       splitting_loops)
+
+        # insert Field API objects in driver
+        for splitting_vars, inner_loop, outer_loop in split_loops:
+            self._insert_fields(routine, splitting_vars, inner_loop, outer_loop)
+
+    def find_splitting_loops(self, driver_loops, routine, targets):
+        # some logic to filter splitting loops (e.g. if loop splitting variable is used)
+        assert self.block_suffix != self.field_block_suffix, "ASSERT TO PREVENT LSP CODE CHECK WARNINGS"
+        return driver_loops
+
     def _field_ptr_from_array(self, a: sym.Array) -> sym.Variable:
         """
         Returns a pointer :any:`Variable` pointing to a FIELD with types matching the array.
@@ -416,33 +447,3 @@ class LoopBlockFieldAPITransformation(Transformation):
         SubstituteExpressions(dict(zip(blocking_arrays, block_array_expr)), inplace=True).visit(
             inner_loop.body)
 
-    def transform_subroutine(self, routine, **kwargs):
-        # self.splitting_vars, self.inner_loop, self.outer_loop = split_loop(routine, kwargs['loop'],
-        #                                                                   self.block_size)
-        role = kwargs['role']
-        targets = as_tuple(kwargs.get('targets'))
-        if role == 'kernel':
-            self.process_kernel(routine)
-        if role == 'driver':
-            self.process_driver(routine, targets)
-
-    def process_kernel(self, routine):
-        pass
-
-    def process_driver(self, routine, targets=None):
-        with pragmas_attached(routine, ir.Loop):
-            driver_loops = find_driver_loops(routine, targets)
-
-        # filter and split driver loops
-        splitting_loops = self.find_splitting_loops(driver_loops, routine, targets)
-        split_loops = ((split_loop(routine, loop, self.block_size)) for loop in
-                       splitting_loops)
-
-        # insert Field API objects in driver
-        for splitting_vars, inner_loop, outer_loop in split_loops:
-            self._insert_fields(routine, splitting_vars, inner_loop, outer_loop)
-
-    def find_splitting_loops(self, driver_loops, routine, targets):
-        # some logic to filter splitting loops (e.g. if loop splitting variable is used)
-        assert self.block_suffix != self.field_block_suffix, "ASSERT TO PREVENT LSP CODE CHECK WARNINGS"
-        return driver_loops
