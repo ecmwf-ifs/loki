@@ -9,6 +9,7 @@ from enum import Enum
 from itertools import chain
 from idlelib.pyparse import trans
 
+from loki.analyse.analyse_dataflow import FindReads
 from loki.batch import Transformation
 from loki.ir import nodes as ir, Transformer, pragmas_attached, FindNodes
 from loki.subroutine import Subroutine
@@ -260,6 +261,21 @@ def block_loop_arrays(routine: Subroutine, splitting_vars, inner_loop: ir.Loop,
     Transformer(change_map, inplace=True).visit(outer_loop)
 
 
+
+
+def find_alternate_idx(loop: ir.Loop, routine):
+    loop_variable = loop.variable
+    assignment_nodes = FindNodes(ir.Assignment).visit(loop.body)
+    for an in assignment_nodes:
+        if isinstance(an.rhs, sym.InlineCall):
+            print("something")
+        else:
+            rhs = an.rhs
+        print(type(rhs))
+        if loop.variable in rhs:
+            print(f'loop variable: "{loop.variable}" is in assignment expression {an.rhs}')
+
+
 def get_field_type(a: sym.Array) -> sym.DerivedType:
     """
     Returns the corresponding FIELD API type for an array.
@@ -268,8 +284,7 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
     type is an array declared with one of the IFS type specifiers, e.g. KIND=JPRB
     """
     type_map = ["jprb",
-                "jpit",
-                "jpis",
+                "jpit", "jpis",
                 "jpim",
                 "jpib",
                 "jpia",
@@ -323,7 +338,7 @@ def field_sync_host(field_ptr, scope):
 
 class LoopBlockFieldAPITransformation(Transformation):
     def __init__(self, block_size=40, blocking_indices=None):
-        self.block_size = block_size
+        self.block_size = block_size            # TODO: this should really be a constant that can be set at compile time
         self.block_suffix = '_block_ptr'
         self.field_block_suffix = '_field_block_ptr'
         self.blocking_indices = ('jbl',) if blocking_indices is None else blocking_indices
@@ -351,8 +366,10 @@ class LoopBlockFieldAPITransformation(Transformation):
                        splitting_loops)
 
         # insert Field API objects in driver
+        # TODO: ADD FIELD MODULE IMPORTS TO DRIVER
         for splitting_vars, inner_loop, outer_loop in split_loops:
-            self._insert_fields(routine, splitting_vars, inner_loop, outer_loop)
+            field_ptr_map, block_ptr_map = self._insert_fields(routine, splitting_vars, inner_loop, outer_loop)
+            self._insert_acc_data_pragmas(inner_loop, outer_loop, block_ptr_map)
 
     def find_splitting_loops(self, driver_loops, routine, targets):
         # some logic to filter splitting loops (e.g. if loop splitting variable is used)
@@ -423,18 +440,18 @@ class LoopBlockFieldAPITransformation(Transformation):
                                                      FieldAPITransferType.READ_ONLY, routine)
                                for var in in_vars)
         host_to_device += tuple(field_get_device_data(field_ptr_map[var], block_ptr_map[var],
-                                                 FieldAPITransferType.READ_WRITE, routine)
-                           for var in inout_vars)
+                                                      FieldAPITransferType.READ_WRITE, routine)
+                                for var in inout_vars)
         host_to_device += tuple(field_get_device_data(field_ptr_map[var], block_ptr_map[var],
-                                                 FieldAPITransferType.WRITE_ONLY, routine)
-                           for var in out_vars)
+                                                      FieldAPITransferType.WRITE_ONLY, routine)
+                                for var in out_vars)
 
         device_to_host = tuple(
-            field_sync_host(field_ptr_map[var], routine) for var in  chain(inout_vars, out_vars))
+            field_sync_host(field_ptr_map[var], routine) for var in chain(inout_vars, out_vars))
         field_deletes = tuple(field_delete(field_ptr_map[var], routine) for var in blocking_arrays)
 
         change_map = {inner_loop: field_updates + host_to_device + (
-        inner_loop,)+ device_to_host + field_deletes}
+            inner_loop,) + device_to_host + field_deletes}
         Transformer(change_map, inplace=True).visit(outer_loop)
 
         # Replace arrays in loop with blocked arrays and update idx
@@ -446,4 +463,21 @@ class LoopBlockFieldAPITransformation(Transformation):
         )
         SubstituteExpressions(dict(zip(blocking_arrays, block_array_expr)), inplace=True).visit(
             inner_loop.body)
+        
+        return field_ptr_map, block_ptr_map
+
+    def _insert_acc_data_pragmas(self, inner_loop, outer_loop, block_ptr_map):
+        non_blocked_vars = tuple(
+                var for var in FindVariables().visit(inner_loop.body) if var is not block_ptr_map)
+
+        acc_copyins = ir.Pragma(keyword='acc',
+                                content=f'data copyin({", ".join(v.name for v in non_blocked_vars)})')
+        acc_present = ir.Pragma(keyword='acc',
+                                content=f'data present({", ".join(v.name for v in block_ptr_map.values())})')
+        # acc_data_start = (ir.Pragma(keyword='acc', content='data'), acc_copyins, acc_present)
+        acc_data_start = (acc_copyins, acc_present)
+        acc_data_end = (ir.Pragma(keyword='acc', content='data end'),)
+        
+        change_map = {inner_loop: acc_data_start + (inner_loop,) + acc_data_end}
+        Transformer(change_map, inplace=True).visit(outer_loop)
 

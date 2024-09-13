@@ -13,7 +13,7 @@ from loki import available_frontends, OMNI, Subroutine, pragmas_attached, find_d
     fgen, \
     ir, FindNodes, jit_compile, clean_test, FindVariables, Array, Scheduler
 from loki.transformations.loop_blocking import split_loop, block_loop_arrays, \
-    LoopBlockFieldAPITransformation
+    LoopBlockFieldAPITransformation, find_alternate_idx
 
 """
 Splitting tests. These tests check that loop
@@ -509,18 +509,10 @@ def test_field_blocking(tmp_path, frontend, block_size, n):
                           # seed_routines=["driver_colsum"],
                           frontend=frontend,
                           xmods=[tmp_path])
-    # scheduler.callgraph("/Users/ecm2953/code/loki/debug_and_trash/callgraph")
-    # print(scheduler.file_graph.items)
-    # print(scheduler.items)
+
     driver = scheduler["driver_mod#driver_colsum"]
     from loki import pprint, fgen
     print(f"{pprint(driver.ir)}")
-
-    # loops = FindNodes(Loop).visit(driver.ir.body)
-    # print(loops)
-    # print(f"{pprint(loops[0].body)}")
-    # routines = FindNodes(Subroutine).visit(loops[0])
-    # print("routines:", routines)
 
 
     blocking_transformation = LoopBlockFieldAPITransformation(blocking_indices=['j'])
@@ -530,12 +522,24 @@ def test_field_blocking(tmp_path, frontend, block_size, n):
     print(f"{pprint(driver.ir)}")
     print(f"{fgen(driver.ir)}")
 
-    # routine = Subroutine.from_source(fcode, frontend=frontend)
-    # loops = FindNodes(ir.Loop).visit(routine.ir)
-    # with pragmas_attached(routine, Loop):
-    #     loops = find_driver_loops(routine,
-    #                               targets=None)
 
-    # blocking_transformer = LoopBlockFieldAPITransformation()
-    # blocking_transformer.apply(routine, loop=loops[0])
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_loop_idx_data_flow(tmp_path, frontend):
+    fcode = """
+subroutine myrout()
+    integer :: jkglo, ngptot, nproma, icend
+    do jkglo=1,ngptot,nproma
+        ibl=(jkglo-1)/nproma+1
+        icend=min(nproma, ngptot-jkglo+1)
+        jkglo = 5
+    end do
+end subroutine myrout
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loop = FindNodes(ir.Loop).visit(routine.ir)[0]
+    from loki import pprint, fgen
+    print(2*'\n')
+    print(f"{pprint(loop.body)}")
+    find_alternate_idx(loop, routine)
 
