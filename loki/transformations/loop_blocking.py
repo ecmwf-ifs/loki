@@ -328,7 +328,7 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
         suffix = 'WRONLY'
     procedure_name = 'GET_DEVICE_DATA_' + suffix
     return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
-                            (dev_ptr,))
+                            (dev_ptr.clone(dimensions=None),))
 
 
 def field_sync_host(field_ptr, scope):
@@ -476,8 +476,9 @@ class LoopBlockFieldAPITransformation(Transformation):
                                 content=f'data present({", ".join(v.name for v in block_ptr_map.values())})')
         # acc_data_start = (ir.Pragma(keyword='acc', content='data'), acc_copyins, acc_present)
         acc_data_start = (acc_copyins, acc_present)
-        acc_data_end = (ir.Pragma(keyword='acc', content='data end'),)
-        
-        change_map = {inner_loop: acc_data_start + (inner_loop,) + acc_data_end}
+        acc_data_end = (ir.Pragma(keyword='acc', content='data end)'),)
+
+        change_map = {inner_loop: acc_data_start + (inner_loop,)}# + acc_data_end}
+        # change_map = {inner_loop: (inner_loop,) }
         Transformer(change_map, inplace=True).visit(outer_loop)
 
