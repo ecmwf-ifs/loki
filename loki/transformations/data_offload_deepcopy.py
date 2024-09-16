@@ -35,6 +35,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
     """Traversal from the leaves upwards"""
 
     item_filter = (ProcedureItem, TypeDefItem)
+    process_ignored_items = True
 
     def __init__(self, debug=False, **kwargs):
         self.debug = debug
@@ -119,7 +120,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 _temp_dict = self._resolve_nesting(k, v)
                 layered_dict = self._nested_merge(layered_dict, _temp_dict)
 
-            with open(f'idem/{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
+            with open(f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
                 yaml.dump(layered_dict, file)
 
     def _gather_from_children(self, routine, item, successors, role):
@@ -284,8 +285,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 host += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var})'))
             if delete:
                 host += as_tuple(ir.CallStatement(name=sym.Variable('DELETE_DEVICE_DATA', parent=field_object)))
-
-
+        elif alias:
+                host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
 
         device = self.create_memory_status_test('ASSOCIATED', field_object, device)
         host = self.create_memory_status_test('ASSOCIATED', field_object, host)
