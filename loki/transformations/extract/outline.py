@@ -9,7 +9,7 @@ from loki.analyse import dataflow_analysis_attached
 from loki.expression import Variable
 from loki.ir import (
     CallStatement, Import, PragmaRegion, Section, FindNodes,
-    FindVariables, MaskedTransformer, Transformer, is_loki_pragma,
+    FindVariables, Transformer, is_loki_pragma,
     get_pragma_parameters, pragma_regions_attached
 )
 from loki.logging import info
@@ -121,16 +121,12 @@ def outline_pragma_regions(routine):
                 # insert into list of new routines
                 routines.append(region_routine)
 
-                # Register start and end nodes in transformer mask for original routine
-                starts += [region.pragma_post]
-                stops += [region.pragma]
-
                 # Replace end pragma by call in original routine
                 call_arguments = region_in_args + region_inout_args + region_out_args
                 call = CallStatement(name=Variable(name=name), arguments=call_arguments)
-                mask_map[region.pragma_post] = call
+                mask_map[region] = call
 
-    routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=mask_map).visit(routine.body)
+            routine.body = Transformer(mapper=mask_map).visit(routine.body)
     info('%s: converted %d region(s) to calls', routine.name, counter)
 
     return routines
