@@ -838,10 +838,40 @@ class FParser2IR(GenericVisitor):
             source = source.clone_with_string(o.string)
         return sym.RangeIndex((lower_bound, upper_bound))
 
+    def visit_Assumed_Size_Spec(self, o, **kwargs):
+        """
+        Assumed size specification for arrays
+
+        :class:`fparser.two.Fortran2003.Assumed_Size_Spec` has 2 children:
+
+        * An explicit shape specification preceding the assumed size specifier
+        * lower bound (if explicitly given)
+        """
+
+        # We convert an assumed size array into an assumed shape array
+        # as we don't have any means of representing a variable with changeable
+        # rank
+
+        dims = ()
+        lower_bound = None
+        if isinstance(o.children[0], Fortran2003.Explicit_Shape_Spec_List):
+            for child in o.children[0].children:
+                # assumed shape arrays can only have lower bounds, so we
+                # strip the upper bounds here
+                _lbound = None
+                if child.children[0] is not None:
+                    _lbound = self.visit(child.children[0], **kwargs)
+                dims += (sym.RangeIndex((_lbound, None)),)
+        if o.children[1] is not None:
+            lower_bound = self.visit(o.children[1], **kwargs)
+
+        dims += (sym.RangeIndex((lower_bound, None)),)
+
+        return dims
+
     visit_Explicit_Shape_Spec_List = visit_List
     visit_Assumed_Shape_Spec = visit_Explicit_Shape_Spec
     visit_Assumed_Shape_Spec_List = visit_List
-    visit_Assumed_Size_Spec = visit_Explicit_Shape_Spec
     visit_Deferred_Shape_Spec = visit_Explicit_Shape_Spec
     visit_Deferred_Shape_Spec_List = visit_List
 
