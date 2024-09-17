@@ -123,6 +123,20 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             with open(f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
                 yaml.dump(layered_dict, file)
 
+    @staticmethod
+    def _sanitise_args(arg_map):
+
+        _arg_map = {}
+        for dummy, arg in arg_map.items():
+            if isinstance(arg, sym._Literal):
+                continue
+            if isinstance(arg, sym.LogicalNot):
+                arg = arg.child
+
+            _arg_map.update({dummy.name.lower(): arg.name.lower()})
+
+        return _arg_map
+
     def _gather_from_children(self, routine, item, successors, role):
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             child = [child for child in successors if child.ir == call.routine]
@@ -132,8 +146,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 if call.routine is BasicType.DEFERRED:
                     raise RuntimeError('Cannot apply DataOffloadAnalysis without enriching calls.')
 
-                _arg_map = {dummy.name.lower(): arg.name.lower() for dummy, arg in call.arg_map.items()
-                            if not isinstance(arg, sym._Literal)}
+                _arg_map = self._sanitise_args(call.arg_map)
 
                 _child_analysis = {'%'.join([_arg_map.get(n, n) for n in k.split('%')]): v
                                    for k, v in child.trafo_data[self._key]['analysis'].items()}
@@ -148,7 +161,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
     def _gather_typedefs_from_children(self, successors, typedef_configs):
         for child in successors:
-            if isinstance(child, TypeDefItem):
+            if isinstance(child, TypeDefItem) and child.trafo_data.get(self._key, None):
                 for k, v in child.trafo_data[self._key]['typedef_configs'].items():
                     typedef_configs[k] = v
 

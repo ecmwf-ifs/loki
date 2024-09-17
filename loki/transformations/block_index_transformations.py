@@ -242,6 +242,10 @@ class BlockViewToFieldViewTransformation(Transformation):
 
     def process_kernel(self, routine, item, successors, targets, exclude_arrays):
 
+        # bailout mechanism if the routine is forcibly added to appease cmake plan
+        if not item.trafo_data.get(self._key, None):
+            return
+
         # Sanitize the subroutine
         resolve_associates(routine)
         v_index = get_integer_variable(routine, name=self.horizontal.index)
@@ -431,7 +435,7 @@ class InjectBlockIndexTransformation(Transformation):
 
 class LowerBlockIndexTransformation(Transformation):
     """
-    Transformation to lower the block index via appending the block index 
+    Transformation to lower the block index via appending the block index
     to variable dimensions/shape. However, this only handles variable
     declarations/definitions. Therefore this transformation must always be followed by
     the :any:`InjectBlockIndexTransformation`.
@@ -512,7 +516,7 @@ class LowerBlockIndexTransformation(Transformation):
 
     def process(self, routine, targets, role):
         """
-        This method adds the blocking index and size as arguments (if not already 
+        This method adds the blocking index and size as arguments (if not already
         there yet) for calls and corresponding callees and updates the dimension
         and shape of arguments for calls and callees.
 
@@ -577,7 +581,7 @@ class LowerBlockIndexTransformation(Transformation):
 
 class LowerBlockLoopTransformation(Transformation):
     """
-    Lower the block loop to calls within this loop. 
+    Lower the block loop to calls within this loop.
 
     For example, the following code:
 
@@ -607,7 +611,7 @@ class LowerBlockLoopTransformation(Transformation):
         end subroutine kernel
 
     is transformed to:
-    
+
     .. code-block:: fortran
 
         subroutine driver(nblks, ...)
@@ -624,7 +628,7 @@ class LowerBlockLoopTransformation(Transformation):
             ...
             integer :: ibl
             real :: var(jlon,nlev,nblks)
-            
+
             do ibl=1,nblks
                 do jl=1,...
                     do jk=1,...
