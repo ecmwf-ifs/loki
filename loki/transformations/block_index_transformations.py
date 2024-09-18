@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from loki.backend import fgen
 from loki.batch import Transformation, ProcedureItem
 from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.module import Module
@@ -20,7 +21,8 @@ from loki.transformations.inline import inline_constant_parameters
 from loki.backend import fgen
 
 __all__ = ['BlockViewToFieldViewTransformation', 'InjectBlockIndexTransformation',
-        'LowerBlockIndexTransformation', 'LowerBlockLoopTransformation', 'LowerConstantArrayIndex']
+        'LowerBlockIndexTransformation', 'LowerBlockLoopTransformation', # 'LowerConstantArrayIndex',
+        'LowerBlockIndexTrafo2']
 
 class BlockViewToFieldViewTransformation(Transformation):
     """
@@ -331,6 +333,7 @@ class InjectBlockIndexTransformation(Transformation):
 
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
+    process_ignored_items = True
 
     def __init__(self, block_dim):
         self.block_dim = block_dim
@@ -375,24 +378,29 @@ class InjectBlockIndexTransformation(Transformation):
             return routine.resolve_typebound_var(block_index[0], variable_map)
         return None
 
-    def process_body(self, body, block_index, targets, exclude_arrays):
+    def process_body_2(self, body, block_index, targets, exclude_arrays, debug_print):
         # The logic for callstatement args differs from other variables in the body,
         # so we build a list to filter
-        call_args = [a for call in FindNodes(ir.CallStatement).visit(body) for a in call.arg_map.values()]
+        call_args = []
 
         # First get rank mismatched call statement args
         vmap = {}
         for call in FindNodes(ir.CallStatement).visit(body):
-            if str(call.name).lower() in targets:
+            if call.name in targets:
                 for dummy, arg in call.arg_map.items():
+                    call_args += [arg]
                     arg_rank = self.get_call_arg_rank(arg)
                     dummy_rank = len(getattr(dummy, 'shape', ()))
                     if arg_rank - 1 == dummy_rank:
                         dimensions = getattr(arg, 'dimensions', None) or ((RangeIndex((None, None)),) * (arg_rank - 1))
                         vmap.update({arg: arg.clone(dimensions=dimensions + as_tuple(block_index))})
 
+        if debug_print:
+            print(f"call_args: {call_args}")
         # Now get the rest of the variables
         for var in FindVariables(unique=False).visit(body):
+            if debug_print:
+                print(f"var: {var} | {var in call_args}")
             if getattr(var, 'dimensions', None) and not var in call_args:
 
                 local_rank = len(var.dimensions)
@@ -408,6 +416,58 @@ class InjectBlockIndexTransformation(Transformation):
 
         # filter out arrays marked for exclusion
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
+        # finally we perform the substitution
+        return SubstituteExpressions(vmap).visit(body)
+
+    def process_body(self, body, block_index, targets, exclude_arrays, debug_print):
+        # The logic for callstatement args differs from other variables in the body,
+        # so we build a list to filter
+        call_args = [a for call in FindNodes(ir.CallStatement).visit(body) if not call.routine is BasicType.DEFERRED for a in call.arg_map.values()]
+
+        if debug_print:
+            print(f"[HERE inject] call_args: {call_args}")
+        # First get rank mismatched call statement args
+        vmap = {}
+        for call in FindNodes(ir.CallStatement).visit(body):
+            if debug_print:
+                print(f"[HERE inject CALLARGS] call {call} vs. targets {targets} ({str(call.name).lower()})")
+            if str(call.name).lower() in targets:
+                print(f"  [HERE inject CALLARGS] process call {call} ...")
+                for dummy, arg in call.arg_map.items():
+                    arg_rank = self.get_call_arg_rank(arg)
+                    dummy_rank = len(getattr(dummy, 'shape', ()))
+                    print(f"  [HERE inject CALLARGS] dummy {dummy} | arg {arg} | arg_rank {arg_rank} | dummy_rank {dummy_rank}")
+                    if arg_rank - 1 == dummy_rank:
+                        dimensions = getattr(arg, 'dimensions', None) or ((RangeIndex((None, None)),) * (arg_rank - 1))
+                        vmap.update({arg: arg.clone(dimensions=dimensions + as_tuple(block_index))})
+
+        # Now get the rest of the variables
+        for node, var_list in FindVariables(unique=False, with_ir_node=True).visit(body):
+            if isinstance(node, ir.CallStatement):
+                continue
+            for var in var_list: 
+                if debug_print:
+                    print(f"[HERE inject] rest of variables var {var} | dims: {getattr(var, 'dimensions', None)}")
+                # if getattr(var, 'dimensions', None) and not (var in call_args and isinstance(node, ir.CallStatement)):
+                if getattr(var, 'dimensions', None):
+
+                    local_rank = len(var.dimensions)
+                    decl_rank = local_rank
+                    # we assume here that all derived-type components we wish to transform
+                    # have been parsed
+                    if getattr(var, 'shape', None):
+                        decl_rank = len(var.shape)
+                    if debug_print:
+                        print(f"  [HERE inject] var: {var} | local_rank = {local_rank} | decl_rank = {decl_rank}")
+                    if local_rank == decl_rank - 1:
+                        dimensions = getattr(var, 'dimensions', None) or ((RangeIndex((None, None)),) * (decl_rank - 1))
+                        vmap.update({var: var.clone(dimensions=dimensions + as_tuple(block_index))})
+
+        if debug_print:
+            print(f"[HERE inject] vmap: {vmap}")
+
+        # filter out arrays marked for exclusion
+        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
         vmap = recursive_expression_map_update(vmap)
         # finally we perform the substitution
@@ -419,9 +479,70 @@ class InjectBlockIndexTransformation(Transformation):
         if not (block_index := self.get_block_index(routine)):
             print(f"skipping routine {routine} as it doesn't contain the block index or any known alias")
             return
+        if routine is BasicType.DEFERRED:
+            return
+
+        SCCBaseTransformation.explicit_dimensions(routine)
 
         # for kernels we process the entire subroutine body
-        routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays)
+        if routine.name.lower() == "vdfmain" or routine.name.lower() == "vdfouter":
+            print(f"[HERE inject] DEBUG_PRINT = TRUE as routine = {routine}")
+            debug_print = True
+        else:
+            debug_print = False
+        routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays, debug_print=debug_print)
+        if debug_print:
+            with open(f'{routine.name.lower()}_after_inject_block_index.F90', 'w') as f:
+                f.write(fgen(routine))
+
+
+class LowerBlockIndexTrafo2(Transformation):
+
+        # This trafo only operates on procedures
+    item_filter = (ProcedureItem,)
+
+    def __init__(self, block_dim, recurse_to_kernels=True):
+        self.block_dim = block_dim
+        self.recurse_to_kernels = recurse_to_kernels
+        self.lower_block_trafo = LowerBlockIndexTransformation(block_dim=self.block_dim,
+                recurse_to_kernels=self.recurse_to_kernels)
+        self.inject_block_trafo = InjectBlockIndexTransformation(block_dim=self.block_dim)
+
+    def transform_subroutine_1(self, routine, **kwargs):
+        role = kwargs['role']
+        if not (role == 'driver' or self.recurse_to_kernels and role == 'kernel'):
+            return
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+        # convert_kwargs_to_args
+        SCCBaseTransformation.explicit_dimensions(routine)
+        self.inject_block_trafo.transform_subroutine(routine, **kwargs)
+        self.lower_block_trafo.transform_subroutine(routine, **kwargs)
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+        item = kwargs.get('item', None)
+        ignore = item.ignore if item else ()
+        if not (role == 'driver' or self.recurse_to_kernels and role == 'kernel'):
+            return
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if str(call.name).lower() not in targets and str(call.name).lower() not in ignore:
+                continue
+            call.convert_kwargs_to_args()
+        SCCBaseTransformation.explicit_dimensions(routine)
+        self.inject_block_trafo.transform_subroutine(routine, **kwargs)
+        self.lower_block_trafo.transform_subroutine(routine, **kwargs)
+        SCCBaseTransformation.explicit_dimensions(routine)
+        self.inject_block_trafo.transform_subroutine(routine, **kwargs)
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if str(call.name).lower() not in targets and str(call.name).lower() not in ignore:
+                continue
+            print(f"hackery inject block index for routine: {call.routine}")
+            SCCBaseTransformation.explicit_dimensions(call.routine)
+            self.inject_block_trafo.transform_subroutine(call.routine, **kwargs)
+        SCCBaseTransformation.explicit_dimensions(routine)
+        self.inject_block_trafo.transform_subroutine(routine, **kwargs)
+        # self.inject_block_trafo.transform_subroutine(routine, **kwargs)
 
 
 class LowerBlockIndexTransformation(Transformation):
@@ -442,6 +563,7 @@ class LowerBlockIndexTransformation(Transformation):
     """
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
+    process_ignored_items = True
 
     def __init__(self, block_dim, recurse_to_kernels=True):
         self.block_dim = block_dim
@@ -450,19 +572,38 @@ class LowerBlockIndexTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):
 
         role = kwargs['role']
+        item = kwargs.get('item', None)
+        ignore = item.ignore if item else ()
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+        if str(routine.name).lower() == 'vdfmain':
+            print(f"routine is vdfmain | targets {targets} | ignore {ignore}")
         # dispatch driver in any case and recurse to kernels if corresponding flag is set
         if role == 'driver' or self.recurse_to_kernels and role == 'kernel':
             SCCBaseTransformation.explicit_dimensions(routine)
+            if self.block_dim.index not in routine.variable_map:
+                print(f"SKIPPING ROUTINE {routine} ENTIRELY AS block_dim.index {self.block_dim.index} not available!")
+                return
             self.process(routine, targets, role)
 
-    def process(self, routine, targets, role):
+    def process(self, routine, targets, role, ignore=()):
         processed_routines = ()
         for call in FindNodes(ir.CallStatement).visit(routine.body):
-            if str(call.name).lower() not in targets:
+            if str(routine.name).lower() == 'vdfmain':
+                print("routine {routine.name} | call to {call}")
+            if str(call.name).upper() == 'SURFEXCDRIVER':
+                print(f"call to 'SURFEXCDRIVER' from routine {routine} | targets {targets} | ignore {ignore}")
+            if str(call.name).upper() == 'SURFEXCDRIVER_CTL':
+                print(f"call to 'SURFEXCDRIVER_CTL' from routine {routine} | targets {targets} | ignore {ignore}")
+            if str(call.name).lower() not in targets and str(call.name).lower() not in ignore:
                 continue
+            call.convert_kwargs_to_args()
             call_arg_map = dict((v,k) for k,v in call.arg_map.items())
+
+            # try:
             call_block_dim_index = routine.variable_map[self.block_dim.index]
+            # except Exception as e:
+            #     print(f"EXCEPTION {e}")
+            #     print(f"routine {routine} | call {call} | ignore {ignore}")
             # add block_dim.index and block_dim.size if not already passed to kernel
             new_args = ()
             if routine.variable_map[self.block_dim.index] not in call_arg_map:
@@ -476,6 +617,7 @@ class LowerBlockIndexTransformation(Transformation):
             call_block_dim_size = SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size)
             # if routine.variable_map[self.block_dim.size] not in call_arg_map:
             if SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size) not in call_arg_map:
+                # print(f"adding block_dim.size ngpblks for call: {call} (from routine {routine})")
                 new_args += (SCCBaseTransformation.get_integer_variable(routine, self.block_dim.size),) # (routine.variable_map[self.block_dim.size],)
             else:
                 # block_dim.size already defined in relevant kernel, thus remember used name
@@ -497,30 +639,42 @@ class LowerBlockIndexTransformation(Transformation):
             for arg, call_arg in call.arg_iter():
                 # if arg.name.upper() == 'EMEAN':
                 #     print(f"LowerBlockIndexTransformation - arg: {arg} ({arg.shape} - {arg.dimensions}) | call_arg {call_arg} ({call_arg.shape} - {call_arg.dimensions})")
+                # if isinstance(arg, Array):
+                #     print(f"routine {routine} | call {call} || arg: {arg} with shape {arg.shape}| call_arg: {call_arg} with shape {call_arg.shape} | {len(call_arg.shape) > len(arg.shape)}")
                 if isinstance(arg, Array) and isinstance(call_arg, Array) and len(call_arg.shape) > len(arg.shape):
+                    # print(f"LowerBlockIndexTransformation - routine: {routine.name} | call: {call} | arg: {arg} | call_arg: {call_arg}")
                     call_routine_var = call.routine.variable_map[arg.name]
                     new_dims = call_routine_var.dimensions + (call.routine.variable_map[call_block_dim_size.name],)
-                    new_shape = call_routine_var.shape + (call.routine.variable_map[call_block_dim_size.name],)
+                    try:
+                        new_shape = call_routine_var.shape + (call.routine.variable_map[call_block_dim_size.name],)
+                    except Exception as e:
+                        print(f"exception: {e} | routine {routine} | call {call} | call_routine_var.shape {call_routine_var.shape}")
+                        new_shape = as_tuple(call_routine_var.shape) + (call.routine.variable_map[call_block_dim_size.name],)
                     new_type = call_routine_var.type.clone(shape=new_shape)
-                    var_map[call_routine_var] = call_routine_var.clone(dimensions=new_dims, type=new_type)
+                    var_map[call_routine_var] = call_routine_var.clone(dimensions=new_dims, type=new_type, scope=call.routine)
             call.routine.spec = SubstituteExpressions(var_map).visit(call.routine.spec)
-            if role == 'driver':
+            if role == 'driver' or self.recurse_to_kernels:
+                # print(f"LowerBlockIndexTransformation - routine: {routine.name} | update call: {call}")
                 _arguments = ()
                 for arg in call.arguments:
                     if isinstance(arg, sym.Array):
+                        # print(f"  arg {arg} with new dimensions | old dims: {arg.dimensions}")
                         _arguments += (arg.clone(dimensions=tuple(sym.RangeIndex((None, None))
                             if isinstance(dim, sym.Scalar)
                             and dim.name.lower() == self.block_dim.index.lower() else dim for dim in arg.dimensions)),)
                     else:
+                        # print(f"  take arg {arg} as it is ")
                         _arguments += (arg,)
                 _kwarguments = ()
                 for kwarg_name, kwarg in call.kwarguments:
                     if isinstance(kwarg, sym.Array):
+                        # print(f"  kwarg {kwarg} with new dimensions | old dims: {kwarg.dimensions}")
                         _kwarguments += ((kwarg_name, kwarg.clone(dimensions=tuple(sym.RangeIndex((None, None))
                             if isinstance(dim, sym.Scalar)
                             and dim.name.lower() == self.block_dim.index.lower()
                             else dim for dim in kwarg.dimensions))),)
                     else:
+                        # print(f"  take kwarg {kwarg} as it is")
                         _kwarguments += ((kwarg_name, kwarg),)
                 call._update(arguments=_arguments, kwarguments=_kwarguments)
             processed_routines += (call.routine.name,)
@@ -599,9 +753,11 @@ class LowerBlockLoopTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
+        item = kwargs.get('item', None)
+        ignore = item.ignore if item else ()
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         if role == 'driver':
-            self.process_driver(routine, targets)
+            self.process_driver(routine, targets, ignore)
         self._remove_vector_sections(routine)
 
     @staticmethod
@@ -619,10 +775,10 @@ class LowerBlockLoopTransformation(Transformation):
 
     def local_var(self, call, var):
         if var.name in call.routine.arguments:
-            print(f"local_var() [1] call {call} | var {var}")
+            # print(f"local_var() [1] call {call} | var {var}")
             self.arg_to_local_var(call.routine, var)
         else:
-            print(f"local_var() [2] call {call} | var {var}")
+            # print(f"local_var() [2] call {call} | var {var}")
             call.routine.variables += (var.clone(scope=call.routine, type=var.type.clone(intent=None)),)
 
     @staticmethod
@@ -637,7 +793,7 @@ class LowerBlockLoopTransformation(Transformation):
                     lower({loop.bounds.lower}) upper({loop.bounds.upper}) \
                     step({loop.bounds.step if loop.bounds.step else 1})")
 
-    def process_driver(self, routine, targets):
+    def process_driver(self, routine, targets, ignore=()):
         # find block loops
         loops = FindNodes(ir.Loop).visit(routine.body)
         loops = [loop for loop in loops if loop.variable == self.block_dim.index
@@ -649,7 +805,7 @@ class LowerBlockLoopTransformation(Transformation):
         for loop in loops:
             lower_loop = False
             for call in  FindNodes(ir.CallStatement).visit(loop.body):
-                if str(call.name).lower() not in targets:
+                if str(call.name).lower() not in targets and str(call.name).lower() not in ignore:
                     continue
                 lower_loop = True
                 calls += (call,)
@@ -661,11 +817,11 @@ class LowerBlockLoopTransformation(Transformation):
                 # remove calls that are not within targets # TODO: rather a hack to remove
                 #  e.g., "CALL TIMER%THREAD_LOG(TID, IGPC=ICEND)"
                 calls_within_loop = [_call for _call in  FindNodes(ir.CallStatement).visit(loop_to_lower.body)
-                        if str(_call.name).lower() not in targets]
+                        if str(_call.name).lower() not in targets and str(_call.name).lower() not in ignore]
                 loop_to_lower = Transformer({call: None for call in calls_within_loop}).visit(loop_to_lower)
                 # remove calls that are within targets except for relevant one
                 calls_within_loop = [_call for _call in  FindNodes(ir.CallStatement).visit(loop_to_lower.body)
-                        if str(_call.name).lower() in targets and str(_call.name).lower() != str(call.name).lower()]
+                        if (str(_call.name).lower() in targets or str(_call.name).lower() in ignore) and str(_call.name).lower() != str(call.name).lower()]
                 loop_to_lower = Transformer({call: None for call in calls_within_loop}).visit(loop_to_lower)
                 # symbols that are defined or rather assigned within the loop
                 defined_symbols_loop = [assign.lhs for assign in FindNodes(ir.Assignment).visit(loop_to_lower.body)]
@@ -678,7 +834,7 @@ class LowerBlockLoopTransformation(Transformation):
                         and isinstance(var, sym.Scalar) and var not in defined_symbols_loop]
                 additional_kwargs = as_tuple([(var.name, var.clone()) for var in additional_vars])
                 calls_within_loop = [call for call in  FindNodes(ir.CallStatement).visit(loop_to_lower.body)
-                        if str(call.name).lower() in targets]
+                        if str(call.name).lower() in targets or str(call.name).lower() in ignore]
                 if call.routine.name not in processed_routines:
                     call.routine.body = ir.Section(as_tuple(Transformer({calls_within_loop[0]:\
                             call.routine.body}).visit(loop_to_lower)))
@@ -700,14 +856,14 @@ class LowerBlockLoopTransformation(Transformation):
                 driver_loop_map[loop] = loop.body
         routine.body = Transformer(driver_loop_map).visit(routine.body)
         for call in calls:
-            if str(call.name).lower() not in targets:
+            if str(call.name).lower() not in targets and str(call.name).lower() not in ignore:
                 continue
             for var in to_local_var[call.routine.name]:
                 self.local_var(call, var)
         # TODO: remove
         self.remove_openmp_pragmas(routine)
 
-
+"""
 class LowerConstantArrayIndex(Transformation):
 
     # This trafo only operates on procedures
@@ -737,7 +893,7 @@ class LowerConstantArrayIndex(Transformation):
             self.process(routine, targets)
 
     def process(self, routine, targets):
-        print(f"PROCESS {routine} !!!!")
+        # print(f"PROCESS {routine} !!!!")
         dispatched_routines = ()
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if str(call.name).lower() not in targets:
@@ -761,7 +917,7 @@ class LowerConstantArrayIndex(Transformation):
                 insert_dims = ()
                 for i_dim, dim in enumerate(call_arg.dimensions):
                     if self.is_constant_dim(dim):
-                        print(f"call {call} dim {dim} is constant routine_arg: {routine_arg}, call_arg: {call_arg}")
+                        # print(f"call {call} dim {dim} is constant routine_arg: {routine_arg}, call_arg: {call_arg}")
                         if is_constant(dim):
                             insert_dims += ((i_dim, dim),)
                             # new_call_dim += (sym.RangeIndex((None, None)),)
@@ -791,7 +947,7 @@ class LowerConstantArrayIndex(Transformation):
                         # print(f"  new routine arg: {routine_arg.clone(type=routine_arg.type.clone(shape=as_tuple(new_dims)), dimensions=as_tuple(new_dims))}")
                         routine_vmap[routine_arg] = routine_arg.clone(type=routine_arg.type.clone(shape=as_tuple(new_dims)), dimensions=as_tuple(new_dims))
             if call.routine not in dispatched_routines:
-                print(f"routine: {call.routine} - routine.spec substitute expressions: {routine_vmap}")
+                # print(f"routine: {call.routine} - routine.spec substitute expressions: {routine_vmap}")
                 call.routine.spec = SubstituteExpressions(routine_vmap).visit(call.routine.spec)
                 vmap = {}
                 for var in FindVariables(unique=False).visit(call.routine.body):
@@ -808,9 +964,10 @@ class LowerConstantArrayIndex(Transformation):
                         vmap[var] = var.clone(dimensions=as_tuple(var_dim))
                 call.routine.body = SubstituteExpressions(vmap).visit(call.routine.body)
             call._update(arguments=tuple(updated_call_args[arg.name] if not isinstance(arg, (sym.Literal, sym.IntLiteral, sym.FloatLiteral, sym.LogicLiteral)) and arg.name in updated_call_args else arg for arg in call.arguments),
-                    kwarguments=((kwarg[0], updated_call_args[kwarg[1].name]) if not isinstance(kwarg[1], (sym.Literal, sym.IntLiteral, sym.FloatLiteral, sym.LogicLiteral)) and kwarg[1].name in updated_call_args else kwarg for kwarg in call.kwarguments))
+                    kwarguments=as_tuple((kwarg[0], updated_call_args[kwarg[1].name]) if not isinstance(kwarg[1], (sym.Literal, sym.IntLiteral, sym.FloatLiteral, sym.LogicLiteral)) and kwarg[1].name in updated_call_args else kwarg for kwarg in call.kwarguments))
             dispatched_routines += (call.routine,)
             # print(f"LowerConstantArrayIndex\n-------------------")
             # print(fgen(call.routine))
             # print(f"-------------------")
-        print(f"\n\n")
+        # print(f"\n\n")
+"""

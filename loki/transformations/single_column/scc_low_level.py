@@ -22,8 +22,10 @@ from loki.transformations.single_column.scc_cuf import (
 from loki.transformations.block_index_transformations import (
         InjectBlockIndexTransformation,
         LowerBlockIndexTransformation, LowerBlockLoopTransformation,
-        LowerConstantArrayIndex, LowerBlockIndexTrafo2
+        # LowerConstantArrayIndex,
+        LowerBlockIndexTrafo2
 )
+from loki.transformations.array_indexing import LowerConstantArrayIndices
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
     GlobalVariableAnalysis, GlobalVarHoistTransformation, GlobalVarOffloadTransformation
@@ -35,6 +37,8 @@ from loki.transformations.inline import (
 from loki.transformations.argument_shape import (
     ExplicitArgumentArrayShapeTransformation, ArgumentArrayShapeAnalysis 
 )
+from loki.ir import nodes as ir, FindNodes
+from loki.tools import as_tuple
 
 __all__ = [
         'SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
@@ -54,6 +58,11 @@ class InlineTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if str(call.name).lower() not in targets: # and str(call.name).lower() not in ignore:
+                continue
+            call.convert_kwargs_to_args()
 
         if role == 'kernel':
 
@@ -451,7 +460,8 @@ SCCLowLevelHoist1 = partial(
         DerivedTypeArgumentsTransformation,
         ArgumentArrayShapeAnalysis,
         ExplicitArgumentArrayShapeTransformation,
-        LowerConstantArrayIndex,
+        # LowerConstantArrayIndex,
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -476,7 +486,8 @@ SCCLowLevelHoist2 = partial(
         DerivedTypeArgumentsTransformation,
         ArgumentArrayShapeAnalysis,
         ExplicitArgumentArrayShapeTransformation,
-        LowerConstantArrayIndex,
+        # LowerConstantArrayIndex,
+        LowerConstantArrayIndices,
         HoistTemporaryArraysAnalysis,
         HoistTemporaryArraysPragmaOffloadTransformation,
         SCCBaseTransformation,
@@ -500,7 +511,8 @@ SCCLowLevelHoist3 = partial(
         DerivedTypeArgumentsTransformation,
         ArgumentArrayShapeAnalysis,
         ExplicitArgumentArrayShapeTransformation,
-        LowerConstantArrayIndex,
+        # LowerConstantArrayIndex,
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -524,7 +536,8 @@ SCCLowLevelHoist4 = partial(
         DerivedTypeArgumentsTransformation,
         ArgumentArrayShapeAnalysis,
         ExplicitArgumentArrayShapeTransformation,
-        LowerConstantArrayIndex,
+        # LowerConstantArrayIndex,
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -551,7 +564,8 @@ SCCLowLevelHoist5 = partial(
         DerivedTypeArgumentsTransformation,
         ArgumentArrayShapeAnalysis,
         ExplicitArgumentArrayShapeTransformation,
-        LowerConstantArrayIndex,
+        # LowerConstantArrayIndex,
+        LowerConstantArrayIndices,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,

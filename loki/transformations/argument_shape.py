@@ -67,7 +67,9 @@ class ArgumentArrayShapeAnalysis(Transformation):
 
             # Create a variable map with new shape information from source
             vmap = {}
+            print(f"[ArgumentArrayShapeAnalysis] routine {routine} | call {call}")
             for arg, val in call.arg_iter():
+                print(f"  [ArgumentArrayShapeAnalysis] arg: {arg} | val: {val}")
                 if isinstance(arg, Array) and len(arg.shape) > 0:
                     # Only create new shapes for deferred dimension args
                     if all(d == ':' for d in arg.shape):

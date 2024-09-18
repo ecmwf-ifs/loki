@@ -12,6 +12,7 @@ Collection of utility routines to perform code-level force-inlining.
 """
 from collections import defaultdict, ChainMap
 
+from loki import fgen
 from loki.batch import Transformation
 from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
@@ -210,10 +211,12 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         arg_map = dict(zip(function.arguments, expr.parameters))
         fbody = SubstituteExpressions(arg_map).visit(function.body)
 
+        print(f"fbody = {fgen(fbody)}")
         # Extract the RHS of the final result variable assignment
         stmts = [s for s in FindNodes(Assignment).visit(fbody) if s.lhs == v_result]
         assert len(stmts) == 1
         rhs = self.rec(stmts[0].rhs, *args, **kwargs)
+        # return fbody.body + (rhs,)
         return rhs
 
 def resolve_sequence_association_for_inlined_calls(routine, inline_internals, inline_marked):

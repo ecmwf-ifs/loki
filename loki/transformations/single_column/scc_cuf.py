@@ -22,6 +22,7 @@ from loki.transformations.hoist_variables import HoistVariablesTransformation
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.utilities import single_variable_declaration, recursive_expression_map_update
 from loki.ir.pragma_utils import get_pragma_parameters
+from loki.backend import fgen
 
 __all__ = [
     'HoistTemporaryArraysDeviceAllocatableTransformation',
@@ -332,6 +333,12 @@ class SccLowLevelLaunchConfiguration(Transformation):
             return
 
         single_variable_declaration(routine)
+
+        # if block_dim.index not in routine.variable_map:
+        #     print(f"SKIPPING {routine}")
+        #     return
+
+        # single_variable_declaration(routine)
         # single_variable_declaration(routine, variables=(horizontal.index, block_dim.index))
 
         #  this does not make any difference ...
@@ -391,8 +398,15 @@ class SccLowLevelLaunchConfiguration(Transformation):
                             ir.Conditional(condition=condition, body=(horizontal_increment, block_increment) + as_tuple(routine.body), else_body=())))
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if call.routine.name.lower() in targets and not SCCBaseTransformation.is_elemental(call.routine):
-                horizontal_index = routine.variable_map[horizontal.index]
-                block_dim_index = routine.variable_map[block_dim.index]
+                try:
+                    horizontal_index = routine.variable_map[horizontal.index]
+                    block_dim_index = routine.variable_map[block_dim.index]
+                except Exception as e:
+                    print(f"EXCEPTION {e}")
+                    print(f"routine {routine} | call {call}")
+                    assert False
+                #     continue
+                #     # assert False
                 additional_args = ()
                 additional_kwargs = ()
                 if horizontal_index.name not in call.routine.arguments:
@@ -743,6 +757,7 @@ class SccLowLevelDataOffload(Transformation):
             )
         except Exception as e:
             print(f"e: {e} for routine: {routine}")
+            assert False
 
     def kernel_cuf(self, routine, horizontal, block_dim, transformation_type,
                derived_type_variables, depth):
@@ -911,7 +926,7 @@ class SccLowLevelDataOffload(Transformation):
             inargs = ()
             inoutargs = ()
             outargs = ()
-            # print(f"driver_device_variables - routine: {routine}")
+            print(f"driver_device_variables - routine: {routine}")
             # insert_index = routine.body.body.index(calls[-1])
             # insert_index = None
             for call in calls:
@@ -920,13 +935,22 @@ class SccLowLevelDataOffload(Transformation):
                     #     f'in {str(call.name).lower()}')
                     continue
                 for param, arg in call.arg_iter():
-                    # print(f"  param: {param} | arg: {arg}")
-                    if isinstance(param, sym.Array) and param.type.intent.lower() == 'in':
-                        inargs += (str(arg.name).lower(),)
-                    if isinstance(param, sym.Array) and param.type.intent.lower() == 'inout':
-                        inoutargs += (str(arg.name).lower(),)
-                    if isinstance(param, sym.Array) and param.type.intent.lower() == 'out':
-                        outargs += (str(arg.name).lower(),)
+                    print(f"  call {call} - param: {param} | arg: {arg}")
+                    try:
+                        if isinstance(param, sym.Array) and param.type.intent.lower() == 'in':
+                            inargs += (str(arg.name).lower(),)
+                        if isinstance(param, sym.Array) and param.type.intent.lower() == 'inout':
+                            inoutargs += (str(arg.name).lower(),)
+                        if isinstance(param, sym.Array) and param.type.intent.lower() == 'out':
+                            outargs += (str(arg.name).lower(),)
+                    except Exception as e:
+                        with open("exception_caller.txt", 'w') as f:
+                            f.write(fgen(routine))
+                        with open("exception_callee.txt", 'w') as f:
+                            f.write(fgen(call.routine))
+                        print(f"e: {e}")
+                        assert False
+                        # raise e
 
             # Sanitize data access categories to avoid double-counting variables
             inoutargs += tuple(v for v in inargs if v in outargs)

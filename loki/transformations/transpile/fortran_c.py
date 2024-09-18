@@ -90,7 +90,7 @@ class DeReferenceTrafo(Transformer):
             return o
         call_arg_map = dict((v,k) for k,v in o.arg_map.items())
         for arg in o.arguments:
-            # print(f"visit_CallStatement - arg {arg} | call_arg_map[arg]: {call_arg_map[arg]}")
+            print(f"visit_CallStatement {o} ({o.routine})  - arg {arg} | call_arg_map[arg]: {call_arg_map[arg]}")
             if not self.is_dereference(arg) and (isinstance(call_arg_map[arg], Array)\
                     or call_arg_map[arg].type.intent.lower() != 'in'):
                 # print(f"  0")
@@ -252,6 +252,8 @@ class FortranCTransformation(Transformation):
             # Generate Fortran wrapper module
             bind_name = None if self.language == 'c' else f'{routine.name.lower()}_c_launch'
             wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs, bind_name=bind_name)
+            if wrapper is None:
+                return
             contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
@@ -263,13 +265,13 @@ class FortranCTransformation(Transformation):
                 self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
                 Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
             else:
-                try:
-                    c_kernel = self.generate_c_kernel(routine, targets=targets)
-                    self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-                    Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
-                except Exception as e:
-                    print(f"e: {e} | routine: {routine} generate_c_kernel ...")
-                    return
+                # try:
+                c_kernel = self.generate_c_kernel(routine, targets=targets)
+                self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+                Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
+                # except Exception as e:
+                #     print(f"e: {e} | routine: {routine} generate_c_kernel ...")
+                #     return
 
             # Generate C source file from Loki IR
             intfs = FindNodes(Interface).visit(routine.spec)
@@ -359,7 +361,11 @@ class FortranCTransformation(Transformation):
 
         if bind_name is None:
             bind_name = f'{routine.name.lower()}_c'
-        interface = self.generate_iso_c_interface(routine, bind_name, c_structs, scope=wrapper)
+        try:
+            interface = self.generate_iso_c_interface(routine, bind_name, c_structs, scope=wrapper)
+        except:
+            print(f"failed generating iso c interface for routine {routine}")
+            return
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
@@ -644,7 +650,14 @@ class FortranCTransformation(Transformation):
         # Clean up Fortran vector notation
         resolve_vector_notation(kernel)
         SCCBaseTransformation.remove_dimensions(kernel)
-        normalize_array_shape_and_access(kernel)
+        try:
+            normalize_array_shape_and_access(kernel)
+        except Exception as e:
+            print(f"exception applying 'normalize_array_shape_and_access' e: {e}")
+            with open(f'{kernel.name}_normalize_array_shape_and_access.F90', 'w') as f:
+                f.write(fgen(kernel))
+            assert False
+
 
         # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))

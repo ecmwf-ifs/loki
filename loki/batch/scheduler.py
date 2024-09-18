@@ -416,6 +416,7 @@ class Scheduler:
         """
         for transformation in pipeline.transformations:
             self.process_transformation(transformation)
+            # breakpoint()
 
     def process_transformation(self, transformation):
         """

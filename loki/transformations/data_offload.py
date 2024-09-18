@@ -248,6 +248,8 @@ class GlobalVariableAnalysis(Transformation):
     _key = 'GlobalVariableAnalysis'
     """Default identifier for trafo_data entry"""
 
+    # process_ignored_items = True
+
     reverse_traversal = True
     """Traversal from the leaves upwards, i.e., modules with global variables are processed first,
     then kernels using them before the driver."""
@@ -340,7 +342,9 @@ class GlobalVariableAnalysis(Transformation):
         # Note: This is a temporary workaround for the incomplete list of successor items
         # provided by the current scheduler implementation
         for successor in successors:
-            if isinstance(successor, ProcedureItem):
+            if isinstance(successor, ProcedureItem): #  and self._key in item.trafo_data and self._key in successor.trafo_data:
+                if self._key not in successor.trafo_data:
+                    print(f"routine {routine} key {self._key} not in successor {successor}!")
                 item.trafo_data[self._key]['uses_symbols'] |= successor.trafo_data[self._key]['uses_symbols']
                 item.trafo_data[self._key]['defines_symbols'] |= successor.trafo_data[self._key]['defines_symbols']
 

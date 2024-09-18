@@ -42,6 +42,8 @@ class IntrinsicTypeC:
             if str(_type.kind) in ['real32']:
                 return 'float'
             return 'double'
+        if _type.dtype == BasicType.CHARACTER:
+            return 'char'
         # raise ValueError(str(_type))
         return f'<value error for: {str(_type)}>'
 

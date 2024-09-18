@@ -78,7 +78,8 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     # Parse source through preprocessor
     pp.parse(source)
 
-    if True: # config['cpp-dump-files']:
+    # if True: #
+    if config['cpp-dump-files']:
         # print(f"PREPROCESSING ...")
         if filepath is None:
             pp_path = Path(filehash(source, suffix='.cpp.f90'))

@@ -69,7 +69,9 @@ class CudaCodegen(CppCodegen):
         var_keywords = []
         pass_by = []
         for a in o.arguments:
-            if isinstance(a, Array) > 0 and a.type.intent.lower() == "in":
+            if a.type.intent is None:
+                print(f"WHY THE FUCK is a {a}.type.intent None? {o.name}")
+            if isinstance(a, Array) > 0 and a.type.intent is not None and a.type.intent.lower() == "in":
                 var_keywords += ['const ']
             else:
                 var_keywords += ['']

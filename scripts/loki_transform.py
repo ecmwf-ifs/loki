@@ -376,7 +376,7 @@ def convert(
                 as_kwarguments=True, hoist_parameters=True,
                 ignore_modules=['parkind1'], all_derived_types=True,
                 dic2p=dic2p, skip_driver_imports=True,
-                recurse_to_kernels=True)
+                recurse_to_kernels=False) # True)
         scheduler.process( pipeline )
 
 

@@ -316,6 +316,7 @@ class Transformation:
             raise TypeError('Transformation.apply_module can only be applied to Module object')
 
         if module._incomplete:
+            print(f"module: {module}")
             raise RuntimeError('Transformation.apply_module requires Module to be complete')
 
         # Apply the actual transformation for modules
