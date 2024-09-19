@@ -805,7 +805,7 @@ def test_scc_annotate_empty_data_clause(frontend, horizontal, blocking):
 
        k = n
        do k=1, 3
-          n = k + 1.
+          n = k + 1
        enddo
     end subroutine some_kernel
     """
