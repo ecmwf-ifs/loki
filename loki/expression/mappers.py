@@ -402,13 +402,16 @@ class ExpressionDimensionsMapper(Mapper):
     map_string_subscript = map_algebraic_leaf
 
     def map_range_index(self, expr, *args, **kwargs):
-        if expr.lower is None and expr.upper is None:
+        _upper = expr.upper
+        if _upper == '*':
+            _upper = None
+        if expr.lower is None and _upper is None:
             # We have the full range
             return as_tuple(expr)
 
         lower = expr.lower.value - 1 if expr.lower is not None else 0
         step = expr.step.value if expr.step is not None else 1
-        return as_tuple((expr.upper - lower) // step)
+        return as_tuple((_upper - lower) // step)
 
     def map_sum(self, expr, *args, **kwargs):
         dim = (1,)

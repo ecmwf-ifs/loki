@@ -855,17 +855,14 @@ class FParser2IR(GenericVisitor):
         dims = ()
         lower_bound = None
         if isinstance(o.children[0], Fortran2003.Explicit_Shape_Spec_List):
-            for child in o.children[0].children:
-                # assumed shape arrays can only have lower bounds, so we
-                # strip the upper bounds here
-                _lbound = None
-                if child.children[0] is not None:
-                    _lbound = self.visit(child.children[0], **kwargs)
-                dims += (sym.RangeIndex((_lbound, None)),)
+            dims += tuple(self.visit(child, **kwargs) for child in o.children[0].children)
         if o.children[1] is not None:
             lower_bound = self.visit(o.children[1], **kwargs)
 
-        dims += (sym.RangeIndex((lower_bound, None)),)
+        if lower_bound:
+            dims += (sym.RangeIndex((lower_bound, sym.IntrinsicLiteral('*'))),)
+        else:
+            dims += (sym.IntrinsicLiteral('*'),)
 
         return dims
 
