@@ -19,7 +19,7 @@ from loki.expression import (
 )
 from loki.ir import (
     nodes as ir, Import, TypeDef, VariableDeclaration,
-    StatementFunction, Transformer, FindNodes
+    StatementFunction, Transformer, FindNodes, is_loki_pragma
 )
 from loki.module import Module
 from loki.subroutine import Subroutine
@@ -32,7 +32,7 @@ __all__ = [
     'sanitise_imports', 'replace_selected_kind',
     'single_variable_declaration', 'recursive_expression_map_update',
     'get_integer_variable', 'get_loop_bounds', 'find_driver_loops',
-    'get_local_arrays', 'check_routine_pragmas'
+    'get_local_arrays', 'check_routine_sequential'
 ]
 
 
@@ -585,7 +585,8 @@ def is_driver_loop(loop, targets):
     """
     if loop.pragma:
         for pragma in loop.pragma:
-            if pragma.keyword.lower() == "loki" and pragma.content.lower() == "driver-loop":
+            if is_loki_pragma(pragma, starts_with='driver-loop') or \
+               is_loki_pragma(pragma, starts_with='loop driver'):
                 return True
     for call in FindNodes(ir.CallStatement).visit(loop.body):
         if call.name in targets:
@@ -651,41 +652,17 @@ def get_local_arrays(routine, section, unique=True):
     return arrays
 
 
-def check_routine_pragmas(routine, directive):
+def check_routine_sequential(routine):
     """
-    Check if routine is marked as sequential or has already been processed.
+    Check if routine is marked as "sequential".
 
     Parameters
     ----------
     routine : :any:`Subroutine`
         Subroutine to perform checks on.
-    directive: string or None
-        Directives flavour to use for parallelism annotations; either
-        ``'openacc'`` or ``None``.
     """
-
-    pragmas = FindNodes(ir.Pragma).visit(routine.ir)
-    routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
-    routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
-
-    seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
-    if seq_pragmas:
-        loki_seq_pragmas = [r for r in routine_pragmas if 'loki' == r.keyword.lower()]
-        if loki_seq_pragmas:
-            if directive == 'openacc':
-                # Mark routine as acc seq
-                mapper = {seq_pragmas[0]: None}
-                routine.spec = Transformer(mapper).visit(routine.spec)
-                routine.body = Transformer(mapper).visit(routine.body)
-
-                # Append the acc pragma to routine.spec, regardless of where the corresponding
-                # loki pragma is found
-                routine.spec.append(ir.Pragma(keyword='acc', content='routine seq'))
-        return True
-
-    vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
-    if vec_pragmas:
-        if directive == 'openacc':
+    for pragma in FindNodes(ir.Pragma).visit(routine.ir):
+        if is_loki_pragma(pragma, starts_with='routine seq'):
             return True
 
     return False

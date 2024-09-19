@@ -10,8 +10,7 @@ import pytest
 from loki import Subroutine, Sourcefile, Dimension, fgen
 from loki.frontend import available_frontends
 from loki.ir import (
-    FindNodes, Assignment, CallStatement, Conditional, Comment, Loop,
-    Pragma, Section
+    nodes as ir, FindNodes, pragmas_attached, is_loki_pragma
 )
 from loki.transformations.single_column import (
     SCCDevectorTransformation, SCCRevectorTransformation, SCCVectorPipeline
@@ -91,38 +90,53 @@ def test_scc_revector_transformation(frontend, horizontal):
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
 
     # Ensure we have three loops in the kernel prior to transformation
-    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
     assert len(kernel_loops) == 3
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
     for transform in scc_transform:
-        transform.apply(driver, role='driver')
+        transform.apply(driver, role='driver', targets=('compute_column',))
         transform.apply(kernel, role='kernel')
 
     # Ensure we have two nested loops in the kernel
     # (the hoisted horizontal and the native vertical)
-    kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 2
-    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
-    assert kernel_loops[0].variable == 'jl'
-    assert kernel_loops[0].bounds == 'start:end'
-    assert kernel_loops[1].variable == 'jk'
-    assert kernel_loops[1].bounds == '2:nz'
+    with pragmas_attached(kernel, node_type=ir.Loop):
+        kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
+        assert len(kernel_loops) == 2
+        assert kernel_loops[1] in FindNodes(ir.Loop).visit(kernel_loops[0].body)
+        assert kernel_loops[0].variable == 'jl'
+        assert kernel_loops[0].bounds == 'start:end'
+        assert kernel_loops[1].variable == 'jk'
+        assert kernel_loops[1].bounds == '2:nz'
+
+        # Check internal loop pragma annotations
+        assert kernel_loops[0].pragma
+        assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
+        assert kernel_loops[1].pragma
+        assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
 
     # Ensure all expressions and array indices are unchanged
-    assigns = FindNodes(Assignment).visit(kernel.body)
+    assigns = FindNodes(ir.Assignment).visit(kernel.body)
     assert fgen(assigns[1]).lower() == 't(jl, jk) = c*jk'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
-    # Ensure driver remains unaffected
-    driver_loops = FindNodes(Loop).visit(driver.body)
-    assert len(driver_loops) == 1
-    assert driver_loops[0].variable == 'b'
-    assert driver_loops[0].bounds == '1:nb'
+    # Ensure that vector-section labels have been removed
+    sections = FindNodes(ir.Section).visit(kernel.body)
+    assert all(not s.label for s in sections)
 
-    kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
+    # Ensure driver remains unaffected and is marked
+    with pragmas_attached(driver, node_type=ir.Loop):
+        driver_loops = FindNodes(ir.Loop).visit(driver.body)
+        assert len(driver_loops) == 1
+        assert driver_loops[0].variable == 'b'
+        assert driver_loops[0].bounds == '1:nb'
+        assert driver_loops[0].pragma and len(driver_loops[0].pragma) == 1
+        assert is_loki_pragma(driver_loops[0].pragma[0], starts_with='loop driver')
+        assert 'vector_length(nlon)' in driver_loops[0].pragma[0].content
+
+    kernel_calls = FindNodes(ir.CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
 
@@ -193,38 +207,53 @@ END SUBROUTINE compute_column
                                     definitions=bnds_type_mod.definitions).subroutines[0]
 
     # Ensure we have three loops in the kernel prior to transformation
-    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
     assert len(kernel_loops) == 3
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal_bounds_aliases),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal_bounds_aliases),)
     for transform in scc_transform:
-        transform.apply(driver, role='driver')
+        transform.apply(driver, role='driver', targets=('compute_column',))
         transform.apply(kernel, role='kernel')
 
     # Ensure we have two nested loops in the kernel
     # (the hoisted horizontal and the native vertical)
-    kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 2
-    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
-    assert kernel_loops[0].variable == 'jl'
-    assert kernel_loops[0].bounds == 'bnds%start:bnds%end'
-    assert kernel_loops[1].variable == 'jk'
-    assert kernel_loops[1].bounds == '2:nz'
+    with pragmas_attached(kernel, node_type=ir.Loop):
+        kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
+        assert len(kernel_loops) == 2
+        assert kernel_loops[1] in FindNodes(ir.Loop).visit(kernel_loops[0].body)
+        assert kernel_loops[0].variable == 'jl'
+        assert kernel_loops[0].bounds == 'bnds%start:bnds%end'
+        assert kernel_loops[1].variable == 'jk'
+        assert kernel_loops[1].bounds == '2:nz'
+
+        # Check internal loop pragma annotations
+        assert kernel_loops[0].pragma
+        assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
+        assert kernel_loops[1].pragma
+        assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
 
     # Ensure all expressions and array indices are unchanged
-    assigns = FindNodes(Assignment).visit(kernel.body)
+    assigns = FindNodes(ir.Assignment).visit(kernel.body)
     assert fgen(assigns[1]).lower() == 't(jl, jk) = c*jk'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
-    # Ensure driver remains unaffected
-    driver_loops = FindNodes(Loop).visit(driver.body)
-    assert len(driver_loops) == 1
-    assert driver_loops[0].variable == 'b'
-    assert driver_loops[0].bounds == '1:nb'
+    # Ensure that vector-section labels have been removed
+    sections = FindNodes(ir.Section).visit(kernel.body)
+    assert all(not s.label for s in sections)
 
-    kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
+    # Ensure driver remains unaffected and is marked
+    with pragmas_attached(driver, node_type=ir.Loop):
+        driver_loops = FindNodes(ir.Loop).visit(driver.body)
+        assert len(driver_loops) == 1
+        assert driver_loops[0].variable == 'b'
+        assert driver_loops[0].bounds == '1:nb'
+        assert driver_loops[0].pragma and len(driver_loops[0].pragma) == 1
+        assert is_loki_pragma(driver_loops[0].pragma[0], starts_with='loop driver')
+        assert 'vector_length(nlon)' in driver_loops[0].pragma[0].content
+
+    kernel_calls = FindNodes(ir.CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
 
@@ -280,7 +309,7 @@ def test_scc_devector_transformation(frontend, horizontal):
     kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
     # Check number of horizontal loops prior to transformation
-    loops = [l for l in FindNodes(Loop).visit(kernel.body) if l.variable == 'jl']
+    loops = [l for l in FindNodes(ir.Loop).visit(kernel.body) if l.variable == 'jl']
     assert len(loops) == 4
 
     # Test SCCDevector transform for kernel with scope-splitting outer loop
@@ -288,20 +317,23 @@ def test_scc_devector_transformation(frontend, horizontal):
     scc_transform.apply(kernel, role='kernel')
 
     # Check removal of horizontal loops
-    loops = [l for l in FindNodes(Loop).visit(kernel.body) if l.variable == 'jl']
+    loops = [l for l in FindNodes(ir.Loop).visit(kernel.body) if l.variable == 'jl']
     assert not loops
 
     # Check number and content of vector sections
-    sections = [s for s in FindNodes(Section).visit(kernel.body) if s.label == 'vector_section']
+    sections = [
+        s for s in FindNodes(ir.Section).visit(kernel.body)
+        if s.label == 'vector_section'
+    ]
     assert len(sections) == 4
 
-    assigns = FindNodes(Assignment).visit(sections[0])
+    assigns = FindNodes(ir.Assignment).visit(sections[0])
     assert len(assigns) == 2
-    assigns = FindNodes(Assignment).visit(sections[1])
+    assigns = FindNodes(ir.Assignment).visit(sections[1])
     assert len(assigns) == 1
-    assigns = FindNodes(Assignment).visit(sections[2])
+    assigns = FindNodes(ir.Assignment).visit(sections[2])
     assert len(assigns) == 1
-    assigns = FindNodes(Assignment).visit(sections[3])
+    assigns = FindNodes(ir.Assignment).visit(sections[3])
     assert len(assigns) == 1
 
 
@@ -348,15 +380,17 @@ def test_scc_vector_inlined_call(frontend, horizontal):
     for transform in scc_transform:
         transform.apply(routine, role='kernel', targets=['some_kernel', 'some_inlined_kernel'])
 
-    # Check loki pragma has been removed
-    assert not FindNodes(Pragma).visit(routine.body)
+    # Check only `!$loki loop vector` pragma has been inserted
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
+    assert len(pragmas) == 1
+    assert is_loki_pragma(pragmas[0], starts_with='loop vector')
 
     # Check that 'some_inlined_kernel' remains within vector-parallel region
-    loops = FindNodes(Loop).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 1
-    calls = FindNodes(CallStatement).visit(loops[0].body)
+    calls = FindNodes(ir.CallStatement).visit(loops[0].body)
     assert len(calls) == 1
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 2
 
 
@@ -393,9 +427,12 @@ def test_scc_vector_section_trim_simple(frontend, horizontal, trim_vector_sectio
     for transform in scc_transform:
         transform.apply(routine, role='kernel', targets=['some_kernel',])
 
-    assign = FindNodes(Assignment).visit(routine.body)[0]
-    loop = FindNodes(Loop).visit(routine.body)[0]
-    comment = [c for c in FindNodes(Comment).visit(routine.body) if c.text == '! random comment'][0]
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
+    loop = FindNodes(ir.Loop).visit(routine.body)[0]
+    comment = [
+        c for c in FindNodes(ir.Comment).visit(routine.body)
+        if c.text == '! random comment'
+    ][0]
 
     # check we found the right assignment
     assert assign.lhs.name.lower() == 'flag0'
@@ -457,8 +494,8 @@ def test_scc_vector_section_trim_nested(frontend, horizontal, trim_vector_sectio
     for transform in scc_transform:
         transform.apply(routine, role='kernel', targets=['some_kernel',])
 
-    cond = FindNodes(Conditional).visit(routine.body)[0]
-    loop = FindNodes(Loop).visit(routine.body)[0]
+    cond = FindNodes(ir.Conditional).visit(routine.body)[0]
+    loop = FindNodes(ir.Loop).visit(routine.body)[0]
 
     if trim_vector_sections:
         assert cond not in loop.body
@@ -509,19 +546,19 @@ def test_scc_vector_section_trim_complex(
     )
     scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
 
-    assign = FindNodes(Assignment).visit(routine.body)[0]
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
 
     # check we found the right assignment
     assert assign.lhs.name.lower() == 'flag1'
 
-    cond = FindNodes(Conditional).visit(routine.body)[0]
-    loop = FindNodes(Loop).visit(routine.body)[0]
+    cond = FindNodes(ir.Conditional).visit(routine.body)[0]
+    loop = FindNodes(ir.Loop).visit(routine.body)[0]
 
     assert cond in loop.body
     assert cond not in routine.body.body
     if trim_vector_sections:
         assert assign not in loop.body
-        assert(len(FindNodes(Assignment).visit(loop.body)) == 3)
+        assert(len(FindNodes(ir.Assignment).visit(loop.body)) == 3)
     else:
         assert assign in loop.body
-        assert(len(FindNodes(Assignment).visit(loop.body)) == 4)
+        assert(len(FindNodes(ir.Assignment).visit(loop.body)) == 4)

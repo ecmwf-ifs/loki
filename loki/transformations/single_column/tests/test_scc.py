@@ -298,8 +298,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking):
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(horizontal=horizontal,
-                                                directive='openacc', block_dim=blocking),)
+    scc_transform += (SCCAnnotateTransformation(directive='openacc', block_dim=blocking),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=['compute_column'])
         transform.apply(kernel, role='kernel')
@@ -407,9 +406,7 @@ def test_scc_nested(frontend, horizontal, blocking):
     scc_pipeline.apply(inner_kernel, role='kernel')
 
     # Apply annotate twice to test bailing out mechanism
-    scc_annotate = SCCAnnotateTransformation(
-        horizontal=horizontal, directive='openacc', block_dim=blocking
-    )
+    scc_annotate = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
     scc_annotate.apply(driver, role='driver', targets=['compute_column'])
     scc_annotate.apply(outer_kernel, role='kernel', targets=['compute_q'])
     scc_annotate.apply(inner_kernel, role='kernel')
@@ -753,9 +750,10 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_base_routine_seq_pragma(frontend, horizontal):
+def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
     """
-    Test that `!$loki routine seq` pragmas are replaced correctly by `!$acc routine seq` pragmas.
+    Test that `!$loki routine seq` pragmas are replaced correctly by
+    `!$acc routine seq` pragmas.
     """
 
     fcode = """
@@ -764,8 +762,8 @@ def test_scc_base_routine_seq_pragma(frontend, horizontal):
 
        integer, intent(in) :: nang
        real, dimension(nang), intent(inout) :: work
-!$loki routine seq
        integer :: k
+!$loki routine seq
 
        do k=1,nang
           work(k) = 1.
@@ -776,19 +774,56 @@ def test_scc_base_routine_seq_pragma(frontend, horizontal):
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    pragmas = FindNodes(Pragma).visit(routine.spec)
+    pragmas = FindNodes(Pragma).visit(routine.ir)
     assert len(pragmas) == 1
     assert pragmas[0].keyword == 'loki'
     assert pragmas[0].content == 'routine seq'
 
-    transformation = SCCBaseTransformation(horizontal=horizontal, directive='openacc')
+    transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
     transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
 
+    # Ensure the routine pragma is in the first pragma in the spec
     pragmas = FindNodes(Pragma).visit(routine.spec)
     assert len(pragmas) == 1
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine seq'
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_annotate_empty_data_clause(frontend, horizontal, blocking):
+    """
+    Test that we do not generate empty `!$acc data` clauses.
+    """
+
+    fcode = """
+    subroutine some_kernel(n)
+       implicit none
+       ! Scalars should not show up in `!$acc data` clause
+       integer, intent(inout) :: n
+!$loki routine seq
+       integer :: k
+
+       k = n
+       do k=1, 3
+          n = k + 1
+       enddo
+    end subroutine some_kernel
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    pragmas = FindNodes(Pragma).visit(routine.ir)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'loki'
+    assert pragmas[0].content == 'routine seq'
+
+    transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
+    transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
+
+    # Ensure the routine pragma is in the first pragma in the spec
+    pragmas = FindNodes(Pragma).visit(routine.ir)
+    assert len(pragmas) == 1
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[0].content == 'routine seq'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import re
+
 from more_itertools import split_at
 
 from loki.analyse import dataflow_analysis_attached
@@ -14,7 +16,7 @@ from loki.expression import (
 )
 from loki.ir import (
     nodes as ir, FindNodes, FindScopes, Transformer,
-    NestedTransformer, is_loki_pragma, pragmas_attached
+    NestedTransformer, is_loki_pragma, pragmas_attached, pragma_regions_attached
 )
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
@@ -22,13 +24,13 @@ from loki.types import BasicType
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.utilities import (
     get_integer_variable, get_loop_bounds, find_driver_loops,
-    get_local_arrays, check_routine_pragmas
+    get_local_arrays, check_routine_sequential
 )
 
 
 __all__ = [
     'SCCDevectorTransformation', 'SCCRevectorTransformation',
-    'SCCDemoteTransformation'
+    'SCCDemoteTransformation', 'wrap_vector_section'
 ]
 
 
@@ -97,7 +99,7 @@ class SCCDevectorTransformation(Transformation):
             # check if calls have been enriched
             if not call.routine is BasicType.DEFERRED:
                 # check if called routine is marked as sequential
-                if check_routine_pragmas(routine=call.routine, directive=None):
+                if check_routine_sequential(routine=call.routine):
                     continue
 
             if call in section:
@@ -249,6 +251,39 @@ class SCCDevectorTransformation(Transformation):
         routine.body = Transformer(driver_loop_map).visit(routine.body)
 
 
+def wrap_vector_section(section, routine, horizontal, insert_pragma=True):
+    """
+    Wrap a section of nodes in a vector-level loop across the horizontal.
+
+    Parameters
+    ----------
+    section : tuple of :any:`Node`
+        A section of nodes to be wrapped in a vector-level loop
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    horizontal: :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    insert_pragma: bool, optional
+        Adds a ``!$loki vector`` pragma around the created loop
+    """
+    bounds = get_loop_bounds(routine, dimension=horizontal)
+
+    # Create a single loop around the horizontal from a given body
+    index = get_integer_variable(routine, horizontal.index)
+    bounds = sym.LoopRange(bounds)
+
+    # Ensure we clone all body nodes, to avoid recursion issues
+    body = Transformer().visit(section)
+
+    # Add a marker pragma for later annotations
+    pragma = (ir.Pragma('loki', content='loop vector'),) if insert_pragma else None
+    vector_loop = ir.Loop(variable=index, bounds=bounds, body=body, pragma=pragma)
+
+    # Add a comment before and after the pragma-annotated loop to ensure
+    # we do not overlap with neighbouring pragmas
+    return (ir.Comment(''), vector_loop, ir.Comment(''))
+
+
 class SCCRevectorTransformation(Transformation):
     """
     A transformation to wrap thread-parallel IR sections within a horizontal loop.
@@ -265,56 +300,154 @@ class SCCRevectorTransformation(Transformation):
         self.horizontal = horizontal
         self.remove_vector_section = remove_vector_section
 
-    @classmethod
-    def wrap_vector_section(cls, section, routine, horizontal):
+    def revector_section(self, routine, section):
         """
-        Wrap a section of nodes in a vector-level loop across the horizontal.
-
-        Parameters
-        ----------
-        section : tuple of :any:`Node`
-            A section of nodes to be wrapped in a vector-level loop
-        routine : :any:`Subroutine`
-            The subroutine in the vector loops should be removed.
-        horizontal: :any:`Dimension`
-            The dimension specifying the horizontal vector dimension
-        """
-        bounds = get_loop_bounds(routine, dimension=horizontal)
-
-        # Create a single loop around the horizontal from a given body
-        index = get_integer_variable(routine, horizontal.index)
-        bounds = sym.LoopRange(bounds)
-
-        # Ensure we clone all body nodes, to avoid recursion issues
-        vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
-
-        # Add a comment before and after the pragma-annotated loop to ensure
-        # we do not overlap with neighbouring pragmas
-        return (ir.Comment(''), vector_loop, ir.Comment(''))
-
-    def transform_subroutine(self, routine, **kwargs):
-        """
-        Apply SCCRevector utilities to a :any:`Subroutine`.
-        It wraps all thread-parallel sections within
-        a horizontal loop. The markers placed by :any:`SCCDevectorTransformation` are removed
+        Wrap all thread-parallel :any:`Section` objects within a given
+        code section in a horizontal loop and mark interior loops as
+        ``!$loki loop seq``.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
+        section : tuple of :any:`Node`
+            Code section in which to replace vector-parallel
+            :any:`Section` objects.
         """
-        mapper = {s.body: self.wrap_vector_section(s.body, routine, self.horizontal)
-                  for s in FindNodes(ir.Section).visit(routine.body)
-                  if s.label == 'vector_section'}
-        routine.body = NestedTransformer(mapper).visit(routine.body)
+        # Wrap all thread-parallel sections into horizontal thread loops
+        mapper = {
+            s: wrap_vector_section(s.body, routine, self.horizontal)
+            for s in FindNodes(ir.Section).visit(section)
+            if s.label == 'vector_section'
+        }
+        return Transformer(mapper).visit(section)
 
-        if self.remove_vector_section:
-            # Remove the vector section wrappers
-            # These have been inserted by SCCDevectorTransformation
-            section_mapper = {s: s.body for s in FindNodes(ir.Section).visit(routine.body)
-                    if s.label == 'vector_section'}
-            if section_mapper:
-                routine.body = Transformer(section_mapper).visit(routine.body)
+    def mark_vector_reductions(self, routine, section):
+        """
+        Mark vector-reduction loops in marked vector-reduction
+        regions.
+
+        If a region explicitly marked with
+        ``!$loki vector-reduction(<reduction clause>)``/
+        ``!$loki end vector-reduction`` is encountered, we replace
+        existing ``!$loki loop vector`` loop pragmas and add the
+        reduction keyword and clause. These will be turned into
+        OpenACC equivalents by :any:`SCCAnnotate`.
+        """
+        with pragma_regions_attached(routine):
+            for region in FindNodes(ir.PragmaRegion).visit(section):
+                if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
+                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
+
+                        loops = FindNodes(ir.Loop).visit(region)
+                        assert len(loops) == 1
+                        pragma = ir.Pragma(keyword='loki', content=f'loop vector {reduction_clause[0]}')
+                        # Update loop and region in place to remove marker pragmas
+                        loops[0]._update(pragma=(pragma,))
+                        region._update(pragma=None, pragma_post=None)
+
+
+    def mark_seq_loops(self, section):
+        """
+        Mark interior sequential loops in a thread-parallel section
+        with ``!$loki loop seq`` for later annotation.
+
+        This utility requires loop-pragmas to be attached via
+        :any:`pragmas_attached`. It also updates loops in-place.
+
+        Parameters
+        ----------
+        section : tuple of :any:`Node`
+            Code section in which to mark "seq loops".
+        """
+        for loop in FindNodes(ir.Loop).visit(section):
+
+            # Skip loops explicitly marked with `!$loki/claw nodep`
+            if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
+                continue
+
+            # Mark loop as sequential with `!$loki loop seq`
+            if loop.variable != self.horizontal.index:
+                loop._update(pragma=(ir.Pragma(keyword='loki', content='loop seq'),))
+
+    def mark_driver_loop(self, routine, loop):
+        """
+        Add ``!$loki loop driver`` pragmas to outer block loops and
+        add ``vector-length(size)`` clause for later annotations.
+
+        This method assumes that pragmas have been attached via
+        :any:`pragmas_attached`.
+        """
+        # Find a horizontal size variable to mark vector_length
+        symbol_map = routine.symbol_map
+        sizes = tuple(
+            symbol_map.get(size) for size in self.horizontal.size_expressions
+            if size in symbol_map
+        )
+        vector_length = f' vector_length({sizes[0]})' if sizes else ''
+
+        # Replace existing `!$loki loop driver markers, but leave all others
+        pragma = ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
+        loop_pragmas = tuple(
+            p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
+        )
+        loop._update(pragma=loop_pragmas + (pragma,))
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Wrap vector-parallel sections in vector :any:`Loop` objects.
+
+        This wraps all thread-parallel sections within "kernel"
+        routines or within the parallel loops in "driver" routines.
+
+        The markers placed by :any:`SCCDevectorTransformation` are removed
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : str
+            Must be either ``"kernel"`` or ``"driver"``
+        targets : tuple or str
+            Tuple of target routine names for determining "driver" loops
+        """
+        role = kwargs['role']
+        targets = kwargs.get('targets', ())
+
+        if role == 'kernel':
+            # Skip if kernel is marked as `!$loki routine seq`
+            if check_routine_sequential(routine):
+                return
+
+            # Revector all marked vector sections within the kernel body
+            routine.body = self.revector_section(routine, routine.body)
+
+            with pragmas_attached(routine, ir.Loop):
+                # Check for explicitly labelled vector-reduction regions
+                self.mark_vector_reductions(routine, routine.body)
+
+                # Mark sequential loops inside vector sections
+                self.mark_seq_loops(routine.body)
+
+            # Mark subroutine as vector parallel for later annotation
+            routine.spec.append(ir.Pragma(keyword='loki', content='routine vector'))
+
+        if role == 'driver':
+            with pragmas_attached(routine, ir.Loop):
+                driver_loops = find_driver_loops(routine=routine, targets=targets)
+
+                for loop in driver_loops:
+                    # Revector all marked sections within the driver loop body
+                    loop._update(body=self.revector_section(routine, loop.body))
+
+                    # Check for explicitly labelled vector-reduction regions
+                    self.mark_vector_reductions(routine, loop.body)
+
+                    # Mark sequential loops inside vector sections
+                    self.mark_seq_loops(loop.body)
+
+                    # Mark outer driver loops
+                    self.mark_driver_loop(routine, loop)
 
 
 class SCCDemoteTransformation(Transformation):
