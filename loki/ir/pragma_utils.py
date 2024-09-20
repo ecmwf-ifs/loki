@@ -675,15 +675,16 @@ class SubstitutePragmaStrings(Transformer):
         r')': r'\)'
     }
 
+    @classmethod
+    def _sanitise(cls, k):
+        for _k, _v in cls._sanitise_map.items():
+            k = k.replace(_k, _v)
+        return k
+
     def __init__(self, str_map, **kwargs):
         super().__init__(inplace=True, **kwargs)
 
-        def _sanitise(k):
-            for _k, _v in self._sanitise_map.items():
-                k = k.replace(_k, _v)
-            return k
-
-        self.str_map = {_sanitise(k): v for k, v in str_map.items()}
+        self.str_map = {self._sanitise(k): v for k, v in str_map.items()}
 
     def visit_Pragma(self, o, **kwargs):
         _content = o.content
