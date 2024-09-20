@@ -17,7 +17,7 @@ from loki.ir import (
     nodes as ir, FindNodes, pragma_regions_attached, get_pragma_parameters, Transformer,
     SubstitutePragmaStrings
 )
-from loki.expression import symbols as sym, SubstituteExpressions, SubstituteStringExpressions
+from loki.expression import symbols as sym, SubstituteExpressions, FindLiterals
 from loki.types import BasicType, DerivedType, SymbolAttributes
 from loki.analyse import dataflow_analysis_attached
 from loki.tools import as_tuple
@@ -307,7 +307,21 @@ class DataOffloadDeepcopyTransformation(Transformation):
         return device, host
 
     @staticmethod
-    def _wrap_in_loopnest(routine, var, parent, body):
+    def _map_memory_status_checks(str_map, body):
+        literals = FindLiterals().visit(body)
+        literals = [l for l in literals if isinstance(l, sym.IntrinsicLiteral)]
+
+        _str_map = {SubstitutePragmaStrings._sanitise(k): v for k, v in str_map.items()}
+        _literal_map = {}
+        for l in literals:
+            _l = l.value
+            for k, v in _str_map.items():
+                _l = re.sub(k, v, _l, flags=re.IGNORECASE)
+            _literal_map[l] = sym.IntrinsicLiteral(value=_l)
+
+        return _literal_map
+
+    def _wrap_in_loopnest(self, routine, var, parent, body):
 
         loopbody = ()
         loop_vars = []
@@ -321,13 +335,19 @@ class DataOffloadDeepcopyTransformation(Transformation):
             if not loopbody:
                 vmap = {var.clone(parent=parent):
                         var.clone(parent=parent, dimensions=as_tuple(sym.Variable(name=f'J{dim+1}')))}
+                vmap.update({var.clone(parent=parent, dimensions=None):
+                             var.clone(parent=parent, dimensions=as_tuple(sym.Variable(name=f'J{dim+1}')))})
                 str_map = {fgen(k): fgen(v) for k, v in vmap.items()}
+
+                vmap.update(self._map_memory_status_checks(str_map, body))
 
                 loopbody = as_tuple(SubstituteExpressions(vmap).visit(body))
                 loopbody = as_tuple(SubstitutePragmaStrings(str_map).visit(loopbody))
             else:
                 vmap = {sym.Variable(name=f'J{dim}'): sym.Variable(name=f'J{dim}, J{dim+1}')}
                 str_map = {fgen(k): fgen(v) for k, v in vmap.items()}
+
+                vmap.update(self._map_memory_status_checks(str_map, body))
 
                 loopbody = as_tuple(SubstituteExpressions(vmap).visit(loopbody))
                 loopbody = as_tuple(SubstitutePragmaStrings(str_map).visit(loopbody))
