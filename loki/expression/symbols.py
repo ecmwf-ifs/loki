@@ -1395,6 +1395,20 @@ class InlineCall(pmbl.CallWithKwargs):
         kwargs = ((r_args[kw], arg) for kw, arg in as_tuple(self.kwarguments))
         return chain(args, kwargs)
 
+    @property
+    def arg_map(self):
+        """
+        A full map of all qualified argument matches from arguments
+        and keyword arguments.
+
+        Returns
+        -------
+        dict
+            An dictionary that mapping ``arg name: call arg`` for
+            all positional and then keyword arguments.
+        """
+        return dict(self.arg_iter())
+
     def clone(self, **kwargs):
         """
         Replicate the object with the provided overrides.
