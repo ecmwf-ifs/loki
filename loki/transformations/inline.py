@@ -22,7 +22,7 @@ from loki.ir import (
 from loki.expression import symbols as sym, LokiIdentityMapper
 from loki.types import BasicType
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.logging import warning, error
+from loki.logging import error
 from loki.subroutine import Subroutine
 
 from loki.transformations.remove_code import do_remove_dead_code
@@ -317,6 +317,9 @@ def inline_constant_parameters(routine, external_only=True):
 
 
 def inline_elemental_functions(routine):
+    inline_functions(routine, inline_elementals_only=True)
+
+def inline_functions(routine, inline_elementals_only=False, functions=None):
     """
     Replaces `InlineCall` expression to elemental functions with the
     called functions body. This will attempt to resolve the elemental
@@ -327,26 +330,60 @@ def inline_elemental_functions(routine):
     function cal be inlined. For functions imported via module use
     statements. This implies that the module needs to be provided in
     the `definitions` argument to the original ``Subroutine`` constructor.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+         Procedure in which to inline functions.
+    inline_elementals_only : bool, optional
+        Inline elemental routines/functions only (default: False).
+    functions : tuple, optional
+        Inline only functions that are provided here
+        (default: None, thus inline all functions). 
     """
+
+    functions = as_tuple(functions)
 
     # Keep track of removed symbols
     removed_functions = set()
 
-    exprmap = {}
-    for call in FindInlineCalls().visit(routine.body):
-        if call.procedure_type is BasicType.DEFERRED:
-            continue
+    # Find and filter inline calls and corresponding nodes
+    function_calls = {}
+    for node, calls in FindInlineCalls(with_ir_node=True).visit(routine.body):
+        for call in calls:
+            if call.procedure_type is BasicType.DEFERRED or isinstance(call.routine, StatementFunction):
+                continue
+            if inline_elementals_only:
+                if not (call.procedure_type.is_function and call.procedure_type.is_elemental):
+                    continue
+            if functions:
+                if call.routine not in functions:
+                    continue
+            function_calls.setdefault(str(call.name).lower(),[]).append((call, node))
 
-        if call.procedure_type.is_function and call.procedure_type.is_elemental:
-            # Map each call to its substitutions, as defined by the
-            # recursive inline substitution mapper
-            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
-
-            # Mark function as removed for later cleanup
+    # inline functions
+    node_prepend_map = {}
+    call_map = {}
+    for _, calls_nodes in function_calls.items():
+        calls, nodes = list(zip(*calls_nodes))
+        for call in calls:
             removed_functions.add(call.procedure_type)
+        # collect nodes to be appendes as well as expression replacement for inline call
+        inline_node_map, inline_call_map = inline_function_calls(routine, as_tuple(calls),
+                                                                 calls[0].routine, as_tuple(nodes))
+        for node, nodes_to_prepend in inline_node_map.items():
+            node_prepend_map.setdefault(node, []).extend(list(nodes_to_prepend))
+        call_map.update(inline_call_map)
 
-    # Apply expression-level substitution to routine
-    routine.body = SubstituteExpressions(exprmap).visit(routine.body)
+    # collect nodes to be prepended for each node that contains (at least one) inline call to a function
+    node_map = {}
+    for node, prepend_nodes in node_prepend_map.items():
+        node_map[node] = as_tuple(prepend_nodes) + (SubstituteExpressions(call_map).visit(node),)
+    # inline via prepending the relevant functions
+    routine.body = Transformer(node_map).visit(routine.body)
+    # We need this to ensure that symbols, as well as nested scopes
+    # are correctly attached to each other (eg. nested associates).
+    routine.rescope_symbols()
 
     # Remove all module imports that have become obsolete now
     import_map = {}
@@ -390,7 +427,7 @@ def inline_statement_functions(routine):
                 spec_map[decl] = None
     routine.spec = Transformer(spec_map).visit(routine.spec)
 
-def map_call_to_procedure_body(call, caller):
+def map_call_to_procedure_body(call, caller, callee=None):
     """
     Resolve arguments of a call and map to the called procedure body.
 
@@ -400,6 +437,9 @@ def map_call_to_procedure_body(call, caller):
          Call object that defines the argument mapping
     caller : :any:`Subroutine`
          Procedure (scope) into which the callee's body gets mapped
+    callee : :any:`Subroutine`, optional
+         Procedure (scope) called. Provide if it differs from
+         call.routine.
     """
 
     def _map_unbound_dims(var, val):
@@ -421,7 +461,7 @@ def map_call_to_procedure_body(call, caller):
         return val.clone(dimensions=tuple(new_dimensions))
 
     # Get callee from the procedure type
-    callee = call.routine
+    callee = callee or call.routine
     if callee is BasicType.DEFERRED:
         error(
             '[Loki::TransformInline] Need procedure definition to resolve '
@@ -564,6 +604,125 @@ def inline_subroutine_calls(routine, calls, callee, allowed_aliases=None):
     # are correctly attached to each other (eg. nested associates).
     routine.rescope_symbols()
 
+def inline_function_calls(routine, calls, callee, nodes, allowed_aliases=None):
+    """
+    Inline a set of call to an individual :any:`Subroutine` being functions
+    at source level.
+
+    This will replace all :any:`InlineCall` objects to the specified
+    subroutine with an adjusted equivalent of the member routines'
+    body. For this, argument matching, including partial dimension
+    matching for array references is performed, and all
+    member-specific declarations are hoisted to the containing
+    :any:`Subroutine`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to inline all calls to the member routine
+    calls : tuple or list of :any:`InlineCall`
+    callee : :any:`Subroutine`
+        The called target function to be inlined in the parent
+    nodes : :any:`Node`
+        The corresponding nodes the functions are called from.
+    allowed_aliases : tuple or list of str or :any:`Expression`, optional
+        List of variables that will not be renamed in the parent scope, even
+        if they alias with a local declaration.
+    """
+
+    def rename_result_name(routine, rename=''):
+        callee = routine.clone()
+        var_map = {}
+        callee_result_var = callee.variable_map[callee.result_name.lower()]
+        new_callee_result_var = callee_result_var.clone(name=rename)
+        var_map[callee_result_var] = new_callee_result_var
+        callee_vars = [var for var in FindVariables().visit(callee.body)
+                       if var.name.lower() == callee_result_var.name.lower()]
+        var_map.update({var: var.clone(name=rename) for var in callee_vars})
+        var_map = recursive_expression_map_update(var_map)
+        callee.body = SubstituteExpressions(var_map).visit(callee.body)
+        return callee, new_callee_result_var
+
+    allowed_aliases = as_tuple(allowed_aliases)
+
+    # Ensure we process sets of calls to the same callee
+    assert all(call.routine == callee for call in calls)
+    assert isinstance(callee, Subroutine)
+
+    # Prevent shadowing of callee's variables by renaming them a priori
+    parent_variables = routine.variable_map
+    duplicates = tuple(
+        v for v in callee.variables
+        if v.name.lower() != callee.result_name.lower()
+        and v.name in parent_variables and v.name.lower() not in callee._dummies
+    )
+    # Filter out allowed aliases to prevent suffixing
+    duplicates = tuple(v for v in duplicates if v.symbol not in allowed_aliases)
+    shadow_mapper = SubstituteExpressions(
+        {v: v.clone(name=f'{callee.name}_{v.name}') for v in duplicates}
+    )
+    callee.spec = shadow_mapper.visit(callee.spec)
+
+    var_map = {}
+    duplicate_names = {dl.name.lower() for dl in duplicates}
+    for v in FindVariables(unique=False).visit(callee.body):
+        if v.name.lower() in duplicate_names:
+            var_map[v] = v.clone(name=f'{callee.name}_{v.name}')
+
+    var_map = recursive_expression_map_update(var_map)
+    callee.body = SubstituteExpressions(var_map).visit(callee.body)
+
+    # Separate allowed aliases from other variables to ensure clean hoisting
+    if allowed_aliases:
+        single_variable_declaration(callee, variables=allowed_aliases)
+
+    single_variable_declaration(callee, variables=callee.result_name)
+    # Get local variable declarations and hoist them
+    decls = FindNodes(VariableDeclaration).visit(callee.spec)
+    decls = tuple(d for d in decls if all(s.name.lower() != callee.result_name.lower() for s in d.symbols))
+    decls = tuple(d for d in decls if all(s.name.lower() not in callee._dummies for s in d.symbols))
+    decls = tuple(d for d in decls if all(s not in routine.variables for s in d.symbols))
+    # Rescope the declaration symbols
+    decls = tuple(d.clone(symbols=tuple(s.clone(scope=routine) for s in d.symbols)) for d in decls)
+
+    # Find and apply symbol remappings for array size expressions
+    symbol_map = dict(ChainMap(*[call.arg_map for call in calls]))
+    decls = SubstituteExpressions(symbol_map).visit(decls)
+    routine.spec.append(decls)
+
+    # Handle result/return var/value
+    new_symbols = set()
+    result_var_map = {}
+    adapted_calls = []
+    rename_result_var = not len(nodes) == len(set(nodes))
+    for i_call, call in enumerate(calls):
+        callee_result_var = callee.variable_map[callee.result_name.lower()]
+        # if call to same function from the same node, "increment" result var name
+        new_callee_result_var_name = f'result_{callee.result_name.lower()}_{i_call}'\
+                if rename_result_var else f'result_{callee.result_name.lower()}'
+        new_callee, new_symbol = rename_result_name(callee, new_callee_result_var_name)
+        adapted_calls.append(new_callee)
+        new_symbols.add(new_symbol)
+        if isinstance(callee_result_var, sym.Array):
+            result_var_map[call] = callee_result_var.clone(name=new_callee_result_var_name, dimensions=None)
+        else:
+            result_var_map[call] = callee_result_var.clone(name=new_callee_result_var_name)
+    # symbol_map = dict(ChainMap(*[call.arg_map for call in calls]))
+    new_symbols = SubstituteExpressions(symbol_map).visit(as_tuple(new_symbols), recurse_to_declaration_attributes=True)
+    routine.variables += as_tuple([symbol.clone(scope=routine) for symbol in new_symbols])
+
+    # create node map to map nodes to be prepended (representing the functions) for each node
+    node_map = {}
+    for i_call, call in enumerate(calls):
+        node_map.setdefault(nodes[i_call], []).extend(
+                list(map_call_to_procedure_body(call, caller=routine, callee=adapted_calls[i_call]))
+        )
+    # create call map to map the actual call to the result var (name)
+    call_map = {
+        call: result_var_map[call] for call in calls
+    }
+    return node_map, call_map
+
 
 def inline_internal_procedures(routine, allowed_aliases=None):
     """
@@ -583,8 +742,7 @@ def inline_internal_procedures(routine, allowed_aliases=None):
     # Run through all members and invoke individual inlining transforms
     for child in routine.members:
         if child.is_function:
-            # TODO: Implement for functions!!!
-            warning('[Loki::inline] Inlining internal functions is not yet supported, only subroutines!')
+            inline_functions(routine, functions=(child,))
         else:
             calls = tuple(
                 call for call in FindNodes(CallStatement).visit(routine.body)
@@ -592,9 +750,9 @@ def inline_internal_procedures(routine, allowed_aliases=None):
             )
             inline_subroutine_calls(routine, calls, child, allowed_aliases=allowed_aliases)
 
-            # Can't use transformer to replace subroutine, so strip it manually
-            contains_body = tuple(n for n in routine.contains.body if not n == child)
-            routine.contains._update(body=contains_body)
+        # Can't use transformer to replace subroutine/function, so strip it manually
+        contains_body = tuple(n for n in routine.contains.body if not n == child)
+        routine.contains._update(body=contains_body)
 
 
 inline_member_procedures = inline_internal_procedures

@@ -49,8 +49,11 @@ contains
   elemental function multiply(a, b)
     real(kind=real64) :: multiply
     real(kind=real64), intent(in) :: a, b
+    real(kind=real64) :: temp
 
-    multiply = a * b
+    ! simulate multi-line function
+    temp = a * b
+    multiply = temp
   end function multiply
 end module multiply_mod
 """
@@ -66,9 +69,11 @@ subroutine transform_inline_elemental_functions(v1, v2, v3)
   v3 = 600. + multiply(6._real64, 11._real64)
 end subroutine transform_inline_elemental_functions
 """
+
     # Generate reference code, compile run and verify
     module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+
     refname = f'ref_{routine.name}_{frontend}'
     reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
 
@@ -95,6 +100,99 @@ end subroutine transform_inline_elemental_functions
 
     v2, v3 = kernel.transform_inline_elemental_functions_(11.)
     assert v2 == 66.
+    assert v3 == 666.
+
+    builder.clean()
+    (tmp_path/f'{routine.name}.f90').unlink()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_inline_elemental_functions_extended(tmp_path, builder, frontend):
+    """
+    Test correct inlining of elemental functions.
+    """
+    fcode_module = """
+module multiply_extended_mod
+  use iso_fortran_env, only: real64
+  implicit none
+contains
+
+  elemental function multiply(a, b) ! result (ret_mult)
+    ! real(kind=real64) :: ret_mult
+    real(kind=real64) :: multiply
+    real(kind=real64), intent(in) :: a, b
+    real(kind=real64) :: temp
+
+    ! simulate multi-line function
+    temp = a * b
+    multiply = temp
+    ! ret_mult = temp
+  end function multiply
+
+  elemental function multiply_single_line(a, b)
+    real(kind=real64) :: multiply_single_line
+    real(kind=real64), intent(in) :: a, b
+    real(kind=real64) :: temp
+
+    multiply_single_line = a * b
+  end function multiply_single_line
+
+  elemental function add(a, b)
+    real(kind=real64) :: add
+    real(kind=real64), intent(in) :: a, b
+    real(kind=real64) :: temp
+
+    ! simulate multi-line function
+    temp = a + b
+    add = temp
+  end function add
+end module multiply_extended_mod
+"""
+
+    fcode = """
+subroutine transform_inline_elemental_functions_extended(v1, v2, v3)
+  use iso_fortran_env, only: real64
+  use multiply_extended_mod, only: multiply, multiply_single_line, add
+  real(kind=real64), intent(in) :: v1
+  real(kind=real64), intent(out) :: v2, v3
+  real(kind=real64), parameter :: param1 = 100.
+
+  v2 = multiply(v1, 6._real64) + multiply_single_line(v1, 3._real64)
+  v3 = add(param1, 200._real64) + add(150._real64, 150._real64) + multiply(6._real64, 11._real64)
+end subroutine transform_inline_elemental_functions_extended
+"""
+
+    # Generate reference code, compile run and verify
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+
+    refname = f'ref_{routine.name}_{frontend}'
+    reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
+
+    v2, v3 = reference.transform_inline_elemental_functions_extended(11.)
+    assert v2 == 99.
+    assert v3 == 666.
+
+    (tmp_path/f'{module.name}.f90').unlink()
+    (tmp_path/f'{routine.name}.f90').unlink()
+
+    # Now inline elemental functions
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend, xmods=[tmp_path])
+    inline_elemental_functions(routine)
+
+
+    # Make sure there are no more inline calls in the routine body
+    assert not FindInlineCalls().visit(routine.body)
+
+    # Verify correct scope of inlined elements
+    assert all(v.scope is routine for v in FindVariables().visit(routine.body))
+
+    # Hack: rename routine to use a different filename in the build
+    routine.name = f'{routine.name}_'
+    kernel = jit_compile_lib([routine], path=tmp_path, name=routine.name, builder=builder)
+
+    v2, v3 = kernel.transform_inline_elemental_functions_extended_(11.)
+    assert v2 == 99.
     assert v3 == 666.
 
     builder.clean()
@@ -366,6 +464,79 @@ end subroutine member_routines
     assert (a == [6., 7., 8.]).all()
     assert (b == [3., 3., 3.]).all()
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_member_functions(tmp_path, frontend):
+    """
+    Test inlining of member subroutines.
+    """
+    fcode = """
+subroutine member_functions(a, b, c)
+  real(kind=8), intent(inout) :: a(3), b(3), c(3)
+  integer :: i
+
+  do i=1, size(a)
+    a(i) = add_one(a(i))
+  end do
+
+  c = add_to_a(b, 3)
+
+  do i=1, size(a)
+    a(i) = add_one(a(i))
+  end do
+
+  contains
+
+    function add_one(a)
+      real(kind=8) :: a
+      real(kind=8) :: add_one
+      add_one = a + 1
+    end function
+
+    function add_to_a(b, n)
+      integer, intent(in) :: n
+      real(kind=8), intent(in) :: b(n)
+      real(kind=8) :: add_to_a(n)
+
+      do i = 1, n
+        add_to_a(i) = a(i) + b(i)
+      end do
+    end function
+end subroutine member_functions
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    filepath = tmp_path/(f'ref_transform_inline_member_functions_{frontend}.f90')
+    reference = jit_compile(routine, filepath=filepath, objname='member_functions')
+
+    a = np.array([1., 2., 3.], order='F')
+    b = np.array([3., 3., 3.], order='F')
+    c = np.array([0., 0., 0.], order='F')
+    reference(a, b, c)
+
+    assert (a == [3., 4., 5.]).all()
+    assert (b == [3., 3., 3.]).all()
+    assert (c == [5., 6., 7.]).all()
+
+    # Now inline the member routines and check again
+    inline_member_procedures(routine=routine)
+
+    assert not routine.members
+    assert not FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 3
+
+    # An verify compiled behaviour
+    filepath = tmp_path/(f'transform_inline_member_functions_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='member_functions')
+
+    a = np.array([1., 2., 3.], order='F')
+    b = np.array([3., 3., 3.], order='F')
+    c = np.array([0., 0., 0.], order='F')
+    function(a, b, c)
+
+    assert (a == [3., 4., 5.]).all()
+    assert (b == [3., 3., 3.]).all()
+    assert (c == [5., 6., 7.]).all()
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_member_routines_arg_dimensions(frontend):
@@ -1277,9 +1448,10 @@ end subroutine test_inline_pragma
     trafo.apply(inner)
 
     assigns = FindNodes(ir.Assignment).visit(inner.body)
-    assert len(assigns) == 2
+    assert len(assigns) == 3
     assert assigns[0].lhs == 'a' and assigns[0].rhs == 'a + 1.0'
-    assert assigns[1].lhs == 'a' and assigns[1].rhs == 'a + 2.0'
+    assert assigns[1].lhs == 'result_add_two' and assigns[1].rhs == 'a + 2.0'
+    assert assigns[2].lhs == 'a' and assigns[2].rhs == 'result_add_two'
 
     # Apply to the outer routine, but with resolved body of the inner
     trafo.apply(routine)
@@ -1287,12 +1459,15 @@ end subroutine test_inline_pragma
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 0
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 5
+    assert len(assigns) == 7
     assert assigns[0].lhs == 'a(i)' and assigns[0].rhs == 'a(i) + 1.0'
-    assert assigns[1].lhs == 'a(i)' and assigns[1].rhs == 'a(i) + 2.0'
-    assert assigns[2].lhs == 'b(i)' and assigns[2].rhs == 'b(i) + 1.0'
-    assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 2.0'
-    assert assigns[4].lhs == 'a(1)' and assigns[4].rhs == 'a(2) + 3.1415'
+    assert assigns[1].lhs == 'result_add_two' and assigns[1].rhs == 'a(i) + 2.0'
+    assert assigns[2].lhs == 'a(i)' and assigns[2].rhs == 'result_add_two'
+    assert assigns[3].lhs == 'b(i)' and assigns[3].rhs == 'b(i) + 1.0'
+    assert assigns[4].lhs == 'result_add_two' and assigns[4].rhs == 'b(i) + 2.0'
+    assert assigns[5].lhs == 'b(i)' and assigns[5].rhs == 'result_add_two'
+    assert assigns[6].lhs == 'a(1)' and assigns[6].rhs == 'a(2) + 3.1415'
+
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
