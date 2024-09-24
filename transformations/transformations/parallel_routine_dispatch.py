@@ -158,11 +158,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         region_map_temp = self.decl_local_array(routine, region, map_region) #map_region to store field_new and field_delete
         region_map_derived, region_map_not_field = self.decl_derived_types(routine, region)
-        region_map_scalar = self.get_scalar(routine, region) 
+        region_map_private = self.get_private(region) 
         #region_map_not_field = self.get_not_field_array(routine, region) 
         map_region['map_temp']= region_map_temp
         map_region['map_derived']= region_map_derived
-        map_region['scalar']= region_map_scalar
+        map_region['private']= region_map_private
         map_region['not_field_array']= region_map_not_field
 
         self.create_synchost(routine, region_name, map_region)
@@ -408,10 +408,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
         not_field_array_ = [var for var in not_field_array if var not in basename_derived]
         return(region_map_derived, not_field_array_)
 
-    def get_scalar(self, routine, region):
-        scalar = [var for var in FindVariables().visit(region) if isinstance(var, sym.Scalar)]
-        scalar_ = [var.name for var in scalar if not isinstance(var.type.dtype, DerivedType)]
-        return scalar_
+    def get_private(self, region):
+        class FindVariablesIgnoreCallStatements(FindVariables):
+            def visit_CallStatement(self, o, **kwargs):
+                return self.default_retval()
+        variables = [var for var in FindVariablesIgnoreCallStatements().visit(region)]
+        scalars = [var for var in variables if isinstance(var, sym.Scalar)]
+        scalars_ = [var.name for var in scalars if not isinstance(var.type.dtype, DerivedType)]
+        return scalars_
 
 #     def get_not_field_array(routine, region):
 #        not_field_array = [var for var in FindVariables().visit(region) if var.nameçparts[0] in routine.arguments]
@@ -720,8 +724,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         # ==============================================================
         # ==============================================================
         lst_private = "JBLK, "
-        for scalar in map_region["scalar"]: 
-            lst_private += f"{scalar}, "
+ #        for scalar in map_region["scalar"]: 
+ #            if scalar not in lst_private:
+ #                lst_private += f"{scalar}, "
+        for private in map_region["private"]:
+            if private not in lst_private:
+                lst_private += f"{private}, "
         lst_private = lst_private[:-2] #rm the coma
         pragma = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({lst_private}) FIRSTPRIVATE ({lcpg_bnds.name})")
         update = ir.CallStatement(  
@@ -821,11 +829,16 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return computescc
 
 
+
+
+
+
+
     def create_compute_openmpscc(self, routine, region, region_name, map_routine, map_region):
         lst_private = f"JBLK, JLON, YLCPG_BNDS, YLSTACK, "
-        for scalar in map_region["scalar"]:
-            if scalar not in lst_private:
-                lst_private += f"{scalar}, "
+        for private in map_region["private"]:
+            if private not in lst_private:
+                lst_private += f"{private}, "
         lst_private = lst_private[:-2] #rm coma
         pragma1 = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({lst_private})")
         pragma2 = None
@@ -839,9 +852,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         cpg_opts = map_routine["cpg_opts"]
         lst_private1 = f"JBLK"
         lst_private2 = f"JLON, YLCPG_BNDS, YLSTACK, "
-        for scalar in map_region["scalar"]:
-            if scalar not in lst_private2:
-                lst_private2 += f"{scalar}, "
+        for private in map_region["private"]:
+            if private not in lst_private2:
+                lst_private2 += f"{private}, "
         lst_private2 = lst_private2[:-2] #rm the coma
         lst_present = "YDCPG_OPTS, YDMODEL, YSTACK, "
         #lst_present = "YDCPG_OPTS, YDGEOMETRY, YDMODEL, YSTACK, "
