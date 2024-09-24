@@ -81,6 +81,7 @@ disable=W0511,  # Disable TODO warnings
         too-many-return-statements,
         too-many-branches,
         too-many-arguments,
+        too-many-positional-arguments,
         too-many-locals,
         too-many-statements,
         too-many-nested-blocks,
