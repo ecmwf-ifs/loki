@@ -409,11 +409,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return(region_map_derived, not_field_array_)
 
     def get_private(self, region):
-        class FindVariablesIgnoreCallStatements(FindVariables):
-            def visit_CallStatement(self, o, **kwargs):
-                return self.default_retval()
-        variables = [var for var in FindVariablesIgnoreCallStatements().visit(region)]
-        scalars = [var for var in variables if isinstance(var, sym.Scalar)]
+        lhs = [a.lhs for a in FindNodes(ir.Assignment).visit(region)]
+        scalars = [var for var in lhs if isinstance(var, sym.Scalar)]
         scalars_ = [var.name for var in scalars if not isinstance(var.type.dtype, DerivedType)]
         return scalars_
 
