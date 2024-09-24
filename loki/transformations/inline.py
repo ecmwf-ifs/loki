@@ -17,9 +17,11 @@ from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
     Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface,
     StatementFunction, FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions
+    SubstituteExpressions, ExpressionFinder
 )
-from loki.expression import symbols as sym, LokiIdentityMapper
+from loki.expression import (
+    symbols as sym, LokiIdentityMapper, ExpressionRetriever
+)
 from loki.types import BasicType
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import error
@@ -317,19 +319,23 @@ def inline_constant_parameters(routine, external_only=True):
 
 
 def inline_elemental_functions(routine):
+    """
+    Replaces `InlineCall` expression to elemental functions with the
+    called functions body.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+         Procedure in which to inline functions.
+    """
     inline_functions(routine, inline_elementals_only=True)
+
 
 def inline_functions(routine, inline_elementals_only=False, functions=None):
     """
-    Replaces `InlineCall` expression to elemental functions with the
-    called functions body. This will attempt to resolve the elemental
-    function into a single expression and perform a direct replacement
-    at expression level.
-
-    Note, that `InlineCall.function.type` is used to determine if a
-    function cal be inlined. For functions imported via module use
-    statements. This implies that the module needs to be provided in
-    the `definitions` argument to the original ``Subroutine`` constructor.
+    Replaces `InlineCall` expression to functions with the
+    called functions body. Nested calls are handled/inlined through
+    an iterative approach calling :any:`_inline_functions`.
 
     Parameters
     ----------
@@ -339,8 +345,54 @@ def inline_functions(routine, inline_elementals_only=False, functions=None):
         Inline elemental routines/functions only (default: False).
     functions : tuple, optional
         Inline only functions that are provided here
-        (default: None, thus inline all functions). 
+        (default: None, thus inline all functions).
     """
+    potentially_functions_to_be_inlined = True
+    while potentially_functions_to_be_inlined:
+        potentially_functions_to_be_inlined = _inline_functions(routine, inline_elementals_only=inline_elementals_only,
+                                                           functions=functions)
+
+def _inline_functions(routine, inline_elementals_only=False, functions=None):
+    """
+    Replaces `InlineCall` expression to functions with the
+    called functions body, but doesn't include nested calls!
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+         Procedure in which to inline functions.
+    inline_elementals_only : bool, optional
+        Inline elemental routines/functions only (default: False).
+    functions : tuple, optional
+        Inline only functions that are provided here
+        (default: None, thus inline all functions).
+    
+    Returns
+    -------
+    bool
+        Whether inline calls are (potentially) left to be
+        inlined in the next call to this function.
+    """
+
+    class ExpressionRetrieverSkipInlineCallParameters(ExpressionRetriever):
+        """
+        Expression retriever skipping parameters of inline calls.
+        """
+
+        # pylint: disable=abstract-method
+        def map_inline_call(self, expr, *args, **kwargs):
+            if not self.visit(expr, *args, **kwargs):
+                return
+
+            self.rec(expr.function, *args, **kwargs)
+            # SKIP parameters/args/kwargs on purpose!
+            self.post_visit(expr, *args, **kwargs)
+
+    class FindInlineCallsSkipInlineCallParameters(ExpressionFinder):
+        """
+        Find inline calls but skip/ignore parameters of inline calls.
+        """
+        retriever = ExpressionRetrieverSkipInlineCallParameters(lambda e: isinstance(e, sym.InlineCall))
 
     functions = as_tuple(functions)
 
@@ -349,7 +401,10 @@ def inline_functions(routine, inline_elementals_only=False, functions=None):
 
     # Find and filter inline calls and corresponding nodes
     function_calls = {}
-    for node, calls in FindInlineCalls(with_ir_node=True).visit(routine.body):
+    # Find inline calls but skip/ignore inline calls being parameters of other inline calls
+    #  to ensure correct ordering of inlining. Those skipped/ignored inline calls will be handled
+    #  in the next call to this function.
+    for node, calls in FindInlineCallsSkipInlineCallParameters(with_ir_node=True).visit(routine.body):
         for call in calls:
             if call.procedure_type is BasicType.DEFERRED or isinstance(call.routine, StatementFunction):
                 continue
@@ -361,6 +416,9 @@ def inline_functions(routine, inline_elementals_only=False, functions=None):
                     continue
             function_calls.setdefault(str(call.name).lower(),[]).append((call, node))
 
+    if not function_calls:
+        return False
+
     # inline functions
     node_prepend_map = {}
     call_map = {}
@@ -369,6 +427,7 @@ def inline_functions(routine, inline_elementals_only=False, functions=None):
         for call in calls:
             removed_functions.add(call.procedure_type)
         # collect nodes to be appendes as well as expression replacement for inline call
+        print(f"inline {calls[0].routine}")
         inline_node_map, inline_call_map = inline_function_calls(routine, as_tuple(calls),
                                                                  calls[0].routine, as_tuple(nodes))
         for node, nodes_to_prepend in inline_node_map.items():
@@ -391,6 +450,7 @@ def inline_functions(routine, inline_elementals_only=False, functions=None):
         if im.symbols and all(s.type.dtype in removed_functions for s in im.symbols):
             import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)
+    return True
 
 def inline_statement_functions(routine):
     """
