@@ -562,3 +562,50 @@ def test_scc_vector_section_trim_complex(
     else:
         assert assign in loop.body
         assert(len(FindNodes(ir.Assignment).visit(loop.body)) == 4)
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('trim_vector_sections', [False, True])
+def test_scc_devector_section_special_case(frontend, horizontal, vertical, blocking, trim_vector_sections):
+    """
+    Test to highlight the limitations of vector-section trimming.
+    """
+
+    fcode_kernel = """
+    subroutine some_kernel(start, end, nlon, flag0, flag1)
+       implicit none
+
+       integer, intent(in) :: nlon, start, end
+       logical, intent(in) :: flag0, flag1
+       real, dimension(nlon) :: work
+
+       integer :: jl
+
+       if(flag0)then
+         call some_other_kernel()
+       elseif(flag1)then
+         do jl=start,end
+            work(jl) = 1.
+         enddo
+       endif
+
+    end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    # check whether pipeline can be applied and works as expected
+    scc_pipeline = SCCVectorPipeline(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        directive='openacc', trim_vector_sections=trim_vector_sections
+    )
+    scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
+
+    with pragmas_attached(routine, node_type=ir.Loop):
+        conditional = FindNodes(ir.Conditional).visit(routine.body)[0]
+        assert isinstance(conditional.body[0], ir.CallStatement)
+        assert len(conditional.body) == 1
+        assert isinstance(conditional.else_body[0], ir.Conditional)
+        assert len(conditional.else_body) == 1
+        assert isinstance(conditional.else_body[0].body[0], ir.Comment)
+        assert isinstance(conditional.else_body[0].body[1], ir.Loop)
+        assert conditional.else_body[0].body[1].pragma[0].content.lower() == 'loop vector'
