@@ -465,7 +465,8 @@ end subroutine member_routines
     assert (b == [3., 3., 3.]).all()
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(skip={
+    OMNI: "OMNI can't parse the code"}))
 def test_inline_member_functions(tmp_path, frontend):
     """
     Test inlining of member subroutines.
@@ -537,6 +538,7 @@ end subroutine member_functions
     assert (a == [3., 4., 5.]).all()
     assert (b == [3., 3., 3.]).all()
     assert (c == [5., 6., 7.]).all()
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_member_routines_arg_dimensions(frontend):
