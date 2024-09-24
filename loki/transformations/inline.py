@@ -446,7 +446,6 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         for call in calls:
             removed_functions.add(call.procedure_type)
         # collect nodes to be appendes as well as expression replacement for inline call
-        print(f"inline {calls[0].routine}")
         inline_node_map, inline_call_map = inline_function_calls(routine, as_tuple(calls),
                                                                  calls[0].routine, as_tuple(nodes))
         for node, nodes_to_prepend in inline_node_map.items():
@@ -456,7 +455,7 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
     # collect nodes to be prepended for each node that contains (at least one) inline call to a function
     node_map = {}
     for node, prepend_nodes in node_prepend_map.items():
-        node_map[node] = as_tuple(prepend_nodes) + (SubstituteExpressions(call_map).visit(node),)
+        node_map[node] = as_tuple(prepend_nodes) + (SubstituteExpressions(call_map[node]).visit(node),)
     # inline via prepending the relevant functions
     routine.body = Transformer(node_map).visit(routine.body)
     # We need this to ensure that symbols, as well as nested scopes
@@ -776,30 +775,28 @@ def inline_function_calls(routine, calls, callee, nodes, allowed_aliases=None):
     rename_result_var = not len(nodes) == len(set(nodes))
     for i_call, call in enumerate(calls):
         callee_result_var = callee.variable_map[callee.result_name.lower()]
-        # if call to same function from the same node, "increment" result var name
-        new_callee_result_var_name = f'result_{callee.result_name.lower()}_{i_call}'\
-                if rename_result_var else f'result_{callee.result_name.lower()}'
+        prefix = ''
+        new_callee_result_var_name = f'{prefix}result_{callee.result_name.lower()}_{i_call}'\
+                if rename_result_var else f'{prefix}result_{callee.result_name.lower()}'
         new_callee, new_symbol = rename_result_name(callee, new_callee_result_var_name)
         adapted_calls.append(new_callee)
         new_symbols.add(new_symbol)
         if isinstance(callee_result_var, sym.Array):
-            result_var_map[call] = callee_result_var.clone(name=new_callee_result_var_name, dimensions=None)
+            result_var_map[(nodes[i_call], call)] = callee_result_var.clone(name=new_callee_result_var_name,
+                    dimensions=None)
         else:
-            result_var_map[call] = callee_result_var.clone(name=new_callee_result_var_name)
-    # symbol_map = dict(ChainMap(*[call.arg_map for call in calls]))
+            result_var_map[(nodes[i_call], call)] = callee_result_var.clone(name=new_callee_result_var_name)
     new_symbols = SubstituteExpressions(symbol_map).visit(as_tuple(new_symbols), recurse_to_declaration_attributes=True)
     routine.variables += as_tuple([symbol.clone(scope=routine) for symbol in new_symbols])
 
     # create node map to map nodes to be prepended (representing the functions) for each node
     node_map = {}
+    call_map = {}
     for i_call, call in enumerate(calls):
         node_map.setdefault(nodes[i_call], []).extend(
                 list(map_call_to_procedure_body(call, caller=routine, callee=adapted_calls[i_call]))
         )
-    # create call map to map the actual call to the result var (name)
-    call_map = {
-        call: result_var_map[call] for call in calls
-    }
+        call_map.setdefault(nodes[i_call], {}).update({call: result_var_map[(nodes[i_call], call)]})
     return node_map, call_map
 
 
