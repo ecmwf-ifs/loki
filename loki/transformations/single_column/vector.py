@@ -137,7 +137,9 @@ class SCCDevectorTransformation(Transformation):
                 subsec_body = cls.extract_vector_sections(separator.body, horizontal)
                 if subsec_body:
                     subsections += subsec_body
-                subsec_else = cls.extract_vector_sections(separator.else_body, horizontal)
+                subsec_else = cls.extract_vector_sections(separator.else_body[0].body, horizontal)\
+                        if separator.else_body and isinstance(separator.else_body[0], ir.Conditional)\
+                        else cls.extract_vector_sections(separator.else_body, horizontal)
                 if subsec_else:
                     subsections += subsec_else
 
