@@ -378,14 +378,29 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         """
         Expression retriever skipping parameters of inline calls.
         """
-
         # pylint: disable=abstract-method
+
+        def __init__(self, query, recurse_query=None, inline_elementals_only=False,
+                functions=None, **kwargs):
+            self.inline_elementals_only = inline_elementals_only
+            self.functions = as_tuple(functions)
+            super().__init__(query, recurse_query, **kwargs)
+
         def map_inline_call(self, expr, *args, **kwargs):
             if not self.visit(expr, *args, **kwargs):
                 return
-
             self.rec(expr.function, *args, **kwargs)
-            # SKIP parameters/args/kwargs on purpose!
+            # SKIP parameters/args/kwargs on purpose
+            #  under certain circumstances
+            if expr.procedure_type is BasicType.DEFERRED or\
+                    (self.inline_elementals_only and\
+                    not(expr.procedure_type.is_function and expr.procedure_type.is_elemental)) or\
+                    (self.functions and expr.routine not in self.functions):
+                for child in expr.parameters:
+                    self.rec(child, *args, **kwargs)
+                for child in list(expr.kw_parameters.values()):
+                    self.rec(child, *args, **kwargs)
+
             self.post_visit(expr, *args, **kwargs)
 
     class FindInlineCallsSkipInlineCallParameters(ExpressionFinder):
@@ -404,6 +419,10 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
     # Find inline calls but skip/ignore inline calls being parameters of other inline calls
     #  to ensure correct ordering of inlining. Those skipped/ignored inline calls will be handled
     #  in the next call to this function.
+    retriever = ExpressionRetrieverSkipInlineCallParameters(lambda e: isinstance(e, sym.InlineCall),
+            inline_elementals_only=inline_elementals_only, functions=functions)
+    # override retriever ...
+    FindInlineCallsSkipInlineCallParameters.retriever = retriever
     for node, calls in FindInlineCallsSkipInlineCallParameters(with_ir_node=True).visit(routine.body):
         for call in calls:
             if call.procedure_type is BasicType.DEFERRED or isinstance(call.routine, StatementFunction):
