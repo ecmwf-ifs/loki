@@ -137,6 +137,9 @@ class SCCDevectorTransformation(Transformation):
                 subsec_body = cls.extract_vector_sections(separator.body, horizontal)
                 if subsec_body:
                     subsections += subsec_body
+                # we need to prevent that the whole 'else_body' is wrapped in a section,
+                # as 'Conditional's rely on the fact that the first element of the 'else_body'
+                # (if 'has_elseif') is a Conditional itself
                 subsec_else = cls.extract_vector_sections(separator.else_body[0].body, horizontal)\
                         if separator.else_body and isinstance(separator.else_body[0], ir.Conditional)\
                         else cls.extract_vector_sections(separator.else_body, horizontal)
